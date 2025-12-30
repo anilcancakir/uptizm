@@ -1,0 +1,52 @@
+{
+    "app": {
+        "name": "UPTIZM",
+        "tagline": "Uptime Monitoring Platform"
+    },
+    "welcome": "Welcome, :name!",
+    "auth": {
+        "failed": "Authentication failed.",
+        "throttle": "Too many attempts. Please try again in :seconds seconds.",
+        "create_account": "Create Account",
+        "register_subtitle": "Start monitoring your services today",
+        "login_link": "Already have an account? Sign in",
+        "login_title": "Sign In",
+        "login_subtitle": "Welcome back to Uptizm",
+        "register_link": "Don't have an account? Create one",
+        "remember_me": "Remember me",
+        "forgot_password": "Forgot password?"
+    },
+    "fields": {
+        "full_name_placeholder": "Enter your full name",
+        "email_placeholder": "you@example.com",
+        "password_placeholder": "At least 8 characters",
+        "password_confirmation_placeholder": "Repeat your password",
+        "term_agree_start": "I agree to the ",
+        "term_service": "Terms of Service",
+        "term_error": "You must accept the Terms of Service",
+        "newsletter_subscribe": "Subscribe to product updates and news"
+    },
+    "validation": {
+        "required": "The :attribute field is required.",
+        "email": "The :attribute must be a valid email address.",
+        "min": {
+            "string": "The :attribute must be at least :min characters.",
+            "numeric": "The :attribute must be at least :min.",
+            "list": "The :attribute must have at least :min items."
+        },
+        "max": {
+            "string": "The :attribute must not be greater than :max characters.",
+            "numeric": "The :attribute must not be greater than :max.",
+            "list": "The :attribute must not have more than :max items."
+        },
+        "confirmed": "The :attribute confirmation does not match.",
+        "same": "The :attribute and :other must match.",
+        "accepted": "The :attribute must be accepted."
+    },
+    "attributes": {
+        "name": "Full Name",
+        "email": "Email Address",
+        "password": "Password",
+        "password_confirmation": "Confirm Password"
+    }
+}
