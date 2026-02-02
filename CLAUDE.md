@@ -252,6 +252,10 @@ Custom agents in `.claude/agents/`:
 | TDD Enforcer | `tdd-enforcer.md` | Writing new features, fixing bugs — enforces RED→GREEN→REFACTOR cycle |
 | Code Reviewer | `code-reviewer.md` | Before commits — checks Wind UI compliance, imports, dark mode, API names, gotchas |
 
+## Dart MCP Server
+
+Runtime debug/analysis için `dart-mcp-server` kullan: widget tree inspecting, runtime error catching, log reading, hot reload, perf profiling, static analysis, symbol lookup, test running. Flow: `list_devices` → `launch_app` → `connect_dart_tooling_daemon` → (`get_widget_tree`, `get_runtime_errors`, `get_app_logs`, `hot_reload`, `flutter_driver`) → `stop_app`. Ayrıca: `analyze_files` (static analysis), `resolve_workspace_symbol` (symbol lookup), `run_tests` (flutter test yerine), `pub` (dependency management), `hover`/`signature_help` (API docs at cursor).
+
 ## Gotchas & Lessons Learned
 
 **Framework behavior:**
