@@ -47,3 +47,5 @@ app.*.map.json
 # App related
 /plugins/
 .env
+/back-end
+/.claude/plans

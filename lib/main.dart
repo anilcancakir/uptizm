@@ -1,18 +1,47 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
+import 'app/helpers/theme_preference_service.dart';
 import 'config/app.dart';
 import 'config/auth.dart';
-import 'config/database.dart';
-import 'config/logging.dart';
 import 'config/network.dart';
+import 'config/social_auth.dart';
+import 'config/view.dart';
 
 void main() async {
   usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize Magic
+  await Magic.init(
+    configFactories: [
+      () => appConfig,
+      () => authConfig,
+      () => networkConfig,
+      () => socialAuthConfig,
+      () => viewConfig,
+    ],
+  );
+
+  // Load saved theme preference
+  final savedDark = await ThemePreferenceService.load();
+
+  // Determine theme behavior:
+  // - If user has saved preference → use it and disable system sync
+  // - If no saved preference → use system default and keep syncing
+  final hasPreference = savedDark != null;
+  final brightness = hasPreference
+      ? (savedDark! ? Brightness.dark : Brightness.light)
+      : WidgetsBinding.instance.platformDispatcher.platformBrightness;
+
+  Log.info('Initializing app with theme: ${brightness == Brightness.dark ? "dark" : "light"} '
+      '(saved preference: $savedDark, sync with system: ${!hasPreference})');
+
+  // Create WindThemeData with saved brightness preference
   final windTheme = WindThemeData(
+    brightness: brightness,
+    syncWithSystem: !hasPreference, // Sync with system only if no preference saved
     colors: {
       'primary': MaterialColor(0xFF009E60, <int, Color>{
         50: Color(0xFFCEFFE0),
@@ -29,22 +58,10 @@ void main() async {
     },
   );
 
-  // Initialize Magic
-  await Magic.init(
-    configFactories: [
-      () => appConfig,
-      () => databaseConfig,
-      () => loggingConfig,
-      () => authConfig,
-      () => networkConfig,
-    ],
-  );
-
   runApp(
     MagicApplication(
       title: 'Uptizm',
       windTheme: windTheme,
-      debugShowCheckedModeBanner: true,
       onInit: () {
         Log.info('Uptizm App initialized!');
       },

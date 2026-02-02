@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
+import 'team.dart';
+
 /// User model.
 ///
 /// Example Eloquent model demonstrating the Magic ORM pattern.
@@ -35,7 +37,8 @@ class User extends Model
 
   /// The attributes that are mass assignable.
   @override
-  List<String> get fillable => ['name', 'email', 'born_at'];
+  List<String> get fillable =>
+      ['name', 'email', 'phone', 'timezone', 'language', 'born_at'];
 
   /// The attributes that should be cast.
   @override
@@ -70,6 +73,50 @@ class User extends Model
   /// Set the user's settings.
   set settings(Map<String, dynamic>? value) => setAttribute('settings', value);
 
+  /// Get the user's current team.
+  Team? get currentTeam {
+    final data = getAttribute('current_team');
+    if (data is Map<String, dynamic>) {
+      return Team.fromMap(data);
+    }
+    return null;
+  }
+
+  /// Get all teams the user belongs to.
+  List<Team> get allTeams {
+    final data = getAttribute('all_teams');
+    if (data is List) {
+      return data.map((e) => Team.fromMap(e as Map<String, dynamic>)).toList();
+    }
+    return [];
+  }
+
+  /// Get the user's membership details (pivot).
+  /// This is available when fetching team members.
+  /// Get the user's role in the current team context.
+  String? get teamRole => getAttribute('role') as String?;
+
+  /// Get the user's profile photo URL.
+  String? get profilePhotoUrl => getAttribute('profile_photo_url') as String?;
+
+  /// Get the user's phone.
+  String? get phone => getAttribute('phone') as String?;
+
+  /// Set the user's phone.
+  set phone(String? value) => setAttribute('phone', value);
+
+  /// Get the user's timezone.
+  String? get timezone => getAttribute('timezone') as String?;
+
+  /// Set the user's timezone.
+  set timezone(String? value) => setAttribute('timezone', value);
+
+  /// Get the user's language.
+  String? get language => getAttribute('language') as String?;
+
+  /// Set the user's language.
+  set language(String? value) => setAttribute('language', value);
+
   // ---------------------------------------------------------------------------
   // Static Helpers
   // ---------------------------------------------------------------------------
@@ -89,6 +136,13 @@ class User extends Model
   /// ```
   static Future<List<User>> all() =>
       InteractsWithPersistence.allModels<User>(User.new);
+
+  /// Get the currently authenticated user.
+  ///
+  /// ```dart
+  /// final user = User.current;
+  /// ```
+  static User get current => Auth.user<User>() ?? User();
 
   // ---------------------------------------------------------------------------
   // Flutter-Familiar Factory Methods
