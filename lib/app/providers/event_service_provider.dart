@@ -1,8 +1,11 @@
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import '../listeners/auth_restore_listener.dart';
 
-class AppEventServiceProvider extends EventServiceProvider {
-  AppEventServiceProvider(super.app);
+class EventServiceProvider extends BaseEventServiceProvider {
+  EventServiceProvider(super.app);
 
   @override
-  Map<Type, List<MagicListener Function()>> get listen => {};
+  Map<Type, List<MagicListener Function()>> get listen => {
+    AuthRestored: [() => AuthRestoreListener()],
+  };
 }

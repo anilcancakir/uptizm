@@ -9,10 +9,16 @@ import '../resources/views/layouts/guest_layout.dart';
 void registerAuthRoutes() {
   MagicRoute.group(
     prefix: '/auth',
+    middleware: ['guest'],
     layout: (child) => GuestLayout(child: child),
     routes: () {
       MagicRoute.page('/login', AuthController.instance.login);
       MagicRoute.page('/register', AuthController.instance.register);
+      MagicRoute.page(
+        '/forgot-password',
+        AuthController.instance.forgotPassword,
+      );
+      MagicRoute.page('/reset-password', AuthController.instance.resetPassword);
     },
   );
 }
