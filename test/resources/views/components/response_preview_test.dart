@@ -1,42 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import 'package:uptizm/resources/views/components/response_preview.dart';
 
 void main() {
   Widget wrapWithTheme(Widget child) {
     return WindTheme(
       data: WindThemeData(),
-      child: MaterialApp(
-        home: Scaffold(
-          body: child,
-        ),
-      ),
+      child: MaterialApp(home: Scaffold(body: child)),
     );
   }
 
   group('ResponsePreview', () {
     testWidgets('renders empty state when no response', (tester) async {
       await tester.pumpWidget(
-        wrapWithTheme(
-          const ResponsePreview(
-            response: null,
-            isLoading: false,
-          ),
-        ),
+        wrapWithTheme(const ResponsePreview(response: null, isLoading: false)),
       );
 
-      expect(find.text('No response yet. Click "Test Fetch" to preview.'), findsOneWidget);
+      expect(
+        find.text('No response yet. Click "Test Fetch" to preview.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('renders loading state', (tester) async {
       await tester.pumpWidget(
-        wrapWithTheme(
-          const ResponsePreview(
-            response: null,
-            isLoading: true,
-          ),
-        ),
+        wrapWithTheme(const ResponsePreview(response: null, isLoading: true)),
       );
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -98,7 +87,10 @@ void main() {
         ),
       );
 
-      expect(find.text('<html><body>Hello World</body></html>'), findsOneWidget);
+      expect(
+        find.text('<html><body>Hello World</body></html>'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('renders error status code in red', (tester) async {
@@ -120,7 +112,9 @@ void main() {
       // Status code should have error styling
     });
 
-    testWidgets('handles null status_code and response_time_ms gracefully', (tester) async {
+    testWidgets('handles null status_code and response_time_ms gracefully', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrapWithTheme(
           const ResponsePreview(

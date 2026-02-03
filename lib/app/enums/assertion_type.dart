@@ -1,4 +1,4 @@
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
 enum AssertionType {
   statusCode('status_code', 'Status Code'),
@@ -16,9 +16,7 @@ enum AssertionType {
   static AssertionType? fromValue(String? value) {
     if (value == null) return null;
     try {
-      return AssertionType.values.firstWhere(
-        (type) => type.value == value,
-      );
+      return AssertionType.values.firstWhere((type) => type.value == value);
     } catch (e) {
       return null;
     }

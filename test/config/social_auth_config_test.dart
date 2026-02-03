@@ -12,7 +12,8 @@ void main() {
       expect(config['social_auth']['providers'], isNotNull);
 
       // Verify providers exist
-      final providers = config['social_auth']['providers'] as Map<String, dynamic>;
+      final providers =
+          config['social_auth']['providers'] as Map<String, dynamic>;
       expect(providers['google'], isNotNull);
       expect(providers['microsoft'], isNotNull);
       expect(providers['github'], isNotNull);

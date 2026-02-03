@@ -98,10 +98,12 @@ class DashboardView extends StatelessWidget {
       spacing: 12,
       runSpacing: 12,
       children: cards
-          .map((card) => SizedBox(
-                width: (MediaQuery.of(context).size.width - 52) / 2,
-                child: card,
-              ))
+          .map(
+            (card) => SizedBox(
+              width: (MediaQuery.of(context).size.width - 52) / 2,
+              child: card,
+            ),
+          )
           .toList(),
     );
   }
@@ -156,7 +158,8 @@ class DashboardView extends StatelessWidget {
           children: [
             WText(
               trans('dashboard.monitors_overview').toUpperCase(),
-              className: 'text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400',
+              className:
+                  'text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400',
             ),
             WAnchor(
               onTap: () => MagicRoute.to('/monitors'),
@@ -217,7 +220,8 @@ class DashboardView extends StatelessWidget {
           className: 'px-5 py-4',
           child: WText(
             trans('dashboard.recent_activity').toUpperCase(),
-            className: 'text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400',
+            className:
+                'text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400',
           ),
         ),
 
@@ -227,4 +231,3 @@ class DashboardView extends StatelessWidget {
     );
   }
 }
-

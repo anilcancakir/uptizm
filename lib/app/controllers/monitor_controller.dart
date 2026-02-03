@@ -29,6 +29,7 @@ class MonitorController extends MagicController
 
   // Loading states
   bool _isLoading = false;
+  @override
   bool get isLoading => _isLoading;
 
   /// Render index view
@@ -297,8 +298,10 @@ class MonitorController extends MagicController
   /// Load check history for a monitor
   Future<void> loadChecks(int monitorId, {int page = 1}) async {
     try {
-      final paginatedChecks =
-          await MonitorCheck.forMonitor(monitorId, page: page);
+      final paginatedChecks = await MonitorCheck.forMonitor(
+        monitorId,
+        page: page,
+      );
       checksNotifier.value = paginatedChecks.checks;
       checksPaginationNotifier.value = paginatedChecks;
     } catch (e) {

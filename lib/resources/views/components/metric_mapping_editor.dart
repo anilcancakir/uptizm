@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import '../../../app/enums/metric_type.dart';
 import '../../../app/models/metric_mapping.dart';
 
@@ -8,10 +8,10 @@ class MetricMappingEditor extends StatefulWidget {
   final Function(List<MetricMapping>) onChanged;
 
   const MetricMappingEditor({
-    Key? key,
+    super.key,
     required this.mappings,
     required this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<MetricMappingEditor> createState() => _MetricMappingEditorState();
@@ -38,12 +38,14 @@ class _MetricMappingEditorState extends State<MetricMappingEditor> {
 
   void _add() {
     setState(() {
-      _states.add(_MappingState(
-        type: MetricType.numeric,
-        labelController: TextEditingController(),
-        pathController: TextEditingController(),
-        unitController: TextEditingController(),
-      ));
+      _states.add(
+        _MappingState(
+          type: MetricType.numeric,
+          labelController: TextEditingController(),
+          pathController: TextEditingController(),
+          unitController: TextEditingController(),
+        ),
+      );
     });
     _notifyChanged();
   }
@@ -125,7 +127,8 @@ class _MetricMappingEditorState extends State<MetricMappingEditor> {
     ''';
 
     return WDiv(
-      className: 'flex flex-col gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800',
+      className:
+          'flex flex-col gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800',
       children: [
         // Summary + delete
         WDiv(
@@ -137,9 +140,12 @@ class _MetricMappingEditorState extends State<MetricMappingEditor> {
             ),
             WButton(
               onTap: () => _remove(index),
-              className: 'p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
-              child: WIcon(Icons.close,
-                  className: 'text-gray-600 dark:text-gray-400 text-lg'),
+              className:
+                  'p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
+              child: WIcon(
+                Icons.close,
+                className: 'text-gray-600 dark:text-gray-400 text-lg',
+              ),
             ),
           ],
         ),

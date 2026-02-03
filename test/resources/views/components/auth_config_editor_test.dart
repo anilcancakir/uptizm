@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import 'package:uptizm/app/enums/monitor_auth_type.dart';
 import 'package:uptizm/app/models/monitor_auth_config.dart';
 import 'package:uptizm/resources/views/components/auth_config_editor.dart';
@@ -10,9 +10,7 @@ void main() {
     return WindTheme(
       data: WindThemeData(),
       child: MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(child: child),
-        ),
+        home: Scaffold(body: SingleChildScrollView(child: child)),
       ),
     );
   }
@@ -21,10 +19,7 @@ void main() {
     testWidgets('renders auth type selector', (tester) async {
       await tester.pumpWidget(
         wrapWithTheme(
-          AuthConfigEditor(
-            value: MonitorAuthConfig.none(),
-            onChanged: (_) {},
-          ),
+          AuthConfigEditor(value: MonitorAuthConfig.none(), onChanged: (_) {}),
         ),
       );
 
@@ -35,10 +30,7 @@ void main() {
     testWidgets('shows no extra fields when type is none', (tester) async {
       await tester.pumpWidget(
         wrapWithTheme(
-          AuthConfigEditor(
-            value: MonitorAuthConfig.none(),
-            onChanged: (_) {},
-          ),
+          AuthConfigEditor(value: MonitorAuthConfig.none(), onChanged: (_) {}),
         ),
       );
 
@@ -48,8 +40,9 @@ void main() {
       expect(find.text('Token'), findsNothing);
     });
 
-    testWidgets('shows username/password fields when type is basic_auth',
-        (tester) async {
+    testWidgets('shows username/password fields when type is basic_auth', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrapWithTheme(
           AuthConfigEditor(
@@ -76,8 +69,9 @@ void main() {
       expect(find.text('Token'), findsOneWidget);
     });
 
-    testWidgets('shows key name, value, location fields when type is api_key',
-        (tester) async {
+    testWidgets('shows key name, value, location fields when type is api_key', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrapWithTheme(
           AuthConfigEditor(
@@ -92,8 +86,9 @@ void main() {
       expect(find.text('Key Location'), findsOneWidget);
     });
 
-    testWidgets('shows key-value editor when type is custom_header',
-        (tester) async {
+    testWidgets('shows key-value editor when type is custom_header', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrapWithTheme(
           AuthConfigEditor(

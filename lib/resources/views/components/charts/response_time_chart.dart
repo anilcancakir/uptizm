@@ -95,8 +95,12 @@ class _ResponseTimeChartState extends State<ResponseTimeChart> {
             },
           ),
           titlesData: FlTitlesData(
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
@@ -157,10 +161,11 @@ class _ResponseTimeChartState extends State<ResponseTimeChart> {
               });
             },
             touchTooltipData: LineTouchTooltipData(
-              getTooltipColor: (spot) => isDark
-                  ? UptizmChartTheme.bgDark
-                  : Colors.white,
-              tooltipBorderRadius: BorderRadius.circular(UptizmChartTheme.tooltipRadius),
+              getTooltipColor: (spot) =>
+                  isDark ? UptizmChartTheme.bgDark : Colors.white,
+              tooltipBorderRadius: BorderRadius.circular(
+                UptizmChartTheme.tooltipRadius,
+              ),
               tooltipPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 8,

@@ -72,8 +72,10 @@ class SocialLoginButtons extends StatelessWidget {
           provider: 'microsoft',
           label: _label('Microsoft'),
           onTap: onMicrosoft,
-          iconWidget:
-              WSvg(src: 'assets/svg/microsoft.svg', className: 'w-5 h-5'),
+          iconWidget: WSvg(
+            src: 'assets/svg/microsoft.svg',
+            className: 'w-5 h-5',
+          ),
         ),
         const SizedBox(height: 12),
 
@@ -105,7 +107,8 @@ class SocialLoginButtons extends StatelessWidget {
     return WButton(
       onTap: isDisabled ? null : onTap,
       isLoading: isThisButtonLoading,
-      className: '''
+      className:
+          '''
         w-full p-3 rounded-xl
         bg-white dark:bg-slate-800
         border border-slate-200 dark:border-slate-700
@@ -117,10 +120,7 @@ class SocialLoginButtons extends StatelessWidget {
             'flex flex-row items-center justify-center gap-3 text-slate-900 dark:text-white',
         children: [
           iconWidget,
-          WText(
-            label,
-            className: 'text-base font-medium',
-          ),
+          WText(label, className: 'text-base font-medium'),
         ],
       ),
     );

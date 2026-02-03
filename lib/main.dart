@@ -8,6 +8,7 @@ import 'config/auth.dart';
 import 'config/network.dart';
 import 'config/social_auth.dart';
 import 'config/view.dart';
+import 'config/notifications.dart';
 
 void main() async {
   usePathUrlStrategy();
@@ -21,6 +22,7 @@ void main() async {
       () => networkConfig,
       () => socialAuthConfig,
       () => viewConfig,
+      () => notificationConfig,
     ],
   );
 
@@ -32,16 +34,14 @@ void main() async {
   // - If no saved preference → use system default and keep syncing
   final hasPreference = savedDark != null;
   final brightness = hasPreference
-      ? (savedDark! ? Brightness.dark : Brightness.light)
+      ? (savedDark ? Brightness.dark : Brightness.light)
       : WidgetsBinding.instance.platformDispatcher.platformBrightness;
-
-  Log.info('Initializing app with theme: ${brightness == Brightness.dark ? "dark" : "light"} '
-      '(saved preference: $savedDark, sync with system: ${!hasPreference})');
 
   // Create WindThemeData with saved brightness preference
   final windTheme = WindThemeData(
     brightness: brightness,
-    syncWithSystem: !hasPreference, // Sync with system only if no preference saved
+    syncWithSystem:
+        !hasPreference, // Sync with system only if no preference saved
     colors: {
       'primary': MaterialColor(0xFF009E60, <int, Color>{
         50: Color(0xFFCEFFE0),

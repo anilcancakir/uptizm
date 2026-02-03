@@ -1,18 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
-import '../../../../lib/app/enums/metric_type.dart';
-import '../../../../lib/app/models/metric_mapping.dart';
-import '../../../../lib/resources/views/components/metric_mapping_editor.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:uptizm/app/enums/metric_type.dart';
+import 'package:uptizm/app/models/metric_mapping.dart';
+import 'package:uptizm/resources/views/components/metric_mapping_editor.dart';
 
 void main() {
   Widget wrapWithTheme(Widget child) {
     return WindTheme(
       data: WindThemeData(),
       child: MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(child: child),
-        ),
+        home: Scaffold(body: SingleChildScrollView(child: child)),
       ),
     );
   }
@@ -21,10 +19,7 @@ void main() {
     testWidgets('renders empty state with Add button', (tester) async {
       await tester.pumpWidget(
         wrapWithTheme(
-          MetricMappingEditor(
-            mappings: const [],
-            onChanged: (_) {},
-          ),
+          MetricMappingEditor(mappings: const [], onChanged: (_) {}),
         ),
       );
 
@@ -89,14 +84,16 @@ void main() {
 
       await tester.pumpWidget(
         wrapWithTheme(
-          MetricMappingEditor(
-            mappings: mappings,
-            onChanged: (_) {},
-          ),
+          MetricMappingEditor(mappings: mappings, onChanged: (_) {}),
         ),
       );
 
-      expect(find.text('DB Connections: data.database.active_connections (numeric, conn)'), findsOneWidget);
+      expect(
+        find.text(
+          'DB Connections: data.database.active_connections (numeric, conn)',
+        ),
+        findsOneWidget,
+      );
     });
   });
 }

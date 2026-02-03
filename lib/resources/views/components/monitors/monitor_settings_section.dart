@@ -31,10 +31,7 @@ class MonitorSettingsSection extends StatelessWidget {
             hint: trans('monitor.check_interval_hint'),
             controller: form['check_interval'],
             type: InputType.number,
-            suffix: WText(
-              'seconds',
-              className: 'text-xs text-gray-500',
-            ),
+            suffix: WText('seconds', className: 'text-xs text-gray-500'),
             labelClassName: '''
               text-gray-900 dark:text-gray-200
               mb-2 text-sm font-medium
@@ -62,10 +59,7 @@ class MonitorSettingsSection extends StatelessWidget {
             hint: trans('monitor.timeout_hint'),
             controller: form['timeout'],
             type: InputType.number,
-            suffix: WText(
-              'seconds',
-              className: 'text-xs text-gray-500',
-            ),
+            suffix: WText('seconds', className: 'text-xs text-gray-500'),
             labelClassName: '''
               text-gray-900 dark:text-gray-200
               mb-2 text-sm font-medium
@@ -98,8 +92,7 @@ class MonitorSettingsSection extends StatelessWidget {
               ),
               WText(
                 trans('monitor.regions_hint'),
-                className:
-                    'text-xs text-gray-600 dark:text-gray-400 mb-2',
+                className: 'text-xs text-gray-600 dark:text-gray-400 mb-2',
               ),
               WDiv(
                 className: 'grid grid-cols-2 md:grid-cols-3 gap-2',
@@ -127,7 +120,8 @@ class MonitorSettingsSection extends StatelessWidget {
         }
         onLocationsChanged(updated);
       },
-      className: '''
+      className:
+          '''
         px-3 py-2 rounded-lg text-xs font-medium
         border
         ${isSelected ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}

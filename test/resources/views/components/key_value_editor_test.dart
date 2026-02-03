@@ -1,29 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import 'package:uptizm/resources/views/components/key_value_editor.dart';
 
 void main() {
   Widget wrapWithTheme(Widget child) {
     return WindTheme(
       data: WindThemeData(),
-      child: MaterialApp(
-        home: Scaffold(
-          body: child,
-        ),
-      ),
+      child: MaterialApp(home: Scaffold(body: child)),
     );
   }
 
   group('KeyValueEditor', () {
     testWidgets('renders empty state with Add button', (tester) async {
       await tester.pumpWidget(
-        wrapWithTheme(
-          KeyValueEditor(
-            entries: const {},
-            onChanged: (_) {},
-          ),
-        ),
+        wrapWithTheme(KeyValueEditor(entries: const {}, onChanged: (_) {})),
       );
 
       expect(find.text('Add Header'), findsOneWidget);
@@ -51,6 +42,7 @@ void main() {
     });
 
     testWidgets('adds new entry when Add button clicked', (tester) async {
+      // ignore: unused_local_variable
       Map<String, String> capturedEntries = {};
 
       await tester.pumpWidget(
@@ -107,10 +99,7 @@ void main() {
       await tester.pumpWidget(
         wrapWithTheme(
           KeyValueEditor(
-            entries: const {
-              'Header1': 'Value1',
-              'Header2': 'Value2',
-            },
+            entries: const {'Header1': 'Value1', 'Header2': 'Value2'},
             onChanged: (entries) => capturedEntries = entries,
           ),
         ),

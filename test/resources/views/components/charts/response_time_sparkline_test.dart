@@ -5,9 +5,7 @@ import 'package:uptizm/resources/views/components/charts/response_time_sparkline
 void main() {
   group('ResponseTimeSparkline', () {
     test('can be instantiated with data', () {
-      const widget = ResponseTimeSparkline(
-        data: [150, 200, 180, 220, 190],
-      );
+      const widget = ResponseTimeSparkline(data: [150, 200, 180, 220, 190]);
       expect(widget, isA<ResponseTimeSparkline>());
       expect(widget.data.length, equals(5));
     });
@@ -23,10 +21,7 @@ void main() {
     });
 
     test('accepts optional showDots parameter', () {
-      const widget = ResponseTimeSparkline(
-        data: [100, 150],
-        showDots: true,
-      );
+      const widget = ResponseTimeSparkline(data: [100, 150], showDots: true);
       expect(widget.showDots, isTrue);
     });
 

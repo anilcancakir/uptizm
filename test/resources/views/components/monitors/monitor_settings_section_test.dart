@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
 
-import '../../../../../lib/app/enums/monitor_location.dart';
-import '../../../../../lib/resources/views/components/monitors/monitor_settings_section.dart';
+import 'package:uptizm/app/enums/monitor_location.dart';
+import 'package:uptizm/resources/views/components/monitors/monitor_settings_section.dart';
 
 void main() {
   group('MonitorSettingsSection', () {
     late MagicFormData form;
 
     setUp(() {
-      form = MagicFormData({
-        'check_interval': '60',
-        'timeout': '30',
-      });
+      form = MagicFormData({'check_interval': '60', 'timeout': '30'});
     });
 
     Widget buildSubject({
@@ -46,14 +42,17 @@ void main() {
       }
     });
 
-    testWidgets('fires onLocationsChanged when location toggled',
-        (tester) async {
+    testWidgets('fires onLocationsChanged when location toggled', (
+      tester,
+    ) async {
       List<MonitorLocation>? updatedLocations;
 
-      await tester.pumpWidget(buildSubject(
-        selectedLocations: [MonitorLocation.usEast],
-        onLocationsChanged: (locs) => updatedLocations = locs,
-      ));
+      await tester.pumpWidget(
+        buildSubject(
+          selectedLocations: [MonitorLocation.usEast],
+          onLocationsChanged: (locs) => updatedLocations = locs,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Tap a different location to add it

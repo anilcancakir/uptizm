@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import '../../../../app/enums/check_status.dart';
 
 class StatusDot extends StatelessWidget {
@@ -15,9 +15,7 @@ class StatusDot extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: WDiv(
-        className: '$colorClass rounded-full animate-pulse',
-      ),
+      child: WDiv(className: '$colorClass rounded-full animate-pulse'),
     );
   }
 

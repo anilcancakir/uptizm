@@ -1,4 +1,4 @@
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
 enum MetricType {
   numeric('numeric', 'Numeric'),
@@ -12,9 +12,7 @@ enum MetricType {
   static MetricType? fromValue(String? value) {
     if (value == null) return null;
     try {
-      return MetricType.values.firstWhere(
-        (type) => type.value == value,
-      );
+      return MetricType.values.firstWhere((type) => type.value == value);
     } catch (e) {
       return null;
     }

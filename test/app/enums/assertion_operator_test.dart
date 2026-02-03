@@ -40,8 +40,14 @@ void main() {
 
     test('fromValue returns correct operator', () {
       expect(AssertionOperator.fromValue('equals'), AssertionOperator.equals);
-      expect(AssertionOperator.fromValue('not_equals'), AssertionOperator.notEquals);
-      expect(AssertionOperator.fromValue('greater_than'), AssertionOperator.greaterThan);
+      expect(
+        AssertionOperator.fromValue('not_equals'),
+        AssertionOperator.notEquals,
+      );
+      expect(
+        AssertionOperator.fromValue('greater_than'),
+        AssertionOperator.greaterThan,
+      );
     });
 
     test('fromValue returns null for invalid value', () {
@@ -53,12 +59,30 @@ void main() {
       final options = AssertionOperator.selectOptions;
       expect(options.length, 7);
       expect(options.any((opt) => opt.value == AssertionOperator.equals), true);
-      expect(options.any((opt) => opt.value == AssertionOperator.notEquals), true);
-      expect(options.any((opt) => opt.value == AssertionOperator.greaterThan), true);
-      expect(options.any((opt) => opt.value == AssertionOperator.lessThan), true);
-      expect(options.any((opt) => opt.value == AssertionOperator.contains), true);
-      expect(options.any((opt) => opt.value == AssertionOperator.notContains), true);
-      expect(options.any((opt) => opt.value == AssertionOperator.matchesRegex), true);
+      expect(
+        options.any((opt) => opt.value == AssertionOperator.notEquals),
+        true,
+      );
+      expect(
+        options.any((opt) => opt.value == AssertionOperator.greaterThan),
+        true,
+      );
+      expect(
+        options.any((opt) => opt.value == AssertionOperator.lessThan),
+        true,
+      );
+      expect(
+        options.any((opt) => opt.value == AssertionOperator.contains),
+        true,
+      );
+      expect(
+        options.any((opt) => opt.value == AssertionOperator.notContains),
+        true,
+      );
+      expect(
+        options.any((opt) => opt.value == AssertionOperator.matchesRegex),
+        true,
+      );
     });
   });
 }

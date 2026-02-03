@@ -26,7 +26,9 @@ void main() {
       expect(find.text('Form content here'), findsOneWidget);
     });
 
-    testWidgets('shows error banner when errorMessage provided', (tester) async {
+    testWidgets('shows error banner when errorMessage provided', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         WindTheme(
           data: WindThemeData(),

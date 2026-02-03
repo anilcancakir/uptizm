@@ -28,10 +28,22 @@ void main() {
     });
 
     test('getStatusColor returns correct color for status', () {
-      expect(UptizmChartTheme.getStatusColor('up'), equals(UptizmChartTheme.success));
-      expect(UptizmChartTheme.getStatusColor('down'), equals(UptizmChartTheme.error));
-      expect(UptizmChartTheme.getStatusColor('degraded'), equals(UptizmChartTheme.warning));
-      expect(UptizmChartTheme.getStatusColor('unknown'), equals(UptizmChartTheme.textLight));
+      expect(
+        UptizmChartTheme.getStatusColor('up'),
+        equals(UptizmChartTheme.success),
+      );
+      expect(
+        UptizmChartTheme.getStatusColor('down'),
+        equals(UptizmChartTheme.error),
+      );
+      expect(
+        UptizmChartTheme.getStatusColor('degraded'),
+        equals(UptizmChartTheme.warning),
+      );
+      expect(
+        UptizmChartTheme.getStatusColor('unknown'),
+        equals(UptizmChartTheme.textLight),
+      );
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
 
 import '../../../../app/controllers/auth_controller.dart';
 import '../notification_dropdown.dart';
@@ -24,33 +25,6 @@ class AppHeader extends StatelessWidget {
     this.showSearch = true,
     this.onMenuPressed,
   });
-
-  // Mock notifications for demo
-  static final List<NotificationItem> _mockNotifications = [
-    NotificationItem(
-      id: '1',
-      title: 'Monitor Down',
-      message: 'api.example.com is not responding',
-      createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
-      type: NotificationType.error,
-      actionPath: '/monitors/1',
-    ),
-    NotificationItem(
-      id: '2',
-      title: 'Monitor Recovered',
-      message: 'web.example.com is back online',
-      createdAt: DateTime.now().subtract(const Duration(hours: 1)),
-      type: NotificationType.success,
-      isRead: true,
-    ),
-    NotificationItem(
-      id: '3',
-      title: 'SSL Certificate Expiring',
-      message: 'Certificate for app.example.com expires in 7 days',
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      type: NotificationType.warning,
-    ),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -92,20 +66,13 @@ class AppHeader extends StatelessWidget {
             // Theme Toggle Button
             const ThemeToggleButton(),
 
-            // Notifications Dropdown
-            NotificationDropdown(
-              notifications: _mockNotifications,
-              onMarkAllRead: () {
-                // TODO: Mark all notifications as read
-              },
-              onNotificationTap: (notification) {
-                if (notification.actionPath != null) {
-                  MagicRoute.to(notification.actionPath!);
-                }
-              },
-              onViewAll: () {
-                MagicRoute.to('/notifications');
-              },
+            // Notifications Dropdown with real data
+            NotificationDropdownWithStream(
+              notificationStream: Notify.notifications(),
+              onMarkAsRead: (id) => Notify.markAsRead(id),
+              onMarkAllAsRead: () => Notify.markAllAsRead(),
+              onNavigate: (path) => MagicRoute.to(path),
+              onViewAll: () => MagicRoute.to('/notifications'),
             ),
 
             // User Profile

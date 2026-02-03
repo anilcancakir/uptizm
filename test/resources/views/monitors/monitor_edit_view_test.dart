@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
 
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/enums/monitor_type.dart';
@@ -20,11 +19,7 @@ void main() {
     Widget buildSubject() {
       return WindTheme(
         data: WindThemeData(),
-        child: MaterialApp(
-          home: Scaffold(
-            body: const MonitorEditView(),
-          ),
-        ),
+        child: MaterialApp(home: Scaffold(body: const MonitorEditView())),
       );
     }
 
@@ -38,7 +33,7 @@ void main() {
       await tester.pumpWidget(widget);
     }
 
-    Monitor _createMonitor(Map<String, dynamic> attrs) {
+    Monitor createMonitor(Map<String, dynamic> attrs) {
       return Monitor()
         ..setRawAttributes(attrs, sync: true)
         ..exists = true;
@@ -53,21 +48,21 @@ void main() {
       expect(find.byType(MonitorBasicInfoSection), findsNothing);
     });
 
-    testWidgets('renders form sections when monitor is loaded',
-        (tester) async {
-      MonitorController.instance.selectedMonitorNotifier.value =
-          _createMonitor({
-        'id': 1,
-        'name': 'Test Monitor',
-        'type': 'http',
-        'url': 'https://example.com',
-        'method': 'GET',
-        'expected_status_code': 200,
-        'check_interval': 60,
-        'timeout': 30,
-        'monitoring_locations': ['us-east'],
-        'status': 'active',
-      });
+    testWidgets('renders form sections when monitor is loaded', (tester) async {
+      MonitorController.instance.selectedMonitorNotifier.value = createMonitor(
+        {
+          'id': 1,
+          'name': 'Test Monitor',
+          'type': 'http',
+          'url': 'https://example.com',
+          'method': 'GET',
+          'expected_status_code': 200,
+          'check_interval': 60,
+          'timeout': 30,
+          'monitoring_locations': ['us-east'],
+          'status': 'active',
+        },
+      );
 
       await pumpWithSize(tester, buildSubject());
       await tester.pumpAndSettle();
@@ -81,20 +76,21 @@ void main() {
     });
 
     testWidgets('pre-fills form with monitor data', (tester) async {
-      MonitorController.instance.selectedMonitorNotifier.value =
-          _createMonitor({
-        'id': 1,
-        'name': 'My API Monitor',
-        'type': 'http',
-        'url': 'https://api.example.com/health',
-        'method': 'POST',
-        'expected_status_code': 201,
-        'check_interval': 120,
-        'timeout': 15,
-        'monitoring_locations': ['us-east', 'eu-west'],
-        'tags': ['api', 'health'],
-        'status': 'active',
-      });
+      MonitorController.instance.selectedMonitorNotifier.value = createMonitor(
+        {
+          'id': 1,
+          'name': 'My API Monitor',
+          'type': 'http',
+          'url': 'https://api.example.com/health',
+          'method': 'POST',
+          'expected_status_code': 201,
+          'check_interval': 120,
+          'timeout': 15,
+          'monitoring_locations': ['us-east', 'eu-west'],
+          'tags': ['api', 'health'],
+          'status': 'active',
+        },
+      );
 
       await pumpWithSize(tester, buildSubject());
       await tester.pumpAndSettle();
@@ -106,26 +102,28 @@ void main() {
     });
 
     testWidgets('type selector is not editable', (tester) async {
-      MonitorController.instance.selectedMonitorNotifier.value =
-          _createMonitor({
-        'id': 1,
-        'name': 'Test',
-        'type': 'http',
-        'url': 'https://example.com',
-        'method': 'GET',
-        'expected_status_code': 200,
-        'check_interval': 60,
-        'timeout': 30,
-        'monitoring_locations': ['us-east'],
-        'status': 'active',
-      });
+      MonitorController.instance.selectedMonitorNotifier.value = createMonitor(
+        {
+          'id': 1,
+          'name': 'Test',
+          'type': 'http',
+          'url': 'https://example.com',
+          'method': 'GET',
+          'expected_status_code': 200,
+          'check_interval': 60,
+          'timeout': 30,
+          'monitoring_locations': ['us-east'],
+          'status': 'active',
+        },
+      );
 
       await pumpWithSize(tester, buildSubject());
       await tester.pumpAndSettle();
 
       // Find the basic info section and verify typeEditable is false
       final section = tester.widget<MonitorBasicInfoSection>(
-          find.byType(MonitorBasicInfoSection));
+        find.byType(MonitorBasicInfoSection),
+      );
       expect(section.typeEditable, isFalse);
     });
   });

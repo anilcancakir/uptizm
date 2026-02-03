@@ -16,18 +16,12 @@ void main() {
     });
 
     test('accepts optional height', () {
-      final widget = ResponseTimeChart(
-        dataPoints: [],
-        height: 250,
-      );
+      final widget = ResponseTimeChart(dataPoints: [], height: 250);
       expect(widget.height, equals(250));
     });
 
     test('accepts showTooltip parameter', () {
-      final widget = ResponseTimeChart(
-        dataPoints: [],
-        showTooltip: true,
-      );
+      final widget = ResponseTimeChart(dataPoints: [], showTooltip: true);
       expect(widget.showTooltip, isTrue);
     });
 
@@ -42,7 +36,12 @@ void main() {
           home: Scaffold(
             body: ResponseTimeChart(
               dataPoints: [
-                ChartDataPoint(timestamp: DateTime.now().subtract(const Duration(minutes: 5)), value: 150),
+                ChartDataPoint(
+                  timestamp: DateTime.now().subtract(
+                    const Duration(minutes: 5),
+                  ),
+                  value: 150,
+                ),
                 ChartDataPoint(timestamp: DateTime.now(), value: 200),
               ],
               height: 200,

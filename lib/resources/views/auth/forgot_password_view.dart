@@ -72,47 +72,48 @@ class _ForgotPasswordViewState
       subtitle: trans('auth.forgot_password_subtitle'),
       errorMessage: errorMessage,
       child: MagicForm(
-            formData: form,
-            child: WDiv(
-              className: 'flex flex-col items-stretch',
-              children: [
-                // Email Field
-                WFormInput(
-                  label: trans('attributes.email'),
-                  controller: form['email'],
-                  placeholder: trans('fields.email_placeholder'),
-                  type: InputType.email,
-                  validator: rules([Required(), Email()], field: 'email'),
-                  className:
-                      'w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-slate-900 dark:text-white focus:border-primary error:border-red-500',
-                  placeholderClassName: 'text-slate-400 dark:text-slate-500',
-                  labelClassName: 'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
-                ),
-                const SizedBox(height: 24),
-
-                // Submit Button
-                WButton(
-                  isLoading: isLoading,
-                  className:
-                      'bg-primary text-white p-4 rounded-xl font-bold text-base hover:bg-primary-dark shadow-lg',
-                  onTap: () => _handleSubmit(),
-                  child: WText(
-                    trans('auth.send_reset_link'),
-                    className: 'text-center',
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                WAnchor(
-                  onTap: () => MagicRoute.to('/auth/login'),
-                  child: WText(
-                    trans('auth.back_to_login'),
-                    className: 'text-center text-gray-400 hover:text-gray-300',
-                  ),
-                ),
-              ],
+        formData: form,
+        child: WDiv(
+          className: 'flex flex-col items-stretch',
+          children: [
+            // Email Field
+            WFormInput(
+              label: trans('attributes.email'),
+              controller: form['email'],
+              placeholder: trans('fields.email_placeholder'),
+              type: InputType.email,
+              validator: rules([Required(), Email()], field: 'email'),
+              className:
+                  'w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-slate-900 dark:text-white focus:border-primary error:border-red-500',
+              placeholderClassName: 'text-slate-400 dark:text-slate-500',
+              labelClassName:
+                  'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-          ),
+            const SizedBox(height: 24),
+
+            // Submit Button
+            WButton(
+              isLoading: isLoading,
+              className:
+                  'bg-primary text-white p-4 rounded-xl font-bold text-base hover:bg-primary-dark shadow-lg',
+              onTap: () => _handleSubmit(),
+              child: WText(
+                trans('auth.send_reset_link'),
+                className: 'text-center',
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            WAnchor(
+              onTap: () => MagicRoute.to('/auth/login'),
+              child: WText(
+                trans('auth.back_to_login'),
+                className: 'text-center text-gray-400 hover:text-gray-300',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

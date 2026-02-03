@@ -119,7 +119,8 @@ class _ResetPasswordViewState
                 'p-3 bg-slate-100 dark:bg-slate-800 rounded-xl text-center mb-6',
             child: WText(
               _email ?? '',
-              className: 'text-slate-700 dark:text-slate-300 text-sm font-medium',
+              className:
+                  'text-slate-700 dark:text-slate-300 text-sm font-medium',
             ),
           ),
 

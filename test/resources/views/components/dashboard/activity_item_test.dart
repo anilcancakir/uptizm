@@ -6,11 +6,7 @@ import 'package:uptizm/resources/views/components/dashboard/activity_item.dart';
 Widget buildTestApp({required Widget child}) {
   return WindTheme(
     data: WindThemeData(),
-    child: MaterialApp(
-      home: Scaffold(
-        body: child,
-      ),
-    ),
+    child: MaterialApp(home: Scaffold(body: child)),
   );
 }
 

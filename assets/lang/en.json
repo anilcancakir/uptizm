@@ -311,12 +311,6 @@
         "not_contains": "not contains",
         "matches_regex": "matches regex"
     },
-    "notifications": {
-        "title": "Notifications",
-        "empty": "No notifications",
-        "mark_all_read": "Mark all as read",
-        "view_all": "View all notifications"
-    },
     "time": {
         "just_now": "Just now"
     },
@@ -467,5 +461,29 @@
         "deleting_account": "Deleting account...",
         "saved": "Profile updated successfully",
         "save_failed": "Failed to update profile"
+    },
+    "notifications": {
+        "title": "Notifications",
+        "empty": "No notifications",
+        "mark_all_read": "Mark all as read",
+        "view_all": "View all notifications",
+        "load_failed": "Failed to load notifications",
+        "preferences_title": "Notification Preferences",
+        "preferences_description": "Manage how and when you receive notifications",
+        "global_settings": "Global Settings",
+        "push_enabled": "Push Notifications",
+        "push_enabled_hint": "Receive push notifications on your devices",
+        "email_enabled": "Email Notifications",
+        "email_enabled_hint": "Receive email notifications",
+        "in_app_enabled": "In-App Notifications",
+        "in_app_enabled_hint": "Show notifications in the app",
+        "notification_types": "Notification Types",
+        "types_description": "Configure which channels to use for each type of notification",
+        "type_monitor_down": "Monitor Down",
+        "type_monitor_down_description": "When a monitor detects downtime or failures",
+        "type_monitor_up": "Monitor Up",
+        "type_monitor_up_description": "When a monitor recovers and comes back online",
+        "type_ssl_expiring": "SSL Certificate Expiring",
+        "type_ssl_expiring_description": "When an SSL certificate is about to expire"
     }
 }

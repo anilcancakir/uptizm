@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
-import '../../../../../lib/app/models/assertion_rule.dart';
-import '../../../../../lib/app/models/metric_mapping.dart';
-import '../../../../../lib/resources/views/components/monitors/monitor_validation_section.dart';
+import 'package:uptizm/app/models/assertion_rule.dart';
+import 'package:uptizm/app/models/metric_mapping.dart';
+import 'package:uptizm/resources/views/components/monitors/monitor_validation_section.dart';
 
 void main() {
   group('MonitorValidationSection', () {
@@ -43,15 +43,17 @@ void main() {
     });
 
     testWidgets('renders with existing assertion rules', (tester) async {
-      await tester.pumpWidget(buildSubject(
-        assertionRules: [
-          AssertionRule.fromMap({
-            'type': 'status_code',
-            'operator': 'equals',
-            'value': '200',
-          }),
-        ],
-      ));
+      await tester.pumpWidget(
+        buildSubject(
+          assertionRules: [
+            AssertionRule.fromMap({
+              'type': 'status_code',
+              'operator': 'equals',
+              'value': '200',
+            }),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
       // The assertion rule editor should display the rule

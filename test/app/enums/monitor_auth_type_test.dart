@@ -34,10 +34,19 @@ void main() {
 
     test('fromValue returns correct type', () {
       expect(MonitorAuthType.fromValue('none'), MonitorAuthType.none);
-      expect(MonitorAuthType.fromValue('basic_auth'), MonitorAuthType.basicAuth);
-      expect(MonitorAuthType.fromValue('bearer_token'), MonitorAuthType.bearerToken);
+      expect(
+        MonitorAuthType.fromValue('basic_auth'),
+        MonitorAuthType.basicAuth,
+      );
+      expect(
+        MonitorAuthType.fromValue('bearer_token'),
+        MonitorAuthType.bearerToken,
+      );
       expect(MonitorAuthType.fromValue('api_key'), MonitorAuthType.apiKey);
-      expect(MonitorAuthType.fromValue('custom_header'), MonitorAuthType.customHeader);
+      expect(
+        MonitorAuthType.fromValue('custom_header'),
+        MonitorAuthType.customHeader,
+      );
     });
 
     test('fromValue returns none for null', () {

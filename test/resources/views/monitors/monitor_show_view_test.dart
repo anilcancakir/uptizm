@@ -47,8 +47,18 @@ void main() {
         'type': 'http',
         'url': 'https://example.com/api',
         'metric_mappings': [
-          {'path': 'userId', 'label': 'User ID', 'type': 'numeric', 'unit': 'id'},
-          {'path': 'title', 'label': 'Post Title', 'type': 'string', 'unit': ''},
+          {
+            'path': 'userId',
+            'label': 'User ID',
+            'type': 'numeric',
+            'unit': 'id',
+          },
+          {
+            'path': 'title',
+            'label': 'Post Title',
+            'type': 'string',
+            'unit': '',
+          },
         ],
       };
 
@@ -92,11 +102,7 @@ void main() {
         'id': 8,
         'monitor_id': 1,
         'status': 'up',
-        'parsed_metrics': {
-          'userId': 1,
-          'id': 1,
-          'title': 'Test Post Title',
-        },
+        'parsed_metrics': {'userId': 1, 'id': 1, 'title': 'Test Post Title'},
         'checked_at': '2026-02-02T23:24:43.000000Z',
       };
 

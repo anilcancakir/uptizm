@@ -12,9 +12,7 @@ void main() {
         MaterialApp(
           home: WindTheme(
             data: windTheme,
-            child: Scaffold(
-              body: AppHeader(),
-            ),
+            child: Scaffold(body: AppHeader()),
           ),
         ),
       );
@@ -25,7 +23,8 @@ void main() {
       expect(
         themToggleFinder,
         findsOneWidget,
-        reason: 'AppHeader should contain theme toggle button with brightness icon',
+        reason:
+            'AppHeader should contain theme toggle button with brightness icon',
       );
     });
 
@@ -36,9 +35,7 @@ void main() {
         MaterialApp(
           home: WindTheme(
             data: windTheme,
-            child: Scaffold(
-              body: AppHeader(),
-            ),
+            child: Scaffold(body: AppHeader()),
           ),
         ),
       );

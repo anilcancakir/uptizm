@@ -47,8 +47,9 @@ class MonitorAuthConfig {
           type: type,
           apiKeyName: apiKey?['key'] as String?,
           apiKeyValue: apiKey?['value'] as String?,
-          apiKeyLocation:
-              ApiKeyLocation.fromValue(apiKey?['location'] as String?),
+          apiKeyLocation: ApiKeyLocation.fromValue(
+            apiKey?['location'] as String?,
+          ),
         );
       case MonitorAuthType.customHeader:
         final custom = map['custom_header'] as Map<String, dynamic>?;

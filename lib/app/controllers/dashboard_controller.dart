@@ -6,9 +6,11 @@ import '../../resources/views/dashboard/dashboard_view.dart';
 /// Dashboard Controller
 ///
 /// Handles dashboard data loading and view rendering.
-class DashboardController extends MagicController with MagicStateMixin<Map<String, dynamic>> {
+class DashboardController extends MagicController
+    with MagicStateMixin<Map<String, dynamic>> {
   /// Singleton accessor.
-  static DashboardController get instance => Magic.findOrPut(DashboardController.new);
+  static DashboardController get instance =>
+      Magic.findOrPut(DashboardController.new);
 
   /// Render the dashboard view.
   Widget index() => const DashboardView();

@@ -75,11 +75,9 @@ class ActivityItem extends StatelessWidget {
         children: [
           // Icon container
           WDiv(
-            className: 'w-9 h-9 rounded-lg $_iconBgClass flex items-center justify-center mt-0.5',
-            child: WIcon(
-              _icon,
-              className: 'text-lg $_iconColorClass',
-            ),
+            className:
+                'w-9 h-9 rounded-lg $_iconBgClass flex items-center justify-center mt-0.5',
+            child: WIcon(_icon, className: 'text-lg $_iconColorClass'),
           ),
 
           // Content
@@ -89,12 +87,14 @@ class ActivityItem extends StatelessWidget {
               children: [
                 WText(
                   title,
-                  className: 'text-sm font-medium text-gray-900 dark:text-white',
+                  className:
+                      'text-sm font-medium text-gray-900 dark:text-white',
                 ),
                 const SizedBox(height: 2),
                 WText(
                   description,
-                  className: 'text-xs text-gray-500 dark:text-gray-400 truncate',
+                  className:
+                      'text-xs text-gray-500 dark:text-gray-400 truncate',
                 ),
               ],
             ),
@@ -103,7 +103,8 @@ class ActivityItem extends StatelessWidget {
           // Timestamp
           WText(
             timeAgo,
-            className: 'text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap',
+            className:
+                'text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap',
           ),
         ],
       ),

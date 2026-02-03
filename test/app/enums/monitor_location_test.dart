@@ -40,7 +40,10 @@ void main() {
     test('fromValue returns correct location', () {
       expect(MonitorLocation.fromValue('us-east'), MonitorLocation.usEast);
       expect(MonitorLocation.fromValue('eu-west'), MonitorLocation.euWest);
-      expect(MonitorLocation.fromValue('ap-southeast'), MonitorLocation.apSoutheast);
+      expect(
+        MonitorLocation.fromValue('ap-southeast'),
+        MonitorLocation.apSoutheast,
+      );
     });
 
     test('fromValue returns null for null', () {

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
 /// Displays HTTP response preview from test-fetch endpoint.
 ///
@@ -15,10 +15,10 @@ class ResponsePreview extends StatelessWidget {
   final bool isLoading;
 
   const ResponsePreview({
-    Key? key,
+    super.key,
     required this.response,
     required this.isLoading,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

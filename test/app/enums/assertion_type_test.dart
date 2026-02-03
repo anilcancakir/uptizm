@@ -35,8 +35,14 @@ void main() {
 
     test('fromValue returns correct type', () {
       expect(AssertionType.fromValue('status_code'), AssertionType.statusCode);
-      expect(AssertionType.fromValue('body_json_path'), AssertionType.bodyJsonPath);
-      expect(AssertionType.fromValue('body_contains'), AssertionType.bodyContains);
+      expect(
+        AssertionType.fromValue('body_json_path'),
+        AssertionType.bodyJsonPath,
+      );
+      expect(
+        AssertionType.fromValue('body_contains'),
+        AssertionType.bodyContains,
+      );
     });
 
     test('fromValue returns null for invalid value', () {
@@ -48,11 +54,23 @@ void main() {
       final options = AssertionType.selectOptions;
       expect(options.length, 6);
       expect(options.any((opt) => opt.value == AssertionType.statusCode), true);
-      expect(options.any((opt) => opt.value == AssertionType.bodyJsonPath), true);
-      expect(options.any((opt) => opt.value == AssertionType.bodyContains), true);
+      expect(
+        options.any((opt) => opt.value == AssertionType.bodyJsonPath),
+        true,
+      );
+      expect(
+        options.any((opt) => opt.value == AssertionType.bodyContains),
+        true,
+      );
       expect(options.any((opt) => opt.value == AssertionType.bodyRegex), true);
-      expect(options.any((opt) => opt.value == AssertionType.headerContains), true);
-      expect(options.any((opt) => opt.value == AssertionType.responseTime), true);
+      expect(
+        options.any((opt) => opt.value == AssertionType.headerContains),
+        true,
+      );
+      expect(
+        options.any((opt) => opt.value == AssertionType.responseTime),
+        true,
+      );
     });
   });
 }

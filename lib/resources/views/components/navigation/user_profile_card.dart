@@ -26,7 +26,8 @@ class UserProfileCard extends StatelessWidget {
       alignment: onlyAvatar
           ? PopoverAlignment.bottomRight
           : PopoverAlignment.bottomLeft,
-      className: '''
+      className:
+          '''
         w-72
         bg-white dark:bg-gray-800
         border border-gray-100 dark:border-gray-700
@@ -129,7 +130,8 @@ class UserProfileCard extends StatelessWidget {
       children: [
         // Profile Header
         WDiv(
-          className: 'w-full px-4 py-3 border-b border-gray-100 dark:border-gray-700',
+          className:
+              'w-full px-4 py-3 border-b border-gray-100 dark:border-gray-700',
           children: [
             WText(
               trans('auth.signed_in_as').toUpperCase(),
@@ -173,11 +175,11 @@ class UserProfileCard extends StatelessWidget {
           },
         ),
         _buildMenuItem(
-          icon: Icons.settings_outlined,
-          label: trans('profile.settings'),
+          icon: Icons.notifications_outlined,
+          label: trans('notifications.title'),
           onTap: () {
             close();
-            MagicRoute.to('/settings');
+            MagicRoute.to('/notifications');
           },
         ),
 

@@ -35,11 +35,16 @@ void main() {
 
       expect(find.text('pagination.previous'), findsOneWidget);
       expect(find.text('pagination.next'), findsOneWidget);
-      expect(find.text('pagination.page_of'), findsOneWidget); // trans key with args
+      expect(
+        find.text('pagination.page_of'),
+        findsOneWidget,
+      ); // trans key with args
       expect(find.byType(WButton), findsNWidgets(2));
     });
 
-    testWidgets('disables previous button on first page', (WidgetTester tester) async {
+    testWidgets('disables previous button on first page', (
+      WidgetTester tester,
+    ) async {
       bool previousPressed = false;
 
       await tester.pumpWidget(

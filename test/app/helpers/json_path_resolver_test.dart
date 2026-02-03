@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../../../lib/app/helpers/json_path_resolver.dart';
+import 'package:uptizm/app/helpers/json_path_resolver.dart';
 
 void main() {
   group('JsonPathResolver', () {
@@ -9,37 +9,42 @@ void main() {
 
     test('resolves nested path', () {
       expect(
-        JsonPathResolver.resolve({'data': {'status': 'ok'}}, 'data.status'),
+        JsonPathResolver.resolve({
+          'data': {'status': 'ok'},
+        }, 'data.status'),
         'ok',
       );
     });
 
     test('resolves deeply nested', () {
       expect(
-        JsonPathResolver.resolve({'a': {'b': {'c': 42}}}, 'a.b.c'),
+        JsonPathResolver.resolve({
+          'a': {
+            'b': {'c': 42},
+          },
+        }, 'a.b.c'),
         42,
       );
     });
 
     test('resolves array index', () {
       expect(
-        JsonPathResolver.resolve({'items': [10, 20, 30]}, 'items.0'),
+        JsonPathResolver.resolve({
+          'items': [10, 20, 30],
+        }, 'items.0'),
         10,
       );
     });
 
     test('resolves nested array object', () {
       expect(
-        JsonPathResolver.resolve(
-          {
-            'data': {
-              'items': [
-                {'name': 'a'}
-              ]
-            }
+        JsonPathResolver.resolve({
+          'data': {
+            'items': [
+              {'name': 'a'},
+            ],
           },
-          'data.items.0.name',
-        ),
+        }, 'data.items.0.name'),
         'a',
       );
     });
@@ -53,7 +58,12 @@ void main() {
     });
 
     test('returns null for out of bounds index', () {
-      expect(JsonPathResolver.resolve({'items': [1]}, 'items.5'), null);
+      expect(
+        JsonPathResolver.resolve({
+          'items': [1],
+        }, 'items.5'),
+        null,
+      );
     });
 
     test('returns null for null input', () {

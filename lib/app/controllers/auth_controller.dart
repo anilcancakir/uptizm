@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
 import 'package:fluttersdk_magic_social_auth/fluttersdk_magic_social_auth.dart';
 
 import '../models/user.dart';
@@ -68,6 +69,7 @@ class AuthController extends MagicController
         if (token != null && userData != null) {
           final user = User.fromMap(userData);
           await Auth.login({'token': token}, user);
+          await _initializeNotifications(user);
           setSuccess(true);
           MagicRoute.to('/');
         } else {
@@ -111,6 +113,7 @@ class AuthController extends MagicController
         if (token != null && userData != null) {
           final user = User.fromMap(userData);
           await Auth.login({'token': token}, user);
+          await _initializeNotifications(user);
           setSuccess(true);
           MagicRoute.to('/');
         } else {
@@ -219,6 +222,13 @@ class AuthController extends MagicController
 
     try {
       await SocialAuth.driver(provider).authenticate();
+
+      // Initialize notifications for social login
+      final user = Auth.user() as User?;
+      if (user != null) {
+        await _initializeNotifications(user);
+      }
+
       setSuccess(true);
       MagicRoute.to('/');
     } on SocialAuthCancelledException {
@@ -251,11 +261,19 @@ class AuthController extends MagicController
   /// Logout the current user.
   ///
   /// Flow:
-  /// 1. Sign out from all social providers (clear cached credentials)
-  /// 2. Logout from the app (clear token and user)
-  /// 3. Navigate to login page
+  /// 1. Stop notification polling
+  /// 2. Sign out from all social providers (clear cached credentials)
+  /// 3. Logout from the app (clear token and user)
+  /// 4. Navigate to login page
   Future<void> doLogout() async {
     try {
+      // Stop notification polling
+      try {
+        Notify.stopPolling();
+      } catch (e) {
+        Log.error('Error stopping notification polling: $e');
+      }
+
       // Sign out from all social providers first
       await SocialAuth.signOut();
 
@@ -269,6 +287,31 @@ class AuthController extends MagicController
       // Still try to logout even if social signout fails
       await Auth.logout();
       MagicRoute.to('/auth/login');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notification Integration
+  // ---------------------------------------------------------------------------
+
+  /// Initialize push notifications and start polling after successful login.
+  ///
+  /// Called automatically after doLogin, doRegister, and doSocialLogin complete.
+  Future<void> _initializeNotifications(User user) async {
+    try {
+      // Initialize push notifications with user ID
+      final userId = user.id?.toString();
+      if (userId != null && userId.isNotEmpty) {
+        await Notify.initializePush(userId);
+      }
+
+      // Start polling for database notifications
+      Notify.startPolling();
+
+      Log.info('Notifications initialized for user: ${user.id}');
+    } catch (e) {
+      // Don't fail login if notifications fail to initialize
+      Log.error('Failed to initialize notifications: $e');
     }
   }
 }

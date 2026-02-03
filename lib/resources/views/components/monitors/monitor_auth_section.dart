@@ -27,10 +27,7 @@ class MonitorAuthSection extends StatelessWidget {
             trans('monitor.authentication_hint'),
             className: 'text-xs text-gray-600 dark:text-gray-400 mb-2',
           ),
-          AuthConfigEditor(
-            value: authConfig,
-            onChanged: onChanged,
-          ),
+          AuthConfigEditor(value: authConfig, onChanged: onChanged),
         ],
       ),
     );

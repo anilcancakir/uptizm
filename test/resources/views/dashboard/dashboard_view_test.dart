@@ -7,43 +7,27 @@ import 'package:uptizm/resources/views/components/dashboard/stat_card.dart';
 Widget buildTestApp({required Widget child}) {
   return WindTheme(
     data: WindThemeData(),
-    child: MaterialApp(
-      home: Scaffold(
-        body: child,
-      ),
-    ),
+    child: MaterialApp(home: Scaffold(body: child)),
   );
 }
 
 void main() {
   group('DashboardView', () {
     testWidgets('renders welcome message', (tester) async {
-      await tester.pumpWidget(
-        buildTestApp(
-          child: const DashboardView(),
-        ),
-      );
+      await tester.pumpWidget(buildTestApp(child: const DashboardView()));
 
       // Look for partial text match containing "Welcome back"
       expect(find.textContaining('Welcome back'), findsOneWidget);
     });
 
     testWidgets('renders 4 stat cards', (tester) async {
-      await tester.pumpWidget(
-        buildTestApp(
-          child: const DashboardView(),
-        ),
-      );
+      await tester.pumpWidget(buildTestApp(child: const DashboardView()));
 
       expect(find.byType(StatCard), findsNWidgets(4));
     });
 
     testWidgets('renders monitors overview section', (tester) async {
-      await tester.pumpWidget(
-        buildTestApp(
-          child: const DashboardView(),
-        ),
-      );
+      await tester.pumpWidget(buildTestApp(child: const DashboardView()));
 
       // Look for section header (case-insensitive match)
       expect(find.textContaining('MONITOR'), findsWidgets);
@@ -51,11 +35,7 @@ void main() {
     });
 
     testWidgets('renders recent activity section', (tester) async {
-      await tester.pumpWidget(
-        buildTestApp(
-          child: const DashboardView(),
-        ),
-      );
+      await tester.pumpWidget(buildTestApp(child: const DashboardView()));
 
       expect(find.textContaining('ACTIVITY'), findsWidgets);
     });

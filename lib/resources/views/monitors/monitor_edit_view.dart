@@ -79,13 +79,13 @@ class _MonitorEditViewState
 
     _selectedType = monitor.type ?? MonitorType.http;
     _selectedLocations = List<MonitorLocation>.from(
-        monitor.monitoringLocations ?? [MonitorLocation.usEast]);
+      monitor.monitoringLocations ?? [MonitorLocation.usEast],
+    );
     _tags = List<String>.from(monitor.tags ?? []);
-    _tagOptions = _tags
-        .map((t) => SelectOption(value: t, label: t))
-        .toList();
+    _tagOptions = _tags.map((t) => SelectOption(value: t, label: t)).toList();
     _headers = Map<String, String>.from(
-        (monitor.headers ?? {}).cast<String, String>());
+      (monitor.headers ?? {}).cast<String, String>(),
+    );
     _body = monitor.body ?? '';
     _assertionRules = (monitor.assertionRules ?? [])
         .map((r) => AssertionRule.fromMap(r))
@@ -135,18 +135,21 @@ class _MonitorEditViewState
     setState(() => _isTestingFetch = true);
 
     try {
-      final response = await Http.post('/monitors/test', data: {
-        'url': url,
-        'method': _form!.get('method'),
-        'headers': _headers,
-        'body': _body,
-        'auth_config': _authConfig.toMap(),
-      });
+      final response = await Http.post(
+        '/monitors/test',
+        data: {
+          'url': url,
+          'method': _form!.get('method'),
+          'headers': _headers,
+          'body': _body,
+          'auth_config': _authConfig.toMap(),
+        },
+      );
 
       if (response.successful) {
         setState(() {
-          _testFetchResponse = response.data is Map &&
-                  response.data.containsKey('data')
+          _testFetchResponse =
+              response.data is Map && response.data.containsKey('data')
               ? response.data['data']
               : response.data;
           _isTestingFetch = false;
@@ -192,8 +195,11 @@ class _MonitorEditViewState
     );
   }
 
-  Widget _buildForm(Monitor monitor,
-      {bool isLoading = false, String? errorMessage}) {
+  Widget _buildForm(
+    Monitor monitor, {
+    bool isLoading = false,
+    String? errorMessage,
+  }) {
     final form = _form;
     if (form == null) return const SizedBox.shrink();
 
@@ -220,8 +226,7 @@ class _MonitorEditViewState
                 ),
                 WText(
                   '${trans('monitor.edit_title')}: ${monitor.name ?? "Monitor"}',
-                  className:
-                      'text-2xl font-bold text-gray-900 dark:text-white',
+                  className: 'text-2xl font-bold text-gray-900 dark:text-white',
                 ),
               ],
             ),

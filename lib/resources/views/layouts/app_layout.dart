@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:go_router/go_router.dart';
+import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
 
 import '../../../app/controllers/team_controller.dart';
 import '../components/navigation/app_header.dart';
@@ -33,6 +33,15 @@ class _AppLayoutState extends State<AppLayout> {
   void initState() {
     super.initState();
     AppLayout.refreshNotifier.addListener(_refresh);
+
+    // Start notification polling when app layout mounts (user is authenticated)
+    // Note: startPolling() already calls fetchNotifications() immediately
+    // Wrapped in try-catch for test environments where Magic may not be initialized
+    try {
+      Notify.startPolling();
+    } catch (_) {
+      // Silently fail in test environments
+    }
   }
 
   @override
@@ -42,7 +51,6 @@ class _AppLayoutState extends State<AppLayout> {
   }
 
   void _refresh() {
-    print('AppLayout refresh');
     if (mounted) setState(() {});
   }
 
@@ -103,7 +111,9 @@ class _AppLayoutState extends State<AppLayout> {
             ],
           ),
           // Bottom navigation - only on mobile
-          bottomNavigationBar: isDesktop ? null : _buildBottomNav(context, currentPath),
+          bottomNavigationBar: isDesktop
+              ? null
+              : _buildBottomNav(context, currentPath),
         );
       },
     );

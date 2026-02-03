@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
 
-import '../../../../../lib/app/enums/monitor_type.dart';
-import '../../../../../lib/resources/views/components/monitors/monitor_basic_info_section.dart';
+import 'package:uptizm/app/enums/monitor_type.dart';
+import 'package:uptizm/resources/views/components/monitors/monitor_basic_info_section.dart';
 
 void main() {
   group('MonitorBasicInfoSection', () {
@@ -58,23 +57,26 @@ void main() {
     testWidgets('fires onTypeChanged when type button tapped', (tester) async {
       MonitorType? changedTo;
 
-      await tester.pumpWidget(buildSubject(
-        onTypeChanged: (type) => changedTo = type,
-      ));
+      await tester.pumpWidget(
+        buildSubject(onTypeChanged: (type) => changedTo = type),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text(MonitorType.ping.label));
       expect(changedTo, MonitorType.ping);
     });
 
-    testWidgets('does not fire onTypeChanged when typeEditable is false',
-        (tester) async {
+    testWidgets('does not fire onTypeChanged when typeEditable is false', (
+      tester,
+    ) async {
       MonitorType? changedTo;
 
-      await tester.pumpWidget(buildSubject(
-        onTypeChanged: (type) => changedTo = type,
-        typeEditable: false,
-      ));
+      await tester.pumpWidget(
+        buildSubject(
+          onTypeChanged: (type) => changedTo = type,
+          typeEditable: false,
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text(MonitorType.ping.label));

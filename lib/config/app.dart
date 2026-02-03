@@ -1,4 +1,5 @@
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
 import 'package:fluttersdk_magic_social_auth/fluttersdk_magic_social_auth.dart';
 
 import '../app/providers/app_service_provider.dart';
@@ -22,6 +23,7 @@ Map<String, dynamic> get appConfig => {
       (app) => VaultServiceProvider(app),
       (app) => AuthServiceProvider(app),
       (app) => SocialAuthServiceProvider(app),
+      (app) => NotificationServiceProvider(app),
       (app) => EventServiceProvider(app),
     ],
   },

@@ -10,7 +10,8 @@ import '../../resources/views/settings/profile_settings_view.dart';
 class ProfileController extends MagicController
     with MagicStateMixin<User>, ValidatesRequests {
   /// Singleton accessor.
-  static ProfileController get instance => Magic.findOrPut(ProfileController.new);
+  static ProfileController get instance =>
+      Magic.findOrPut(ProfileController.new);
 
   /// Render profile settings view.
   Widget profile() => const ProfileSettingsView();
@@ -25,19 +26,28 @@ class ProfileController extends MagicController
     setLoading();
     clearErrors();
     try {
-      final response = await Http.put('/user/profile', data: {
-        'name': name,
-        if (phone != null) 'phone': phone,
-        if (timezone != null) 'timezone': timezone,
-        if (language != null) 'language': language,
-      });
+      final response = await Http.put(
+        '/user/profile',
+        data: {
+          'name': name,
+          // ignore: use_null_aware_elements
+          if (phone != null) 'phone': phone,
+          // ignore: use_null_aware_elements
+          if (timezone != null) 'timezone': timezone,
+          // ignore: use_null_aware_elements
+          if (language != null) 'language': language,
+        },
+      );
       if (response.successful) {
         await Auth.restore();
         setSuccess(User.current);
         Magic.success(trans('common.success'), trans('profile_settings.saved'));
         return true;
       } else {
-        handleApiError(response, fallback: trans('profile_settings.save_failed'));
+        handleApiError(
+          response,
+          fallback: trans('profile_settings.save_failed'),
+        );
         return false;
       }
     } catch (e) {
@@ -56,11 +66,14 @@ class ProfileController extends MagicController
     setLoading();
     clearErrors();
     try {
-      final response = await Http.put('/user/password', data: {
-        'current_password': currentPassword,
-        'password': password,
-        'password_confirmation': passwordConfirmation,
-      });
+      final response = await Http.put(
+        '/user/password',
+        data: {
+          'current_password': currentPassword,
+          'password': password,
+          'password_confirmation': passwordConfirmation,
+        },
+      );
       if (response.successful) {
         setSuccess(User.current);
         Magic.success(
@@ -69,7 +82,10 @@ class ProfileController extends MagicController
         );
         return true;
       } else {
-        handleApiError(response, fallback: trans('profile_settings.save_failed'));
+        handleApiError(
+          response,
+          fallback: trans('profile_settings.save_failed'),
+        );
         return false;
       }
     } catch (e) {
@@ -125,17 +141,20 @@ class ProfileController extends MagicController
     Magic.loading(message: trans('profile_settings.deleting_account'));
     try {
       // Use POST with _method: DELETE for body data support
-      final response = await Http.post('/user', data: {
-        '_method': 'DELETE',
-        'password': password,
-      });
+      final response = await Http.post(
+        '/user',
+        data: {'_method': 'DELETE', 'password': password},
+      );
       Magic.closeLoading();
       if (response.successful) {
         await Auth.logout();
         MagicRoute.to('/auth/login');
         return true;
       } else {
-        handleApiError(response, fallback: trans('profile_settings.save_failed'));
+        handleApiError(
+          response,
+          fallback: trans('profile_settings.save_failed'),
+        );
         return false;
       }
     } catch (e) {

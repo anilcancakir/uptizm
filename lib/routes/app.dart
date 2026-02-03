@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../resources/views/layouts/app_layout.dart';
 import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/monitor_controller.dart';
+import '../app/controllers/notification_controller.dart';
 import '../app/controllers/profile_controller.dart';
 import '../app/controllers/team_controller.dart';
 
@@ -18,6 +19,12 @@ void registerAppRoutes() {
     routes: () {
       // Dashboard
       MagicRoute.page('/', () => DashboardController.instance.index());
+
+      // Notifications List
+      MagicRoute.page(
+        '/notifications',
+        () => NotificationController.instance.index(),
+      ).transition(RouteTransition.none);
 
       // Monitors
       MagicRoute.page(
@@ -65,18 +72,16 @@ void registerAppRoutes() {
         () => TeamController.instance.create(),
       ).transition(RouteTransition.none);
 
-      // Settings
-      MagicRoute.page(
-        '/settings',
-        () => Center(
-          child: WText('Coming Soon', className: 'text-lg text-gray-500'),
-        ),
-      );
-
       // Profile Settings
       MagicRoute.page(
         '/settings/profile',
         () => ProfileController.instance.profile(),
+      ).transition(RouteTransition.none);
+
+      // Notification Preferences
+      MagicRoute.page(
+        '/settings/notifications',
+        () => NotificationController.instance.preferences(),
       ).transition(RouteTransition.none);
 
       // Team Settings
