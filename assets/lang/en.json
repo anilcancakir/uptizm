@@ -94,6 +94,7 @@
         "password": "Password",
         "password_confirmation": "Confirm Password",
         "role": "Role",
+        "team_name": "Team Name",
         "check_interval": "Check Interval",
         "timeout": "Timeout",
         "expected_status_code": "Expected Status Code",
@@ -106,6 +107,9 @@
         "assertion_rule_operator": "Operator",
         "assertion_rule_value": "Value",
         "assertion_rule_path": "JSON Path"
+    },
+    "navigation": {
+        "monitors": "Monitors"
     },
     "nav": {
         "dashboard": "Dashboard",
@@ -129,7 +133,44 @@
         "other": "Other"
     },
     "monitors": {
-        "add": "Add Monitor"
+        "add": "Add Monitor",
+        "welcome_subtitle": "Monitor your services and APIs",
+        "no_monitors": "No monitors configured",
+        "no_monitors_desc": "Create your first monitor to start tracking uptime",
+        "search_placeholder": "Search monitors...",
+        "stats": {
+            "total": "TOTAL MONITORS",
+            "up": "SYSTEMS UP",
+            "down": "SYSTEMS DOWN",
+            "avg_response": "AVG RESPONSE"
+        },
+        "recent_checks": "RECENT CHECKS",
+        "metrics": "METRICS",
+        "last_response": "LAST RESPONSE",
+        "configuration": "CONFIGURATION",
+        "no_checks": "No checks recorded yet",
+        "no_metrics": "No metrics configured",
+        "uptime": "UPTIME",
+        "avg_response_time": "AVG RESPONSE TIME",
+        "last_check": "LAST CHECK",
+        "check_interval_label": "CHECK INTERVAL",
+        "expand": "Show more",
+        "collapse": "Show less",
+        "created_successfully": "Monitor created successfully",
+        "create_failed": "Failed to create monitor",
+        "not_found": "Monitor not found",
+        "updated_successfully": "Monitor updated successfully",
+        "update_failed": "Failed to update monitor",
+        "delete_confirm": "Are you sure you want to delete this monitor?",
+        "deleted_successfully": "Monitor deleted successfully",
+        "delete_failed": "Failed to delete monitor",
+        "paused_successfully": "Monitor paused successfully",
+        "pause_failed": "Failed to pause monitor",
+        "resumed_successfully": "Monitor resumed successfully",
+        "resume_failed": "Failed to resume monitor",
+        "waiting_for_metrics": "Waiting for metric data...",
+        "metrics_hint": "Metrics will appear after the next check runs",
+        "performance": "Performance"
     },
     "dashboard": {
         "title": "Dashboard",
@@ -312,7 +353,10 @@
         "all": "All",
         "unknown": "Unknown",
         "create": "Create",
-        "save_changes": "Save Changes"
+        "save_changes": "Save Changes",
+        "edit": "Edit",
+        "pause": "Pause",
+        "resume": "Resume"
     },
     "teams": {
         "invite_member": "Invite Member",
@@ -368,7 +412,18 @@
         "no_current_team": "No current team selected",
         "select_role": "Select a role",
         "member_count": ":count members",
-        "invitation_count": ":count pending"
+        "invitation_count": ":count pending",
+        "create_team_description": "Start collaborating with your team",
+        "team_details": "Team Details",
+        "create": "Create Team"
+    },
+    "errors": {
+        "network_error": "Network error. Please check your connection and try again."
+    },
+    "pagination": {
+        "previous": "Previous",
+        "next": "Next",
+        "page_of": "Page :current of :total"
     },
     "profile_settings": {
         "title": "Profile Settings",

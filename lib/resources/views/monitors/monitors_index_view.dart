@@ -5,6 +5,9 @@ import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/monitor_status.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/user.dart';
+import '../components/monitors/stat_card.dart';
+import '../components/monitors/status_dot.dart';
+import '../components/monitors/location_badge.dart';
 
 /// Monitors Index View
 ///
@@ -19,6 +22,7 @@ class MonitorsIndexView extends MagicStatefulView<MonitorController> {
 class _MonitorsIndexViewState
     extends MagicStatefulViewState<MonitorController, MonitorsIndexView> {
   MonitorStatus? _statusFilter;
+  String _searchQuery = '';
 
   @override
   void onInit() {
@@ -34,8 +38,24 @@ class _MonitorsIndexViewState
   }
 
   List<Monitor> _filterMonitors(List<Monitor> monitors) {
-    if (_statusFilter == null) return monitors;
-    return monitors.where((m) => m.status == _statusFilter).toList();
+    var filtered = monitors;
+
+    // Apply status filter
+    if (_statusFilter != null) {
+      filtered = filtered.where((m) => m.status == _statusFilter).toList();
+    }
+
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filtered = filtered.where((m) {
+        final name = m.name?.toLowerCase() ?? '';
+        final url = m.url?.toLowerCase() ?? '';
+        return name.contains(query) || url.contains(query);
+      }).toList();
+    }
+
+    return filtered;
   }
 
   @override
@@ -46,58 +66,70 @@ class _MonitorsIndexViewState
       return _buildNoTeamState();
     }
 
-    return WDiv(
-      className: 'flex flex-col h-full w-full',
-      children: [
-        // Header
-        WDiv(
-          className: '''
-            w-full
-            flex flex-col sm:flex-row items-start sm:items-center justify-between
-            gap-4 p-4 lg:p-6
-            border-b border-gray-200 dark:border-gray-700
-          ''',
-          children: [
-            WDiv(
-              className: 'flex flex-col gap-1',
-              children: [
-                WText(
-                  trans('navigation.monitors'),
-                  className: 'text-2xl font-bold text-gray-900 dark:text-white',
-                ),
-                WText(
-                  trans('monitors.welcome_subtitle'),
-                  className: 'text-sm text-gray-600 dark:text-gray-400',
-                ),
-              ],
-            ),
-
-            // Add Monitor Button
-            WButton(
-              onTap: () => MagicRoute.to('/monitors/create'),
-              className: '''
-                px-4 py-2 rounded-lg
-                bg-primary hover:bg-green-600
-                text-white font-medium text-sm
-                flex flex-row items-center gap-2
-              ''',
-              child: WDiv(
-                className: 'flex flex-row items-center gap-2',
+    return SingleChildScrollView(
+      child: WDiv(
+        className: 'flex flex-col',
+        children: [
+          // Header
+          WDiv(
+            className: '''
+              w-full
+              flex flex-col sm:flex-row items-start sm:items-center justify-between
+              gap-4 p-4 lg:p-6
+              border-b border-gray-200 dark:border-gray-700
+            ''',
+            children: [
+              WDiv(
+                className: 'flex flex-col gap-1',
                 children: [
-                  WIcon(Icons.add, className: 'text-lg text-white'),
-                  WText(trans('monitors.add')),
+                  WText(
+                    trans('navigation.monitors'),
+                    className:
+                        'text-2xl font-bold text-gray-900 dark:text-white',
+                  ),
+                  WText(
+                    trans('monitors.welcome_subtitle'),
+                    className: 'text-sm text-gray-600 dark:text-gray-400',
+                  ),
                 ],
               ),
-            ),
-          ],
-        ),
 
-        // Filter Tabs
-        _buildFilterTabs(),
+              // Add Monitor Button
+              WButton(
+                onTap: () => MagicRoute.to('/monitors/create'),
+                className: '''
+                  px-4 py-2 rounded-lg
+                  bg-primary hover:bg-green-600
+                  text-white font-medium text-sm
+                  flex flex-row items-center gap-2
+                ''',
+                child: WDiv(
+                  className: 'flex flex-row items-center gap-2',
+                  children: [
+                    WIcon(Icons.add, className: 'text-lg text-white'),
+                    WText(trans('monitors.add')),
+                  ],
+                ),
+              ),
+            ],
+          ),
 
-        // Monitors List
-        Expanded(
-          child: ValueListenableBuilder<List<Monitor>>(
+          // Stats Row
+          ValueListenableBuilder<List<Monitor>>(
+            valueListenable: controller.monitorsNotifier,
+            builder: (context, monitors, _) {
+              return _buildStatsRow(monitors);
+            },
+          ),
+
+          // Search Bar
+          _buildSearchBar(),
+
+          // Filter Tabs
+          _buildFilterTabs(),
+
+          // Monitors List
+          ValueListenableBuilder<List<Monitor>>(
             valueListenable: controller.monitorsNotifier,
             builder: (context, monitors, _) {
               if (controller.isLoading && monitors.isEmpty) {
@@ -112,6 +144,104 @@ class _MonitorsIndexViewState
 
               return _buildMonitorsList(filteredMonitors);
             },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsRow(List<Monitor> monitors) {
+    final totalCount = monitors.length;
+    final upCount = _computeUpCount(monitors);
+    final downCount = _computeDownCount(monitors);
+    final avgResponseTime = _computeAvgResponseTime(monitors);
+
+    return WDiv(
+      className:
+          'w-full p-4 lg:p-6 border-b border-gray-200 dark:border-gray-700',
+      children: [
+        WDiv(
+          className: 'grid grid-cols-2 md:grid-cols-4 gap-4',
+          children: [
+            StatCard(
+              label: trans('monitors.stats.total'),
+              value: '$totalCount',
+              icon: Icons.monitor_heart_outlined,
+            ),
+            StatCard(
+              label: trans('monitors.stats.up'),
+              value: '$upCount',
+              icon: Icons.check_circle_outline,
+              valueColor: 'text-green-500',
+            ),
+            StatCard(
+              label: trans('monitors.stats.down'),
+              value: '$downCount',
+              icon: Icons.error_outline,
+              valueColor: 'text-red-500',
+            ),
+            StatCard(
+              label: trans('monitors.stats.avg_response'),
+              value: avgResponseTime,
+              icon: Icons.speed,
+              isMono: true,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  int _computeUpCount(List<Monitor> monitors) {
+    return monitors.where((m) => m.isUp).length;
+  }
+
+  int _computeDownCount(List<Monitor> monitors) {
+    return monitors.where((m) => m.isDown).length;
+  }
+
+  String _computeAvgResponseTime(List<Monitor> monitors) {
+    final monitorsWithResponse = monitors
+        .where((m) => m.lastResponseTimeMs != null)
+        .toList();
+
+    if (monitorsWithResponse.isEmpty) return '—';
+
+    final totalMs = monitorsWithResponse.fold<int>(
+      0,
+      (sum, m) => sum + (m.lastResponseTimeMs ?? 0),
+    );
+
+    final avgMs = (totalMs / monitorsWithResponse.length).round();
+    return '${avgMs}ms';
+  }
+
+  Widget _buildSearchBar() {
+    return WDiv(
+      className:
+          'w-full p-4 lg:p-6 border-b border-gray-200 dark:border-gray-700',
+      children: [
+        WDiv(
+          className: 'max-w-md',
+          child: WInput(
+            value: _searchQuery,
+            onChanged: (value) {
+              setState(() => _searchQuery = value);
+            },
+            type: InputType.text,
+            placeholder: trans('monitors.search_placeholder'),
+            className: '''
+              w-full px-4 py-2.5 rounded-lg
+              bg-white dark:bg-gray-800
+              border border-gray-200 dark:border-gray-700
+              text-gray-900 dark:text-white text-sm
+              focus:border-primary focus:ring-2 focus:ring-primary/20
+              placeholder:text-gray-400 dark:placeholder:text-gray-500
+            ''',
+            prefix: WIcon(
+              Icons.search,
+              className: 'text-gray-400 dark:text-gray-500 text-lg',
+            ),
           ),
         ),
       ],
@@ -153,13 +283,9 @@ class _MonitorsIndexViewState
   }
 
   Widget _buildMonitorsList(List<Monitor> monitors) {
-    return SingleChildScrollView(
-      child: WDiv(
-        className: 'w-full grid grid-cols-1 gap-4 p-4 lg:p-6',
-        children: monitors
-            .map((monitor) => _buildMonitorCard(monitor))
-            .toList(),
-      ),
+    return WDiv(
+      className: 'w-full grid grid-cols-1 gap-4 p-4 lg:p-6',
+      children: monitors.map((monitor) => _buildMonitorCard(monitor)).toList(),
     );
   }
 
@@ -169,80 +295,110 @@ class _MonitorsIndexViewState
       child: WDiv(
         className: '''
           bg-white dark:bg-gray-800
-          border border-gray-200 dark:border-gray-700
-          rounded-xl p-4 lg:p-6
+          border border-gray-100 dark:border-gray-700
+          rounded-2xl p-5
           hover:shadow-lg hover:border-primary/50
-          transition-all duration-150
-          cursor-pointer
+          transition-all duration-150 cursor-pointer
         ''',
         children: [
-          // Header: Name + Status Badge
-          WDiv(
-            className: 'flex flex-row items-start justify-between mb-3',
+          // Header: Status + Name + Response Time
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              StatusDot(status: monitor.lastStatus, size: 12),
+              const SizedBox(width: 12),
               Expanded(
-                child: WDiv(
-                  className: 'flex flex-col gap-1',
-                  children: [
-                    WText(
-                      monitor.name ?? 'Unnamed Monitor',
-                      className:
-                          'text-lg font-semibold text-gray-900 dark:text-white',
-                    ),
-                    WText(
-                      monitor.url ?? '',
-                      className: '''
-                        text-sm text-gray-600 dark:text-gray-400
-                        font-mono break-all
-                      ''',
-                    ),
-                  ],
+                child: WText(
+                  monitor.name ?? 'Unnamed Monitor',
+                  className:
+                      'text-lg font-semibold text-gray-900 dark:text-white',
                 ),
               ),
-              _buildStatusBadge(monitor),
+              if (monitor.lastResponseTimeMs != null) ...[
+                const SizedBox(width: 12),
+                WText(
+                  '${monitor.lastResponseTimeMs}ms',
+                  className:
+                      'font-mono text-sm font-medium text-gray-600 dark:text-gray-400',
+                ),
+              ],
             ],
           ),
 
-          // Meta Info
-          WDiv(
+          // URL (truncated on mobile)
+          const SizedBox(height: 8),
+          WText(
+            monitor.url ?? '',
             className:
-                'flex flex-row flex-wrap gap-4 text-xs text-gray-600 dark:text-gray-400',
+                'text-xs font-mono text-gray-500 dark:text-gray-500 line-clamp-1',
+          ),
+
+          // Meta Info Row (compact pills) - use native Wrap for mobile
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              // Type
+              // Type pill
               WDiv(
-                className: 'flex flex-row items-center gap-1',
+                className: '''
+                  flex flex-row items-center gap-1
+                  px-2 py-1 rounded-md
+                  bg-gray-50 dark:bg-gray-800/50
+                  text-gray-600 dark:text-gray-400
+                  text-xs
+                ''',
                 children: [
                   WIcon(
                     monitor.isHttp ? Icons.http : Icons.wifi_tethering,
                     className: 'text-sm',
                   ),
-                  WText(monitor.type?.label ?? ''),
+                  WText(monitor.type?.label ?? 'Unknown'),
                 ],
               ),
 
-              // Check Interval
+              // Check interval pill
               WDiv(
-                className: 'flex flex-row items-center gap-1',
+                className: '''
+                  flex flex-row items-center gap-1
+                  px-2 py-1 rounded-md
+                  bg-gray-50 dark:bg-gray-800/50
+                  text-gray-600 dark:text-gray-400
+                  text-xs
+                ''',
                 children: [
                   WIcon(Icons.schedule, className: 'text-sm'),
                   WText('${monitor.checkInterval ?? 0}s'),
                 ],
               ),
 
-              // Locations Count
-              if (monitor.monitoringLocations != null)
+              // Location count pill (mobile only)
+              if (monitor.monitoringLocations != null &&
+                  monitor.monitoringLocations!.isNotEmpty)
                 WDiv(
-                  className: 'flex flex-row items-center gap-1',
+                  className: '''
+                    flex md:hidden flex-row items-center gap-1
+                    px-2 py-1 rounded-md
+                    bg-gray-50 dark:bg-gray-800/50
+                    text-gray-600 dark:text-gray-400
+                    text-xs
+                  ''',
                   children: [
                     WIcon(Icons.public, className: 'text-sm'),
-                    WText('${monitor.monitoringLocations!.length} regions'),
+                    WText('${monitor.monitoringLocations!.length}'),
                   ],
                 ),
 
-              // Last Check
+              // Last check pill
               if (monitor.lastCheckedAt != null)
                 WDiv(
-                  className: 'flex flex-row items-center gap-1',
+                  className: '''
+                    flex flex-row items-center gap-1
+                    px-2 py-1 rounded-md
+                    bg-gray-50 dark:bg-gray-800/50
+                    text-gray-600 dark:text-gray-400
+                    text-xs
+                  ''',
                   children: [
                     WIcon(Icons.update, className: 'text-sm'),
                     WText(monitor.lastCheckedAt!.diffForHumans()),
@@ -251,62 +407,37 @@ class _MonitorsIndexViewState
             ],
           ),
 
-          // Tags
-          if (monitor.tags != null && monitor.tags!.isNotEmpty)
+          // Location Badges (desktop only)
+          if (monitor.monitoringLocations != null &&
+              monitor.monitoringLocations!.isNotEmpty)
             WDiv(
-              className: 'flex flex-row flex-wrap gap-2 mt-3',
+              className: 'hidden md:flex flex-row flex-wrap gap-2 mt-3',
+              children: monitor.monitoringLocations!
+                  .map((location) => LocationBadge(location: location))
+                  .toList(),
+            ),
+
+          // Tags (if present)
+          if (monitor.tags != null && monitor.tags!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            WDiv(
+              className: 'flex flex-row flex-wrap gap-2',
               children: monitor.tags!
                   .map(
                     (tag) => WDiv(
                       className: '''
-                          px-2 py-1 rounded-md text-xs
-                          bg-gray-100 dark:bg-gray-700
-                          text-gray-700 dark:text-gray-300
-                        ''',
+                        px-2 py-1 rounded-md text-xs
+                        bg-gray-100 dark:bg-gray-700
+                        text-gray-700 dark:text-gray-300
+                      ''',
                       child: WText(tag),
                     ),
                   )
                   .toList(),
             ),
+          ],
         ],
       ),
-    );
-  }
-
-  Widget _buildStatusBadge(Monitor monitor) {
-    String className;
-    String statusText;
-    IconData icon;
-
-    if (monitor.isUp) {
-      className =
-          'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400';
-      statusText = trans('check_status.up');
-      icon = Icons.check_circle_outline;
-    } else if (monitor.isDown) {
-      className =
-          'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400';
-      statusText = trans('check_status.down');
-      icon = Icons.error_outline;
-    } else if (monitor.isDegraded) {
-      className =
-          'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400';
-      statusText = trans('check_status.degraded');
-      icon = Icons.warning_amber;
-    } else {
-      className =
-          'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
-      statusText = trans('common.unknown');
-      icon = Icons.help_outline;
-    }
-
-    return WDiv(
-      className:
-          '$className px-3 py-1 rounded-full flex flex-row items-center gap-1',
-      children: [
-        WIcon(icon, className: 'text-sm'),
-        WText(statusText, className: 'text-xs font-medium'),
-      ],
     );
   }
 

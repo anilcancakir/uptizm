@@ -208,7 +208,7 @@ class _MonitorEditViewState
               className: 'flex flex-row items-center gap-3 mb-2',
               children: [
                 WButton(
-                  onTap: () => MagicRoute.back(),
+                  onTap: () => MagicRoute.to('/monitors/$_monitorId'),
                   className: '''
                     p-2 rounded-lg
                     hover:bg-gray-100 dark:hover:bg-gray-700
@@ -299,7 +299,7 @@ class _MonitorEditViewState
               className: 'flex flex-row justify-end gap-3 px-4',
               children: [
                 WButton(
-                  onTap: () => MagicRoute.back(),
+                  onTap: () => MagicRoute.to('/monitors/$_monitorId'),
                   className: '''
                     px-4 py-2 rounded-lg
                     bg-gray-200 dark:bg-gray-700

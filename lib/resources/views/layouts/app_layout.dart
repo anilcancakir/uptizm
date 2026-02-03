@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/controllers/team_controller.dart';
 import '../components/navigation/app_header.dart';
@@ -49,10 +50,18 @@ class _AppLayoutState extends State<AppLayout> {
     _scaffoldKey.currentState?.openDrawer();
   }
 
-  String get _currentPath => ModalRoute.of(context)?.settings.name ?? '/';
+  String _getCurrentPath(BuildContext context) {
+    try {
+      return GoRouterState.of(context).uri.path;
+    } catch (_) {
+      return '/';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final currentPath = _getCurrentPath(context);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = wScreenIs(context, 'lg');
@@ -67,12 +76,12 @@ class _AppLayoutState extends State<AppLayout> {
             darkShade: 950,
           ),
           // Drawer for mobile - uses AppSidebar
-          drawer: isDesktop ? null : _buildDrawer(context),
+          drawer: isDesktop ? null : _buildDrawer(context, currentPath),
           body: WDiv(
             className: 'flex flex-row w-full h-full',
             children: [
               // Sidebar - only on desktop/web
-              if (isDesktop) const AppSidebar(),
+              if (isDesktop) AppSidebar(currentPath: currentPath),
 
               // Main content area
               Expanded(
@@ -94,13 +103,13 @@ class _AppLayoutState extends State<AppLayout> {
             ],
           ),
           // Bottom navigation - only on mobile
-          bottomNavigationBar: isDesktop ? null : _buildBottomNav(context),
+          bottomNavigationBar: isDesktop ? null : _buildBottomNav(context, currentPath),
         );
       },
     );
   }
 
-  Widget _buildDrawer(BuildContext context) {
+  Widget _buildDrawer(BuildContext context, String currentPath) {
     return Drawer(
       backgroundColor: wColor(
         context,
@@ -165,7 +174,7 @@ class _AppLayoutState extends State<AppLayout> {
             // Navigation List
             Expanded(
               child: NavigationList(
-                currentPath: _currentPath,
+                currentPath: currentPath,
                 onItemTap: () => Navigator.of(context).pop(),
               ),
             ),
@@ -175,7 +184,7 @@ class _AppLayoutState extends State<AppLayout> {
     );
   }
 
-  Widget _buildBottomNav(BuildContext context) {
+  Widget _buildBottomNav(BuildContext context, String currentPath) {
     return WDiv(
       className: '''
         bg-white dark:bg-gray-900
@@ -191,8 +200,8 @@ class _AppLayoutState extends State<AppLayout> {
               label: trans(item.labelKey),
               path: item.path,
               isActive: item.path == '/'
-                  ? _currentPath == '/'
-                  : _currentPath.startsWith(item.path),
+                  ? currentPath == '/'
+                  : currentPath.startsWith(item.path),
             ),
           )
           .toList(),

@@ -6,7 +6,7 @@ import 'package:uptizm/app/enums/monitor_type.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/monitor_auth_config.dart';
 import 'package:uptizm/app/models/monitor_check.dart';
-import 'package:uptizm/app/models/user.dart';
+import 'package:uptizm/app/models/paginated_checks.dart';
 import 'package:uptizm/resources/views/monitors/monitors_index_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_show_view.dart';
@@ -25,6 +25,7 @@ class MonitorController extends MagicController
   final monitorsNotifier = ValueNotifier<List<Monitor>>([]);
   final selectedMonitorNotifier = ValueNotifier<Monitor?>(null);
   final checksNotifier = ValueNotifier<List<MonitorCheck>>([]);
+  final checksPaginationNotifier = ValueNotifier<PaginatedChecks?>(null);
 
   // Loading states
   bool _isLoading = false;
@@ -296,11 +297,29 @@ class MonitorController extends MagicController
   /// Load check history for a monitor
   Future<void> loadChecks(int monitorId, {int page = 1}) async {
     try {
-      final checks = await MonitorCheck.forMonitor(monitorId, page: page);
-      checksNotifier.value = checks;
+      final paginatedChecks =
+          await MonitorCheck.forMonitor(monitorId, page: page);
+      checksNotifier.value = paginatedChecks.checks;
+      checksPaginationNotifier.value = paginatedChecks;
     } catch (e) {
       Log.error('Failed to load checks', e);
       Magic.toast(trans('errors.network_error'));
+    }
+  }
+
+  /// Load next page of checks
+  Future<void> loadNextPage(int monitorId) async {
+    final currentPagination = checksPaginationNotifier.value;
+    if (currentPagination != null && currentPagination.hasNextPage) {
+      await loadChecks(monitorId, page: currentPagination.currentPage + 1);
+    }
+  }
+
+  /// Load previous page of checks
+  Future<void> loadPreviousPage(int monitorId) async {
+    final currentPagination = checksPaginationNotifier.value;
+    if (currentPagination != null && currentPagination.hasPreviousPage) {
+      await loadChecks(monitorId, page: currentPagination.currentPage - 1);
     }
   }
 
@@ -309,6 +328,7 @@ class MonitorController extends MagicController
     monitorsNotifier.dispose();
     selectedMonitorNotifier.dispose();
     checksNotifier.dispose();
+    checksPaginationNotifier.dispose();
     super.dispose();
   }
 }

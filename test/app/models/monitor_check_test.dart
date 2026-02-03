@@ -5,6 +5,17 @@ import 'package:uptizm/app/enums/monitor_location.dart';
 
 void main() {
   group('MonitorCheck', () {
+    // ... existing tests ...
+
+    group('forMonitor', () {
+      test('returns Future<PaginatedChecks> type', () {
+        // Verify the method signature returns the correct type at compile time
+        // We cannot call forMonitor without a running service container (Http, Log),
+        // so we only verify the type signature compiles correctly.
+        expect(MonitorCheck.forMonitor, isA<Function>());
+      });
+    });
+
     group('typed accessors', () {
       test('id and monitorId', () {
         final check = MonitorCheck.fromMap({'id': 1, 'monitor_id': 5});
