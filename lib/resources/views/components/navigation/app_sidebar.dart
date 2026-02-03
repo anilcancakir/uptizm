@@ -11,11 +11,12 @@ import 'navigation_list.dart';
 /// Contains organization selector, navigation, and user profile.
 /// Supports light/dark mode with new Uptizm design system.
 class AppSidebar extends StatelessWidget {
-  const AppSidebar({super.key});
+  final String currentPath;
+
+  const AppSidebar({super.key, required this.currentPath});
 
   @override
   Widget build(BuildContext context) {
-    final currentPath = ModalRoute.of(context)?.settings.name ?? '/';
 
     return WDiv(
       className: '''

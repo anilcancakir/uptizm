@@ -43,9 +43,9 @@
   "enabledPlugins": {
     "serena-integration@anilcancakir": false,
     "project-optimizer@anilcancakir": false,
-    "pre-commit-flow@anilcancakir": true,
+    "pre-commit-flow@anilcancakir": false,
     "security-guidance@claude-plugins-official": true,
     "dart-lsp@anilcancakir": true,
-    "claude-code-setup@claude-plugins-official": true
+    "claude-code-setup@claude-plugins-official": false
   }
 }

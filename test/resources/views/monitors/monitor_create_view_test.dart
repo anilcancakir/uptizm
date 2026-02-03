@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
-import 'package:uptizm/resources/views/components/app_card.dart';
 
 void main() {
   group('MonitorCreateView', () {

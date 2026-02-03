@@ -3,7 +3,6 @@ import 'package:uptizm/app/enums/check_status.dart';
 import 'package:uptizm/app/enums/http_method.dart';
 import 'package:uptizm/app/enums/monitor_location.dart';
 import 'package:uptizm/app/enums/monitor_status.dart';
-import 'package:uptizm/app/enums/monitor_auth_type.dart';
 import 'package:uptizm/app/enums/monitor_type.dart';
 import 'package:uptizm/app/models/monitor_auth_config.dart';
 
