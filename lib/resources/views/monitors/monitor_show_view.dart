@@ -425,7 +425,8 @@ class _MonitorShowViewState
             // Checks List
             if (checks.isEmpty)
               WDiv(
-                className: 'p-12 flex flex-col items-center justify-center w-full',
+                className:
+                    'p-12 flex flex-col items-center justify-center w-full',
                 children: [
                   WIcon(
                     Icons.history,
