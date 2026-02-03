@@ -5,7 +5,9 @@ import 'package:uptizm/resources/views/components/auth/social_login_buttons.dart
 
 void main() {
   group('SocialLoginButtons', () {
-    testWidgets('renders 3 social provider buttons (WButton widgets)', (tester) async {
+    testWidgets('renders 3 social provider buttons (WButton widgets)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         WindTheme(
           data: WindThemeData(),

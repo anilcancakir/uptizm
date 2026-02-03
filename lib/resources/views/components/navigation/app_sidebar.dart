@@ -17,7 +17,6 @@ class AppSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-
     return WDiv(
       className: '''
         w-64 h-full flex flex-col 

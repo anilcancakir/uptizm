@@ -105,7 +105,10 @@ class MonitorBasicInfoSection extends StatelessWidget {
               focus:ring-2 focus:ring-primary/20
               error:border-red-500
             ''',
-            validator: FormValidator.rules([Required(), Max(2048)], field: 'url'),
+            validator: FormValidator.rules([
+              Required(),
+              Max(2048),
+            ], field: 'url'),
           ),
 
           // HTTP Method (only for HTTP monitors)
@@ -115,10 +118,8 @@ class MonitorBasicInfoSection extends StatelessWidget {
               value: form.get('method'),
               options: HttpMethod.selectOptions
                   .map(
-                    (opt) => SelectOption(
-                      value: opt.value.value,
-                      label: opt.label,
-                    ),
+                    (opt) =>
+                        SelectOption(value: opt.value.value, label: opt.label),
                   )
                   .toList(),
               onChange: (value) {
@@ -201,16 +202,14 @@ class MonitorBasicInfoSection extends StatelessWidget {
                     children: [
                       WText(
                         '#${option.label}',
-                        className:
-                            'text-blue-800 dark:text-blue-200 text-sm',
+                        className: 'text-blue-800 dark:text-blue-200 text-sm',
                       ),
                       WButton(
                         onTap: onRemove,
                         className: 'p-0 hover:bg-transparent',
                         child: WIcon(
                           Icons.close,
-                          className:
-                              'text-blue-700 dark:text-blue-300 text-sm',
+                          className: 'text-blue-700 dark:text-blue-300 text-sm',
                         ),
                       ),
                     ],
@@ -241,7 +240,8 @@ class MonitorBasicInfoSection extends StatelessWidget {
     return Expanded(
       child: WButton(
         onTap: typeEditable ? () => onTypeChanged(type) : null,
-        className: '''
+        className:
+            '''
           px-4 py-3 rounded-lg text-sm font-medium
           border-2
           ${isSelected ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}

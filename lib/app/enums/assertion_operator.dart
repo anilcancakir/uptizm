@@ -1,4 +1,4 @@
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
 enum AssertionOperator {
   equals('equals', '=='),
@@ -17,9 +17,7 @@ enum AssertionOperator {
   static AssertionOperator? fromValue(String? value) {
     if (value == null) return null;
     try {
-      return AssertionOperator.values.firstWhere(
-        (op) => op.value == value,
-      );
+      return AssertionOperator.values.firstWhere((op) => op.value == value);
     } catch (e) {
       return null;
     }

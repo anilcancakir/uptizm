@@ -24,7 +24,8 @@ class PaginationControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return WDiv(
-      className: 'flex items-center justify-between py-4 border-t border-gray-100 dark:border-gray-700',
+      className:
+          'flex items-center justify-between py-4 border-t border-gray-100 dark:border-gray-700',
       children: [
         // Previous Button
         WButton(
@@ -50,7 +51,10 @@ class PaginationControls extends StatelessWidget {
 
         // Page Info
         WText(
-          trans('pagination.page_of', {'current': currentPage, 'total': totalPages}),
+          trans('pagination.page_of', {
+            'current': currentPage,
+            'total': totalPages,
+          }),
           className: 'text-sm text-gray-600 dark:text-gray-400',
         ),
 

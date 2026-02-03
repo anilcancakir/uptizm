@@ -24,8 +24,16 @@ void main() {
       expect(locales, isNotEmpty, reason: 'Locale list should not be empty');
 
       for (final locale in locales) {
-        expect(locale.value, isNotEmpty, reason: 'Locale value should not be empty');
-        expect(locale.label, isNotEmpty, reason: 'Locale label should not be empty');
+        expect(
+          locale.value,
+          isNotEmpty,
+          reason: 'Locale value should not be empty',
+        );
+        expect(
+          locale.label,
+          isNotEmpty,
+          reason: 'Locale label should not be empty',
+        );
       }
     });
   });

@@ -12,9 +12,7 @@ void main() {
         MaterialApp(
           home: WindTheme(
             data: windTheme,
-            child: Scaffold(
-              body: ThemeToggleButton(),
-            ),
+            child: Scaffold(body: ThemeToggleButton()),
           ),
         ),
       );
@@ -30,9 +28,7 @@ void main() {
         MaterialApp(
           home: WindTheme(
             data: windTheme,
-            child: Scaffold(
-              body: ThemeToggleButton(),
-            ),
+            child: Scaffold(body: ThemeToggleButton()),
           ),
         ),
       );

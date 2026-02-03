@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
 import 'package:uptizm/resources/views/layouts/app_layout.dart';
 import 'package:uptizm/resources/views/components/navigation/app_sidebar.dart';
 
@@ -20,10 +21,12 @@ void main() {
   group('AppLayout', () {
     testWidgets('renders child content', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AppLayout(child: const Text('Dashboard Content')),
-        ),
+        buildTestApp(child: AppLayout(child: const Text('Dashboard Content'))),
       );
+
+      // Stop polling immediately to prevent timer leak
+      Notify.stopPolling();
+
       expect(find.text('Dashboard Content'), findsOneWidget);
     });
 
@@ -38,6 +41,9 @@ void main() {
           child: AppLayout(child: const Text('Mobile')),
         ),
       );
+
+      // Stop polling immediately to prevent timer leak
+      Notify.stopPolling();
 
       // Bottom nav should be present
       // Sidebar should NOT be present

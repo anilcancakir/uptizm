@@ -18,3 +18,4 @@ Map<String, dynamic> get networkConfig => {
     },
   },
 };
+

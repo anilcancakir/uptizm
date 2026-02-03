@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import '../../../app/enums/assertion_operator.dart';
 import '../../../app/enums/assertion_type.dart';
 import '../../../app/models/assertion_rule.dart';
@@ -16,10 +16,10 @@ class AssertionRuleEditor extends StatefulWidget {
   final Function(List<AssertionRule>) onChanged;
 
   const AssertionRuleEditor({
-    Key? key,
+    super.key,
     required this.rules,
     required this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<AssertionRuleEditor> createState() => _AssertionRuleEditorState();
@@ -31,7 +31,9 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
   @override
   void initState() {
     super.initState();
-    _ruleStates = widget.rules.map((rule) => _RuleState.fromRule(rule)).toList();
+    _ruleStates = widget.rules
+        .map((rule) => _RuleState.fromRule(rule))
+        .toList();
   }
 
   @override
@@ -45,12 +47,14 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
 
   void _addRule() {
     setState(() {
-      _ruleStates.add(_RuleState(
-        type: AssertionType.statusCode,
-        operator: AssertionOperator.equals,
-        valueController: TextEditingController(),
-        pathController: TextEditingController(),
-      ));
+      _ruleStates.add(
+        _RuleState(
+          type: AssertionType.statusCode,
+          operator: AssertionOperator.equals,
+          valueController: TextEditingController(),
+          pathController: TextEditingController(),
+        ),
+      );
     });
     _notifyChanged();
   }
@@ -134,7 +138,8 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
     );
 
     return WDiv(
-      className: 'flex flex-col gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800',
+      className:
+          'flex flex-col gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800',
       children: [
         // Rule summary
         WDiv(
@@ -146,8 +151,12 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
             ),
             WButton(
               onTap: () => _removeRule(index),
-              className: 'p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
-              child: WIcon(Icons.close, className: 'text-gray-600 dark:text-gray-400 text-lg'),
+              className:
+                  'p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
+              child: WIcon(
+                Icons.close,
+                className: 'text-gray-600 dark:text-gray-400 text-lg',
+              ),
             ),
           ],
         ),

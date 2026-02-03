@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
 
 /// Notification model
 class NotificationItem {
@@ -179,66 +180,62 @@ class NotificationDropdown extends StatelessWidget {
       NotificationType.info => 'text-blue-500',
     };
 
+    // Follow activity_item.dart pattern exactly
     return WAnchor(
       onTap: () {
         onNotificationTap?.call(notification);
         close();
       },
       child: WDiv(
-        states: notification.isRead ? {} : {'unread'},
         className: '''
-          px-4 py-3 w-full
+          flex flex-row items-start gap-3 px-4 py-3 w-full
           border-b border-gray-100 dark:border-gray-700
           hover:bg-gray-50 dark:hover:bg-gray-700
-          unread:bg-primary/5 dark:unread:bg-primary/10
-          flex flex-row gap-3
+          ${notification.isRead ? '' : 'bg-primary/5 dark:bg-primary/10'}
         ''',
         children: [
+          // Icon container
           WDiv(
             className: '''
-              w-8 h-8 rounded-full 
+              w-8 h-8 rounded-full
               bg-gray-100 dark:bg-gray-700
-              flex items-center justify-center flex-shrink-0
+              flex items-center justify-center
             ''',
             child: WIcon(icon, className: 'text-lg $iconColor'),
           ),
+
+          // Content - same as activity_item
           Expanded(
             child: WDiv(
-              className: 'flex flex-col gap-0.5 min-w-0',
+              className: 'flex flex-col min-w-0',
               children: [
-                WDiv(
-                  className: 'flex flex-row items-center gap-2',
-                  children: [
-                    Expanded(
-                      child: WText(
-                        notification.title,
-                        states: notification.isRead ? {} : {'unread'},
-                        className: '''
-                          text-sm text-gray-700 dark:text-gray-200 
-                          unread:font-semibold unread:text-gray-900 dark:unread:text-white
-                          truncate
-                        ''',
-                      ),
-                    ),
-                    if (!notification.isRead)
-                      WDiv(
-                        className:
-                            'w-2 h-2 rounded-full bg-primary flex-shrink-0',
-                        child: const SizedBox.shrink(),
-                      ),
-                  ],
+                WText(
+                  notification.title,
+                  className: '''
+                    text-sm text-gray-900 dark:text-white truncate
+                    ${notification.isRead ? '' : 'font-semibold'}
+                  ''',
                 ),
+                const SizedBox(height: 2),
                 WText(
                   notification.message,
                   className: 'text-xs text-gray-500 dark:text-gray-400',
                 ),
+                const SizedBox(height: 2),
                 WText(
                   _formatTime(notification.createdAt),
-                  className: 'text-xs text-gray-400 dark:text-gray-500 mt-1',
+                  className: 'text-xs text-gray-400 dark:text-gray-500',
                 ),
               ],
             ),
           ),
+
+          // Unread indicator
+          if (!notification.isRead)
+            WDiv(
+              className: 'w-2 h-2 rounded-full bg-primary mt-2',
+              child: const SizedBox.shrink(),
+            ),
         ],
       ),
     );
@@ -280,5 +277,188 @@ class NotificationDropdown extends StatelessWidget {
     } else {
       return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
     }
+  }
+}
+
+/// Notification Dropdown with Stream
+///
+/// Connects to real notification stream from NotificationManager.
+/// Handles loading, error, and data states via StreamBuilder.
+class NotificationDropdownWithStream extends StatelessWidget {
+  final Stream<List<DatabaseNotification>> notificationStream;
+  final Future<void> Function(String id)? onMarkAsRead;
+  final Future<void> Function()? onMarkAllAsRead;
+  final void Function(String path)? onNavigate;
+  final VoidCallback? onViewAll;
+
+  const NotificationDropdownWithStream({
+    super.key,
+    required this.notificationStream,
+    this.onMarkAsRead,
+    this.onMarkAllAsRead,
+    this.onNavigate,
+    this.onViewAll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<DatabaseNotification>>(
+      stream: notificationStream,
+      builder: (context, snapshot) {
+        // Loading state
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return _buildLoadingDropdown();
+        }
+
+        // Error state
+        if (snapshot.hasError) {
+          return _buildErrorDropdown();
+        }
+
+        // Data state (may be empty list)
+        final notifications = snapshot.data ?? [];
+        final notificationItems = notifications
+            .map(
+              (n) => NotificationItem(
+                id: n.id,
+                title: n.title,
+                message: n.body,
+                createdAt: n.createdAt,
+                isRead: n.isRead,
+                type: _mapNotificationType(n.type),
+                actionPath: n.actionUrl,
+              ),
+            )
+            .toList();
+
+        return NotificationDropdown(
+          notifications: notificationItems,
+          onMarkAllRead: () async {
+            await onMarkAllAsRead?.call();
+          },
+          onNotificationTap: (item) async {
+            await onMarkAsRead?.call(item.id);
+            if (item.actionPath != null && onNavigate != null) {
+              onNavigate!(item.actionPath!);
+            }
+          },
+          onViewAll: onViewAll,
+        );
+      },
+    );
+  }
+
+  /// Map notification type string to NotificationType enum
+  NotificationType _mapNotificationType(String type) {
+    switch (type) {
+      case 'monitor_down':
+        return NotificationType.error;
+      case 'monitor_up':
+        return NotificationType.success;
+      case 'monitor_degraded':
+        return NotificationType.warning;
+      default:
+        return NotificationType.info;
+    }
+  }
+
+  /// Build loading state dropdown
+  Widget _buildLoadingDropdown() {
+    return WPopover(
+      alignment: PopoverAlignment.bottomRight,
+      className: '''
+        w-80
+        bg-white dark:bg-gray-800
+        border border-gray-200 dark:border-gray-700
+        rounded-xl shadow-xl
+      ''',
+      maxHeight: 400,
+      triggerBuilder: (context, isOpen, isHovering) =>
+          _buildTrigger(context, isOpen, isHovering, unreadCount: 0),
+      contentBuilder: (context, close) => _buildLoadingContent(),
+    );
+  }
+
+  /// Build error state dropdown
+  Widget _buildErrorDropdown() {
+    return WPopover(
+      alignment: PopoverAlignment.bottomRight,
+      className: '''
+        w-80
+        bg-white dark:bg-gray-800
+        border border-gray-200 dark:border-gray-700
+        rounded-xl shadow-xl
+      ''',
+      maxHeight: 400,
+      triggerBuilder: (context, isOpen, isHovering) =>
+          _buildTrigger(context, isOpen, isHovering, unreadCount: 0),
+      contentBuilder: (context, close) => _buildErrorContent(),
+    );
+  }
+
+  /// Build trigger button (bell icon)
+  Widget _buildTrigger(
+    BuildContext context,
+    bool isOpen,
+    bool isHovering, {
+    required int unreadCount,
+  }) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        WDiv(
+          states: {if (isOpen) 'active', if (isHovering) 'hover'},
+          className: '''
+            p-2 rounded-lg duration-150
+            bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800
+            active:bg-gray-100 dark:active:bg-gray-800
+          ''',
+          child: WIcon(
+            Icons.notifications_outlined,
+            className: 'text-2xl text-gray-500 dark:text-gray-400',
+          ),
+        ),
+        if (unreadCount > 0)
+          Positioned(
+            top: 4,
+            right: 4,
+            child: WDiv(
+              className: '''
+                min-w-[14px] h-[14px] px-1 rounded-full
+                bg-red-500
+                flex items-center justify-center
+                animate-bounce duration-500
+              ''',
+              child: WText(
+                unreadCount > 9 ? '9+' : unreadCount.toString(),
+                className: 'text-[9px] font-bold text-white',
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Build loading content
+  Widget _buildLoadingContent() {
+    return WDiv(
+      className: 'py-12 flex items-center justify-center',
+      child: const CircularProgressIndicator(),
+    );
+  }
+
+  /// Build error content
+  Widget _buildErrorContent() {
+    return WDiv(
+      className: 'py-12 flex flex-col items-center justify-center gap-3',
+      children: [
+        WIcon(Icons.error_outline, className: 'text-4xl text-red-500'),
+        WText(
+          'Failed to load notifications',
+          className: 'text-sm text-gray-600 dark:text-gray-400',
+        ),
+      ],
+    );
   }
 }

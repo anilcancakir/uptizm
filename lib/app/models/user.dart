@@ -37,8 +37,14 @@ class User extends Model
 
   /// The attributes that are mass assignable.
   @override
-  List<String> get fillable =>
-      ['name', 'email', 'phone', 'timezone', 'language', 'born_at'];
+  List<String> get fillable => [
+    'name',
+    'email',
+    'phone',
+    'timezone',
+    'language',
+    'born_at',
+  ];
 
   /// The attributes that should be cast.
   @override

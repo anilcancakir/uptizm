@@ -27,8 +27,7 @@ class CheckStatusRow extends StatelessWidget {
             if (check.hasError)
               WText(
                 check.errorMessage!,
-                className:
-                    'text-sm font-medium text-red-600 dark:text-red-400',
+                className: 'text-sm font-medium text-red-600 dark:text-red-400',
               )
             else ...[
               WDiv(

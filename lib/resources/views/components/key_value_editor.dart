@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
 /// Key-value pair editor for headers, query params, etc.
 ///
@@ -12,10 +12,10 @@ class KeyValueEditor extends StatefulWidget {
   final Function(Map<String, String>) onChanged;
 
   const KeyValueEditor({
-    Key? key,
+    super.key,
     required this.entries,
     required this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<KeyValueEditor> createState() => _KeyValueEditorState();
@@ -28,10 +28,12 @@ class _KeyValueEditorState extends State<KeyValueEditor> {
   void initState() {
     super.initState();
     _entries = widget.entries.entries
-        .map((e) => _Entry(
-              keyController: TextEditingController(text: e.key),
-              valueController: TextEditingController(text: e.value),
-            ))
+        .map(
+          (e) => _Entry(
+            keyController: TextEditingController(text: e.key),
+            valueController: TextEditingController(text: e.value),
+          ),
+        )
         .toList();
   }
 
@@ -46,10 +48,12 @@ class _KeyValueEditorState extends State<KeyValueEditor> {
 
   void _addEntry() {
     setState(() {
-      _entries.add(_Entry(
-        keyController: TextEditingController(),
-        valueController: TextEditingController(),
-      ));
+      _entries.add(
+        _Entry(
+          keyController: TextEditingController(),
+          valueController: TextEditingController(),
+        ),
+      );
     });
     _notifyChanged();
   }
@@ -125,8 +129,12 @@ class _KeyValueEditorState extends State<KeyValueEditor> {
               // Delete button
               WButton(
                 onTap: () => _removeEntry(index),
-                className: 'p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
-                child: WIcon(Icons.close, className: 'text-gray-600 dark:text-gray-400'),
+                className:
+                    'p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
+                child: WIcon(
+                  Icons.close,
+                  className: 'text-gray-600 dark:text-gray-400',
+                ),
               ),
             ],
           );
@@ -153,8 +161,5 @@ class _Entry {
   final TextEditingController keyController;
   final TextEditingController valueController;
 
-  _Entry({
-    required this.keyController,
-    required this.valueController,
-  });
+  _Entry({required this.keyController, required this.valueController});
 }

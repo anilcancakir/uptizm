@@ -31,8 +31,8 @@ class UptizmChartTheme {
 
   // Gradient for line charts (primary with opacity)
   static List<Color> get primaryGradient => [
-    primary.withOpacity(0.3),
-    primary.withOpacity(0.05),
+    primary.withValues(alpha: 0.3),
+    primary.withValues(alpha: 0.05),
   ];
 
   // Get status color by status string

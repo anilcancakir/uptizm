@@ -40,7 +40,8 @@ class AuthFormCard extends StatelessWidget {
         // Title
         WText(
           title,
-          className: 'text-2xl font-bold text-slate-900 dark:text-white text-center',
+          className:
+              'text-2xl font-bold text-slate-900 dark:text-white text-center',
         ),
         const SizedBox(height: 4),
 

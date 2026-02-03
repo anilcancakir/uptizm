@@ -6,11 +6,7 @@ import 'package:uptizm/resources/views/components/dashboard/stat_card.dart';
 Widget buildTestApp({required Widget child}) {
   return WindTheme(
     data: WindThemeData(),
-    child: MaterialApp(
-      home: Scaffold(
-        body: child,
-      ),
-    ),
+    child: MaterialApp(home: Scaffold(body: child)),
   );
 }
 
@@ -19,10 +15,7 @@ void main() {
     testWidgets('renders title and value', (tester) async {
       await tester.pumpWidget(
         buildTestApp(
-          child: const StatCard(
-            label: 'Total Monitors',
-            value: '24',
-          ),
+          child: const StatCard(label: 'Total Monitors', value: '24'),
         ),
       );
 

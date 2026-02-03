@@ -26,10 +26,7 @@ class MonitorRequestDetailsSection extends StatelessWidget {
       body: WDiv(
         className: 'flex flex-col gap-4',
         children: [
-          KeyValueEditor(
-            entries: headers,
-            onChanged: onHeadersChanged,
-          ),
+          KeyValueEditor(entries: headers, onChanged: onHeadersChanged),
 
           // Request Body
           WDiv(
@@ -42,8 +39,7 @@ class MonitorRequestDetailsSection extends StatelessWidget {
               ),
               WText(
                 trans('monitor.body_hint'),
-                className:
-                    'text-xs text-gray-600 dark:text-gray-400',
+                className: 'text-xs text-gray-600 dark:text-gray-400',
               ),
               WInput(
                 value: body,
@@ -59,8 +55,7 @@ class MonitorRequestDetailsSection extends StatelessWidget {
                   focus:border-primary focus:ring-2 focus:ring-primary/20
                   min-h-[120px]
                 ''',
-                placeholderClassName:
-                    'text-gray-400 dark:text-gray-500',
+                placeholderClassName: 'text-gray-400 dark:text-gray-500',
               ),
             ],
           ),

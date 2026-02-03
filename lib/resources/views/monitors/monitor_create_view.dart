@@ -96,17 +96,21 @@ class _MonitorCreateViewState
     setState(() => _isTestingFetch = true);
 
     try {
-      final response = await Http.post('/monitors/test', data: {
-        'url': url,
-        'method': form.get('method'),
-        'headers': _headers,
-        'body': _body,
-        'auth_config': _authConfig.toMap(),
-      });
+      final response = await Http.post(
+        '/monitors/test',
+        data: {
+          'url': url,
+          'method': form.get('method'),
+          'headers': _headers,
+          'body': _body,
+          'auth_config': _authConfig.toMap(),
+        },
+      );
 
       if (response.successful) {
         setState(() {
-          _testFetchResponse = response.data is Map && response.data.containsKey('data')
+          _testFetchResponse =
+              response.data is Map && response.data.containsKey('data')
               ? response.data['data']
               : response.data;
           _isTestingFetch = false;
@@ -192,11 +196,10 @@ class _MonitorCreateViewState
             MonitorSettingsSection(
               form: form,
               selectedLocations: _selectedLocations,
-              onLocationsChanged: (locs) =>
-                  setState(() {
-                    _selectedLocations.clear();
-                    _selectedLocations.addAll(locs);
-                  }),
+              onLocationsChanged: (locs) => setState(() {
+                _selectedLocations.clear();
+                _selectedLocations.addAll(locs);
+              }),
             ),
 
             // Authentication (only for HTTP monitors)

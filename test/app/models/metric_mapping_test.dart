@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../../../lib/app/models/metric_mapping.dart';
-import '../../../lib/app/enums/metric_type.dart';
+import 'package:uptizm/app/models/metric_mapping.dart';
+import 'package:uptizm/app/enums/metric_type.dart';
 
 void main() {
   group('MetricMapping', () {
@@ -59,8 +59,10 @@ void main() {
         type: MetricType.numeric,
         unit: 'conn',
       );
-      expect(mapping.toDisplayString(),
-          'DB Connections: data.database.active_connections (numeric, conn)');
+      expect(
+        mapping.toDisplayString(),
+        'DB Connections: data.database.active_connections (numeric, conn)',
+      );
     });
 
     test('toDisplayString without unit', () {
@@ -69,8 +71,7 @@ void main() {
         path: 'data.database.size',
         type: MetricType.string,
       );
-      expect(
-          mapping.toDisplayString(), 'DB Size: data.database.size (string)');
+      expect(mapping.toDisplayString(), 'DB Size: data.database.size (string)');
     });
 
     test('equality', () {

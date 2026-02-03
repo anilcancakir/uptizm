@@ -25,7 +25,9 @@ void main() {
       });
 
       test('profilePhotoUrl', () {
-        final team = Team.fromMap({'profile_photo_url': 'https://img.com/a.jpg'});
+        final team = Team.fromMap({
+          'profile_photo_url': 'https://img.com/a.jpg',
+        });
         expect(team.profilePhotoUrl, 'https://img.com/a.jpg');
       });
 

@@ -25,16 +25,20 @@ Map<String, dynamic> get socialAuthConfig => {
         'client_id': env('MICROSOFT_CLIENT_ID'),
         'tenant': env('MICROSOFT_TENANT', 'common'),
         'callback_scheme': 'uptizm', // Mobile/desktop
-        'web_callback_url': env('MICROSOFT_WEB_CALLBACK_URL',
-            'http://localhost:8080/auth/callback'), // Web
+        'web_callback_url': env(
+          'MICROSOFT_WEB_CALLBACK_URL',
+          'http://localhost:8080/auth/callback',
+        ), // Web
         'scopes': ['openid', 'profile', 'email'],
       },
       'github': {
         'enabled': true,
         'client_id': env('GITHUB_CLIENT_ID'),
         'callback_scheme': 'uptizm', // Mobile/desktop
-        'web_callback_url': env('GITHUB_WEB_CALLBACK_URL',
-            'http://localhost:8080/auth/callback'), // Web
+        'web_callback_url': env(
+          'GITHUB_WEB_CALLBACK_URL',
+          'http://localhost:8080/auth/callback',
+        ), // Web
         'scopes': ['read:user', 'user:email'],
       },
     },

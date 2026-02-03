@@ -77,8 +77,8 @@ class ResponseTimeSparkline extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    lineColor.withOpacity(0.3),
-                    lineColor.withOpacity(0.05),
+                    lineColor.withValues(alpha: 0.3),
+                    lineColor.withValues(alpha: 0.05),
                   ],
                 ),
               ),

@@ -62,11 +62,13 @@ class MonitorListItem extends StatelessWidget {
               children: [
                 WText(
                   name,
-                  className: 'text-sm font-semibold text-gray-900 dark:text-white truncate',
+                  className:
+                      'text-sm font-semibold text-gray-900 dark:text-white truncate',
                 ),
                 WText(
                   url,
-                  className: 'text-xs text-gray-500 dark:text-gray-400 truncate font-mono',
+                  className:
+                      'text-xs text-gray-500 dark:text-gray-400 truncate font-mono',
                 ),
               ],
             ),
@@ -81,7 +83,8 @@ class MonitorListItem extends StatelessWidget {
             ''',
             child: WText(
               responseTime,
-              className: 'text-xs font-mono font-medium text-gray-700 dark:text-gray-300',
+              className:
+                  'text-xs font-mono font-medium text-gray-700 dark:text-gray-300',
             ),
           ),
         ],

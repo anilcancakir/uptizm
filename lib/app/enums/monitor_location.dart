@@ -1,4 +1,4 @@
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
 enum MonitorLocation {
   usEast('us-east', 'US East'),

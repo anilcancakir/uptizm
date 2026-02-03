@@ -38,15 +38,14 @@ class StatCard extends StatelessWidget {
           children: [
             WText(
               label.toUpperCase(),
-              className: 'text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400',
+              className:
+                  'text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400',
             ),
             if (icon != null)
               WDiv(
-                className: 'w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center',
-                child: WIcon(
-                  icon!,
-                  className: 'text-lg text-primary',
-                ),
+                className:
+                    'w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center',
+                child: WIcon(icon!, className: 'text-lg text-primary'),
               ),
           ],
         ),

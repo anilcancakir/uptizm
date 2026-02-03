@@ -6,11 +6,7 @@ import 'package:uptizm/resources/views/components/dashboard/monitor_list_item.da
 Widget buildTestApp({required Widget child}) {
   return WindTheme(
     data: WindThemeData(),
-    child: MaterialApp(
-      home: Scaffold(
-        body: child,
-      ),
-    ),
+    child: MaterialApp(home: Scaffold(body: child)),
   );
 }
 

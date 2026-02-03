@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../../../lib/app/enums/assertion_type.dart';
-import '../../../lib/app/enums/assertion_operator.dart';
-import '../../../lib/app/models/assertion_rule.dart';
+import 'package:uptizm/app/enums/assertion_type.dart';
+import 'package:uptizm/app/enums/assertion_operator.dart';
+import 'package:uptizm/app/models/assertion_rule.dart';
 
 void main() {
   group('AssertionRule', () {

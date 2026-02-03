@@ -94,7 +94,10 @@ void main() {
       final restored = MonitorAuthConfig.fromMap(map);
 
       expect(restored.type, MonitorAuthType.customHeader);
-      expect(restored.customHeaders, {'X-Custom-Auth': 'token123', 'X-Tenant': 'acme'});
+      expect(restored.customHeaders, {
+        'X-Custom-Auth': 'token123',
+        'X-Tenant': 'acme',
+      });
     });
 
     test('toMap omits irrelevant keys', () {

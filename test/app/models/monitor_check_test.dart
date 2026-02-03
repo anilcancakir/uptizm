@@ -86,8 +86,9 @@ void main() {
       });
 
       test('checkedAt parses Carbon', () {
-        final check =
-            MonitorCheck.fromMap({'checked_at': '2025-01-15T10:30:00.000Z'});
+        final check = MonitorCheck.fromMap({
+          'checked_at': '2025-01-15T10:30:00.000Z',
+        });
         expect(check.checkedAt, isNotNull);
       });
 
@@ -145,7 +146,7 @@ void main() {
           'parsed_metrics': {'latency': 200},
           'assertions_passed': true,
           'assertion_results': [
-            {'type': 'status', 'passed': true}
+            {'type': 'status', 'passed': true},
           ],
           'error_message': null,
           'checked_at': '2025-06-01T12:00:00.000Z',

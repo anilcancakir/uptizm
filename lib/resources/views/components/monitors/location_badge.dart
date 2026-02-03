@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import '../../../../app/enums/monitor_location.dart';
 
 class LocationBadge extends StatelessWidget {

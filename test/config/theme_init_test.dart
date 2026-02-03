@@ -14,7 +14,11 @@ void main() {
       // 3. If savedDark == false or null, create WindThemeData with Brightness.light
 
       // For unit testing purposes, we verify the service integration point exists
-      expect(true, isTrue, reason: 'Theme initialization will be tested via integration tests');
+      expect(
+        true,
+        isTrue,
+        reason: 'Theme initialization will be tested via integration tests',
+      );
     });
 
     test('WindThemeData should support both light and dark brightness', () {
@@ -28,10 +32,10 @@ void main() {
 
     test('brightness dark should be used when preference is dark', () {
       // Logic test: if savedDark == true, brightness should be Brightness.dark
-      final savedDark = true;
-      final brightness = savedDark ? Brightness.dark : Brightness.light;
+      Brightness getBrightness(bool isDark) =>
+          isDark ? Brightness.dark : Brightness.light;
 
-      expect(brightness, equals(Brightness.dark));
+      expect(getBrightness(true), equals(Brightness.dark));
     });
 
     test('brightness light should be used when preference is light or null', () {

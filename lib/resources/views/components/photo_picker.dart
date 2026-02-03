@@ -93,10 +93,7 @@ class PhotoPicker extends StatelessWidget {
               );
             }
 
-            return WImage(
-              src: url,
-              className: _imageClassName,
-            );
+            return WImage(src: url, className: _imageClassName);
           },
         ),
 
@@ -162,7 +159,9 @@ class PhotoPicker extends StatelessWidget {
                           border border-red-200 dark:border-red-900/50
                           text-xs font-medium
                         ''',
-                        child: WText(removeButtonText ?? trans('common.remove')),
+                        child: WText(
+                          removeButtonText ?? trans('common.remove'),
+                        ),
                       ),
                   ],
                 ),

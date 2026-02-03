@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 import 'package:uptizm/app/enums/assertion_operator.dart';
 import 'package:uptizm/app/enums/assertion_type.dart';
 import 'package:uptizm/app/models/assertion_rule.dart';
@@ -10,23 +10,14 @@ void main() {
   Widget wrapWithTheme(Widget child) {
     return WindTheme(
       data: WindThemeData(),
-      child: MaterialApp(
-        home: Scaffold(
-          body: child,
-        ),
-      ),
+      child: MaterialApp(home: Scaffold(body: child)),
     );
   }
 
   group('AssertionRuleEditor', () {
     testWidgets('renders empty state with Add button', (tester) async {
       await tester.pumpWidget(
-        wrapWithTheme(
-          AssertionRuleEditor(
-            rules: const [],
-            onChanged: (_) {},
-          ),
-        ),
+        wrapWithTheme(AssertionRuleEditor(rules: const [], onChanged: (_) {})),
       );
 
       expect(find.text('Add Assertion Rule'), findsOneWidget);
@@ -49,12 +40,7 @@ void main() {
       ];
 
       await tester.pumpWidget(
-        wrapWithTheme(
-          AssertionRuleEditor(
-            rules: rules,
-            onChanged: (_) {},
-          ),
-        ),
+        wrapWithTheme(AssertionRuleEditor(rules: rules, onChanged: (_) {})),
       );
 
       // Should have rule summaries displayed
@@ -138,12 +124,7 @@ void main() {
       ];
 
       await tester.pumpWidget(
-        wrapWithTheme(
-          AssertionRuleEditor(
-            rules: rules,
-            onChanged: (_) {},
-          ),
-        ),
+        wrapWithTheme(AssertionRuleEditor(rules: rules, onChanged: (_) {})),
       );
 
       // First rule should have path input, second should not
@@ -192,12 +173,7 @@ void main() {
       ];
 
       await tester.pumpWidget(
-        wrapWithTheme(
-          AssertionRuleEditor(
-            rules: rules,
-            onChanged: (_) {},
-          ),
-        ),
+        wrapWithTheme(AssertionRuleEditor(rules: rules, onChanged: (_) {})),
       );
 
       // Should display formatted summary using toDisplayString()

@@ -37,8 +37,9 @@ class _SearchableTimezoneSelectState extends State<SearchableTimezoneSelect> {
 
     // If there's a value, make sure it's loaded
     if (widget.value != null && widget.value!.isNotEmpty) {
-      final selectedExists =
-          defaultOptions.any((opt) => opt.value == widget.value);
+      final selectedExists = defaultOptions.any(
+        (opt) => opt.value == widget.value,
+      );
       if (!selectedExists) {
         final selectedOption = await _fetchTimezones(widget.value!);
         if (selectedOption.isNotEmpty) {
@@ -80,8 +81,9 @@ class _SearchableTimezoneSelectState extends State<SearchableTimezoneSelect> {
     if (widget.value != null && widget.value!.isNotEmpty) {
       final selectedExists = results.any((opt) => opt.value == widget.value);
       if (!selectedExists) {
-        final selectedInAll =
-            _allOptions.where((opt) => opt.value == widget.value).toList();
+        final selectedInAll = _allOptions
+            .where((opt) => opt.value == widget.value)
+            .toList();
         if (selectedInAll.isNotEmpty) {
           results.insert(0, selectedInAll.first);
         }
@@ -138,7 +140,6 @@ class _SearchableTimezoneSelectState extends State<SearchableTimezoneSelect> {
         ],
       );
     }
-
 
     return WFormSelect<String>(
       value: widget.value,

@@ -25,6 +25,7 @@ class MonitorCheck {
     if (value is Map) return Map<String, dynamic>.from(value);
     return null;
   }
+
   bool? get assertionsPassed => _attributes['assertions_passed'] as bool?;
   List<Map<String, dynamic>>? get assertionResults =>
       (_attributes['assertion_results'] as List?)?.cast<Map<String, dynamic>>();
@@ -63,7 +64,8 @@ class MonitorCheck {
         // The API now returns {data: [...], meta: {...}}
         if (response.data is Map<String, dynamic>) {
           return PaginatedChecks.fromResponse(
-              response.data as Map<String, dynamic>);
+            response.data as Map<String, dynamic>,
+          );
         }
 
         // Fallback for legacy structure if any

@@ -36,14 +36,16 @@ class _TeamMembersViewState
         children: [
           // Header
           WDiv(
-            className: 'flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between',
+            className:
+                'flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between',
             children: [
               WDiv(
                 className: 'flex flex-col',
                 children: [
                   WText(
                     trans('teams.team_members'),
-                    className: 'text-2xl font-bold text-gray-900 dark:text-white',
+                    className:
+                        'text-2xl font-bold text-gray-900 dark:text-white',
                   ),
                   const SizedBox(height: 4),
                   WText(
@@ -66,7 +68,11 @@ class _TeamMembersViewState
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.person_add_outlined, size: 16, color: Colors.white),
+                      const Icon(
+                        Icons.person_add_outlined,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                       const SizedBox(width: 6),
                       WText(trans('teams.invite_member')),
                     ],
@@ -152,11 +158,13 @@ class _TeamMembersViewState
                   children: [
                     WText(
                       member.name ?? '',
-                      className: 'text-sm font-medium text-gray-900 dark:text-white truncate',
+                      className:
+                          'text-sm font-medium text-gray-900 dark:text-white truncate',
                     ),
                     WText(
                       member.email ?? '',
-                      className: 'text-xs text-gray-500 dark:text-gray-400 truncate',
+                      className:
+                          'text-xs text-gray-500 dark:text-gray-400 truncate',
                     ),
                   ],
                 ),
@@ -170,7 +178,8 @@ class _TeamMembersViewState
           children: [
             // Role badge
             WDiv(
-              className: '''
+              className:
+                  '''
                 px-2.5 py-1 rounded-full
                 ${isOwnerRow ? 'bg-primary/10 text-primary' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}
                 text-xs font-medium
@@ -207,7 +216,10 @@ class _TeamMembersViewState
                         hover:text-red-500
                         duration-150
                       ''',
-                      child: WIcon(Icons.person_remove_outlined, className: 'text-lg'),
+                      child: WIcon(
+                        Icons.person_remove_outlined,
+                        className: 'text-lg',
+                      ),
                     ),
                   ],
                 ),
@@ -252,7 +264,8 @@ class _TeamMembersViewState
                             ''',
                             child: WIcon(
                               Icons.mail_outline,
-                              className: 'text-lg text-orange-600 dark:text-orange-400',
+                              className:
+                                  'text-lg text-orange-600 dark:text-orange-400',
                             ),
                           ),
                           Flexible(
@@ -261,11 +274,13 @@ class _TeamMembersViewState
                               children: [
                                 WText(
                                   invitation.email ?? '',
-                                  className: 'text-sm font-medium text-gray-900 dark:text-white truncate',
+                                  className:
+                                      'text-sm font-medium text-gray-900 dark:text-white truncate',
                                 ),
                                 WText(
                                   '${trans('teams.invited_as')}: ${TeamRole.label(invitation.role ?? 'member')}',
-                                  className: 'text-xs text-orange-600 dark:text-orange-400 truncate',
+                                  className:
+                                      'text-xs text-orange-600 dark:text-orange-400 truncate',
                                 ),
                               ],
                             ),
@@ -447,7 +462,10 @@ class _TeamMembersViewState
                 ),
                 WButton(
                   onTap: () async {
-                    final success = await controller.updateRole(member, selectedRole);
+                    final success = await controller.updateRole(
+                      member,
+                      selectedRole,
+                    );
                     if (success) Magic.closeDialog();
                   },
                   className: '''

@@ -288,7 +288,8 @@ class _ProfileSettingsViewState
                       ),
                       WText(
                         trans('profile_settings.email_desc'),
-                        className: 'text-gray-500 dark:text-gray-400 text-xs mt-2',
+                        className:
+                            'text-gray-500 dark:text-gray-400 text-xs mt-2',
                       ),
                     ],
                   ),
@@ -343,7 +344,8 @@ class _ProfileSettingsViewState
                       border border-gray-200 dark:border-gray-700
                     ''',
                     options: localeOptions,
-                    onChange: (value) => profileForm.set('language', value ?? 'en'),
+                    onChange: (value) =>
+                        profileForm.set('language', value ?? 'en'),
                   ),
 
                   // Timezone Select
@@ -351,7 +353,8 @@ class _ProfileSettingsViewState
                     label: trans('profile_settings.timezone'),
                     value: profileForm.get('timezone'),
                     placeholder: trans('profile_settings.timezone_placeholder'),
-                    onChanged: (value) => profileForm.set('timezone', value ?? ''),
+                    onChanged: (value) =>
+                        profileForm.set('timezone', value ?? ''),
                   ),
                 ],
               ),
@@ -396,7 +399,9 @@ class _ProfileSettingsViewState
                   // Current Password
                   WFormInput(
                     label: trans('profile_settings.current_password'),
-                    hint: trans('profile_settings.current_password_placeholder'),
+                    hint: trans(
+                      'profile_settings.current_password_placeholder',
+                    ),
                     controller: passwordForm['current_password'],
                     type: InputType.password,
                     labelClassName: '''
@@ -452,7 +457,9 @@ class _ProfileSettingsViewState
                   // Confirm Password
                   WFormInput(
                     label: trans('profile_settings.confirm_password'),
-                    hint: trans('profile_settings.confirm_password_placeholder'),
+                    hint: trans(
+                      'profile_settings.confirm_password_placeholder',
+                    ),
                     controller: passwordForm['password_confirmation'],
                     type: InputType.password,
                     labelClassName: '''

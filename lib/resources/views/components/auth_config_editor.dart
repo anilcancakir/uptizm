@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:fluttersdk_magic/fluttersdk_magic.dart';
 
 import '../../../app/enums/api_key_location.dart';
 import '../../../app/enums/monitor_auth_type.dart';
@@ -19,10 +19,10 @@ class AuthConfigEditor extends StatefulWidget {
   final ValueChanged<MonitorAuthConfig> onChanged;
 
   const AuthConfigEditor({
-    Key? key,
+    super.key,
     required this.value,
     required this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<AuthConfigEditor> createState() => _AuthConfigEditorState();
@@ -42,20 +42,23 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
   void initState() {
     super.initState();
     _type = widget.value.type;
-    _usernameController =
-        TextEditingController(text: widget.value.basicAuthUsername ?? '');
-    _passwordController =
-        TextEditingController(text: widget.value.basicAuthPassword ?? '');
-    _tokenController =
-        TextEditingController(text: widget.value.bearerToken ?? '');
-    _apiKeyNameController =
-        TextEditingController(text: widget.value.apiKeyName ?? '');
-    _apiKeyValueController =
-        TextEditingController(text: widget.value.apiKeyValue ?? '');
-    _apiKeyLocation =
-        widget.value.apiKeyLocation ?? ApiKeyLocation.header;
-    _customHeaders =
-        Map<String, String>.from(widget.value.customHeaders ?? {});
+    _usernameController = TextEditingController(
+      text: widget.value.basicAuthUsername ?? '',
+    );
+    _passwordController = TextEditingController(
+      text: widget.value.basicAuthPassword ?? '',
+    );
+    _tokenController = TextEditingController(
+      text: widget.value.bearerToken ?? '',
+    );
+    _apiKeyNameController = TextEditingController(
+      text: widget.value.apiKeyName ?? '',
+    );
+    _apiKeyValueController = TextEditingController(
+      text: widget.value.apiKeyValue ?? '',
+    );
+    _apiKeyLocation = widget.value.apiKeyLocation ?? ApiKeyLocation.header;
+    _customHeaders = Map<String, String>.from(widget.value.customHeaders ?? {});
   }
 
   @override
@@ -69,33 +72,39 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
   }
 
   void _notifyChange() {
-    widget.onChanged(MonitorAuthConfig(
-      type: _type,
-      basicAuthUsername:
-          _type == MonitorAuthType.basicAuth ? _usernameController.text : null,
-      basicAuthPassword:
-          _type == MonitorAuthType.basicAuth ? _passwordController.text : null,
-      bearerToken:
-          _type == MonitorAuthType.bearerToken ? _tokenController.text : null,
-      apiKeyName:
-          _type == MonitorAuthType.apiKey ? _apiKeyNameController.text : null,
-      apiKeyValue:
-          _type == MonitorAuthType.apiKey ? _apiKeyValueController.text : null,
-      apiKeyLocation:
-          _type == MonitorAuthType.apiKey ? _apiKeyLocation : null,
-      customHeaders:
-          _type == MonitorAuthType.customHeader ? _customHeaders : null,
-    ));
+    widget.onChanged(
+      MonitorAuthConfig(
+        type: _type,
+        basicAuthUsername: _type == MonitorAuthType.basicAuth
+            ? _usernameController.text
+            : null,
+        basicAuthPassword: _type == MonitorAuthType.basicAuth
+            ? _passwordController.text
+            : null,
+        bearerToken: _type == MonitorAuthType.bearerToken
+            ? _tokenController.text
+            : null,
+        apiKeyName: _type == MonitorAuthType.apiKey
+            ? _apiKeyNameController.text
+            : null,
+        apiKeyValue: _type == MonitorAuthType.apiKey
+            ? _apiKeyValueController.text
+            : null,
+        apiKeyLocation: _type == MonitorAuthType.apiKey
+            ? _apiKeyLocation
+            : null,
+        customHeaders: _type == MonitorAuthType.customHeader
+            ? _customHeaders
+            : null,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return WDiv(
       className: 'flex flex-col gap-4',
-      children: [
-        _buildTypeSelector(),
-        ..._buildTypeFields(),
-      ],
+      children: [_buildTypeSelector(), ..._buildTypeFields()],
     );
   }
 
@@ -111,10 +120,8 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
           value: _type,
           options: MonitorAuthType.selectOptions,
           onChange: (value) {
-            if (value != null) {
-              setState(() => _type = value);
-              _notifyChange();
-            }
+            setState(() => _type = value);
+            _notifyChange();
           },
           className: '''
             w-full px-3 py-3 rounded-lg
@@ -190,17 +197,14 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
         children: [
           WText(
             'Key Location',
-            className:
-                'text-sm font-medium text-gray-700 dark:text-gray-300',
+            className: 'text-sm font-medium text-gray-700 dark:text-gray-300',
           ),
           WSelect<ApiKeyLocation>(
             value: _apiKeyLocation,
             options: ApiKeyLocation.selectOptions,
             onChange: (value) {
-              if (value != null) {
-                setState(() => _apiKeyLocation = value);
-                _notifyChange();
-              }
+              setState(() => _apiKeyLocation = value);
+              _notifyChange();
             },
             className: '''
               w-full px-3 py-3 rounded-lg

@@ -10,9 +10,7 @@ void main() {
         WindTheme(
           data: WindThemeData(),
           child: MaterialApp(
-            home: GuestLayout(
-              child: const Text('Test child widget'),
-            ),
+            home: GuestLayout(child: const Text('Test child widget')),
           ),
         ),
       );
@@ -30,9 +28,7 @@ void main() {
         WindTheme(
           data: WindThemeData(),
           child: MaterialApp(
-            home: GuestLayout(
-              child: const Text('Test content'),
-            ),
+            home: GuestLayout(child: const Text('Test content')),
           ),
         ),
       );

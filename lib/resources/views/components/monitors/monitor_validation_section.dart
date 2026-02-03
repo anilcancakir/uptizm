@@ -103,8 +103,7 @@ class MonitorValidationSection extends StatelessWidget {
               ),
               WText(
                 trans('monitor.metric_mappings_hint'),
-                className:
-                    'text-xs text-gray-600 dark:text-gray-400',
+                className: 'text-xs text-gray-600 dark:text-gray-400',
               ),
               MetricMappingEditor(
                 mappings: metricMappings,
