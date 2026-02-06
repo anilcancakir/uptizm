@@ -171,6 +171,13 @@ class _StatusPagesIndexViewState
   Widget _buildActions(StatusPage page) {
     return WPopover(
       alignment: PopoverAlignment.bottomRight,
+      className: '''
+        w-56
+        bg-white dark:bg-gray-800
+        border border-gray-100 dark:border-gray-700
+        rounded-xl shadow-xl
+        z-50
+      ''',
       triggerBuilder: (context, isOpen, isHovering) {
         return WButton(
           className:
@@ -185,12 +192,7 @@ class _StatusPagesIndexViewState
       },
       contentBuilder: (context, close) {
         return WDiv(
-          className: '''
-            flex flex-col min-w-[160px] py-1
-            bg-white dark:bg-gray-800 
-            rounded-xl shadow-xl 
-            border border-gray-100 dark:border-gray-700
-          ''',
+          className: 'flex flex-col py-1',
           children: [
             _buildActionItem(
               icon: Icons.edit_outlined,
@@ -198,18 +200,6 @@ class _StatusPagesIndexViewState
               onTap: () {
                 close();
                 MagicRoute.to('/status-pages/${page.id}/edit');
-              },
-            ),
-            _buildActionItem(
-              icon: page.isPublished
-                  ? Icons.visibility_off_outlined
-                  : Icons.visibility_outlined,
-              label: page.isPublished
-                  ? trans('status_pages.unpublish')
-                  : trans('status_pages.publish'),
-              onTap: () {
-                close();
-                controller.togglePublish(page.id!);
               },
             ),
             _buildActionItem(

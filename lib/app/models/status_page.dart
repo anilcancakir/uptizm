@@ -52,8 +52,16 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   String get publicUrl => 'https://$slug.uptizm.com';
 
   List<int> get monitorIds {
-    final ids = get<List>('monitor_ids');
-    return ids?.map((e) => (e as num).toInt()).toList() ?? [];
+    final ids = get('monitor_ids');
+    if (ids is List) {
+      return ids.map((e) => (e as num).toInt()).toList();
+    }
+    // Fallback: extract from monitors relationship if available
+    final monitorsList = get('monitors');
+    if (monitorsList is List) {
+      return monitorsList.map((m) => (m['id'] as num).toInt()).toList();
+    }
+    return [];
   }
 
   set monitorIds(List<int> value) => set('monitor_ids', value);
