@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Stat Card
 ///
@@ -58,7 +58,7 @@ class StatCard extends StatelessWidget {
 
         // Subtitle (optional)
         if (subtitle != null) ...[
-          const SizedBox(height: 4),
+          const WSpacer(className: 'h-1'),
           WText(
             subtitle!,
             className: 'text-xs text-gray-500 dark:text-gray-400',

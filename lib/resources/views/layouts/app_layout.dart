@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
 
 import '../../../app/controllers/team_controller.dart';
 import '../components/navigation/app_header.dart';
@@ -85,16 +85,18 @@ class _AppLayoutState extends State<AppLayout> {
           ),
           // Drawer for mobile - uses AppSidebar
           drawer: isDesktop ? null : _buildDrawer(context, currentPath),
-          body: WDiv(
-            className: 'flex flex-row w-full h-full',
-            children: [
-              // Sidebar - only on desktop/web
-              if (isDesktop) AppSidebar(currentPath: currentPath),
+          body: SafeArea(
+            // Keep bottom: false because bottomNavigationBar handles its own safe area
+            bottom: false,
+            child: WDiv(
+              className: 'flex flex-row w-full h-full',
+              children: [
+                // Sidebar - only on desktop/web
+                if (isDesktop) AppSidebar(currentPath: currentPath),
 
-              // Main content area
-              Expanded(
-                child: WDiv(
-                  className: 'flex flex-col h-full',
+                // Main content area
+                WDiv(
+                  className: 'flex-1 flex flex-col h-full',
                   children: [
                     // Header
                     AppHeader(
@@ -107,8 +109,8 @@ class _AppLayoutState extends State<AppLayout> {
                     WDiv(className: 'flex-1', child: widget.child),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           // Bottom navigation - only on mobile
           bottomNavigationBar: isDesktop
@@ -182,7 +184,8 @@ class _AppLayoutState extends State<AppLayout> {
             ),
 
             // Navigation List
-            Expanded(
+            WDiv(
+              className: 'flex-1',
               child: NavigationList(
                 currentPath: currentPath,
                 onItemTap: () => Navigator.of(context).pop(),
@@ -195,26 +198,32 @@ class _AppLayoutState extends State<AppLayout> {
   }
 
   Widget _buildBottomNav(BuildContext context, String currentPath) {
+    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+
     return WDiv(
-      className: '''
-        bg-white dark:bg-gray-900
-        border-t border-gray-200 dark:border-gray-700
-        flex flex-row justify-between px-4
-      ''',
-      children: bottomNavItems
-          .map(
-            (item) => _buildNavItem(
-              context,
-              icon: item.icon,
-              activeIcon: item.activeIcon ?? item.icon,
-              label: trans(item.labelKey),
-              path: item.path,
-              isActive: item.path == '/'
-                  ? currentPath == '/'
-                  : currentPath.startsWith(item.path),
-            ),
-          )
-          .toList(),
+      className:
+          'bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700',
+      children: [
+        WDiv(
+          className: 'flex flex-row justify-between px-4',
+          children: bottomNavItems
+              .map(
+                (item) => _buildNavItem(
+                  context,
+                  icon: item.icon,
+                  activeIcon: item.activeIcon ?? item.icon,
+                  label: trans(item.labelKey),
+                  path: item.path,
+                  isActive: item.path == '/'
+                      ? currentPath == '/'
+                      : currentPath.startsWith(item.path),
+                ),
+              )
+              .toList(),
+        ),
+        // Safe area padding for home indicator
+        SizedBox(height: bottomPadding),
+      ],
     );
   }
 

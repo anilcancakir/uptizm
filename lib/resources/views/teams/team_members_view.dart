@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/team_controller.dart';
 import '../../../app/enums/team_role.dart';
@@ -29,11 +29,10 @@ class _TeamMembersViewState
   Widget build(BuildContext context) {
     final team = controller.currentTeam;
 
-    return SingleChildScrollView(
-      primary: true,
-      child: WDiv(
-        className: 'flex flex-col gap-6 p-4 lg:p-6',
-        children: [
+    return WDiv(
+      className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
+      scrollPrimary: true,
+      children: [
           // Header
           WDiv(
             className:
@@ -47,7 +46,7 @@ class _TeamMembersViewState
                     className:
                         'text-2xl font-bold text-gray-900 dark:text-white',
                   ),
-                  const SizedBox(height: 4),
+                  const WSpacer(className: 'h-1'),
                   WText(
                     trans('teams.team_members_desc'),
                     className: 'text-sm text-gray-600 dark:text-gray-400',
@@ -73,7 +72,7 @@ class _TeamMembersViewState
                         size: 16,
                         color: Colors.white,
                       ),
-                      const SizedBox(width: 6),
+                      const WSpacer(className: 'w-1.5'),
                       WText(trans('teams.invite_member')),
                     ],
                   ),
@@ -88,7 +87,6 @@ class _TeamMembersViewState
           // Pending Invitations
           _buildInvitationsSection(),
         ],
-      ),
     );
   }
 
@@ -131,46 +129,42 @@ class _TeamMembersViewState
       ''',
       children: [
         // Left: Avatar + Info
-        Expanded(
-          child: WDiv(
-            className: 'flex flex-row items-center gap-3',
-            children: [
-              // Avatar
-              WImage(
-                src: member.profilePhotoUrl ?? '',
-                className: 'w-10 h-10 rounded-full',
-                errorBuilder: (context, error, stackTrace) => WDiv(
-                  className: '''
-                    w-10 h-10 rounded-full
-                    bg-primary/10
-                    flex items-center justify-center
-                  ''',
-                  child: WText(
-                    member.name?.substring(0, 1).toUpperCase() ?? 'U',
-                    className: 'font-bold text-primary',
-                  ),
+        WDiv(
+          className: 'flex-1 flex flex-row items-center gap-3',
+          children: [
+            // Avatar
+            WImage(
+              src: member.profilePhotoUrl ?? '',
+              className: 'w-10 h-10 rounded-full',
+              errorBuilder: (context, error, stackTrace) => WDiv(
+                className: '''
+                  w-10 h-10 rounded-full
+                  bg-primary/10
+                  flex items-center justify-center
+                ''',
+                child: WText(
+                  member.name?.substring(0, 1).toUpperCase() ?? 'U',
+                  className: 'font-bold text-primary',
                 ),
               ),
-              // Name + Email
-              Flexible(
-                child: WDiv(
-                  className: 'flex flex-col items-start',
-                  children: [
-                    WText(
-                      member.name ?? '',
-                      className:
-                          'text-sm font-medium text-gray-900 dark:text-white truncate',
-                    ),
-                    WText(
-                      member.email ?? '',
-                      className:
-                          'text-xs text-gray-500 dark:text-gray-400 truncate',
-                    ),
-                  ],
+            ),
+            // Name + Email
+            WDiv(
+              className: 'flex-1 flex flex-col items-start min-w-0',
+              children: [
+                WText(
+                  member.name ?? '',
+                  className:
+                      'text-sm font-medium text-gray-900 dark:text-white truncate',
                 ),
-              ),
-            ],
-          ),
+                WText(
+                  member.email ?? '',
+                  className:
+                      'text-xs text-gray-500 dark:text-gray-400 truncate',
+                ),
+              ],
+            ),
+          ],
         ),
         // Right: Role badge + Actions
         WDiv(
@@ -251,42 +245,38 @@ class _TeamMembersViewState
                   ''',
                   children: [
                     // Left: Email + Role
-                    Expanded(
-                      child: WDiv(
-                        className: 'flex flex-row items-center gap-3',
-                        children: [
-                          // Mail icon
-                          WDiv(
-                            className: '''
-                              w-10 h-10 rounded-full
-                              bg-orange-100 dark:bg-orange-900/30
-                              flex items-center justify-center
-                            ''',
-                            child: WIcon(
-                              Icons.mail_outline,
+                    WDiv(
+                      className: 'flex-1 flex flex-row items-center gap-3',
+                      children: [
+                        // Mail icon
+                        WDiv(
+                          className: '''
+                            w-10 h-10 rounded-full
+                            bg-orange-100 dark:bg-orange-900/30
+                            flex items-center justify-center
+                          ''',
+                          child: WIcon(
+                            Icons.mail_outline,
+                            className:
+                                'text-lg text-orange-600 dark:text-orange-400',
+                          ),
+                        ),
+                        WDiv(
+                          className: 'flex-1 flex flex-col items-start min-w-0',
+                          children: [
+                            WText(
+                              invitation.email ?? '',
                               className:
-                                  'text-lg text-orange-600 dark:text-orange-400',
+                                  'text-sm font-medium text-gray-900 dark:text-white truncate',
                             ),
-                          ),
-                          Flexible(
-                            child: WDiv(
-                              className: 'flex flex-col items-start',
-                              children: [
-                                WText(
-                                  invitation.email ?? '',
-                                  className:
-                                      'text-sm font-medium text-gray-900 dark:text-white truncate',
-                                ),
-                                WText(
-                                  '${trans('teams.invited_as')}: ${TeamRole.label(invitation.role ?? 'member')}',
-                                  className:
-                                      'text-xs text-orange-600 dark:text-orange-400 truncate',
-                                ),
-                              ],
+                            WText(
+                              '${trans('teams.invited_as')}: ${TeamRole.label(invitation.role ?? 'member')}',
+                              className:
+                                  'text-xs text-orange-600 dark:text-orange-400 truncate',
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ),
                     // Right: Cancel button
                     MagicCan(

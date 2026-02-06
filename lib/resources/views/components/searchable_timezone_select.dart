@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Searchable timezone select using Wind UI's WFormSelect with API integration.
 class SearchableTimezoneSelect extends StatefulWidget {

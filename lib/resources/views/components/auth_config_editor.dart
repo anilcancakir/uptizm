@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/enums/api_key_location.dart';
 import '../../../app/enums/monitor_auth_type.dart';
@@ -113,7 +113,7 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
       className: 'flex flex-col gap-1',
       children: [
         WText(
-          'Auth Type',
+          trans('monitor.auth_type'),
           className: 'text-sm font-medium text-gray-700 dark:text-gray-300',
         ),
         WSelect<MonitorAuthType>(
@@ -157,14 +157,14 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
   List<Widget> _buildBasicAuthFields() {
     return [
       _buildTextField(
-        label: 'Username',
+        label: trans('monitor.auth_username'),
         controller: _usernameController,
-        placeholder: 'admin',
+        placeholder: trans('monitor.auth_username_placeholder'),
       ),
       _buildTextField(
-        label: 'Password',
+        label: trans('monitor.auth_password'),
         controller: _passwordController,
-        placeholder: '••••••••',
+        placeholder: trans('monitor.auth_password_placeholder'),
         obscure: true,
       ),
     ];
@@ -173,9 +173,9 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
   List<Widget> _buildBearerTokenFields() {
     return [
       _buildTextField(
-        label: 'Token',
+        label: trans('monitor.auth_token'),
         controller: _tokenController,
-        placeholder: 'eyJhbGciOiJIUzI1NiIs...',
+        placeholder: trans('monitor.auth_token_placeholder'),
       ),
     ];
   }
@@ -183,20 +183,20 @@ class _AuthConfigEditorState extends State<AuthConfigEditor> {
   List<Widget> _buildApiKeyFields() {
     return [
       _buildTextField(
-        label: 'Key Name',
+        label: trans('monitor.auth_key_name'),
         controller: _apiKeyNameController,
-        placeholder: 'X-API-Key',
+        placeholder: trans('monitor.auth_key_name_placeholder'),
       ),
       _buildTextField(
-        label: 'Key Value',
+        label: trans('monitor.auth_key_value'),
         controller: _apiKeyValueController,
-        placeholder: 'your-api-key',
+        placeholder: trans('monitor.auth_key_value_placeholder'),
       ),
       WDiv(
         className: 'flex flex-col gap-1',
         children: [
           WText(
-            'Key Location',
+            trans('monitor.auth_key_location'),
             className: 'text-sm font-medium text-gray-700 dark:text-gray-300',
           ),
           WSelect<ApiKeyLocation>(

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import 'nav_item.dart';
 
@@ -31,6 +31,18 @@ const List<NavItemData> mainNavItems = [
     labelKey: 'nav.monitors',
     path: '/monitors',
     activeIcon: Icons.ssid_chart,
+  ),
+  NavItemData(
+    icon: Icons.notifications_outlined,
+    labelKey: 'nav.alerts',
+    path: '/alerts',
+    activeIcon: Icons.notifications,
+  ),
+  NavItemData(
+    icon: Icons.rule_outlined,
+    labelKey: 'nav.alert_rules',
+    path: '/alert-rules',
+    activeIcon: Icons.rule,
   ),
   NavItemData(
     icon: Icons.warning_amber,

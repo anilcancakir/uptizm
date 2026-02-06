@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
 
 import '../../resources/views/notifications/notifications_list_view.dart';
 import '../../resources/views/settings/notification_preferences_view.dart';
@@ -23,7 +23,6 @@ class NotificationController extends MagicController {
 
   /// Show notifications list view.
   Widget index() => NotificationsListView(
-    notificationStream: Notify.notifications(),
     onMarkAsRead: (id) => Notify.markAsRead(id),
     onMarkAllAsRead: () => Notify.markAllAsRead(),
     onDelete: (id) => Notify.deleteNotification(id),

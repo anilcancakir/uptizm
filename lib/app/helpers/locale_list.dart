@@ -1,4 +1,4 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Supported locale options for user selection
 List<SelectOption<String>> get localeOptions => [

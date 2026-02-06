@@ -41,6 +41,8 @@
     ]
   },
   "enabledPlugins": {
+    "skill-creator@anthropic-agent-skills": false,
+    "example-skills@anthropic-agent-skills": false,
     "serena-integration@anilcancakir": false,
     "project-optimizer@anilcancakir": false,
     "pre-commit-flow@anilcancakir": false,

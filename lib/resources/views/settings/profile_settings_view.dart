@@ -1,4 +1,4 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/controllers/profile_controller.dart';
@@ -193,11 +193,10 @@ class _ProfileSettingsViewState
   Widget _buildForm({bool isLoading = false, String? errorMessage}) {
     final user = User.current;
 
-    return SingleChildScrollView(
-      primary: true,
-      child: WDiv(
-        className: 'flex flex-col gap-6 p-4 lg:p-6',
-        children: [
+    return WDiv(
+      className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
+      scrollPrimary: true,
+      children: [
           // Error Message
           if (errorMessage != null)
             WDiv(
@@ -539,7 +538,6 @@ class _ProfileSettingsViewState
             ),
           ),
         ],
-      ),
     );
   }
 }

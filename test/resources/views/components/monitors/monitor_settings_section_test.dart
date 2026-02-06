@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/enums/monitor_location.dart';
 import 'package:uptizm/resources/views/components/monitors/monitor_settings_section.dart';

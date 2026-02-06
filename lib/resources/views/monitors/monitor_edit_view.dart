@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/http_method.dart';
@@ -9,10 +9,10 @@ import '../../../app/models/assertion_rule.dart';
 import '../../../app/models/metric_mapping.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/monitor_auth_config.dart';
-import '../components/monitors/monitor_basic_info_section.dart';
-import '../components/monitors/monitor_settings_section.dart';
 import '../components/monitors/monitor_auth_section.dart';
+import '../components/monitors/monitor_basic_info_section.dart';
 import '../components/monitors/monitor_request_details_section.dart';
+import '../components/monitors/monitor_settings_section.dart';
 import '../components/monitors/monitor_validation_section.dart';
 
 /// Monitor Edit View
@@ -45,6 +45,11 @@ class _MonitorEditViewState
   Map<String, dynamic>? _testFetchResponse;
   bool _isTestingFetch = false;
 
+  // FocusNodes for numeric keyboard Done button support
+  final _checkIntervalFocus = FocusNode();
+  final _timeoutFocus = FocusNode();
+  final _expectedStatusCodeFocus = FocusNode();
+
   @override
   void onInit() {
     super.onInit();
@@ -54,7 +59,10 @@ class _MonitorEditViewState
     if (idParam != null) {
       _monitorId = int.tryParse(idParam);
       if (_monitorId != null) {
-        controller.loadMonitor(_monitorId!);
+        // Schedule after build to avoid setState-during-build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.loadMonitor(_monitorId!);
+        });
       }
     }
   }
@@ -62,6 +70,9 @@ class _MonitorEditViewState
   @override
   void onClose() {
     _form?.dispose();
+    _checkIntervalFocus.dispose();
+    _timeoutFocus.dispose();
+    _expectedStatusCodeFocus.dispose();
   }
 
   void _hydrateFromMonitor(Monitor monitor) {
@@ -87,12 +98,27 @@ class _MonitorEditViewState
       (monitor.headers ?? {}).cast<String, String>(),
     );
     _body = monitor.body ?? '';
-    _assertionRules = (monitor.assertionRules ?? [])
-        .map((r) => AssertionRule.fromMap(r))
-        .toList();
-    _metricMappings = (monitor.metricMappings ?? [])
-        .map((m) => MetricMapping.fromMap(m))
-        .toList();
+
+    // Parse assertion rules with error handling
+    try {
+      _assertionRules = (monitor.assertionRules ?? [])
+          .map((r) => AssertionRule.fromMap(r))
+          .toList();
+    } catch (e) {
+      Log.error('Failed to parse assertion rules', e);
+      _assertionRules = [];
+    }
+
+    // Parse metric mappings with error handling
+    try {
+      _metricMappings = (monitor.metricMappings ?? [])
+          .map((m) => MetricMapping.fromMap(m))
+          .toList();
+    } catch (e) {
+      Log.error('Failed to parse metric mappings', e);
+      _metricMappings = [];
+    }
+
     _authConfig = monitor.authConfig;
   }
 
@@ -155,12 +181,12 @@ class _MonitorEditViewState
           _isTestingFetch = false;
         });
       } else {
-        Magic.toast(response.message ?? 'Test fetch failed');
+        Magic.toast(response.message ?? trans('monitor.test_fetch_failed'));
         setState(() => _isTestingFetch = false);
       }
     } catch (e) {
       Log.error('Test fetch failed', e);
-      Magic.toast('Test fetch failed. Please check the URL and try again.');
+      Magic.toast(trans('monitor.test_fetch_failed_detail'));
       setState(() => _isTestingFetch = false);
     }
   }
@@ -171,11 +197,15 @@ class _MonitorEditViewState
       valueListenable: controller.selectedMonitorNotifier,
       builder: (context, monitor, _) {
         if (controller.isLoading && monitor == null) {
-          return const Center(child: CircularProgressIndicator());
+          return WDiv(
+            className: 'py-12 flex items-center justify-center',
+            child: const CircularProgressIndicator(),
+          );
         }
 
         if (monitor == null) {
-          return Center(
+          return WDiv(
+            className: 'py-12 flex items-center justify-center',
             child: WText(
               trans('monitors.not_found'),
               className: 'text-gray-600 dark:text-gray-400',
@@ -203,11 +233,18 @@ class _MonitorEditViewState
     final form = _form;
     if (form == null) return const SizedBox.shrink();
 
-    return MagicForm(
-      formData: form,
-      child: SingleChildScrollView(
+    return WKeyboardActions(
+      focusNodes: [
+        _expectedStatusCodeFocus,
+        _checkIntervalFocus,
+        _timeoutFocus,
+      ],
+      platform: 'ios',
+      child: MagicForm(
+        formData: form,
         child: WDiv(
-          className: 'flex flex-col gap-6 p-4 lg:p-6',
+          className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
+          scrollPrimary: true,
           children: [
             // Page Header
             WDiv(
@@ -225,7 +262,7 @@ class _MonitorEditViewState
                   ),
                 ),
                 WText(
-                  '${trans('monitor.edit_title')}: ${monitor.name ?? "Monitor"}',
+                  '${trans('monitor.edit_title')}: ${monitor.name ?? trans('monitor.fallback_name')}',
                   className: 'text-2xl font-bold text-gray-900 dark:text-white',
                 ),
               ],
@@ -257,6 +294,7 @@ class _MonitorEditViewState
               onTagsChanged: (tags) => setState(() => _tags = tags),
               onTagOptionsChanged: (options) =>
                   setState(() => _tagOptions = options),
+              expectedStatusCodeFocusNode: _expectedStatusCodeFocus,
             ),
 
             // Monitoring Settings
@@ -265,6 +303,8 @@ class _MonitorEditViewState
               selectedLocations: _selectedLocations,
               onLocationsChanged: (locs) =>
                   setState(() => _selectedLocations = locs),
+              checkIntervalFocusNode: _checkIntervalFocus,
+              timeoutFocusNode: _timeoutFocus,
             ),
 
             // Authentication (only for HTTP monitors)
@@ -301,7 +341,7 @@ class _MonitorEditViewState
 
             // Action Buttons
             WDiv(
-              className: 'flex flex-row justify-end gap-3 px-4',
+              className: 'flex flex-row justify-end gap-3 w-full pb-2',
               children: [
                 WButton(
                   onTap: () => MagicRoute.to('/monitors/$_monitorId'),

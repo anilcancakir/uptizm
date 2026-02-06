@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/auth_controller.dart';
 import '../components/auth/auth_form_card.dart';
@@ -84,7 +84,7 @@ class _LoginViewState
               labelClassName:
                   'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-            const SizedBox(height: 16),
+            const WSpacer(className: 'h-4'),
 
             // Password Field
             WFormInput(
@@ -116,7 +116,7 @@ class _LoginViewState
               labelClassName:
                   'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-            const SizedBox(height: 20),
+            const WSpacer(className: 'h-5'),
 
             // Remember Me & Forgot Password
             WDiv(
@@ -141,7 +141,7 @@ class _LoginViewState
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const WSpacer(className: 'h-6'),
 
             // Submit Button
             WButton(
@@ -154,7 +154,7 @@ class _LoginViewState
                 ''',
               child: WText(trans('auth.login_title'), className: 'text-center'),
             ),
-            const SizedBox(height: 16),
+            const WSpacer(className: 'h-4'),
 
             // Social Login Buttons
             SocialLoginButtons(
@@ -164,7 +164,7 @@ class _LoginViewState
               onMicrosoft: controller.doMicrosoftLogin,
               onGithub: controller.doGithubLogin,
             ),
-            const SizedBox(height: 24),
+            const WSpacer(className: 'h-6'),
 
             // Footer Link
             WAnchor(

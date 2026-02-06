@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/team_controller.dart';
 import '../components/app_card.dart';
@@ -40,10 +40,10 @@ class _TeamCreateViewState
 
     return MagicForm(
       formData: form,
-      child: SingleChildScrollView(
-        child: WDiv(
-          className: 'flex flex-col items-stretch w-full p-4 lg:p-6',
-          children: [
+      child: WDiv(
+        className: 'overflow-y-auto flex flex-col items-stretch w-full p-4 lg:p-6',
+        scrollPrimary: true,
+        children: [
             // Header
             WDiv(
               className: 'mb-6',
@@ -55,7 +55,7 @@ class _TeamCreateViewState
                     text-2xl font-bold
                   ''',
                 ),
-                const SizedBox(height: 4),
+                const WSpacer(className: 'h-1'),
                 WText(
                   trans('teams.create_team_description'),
                   className: 'text-gray-600 dark:text-gray-400 text-sm',
@@ -137,7 +137,6 @@ class _TeamCreateViewState
               ),
             ),
           ],
-        ),
       ),
     );
   }

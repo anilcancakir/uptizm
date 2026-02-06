@@ -44,10 +44,29 @@ class AssertionRule {
 
   /// Create from Map (from API/storage)
   factory AssertionRule.fromMap(Map<String, dynamic> map) {
+    final typeValue = map['type'] as String?;
+    final operatorValue = map['operator'] as String?;
+    final valueStr = map['value'] as String?;
+
+    if (typeValue == null || operatorValue == null || valueStr == null) {
+      throw ArgumentError(
+        'AssertionRule.fromMap: Missing required fields (type, operator, or value)',
+      );
+    }
+
+    final type = AssertionType.fromValue(typeValue);
+    final operator = AssertionOperator.fromValue(operatorValue);
+
+    if (type == null || operator == null) {
+      throw ArgumentError(
+        'AssertionRule.fromMap: Invalid type or operator value',
+      );
+    }
+
     return AssertionRule(
-      type: AssertionType.fromValue(map['type'] as String?)!,
-      operator: AssertionOperator.fromValue(map['operator'] as String?)!,
-      value: map['value'] as String,
+      type: type,
+      operator: operator,
+      value: valueStr,
       path: map['path'] as String?,
     );
   }

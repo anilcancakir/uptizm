@@ -1,6 +1,7 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
-import 'package:fluttersdk_magic_social_auth/fluttersdk_magic_social_auth.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
+import 'package:magic_social_auth/magic_social_auth.dart';
+import 'package:magic_deeplink/magic_deeplink.dart';
 
 import '../app/providers/app_service_provider.dart';
 import '../app/providers/event_service_provider.dart';
@@ -24,6 +25,7 @@ Map<String, dynamic> get appConfig => {
       (app) => AuthServiceProvider(app),
       (app) => SocialAuthServiceProvider(app),
       (app) => NotificationServiceProvider(app),
+      (app) => DeeplinkServiceProvider(app),
       (app) => EventServiceProvider(app),
     ],
   },

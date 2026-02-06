@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/app/enums/check_status.dart';
 import 'package:uptizm/resources/views/components/monitors/status_dot.dart';
 

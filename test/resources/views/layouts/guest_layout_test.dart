@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/resources/views/layouts/guest_layout.dart';
 
 void main() {
@@ -18,8 +18,8 @@ void main() {
       // Should find the child content
       expect(find.text('Test child widget'), findsOneWidget);
 
-      // Should be wrapped in Center and SingleChildScrollView
-      expect(find.byType(Center), findsOneWidget);
+      // Should be wrapped in WDiv with centering and scroll
+      expect(find.byType(WDiv), findsWidgets);
       expect(find.byType(SingleChildScrollView), findsOneWidget);
     });
 

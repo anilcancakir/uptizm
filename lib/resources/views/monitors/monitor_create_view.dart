@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/http_method.dart';
@@ -8,10 +8,10 @@ import '../../../app/enums/monitor_type.dart';
 import '../../../app/models/assertion_rule.dart';
 import '../../../app/models/metric_mapping.dart';
 import '../../../app/models/monitor_auth_config.dart';
-import '../components/monitors/monitor_basic_info_section.dart';
-import '../components/monitors/monitor_settings_section.dart';
 import '../components/monitors/monitor_auth_section.dart';
+import '../components/monitors/monitor_basic_info_section.dart';
 import '../components/monitors/monitor_request_details_section.dart';
+import '../components/monitors/monitor_settings_section.dart';
 import '../components/monitors/monitor_validation_section.dart';
 
 /// Monitor Create View
@@ -39,6 +39,11 @@ class _MonitorCreateViewState
   Map<String, dynamic>? _testFetchResponse;
   bool _isTestingFetch = false;
 
+  // FocusNodes for numeric keyboard Done button support
+  final _checkIntervalFocus = FocusNode();
+  final _timeoutFocus = FocusNode();
+  final _expectedStatusCodeFocus = FocusNode();
+
   @override
   void onInit() {
     super.onInit();
@@ -57,6 +62,9 @@ class _MonitorCreateViewState
   @override
   void onClose() {
     form.dispose();
+    _checkIntervalFocus.dispose();
+    _timeoutFocus.dispose();
+    _expectedStatusCodeFocus.dispose();
   }
 
   Future<void> _handleSubmit() async {
@@ -116,12 +124,12 @@ class _MonitorCreateViewState
           _isTestingFetch = false;
         });
       } else {
-        Magic.toast(response.message ?? 'Test fetch failed');
+        Magic.toast(response.message ?? trans('monitor.test_fetch_failed'));
         setState(() => _isTestingFetch = false);
       }
     } catch (e) {
       Log.error('Test fetch failed', e);
-      Magic.toast('Test fetch failed. Please check the URL and try again.');
+      Magic.toast(trans('monitor.test_fetch_failed_detail'));
       setState(() => _isTestingFetch = false);
     }
   }
@@ -137,11 +145,18 @@ class _MonitorCreateViewState
   }
 
   Widget _buildForm({bool isLoading = false, String? errorMessage}) {
-    return MagicForm(
-      formData: form,
-      child: SingleChildScrollView(
+    return WKeyboardActions(
+      focusNodes: [
+        _expectedStatusCodeFocus,
+        _checkIntervalFocus,
+        _timeoutFocus,
+      ],
+      platform: 'ios',
+      child: MagicForm(
+        formData: form,
         child: WDiv(
-          className: 'flex flex-col gap-6 p-4 lg:p-6',
+          className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
+          scrollPrimary: true,
           children: [
             // Page Header
             WDiv(
@@ -190,6 +205,7 @@ class _MonitorCreateViewState
               onTagsChanged: (tags) => setState(() => _tags = tags),
               onTagOptionsChanged: (options) =>
                   setState(() => _tagOptions = options),
+              expectedStatusCodeFocusNode: _expectedStatusCodeFocus,
             ),
 
             // Monitoring Settings
@@ -200,6 +216,8 @@ class _MonitorCreateViewState
                 _selectedLocations.clear();
                 _selectedLocations.addAll(locs);
               }),
+              checkIntervalFocusNode: _checkIntervalFocus,
+              timeoutFocusNode: _timeoutFocus,
             ),
 
             // Authentication (only for HTTP monitors)
@@ -236,7 +254,7 @@ class _MonitorCreateViewState
 
             // Action Buttons
             WDiv(
-              className: 'flex flex-row justify-end gap-3 px-4',
+              className: 'flex flex-row justify-end gap-3 w-full pb-2',
               children: [
                 WButton(
                   onTap: () => MagicRoute.to('/monitors'),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 class PaginationControls extends StatelessWidget {
   final int currentPage;
@@ -25,37 +25,37 @@ class PaginationControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return WDiv(
       className:
-          'flex items-center justify-between py-4 border-t border-gray-100 dark:border-gray-700',
+          'flex flex-row items-center justify-between py-4 border-t border-gray-100 dark:border-gray-700',
       children: [
         // Previous Button
         WButton(
           onTap: hasPrevious && !isLoading ? onPrevious : null,
           disabled: !hasPrevious || isLoading,
           className: '''
-            px-3 py-2 rounded-lg
+            px-2 sm:px-3 py-2 rounded-lg
             border border-gray-200 dark:border-gray-700
             bg-white dark:bg-gray-800
             text-sm font-medium text-gray-700 dark:text-gray-200
             hover:bg-gray-50 dark:hover:bg-gray-700
             disabled:opacity-50 disabled:cursor-not-allowed
           ''',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          child: WDiv(
+            className: 'flex flex-row items-center',
             children: [
               WIcon(Icons.chevron_left, className: 'text-lg'),
-              const SizedBox(width: 8),
-              WText(trans('pagination.previous')),
+              // Text hidden on mobile, visible on sm+
+              WText(
+                trans('pagination.previous'),
+                className: 'hidden sm:block ml-1',
+              ),
             ],
           ),
         ),
 
-        // Page Info
+        // Page Info - compact on mobile
         WText(
-          trans('pagination.page_of', {
-            'current': currentPage,
-            'total': totalPages,
-          }),
-          className: 'text-sm text-gray-600 dark:text-gray-400',
+          '$currentPage / $totalPages',
+          className: 'text-sm text-gray-600 dark:text-gray-400 px-2',
         ),
 
         // Next Button
@@ -63,18 +63,21 @@ class PaginationControls extends StatelessWidget {
           onTap: hasNext && !isLoading ? onNext : null,
           disabled: !hasNext || isLoading,
           className: '''
-            px-3 py-2 rounded-lg
+            px-2 sm:px-3 py-2 rounded-lg
             border border-gray-200 dark:border-gray-700
             bg-white dark:bg-gray-800
             text-sm font-medium text-gray-700 dark:text-gray-200
             hover:bg-gray-50 dark:hover:bg-gray-700
             disabled:opacity-50 disabled:cursor-not-allowed
           ''',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          child: WDiv(
+            className: 'flex flex-row items-center',
             children: [
-              WText(trans('pagination.next')),
-              const SizedBox(width: 8),
+              // Text hidden on mobile, visible on sm+
+              WText(
+                trans('pagination.next'),
+                className: 'hidden sm:block mr-1',
+              ),
               WIcon(Icons.chevron_right, className: 'text-lg'),
             ],
           ),

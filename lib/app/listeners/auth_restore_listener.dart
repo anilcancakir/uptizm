@@ -1,4 +1,4 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:flutter/material.dart';
 import '../../resources/views/layouts/app_layout.dart';
 import '../models/user.dart';

@@ -6,6 +6,13 @@
         "mcp-server"
       ],
       "env": {}
+    },
+    "laravel-boost": {
+      "command": "php",
+      "args": [
+        "back-end/artisan",
+        "boost:mcp"
+      ]
     }
   }
 }

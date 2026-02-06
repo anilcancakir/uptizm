@@ -1,8 +1,9 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 enum MetricType {
   numeric('numeric', 'Numeric'),
-  string('string', 'String');
+  string('string', 'String'),
+  status('status', 'Status');
 
   const MetricType(this.value, this.label);
 

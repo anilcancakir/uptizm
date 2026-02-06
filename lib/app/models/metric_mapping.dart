@@ -5,12 +5,14 @@ class MetricMapping {
   final String path;
   final MetricType type;
   final String? unit;
+  final String? upWhen;
 
   const MetricMapping({
     required this.label,
     required this.path,
     required this.type,
     this.unit,
+    this.upWhen,
   });
 
   Map<String, dynamic> toMap() {
@@ -24,15 +26,37 @@ class MetricMapping {
       map['unit'] = unit;
     }
 
+    if (upWhen != null) {
+      map['up_when'] = upWhen;
+    }
+
     return map;
   }
 
   factory MetricMapping.fromMap(Map<String, dynamic> map) {
+    final labelStr = map['label'] as String?;
+    final pathStr = map['path'] as String?;
+    final typeValue = map['type'] as String?;
+
+    if (labelStr == null || pathStr == null || typeValue == null) {
+      throw ArgumentError(
+        'MetricMapping.fromMap: Missing required fields (label, path, or type)',
+      );
+    }
+
+    final type = MetricType.fromValue(typeValue);
+    if (type == null) {
+      throw ArgumentError(
+        'MetricMapping.fromMap: Invalid type value: $typeValue',
+      );
+    }
+
     return MetricMapping(
-      label: map['label'] as String,
-      path: map['path'] as String,
-      type: MetricType.fromValue(map['type'] as String?)!,
+      label: labelStr,
+      path: pathStr,
+      type: type,
       unit: map['unit'] as String?,
+      upWhen: map['up_when'] as String?,
     );
   }
 
@@ -53,11 +77,16 @@ class MetricMapping {
           label == other.label &&
           path == other.path &&
           type == other.type &&
-          unit == other.unit;
+          unit == other.unit &&
+          upWhen == other.upWhen;
 
   @override
   int get hashCode =>
-      label.hashCode ^ path.hashCode ^ type.hashCode ^ unit.hashCode;
+      label.hashCode ^
+      path.hashCode ^
+      type.hashCode ^
+      unit.hashCode ^
+      upWhen.hashCode;
 
   @override
   String toString() => 'MetricMapping(${toDisplayString()})';

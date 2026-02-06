@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../../app/enums/monitor_location.dart';
 import '../../../../app/validation/rules/between_numeric.dart';
@@ -11,11 +11,19 @@ class MonitorSettingsSection extends StatelessWidget {
   final List<MonitorLocation> selectedLocations;
   final ValueChanged<List<MonitorLocation>> onLocationsChanged;
 
+  /// Optional FocusNode for check interval input (for keyboard actions)
+  final FocusNode? checkIntervalFocusNode;
+
+  /// Optional FocusNode for timeout input (for keyboard actions)
+  final FocusNode? timeoutFocusNode;
+
   const MonitorSettingsSection({
     super.key,
     required this.form,
     required this.selectedLocations,
     required this.onLocationsChanged,
+    this.checkIntervalFocusNode,
+    this.timeoutFocusNode,
   });
 
   @override
@@ -30,8 +38,12 @@ class MonitorSettingsSection extends StatelessWidget {
             label: trans('monitor.check_interval'),
             hint: trans('monitor.check_interval_hint'),
             controller: form['check_interval'],
+            focusNode: checkIntervalFocusNode,
             type: InputType.number,
-            suffix: WText('seconds', className: 'text-xs text-gray-500'),
+            suffix: WText(
+              trans('monitor.seconds_suffix'),
+              className: 'text-xs text-gray-500',
+            ),
             labelClassName: '''
               text-gray-900 dark:text-gray-200
               mb-2 text-sm font-medium
@@ -58,8 +70,12 @@ class MonitorSettingsSection extends StatelessWidget {
             label: trans('monitor.timeout'),
             hint: trans('monitor.timeout_hint'),
             controller: form['timeout'],
+            focusNode: timeoutFocusNode,
             type: InputType.number,
-            suffix: WText('seconds', className: 'text-xs text-gray-500'),
+            suffix: WText(
+              trans('monitor.seconds_suffix'),
+              className: 'text-xs text-gray-500',
+            ),
             labelClassName: '''
               text-gray-900 dark:text-gray-200
               mb-2 text-sm font-medium

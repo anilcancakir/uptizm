@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
 
 /// Notification model
 class NotificationItem {
@@ -99,12 +99,14 @@ class NotificationDropdown extends StatelessWidget {
   }
 
   Widget _buildContent(BuildContext context, VoidCallback close) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col items-stretch',
       children: [
         _buildHeader(context),
-        Flexible(child: _buildNotificationsList(context, close)),
+        WDiv(
+          className: 'flex-1 min-h-0',
+          child: _buildNotificationsList(context, close),
+        ),
         if (onViewAll != null) _buildFooter(context, close),
       ],
     );
@@ -151,13 +153,11 @@ class NotificationDropdown extends StatelessWidget {
       );
     }
 
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: notifications
-            .map((n) => _buildNotificationItem(context, n, close))
-            .toList(),
-      ),
+    return WDiv(
+      className: 'overflow-y-auto flex flex-col',
+      children: notifications
+          .map((n) => _buildNotificationItem(context, n, close))
+          .toList(),
     );
   }
 
@@ -187,7 +187,8 @@ class NotificationDropdown extends StatelessWidget {
         close();
       },
       child: WDiv(
-        className: '''
+        className:
+            '''
           flex flex-row items-start gap-3 px-4 py-3 w-full
           border-b border-gray-100 dark:border-gray-700
           hover:bg-gray-50 dark:hover:bg-gray-700
@@ -205,29 +206,28 @@ class NotificationDropdown extends StatelessWidget {
           ),
 
           // Content - same as activity_item
-          Expanded(
-            child: WDiv(
-              className: 'flex flex-col min-w-0',
-              children: [
-                WText(
-                  notification.title,
-                  className: '''
-                    text-sm text-gray-900 dark:text-white truncate
-                    ${notification.isRead ? '' : 'font-semibold'}
-                  ''',
-                ),
-                const SizedBox(height: 2),
-                WText(
-                  notification.message,
-                  className: 'text-xs text-gray-500 dark:text-gray-400',
-                ),
-                const SizedBox(height: 2),
-                WText(
-                  _formatTime(notification.createdAt),
-                  className: 'text-xs text-gray-400 dark:text-gray-500',
-                ),
-              ],
-            ),
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                notification.title,
+                className:
+                    '''
+                  text-sm text-gray-900 dark:text-white truncate
+                  ${notification.isRead ? '' : 'font-semibold'}
+                ''',
+              ),
+              const WSpacer(className: 'h-0.5'),
+              WText(
+                notification.message,
+                className: 'text-xs text-gray-500 dark:text-gray-400',
+              ),
+              const WSpacer(className: 'h-0.5'),
+              WText(
+                _formatTime(notification.createdAt),
+                className: 'text-xs text-gray-400 dark:text-gray-500',
+              ),
+            ],
           ),
 
           // Unread indicator

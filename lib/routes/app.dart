@@ -1,7 +1,9 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:flutter/material.dart';
 
 import '../resources/views/layouts/app_layout.dart';
+import '../app/controllers/alert_controller.dart';
+import '../app/controllers/analytics_controller.dart';
 import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/monitor_controller.dart';
 import '../app/controllers/notification_controller.dart';
@@ -48,6 +50,51 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/monitors/:id/edit',
         () => MonitorController.instance.edit(),
+      ).transition(RouteTransition.none);
+
+      // Monitor Analytics
+      MagicRoute.page(
+        '/monitors/:id/analytics',
+        () => AnalyticsController.instance.analytics(),
+      ).transition(RouteTransition.none);
+
+      // Monitor Alerts
+      MagicRoute.page(
+        '/monitors/:id/alerts',
+        () => MonitorController.instance.alerts(),
+      ).transition(RouteTransition.none);
+
+      // Monitor Alert Rules (create/edit for specific monitor)
+      MagicRoute.page(
+        '/monitors/:id/alert-rules/create',
+        () => AlertController.instance.rulesCreate(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/monitors/:id/alert-rules/:ruleId/edit',
+        () => AlertController.instance.rulesEdit(),
+      ).transition(RouteTransition.none);
+
+      // Alert Rules
+      MagicRoute.page(
+        '/alert-rules',
+        () => AlertController.instance.rulesIndex(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/alert-rules/create',
+        () => AlertController.instance.rulesCreate(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/alert-rules/:id/edit',
+        () => AlertController.instance.rulesEdit(),
+      ).transition(RouteTransition.none);
+
+      // Alerts History
+      MagicRoute.page(
+        '/alerts',
+        () => AlertController.instance.alertsIndex(),
       ).transition(RouteTransition.none);
 
       // Incidents

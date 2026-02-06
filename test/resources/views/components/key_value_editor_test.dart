@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/resources/views/components/key_value_editor.dart';
 
 void main() {
+  setUpAll(() {
+    Magic.init();
+  });
+
   Widget wrapWithTheme(Widget child) {
     return WindTheme(
       data: WindThemeData(),
@@ -17,7 +21,8 @@ void main() {
         wrapWithTheme(KeyValueEditor(entries: const {}, onChanged: (_) {})),
       );
 
-      expect(find.text('Add Header'), findsOneWidget);
+      // In test mode, trans() returns the key when translations aren't loaded
+      expect(find.textContaining('add_header'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
     });
 
@@ -54,8 +59,8 @@ void main() {
         ),
       );
 
-      // Click Add button
-      await tester.tap(find.text('Add Header'));
+      // Click Add button (find by containing the trans key)
+      await tester.tap(find.textContaining('add_header'));
       await tester.pump();
 
       // Should have one empty row with 2 text fields (key + value)
@@ -74,8 +79,8 @@ void main() {
         ),
       );
 
-      // Click Add button
-      await tester.tap(find.text('Add Header'));
+      // Click Add button (find by containing the trans key)
+      await tester.tap(find.textContaining('add_header'));
       await tester.pumpAndSettle();
 
       // Find the key and value fields

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Search result item model
 class SearchResult {
@@ -224,17 +224,15 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
       ''',
       children: [
         WIcon(Icons.search, className: 'text-xl text-gray-400'),
-        Expanded(
-          child: WInput(
-            controller: _controller,
-            focusNode: _focusNode,
-            placeholder: trans('search.placeholder'),
-            className: 'border-0 pb-1.5',
-          ),
+        WInput(
+          controller: _controller,
+          focusNode: _focusNode,
+          placeholder: trans('search.placeholder'),
+          className: 'flex-1 border-0 pb-1.5',
         ),
         // Clear button
         if (_query.isNotEmpty)
-          GestureDetector(
+          WAnchor(
             onTap: () {
               _controller.clear();
               _popoverController.hide();
@@ -280,25 +278,22 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
         )
         .toList();
 
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (monitors.isNotEmpty) ...[
-            _buildSectionHeader(trans('search.monitors')),
-            ...monitors.map(_buildResultItem),
-          ],
-          if (incidents.isNotEmpty) ...[
-            _buildSectionHeader(trans('search.incidents')),
-            ...incidents.map(_buildResultItem),
-          ],
-          if (others.isNotEmpty) ...[
-            _buildSectionHeader(trans('search.other')),
-            ...others.map(_buildResultItem),
-          ],
+    return WDiv(
+      className: 'overflow-y-auto flex flex-col items-stretch',
+      children: [
+        if (monitors.isNotEmpty) ...[
+          _buildSectionHeader(trans('search.monitors')),
+          ...monitors.map(_buildResultItem),
         ],
-      ),
+        if (incidents.isNotEmpty) ...[
+          _buildSectionHeader(trans('search.incidents')),
+          ...incidents.map(_buildResultItem),
+        ],
+        if (others.isNotEmpty) ...[
+          _buildSectionHeader(trans('search.other')),
+          ...others.map(_buildResultItem),
+        ],
+      ],
     );
   }
 
@@ -339,21 +334,19 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
             ''',
             child: WIcon(result.icon, className: 'text-lg $iconColor'),
           ),
-          Expanded(
-            child: WDiv(
-              className: 'flex flex-col min-w-0',
-              children: [
-                WText(
-                  result.title,
-                  className:
-                      'text-sm font-medium text-gray-900 dark:text-white truncate',
-                ),
-                WText(
-                  result.subtitle,
-                  className: 'text-xs text-gray-500 dark:text-gray-400',
-                ),
-              ],
-            ),
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                result.title,
+                className:
+                    'text-sm font-medium text-gray-900 dark:text-white truncate',
+              ),
+              WText(
+                result.subtitle,
+                className: 'text-xs text-gray-500 dark:text-gray-400',
+              ),
+            ],
           ),
           WIcon(
             Icons.arrow_forward_ios,

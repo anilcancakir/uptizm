@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/enums/monitor_type.dart';
@@ -49,20 +49,18 @@ void main() {
     });
 
     testWidgets('renders form sections when monitor is loaded', (tester) async {
-      MonitorController.instance.selectedMonitorNotifier.value = createMonitor(
-        {
-          'id': 1,
-          'name': 'Test Monitor',
-          'type': 'http',
-          'url': 'https://example.com',
-          'method': 'GET',
-          'expected_status_code': 200,
-          'check_interval': 60,
-          'timeout': 30,
-          'monitoring_locations': ['us-east'],
-          'status': 'active',
-        },
-      );
+      MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
+        'id': 1,
+        'name': 'Test Monitor',
+        'type': 'http',
+        'url': 'https://example.com',
+        'method': 'GET',
+        'expected_status_code': 200,
+        'check_interval': 60,
+        'timeout': 30,
+        'monitoring_locations': ['us-east'],
+        'status': 'active',
+      });
 
       await pumpWithSize(tester, buildSubject());
       await tester.pumpAndSettle();
@@ -76,21 +74,19 @@ void main() {
     });
 
     testWidgets('pre-fills form with monitor data', (tester) async {
-      MonitorController.instance.selectedMonitorNotifier.value = createMonitor(
-        {
-          'id': 1,
-          'name': 'My API Monitor',
-          'type': 'http',
-          'url': 'https://api.example.com/health',
-          'method': 'POST',
-          'expected_status_code': 201,
-          'check_interval': 120,
-          'timeout': 15,
-          'monitoring_locations': ['us-east', 'eu-west'],
-          'tags': ['api', 'health'],
-          'status': 'active',
-        },
-      );
+      MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
+        'id': 1,
+        'name': 'My API Monitor',
+        'type': 'http',
+        'url': 'https://api.example.com/health',
+        'method': 'POST',
+        'expected_status_code': 201,
+        'check_interval': 120,
+        'timeout': 15,
+        'monitoring_locations': ['us-east', 'eu-west'],
+        'tags': ['api', 'health'],
+        'status': 'active',
+      });
 
       await pumpWithSize(tester, buildSubject());
       await tester.pumpAndSettle();
@@ -102,20 +98,18 @@ void main() {
     });
 
     testWidgets('type selector is not editable', (tester) async {
-      MonitorController.instance.selectedMonitorNotifier.value = createMonitor(
-        {
-          'id': 1,
-          'name': 'Test',
-          'type': 'http',
-          'url': 'https://example.com',
-          'method': 'GET',
-          'expected_status_code': 200,
-          'check_interval': 60,
-          'timeout': 30,
-          'monitoring_locations': ['us-east'],
-          'status': 'active',
-        },
-      );
+      MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
+        'id': 1,
+        'name': 'Test',
+        'type': 'http',
+        'url': 'https://example.com',
+        'method': 'GET',
+        'expected_status_code': 200,
+        'check_interval': 60,
+        'timeout': 30,
+        'monitoring_locations': ['us-east'],
+        'status': 'active',
+      });
 
       await pumpWithSize(tester, buildSubject());
       await tester.pumpAndSettle();

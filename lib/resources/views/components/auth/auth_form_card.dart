@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../theme_toggle_button.dart';
 
@@ -43,14 +43,14 @@ class AuthFormCard extends StatelessWidget {
           className:
               'text-2xl font-bold text-slate-900 dark:text-white text-center',
         ),
-        const SizedBox(height: 4),
+        const WSpacer(className: 'h-1'),
 
         // Subtitle
         WText(
           subtitle,
           className: 'text-sm text-slate-600 dark:text-slate-400 text-center',
         ),
-        const SizedBox(height: 24),
+        const WSpacer(className: 'h-6'),
 
         // Error Banner (if provided)
         if (errorMessage != null) ...[
@@ -64,7 +64,7 @@ class AuthFormCard extends StatelessWidget {
             ''',
             child: WText(errorMessage!),
           ),
-          const SizedBox(height: 16),
+          const WSpacer(className: 'h-4'),
         ],
 
         // Form Content

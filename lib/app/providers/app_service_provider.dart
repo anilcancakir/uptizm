@@ -1,4 +1,5 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_deeplink/magic_deeplink.dart';
 import '../models/user.dart';
 import '../policies/team_policy.dart';
 import '../policies/monitor_policy.dart';
@@ -19,5 +20,12 @@ class AppServiceProvider extends ServiceProvider {
     // Register policies
     TeamPolicy().register();
     MonitorPolicy().register();
+
+    // Register deep link handler
+    final configPaths = Config.get('deeplink.paths');
+    final paths = (configPaths as List? ?? [])
+        .map((e) => e.toString())
+        .toList();
+    DeeplinkManager().registerHandler(RouteDeeplinkHandler(paths: paths));
   }
 }

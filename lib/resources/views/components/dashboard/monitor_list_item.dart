@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Monitor status enum for display purposes.
 enum MonitorStatus { up, down, degraded, paused }
@@ -56,22 +56,20 @@ class MonitorListItem extends StatelessWidget {
           ),
 
           // Name + URL
-          Expanded(
-            child: WDiv(
-              className: 'flex flex-col min-w-0',
-              children: [
-                WText(
-                  name,
-                  className:
-                      'text-sm font-semibold text-gray-900 dark:text-white truncate',
-                ),
-                WText(
-                  url,
-                  className:
-                      'text-xs text-gray-500 dark:text-gray-400 truncate font-mono',
-                ),
-              ],
-            ),
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                name,
+                className:
+                    'text-sm font-semibold text-gray-900 dark:text-white truncate',
+              ),
+              WText(
+                url,
+                className:
+                    'text-xs text-gray-500 dark:text-gray-400 truncate font-mono',
+              ),
+            ],
           ),
 
           // Response time badge

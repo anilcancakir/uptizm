@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/app/models/monitor_check.dart';
 import 'package:uptizm/resources/views/components/monitors/check_status_row.dart';
 
-Widget buildTestApp({required Widget child}) {
+Widget buildTestApp({required Widget child, Size size = const Size(1200, 800)}) {
   return WindTheme(
     data: WindThemeData(),
-    child: MaterialApp(home: Scaffold(body: child)),
+    child: MaterialApp(
+      home: MediaQuery(
+        data: MediaQueryData(size: size),
+        child: Scaffold(body: child),
+      ),
+    ),
   );
 }
 
