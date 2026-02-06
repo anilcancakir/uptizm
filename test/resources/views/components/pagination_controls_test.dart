@@ -35,10 +35,7 @@ void main() {
 
       expect(find.textContaining('pagination.previous'), findsOneWidget);
       expect(find.textContaining('pagination.next'), findsOneWidget);
-      expect(
-        find.text('1 / 5'),
-        findsOneWidget,
-      ); // Page info format
+      expect(find.text('1 / 5'), findsOneWidget); // Page info format
       expect(find.byType(WButton), findsNWidgets(2));
     });
 

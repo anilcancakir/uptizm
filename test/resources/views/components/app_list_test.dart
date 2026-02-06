@@ -42,10 +42,8 @@ void main() {
           buildTestWidget(
             AppList<String>(
               items: items,
-              itemBuilder: (context, item, index) => WText(
-                item,
-                key: Key('item_$index'),
-              ),
+              itemBuilder: (context, item, index) =>
+                  WText(item, key: Key('item_$index')),
             ),
           ),
         );
@@ -142,8 +140,9 @@ void main() {
     });
 
     group('empty state', () {
-      testWidgets('renders default empty state when items is empty',
-          (tester) async {
+      testWidgets('renders default empty state when items is empty', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           buildTestWidget(
             AppList<String>(
@@ -175,8 +174,9 @@ void main() {
         expect(find.text('Custom Empty'), findsOneWidget);
       });
 
-      testWidgets('renders emptyIcon and emptyText when provided',
-          (tester) async {
+      testWidgets('renders emptyIcon and emptyText when provided', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           buildTestWidget(
             AppList<String>(
@@ -194,8 +194,9 @@ void main() {
     });
 
     group('loading state', () {
-      testWidgets('renders loading indicator when isLoading is true',
-          (tester) async {
+      testWidgets('renders loading indicator when isLoading is true', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           buildTestWidget(
             AppList<String>(
@@ -256,8 +257,9 @@ void main() {
         expect(find.text('Something went wrong'), findsOneWidget);
       });
 
-      testWidgets('error state takes precedence over empty state',
-          (tester) async {
+      testWidgets('error state takes precedence over empty state', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           buildTestWidget(
             AppList<String>(
@@ -374,8 +376,9 @@ void main() {
         expect(find.byType(AppList<String>), findsOneWidget);
       });
 
-      testWidgets('disables card wrapper when showCard is false',
-          (tester) async {
+      testWidgets('disables card wrapper when showCard is false', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           buildTestWidget(
             AppList<String>(
@@ -412,8 +415,9 @@ void main() {
     });
 
     group('onItemTap', () {
-      testWidgets('wraps items with WAnchor when onItemTap is provided',
-          (tester) async {
+      testWidgets('wraps items with WAnchor when onItemTap is provided', (
+        tester,
+      ) async {
         String? tappedItem;
         int? tappedIndex;
 

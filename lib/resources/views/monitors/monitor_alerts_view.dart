@@ -56,9 +56,7 @@ class _MonitorAlertsViewState
         if (monitor == null) {
           return WDiv(
             className: 'flex items-center justify-center h-full',
-            children: const [
-              CircularProgressIndicator(),
-            ],
+            children: const [CircularProgressIndicator()],
           );
         }
 
@@ -84,7 +82,8 @@ class _MonitorAlertsViewState
                   children: [
                     WText(
                       monitor.name ?? 'Unnamed Monitor',
-                      className: 'text-2xl font-bold text-gray-900 dark:text-white',
+                      className:
+                          'text-2xl font-bold text-gray-900 dark:text-white',
                     ),
                     WText(
                       trans('alerts.alert_management'),

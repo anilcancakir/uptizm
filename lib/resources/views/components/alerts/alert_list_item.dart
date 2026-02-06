@@ -9,11 +9,7 @@ class AlertListItem extends StatelessWidget {
   final Alert alert;
   final VoidCallback? onTap;
 
-  const AlertListItem({
-    required this.alert,
-    this.onTap,
-    super.key,
-  });
+  const AlertListItem({required this.alert, this.onTap, super.key});
 
   String _formatDuration(Duration duration) {
     if (duration.inDays > 0) {
@@ -99,10 +95,7 @@ class AlertListItem extends StatelessWidget {
                         className: 'text-xs text-gray-500 dark:text-gray-400',
                       ),
                     if (alert.duration != null) ...[
-                      WText(
-                        '•',
-                        className: 'text-xs text-gray-400',
-                      ),
+                      WText('•', className: 'text-xs text-gray-400'),
                       WText(
                         'Duration: ${_formatDuration(alert.duration!)}',
                         className: 'text-xs text-gray-500 dark:text-gray-400',
@@ -118,10 +111,7 @@ class AlertListItem extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return WAnchor(
-        onTap: onTap!,
-        child: content,
-      );
+      return WAnchor(onTap: onTap!, child: content);
     }
 
     return content;

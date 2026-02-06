@@ -16,9 +16,7 @@ void main() {
   group('ActiveAlertsPanel', () {
     testWidgets('renders empty state when no alerts', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: const ActiveAlertsPanel(alerts: []),
-        ),
+        buildTestApp(child: const ActiveAlertsPanel(alerts: [])),
       );
 
       expect(find.text('No active alerts'), findsOneWidget);
@@ -55,9 +53,7 @@ void main() {
       ];
 
       await tester.pumpWidget(
-        buildTestApp(
-          child: ActiveAlertsPanel(alerts: alerts),
-        ),
+        buildTestApp(child: ActiveAlertsPanel(alerts: alerts)),
       );
 
       // The count badge should show "2"
@@ -95,9 +91,7 @@ void main() {
       ];
 
       await tester.pumpWidget(
-        buildTestApp(
-          child: ActiveAlertsPanel(alerts: alerts),
-        ),
+        buildTestApp(child: ActiveAlertsPanel(alerts: alerts)),
       );
 
       expect(find.byType(AlertListItem), findsNWidgets(2));
@@ -182,9 +176,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        buildTestApp(
-          child: ActiveAlertsPanel(alerts: alerts, maxDisplayed: 5),
-        ),
+        buildTestApp(child: ActiveAlertsPanel(alerts: alerts, maxDisplayed: 5)),
       );
 
       expect(find.byType(AlertListItem), findsNWidgets(5));
@@ -192,9 +184,7 @@ void main() {
 
     testWidgets('shows Active Alerts title', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: const ActiveAlertsPanel(alerts: []),
-        ),
+        buildTestApp(child: const ActiveAlertsPanel(alerts: [])),
       );
 
       expect(find.text('Active Alerts'), findsOneWidget);

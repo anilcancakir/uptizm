@@ -33,60 +33,59 @@ class _TeamMembersViewState
       className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
       scrollPrimary: true,
       children: [
-          // Header
-          WDiv(
-            className:
-                'flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between',
-            children: [
-              WDiv(
-                className: 'flex flex-col',
-                children: [
-                  WText(
-                    trans('teams.team_members'),
-                    className:
-                        'text-2xl font-bold text-gray-900 dark:text-white',
-                  ),
-                  const WSpacer(className: 'h-1'),
-                  WText(
-                    trans('teams.team_members_desc'),
-                    className: 'text-sm text-gray-600 dark:text-gray-400',
-                  ),
-                ],
-              ),
-              MagicCan(
-                ability: 'manage-team-members',
-                arguments: team,
-                child: WButton(
-                  onTap: _showInviteDialog,
-                  className: '''
+        // Header
+        WDiv(
+          className:
+              'flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between',
+          children: [
+            WDiv(
+              className: 'flex flex-col',
+              children: [
+                WText(
+                  trans('teams.team_members'),
+                  className: 'text-2xl font-bold text-gray-900 dark:text-white',
+                ),
+                const WSpacer(className: 'h-1'),
+                WText(
+                  trans('teams.team_members_desc'),
+                  className: 'text-sm text-gray-600 dark:text-gray-400',
+                ),
+              ],
+            ),
+            MagicCan(
+              ability: 'manage-team-members',
+              arguments: team,
+              child: WButton(
+                onTap: _showInviteDialog,
+                className: '''
                     px-4 py-2 rounded-lg
                     bg-primary hover:bg-green-600
                     text-white
                     text-sm font-medium
                   ''',
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.person_add_outlined,
-                        size: 16,
-                        color: Colors.white,
-                      ),
-                      const WSpacer(className: 'w-1.5'),
-                      WText(trans('teams.invite_member')),
-                    ],
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.person_add_outlined,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                    const WSpacer(className: 'w-1.5'),
+                    WText(trans('teams.invite_member')),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
 
-          // Members List
-          _buildMembersSection(),
+        // Members List
+        _buildMembersSection(),
 
-          // Pending Invitations
-          _buildInvitationsSection(),
-        ],
+        // Pending Invitations
+        _buildInvitationsSection(),
+      ],
     );
   }
 

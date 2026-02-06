@@ -58,7 +58,8 @@ class _ResponseTimeChartState extends State<ResponseTimeChart> {
 
     if (widget.dataPoints.isEmpty) {
       return WDiv(
-        className: 'h-[${widget.height.toInt()}px] flex items-center justify-center',
+        className:
+            'h-[${widget.height.toInt()}px] flex items-center justify-center',
         child: WText(
           trans('analytics.no_data'),
           className: 'text-gray-500 dark:text-gray-400 text-xs',

@@ -104,47 +104,49 @@ void main() {
     });
 
     testWidgets(
-        'MagicStatefulViewState clears RxStatus error on init (integration)',
-        (tester) async {
-      // Set error state before building view
-      controller.setError('Previous error');
-      expect(controller.isError, isTrue);
+      'MagicStatefulViewState clears RxStatus error on init (integration)',
+      (tester) async {
+        // Set error state before building view
+        controller.setError('Previous error');
+        expect(controller.isError, isTrue);
 
-      // Build a minimal test view that extends MagicStatefulView
-      await tester.pumpWidget(
-        MaterialApp(
-          home: WindTheme(
-            data: WindThemeData(),
-            child: const _TestAuthView(),
+        // Build a minimal test view that extends MagicStatefulView
+        await tester.pumpWidget(
+          MaterialApp(
+            home: WindTheme(
+              data: WindThemeData(),
+              child: const _TestAuthView(),
+            ),
           ),
-        ),
-      );
+        );
 
-      // After view init, error should be cleared
-      expect(controller.isError, isFalse);
-      expect(controller.isEmpty, isTrue);
-    });
+        // After view init, error should be cleared
+        expect(controller.isError, isFalse);
+        expect(controller.isEmpty, isTrue);
+      },
+    );
 
     testWidgets(
-        'MagicStatefulViewState clears validation errors on init (integration)',
-        (tester) async {
-      // Set validation errors before building view
-      controller.validationErrors = {'email': 'Required'};
-      expect(controller.hasErrors, isTrue);
+      'MagicStatefulViewState clears validation errors on init (integration)',
+      (tester) async {
+        // Set validation errors before building view
+        controller.validationErrors = {'email': 'Required'};
+        expect(controller.hasErrors, isTrue);
 
-      // Build a minimal test view
-      await tester.pumpWidget(
-        MaterialApp(
-          home: WindTheme(
-            data: WindThemeData(),
-            child: const _TestAuthView(),
+        // Build a minimal test view
+        await tester.pumpWidget(
+          MaterialApp(
+            home: WindTheme(
+              data: WindThemeData(),
+              child: const _TestAuthView(),
+            ),
           ),
-        ),
-      );
+        );
 
-      // After view init, validation errors should be cleared
-      expect(controller.hasErrors, isFalse);
-    });
+        // After view init, validation errors should be cleared
+        expect(controller.hasErrors, isFalse);
+      },
+    );
   });
 }
 

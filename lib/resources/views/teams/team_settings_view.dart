@@ -73,50 +73,50 @@ class _TeamSettingsViewState
         className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
         scrollPrimary: true,
         children: [
-            // Error Message
-            if (errorMessage != null)
-              WDiv(
-                className: '''
+          // Error Message
+          if (errorMessage != null)
+            WDiv(
+              className: '''
                   p-3 mb-2
                   bg-red-100 dark:bg-red-900 
                   border border-red-300 dark:border-red-700 
                   rounded-lg
                 ''',
-                child: WText(
-                  errorMessage,
-                  className: 'text-red-700 dark:text-red-200',
-                ),
+              child: WText(
+                errorMessage,
+                className: 'text-red-700 dark:text-red-200',
               ),
+            ),
 
-            // Team Settings Card
-            AppCard(
-              title: trans('team_settings.general_info'),
-              body: WDiv(
-                className: 'flex flex-col gap-6',
-                children: [
-                  // Avatar Section
-                  PhotoPicker(
-                    photo: photo,
-                    currentPhotoUrl: team?.profilePhotoUrl,
-                    label: trans('team_settings.team_photo'),
-                    description: trans('team_settings.team_photo_desc'),
-                    changeButtonText: trans('team_settings.change_photo'),
-                    onPick: _pickPhoto,
-                  ),
+          // Team Settings Card
+          AppCard(
+            title: trans('team_settings.general_info'),
+            body: WDiv(
+              className: 'flex flex-col gap-6',
+              children: [
+                // Avatar Section
+                PhotoPicker(
+                  photo: photo,
+                  currentPhotoUrl: team?.profilePhotoUrl,
+                  label: trans('team_settings.team_photo'),
+                  description: trans('team_settings.team_photo_desc'),
+                  changeButtonText: trans('team_settings.change_photo'),
+                  onPick: _pickPhoto,
+                ),
 
-                  WFormInput(
-                    label: trans('team_settings.name'),
-                    hint: trans('team_settings.name_placeholder'),
-                    controller: form['name'],
-                    labelClassName: '''
+                WFormInput(
+                  label: trans('team_settings.name'),
+                  hint: trans('team_settings.name_placeholder'),
+                  controller: form['name'],
+                  labelClassName: '''
                       text-gray-900 dark:text-gray-200 
                       mb-2 text-sm font-medium
                     ''',
-                    hintClassName: '''
+                  hintClassName: '''
                       text-gray-500 dark:text-gray-400 
                       text-xs font-medium mt-2
                     ''',
-                    className: '''
+                  className: '''
                       w-full bg-white dark:bg-gray-800 
                       text-gray-900 dark:text-white 
                       rounded-lg 
@@ -127,71 +127,71 @@ class _TeamSettingsViewState
                       focus:ring-2 focus:ring-primary/20 
                       duration-150
                     ''',
-                    validator: rules([
-                      Required(),
-                      Min(2),
-                      Max(255),
-                    ], field: 'name'),
-                  ),
-                ],
-              ),
-              footer: WDiv(
-                className: 'flex flex-row justify-end gap-3',
-                children: [
-                  WButton(
-                    onTap: () => MagicRoute.back(),
-                    className: '''
+                  validator: rules([
+                    Required(),
+                    Min(2),
+                    Max(255),
+                  ], field: 'name'),
+                ),
+              ],
+            ),
+            footer: WDiv(
+              className: 'flex flex-row justify-end gap-3',
+              children: [
+                WButton(
+                  onTap: () => MagicRoute.back(),
+                  className: '''
                       px-4 py-2 rounded-lg 
                       bg-gray-200 dark:bg-gray-700 
                       text-gray-700 dark:text-gray-200 
                       hover:bg-gray-300 dark:hover:bg-gray-600
                       text-sm font-medium
                     ''',
-                    child: WText(trans('common.cancel')),
-                  ),
-                  WButton(
-                    isLoading: isLoading,
-                    onTap: _handleSave,
-                    className: '''
+                  child: WText(trans('common.cancel')),
+                ),
+                WButton(
+                  isLoading: isLoading,
+                  onTap: _handleSave,
+                  className: '''
                       px-4 py-2 rounded-lg 
                       bg-primary hover:bg-green-600 
                       text-white 
                       text-sm font-medium
                     ''',
-                    child: WText(trans('common.save')),
-                  ),
-                ],
-              ),
+                  child: WText(trans('common.save')),
+                ),
+              ],
             ),
+          ),
 
-            // Leave Team Section (non-owners only)
-            if (team != null && !team.isOwner)
-              AppCard(
-                title: trans('teams.leave_team'),
-                titleClassName: 'text-orange-600 dark:text-orange-400',
-                body: WDiv(
-                  className: 'flex flex-col gap-4',
-                  children: [
-                    WText(
-                      trans('teams.leave_team_desc'),
-                      className: 'text-sm text-gray-600 dark:text-gray-400',
-                    ),
-                    WDiv(
-                      className: 'flex flex-row justify-end',
-                      children: [
-                        WButton(
-                          onTap: () async {
-                            final confirmed = await Magic.confirm(
-                              title: trans('teams.leave_team'),
-                              message: trans('teams.leave_team_confirm'),
-                              confirmText: trans('common.leave'),
-                              isDangerous: true,
-                            );
-                            if (confirmed == true) {
-                              await controller.leaveTeam(team);
-                            }
-                          },
-                          className: '''
+          // Leave Team Section (non-owners only)
+          if (team != null && !team.isOwner)
+            AppCard(
+              title: trans('teams.leave_team'),
+              titleClassName: 'text-orange-600 dark:text-orange-400',
+              body: WDiv(
+                className: 'flex flex-col gap-4',
+                children: [
+                  WText(
+                    trans('teams.leave_team_desc'),
+                    className: 'text-sm text-gray-600 dark:text-gray-400',
+                  ),
+                  WDiv(
+                    className: 'flex flex-row justify-end',
+                    children: [
+                      WButton(
+                        onTap: () async {
+                          final confirmed = await Magic.confirm(
+                            title: trans('teams.leave_team'),
+                            message: trans('teams.leave_team_confirm'),
+                            confirmText: trans('common.leave'),
+                            isDangerous: true,
+                          );
+                          if (confirmed == true) {
+                            await controller.leaveTeam(team);
+                          }
+                        },
+                        className: '''
                             px-4 py-2 rounded-lg
                             bg-orange-50 dark:bg-orange-900/20
                             text-orange-600 dark:text-orange-400
@@ -199,17 +199,17 @@ class _TeamSettingsViewState
                             border border-orange-200 dark:border-orange-900/50
                             text-sm font-medium
                           ''',
-                          child: WText(trans('teams.leave_team')),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                        child: WText(trans('teams.leave_team')),
+                      ),
+                    ],
+                  ),
+                ],
               ),
+            ),
 
-            // Danger Zone
-            _buildDangerZone(team),
-          ],
+          // Danger Zone
+          _buildDangerZone(team),
+        ],
       ),
     );
   }

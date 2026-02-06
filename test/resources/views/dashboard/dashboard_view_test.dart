@@ -18,10 +18,12 @@ void main() {
 
       // Welcome greeting may be translated or show key
       expect(
-        find.byWidgetPredicate((w) =>
-            w is WText &&
-            (w.data.contains('Welcome back') ||
-                w.data.contains('welcome_greeting'))),
+        find.byWidgetPredicate(
+          (w) =>
+              w is WText &&
+              (w.data.contains('Welcome back') ||
+                  w.data.contains('welcome_greeting')),
+        ),
         findsOneWidget,
       );
     });

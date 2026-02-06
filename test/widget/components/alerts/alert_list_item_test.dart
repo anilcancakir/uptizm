@@ -40,9 +40,7 @@ void main() {
 
     testWidgets('renders alerting state with red indicator', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: testAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: testAlert)),
       );
 
       expect(find.text('Response time exceeded 5000ms'), findsOneWidget);
@@ -67,9 +65,7 @@ void main() {
       });
 
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: resolvedAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: resolvedAlert)),
       );
 
       expect(find.text('Monitor recovered'), findsOneWidget);
@@ -77,9 +73,7 @@ void main() {
 
     testWidgets('shows severity badge', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: testAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: testAlert)),
       );
 
       expect(find.text('Warning'), findsOneWidget);
@@ -87,9 +81,7 @@ void main() {
 
     testWidgets('shows trigger message', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: testAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: testAlert)),
       );
 
       expect(find.text('Response time exceeded 5000ms'), findsOneWidget);
@@ -97,9 +89,7 @@ void main() {
 
     testWidgets('shows triggered time', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: testAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: testAlert)),
       );
 
       // Should show some time representation
@@ -125,9 +115,7 @@ void main() {
       });
 
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: resolvedAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: resolvedAlert)),
       );
 
       expect(find.textContaining('15m'), findsOneWidget);
@@ -138,10 +126,7 @@ void main() {
 
       await tester.pumpWidget(
         buildTestApp(
-          child: AlertListItem(
-            alert: testAlert,
-            onTap: () => tapCalled = true,
-          ),
+          child: AlertListItem(alert: testAlert, onTap: () => tapCalled = true),
         ),
       );
 
@@ -153,9 +138,7 @@ void main() {
 
     testWidgets('shows alert rule name', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: testAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: testAlert)),
       );
 
       expect(find.text('High Response Time'), findsOneWidget);
@@ -172,9 +155,7 @@ void main() {
       });
 
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: alertWithoutRule),
-        ),
+        buildTestApp(child: AlertListItem(alert: alertWithoutRule)),
       );
 
       expect(find.text('Alert triggered'), findsOneWidget);
@@ -182,9 +163,7 @@ void main() {
 
     testWidgets('shows status badge for alerting alerts', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: testAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: testAlert)),
       );
 
       expect(find.text('Alerting'), findsOneWidget);
@@ -209,9 +188,7 @@ void main() {
       });
 
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertListItem(alert: resolvedAlert),
-        ),
+        buildTestApp(child: AlertListItem(alert: resolvedAlert)),
       );
 
       expect(find.text('Resolved'), findsOneWidget);

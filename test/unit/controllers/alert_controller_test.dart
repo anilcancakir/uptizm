@@ -40,9 +40,21 @@ void main() {
     group('computed getters', () {
       test('activeAlertCount returns count of alerting alerts', () {
         controller.alertsNotifier.value = [
-          Alert.fromMap({'id': 1, 'status': 'alerting', 'triggered_at': '2026-02-05T10:00:00Z'}),
-          Alert.fromMap({'id': 2, 'status': 'resolved', 'triggered_at': '2026-02-05T10:00:00Z'}),
-          Alert.fromMap({'id': 3, 'status': 'alerting', 'triggered_at': '2026-02-05T10:00:00Z'}),
+          Alert.fromMap({
+            'id': 1,
+            'status': 'alerting',
+            'triggered_at': '2026-02-05T10:00:00Z',
+          }),
+          Alert.fromMap({
+            'id': 2,
+            'status': 'resolved',
+            'triggered_at': '2026-02-05T10:00:00Z',
+          }),
+          Alert.fromMap({
+            'id': 3,
+            'status': 'alerting',
+            'triggered_at': '2026-02-05T10:00:00Z',
+          }),
         ];
         expect(controller.activeAlertCount, 2);
       });
@@ -69,8 +81,18 @@ void main() {
     group('teamLevelRules and monitorLevelRules', () {
       test('filters rules by scope correctly', () {
         controller.alertRulesNotifier.value = [
-          AlertRule.fromMap({'id': 1, 'team_id': 10, 'monitor_id': null, 'name': 'Team Rule'}),
-          AlertRule.fromMap({'id': 2, 'team_id': 10, 'monitor_id': 20, 'name': 'Monitor Rule'}),
+          AlertRule.fromMap({
+            'id': 1,
+            'team_id': 10,
+            'monitor_id': null,
+            'name': 'Team Rule',
+          }),
+          AlertRule.fromMap({
+            'id': 2,
+            'team_id': 10,
+            'monitor_id': 20,
+            'name': 'Monitor Rule',
+          }),
         ];
 
         expect(controller.teamLevelRules.length, 1);

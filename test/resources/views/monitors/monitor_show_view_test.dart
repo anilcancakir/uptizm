@@ -16,8 +16,7 @@ void main() {
   });
 
   group('Stats section reactivity', () {
-    test('uptime and avg response should update when checks notifier changes',
-        () {
+    test('uptime and avg response should update when checks notifier changes', () {
       // This test verifies that the stats section reacts to checksNotifier changes.
       // The bug was that _buildStatsSection reads checksNotifier.value directly
       // instead of being inside a ValueListenableBuilder.
@@ -50,8 +49,9 @@ void main() {
       expect(controller.checksNotifier.value.length, equals(2));
 
       // Calculate expected uptime
-      final upCount =
-          controller.checksNotifier.value.where((c) => c.isUp).length;
+      final upCount = controller.checksNotifier.value
+          .where((c) => c.isUp)
+          .length;
       final percentage = (upCount / checks.length * 100).toStringAsFixed(1);
       expect(percentage, equals('100.0'));
 

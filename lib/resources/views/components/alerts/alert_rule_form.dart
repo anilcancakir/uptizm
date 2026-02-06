@@ -86,7 +86,8 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
       ..type = _selectedType
       ..severity = _selectedSeverity
       ..consecutiveChecks = int.tryParse(_consecutiveChecksController.text) ?? 1
-      ..monitorId = widget.monitorId; // Set monitor ID if creating for specific monitor
+      ..monitorId =
+          widget.monitorId; // Set monitor ID if creating for specific monitor
 
     if (_selectedType == AlertRuleType.threshold ||
         _selectedType == AlertRuleType.anomaly) {
@@ -217,7 +218,8 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                   controller: _consecutiveChecksController,
                   label: 'Consecutive Failed Checks',
                   placeholder: '1',
-                  hint: 'Number of consecutive failures before triggering alert',
+                  hint:
+                      'Number of consecutive failures before triggering alert',
                   labelClassName: '''
                     text-gray-900 dark:text-gray-200
                     mb-2 text-sm font-medium
@@ -250,7 +252,8 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                     controller: _metricKeyController,
                     label: 'Metric Key',
                     placeholder: 'e.g., response_time',
-                    hint: 'The metric to monitor (e.g., response_time, uptime_percentage)',
+                    hint:
+                        'The metric to monitor (e.g., response_time, uptime_percentage)',
                     labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
@@ -306,7 +309,8 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                       controller: _thresholdValueController,
                       label: 'Threshold Value',
                       placeholder: '5000',
-                      hint: 'Alert when metric ${_selectedOperator.value} this value',
+                      hint:
+                          'Alert when metric ${_selectedOperator.value} this value',
                       labelClassName: '''
                         text-gray-900 dark:text-gray-200
                         mb-2 text-sm font-medium

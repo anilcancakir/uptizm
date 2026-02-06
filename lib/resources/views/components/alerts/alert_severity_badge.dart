@@ -6,10 +6,7 @@ import '../../../../app/enums/alert_severity.dart';
 class AlertSeverityBadge extends StatelessWidget {
   final AlertSeverity severity;
 
-  const AlertSeverityBadge({
-    required this.severity,
-    super.key,
-  });
+  const AlertSeverityBadge({required this.severity, super.key});
 
   @override
   Widget build(BuildContext context) {

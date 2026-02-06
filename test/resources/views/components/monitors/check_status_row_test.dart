@@ -4,7 +4,10 @@ import 'package:magic/magic.dart';
 import 'package:uptizm/app/models/monitor_check.dart';
 import 'package:uptizm/resources/views/components/monitors/check_status_row.dart';
 
-Widget buildTestApp({required Widget child, Size size = const Size(1200, 800)}) {
+Widget buildTestApp({
+  required Widget child,
+  Size size = const Size(1200, 800),
+}) {
   return WindTheme(
     data: WindThemeData(),
     child: MaterialApp(

@@ -14,22 +14,14 @@ Widget wrapWithTheme(Widget child) {
 void main() {
   group('NotificationsListView', () {
     testWidgets('renders without crashing', (tester) async {
-      await tester.pumpWidget(
-        wrapWithTheme(
-          const NotificationsListView(),
-        ),
-      );
+      await tester.pumpWidget(wrapWithTheme(const NotificationsListView()));
 
       // Should show loading state initially
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 
     testWidgets('has correct page title', (tester) async {
-      await tester.pumpWidget(
-        wrapWithTheme(
-          const NotificationsListView(),
-        ),
-      );
+      await tester.pumpWidget(wrapWithTheme(const NotificationsListView()));
 
       // Title should be present (uses translation key when no translation loaded)
       expect(find.text('notifications.title'), findsOneWidget);
@@ -69,9 +61,7 @@ void main() {
 
     testWidgets('accepts custom perPage', (tester) async {
       await tester.pumpWidget(
-        wrapWithTheme(
-          const NotificationsListView(perPage: 25),
-        ),
+        wrapWithTheme(const NotificationsListView(perPage: 25)),
       );
 
       // Should render without error
@@ -86,11 +76,7 @@ void main() {
           {
             'id': '1',
             'type': 'monitor_down',
-            'data': {
-              'type': 'monitor_down',
-              'title': 'Test',
-              'body': 'Body',
-            },
+            'data': {'type': 'monitor_down', 'title': 'Test', 'body': 'Body'},
             'read_at': null,
             'created_at': '2024-01-01T00:00:00.000Z',
           },

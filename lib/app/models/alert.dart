@@ -11,23 +11,22 @@ class Alert extends Model with HasTimestamps, InteractsWithPersistence {
 
   @override
   List<String> get fillable => [
-        'alert_rule_id',
-        'monitor_id',
-        'status',
-        'triggered_at',
-        'resolved_at',
-        'trigger_value',
-        'trigger_message',
-      ];
+    'alert_rule_id',
+    'monitor_id',
+    'status',
+    'triggered_at',
+    'resolved_at',
+    'trigger_value',
+    'trigger_message',
+  ];
 
   // Getters
   int? get id => (getAttribute('id') as num?)?.toInt();
   int? get alertRuleId => (getAttribute('alert_rule_id') as num?)?.toInt();
   int? get monitorId => (getAttribute('monitor_id') as num?)?.toInt();
 
-  AlertStatus get status => AlertStatus.fromValue(
-        getAttribute('status') as String? ?? 'alerting',
-      ) ??
+  AlertStatus get status =>
+      AlertStatus.fromValue(getAttribute('status') as String? ?? 'alerting') ??
       AlertStatus.alerting;
 
   DateTime? get triggeredAt => getAttribute('triggered_at') != null

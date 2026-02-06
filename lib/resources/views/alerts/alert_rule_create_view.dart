@@ -27,7 +27,8 @@ class AlertRuleCreateView extends StatelessWidget {
             WAnchor(
               onTap: () => MagicRoute.back(),
               child: WDiv(
-                className: 'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 duration-150',
+                className:
+                    'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 duration-150',
                 children: [
                   WIcon(
                     Icons.arrow_back,
@@ -54,10 +55,7 @@ class AlertRuleCreateView extends StatelessWidget {
         ),
 
         // Form
-        AlertRuleForm(
-          onSubmit: onSubmit,
-          monitorId: monitorId,
-        ),
+        AlertRuleForm(onSubmit: onSubmit, monitorId: monitorId),
       ],
     );
   }
