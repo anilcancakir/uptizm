@@ -181,7 +181,8 @@
     "metrics_hint": "Metrics will appear after the next check runs",
     "performance": "Performance",
     "waiting_for_first_check": "Waiting for first check...",
-    "first_check_hint": "The first monitoring check is running. Results will appear shortly."
+    "first_check_hint": "The first monitoring check is running. Results will appear shortly.",
+    "unnamed": "Unnamed Monitor"
   },
   "status_pages": {
     "title": "Status Pages",
@@ -213,7 +214,13 @@
     "no_status_pages": "No status pages yet",
     "no_status_pages_desc": "Create your first public status page to share your service status with users",
     "monitors_section": "Monitors",
+    "monitors": "Monitors",
     "monitors_section_hint": "Select monitors to display on this status page",
+    "info": "Information",
+    "logo": "Logo",
+    "no_monitors": "No monitors attached",
+    "published_status": "Status",
+    "monitor_count": "Monitors",
     "custom_label": "Custom label (optional)",
     "add_monitor": "Add Monitor",
     "no_monitors_selected": "No monitors selected",
@@ -377,7 +384,9 @@
   "monitor_status": {
     "active": "Active",
     "paused": "Paused",
-    "maintenance": "Maintenance"
+    "maintenance": "Maintenance",
+    "down": "Down",
+    "unknown": "Unknown"
   },
   "check_status": {
     "up": "Up",

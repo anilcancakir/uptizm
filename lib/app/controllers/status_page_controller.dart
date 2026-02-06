@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import '../models/status_page.dart';
 import '../../resources/views/status_pages/status_pages_index_view.dart';
 import '../../resources/views/status_pages/status_page_create_view.dart';
+import '../../resources/views/status_pages/status_page_show_view.dart';
 import '../../resources/views/status_pages/status_page_edit_view.dart';
 
 class StatusPageController extends MagicController
@@ -19,6 +20,7 @@ class StatusPageController extends MagicController
 
   Widget index() => const StatusPagesIndexView();
   Widget create() => const StatusPageCreateView();
+  Widget show() => const StatusPageShowView();
   Widget edit() => const StatusPageEditView();
 
   Future<void> loadStatusPages() async {
@@ -122,57 +124,22 @@ class StatusPageController extends MagicController
     clearErrors();
 
     try {
-      final statusPage = await StatusPage.find(id);
-      if (statusPage == null) {
-        setError(trans('status_pages.not_found'));
-        return;
-      }
+      // Build update payload directly - no need to fetch first
+      final data = <String, dynamic>{};
+      if (name != null) data['name'] = name;
+      if (slug != null) data['slug'] = slug;
+      if (description != null) data['description'] = description;
+      if (logoUrl != null) data['logo_url'] = logoUrl;
+      if (faviconUrl != null) data['favicon_url'] = faviconUrl;
+      if (primaryColor != null) data['primary_color'] = primaryColor;
+      if (isPublished != null) data['is_published'] = isPublished;
+      if (monitorIds != null) data['monitor_ids'] = monitorIds;
 
-      if (name != null) statusPage.name = name;
-      if (slug != null) statusPage.slug = slug;
-      if (description != null) statusPage.description = description;
-      if (logoUrl != null) statusPage.logoUrl = logoUrl;
-      if (faviconUrl != null) statusPage.faviconUrl = faviconUrl;
-      if (primaryColor != null) statusPage.primaryColor = primaryColor;
-      if (isPublished != null) statusPage.isPublished = isPublished;
-      if (monitorIds != null) statusPage.monitorIds = monitorIds;
+      final response = await Http.put('/status-pages/$id', data: data);
 
-      final success = await statusPage.save();
-
-      if (success) {
+      if (response.successful) {
+        // Now sync monitors with their metric_keys
         if (monitors != null && monitors.isNotEmpty) {
-          // If the update included monitors, we might want to attach them.
-          // However, typical CRUD for relationships in Laravel updates the pivots if sync is used.
-          // But our update logic in controller might handle it via monitor_ids array if we pass it.
-          // The issue is that we are calling attachMonitors which is a separate endpoint for ADDING monitors.
-          // If we want to SYNC/Update existing, we should rely on the main update request which we fixed in backend to accept monitor_ids.
-          // But StatusPageController.php update method logic:
-          // $statusPage->fill($request->validated()); $statusPage->save();
-          // It DOES NOT automatically sync monitors unless we add that logic to backend controller.
-
-          // Since the user reported a secondary request causing issues, and we now have monitor_ids support in UpdateRequest
-          // We should ideally fix the backend to handle sync in update() and remove this secondary call,
-          // OR ensure this secondary call has valid data.
-
-          // For now, let's keep the secondary call but only if monitorIds was NOT passed (which would be weird).
-          // Actually, the view passes BOTH monitorIds AND monitors list (for detailed attributes like custom_label).
-          // If we want to support custom labels/order, we need the attach/sync logic.
-          // But `attachMonitors` endpoint in backend does `syncWithoutDetaching`.
-          // If we want to REPLACE the list, we should use sync.
-
-          // Let's rely on `attachMonitors` for now but ensure it's not sending nulls (fixed in View/Model).
-          // And we should probably use a 'syncMonitors' endpoint if we want to handle removals too.
-          // Currently `attachMonitors` ADDS/UPDATES. `detachMonitor` removes.
-          // Our `update` method in frontend sends `monitors` list.
-          // If the user removed a monitor in UI, `_selectedMonitors` would be smaller.
-          // But `attachMonitors` won't remove the missing ones.
-          // This logic is flawed for a full update.
-
-          // Ideally, we should use the `monitor_ids` in the main update request for basic association,
-          // OR create a `syncMonitors` endpoint.
-          // Given the constraints, I will leave it as is but rely on the fixes in View/Model to prevent null IDs.
-          // And I will add a check here to filter out invalid monitors.
-
           final validMonitors = monitors
               .where((m) => m['monitor_id'] != null)
               .toList();
@@ -233,7 +200,7 @@ class StatusPageController extends MagicController
     setLoading();
 
     try {
-      final response = await Http.post('/status-pages/$id/publish');
+      final response = await Http.post('/status-pages/$id/toggle-publish');
 
       if (response.successful) {
         setSuccess(true);

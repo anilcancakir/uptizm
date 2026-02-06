@@ -376,10 +376,9 @@ packages:
   fluttersdk_wind:
     dependency: transitive
     description:
-      name: fluttersdk_wind
-      sha256: f84df6afe1143b2f60f109170c8ae9c099636ca35617820b6754c0b14899fc68
-      url: "https://pub.dev"
-    source: hosted
+      path: "plugins/magic/plugins/fluttersdk_wind"
+      relative: true
+    source: path
     version: "1.0.0-alpha.3"
   glob:
     dependency: transitive

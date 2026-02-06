@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/models/status_page.dart';
@@ -76,64 +75,65 @@ class _StatusPagesIndexViewState
   }
 
   Widget _buildStatusPageCard(StatusPage page) {
-    return WDiv(
-      className: '''
-        bg-white dark:bg-gray-800
-        border border-gray-100 dark:border-gray-700
-        rounded-2xl p-5
-        hover:shadow-lg hover:border-primary/50
-        transition-all duration-150
-      ''',
-      children: [
-        WDiv(
-          className: 'flex flex-row items-center justify-between',
-          children: [
-            // Left: Icon + Info
-            WDiv(
-              className: 'flex flex-row items-center gap-4',
-              children: [
-                WDiv(
-                  className: '''
-                    w-12 h-12 rounded-xl
-                    bg-primary/10 flex items-center justify-center
-                  ''',
-                  child: WIcon(
-                    Icons.public,
-                    className: 'text-2xl text-primary',
+    return WAnchor(
+      onTap: () => MagicRoute.to('/status-pages/${page.id}'),
+      child: WDiv(
+        className: '''
+          bg-white dark:bg-gray-800
+          border border-gray-100 dark:border-gray-700
+          rounded-2xl p-5
+          hover:shadow-lg hover:border-primary/50
+          transition-all duration-150 cursor-pointer
+        ''',
+        children: [
+          WDiv(
+            className: 'flex flex-row items-center justify-between',
+            children: [
+              // Left: Icon + Info
+              WDiv(
+                className: 'flex flex-row items-center gap-4',
+                children: [
+                  WDiv(
+                    className: '''
+                      w-12 h-12 rounded-xl
+                      bg-primary/10 flex items-center justify-center
+                    ''',
+                    child: WIcon(
+                      Icons.public,
+                      className: 'text-2xl text-primary',
+                    ),
                   ),
-                ),
-                WDiv(
-                  className: 'flex flex-col',
-                  children: [
-                    WText(
-                      page.name,
-                      className:
-                          'text-lg font-semibold text-gray-900 dark:text-white',
-                    ),
-                    WText(
-                      page.slug,
-                      className:
-                          'text-sm font-mono text-gray-500 dark:text-gray-400',
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                  WDiv(
+                    className: 'flex flex-col',
+                    children: [
+                      WText(
+                        page.name,
+                        className:
+                            'text-lg font-semibold text-gray-900 dark:text-white',
+                      ),
+                      WText(
+                        page.slug,
+                        className:
+                            'text-sm font-mono text-gray-500 dark:text-gray-400',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
 
-            // Right: Actions
-            WDiv(
-              className: 'flex flex-row items-center gap-2',
-              children: [
-                _buildPublishedBadge(page),
-                const WSpacer(className: 'w-2'),
-                _buildMonitorCountBadge(page),
-                const WSpacer(className: 'w-2'),
-                _buildActions(page),
-              ],
-            ),
-          ],
-        ),
-      ],
+              // Right: Badges
+              WDiv(
+                className: 'flex flex-row items-center gap-2',
+                children: [
+                  _buildPublishedBadge(page),
+                  const WSpacer(className: 'w-2'),
+                  _buildMonitorCountBadge(page),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -165,88 +165,6 @@ class _StatusPagesIndexViewState
         WIcon(Icons.monitor_heart_outlined, className: 'text-xs'),
         WText('$count ${trans('navigation.monitors')}'),
       ],
-    );
-  }
-
-  Widget _buildActions(StatusPage page) {
-    return WPopover(
-      alignment: PopoverAlignment.bottomRight,
-      className: '''
-        w-56
-        bg-white dark:bg-gray-800
-        border border-gray-100 dark:border-gray-700
-        rounded-xl shadow-xl
-        z-50
-      ''',
-      triggerBuilder: (context, isOpen, isHovering) {
-        return WButton(
-          className:
-              '''
-            p-2 rounded-lg
-            hover:bg-gray-100 dark:hover:bg-gray-700
-            text-gray-500 dark:text-gray-400
-            ${isOpen ? 'bg-gray-100 dark:bg-gray-700' : ''}
-          ''',
-          child: WIcon(Icons.more_vert),
-        );
-      },
-      contentBuilder: (context, close) {
-        return WDiv(
-          className: 'flex flex-col py-1',
-          children: [
-            _buildActionItem(
-              icon: Icons.edit_outlined,
-              label: trans('common.edit'),
-              onTap: () {
-                close();
-                MagicRoute.to('/status-pages/${page.id}/edit');
-              },
-            ),
-            _buildActionItem(
-              icon: Icons.open_in_new,
-              label: trans('status_pages.open_public_page'),
-              onTap: () {
-                close();
-                launchUrl(Uri.parse(page.publicUrl));
-              },
-            ),
-            WDiv(className: 'h-px bg-gray-100 dark:bg-gray-700 my-1'),
-            _buildActionItem(
-              icon: Icons.delete_outline,
-              label: trans('common.delete'),
-              isDestructive: true,
-              onTap: () {
-                close();
-                controller.destroy(page.id!);
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildActionItem({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    bool isDestructive = false,
-  }) {
-    return WButton(
-      onTap: onTap,
-      className:
-          '''
-        w-full px-4 py-2 text-left flex flex-row items-center gap-2
-        hover:bg-gray-50 dark:hover:bg-gray-700/50
-        ${isDestructive ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'}
-      ''',
-      child: WDiv(
-        className: 'flex flex-row items-center gap-2',
-        children: [
-          WIcon(icon, className: 'text-lg'),
-          WText(label, className: 'text-sm'),
-        ],
-      ),
     );
   }
 

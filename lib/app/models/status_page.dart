@@ -70,7 +70,7 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
     final data = get<List>('monitors');
     if (data == null) return [];
     return data
-        .map((m) => Monitor()..fill(Map<String, dynamic>.from(m)))
+        .map((m) => Monitor()..setRawAttributes(Map<String, dynamic>.from(m)))
         .toList();
   }
 

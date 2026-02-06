@@ -118,6 +118,11 @@ void registerAppRoutes() {
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
+        '/status-pages/:id',
+        () => StatusPageController.instance.show(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
         '/status-pages/:id/edit',
         () => StatusPageController.instance.edit(),
       ).transition(RouteTransition.none);
