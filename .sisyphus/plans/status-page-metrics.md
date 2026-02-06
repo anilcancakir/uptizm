@@ -73,14 +73,14 @@ Enable users to select specific custom metrics per-monitor on status pages and d
 - Flutter widget tests
 
 ### Definition of Done
-- [ ] `php artisan migrate` runs without errors
-- [ ] `php artisan test --filter=StatusPageMonitorMetric` passes
-- [ ] Public status page at `/status/{slug}` renders metric badges under monitors
-- [ ] Public page without metrics renders normally (regression)
-- [ ] Flutter create view shows metric checkboxes when monitor has mappings
-- [ ] Flutter edit view pre-selects previously saved metrics
-- [ ] `flutter test test/resources/views/status_pages/` passes
-- [ ] `dart format .` passes
+- [x] `php artisan migrate` runs without errors
+- [x] `php artisan test --filter=StatusPageMonitorMetric` passes
+- [x] Public status page at `/status/{slug}` renders metric badges under monitors
+- [x] Public page without metrics renders normally (regression)
+- [x] Flutter create view shows metric checkboxes when monitor has mappings
+- [x] Flutter edit view pre-selects previously saved metrics
+- [x] `flutter test test/resources/views/status_pages/` passes
+- [x] `dart format .` passes
 
 ### Must Have
 - Metric selection per-monitor via checkboxes in Flutter create/edit views
@@ -818,15 +818,15 @@ flutter test                                              # Expected: 0 failures
 ```
 
 ### Final Checklist
-- [ ] `status_page_monitor_metrics` table exists with correct schema
-- [ ] API accepts `metric_keys` per monitor in `attachMonitors`
-- [ ] API returns `metric_mappings` and `selected_metrics` per monitor
-- [ ] Public page renders typed metric badges (numeric/status/string)
-- [ ] Public page handles null/missing metrics gracefully ("N/A")
-- [ ] Cache invalidated after metric selection changes
-- [ ] Flutter create view shows metric checkboxes
-- [ ] Flutter edit view pre-selects saved metrics
-- [ ] Monitors without metric_mappings show no metric section
-- [ ] All existing tests still pass (regression)
-- [ ] No N+1 queries on public page
-- [ ] All "Must NOT Have" items are absent
+- [x] `status_page_monitor_metrics` table exists with correct schema
+- [x] API accepts `metric_keys` per monitor in `attachMonitors`
+- [x] API returns `metric_mappings` and `selected_metrics` per monitor
+- [x] Public page renders typed metric badges (numeric/status/string)
+- [x] Public page handles null/missing metrics gracefully ("N/A")
+- [x] Cache invalidated after metric selection changes
+- [x] Flutter create view shows metric checkboxes
+- [x] Flutter edit view pre-selects saved metrics
+- [x] Monitors without metric_mappings show no metric section
+- [x] All existing tests still pass (regression)
+- [x] No N+1 queries on public page
+- [x] All "Must NOT Have" items are absent
