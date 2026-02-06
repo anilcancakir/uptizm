@@ -8,6 +8,7 @@ import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/monitor_controller.dart';
 import '../app/controllers/notification_controller.dart';
 import '../app/controllers/profile_controller.dart';
+import '../app/controllers/status_page_controller.dart';
 import '../app/controllers/team_controller.dart';
 
 /// Application routes.
@@ -108,10 +109,18 @@ void registerAppRoutes() {
       // Status Pages
       MagicRoute.page(
         '/status-pages',
-        () => Center(
-          child: WText('Coming Soon', className: 'text-lg text-gray-500'),
-        ),
-      );
+        () => StatusPageController.instance.index(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/status-pages/create',
+        () => StatusPageController.instance.create(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/status-pages/:id/edit',
+        () => StatusPageController.instance.edit(),
+      ).transition(RouteTransition.none);
 
       // Teams
       MagicRoute.page(
