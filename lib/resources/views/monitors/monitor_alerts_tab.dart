@@ -105,7 +105,8 @@ class _MonitorAlertsTabState extends State<MonitorAlertsTab> {
           builder: (context, rules, _) {
             if (rules.isEmpty) {
               return WDiv(
-                className: 'flex flex-col items-center justify-center w-full py-12',
+                className:
+                    'flex flex-col items-center justify-center w-full py-12',
                 children: [
                   WIcon(
                     Icons.notifications_off_outlined,
@@ -188,7 +189,8 @@ class _MonitorAlertsTabState extends State<MonitorAlertsTab> {
           builder: (context, alerts, _) {
             if (alerts.isEmpty) {
               return WDiv(
-                className: 'w-full flex flex-col items-center justify-center py-12',
+                className:
+                    'w-full flex flex-col items-center justify-center py-12',
                 children: [
                   WIcon(
                     Icons.check_circle_outline,

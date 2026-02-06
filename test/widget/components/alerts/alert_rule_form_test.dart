@@ -10,7 +10,9 @@ import 'package:uptizm/resources/views/components/alerts/alert_rule_form.dart';
 Widget buildTestApp({required Widget child}) {
   return WindTheme(
     data: WindThemeData(),
-    child: MaterialApp(home: Scaffold(body: SingleChildScrollView(child: child))),
+    child: MaterialApp(
+      home: Scaffold(body: SingleChildScrollView(child: child)),
+    ),
   );
 }
 
@@ -18,11 +20,7 @@ void main() {
   group('AlertRuleForm', () {
     testWidgets('renders name input', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertRuleForm(
-            onSubmit: (rule) {},
-          ),
-        ),
+        buildTestApp(child: AlertRuleForm(onSubmit: (rule) {})),
       );
 
       expect(find.text('Rule Name'), findsOneWidget);
@@ -30,11 +28,7 @@ void main() {
 
     testWidgets('renders type selector', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertRuleForm(
-            onSubmit: (rule) {},
-          ),
-        ),
+        buildTestApp(child: AlertRuleForm(onSubmit: (rule) {})),
       );
 
       expect(find.text('Alert Type'), findsOneWidget);
@@ -42,11 +36,7 @@ void main() {
 
     testWidgets('renders severity selector', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertRuleForm(
-            onSubmit: (rule) {},
-          ),
-        ),
+        buildTestApp(child: AlertRuleForm(onSubmit: (rule) {})),
       );
 
       expect(find.text('Severity'), findsOneWidget);
@@ -80,8 +70,9 @@ void main() {
       expect(find.text('Operator'), findsOneWidget);
     });
 
-    testWidgets('shows threshold value input for threshold type',
-        (tester) async {
+    testWidgets('shows threshold value input for threshold type', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         buildTestApp(
           child: AlertRuleForm(
@@ -111,10 +102,7 @@ void main() {
 
       await tester.pumpWidget(
         buildTestApp(
-          child: AlertRuleForm(
-            initialRule: existingRule,
-            onSubmit: (rule) {},
-          ),
+          child: AlertRuleForm(initialRule: existingRule, onSubmit: (rule) {}),
         ),
       );
       await tester.pumpAndSettle();
@@ -122,8 +110,7 @@ void main() {
       expect(find.text('High Response Time'), findsOneWidget);
     });
 
-    testWidgets('calls onSubmit with form data when submitted',
-        (tester) async {
+    testWidgets('calls onSubmit with form data when submitted', (tester) async {
       AlertRule? submittedRule;
 
       await tester.pumpWidget(
@@ -152,11 +139,7 @@ void main() {
 
     testWidgets('validates required fields', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertRuleForm(
-            onSubmit: (rule) {},
-          ),
-        ),
+        buildTestApp(child: AlertRuleForm(onSubmit: (rule) {})),
       );
       await tester.pumpAndSettle();
 
@@ -170,11 +153,7 @@ void main() {
 
     testWidgets('shows consecutive checks input', (tester) async {
       await tester.pumpWidget(
-        buildTestApp(
-          child: AlertRuleForm(
-            onSubmit: (rule) {},
-          ),
-        ),
+        buildTestApp(child: AlertRuleForm(onSubmit: (rule) {})),
       );
       await tester.pumpAndSettle();
 

@@ -18,11 +18,23 @@ void main() {
 
     test('fillable includes all required fields', () {
       final rule = AlertRule();
-      expect(rule.fillable, containsAll([
-        'team_id', 'monitor_id', 'name', 'type', 'enabled',
-        'metric_key', 'operator', 'threshold_value',
-        'threshold_min', 'threshold_max', 'severity', 'consecutive_checks',
-      ]));
+      expect(
+        rule.fillable,
+        containsAll([
+          'team_id',
+          'monitor_id',
+          'name',
+          'type',
+          'enabled',
+          'metric_key',
+          'operator',
+          'threshold_value',
+          'threshold_min',
+          'threshold_max',
+          'severity',
+          'consecutive_checks',
+        ]),
+      );
     });
 
     group('fromMap', () {

@@ -13,8 +13,9 @@ Widget buildTestApp({required Widget child}) {
 
 void main() {
   group('AlertSeverityBadge', () {
-    testWidgets('renders critical badge with correct text and color',
-        (tester) async {
+    testWidgets('renders critical badge with correct text and color', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         buildTestApp(
           child: const AlertSeverityBadge(severity: AlertSeverity.critical),
@@ -24,8 +25,9 @@ void main() {
       expect(find.text('Critical'), findsOneWidget);
     });
 
-    testWidgets('renders warning badge with correct text and color',
-        (tester) async {
+    testWidgets('renders warning badge with correct text and color', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         buildTestApp(
           child: const AlertSeverityBadge(severity: AlertSeverity.warning),
@@ -35,8 +37,9 @@ void main() {
       expect(find.text('Warning'), findsOneWidget);
     });
 
-    testWidgets('renders info badge with correct text and color',
-        (tester) async {
+    testWidgets('renders info badge with correct text and color', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         buildTestApp(
           child: const AlertSeverityBadge(severity: AlertSeverity.info),

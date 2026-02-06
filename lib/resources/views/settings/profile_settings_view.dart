@@ -197,57 +197,57 @@ class _ProfileSettingsViewState
       className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
       scrollPrimary: true,
       children: [
-          // Error Message
-          if (errorMessage != null)
-            WDiv(
-              className: '''
+        // Error Message
+        if (errorMessage != null)
+          WDiv(
+            className: '''
                 p-3 mb-2
                 bg-red-100 dark:bg-red-900
                 border border-red-300 dark:border-red-700
                 rounded-lg
               ''',
-              child: WText(
-                errorMessage,
-                className: 'text-red-700 dark:text-red-200',
-              ),
+            child: WText(
+              errorMessage,
+              className: 'text-red-700 dark:text-red-200',
             ),
+          ),
 
-          // Personal Information Card
-          MagicForm(
-            formData: profileForm,
-            child: AppCard(
-              title: trans('profile_settings.personal_info'),
-              body: WDiv(
-                className: 'flex flex-col gap-6',
-                children: [
-                  // Avatar Section
-                  PhotoPicker(
-                    photo: photo,
-                    currentPhotoUrl: user.profilePhotoUrl,
-                    label: trans('profile_settings.profile_photo'),
-                    description: trans('profile_settings.profile_photo_desc'),
-                    changeButtonText: trans('profile_settings.change_photo'),
-                    onPick: _pickPhoto,
-                    onUpload: _uploadPhoto,
-                    onRemove: _removePhoto,
-                    removeButtonText: trans('profile_settings.remove_photo'),
-                    isLoading: isLoading,
-                  ),
+        // Personal Information Card
+        MagicForm(
+          formData: profileForm,
+          child: AppCard(
+            title: trans('profile_settings.personal_info'),
+            body: WDiv(
+              className: 'flex flex-col gap-6',
+              children: [
+                // Avatar Section
+                PhotoPicker(
+                  photo: photo,
+                  currentPhotoUrl: user.profilePhotoUrl,
+                  label: trans('profile_settings.profile_photo'),
+                  description: trans('profile_settings.profile_photo_desc'),
+                  changeButtonText: trans('profile_settings.change_photo'),
+                  onPick: _pickPhoto,
+                  onUpload: _uploadPhoto,
+                  onRemove: _removePhoto,
+                  removeButtonText: trans('profile_settings.remove_photo'),
+                  isLoading: isLoading,
+                ),
 
-                  // Name Input
-                  WFormInput(
-                    label: trans('profile_settings.name'),
-                    hint: trans('profile_settings.name_placeholder'),
-                    controller: profileForm['name'],
-                    labelClassName: '''
+                // Name Input
+                WFormInput(
+                  label: trans('profile_settings.name'),
+                  hint: trans('profile_settings.name_placeholder'),
+                  controller: profileForm['name'],
+                  labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
                     ''',
-                    hintClassName: '''
+                  hintClassName: '''
                       text-gray-500 dark:text-gray-400
                       text-xs font-medium mt-2
                     ''',
-                    className: '''
+                  className: '''
                       w-full bg-white dark:bg-gray-800
                       text-gray-900 dark:text-white
                       rounded-lg
@@ -258,24 +258,24 @@ class _ProfileSettingsViewState
                       focus:ring-2 focus:ring-primary/20
                       duration-150
                     ''',
-                    validator: rules([
-                      Required(),
-                      Min(2),
-                      Max(255),
-                    ], field: 'name'),
-                  ),
+                  validator: rules([
+                    Required(),
+                    Min(2),
+                    Max(255),
+                  ], field: 'name'),
+                ),
 
-                  // Email Input (Read-only)
-                  WDiv(
-                    className: 'flex flex-col gap-1',
-                    children: [
-                      WText(
-                        trans('profile_settings.email'),
-                        className:
-                            'text-gray-900 dark:text-gray-200 mb-2 text-sm font-medium',
-                      ),
-                      WDiv(
-                        className: '''
+                // Email Input (Read-only)
+                WDiv(
+                  className: 'flex flex-col gap-1',
+                  children: [
+                    WText(
+                      trans('profile_settings.email'),
+                      className:
+                          'text-gray-900 dark:text-gray-200 mb-2 text-sm font-medium',
+                    ),
+                    WDiv(
+                      className: '''
                           w-full bg-gray-50 dark:bg-gray-900/50
                           text-gray-500 dark:text-gray-400
                           rounded-lg
@@ -283,30 +283,30 @@ class _ProfileSettingsViewState
                           px-3 py-4
                           text-sm
                         ''',
-                        child: WText(user.email ?? ''),
-                      ),
-                      WText(
-                        trans('profile_settings.email_desc'),
-                        className:
-                            'text-gray-500 dark:text-gray-400 text-xs mt-2',
-                      ),
-                    ],
-                  ),
+                      child: WText(user.email ?? ''),
+                    ),
+                    WText(
+                      trans('profile_settings.email_desc'),
+                      className:
+                          'text-gray-500 dark:text-gray-400 text-xs mt-2',
+                    ),
+                  ],
+                ),
 
-                  // Phone Input
-                  WFormInput(
-                    label: trans('profile_settings.phone'),
-                    hint: trans('profile_settings.phone_placeholder'),
-                    controller: profileForm['phone'],
-                    labelClassName: '''
+                // Phone Input
+                WFormInput(
+                  label: trans('profile_settings.phone'),
+                  hint: trans('profile_settings.phone_placeholder'),
+                  controller: profileForm['phone'],
+                  labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
                     ''',
-                    hintClassName: '''
+                  hintClassName: '''
                       text-gray-500 dark:text-gray-400
                       text-xs font-medium mt-2
                     ''',
-                    className: '''
+                  className: '''
                       w-full bg-white dark:bg-gray-800
                       text-gray-900 dark:text-white
                       rounded-lg
@@ -317,17 +317,17 @@ class _ProfileSettingsViewState
                       focus:ring-2 focus:ring-primary/20
                       duration-150
                     ''',
-                  ),
+                ),
 
-                  // Language Select
-                  WFormSelect<String>(
-                    label: trans('profile_settings.language'),
-                    value: profileForm.get('language'),
-                    labelClassName: '''
+                // Language Select
+                WFormSelect<String>(
+                  label: trans('profile_settings.language'),
+                  value: profileForm.get('language'),
+                  labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
                     ''',
-                    className: '''
+                  className: '''
                       w-full bg-white dark:bg-gray-800
                       text-gray-900 dark:text-white
                       rounded-lg
@@ -338,80 +338,78 @@ class _ProfileSettingsViewState
                       focus:ring-2 focus:ring-primary/20
                       duration-150
                     ''',
-                    menuClassName: '''
+                  menuClassName: '''
                       bg-white dark:bg-gray-800
                       border border-gray-200 dark:border-gray-700
                     ''',
-                    options: localeOptions,
-                    onChange: (value) =>
-                        profileForm.set('language', value ?? 'en'),
-                  ),
+                  options: localeOptions,
+                  onChange: (value) =>
+                      profileForm.set('language', value ?? 'en'),
+                ),
 
-                  // Timezone Select
-                  SearchableTimezoneSelect(
-                    label: trans('profile_settings.timezone'),
-                    value: profileForm.get('timezone'),
-                    placeholder: trans('profile_settings.timezone_placeholder'),
-                    onChanged: (value) =>
-                        profileForm.set('timezone', value ?? ''),
-                  ),
-                ],
-              ),
-              footer: WDiv(
-                className: 'flex flex-row justify-end gap-3',
-                children: [
-                  WButton(
-                    onTap: () => MagicRoute.back(),
-                    className: '''
+                // Timezone Select
+                SearchableTimezoneSelect(
+                  label: trans('profile_settings.timezone'),
+                  value: profileForm.get('timezone'),
+                  placeholder: trans('profile_settings.timezone_placeholder'),
+                  onChanged: (value) =>
+                      profileForm.set('timezone', value ?? ''),
+                ),
+              ],
+            ),
+            footer: WDiv(
+              className: 'flex flex-row justify-end gap-3',
+              children: [
+                WButton(
+                  onTap: () => MagicRoute.back(),
+                  className: '''
                       px-4 py-2 rounded-lg
                       bg-gray-200 dark:bg-gray-700
                       text-gray-700 dark:text-gray-200
                       hover:bg-gray-300 dark:hover:bg-gray-600
                       text-sm font-medium
                     ''',
-                    child: WText(trans('common.cancel')),
-                  ),
-                  WButton(
-                    isLoading: isLoading,
-                    onTap: _handleSaveProfile,
-                    className: '''
+                  child: WText(trans('common.cancel')),
+                ),
+                WButton(
+                  isLoading: isLoading,
+                  onTap: _handleSaveProfile,
+                  className: '''
                       px-4 py-2 rounded-lg
                       bg-primary hover:bg-green-600
                       text-white
                       text-sm font-medium
                     ''',
-                    child: WText(trans('common.save')),
-                  ),
-                ],
-              ),
+                  child: WText(trans('common.save')),
+                ),
+              ],
             ),
           ),
+        ),
 
-          // Change Password Card
-          MagicForm(
-            formData: passwordForm,
-            child: AppCard(
-              title: trans('profile_settings.change_password'),
-              body: WDiv(
-                className: 'flex flex-col gap-6',
-                children: [
-                  // Current Password
-                  WFormInput(
-                    label: trans('profile_settings.current_password'),
-                    hint: trans(
-                      'profile_settings.current_password_placeholder',
-                    ),
-                    controller: passwordForm['current_password'],
-                    type: InputType.password,
-                    labelClassName: '''
+        // Change Password Card
+        MagicForm(
+          formData: passwordForm,
+          child: AppCard(
+            title: trans('profile_settings.change_password'),
+            body: WDiv(
+              className: 'flex flex-col gap-6',
+              children: [
+                // Current Password
+                WFormInput(
+                  label: trans('profile_settings.current_password'),
+                  hint: trans('profile_settings.current_password_placeholder'),
+                  controller: passwordForm['current_password'],
+                  type: InputType.password,
+                  labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
                     ''',
-                    hintClassName: '''
+                  hintClassName: '''
                       text-gray-500 dark:text-gray-400
                       text-xs font-medium mt-2
                     ''',
-                    className: '''
+                  className: '''
                       w-full bg-white dark:bg-gray-800
                       text-gray-900 dark:text-white
                       rounded-lg
@@ -422,24 +420,24 @@ class _ProfileSettingsViewState
                       focus:ring-2 focus:ring-primary/20
                       duration-150
                     ''',
-                    validator: rules([Required()], field: 'current_password'),
-                  ),
+                  validator: rules([Required()], field: 'current_password'),
+                ),
 
-                  // New Password
-                  WFormInput(
-                    label: trans('profile_settings.new_password'),
-                    hint: trans('profile_settings.new_password_placeholder'),
-                    controller: passwordForm['password'],
-                    type: InputType.password,
-                    labelClassName: '''
+                // New Password
+                WFormInput(
+                  label: trans('profile_settings.new_password'),
+                  hint: trans('profile_settings.new_password_placeholder'),
+                  controller: passwordForm['password'],
+                  type: InputType.password,
+                  labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
                     ''',
-                    hintClassName: '''
+                  hintClassName: '''
                       text-gray-500 dark:text-gray-400
                       text-xs font-medium mt-2
                     ''',
-                    className: '''
+                  className: '''
                       w-full bg-white dark:bg-gray-800
                       text-gray-900 dark:text-white
                       rounded-lg
@@ -450,26 +448,24 @@ class _ProfileSettingsViewState
                       focus:ring-2 focus:ring-primary/20
                       duration-150
                     ''',
-                    validator: rules([Required(), Min(8)], field: 'password'),
-                  ),
+                  validator: rules([Required(), Min(8)], field: 'password'),
+                ),
 
-                  // Confirm Password
-                  WFormInput(
-                    label: trans('profile_settings.confirm_password'),
-                    hint: trans(
-                      'profile_settings.confirm_password_placeholder',
-                    ),
-                    controller: passwordForm['password_confirmation'],
-                    type: InputType.password,
-                    labelClassName: '''
+                // Confirm Password
+                WFormInput(
+                  label: trans('profile_settings.confirm_password'),
+                  hint: trans('profile_settings.confirm_password_placeholder'),
+                  controller: passwordForm['password_confirmation'],
+                  type: InputType.password,
+                  labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
                     ''',
-                    hintClassName: '''
+                  hintClassName: '''
                       text-gray-500 dark:text-gray-400
                       text-xs font-medium mt-2
                     ''',
-                    className: '''
+                  className: '''
                       w-full bg-white dark:bg-gray-800
                       text-gray-900 dark:text-white
                       rounded-lg
@@ -480,49 +476,49 @@ class _ProfileSettingsViewState
                       focus:ring-2 focus:ring-primary/20
                       duration-150
                     ''',
-                    validator: rules([
-                      Required(),
-                      Same('password'),
-                    ], field: 'password_confirmation'),
-                  ),
-                ],
+                  validator: rules([
+                    Required(),
+                    Same('password'),
+                  ], field: 'password_confirmation'),
+                ),
+              ],
+            ),
+            footer: WDiv(
+              className: 'flex flex-row justify-end',
+              children: [
+                WButton(
+                  isLoading: isLoading,
+                  onTap: _handleUpdatePassword,
+                  className: '''
+                      px-4 py-2 rounded-lg
+                      bg-primary hover:bg-green-600
+                      text-white
+                      text-sm font-medium
+                    ''',
+                  child: WText(trans('profile_settings.update_password')),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Danger Zone
+        AppCard(
+          title: trans('profile_settings.danger_zone'),
+          titleClassName: 'text-red-600 dark:text-red-400',
+          body: WDiv(
+            className: 'flex flex-col gap-4',
+            children: [
+              WText(
+                trans('profile_settings.delete_account_desc'),
+                className: 'text-sm text-gray-600 dark:text-gray-400',
               ),
-              footer: WDiv(
+              WDiv(
                 className: 'flex flex-row justify-end',
                 children: [
                   WButton(
-                    isLoading: isLoading,
-                    onTap: _handleUpdatePassword,
+                    onTap: _handleDeleteAccount,
                     className: '''
-                      px-4 py-2 rounded-lg
-                      bg-primary hover:bg-green-600
-                      text-white
-                      text-sm font-medium
-                    ''',
-                    child: WText(trans('profile_settings.update_password')),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Danger Zone
-          AppCard(
-            title: trans('profile_settings.danger_zone'),
-            titleClassName: 'text-red-600 dark:text-red-400',
-            body: WDiv(
-              className: 'flex flex-col gap-4',
-              children: [
-                WText(
-                  trans('profile_settings.delete_account_desc'),
-                  className: 'text-sm text-gray-600 dark:text-gray-400',
-                ),
-                WDiv(
-                  className: 'flex flex-row justify-end',
-                  children: [
-                    WButton(
-                      onTap: _handleDeleteAccount,
-                      className: '''
                         px-4 py-2 rounded-lg
                         bg-red-50 dark:bg-red-900/20
                         text-red-600 dark:text-red-400
@@ -530,14 +526,14 @@ class _ProfileSettingsViewState
                         border border-red-200 dark:border-red-900/50
                         text-sm font-medium
                       ''',
-                      child: WText(trans('profile_settings.delete_account')),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                    child: WText(trans('profile_settings.delete_account')),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
+      ],
     );
   }
 }

@@ -1,0 +1,2 @@
+- Implemented status precedence logic: all_down (Major Outage) > any_down (Partial Outage) > any_degraded (Degraded) > Operational.
+- Optimized uptime data retrieval by fetching all monitors' daily stats in a single query instead of per-monitor loops.

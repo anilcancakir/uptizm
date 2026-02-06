@@ -12,19 +12,19 @@ class AlertRule extends Model with HasTimestamps, InteractsWithPersistence {
 
   @override
   List<String> get fillable => [
-        'team_id',
-        'monitor_id',
-        'name',
-        'type',
-        'enabled',
-        'metric_key',
-        'operator',
-        'threshold_value',
-        'threshold_min',
-        'threshold_max',
-        'severity',
-        'consecutive_checks',
-      ];
+    'team_id',
+    'monitor_id',
+    'name',
+    'type',
+    'enabled',
+    'metric_key',
+    'operator',
+    'threshold_value',
+    'threshold_min',
+    'threshold_max',
+    'severity',
+    'consecutive_checks',
+  ];
 
   // Getters
   int? get id => (getAttribute('id') as num?)?.toInt();
@@ -32,9 +32,8 @@ class AlertRule extends Model with HasTimestamps, InteractsWithPersistence {
   int? get monitorId => (getAttribute('monitor_id') as num?)?.toInt();
   String? get name => getAttribute('name') as String?;
 
-  AlertRuleType get type => AlertRuleType.fromValue(
-        getAttribute('type') as String? ?? 'threshold',
-      ) ??
+  AlertRuleType get type =>
+      AlertRuleType.fromValue(getAttribute('type') as String? ?? 'threshold') ??
       AlertRuleType.threshold;
 
   bool get enabled {
@@ -56,7 +55,8 @@ class AlertRule extends Model with HasTimestamps, InteractsWithPersistence {
   double? get thresholdMax =>
       (getAttribute('threshold_max') as num?)?.toDouble();
 
-  AlertSeverity get severity => AlertSeverity.fromValue(
+  AlertSeverity get severity =>
+      AlertSeverity.fromValue(
         getAttribute('severity') as String? ?? 'warning',
       ) ??
       AlertSeverity.warning;

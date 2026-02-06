@@ -28,22 +28,26 @@ class ActiveAlertsPanel extends StatelessWidget {
       children: [
         // Header
         WDiv(
-          className: 'flex flex-row items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700',
+          className:
+              'flex flex-row items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700',
           children: [
             WDiv(
               className: 'flex flex-row items-center gap-2',
               children: [
                 WText(
                   'Active Alerts',
-                  className: 'text-lg font-semibold text-gray-900 dark:text-white',
+                  className:
+                      'text-lg font-semibold text-gray-900 dark:text-white',
                 ),
                 if (alerts.isNotEmpty)
                   WDiv(
-                    className: 'px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/20',
+                    className:
+                        'px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/20',
                     children: [
                       WText(
                         '${alerts.length}',
-                        className: 'text-xs font-bold text-red-600 dark:text-red-400',
+                        className:
+                            'text-xs font-bold text-red-600 dark:text-red-400',
                       ),
                     ],
                   ),
@@ -54,7 +58,8 @@ class ActiveAlertsPanel extends StatelessWidget {
                 onTap: onViewAll!,
                 child: WText(
                   'View All',
-                  className: 'text-sm font-medium text-primary hover:text-green-600',
+                  className:
+                      'text-sm font-medium text-primary hover:text-green-600',
                 ),
               ),
           ],

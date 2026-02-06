@@ -16,8 +16,7 @@ class CheckStatusRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return WDiv(
-      className:
-          'w-full flex flex-row justify-between items-center py-3 px-4',
+      className: 'w-full flex flex-row justify-between items-center py-3 px-4',
       children: [
         // Left: Status dot + Response time + Status code (or error)
         // Wrap in flex-1 to prevent overflow
