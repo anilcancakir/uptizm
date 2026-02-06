@@ -1,4 +1,4 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/team.dart';
 import 'package:uptizm/app/models/user.dart';

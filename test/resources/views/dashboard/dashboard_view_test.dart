@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/resources/views/dashboard/dashboard_view.dart';
 import 'package:uptizm/resources/views/components/dashboard/stat_card.dart';
 
@@ -16,8 +16,14 @@ void main() {
     testWidgets('renders welcome message', (tester) async {
       await tester.pumpWidget(buildTestApp(child: const DashboardView()));
 
-      // Look for partial text match containing "Welcome back"
-      expect(find.textContaining('Welcome back'), findsOneWidget);
+      // Welcome greeting may be translated or show key
+      expect(
+        find.byWidgetPredicate((w) =>
+            w is WText &&
+            (w.data.contains('Welcome back') ||
+                w.data.contains('welcome_greeting'))),
+        findsOneWidget,
+      );
     });
 
     testWidgets('renders 4 stat cards', (tester) async {

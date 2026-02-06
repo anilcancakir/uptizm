@@ -1,4 +1,4 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/app/enums/check_status.dart';
 import 'package:uptizm/app/enums/monitor_location.dart';
 import 'package:uptizm/app/models/paginated_checks.dart';

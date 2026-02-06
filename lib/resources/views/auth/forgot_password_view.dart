@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/auth_controller.dart';
 import '../components/auth/auth_form_card.dart';
@@ -51,7 +51,7 @@ class _ForgotPasswordViewState
               className: 'text-primary text-[32px]',
             ),
           ),
-          const SizedBox(height: 8),
+          const WSpacer(className: 'h-2'),
           WAnchor(
             onTap: () => MagicRoute.to('/auth/login'),
             child: WText(
@@ -89,7 +89,7 @@ class _ForgotPasswordViewState
               labelClassName:
                   'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-            const SizedBox(height: 24),
+            const WSpacer(className: 'h-6'),
 
             // Submit Button
             WButton(
@@ -102,7 +102,7 @@ class _ForgotPasswordViewState
                 className: 'text-center',
               ),
             ),
-            const SizedBox(height: 24),
+            const WSpacer(className: 'h-6'),
 
             WAnchor(
               onTap: () => MagicRoute.to('/auth/login'),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/auth_controller.dart';
 import '../components/auth/auth_form_card.dart';
@@ -86,7 +86,7 @@ class _RegisterViewState
               labelClassName:
                   'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-            const SizedBox(height: 16),
+            const WSpacer(className: 'h-4'),
 
             // Email Field
             WFormInput(
@@ -110,7 +110,7 @@ class _RegisterViewState
               labelClassName:
                   'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-            const SizedBox(height: 16),
+            const WSpacer(className: 'h-4'),
 
             // Password Field
             WFormInput(
@@ -142,7 +142,7 @@ class _RegisterViewState
               labelClassName:
                   'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-            const SizedBox(height: 16),
+            const WSpacer(className: 'h-4'),
 
             // Confirm Password Field
             WFormInput(
@@ -182,7 +182,7 @@ class _RegisterViewState
               labelClassName:
                   'text-sm font-medium text-slate-900 dark:text-slate-200 mb-1',
             ),
-            const SizedBox(height: 24),
+            const WSpacer(className: 'h-6'),
 
             // Submit Button
             WButton(
@@ -198,7 +198,7 @@ class _RegisterViewState
                 className: 'text-center',
               ),
             ),
-            const SizedBox(height: 16),
+            const WSpacer(className: 'h-4'),
 
             // Social Login Buttons
             SocialLoginButtons(
@@ -208,7 +208,7 @@ class _RegisterViewState
               onMicrosoft: controller.doMicrosoftLogin,
               onGithub: controller.doGithubLogin,
             ),
-            const SizedBox(height: 24),
+            const WSpacer(className: 'h-6'),
 
             // Footer Link
             WAnchor(

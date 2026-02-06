@@ -1,4 +1,4 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../app/controllers/auth_controller.dart';
 import '../resources/views/layouts/guest_layout.dart';
@@ -12,13 +12,16 @@ void registerAuthRoutes() {
     middleware: ['guest'],
     layout: (child) => GuestLayout(child: child),
     routes: () {
-      MagicRoute.page('/login', AuthController.instance.login);
-      MagicRoute.page('/register', AuthController.instance.register);
+      MagicRoute.page('/login', AuthController.instance.login)
+          .transition(RouteTransition.none);
+      MagicRoute.page('/register', AuthController.instance.register)
+          .transition(RouteTransition.none);
       MagicRoute.page(
         '/forgot-password',
         AuthController.instance.forgotPassword,
-      );
-      MagicRoute.page('/reset-password', AuthController.instance.resetPassword);
+      ).transition(RouteTransition.none);
+      MagicRoute.page('/reset-password', AuthController.instance.resetPassword)
+          .transition(RouteTransition.none);
     },
   );
 }

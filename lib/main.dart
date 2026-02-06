@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import 'app/helpers/theme_preference_service.dart';
 import 'config/app.dart';
@@ -9,6 +9,7 @@ import 'config/network.dart';
 import 'config/social_auth.dart';
 import 'config/view.dart';
 import 'config/notifications.dart';
+import 'config/deeplink.dart';
 
 void main() async {
   usePathUrlStrategy();
@@ -23,6 +24,7 @@ void main() async {
       () => socialAuthConfig,
       () => viewConfig,
       () => notificationConfig,
+      () => deeplinkConfig,
     ],
   );
 

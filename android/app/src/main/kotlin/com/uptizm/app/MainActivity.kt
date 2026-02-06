@@ -1,4 +1,4 @@
-package com.uptizm.app.uptizm
+package com.uptizm.app
 
 import io.flutter.embedding.android.FlutterActivity
 

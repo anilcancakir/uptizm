@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/monitor_status.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/user.dart';
+import '../components/app_page_header.dart';
 import '../components/monitors/stat_card.dart';
 import '../components/monitors/status_dot.dart';
 import '../components/monitors/location_badge.dart';
@@ -66,87 +67,66 @@ class _MonitorsIndexViewState
       return _buildNoTeamState();
     }
 
-    return SingleChildScrollView(
-      child: WDiv(
-        className: 'flex flex-col',
-        children: [
-          // Header
-          WDiv(
-            className: '''
-              w-full
-              flex flex-col sm:flex-row items-start sm:items-center justify-between
-              gap-4 p-4 lg:p-6
-              border-b border-gray-200 dark:border-gray-700
-            ''',
-            children: [
-              WDiv(
-                className: 'flex flex-col gap-1',
+    return WDiv(
+      className: 'overflow-y-auto flex flex-col',
+      scrollPrimary: true,
+      children: [
+        // Header
+        AppPageHeader(
+          title: trans('navigation.monitors'),
+          subtitle: trans('monitors.welcome_subtitle'),
+          actions: [
+            WButton(
+              onTap: () => MagicRoute.to('/monitors/create'),
+              className: '''
+                px-4 py-2 rounded-lg
+                bg-primary hover:bg-green-600
+                text-white font-medium text-sm
+                flex flex-row items-center gap-2
+              ''',
+              child: WDiv(
+                className: 'flex flex-row items-center gap-2',
                 children: [
-                  WText(
-                    trans('navigation.monitors'),
-                    className:
-                        'text-2xl font-bold text-gray-900 dark:text-white',
-                  ),
-                  WText(
-                    trans('monitors.welcome_subtitle'),
-                    className: 'text-sm text-gray-600 dark:text-gray-400',
-                  ),
+                  WIcon(Icons.add, className: 'text-lg text-white'),
+                  WText(trans('monitors.add')),
                 ],
               ),
+            ),
+          ],
+        ),
 
-              // Add Monitor Button
-              WButton(
-                onTap: () => MagicRoute.to('/monitors/create'),
-                className: '''
-                  px-4 py-2 rounded-lg
-                  bg-primary hover:bg-green-600
-                  text-white font-medium text-sm
-                  flex flex-row items-center gap-2
-                ''',
-                child: WDiv(
-                  className: 'flex flex-row items-center gap-2',
-                  children: [
-                    WIcon(Icons.add, className: 'text-lg text-white'),
-                    WText(trans('monitors.add')),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        // Stats Row
+        ValueListenableBuilder<List<Monitor>>(
+          valueListenable: controller.monitorsNotifier,
+          builder: (context, monitors, _) {
+            return _buildStatsRow(monitors);
+          },
+        ),
 
-          // Stats Row
-          ValueListenableBuilder<List<Monitor>>(
-            valueListenable: controller.monitorsNotifier,
-            builder: (context, monitors, _) {
-              return _buildStatsRow(monitors);
-            },
-          ),
+        // Search Bar
+        _buildSearchBar(),
 
-          // Search Bar
-          _buildSearchBar(),
+        // Filter Tabs
+        _buildFilterTabs(),
 
-          // Filter Tabs
-          _buildFilterTabs(),
+        // Monitors List
+        ValueListenableBuilder<List<Monitor>>(
+          valueListenable: controller.monitorsNotifier,
+          builder: (context, monitors, _) {
+            if (controller.isLoading && monitors.isEmpty) {
+              return _buildLoadingState();
+            }
 
-          // Monitors List
-          ValueListenableBuilder<List<Monitor>>(
-            valueListenable: controller.monitorsNotifier,
-            builder: (context, monitors, _) {
-              if (controller.isLoading && monitors.isEmpty) {
-                return _buildLoadingState();
-              }
+            final filteredMonitors = _filterMonitors(monitors);
 
-              final filteredMonitors = _filterMonitors(monitors);
+            if (filteredMonitors.isEmpty) {
+              return _buildEmptyState();
+            }
 
-              if (filteredMonitors.isEmpty) {
-                return _buildEmptyState();
-              }
-
-              return _buildMonitorsList(filteredMonitors);
-            },
-          ),
-        ],
-      ),
+            return _buildMonitorsList(filteredMonitors);
+          },
+        ),
+      ],
     );
   }
 
@@ -302,20 +282,18 @@ class _MonitorsIndexViewState
         ''',
         children: [
           // Header: Status + Name + Response Time
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          WDiv(
+            className: 'flex flex-row items-center',
             children: [
               StatusDot(status: monitor.lastStatus, size: 12),
-              const SizedBox(width: 12),
-              Expanded(
-                child: WText(
-                  monitor.name ?? 'Unnamed Monitor',
-                  className:
-                      'text-lg font-semibold text-gray-900 dark:text-white',
-                ),
+              const WSpacer(className: 'w-3'),
+              WText(
+                monitor.name ?? 'Unnamed Monitor',
+                className:
+                    'flex-1 text-lg font-semibold text-gray-900 dark:text-white',
               ),
               if (monitor.lastResponseTimeMs != null) ...[
-                const SizedBox(width: 12),
+                const WSpacer(className: 'w-3'),
                 WText(
                   '${monitor.lastResponseTimeMs}ms',
                   className:
@@ -326,18 +304,17 @@ class _MonitorsIndexViewState
           ),
 
           // URL (truncated on mobile)
-          const SizedBox(height: 8),
+          const WSpacer(className: 'h-2'),
           WText(
             monitor.url ?? '',
             className:
                 'text-xs font-mono text-gray-500 dark:text-gray-500 line-clamp-1',
           ),
 
-          // Meta Info Row (compact pills) - use native Wrap for mobile
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          // Meta Info Row (compact pills)
+          const WSpacer(className: 'h-3'),
+          WDiv(
+            className: 'flex flex-row flex-wrap gap-2',
             children: [
               // Type pill
               WDiv(
@@ -419,7 +396,7 @@ class _MonitorsIndexViewState
 
           // Tags (if present)
           if (monitor.tags != null && monitor.tags!.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const WSpacer(className: 'h-3'),
             WDiv(
               className: 'flex flex-row flex-wrap gap-2',
               children: monitor.tags!
@@ -442,62 +419,61 @@ class _MonitorsIndexViewState
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: WDiv(
-        className: 'flex flex-col items-center justify-center py-12 px-4',
-        children: [
-          WIcon(
-            Icons.monitor_heart_outlined,
-            className: 'text-6xl text-gray-400 dark:text-gray-600 mb-4',
-          ),
-          WText(
-            trans('monitors.no_monitors'),
-            className:
-                'text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2',
-          ),
-          WText(
-            trans('monitors.no_monitors_desc'),
-            className:
-                'text-sm text-gray-600 dark:text-gray-400 mb-6 text-center',
-          ),
-          WButton(
-            onTap: () => MagicRoute.to('/monitors/create'),
-            className: '''
-              px-6 py-3 rounded-lg
-              bg-primary hover:bg-green-600
-              text-white font-medium
-            ''',
-            child: WText(trans('monitors.add')),
-          ),
-        ],
-      ),
+    return WDiv(
+      className: 'flex flex-col items-center justify-center py-12 px-4',
+      children: [
+        WIcon(
+          Icons.monitor_heart_outlined,
+          className: 'text-6xl text-gray-400 dark:text-gray-600 mb-4',
+        ),
+        WText(
+          trans('monitors.no_monitors'),
+          className:
+              'text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2',
+        ),
+        WText(
+          trans('monitors.no_monitors_desc'),
+          className:
+              'text-sm text-gray-600 dark:text-gray-400 mb-6 text-center',
+        ),
+        WButton(
+          onTap: () => MagicRoute.to('/monitors/create'),
+          className: '''
+            px-6 py-3 rounded-lg
+            bg-primary hover:bg-green-600
+            text-white font-medium
+          ''',
+          child: WText(trans('monitors.add')),
+        ),
+      ],
     );
   }
 
   Widget _buildLoadingState() {
-    return const Center(child: CircularProgressIndicator());
+    return WDiv(
+      className: 'py-12 flex items-center justify-center',
+      child: const CircularProgressIndicator(),
+    );
   }
 
   Widget _buildNoTeamState() {
-    return Center(
-      child: WDiv(
-        className: 'flex flex-col items-center justify-center py-12 px-4',
-        children: [
-          WIcon(
-            Icons.group_outlined,
-            className: 'text-6xl text-gray-400 dark:text-gray-600 mb-4',
-          ),
-          WText(
-            trans('teams.no_team_selected'),
-            className:
-                'text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2',
-          ),
-          WText(
-            trans('teams.select_team_to_continue'),
-            className: 'text-sm text-gray-600 dark:text-gray-400 text-center',
-          ),
-        ],
-      ),
+    return WDiv(
+      className: 'flex flex-col items-center justify-center py-12 px-4',
+      children: [
+        WIcon(
+          Icons.group_outlined,
+          className: 'text-6xl text-gray-400 dark:text-gray-600 mb-4',
+        ),
+        WText(
+          trans('teams.no_team_selected'),
+          className:
+              'text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2',
+        ),
+        WText(
+          trans('teams.select_team_to_continue'),
+          className: 'text-sm text-gray-600 dark:text-gray-400 text-center',
+        ),
+      ],
     );
   }
 }

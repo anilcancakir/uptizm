@@ -1,16 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import '../../../app/enums/assertion_operator.dart';
 import '../../../app/enums/assertion_type.dart';
 import '../../../app/models/assertion_rule.dart';
 
 /// Editor for assertion rules (validation rules for monitor responses).
-///
-/// Features:
-/// - Add/remove assertion rules
-/// - Select type, operator, value
-/// - Conditional path input for JSON path assertions
-/// - Display rule summary
 class AssertionRuleEditor extends StatefulWidget {
   final List<AssertionRule> rules;
   final Function(List<AssertionRule>) onChanged;
@@ -102,6 +96,8 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return WDiv(
       className: 'flex flex-col gap-3',
       children: [
@@ -109,8 +105,7 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
         ..._ruleStates.asMap().entries.map((entry) {
           final index = entry.key;
           final state = entry.value;
-
-          return _buildRuleRow(index, state);
+          return _buildRuleRow(index, state, isDark);
         }),
 
         // Add button
@@ -123,18 +118,40 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
             hover:bg-gray-200 dark:hover:bg-gray-600
             text-sm
           ''',
-          child: WText('Add Assertion Rule'),
+          child: WText(trans('monitor.add_assertion_rule')),
         ),
       ],
     );
   }
 
-  Widget _buildRuleRow(int index, _RuleState state) {
+  Widget _buildRuleRow(int index, _RuleState state, bool isDark) {
     final rule = AssertionRule(
       type: state.type,
       operator: state.operator,
       value: state.valueController.text,
       path: state.pathController.text,
+    );
+
+    final inputDecoration = InputDecoration(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(
+          color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
+        ),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(
+          color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFF009E60)),
+      ),
+      filled: true,
+      fillColor: isDark ? Colors.grey[800] : Colors.white,
     );
 
     return WDiv(
@@ -161,9 +178,8 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
           ],
         ),
 
-        // Type, Operator, Value row
-        WDiv(
-          className: 'flex flex-row gap-2',
+        // Type, Operator, Value row - using native Flutter Row
+        Row(
           children: [
             // Type select
             Expanded(
@@ -172,7 +188,7 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
                 options: AssertionType.selectOptions,
                 onChange: (type) => _updateType(index, type),
                 className: '''
-                  border border-gray-200 dark:border-gray-700
+                  w-full border border-gray-200 dark:border-gray-700
                   bg-white dark:bg-gray-800
                   rounded-lg px-3 py-3 text-sm
                 ''',
@@ -183,6 +199,7 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
                 ''',
               ),
             ),
+            const SizedBox(width: 8),
 
             // Operator select
             Expanded(
@@ -191,7 +208,7 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
                 options: AssertionOperator.selectOptions,
                 onChange: (operator) => _updateOperator(index, operator),
                 className: '''
-                  border border-gray-200 dark:border-gray-700
+                  w-full border border-gray-200 dark:border-gray-700
                   bg-white dark:bg-gray-800
                   rounded-lg px-3 py-3 text-sm
                 ''',
@@ -202,21 +219,20 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
                 ''',
               ),
             ),
+            const SizedBox(width: 8),
 
             // Value input
             Expanded(
-              child: WInput(
+              child: TextField(
                 controller: state.valueController,
-                placeholder: 'Value',
                 onChanged: (_) => _notifyChanged(),
-                className: '''
-                  w-full px-3 py-3 rounded-lg
-                  bg-white dark:bg-gray-800
-                  border border-gray-200 dark:border-gray-700
-                  text-gray-900 dark:text-white text-sm
-                  focus:border-primary focus:ring-2 focus:ring-primary/20
-                ''',
-                placeholderClassName: 'text-gray-400 dark:text-gray-500',
+                decoration: inputDecoration.copyWith(
+                  hintText: trans('monitor.value_placeholder'),
+                ),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.white : Colors.grey[900],
+                ),
               ),
             ),
           ],
@@ -224,18 +240,16 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
 
         // Path input (only for bodyJsonPath)
         if (state.type == AssertionType.bodyJsonPath)
-          WInput(
+          TextField(
             controller: state.pathController,
-            placeholder: 'e.g. data.status',
             onChanged: (_) => _notifyChanged(),
-            className: '''
-              w-full px-3 py-3 rounded-lg
-              bg-white dark:bg-gray-800
-              border border-gray-200 dark:border-gray-700
-              text-gray-900 dark:text-white text-sm
-              focus:border-primary focus:ring-2 focus:ring-primary/20
-            ''',
-            placeholderClassName: 'text-gray-400 dark:text-gray-500',
+            decoration: inputDecoration.copyWith(
+              hintText: trans('monitor.json_path_placeholder'),
+            ),
+            style: TextStyle(
+              fontSize: 14,
+              color: isDark ? Colors.white : Colors.grey[900],
+            ),
           ),
       ],
     );

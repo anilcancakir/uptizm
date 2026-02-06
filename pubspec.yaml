@@ -11,12 +11,14 @@ dependencies:
     sdk: flutter
   flutter_web_plugins:
     sdk: flutter
-  fluttersdk_magic:
-    path: ./plugins/fluttersdk_magic
-  fluttersdk_magic_social_auth:
-    path: ./plugins/fluttersdk_magic_social_auth
-  fluttersdk_magic_notifications:
-    path: ./plugins/fluttersdk_magic_notifications
+  magic:
+    path: ./plugins/magic
+  magic_social_auth:
+    path: ./plugins/magic_social_auth
+  magic_notifications:
+    path: ./plugins/magic_notifications
+  magic_deeplink:
+    path: ./plugins/magic_deeplink
   cupertino_icons: ^1.0.8
   url_launcher: ^6.3.2
   fl_chart: ^1.1.1

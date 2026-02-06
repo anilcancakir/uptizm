@@ -1,5 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:magic/magic.dart';
 import 'chart_theme.dart';
 
 /// Data point for response time chart
@@ -56,18 +57,11 @@ class _ResponseTimeChartState extends State<ResponseTimeChart> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (widget.dataPoints.isEmpty) {
-      return SizedBox(
-        height: widget.height,
-        child: Center(
-          child: Text(
-            'No data available',
-            style: TextStyle(
-              color: isDark
-                  ? UptizmChartTheme.textDark
-                  : UptizmChartTheme.textLight,
-              fontSize: 12,
-            ),
-          ),
+      return WDiv(
+        className: 'h-[${widget.height.toInt()}px] flex items-center justify-center',
+        child: WText(
+          trans('analytics.no_data'),
+          className: 'text-gray-500 dark:text-gray-400 text-xs',
         ),
       );
     }

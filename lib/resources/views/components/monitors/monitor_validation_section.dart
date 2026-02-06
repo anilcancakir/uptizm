@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../../app/models/assertion_rule.dart';
 import '../../../../app/models/metric_mapping.dart';
@@ -34,11 +34,11 @@ class MonitorValidationSection extends StatelessWidget {
     return AppCard(
       title: trans('monitor.validation_parsing'),
       body: WDiv(
-        className: 'flex flex-col gap-5 items-stretch',
+        className: 'flex flex-col gap-4',
         children: [
-          // JSON Response Preview
+          // Response Preview Section
           WDiv(
-            className: 'flex flex-col gap-3 items-stretch',
+            className: 'flex flex-col gap-2',
             children: [
               WDiv(
                 className: 'flex flex-row items-center justify-between',
@@ -46,23 +46,20 @@ class MonitorValidationSection extends StatelessWidget {
                   WText(
                     trans('monitor.response_preview'),
                     className:
-                        'text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400',
+                        'text-sm font-medium text-gray-900 dark:text-gray-200',
                   ),
                   WButton(
                     isLoading: isTestingFetch,
                     onTap: onTestFetch,
                     className: '''
-                      flex flex-row items-center gap-1
-                      px-2 py-1 rounded-md
-                      bg-primary/5 dark:bg-primary/10
-                      text-primary
-                      hover:bg-primary/10 dark:hover:bg-primary/20
-                      text-xs font-bold uppercase tracking-wide
+                      px-3 py-2 rounded-lg
+                      bg-primary hover:bg-green-600
+                      text-white text-xs font-medium
                     ''',
                     child: WDiv(
-                      className: 'flex flex-row items-center gap-1',
+                      className: 'flex flex-row items-center gap-2',
                       children: [
-                        WIcon(Icons.refresh, className: 'text-xs'),
+                        WIcon(Icons.refresh, className: 'text-sm'),
                         WText(trans('monitor.test_fetch')),
                       ],
                     ),
@@ -76,14 +73,14 @@ class MonitorValidationSection extends StatelessWidget {
             ],
           ),
 
-          // Assertion Rules
+          // Assertion Rules Section
           WDiv(
-            className: 'flex flex-col gap-3',
+            className: 'flex flex-col gap-2',
             children: [
               WText(
                 trans('monitor.assertion_rules'),
                 className:
-                    'text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400',
+                    'text-sm font-medium text-gray-900 dark:text-gray-200',
               ),
               AssertionRuleEditor(
                 rules: assertionRules,
@@ -92,18 +89,18 @@ class MonitorValidationSection extends StatelessWidget {
             ],
           ),
 
-          // Metric Mappings
+          // Metric Mappings Section
           WDiv(
-            className: 'flex flex-col gap-3',
+            className: 'flex flex-col gap-2',
             children: [
               WText(
                 trans('monitor.metric_mappings'),
                 className:
-                    'text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400',
+                    'text-sm font-medium text-gray-900 dark:text-gray-200',
               ),
               WText(
                 trans('monitor.metric_mappings_hint'),
-                className: 'text-xs text-gray-600 dark:text-gray-400',
+                className: 'text-sm text-gray-600 dark:text-gray-400',
               ),
               MetricMappingEditor(
                 mappings: metricMappings,

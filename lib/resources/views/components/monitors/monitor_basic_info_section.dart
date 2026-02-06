@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../../app/enums/http_method.dart';
 import '../../../../app/enums/monitor_type.dart';
@@ -19,6 +19,9 @@ class MonitorBasicInfoSection extends StatelessWidget {
   final ValueChanged<List<String>> onTagsChanged;
   final ValueChanged<List<SelectOption<String>>> onTagOptionsChanged;
 
+  /// Optional FocusNode for expected status code input (for keyboard actions)
+  final FocusNode? expectedStatusCodeFocusNode;
+
   const MonitorBasicInfoSection({
     super.key,
     required this.form,
@@ -29,6 +32,7 @@ class MonitorBasicInfoSection extends StatelessWidget {
     required this.tagOptions,
     required this.onTagsChanged,
     required this.onTagOptionsChanged,
+    this.expectedStatusCodeFocusNode,
   });
 
   @override
@@ -74,11 +78,56 @@ class MonitorBasicInfoSection extends StatelessWidget {
                 className:
                     'text-sm font-medium text-gray-900 dark:text-gray-200',
               ),
-              WDiv(
-                className: 'flex flex-row gap-2',
-                children: MonitorType.values
-                    .map((type) => _buildTypeButton(type))
-                    .toList(),
+              Row(
+                children: MonitorType.values.map((type) {
+                  final isSelected = selectedType == type;
+                  return Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        right: type != MonitorType.values.last ? 8 : 0,
+                      ),
+                      child: GestureDetector(
+                        onTap: typeEditable ? () => onTypeChanged(type) : null,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFF009E60).withOpacity(0.1)
+                                : Colors.transparent,
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFF009E60)
+                                  : Theme.of(context).brightness ==
+                                        Brightness.dark
+                                  ? Colors.grey[700]!
+                                  : Colors.grey[200]!,
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Center(
+                            child: Text(
+                              type.label,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: isSelected
+                                    ? const Color(0xFF009E60)
+                                    : Theme.of(context).brightness ==
+                                          Brightness.dark
+                                    ? Colors.grey[300]
+                                    : Colors.grey[700],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             ],
           ),
@@ -150,6 +199,7 @@ class MonitorBasicInfoSection extends StatelessWidget {
               label: trans('monitor.expected_status_code'),
               hint: trans('monitor.expected_status_code_hint'),
               controller: form['expected_status_code'],
+              focusNode: expectedStatusCodeFocusNode,
               type: InputType.number,
               labelClassName: '''
                 text-gray-900 dark:text-gray-200
@@ -230,24 +280,6 @@ class MonitorBasicInfoSection extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTypeButton(MonitorType type) {
-    final isSelected = selectedType == type;
-
-    return Expanded(
-      child: WButton(
-        onTap: typeEditable ? () => onTypeChanged(type) : null,
-        className:
-            '''
-          px-4 py-3 rounded-lg text-sm font-medium
-          border-2
-          ${isSelected ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}
-          ${typeEditable ? 'hover:border-primary/50' : 'opacity-60 cursor-not-allowed'}
-        ''',
-        child: WText(type.label),
       ),
     );
   }

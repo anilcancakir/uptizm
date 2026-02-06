@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Key-value pair editor for headers, query params, etc.
 ///
@@ -93,37 +93,33 @@ class _KeyValueEditorState extends State<KeyValueEditor> {
             className: 'flex flex-row gap-2 items-center',
             children: [
               // Key field
-              Expanded(
-                child: WInput(
-                  controller: entry.keyController,
-                  placeholder: 'Key',
-                  onChanged: (_) => _notifyChanged(),
-                  className: '''
-                    w-full px-3 py-2 rounded-lg
-                    bg-white dark:bg-gray-800
-                    border border-gray-200 dark:border-gray-700
-                    text-gray-900 dark:text-white text-sm
-                    focus:border-primary focus:ring-2 focus:ring-primary/20
-                  ''',
-                  placeholderClassName: 'text-gray-400 dark:text-gray-500',
-                ),
+              WInput(
+                controller: entry.keyController,
+                placeholder: trans('monitor.key_placeholder'),
+                onChanged: (_) => _notifyChanged(),
+                className: '''
+                  flex-1 px-3 py-2 rounded-lg
+                  bg-white dark:bg-gray-800
+                  border border-gray-200 dark:border-gray-700
+                  text-gray-900 dark:text-white text-sm
+                  focus:border-primary focus:ring-2 focus:ring-primary/20
+                ''',
+                placeholderClassName: 'text-gray-400 dark:text-gray-500',
               ),
 
               // Value field
-              Expanded(
-                child: WInput(
-                  controller: entry.valueController,
-                  placeholder: 'Value',
-                  onChanged: (_) => _notifyChanged(),
-                  className: '''
-                    w-full px-3 py-2 rounded-lg
-                    bg-white dark:bg-gray-800
-                    border border-gray-200 dark:border-gray-700
-                    text-gray-900 dark:text-white text-sm
-                    focus:border-primary focus:ring-2 focus:ring-primary/20
-                  ''',
-                  placeholderClassName: 'text-gray-400 dark:text-gray-500',
-                ),
+              WInput(
+                controller: entry.valueController,
+                placeholder: trans('monitor.value_placeholder'),
+                onChanged: (_) => _notifyChanged(),
+                className: '''
+                  flex-1 px-3 py-2 rounded-lg
+                  bg-white dark:bg-gray-800
+                  border border-gray-200 dark:border-gray-700
+                  text-gray-900 dark:text-white text-sm
+                  focus:border-primary focus:ring-2 focus:ring-primary/20
+                ''',
+                placeholderClassName: 'text-gray-400 dark:text-gray-500',
               ),
 
               // Delete button
@@ -150,7 +146,7 @@ class _KeyValueEditorState extends State<KeyValueEditor> {
             hover:bg-gray-200 dark:hover:bg-gray-600
             text-sm
           ''',
-          child: WText('Add Header'),
+          child: WText(trans('monitor.add_header')),
         ),
       ],
     );

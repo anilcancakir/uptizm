@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Guest Layout
 ///
@@ -21,6 +21,7 @@ class GuestLayout extends StatelessWidget {
       ),
       body: Center(
         child: SingleChildScrollView(
+          primary: true,
           child: WDiv(className: 'p-2 lg:p-4', child: child),
         ),
       ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/resources/views/components/pagination_controls.dart';
 
 void main() {
@@ -33,12 +33,12 @@ void main() {
         ),
       );
 
-      expect(find.text('pagination.previous'), findsOneWidget);
-      expect(find.text('pagination.next'), findsOneWidget);
+      expect(find.textContaining('pagination.previous'), findsOneWidget);
+      expect(find.textContaining('pagination.next'), findsOneWidget);
       expect(
-        find.text('pagination.page_of'),
+        find.text('1 / 5'),
         findsOneWidget,
-      ); // trans key with args
+      ); // Page info format
       expect(find.byType(WButton), findsNWidgets(2));
     });
 

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Displays HTTP response preview from test-fetch endpoint.
 ///
@@ -162,16 +162,14 @@ class ResponsePreview extends StatelessWidget {
               // Body content
               WDiv(
                 className: '''
-                    p-4 rounded-lg w-full
+                    overflow-y-auto p-4 rounded-lg w-full
                     bg-gray-900 dark:bg-gray-950
                     border border-gray-700
                     max-h-[300px] w-full
                   ''',
-                child: SingleChildScrollView(
-                  child: isJson
-                      ? _buildJsonBody(body)
-                      : _buildPlainTextBody(body),
-                ),
+                child: isJson
+                    ? _buildJsonBody(body)
+                    : _buildPlainTextBody(body),
               ),
             ],
           ),

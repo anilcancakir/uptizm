@@ -1,4 +1,4 @@
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import '../listeners/auth_restore_listener.dart';
 
 class EventServiceProvider extends BaseEventServiceProvider {

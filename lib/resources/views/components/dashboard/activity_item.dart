@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Activity type for styling.
 enum ActivityType { incident, recovery, warning, info }
@@ -81,23 +81,19 @@ class ActivityItem extends StatelessWidget {
           ),
 
           // Content
-          Expanded(
-            child: WDiv(
-              className: 'flex flex-col min-w-0',
-              children: [
-                WText(
-                  title,
-                  className:
-                      'text-sm font-medium text-gray-900 dark:text-white',
-                ),
-                const SizedBox(height: 2),
-                WText(
-                  description,
-                  className:
-                      'text-xs text-gray-500 dark:text-gray-400 truncate',
-                ),
-              ],
-            ),
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                title,
+                className: 'text-sm font-medium text-gray-900 dark:text-white',
+              ),
+              const WSpacer(className: 'h-0.5'),
+              WText(
+                description,
+                className: 'text-xs text-gray-500 dark:text-gray-400 truncate',
+              ),
+            ],
           ),
 
           // Timestamp

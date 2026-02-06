@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../../app/models/team.dart';
 import '../../../../app/models/user.dart';
@@ -265,25 +265,23 @@ class TeamSelector extends StatelessWidget {
             child: WIcon(Icons.business, className: 'text-base text-primary'),
           ),
           // Team info
-          Expanded(
-            child: WDiv(
-              className: 'flex flex-col min-w-0',
-              children: [
-                WText(
-                  team.name ?? '',
-                  states: isCurrent ? {'selected'} : {},
-                  className: '''
-                    text-sm font-medium text-gray-700 dark:text-gray-200 
-                    selected:font-bold selected:text-gray-900 dark:selected:text-white
-                    truncate
-                  ''',
-                ),
-                WText(
-                  team.isPersonalTeam ? 'Personal' : 'Team',
-                  className: 'text-xs text-gray-500 dark:text-gray-400',
-                ),
-              ],
-            ),
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                team.name ?? '',
+                states: isCurrent ? {'selected'} : {},
+                className: '''
+                  text-sm font-medium text-gray-700 dark:text-gray-200
+                  selected:font-bold selected:text-gray-900 dark:selected:text-white
+                  truncate
+                ''',
+              ),
+              WText(
+                team.isPersonalTeam ? 'Personal' : 'Team',
+                className: 'text-xs text-gray-500 dark:text-gray-400',
+              ),
+            ],
           ),
           // Check mark
           if (isCurrent)

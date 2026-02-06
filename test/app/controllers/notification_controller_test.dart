@@ -70,11 +70,7 @@ void main() {
 
       test('returns stored value when type preference is set', () {
         controller.typePreferencesNotifier.value = {
-          'monitor_down': {
-            'push': false,
-            'email': true,
-            'in_app': false,
-          },
+          'monitor_down': {'push': false, 'email': true, 'in_app': false},
         };
 
         expect(controller.getTypePreference('monitor_down', 'push'), isFalse);
@@ -84,9 +80,7 @@ void main() {
 
       test('returns true for missing channel in type preference', () {
         controller.typePreferencesNotifier.value = {
-          'monitor_down': {
-            'push': false,
-          },
+          'monitor_down': {'push': false},
         };
 
         expect(controller.getTypePreference('monitor_down', 'email'), isTrue);

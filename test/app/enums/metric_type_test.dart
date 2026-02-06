@@ -13,9 +13,15 @@ void main() {
       expect(MetricType.string.label, 'String');
     });
 
+    test('has status type', () {
+      expect(MetricType.status.value, 'status');
+      expect(MetricType.status.label, 'Status');
+    });
+
     test('fromValue returns correct type', () {
       expect(MetricType.fromValue('numeric'), MetricType.numeric);
       expect(MetricType.fromValue('string'), MetricType.string);
+      expect(MetricType.fromValue('status'), MetricType.status);
     });
 
     test('fromValue returns null for invalid value', () {
@@ -25,9 +31,10 @@ void main() {
 
     test('selectOptions includes all types', () {
       final options = MetricType.selectOptions;
-      expect(options.length, 2);
+      expect(options.length, 3);
       expect(options.any((opt) => opt.value == MetricType.numeric), true);
       expect(options.any((opt) => opt.value == MetricType.string), true);
+      expect(options.any((opt) => opt.value == MetricType.status), true);
     });
   });
 }

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/notification_controller.dart';
 import '../components/app_card.dart';
@@ -36,87 +36,86 @@ class _NotificationPreferencesViewState
       valueListenable: controller.isLoadingNotifier,
       builder: (context, isLoading, _) {
         if (isLoading) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(48),
-              child: CircularProgressIndicator(),
-            ),
+          return WDiv(
+            className: 'py-12 flex items-center justify-center',
+            child: const CircularProgressIndicator(),
           );
         }
 
-        return SingleChildScrollView(
-          child: WDiv(
-            className: 'flex flex-col gap-6 p-4 lg:p-6',
-            children: [
-              // Page Header
-              WDiv(
-                className: 'mb-2',
+        return WDiv(
+          className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
+          scrollPrimary: true,
+          children: [
+            // Page Header
+            WDiv(
+              className: 'mb-2',
+              children: [
+                WText(
+                  trans('notifications.preferences_title'),
+                  className: 'text-2xl font-bold text-gray-900 dark:text-white',
+                ),
+                const WSpacer(className: 'h-2'),
+                WText(
+                  trans('notifications.preferences_description'),
+                  className: 'text-sm text-gray-600 dark:text-gray-400',
+                ),
+              ],
+            ),
+
+            // Global Settings Card
+            AppCard(
+              title: trans('notifications.global_settings'),
+              icon: Icons.settings_outlined,
+              body: WDiv(
+                className: 'flex flex-col gap-4',
                 children: [
-                  WText(
-                    trans('notifications.preferences_title'),
-                    className:
-                        'text-2xl font-bold text-gray-900 dark:text-white',
+                  _buildGlobalToggle(
+                    key: 'push_enabled',
+                    notifier: controller.pushEnabledNotifier,
+                    title: trans('notifications.push_enabled'),
+                    hint: trans('notifications.push_enabled_hint'),
+                    icon: Icons.notifications_outlined,
                   ),
-                  const SizedBox(height: 8),
-                  WText(
-                    trans('notifications.preferences_description'),
-                    className: 'text-sm text-gray-600 dark:text-gray-400',
+                  const WDiv(
+                    className: 'border-t border-gray-200 dark:border-gray-700',
+                  ),
+                  _buildGlobalToggle(
+                    key: 'email_enabled',
+                    notifier: controller.emailEnabledNotifier,
+                    title: trans('notifications.email_enabled'),
+                    hint: trans('notifications.email_enabled_hint'),
+                    icon: Icons.email_outlined,
+                  ),
+                  const WDiv(
+                    className: 'border-t border-gray-200 dark:border-gray-700',
+                  ),
+                  _buildGlobalToggle(
+                    key: 'in_app_enabled',
+                    notifier: controller.inAppEnabledNotifier,
+                    title: trans('notifications.in_app_enabled'),
+                    hint: trans('notifications.in_app_enabled_hint'),
+                    icon: Icons.notifications_active_outlined,
                   ),
                 ],
               ),
+            ),
 
-              // Global Settings Card
-              AppCard(
-                title: trans('notifications.global_settings'),
-                icon: Icons.settings_outlined,
-                body: WDiv(
-                  className: 'flex flex-col gap-4',
-                  children: [
-                    _buildGlobalToggle(
-                      key: 'push_enabled',
-                      notifier: controller.pushEnabledNotifier,
-                      title: trans('notifications.push_enabled'),
-                      hint: trans('notifications.push_enabled_hint'),
-                      icon: Icons.notifications_outlined,
-                    ),
-                    const Divider(height: 1),
-                    _buildGlobalToggle(
-                      key: 'email_enabled',
-                      notifier: controller.emailEnabledNotifier,
-                      title: trans('notifications.email_enabled'),
-                      hint: trans('notifications.email_enabled_hint'),
-                      icon: Icons.email_outlined,
-                    ),
-                    const Divider(height: 1),
-                    _buildGlobalToggle(
-                      key: 'in_app_enabled',
-                      notifier: controller.inAppEnabledNotifier,
-                      title: trans('notifications.in_app_enabled'),
-                      hint: trans('notifications.in_app_enabled_hint'),
-                      icon: Icons.notifications_active_outlined,
-                    ),
-                  ],
-                ),
+            // Per-Type Settings Card
+            AppCard(
+              title: trans('notifications.notification_types'),
+              icon: Icons.tune_outlined,
+              body: WDiv(
+                className: 'flex flex-col gap-2',
+                children: [
+                  WText(
+                    trans('notifications.types_description'),
+                    className: 'text-sm text-gray-600 dark:text-gray-400 mb-4',
+                  ),
+                  _buildNotificationTypeSettings(),
+                ],
               ),
-
-              // Per-Type Settings Card
-              AppCard(
-                title: trans('notifications.notification_types'),
-                icon: Icons.tune_outlined,
-                body: WDiv(
-                  className: 'flex flex-col gap-2',
-                  children: [
-                    WText(
-                      trans('notifications.types_description'),
-                      className:
-                          'text-sm text-gray-600 dark:text-gray-400 mb-4',
-                    ),
-                    _buildNotificationTypeSettings(),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
@@ -146,22 +145,20 @@ class _NotificationPreferencesViewState
               child: Icon(icon, size: 20, color: const Color(0xFF009E60)),
             ),
             // Content
-            Expanded(
-              child: WDiv(
-                className: 'flex flex-col min-w-0',
-                children: [
-                  WText(
-                    title,
-                    className:
-                        'text-sm font-medium text-gray-900 dark:text-white',
-                  ),
-                  const SizedBox(height: 4),
-                  WText(
-                    hint,
-                    className: 'text-xs text-gray-500 dark:text-gray-400',
-                  ),
-                ],
-              ),
+            WDiv(
+              className: 'flex-1 flex flex-col min-w-0',
+              children: [
+                WText(
+                  title,
+                  className:
+                      'text-sm font-medium text-gray-900 dark:text-white',
+                ),
+                const WSpacer(className: 'h-1'),
+                WText(
+                  hint,
+                  className: 'text-xs text-gray-500 dark:text-gray-400',
+                ),
+              ],
             ),
             // Toggle
             WCheckbox(
@@ -243,33 +240,33 @@ class _NotificationPreferencesViewState
         WDiv(
           className: 'flex flex-row items-start gap-4 mb-4',
           children: [
-            // Icon
-            Container(
-              width: 40,
-              height: 40,
+            // Icon - DecoratedBox for dynamic color
+            DecoratedBox(
               decoration: BoxDecoration(
                 color: iconColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, size: 20, color: iconColor),
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(child: Icon(icon, size: 20, color: iconColor)),
+              ),
             ),
             // Content
-            Expanded(
-              child: WDiv(
-                className: 'flex flex-col min-w-0',
-                children: [
-                  WText(
-                    title,
-                    className:
-                        'text-sm font-medium text-gray-900 dark:text-white',
-                  ),
-                  const SizedBox(height: 4),
-                  WText(
-                    description,
-                    className: 'text-xs text-gray-500 dark:text-gray-400',
-                  ),
-                ],
-              ),
+            WDiv(
+              className: 'flex-1 flex flex-col min-w-0',
+              children: [
+                WText(
+                  title,
+                  className:
+                      'text-sm font-medium text-gray-900 dark:text-white',
+                ),
+                const WSpacer(className: 'h-1'),
+                WText(
+                  description,
+                  className: 'text-xs text-gray-500 dark:text-gray-400',
+                ),
+              ],
             ),
           ],
         ),
@@ -321,7 +318,7 @@ class _NotificationPreferencesViewState
             disabled:opacity-50 disabled:cursor-not-allowed
           ''',
         ),
-        const SizedBox(width: 8),
+        const WSpacer(className: 'w-2'),
         WText(
           label,
           states: globalEnabled ? {} : {'disabled'},

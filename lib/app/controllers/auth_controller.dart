@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
-import 'package:fluttersdk_magic_social_auth/fluttersdk_magic_social_auth.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
+import 'package:magic_social_auth/magic_social_auth.dart';
 
 import '../models/user.dart';
 import '../../resources/views/auth/login_view.dart';
@@ -261,12 +261,22 @@ class AuthController extends MagicController
   /// Logout the current user.
   ///
   /// Flow:
-  /// 1. Stop notification polling
-  /// 2. Sign out from all social providers (clear cached credentials)
-  /// 3. Logout from the app (clear token and user)
-  /// 4. Navigate to login page
+  /// 1. Logout from push notifications (remove external ID from OneSignal)
+  /// 2. Stop notification polling
+  /// 3. Sign out from all social providers (clear cached credentials)
+  /// 4. Logout from the app (clear token and user)
+  /// 5. Navigate to login page
   Future<void> doLogout() async {
     try {
+      // Logout from push notifications (remove external ID)
+      // This ensures the device doesn't receive targeted notifications
+      // after the user logs out
+      try {
+        await Notify.logoutPush();
+      } catch (e) {
+        Log.error('Error logging out from push: $e');
+      }
+
       // Stop notification polling
       try {
         Notify.stopPolling();
@@ -297,21 +307,49 @@ class AuthController extends MagicController
   /// Initialize push notifications and start polling after successful login.
   ///
   /// Called automatically after doLogin, doRegister, and doSocialLogin complete.
+  /// This method is intentionally non-blocking to not slow down the login flow.
   Future<void> _initializeNotifications(User user) async {
-    try {
-      // Initialize push notifications with user ID
-      final userId = user.id?.toString();
-      if (userId != null && userId.isNotEmpty) {
-        await Notify.initializePush(userId);
+    // Start polling immediately (doesn't block)
+    Notify.startPolling();
+
+    // Initialize push in background (don't await to not block login)
+    _initializePushInBackground(user);
+  }
+
+  /// Initialize push notifications in the background.
+  ///
+  /// This is separated to not block the login flow. Push notification setup
+  /// can take time (permission prompt, API calls) so we do it async.
+  void _initializePushInBackground(User user) {
+    Future(() async {
+      try {
+        final userId = user.id?.toString();
+        if (userId == null || userId.isEmpty) return;
+
+        // Request push permission (shows browser prompt if needed)
+        final permissionGranted = await Notify.requestPushPermission();
+        Log.info('Push permission granted: $permissionGranted');
+
+        if (permissionGranted) {
+          // First logout to clear any existing external_id assignment
+          // This prevents "alias claimed by another user" conflicts
+          try {
+            await Notify.logoutPush();
+          } catch (_) {
+            // Ignore logout errors - might not be logged in yet
+          }
+
+          // Set external user ID to associate this device with the user
+          // Use prefix to avoid OneSignal blocked values (0, 1, -1, etc.)
+          await Notify.initializePush('user_$userId');
+          Log.info('Push initialized for user: $userId');
+        }
+      } catch (e) {
+        // Don't fail login if push notifications fail
+        // Conflict errors (user_1 already assigned) are expected when
+        // user logs in from multiple devices
+        Log.warning('Push notification setup: $e');
       }
-
-      // Start polling for database notifications
-      Notify.startPolling();
-
-      Log.info('Notifications initialized for user: ${user.id}');
-    } catch (e) {
-      // Don't fail login if notifications fail to initialize
-      Log.error('Failed to initialize notifications: $e');
-    }
+    });
   }
 }

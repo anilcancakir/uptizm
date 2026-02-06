@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
-import 'package:fluttersdk_magic_notifications/fluttersdk_magic_notifications.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
 
 import '../../../../app/controllers/auth_controller.dart';
 import '../notification_dropdown.dart';
@@ -74,6 +74,8 @@ class AppHeader extends StatelessWidget {
               onNavigate: (path) => MagicRoute.to(path),
               onViewAll: () => MagicRoute.to('/notifications'),
             ),
+
+            const WSpacer(className: 'w-1'),
 
             // User Profile
             UserProfileCard(

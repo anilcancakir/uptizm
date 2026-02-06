@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/models/user.dart';
 import '../components/dashboard/stat_card.dart';
@@ -18,46 +18,44 @@ class DashboardView extends StatelessWidget {
     final userName = User.current.name ?? 'there';
     final isDesktop = wScreenIs(context, 'lg');
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Welcome header
-          WText(
-            'Welcome back, $userName!',
-            className: 'text-2xl font-bold text-gray-900 dark:text-white',
-          ),
-          const SizedBox(height: 4),
-          WText(
-            trans('dashboard.welcome_subtitle'),
-            className: 'text-sm text-gray-500 dark:text-gray-400',
-          ),
-          const SizedBox(height: 24),
+    return WDiv(
+      className: 'overflow-y-auto p-5',
+      scrollPrimary: true,
+      children: [
+        // Welcome header
+        WText(
+          trans('dashboard.welcome_greeting', {'name': userName}),
+          className: 'text-2xl font-bold text-gray-900 dark:text-white',
+        ),
+        const WSpacer(className: 'h-1'),
+        WText(
+          trans('dashboard.welcome_subtitle'),
+          className: 'text-sm text-gray-500 dark:text-gray-400',
+        ),
+        const WSpacer(className: 'h-6'),
 
-          // Stat cards grid
-          _buildStatCards(context, isDesktop),
-          const SizedBox(height: 24),
+        // Stat cards grid
+        _buildStatCards(context, isDesktop),
+        const WSpacer(className: 'h-6'),
 
-          // Desktop: two-column layout for monitors + activity
-          // Mobile: stacked
-          if (isDesktop)
-            WDiv(
-              className: 'flex flex-row gap-5 w-full',
-              children: [
-                Expanded(flex: 3, child: _buildMonitorsOverview()),
-                Expanded(flex: 2, child: _buildRecentActivity()),
-              ],
-            )
-          else ...[
-            _buildMonitorsOverview(),
-            const SizedBox(height: 20),
-            _buildRecentActivity(),
-          ],
-
-          const SizedBox(height: 40),
+        // Desktop: two-column layout for monitors + activity
+        // Mobile: stacked
+        if (isDesktop)
+          WDiv(
+            className: 'flex flex-row gap-5 w-full',
+            children: [
+              WDiv(className: 'flex-3', child: _buildMonitorsOverview()),
+              WDiv(className: 'flex-2', child: _buildRecentActivity()),
+            ],
+          )
+        else ...[
+          _buildMonitorsOverview(),
+          const WSpacer(className: 'h-5'),
+          _buildRecentActivity(),
         ],
-      ),
+
+        const WSpacer(className: 'h-10'),
+      ],
     );
   }
 
@@ -89,23 +87,14 @@ class DashboardView extends StatelessWidget {
       // 4-column grid on desktop
       return WDiv(
         className: 'flex flex-row gap-5 w-full',
-        children: cards.map((card) => Expanded(child: card)).toList(),
+        children: cards
+            .map((card) => WDiv(className: 'flex-1', child: card))
+            .toList(),
       );
     }
 
     // 2x2 grid on mobile
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: cards
-          .map(
-            (card) => SizedBox(
-              width: (MediaQuery.of(context).size.width - 52) / 2,
-              child: card,
-            ),
-          )
-          .toList(),
-    );
+    return WDiv(className: 'grid grid-cols-2 gap-3', children: cards);
   }
 
   Widget _buildMonitorsOverview() {

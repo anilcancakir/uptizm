@@ -1,17 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/monitor_check.dart';
+import '../components/app_page_header.dart';
 import '../components/charts/response_time_chart.dart';
 import '../components/monitors/check_status_row.dart';
 import '../components/monitors/location_badge.dart';
 import '../components/monitors/stat_card.dart';
 import '../components/monitors/status_dot.dart';
-import '../components/pagination_controls.dart';
+import '../components/monitors/status_metrics_panel.dart';
+import '../components/app_list.dart';
 
 /// Monitor Show View
 ///
@@ -33,21 +35,33 @@ class _MonitorShowViewState
   @override
   void onInit() {
     super.onInit();
-    // Clear previous monitor state
-    controller.selectedMonitorNotifier.value = null;
-    controller.checksNotifier.value = [];
 
     // Extract ID from route parameters
     final idParam = MagicRouter.instance.pathParameter('id');
-    Log.debug('MonitorShowView onInit - idParam: $idParam');
 
     if (idParam != null) {
       _monitorId = int.tryParse(idParam);
       if (_monitorId != null) {
         // Schedule after build to avoid setState-during-build
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.loadMonitor(_monitorId!);
-          controller.loadChecks(_monitorId!);
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          // Clear previous monitor state
+          controller.selectedMonitorNotifier.value = null;
+          controller.checksNotifier.value = [];
+
+          await controller.loadMonitor(_monitorId!);
+          await controller.loadChecks(_monitorId!);
+          controller.fetchStatusMetrics(_monitorId!);
+
+          // Auto-enable real-time refresh if no checks exist
+          // (waiting for first check to complete)
+          if (controller.checksNotifier.value.isEmpty &&
+              controller.selectedMonitorNotifier.value?.status?.value ==
+                  'active') {
+            setState(() {
+              _isRealTimeEnabled = true;
+            });
+            _startRealTimeRefresh();
+          }
         });
       }
     }
@@ -79,16 +93,39 @@ class _MonitorShowViewState
     final monitor = controller.selectedMonitorNotifier.value;
     if (monitor == null) return;
 
-    // Calculate refresh interval: monitor's check interval + 3-5 seconds
-    final checkInterval = monitor.checkInterval ?? 60;
-    final refreshInterval = checkInterval + 4; // +4 seconds buffer
+    final checks = controller.checksNotifier.value;
+
+    // Use aggressive polling (5 seconds) when waiting for first check
+    int refreshInterval;
+    if (checks.isEmpty && monitor.status?.value == 'active') {
+      refreshInterval = 5; // 5 seconds for first check
+    } else {
+      // Normal polling: monitor's check interval + 4 seconds buffer
+      final checkInterval = monitor.checkInterval ?? 60;
+      refreshInterval = checkInterval + 4;
+    }
 
     _refreshTimer = Timer.periodic(Duration(seconds: refreshInterval), (_) {
       if (_monitorId != null && _isRealTimeEnabled) {
+        final checksBeforeRefresh = controller.checksNotifier.value;
+        final wasEmpty = checksBeforeRefresh.isEmpty;
+
         final currentPage =
             controller.checksPaginationNotifier.value?.currentPage ?? 1;
         controller.loadMonitor(_monitorId!);
         controller.loadChecks(_monitorId!, page: currentPage);
+        controller.fetchStatusMetrics(_monitorId!);
+
+        // If we were waiting for first check and now have checks, restart timer with normal interval
+        if (wasEmpty) {
+          // Give it a moment for the data to load, then check again
+          Future.delayed(const Duration(milliseconds: 500), () {
+            final checksAfterRefresh = controller.checksNotifier.value;
+            if (checksAfterRefresh.isNotEmpty) {
+              _startRealTimeRefresh(); // Restart with normal interval
+            }
+          });
+        }
       }
     });
   }
@@ -104,54 +141,76 @@ class _MonitorShowViewState
       valueListenable: controller.selectedMonitorNotifier,
       builder: (context, monitor, _) {
         if (controller.isLoading && monitor == null) {
-          return const Center(child: CircularProgressIndicator());
+          return WDiv(
+            className: 'py-12 flex items-center justify-center',
+            child: const CircularProgressIndicator(),
+          );
         }
 
         if (monitor == null) {
-          return Center(
+          return WDiv(
+            className: 'py-12 flex items-center justify-center',
             child: WText(
-              'Monitor not found',
+              trans('monitors.not_found'),
               className: 'text-gray-600 dark:text-gray-400',
             ),
           );
         }
 
-        return SingleChildScrollView(
-          child: WDiv(
-            className: 'flex flex-col gap-6 p-4 lg:p-6',
-            children: [
-              // Header
-              _buildHeader(monitor),
+        return WDiv(
+          className: 'overflow-y-auto flex flex-col gap-4 lg:gap-6 pb-4',
+          scrollPrimary: true,
+          children: [
+            // Header
+            _buildHeader(monitor),
 
-              // Stats Section
-              _buildStatsSection(monitor),
-
-              // Performance Chart
-              ValueListenableBuilder(
-                valueListenable: controller.checksNotifier,
-                builder: (context, checks, _) =>
-                    _buildPerformanceSection(checks),
-              ),
-
-              // Check History Timeline
-              _buildCheckHistory(),
-
-              // Metrics Display - wrapped in ValueListenableBuilder to react to checks loading
-              if (monitor.metricMappings != null &&
-                  monitor.metricMappings!.isNotEmpty)
-                ValueListenableBuilder(
-                  valueListenable: controller.checksNotifier,
-                  builder: (context, checks, _) =>
-                      _buildMetricsSection(monitor),
+            WDiv(
+              className: 'flex flex-col px-4 lg:px-6 gap-4 lg:gap-6',
+              children: [
+                // Stats Section - wrapped in MagicBuilder to react to checks loading
+                MagicBuilder<List<MonitorCheck>>(
+                  listenable: controller.checksNotifier,
+                  builder: (checks) => _buildStatsSection(monitor, checks),
                 ),
 
-              // Response Body Preview
-              _buildResponseBodySection(),
+                // Performance Chart
+                MagicBuilder<List<MonitorCheck>>(
+                  listenable: controller.checksNotifier,
+                  builder: (checks) => _buildPerformanceSection(checks),
+                ),
 
-              // Configuration Details
-              _buildConfigurationSection(monitor),
-            ],
-          ),
+                // Check History Timeline
+                _buildCheckHistory(),
+
+                // Metrics Display - wrapped in MagicBuilder to react to checks loading
+                if (monitor.metricMappings != null &&
+                    monitor.metricMappings!.isNotEmpty)
+                  MagicBuilder<List<MonitorCheck>>(
+                    listenable: controller.checksNotifier,
+                    builder: (_) => _buildMetricsSection(monitor),
+                  ),
+
+                // Status Metrics
+                MagicBuilder(
+                  listenable: controller.statusMetricsNotifier,
+                  builder: (statusMetrics) {
+                    if (statusMetrics.isEmpty) return const SizedBox.shrink();
+
+                    return StatusMetricsPanel(
+                      title: trans('monitor.status_metrics'),
+                      metrics: statusMetrics,
+                    );
+                  },
+                ),
+
+                // Response Body Preview
+                _buildResponseBodySection(),
+
+                // Configuration Details
+                _buildConfigurationSection(monitor),
+              ],
+            ),
+          ],
         );
       },
     );
@@ -159,126 +218,96 @@ class _MonitorShowViewState
 
   Widget _buildHeader(Monitor monitor) {
     return WDiv(
-      className: '''
-        bg-white dark:bg-gray-800
-        border border-gray-100 dark:border-gray-700
-        rounded-2xl p-5
-      ''',
+      className: 'flex flex-col',
       children: [
-        // Row 1: Back + Status + Name
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            WButton(
-              onTap: () => MagicRoute.to('/monitors'),
-              className:
-                  'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
-              child: WIcon(
-                Icons.arrow_back,
-                className: 'text-xl text-gray-700 dark:text-gray-300',
-              ),
+        // App Page Header
+        AppPageHeader(
+          leading: WButton(
+            onTap: () => MagicRoute.to('/monitors'),
+            className:
+                'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
+            child: WIcon(
+              Icons.arrow_back,
+              className: 'text-xl text-gray-700 dark:text-gray-300',
             ),
-            const SizedBox(width: 12),
-            StatusDot(status: monitor.lastStatus, size: 12),
-            const SizedBox(width: 12),
-            Expanded(
-              child: WText(
-                monitor.name ?? 'Unnamed Monitor',
-                className: 'text-xl font-bold text-gray-900 dark:text-white',
-              ),
-            ),
-          ],
-        ),
-
-        // Row 2: URL
-        const SizedBox(height: 12),
-        WText(
-          monitor.url ?? '',
-          selectable: true,
-          className:
-              'text-sm font-mono text-gray-600 dark:text-gray-400 break-all',
-        ),
-
-        // Row 2.5: Real-time Toggle
-        const SizedBox(height: 12),
-        WButton(
-          onTap: _toggleRealTime,
-          className:
-              '''
-            px-3 py-2 rounded-lg
-            ${_isRealTimeEnabled ? 'bg-primary/10 dark:bg-primary/20' : 'bg-gray-100 dark:bg-gray-700'}
-            border ${_isRealTimeEnabled ? 'border-primary/30' : 'border-transparent'}
-            hover:bg-opacity-90
-          ''',
-          child: WDiv(
-            className: 'flex flex-row items-center gap-2',
-            children: [
-              // Pulse indicator when enabled
-              if (_isRealTimeEnabled)
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF009E60),
-                    shape: BoxShape.circle,
-                  ),
-                )
-              else
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade400,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              WText(
-                'Real-time ${_isRealTimeEnabled ? 'ON' : 'OFF'}',
-                className:
-                    'text-xs font-bold uppercase tracking-wide ${_isRealTimeEnabled ? 'text-primary' : 'text-gray-600 dark:text-gray-400'}',
-              ),
-              WText(
-                _isRealTimeEnabled
-                    ? '(${monitor.checkInterval ?? 60}s + 4s)'
-                    : '',
-                className: 'text-xs font-mono text-gray-500 dark:text-gray-500',
-              ),
-            ],
           ),
-        ),
-
-        // Row 3: Action Buttons
-        const SizedBox(height: 16),
-        WDiv(
-          className: 'flex flex-col sm:flex-row gap-2',
-          children: [
+          title: monitor.name ?? 'Unnamed Monitor',
+          subtitle: monitor.url,
+          actions: [
+            // Edit Button
             WButton(
               onTap: () => MagicRoute.to('/monitors/$_monitorId/edit'),
               className: '''
-                flex-1 px-4 py-2.5 rounded-xl
+                px-3 py-2 rounded-lg
                 bg-gray-100 dark:bg-gray-700
-                text-gray-900 dark:text-gray-100
+                text-gray-700 dark:text-gray-200
                 hover:bg-gray-200 dark:hover:bg-gray-600
-                text-sm font-semibold
+                text-sm font-medium
               ''',
               child: WDiv(
-                className: 'flex flex-row items-center justify-center gap-2',
+                className: 'flex flex-row items-center sm:gap-2',
                 children: [
                   WIcon(Icons.edit_outlined, className: 'text-base'),
-                  WText(trans('common.edit')),
+                  WText(trans('common.edit'), className: 'hidden sm:block'),
                 ],
               ),
             ),
+
+            // Analytics Button
+            WButton(
+              onTap: () => MagicRoute.to('/monitors/$_monitorId/analytics'),
+              className: '''
+                px-3 py-2 rounded-lg
+                bg-gray-100 dark:bg-gray-700
+                text-gray-700 dark:text-gray-200
+                hover:bg-gray-200 dark:hover:bg-gray-600
+                text-sm font-medium
+              ''',
+              child: WDiv(
+                className: 'flex flex-row items-center sm:gap-2',
+                children: [
+                  WIcon(Icons.analytics_outlined, className: 'text-base'),
+                  WText(
+                    trans('monitors.analytics'),
+                    className: 'hidden sm:block',
+                  ),
+                ],
+              ),
+            ),
+
+            // Alerts Button
+            WButton(
+              onTap: () => MagicRoute.to('/monitors/$_monitorId/alerts'),
+              className: '''
+                px-3 py-2 rounded-lg
+                bg-amber-50 dark:bg-amber-900/20
+                text-amber-700 dark:text-amber-400
+                hover:bg-amber-100 dark:hover:bg-amber-900/30
+                text-sm font-medium
+              ''',
+              child: WDiv(
+                className: 'flex flex-row items-center sm:gap-2',
+                children: [
+                  WIcon(
+                    Icons.notifications_active_outlined,
+                    className: 'text-base',
+                  ),
+                  WText(trans('alerts.alerts'), className: 'hidden sm:block'),
+                ],
+              ),
+            ),
+
+            // Pause/Resume Button
             WButton(
               onTap: () => _handlePauseResume(monitor),
               className:
                   '''
-                flex-1 px-4 py-2.5 rounded-xl
+                px-3 py-2 rounded-lg
                 ${monitor.isPaused ? 'bg-primary hover:bg-green-600 text-white' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30'}
-                text-sm font-semibold
+                text-sm font-medium
               ''',
               child: WDiv(
-                className: 'flex flex-row items-center justify-center gap-2',
+                className: 'flex flex-row items-center sm:gap-2',
                 children: [
                   WIcon(
                     monitor.isPaused ? Icons.play_arrow : Icons.pause,
@@ -288,9 +317,96 @@ class _MonitorShowViewState
                     monitor.isPaused
                         ? trans('common.resume')
                         : trans('common.pause'),
+                    className: 'hidden sm:block',
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
+
+        // Real-time Toggle Section (below header)
+        WDiv(
+          className: '''
+            w-full px-4 lg:px-6 py-3
+            border-b border-gray-200 dark:border-gray-700
+          ''',
+          children: [
+            WDiv(
+              className: '''
+                flex flex-col sm:flex-row
+                items-start sm:items-center
+                justify-between gap-3
+              ''',
+              children: [
+                // Left: Status Info
+                WDiv(
+                  className: 'flex flex-row items-center gap-2',
+                  children: [
+                    StatusDot(status: monitor.lastStatus, size: 12),
+                    WText(
+                      monitor.lastStatus?.label ?? 'Unknown',
+                      className:
+                          '''
+                        text-sm font-medium
+                        ${monitor.isUp
+                              ? 'text-green-600 dark:text-green-400'
+                              : monitor.isDown
+                              ? 'text-red-600 dark:text-red-400'
+                              : 'text-gray-600 dark:text-gray-400'}
+                      ''',
+                    ),
+                    if (monitor.lastResponseTimeMs != null)
+                      WText(
+                        '• ${monitor.lastResponseTimeMs}ms',
+                        className:
+                            'text-sm font-mono text-gray-500 dark:text-gray-500',
+                      ),
+                  ],
+                ),
+
+                // Right: Real-time Toggle
+                WButton(
+                  onTap: _toggleRealTime,
+                  className:
+                      '''
+                    px-3 py-2 rounded-lg
+                    ${_isRealTimeEnabled ? 'bg-primary/10 dark:bg-primary/20' : 'bg-gray-100 dark:bg-gray-700'}
+                    border ${_isRealTimeEnabled ? 'border-primary/30' : 'border-transparent'}
+                    hover:bg-opacity-90
+                    transition-all duration-200
+                  ''',
+                  child: WDiv(
+                    className: 'flex flex-row items-center gap-2',
+                    children: [
+                      // Pulse indicator when enabled
+                      WDiv(
+                        className:
+                            '''
+                          w-2 h-2 rounded-full
+                          ${_isRealTimeEnabled ? 'bg-primary animate-pulse' : 'bg-gray-400 dark:bg-gray-500'}
+                        ''',
+                      ),
+                      WText(
+                        _isRealTimeEnabled
+                            ? trans('monitor.real_time_on')
+                            : trans('monitor.real_time_off'),
+                        className:
+                            '''
+                          text-xs font-bold uppercase tracking-wide
+                          ${_isRealTimeEnabled ? 'text-primary' : 'text-gray-600 dark:text-gray-400'}
+                        ''',
+                      ),
+                      if (_isRealTimeEnabled)
+                        WText(
+                          '${monitor.checkInterval ?? 60}s',
+                          className:
+                              'text-xs font-mono text-gray-500 dark:text-gray-500',
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -298,8 +414,7 @@ class _MonitorShowViewState
     );
   }
 
-  Widget _buildStatsSection(Monitor monitor) {
-    final checks = controller.checksNotifier.value;
+  Widget _buildStatsSection(Monitor monitor, List<MonitorCheck> checks) {
     final uptime = _computeUptime(checks);
     final avgResponse = _computeAvgResponse(checks);
 
@@ -375,7 +490,7 @@ class _MonitorShowViewState
                   className: 'text-primary text-lg',
                 ),
               ),
-              const SizedBox(width: 12),
+              const WSpacer(className: 'w-3'),
               WText(
                 trans('monitors.performance').toUpperCase(),
                 className:
@@ -401,78 +516,71 @@ class _MonitorShowViewState
   }
 
   Widget _buildCheckHistory() {
-    return ValueListenableBuilder(
-      valueListenable: controller.checksNotifier,
-      builder: (context, checks, _) {
-        return WDiv(
-          className: '''
-            bg-white dark:bg-gray-800
-            border border-gray-100 dark:border-gray-700
-            rounded-2xl overflow-hidden
-          ''',
-          children: [
-            // Section Header
-            WDiv(
-              className:
-                  'p-5 w-full border-b border-gray-100 dark:border-gray-700',
-              child: WText(
-                trans('monitors.recent_checks'),
-                className:
-                    'text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-400',
-              ),
-            ),
+    return MagicBuilder<Monitor?>(
+      listenable: controller.selectedMonitorNotifier,
+      builder: (monitor) {
+        return MagicBuilder<List<MonitorCheck>>(
+          listenable: controller.checksNotifier,
+          builder: (checks) {
+            final isWaitingForFirstCheck =
+                checks.isEmpty &&
+                monitor != null &&
+                monitor.status?.value == 'active';
 
-            // Checks List
-            if (checks.isEmpty)
-              WDiv(
-                className:
-                    'p-12 flex flex-col items-center justify-center w-full',
-                children: [
-                  WIcon(
-                    Icons.history,
-                    className: 'text-4xl text-gray-400 dark:text-gray-600 mb-2',
-                  ),
-                  WText(
-                    trans('monitors.no_checks'),
-                    className: 'text-sm text-gray-600 dark:text-gray-400',
-                  ),
-                ],
-              )
-            else
-              Column(
-                children: [
-                  WDiv(
-                    children: checks
-                        .map((check) => CheckStatusRow(check: check))
-                        .toList(),
-                  ),
-                  // Pagination
-                  ValueListenableBuilder(
-                    valueListenable: controller.checksPaginationNotifier,
-                    builder: (context, pagination, _) {
-                      if (pagination == null || pagination.lastPage <= 1) {
-                        return const SizedBox.shrink();
-                      }
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: PaginationControls(
-                          currentPage: pagination.currentPage,
-                          totalPages: pagination.lastPage,
-                          hasPrevious: pagination.hasPreviousPage,
-                          hasNext: pagination.hasNextPage,
-                          isLoading: controller.isLoading,
-                          onPrevious: () =>
-                              controller.loadPreviousPage(_monitorId!),
-                          onNext: () => controller.loadNextPage(_monitorId!),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-          ],
+            return MagicBuilder(
+              listenable: controller.checksPaginationNotifier,
+              builder: (pagination) {
+                return AppList<MonitorCheck>(
+                  items: checks,
+                  itemBuilder: (context, check, index) =>
+                      CheckStatusRow(check: check),
+                  title: trans('monitors.recent_checks'),
+                  emptyIcon: Icons.history,
+                  emptyText: trans('monitors.no_checks'),
+                  emptyState: isWaitingForFirstCheck
+                      ? _buildWaitingForFirstCheckState()
+                      : null,
+                  currentPage: pagination?.currentPage,
+                  totalPages: pagination?.lastPage,
+                  isPaginationLoading: controller.isLoading,
+                  onPageChange: pagination != null && pagination.lastPage > 1
+                      ? (page) {
+                          if (page > (pagination.currentPage)) {
+                            controller.loadNextPage(_monitorId!);
+                          } else {
+                            controller.loadPreviousPage(_monitorId!);
+                          }
+                        }
+                      : null,
+                );
+              },
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildWaitingForFirstCheckState() {
+    return WDiv(
+      className: 'p-12 flex flex-col items-center justify-center w-full',
+      children: [
+        const CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF009E60)),
+        ),
+        const WSpacer(className: 'h-4'),
+        WText(
+          trans('monitors.waiting_for_first_check'),
+          className:
+              'text-base font-semibold text-gray-900 dark:text-white text-center',
+        ),
+        const WSpacer(className: 'h-2'),
+        WText(
+          trans('monitors.first_check_hint'),
+          className:
+              'text-sm text-gray-600 dark:text-gray-400 text-center max-w-md',
+        ),
+      ],
     );
   }
 
@@ -502,7 +610,7 @@ class _MonitorShowViewState
                   className: 'text-primary text-lg',
                 ),
               ),
-              const SizedBox(width: 12),
+              const WSpacer(className: 'w-3'),
               WText(
                 trans('monitors.metrics').toUpperCase(),
                 className:
@@ -554,15 +662,16 @@ class _MonitorShowViewState
       ''',
       children: [
         // Timestamp row
-        Row(
+        WDiv(
+          className: 'flex flex-row items-center',
           children: [
             StatusDot(status: check.status, size: 8),
-            const SizedBox(width: 8),
+            const WSpacer(className: 'w-2'),
             WText(
               check.checkedAt?.diffForHumans() ?? '—',
               className: 'text-xs text-gray-500 dark:text-gray-500',
             ),
-            const Spacer(),
+            const WDiv(className: 'flex-1'),
             if (check.responseTimeMs != null)
               WText(
                 '${check.responseTimeMs}ms',
@@ -570,11 +679,10 @@ class _MonitorShowViewState
               ),
           ],
         ),
-        const SizedBox(height: 10),
-        // Metrics grid - use native Wrap for proper overflow handling
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        const WSpacer(className: 'h-2.5'),
+        // Metrics grid
+        WDiv(
+          className: 'flex flex-row flex-wrap gap-2',
           children: mappings.map<Widget>((mapping) {
             final label = mapping['label'] as String? ?? 'Metric';
             final path = mapping['path'] as String? ?? '';
@@ -597,20 +705,21 @@ class _MonitorShowViewState
 
             return WDiv(
               className: '''
-                flex flex-row items-center gap-1
-                px-2 py-1.5 rounded-lg
-                bg-gray-50 dark:bg-gray-700/50
-                border border-gray-100 dark:border-gray-600
+                flex flex-row items-center gap-1.5 overflow-hidden
+                px-2.5 py-1 rounded-full
+                bg-white dark:bg-gray-800
+                border border-gray-200 dark:border-gray-700
               ''',
               children: [
                 WText(
                   label,
-                  className: 'text-xs text-gray-500 dark:text-gray-400',
+                  className:
+                      'text-xs text-gray-500 dark:text-gray-400 truncate',
                 ),
                 WText(
                   displayValue,
                   className:
-                      'text-xs font-mono font-semibold text-gray-900 dark:text-white',
+                      'text-xs font-mono font-semibold text-gray-900 dark:text-white truncate',
                 ),
               ],
             );
@@ -621,9 +730,9 @@ class _MonitorShowViewState
   }
 
   Widget _buildResponseBodySection() {
-    return ValueListenableBuilder(
-      valueListenable: controller.checksNotifier,
-      builder: (context, checks, _) {
+    return MagicBuilder<List<MonitorCheck>>(
+      listenable: controller.checksNotifier,
+      builder: (checks) {
         if (checks.isEmpty) return const SizedBox.shrink();
 
         final latestCheck = checks.first;
@@ -636,8 +745,8 @@ class _MonitorShowViewState
             rounded-2xl p-5
           ''',
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            WDiv(
+              className: 'flex flex-row items-center justify-between',
               children: [
                 WText(
                   trans('monitors.last_response'),
@@ -645,23 +754,23 @@ class _MonitorShowViewState
                       'text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-400',
                 ),
                 WText(
-                  '${latestCheck.responseBody!.length} chars',
+                  trans('monitor.chars', {
+                    'count': latestCheck.responseBody!.length,
+                  }),
                   className:
                       'text-xs font-mono text-gray-500 dark:text-gray-500',
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const WSpacer(className: 'h-3'),
             WDiv(
               className:
-                  'w-full bg-gray-900 dark:bg-gray-950 rounded-xl p-4 max-h-[300px]',
-              child: SingleChildScrollView(
-                child: WText(
-                  latestCheck.responseBody!,
-                  selectable: true,
-                  className:
-                      'font-mono text-xs text-green-400 whitespace-pre-wrap',
-                ),
+                  'overflow-y-auto w-full bg-gray-900 dark:bg-gray-950 rounded-xl p-4 max-h-[300px]',
+              child: WText(
+                latestCheck.responseBody!,
+                selectable: true,
+                className:
+                    'font-mono text-xs text-green-400 whitespace-pre-wrap',
               ),
             ),
           ],
@@ -686,17 +795,25 @@ class _MonitorShowViewState
         WDiv(
           className: 'flex flex-col gap-4',
           children: [
-            _buildConfigRow('Method', monitor.method?.label ?? 'GET'),
             _buildConfigRow(
-              'Expected Status',
+              trans('monitor.method'),
+              monitor.method?.label ?? 'GET',
+            ),
+            _buildConfigRow(
+              trans('monitor.expected_status'),
               '${monitor.expectedStatusCode ?? 200}',
             ),
-            _buildConfigRow('Timeout', '${monitor.timeout ?? 30}s'),
+            _buildConfigRow(
+              trans('monitor.timeout'),
+              '${monitor.timeout ?? 30}s',
+            ),
             if (monitor.assertionRules != null &&
                 monitor.assertionRules!.isNotEmpty)
               _buildConfigRow(
-                'Assertions',
-                '${monitor.assertionRules!.length} rules',
+                trans('monitor.assertions'),
+                trans('monitor.assertions_count', {
+                  'count': monitor.assertionRules!.length,
+                }),
               ),
             if (monitor.monitoringLocations != null &&
                 monitor.monitoringLocations!.isNotEmpty)
@@ -704,11 +821,11 @@ class _MonitorShowViewState
                 className: 'flex flex-row justify-between items-start gap-2',
                 children: [
                   WText(
-                    'LOCATIONS',
+                    trans('monitor.locations').toUpperCase(),
                     className:
                         'text-xs uppercase font-bold tracking-wide text-gray-600 dark:text-gray-400',
                   ),
-                  const SizedBox(height: 8),
+                  const WSpacer(className: 'h-2'),
                   WDiv(
                     className: 'flex flex-wrap gap-2',
                     children: monitor.monitoringLocations!

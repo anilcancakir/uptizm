@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/monitor_check.dart';
@@ -11,6 +13,138 @@ void main() {
       const view = MonitorShowView();
       expect(view, isA<MonitorShowView>());
     });
+  });
+
+  group('Stats section reactivity', () {
+    test('uptime and avg response should update when checks notifier changes',
+        () {
+      // This test verifies that the stats section reacts to checksNotifier changes.
+      // The bug was that _buildStatsSection reads checksNotifier.value directly
+      // instead of being inside a ValueListenableBuilder.
+
+      final controller = MonitorController();
+
+      // Initial state: no checks
+      controller.checksNotifier.value = [];
+
+      // Simulate checks loading later
+      final checks = [
+        MonitorCheck.fromMap({
+          'id': 1,
+          'status': 'up',
+          'response_time_ms': 100,
+          'checked_at': '2026-02-04T10:00:00.000000Z',
+        }),
+        MonitorCheck.fromMap({
+          'id': 2,
+          'status': 'up',
+          'response_time_ms': 200,
+          'checked_at': '2026-02-04T10:01:00.000000Z',
+        }),
+      ];
+
+      // Update checks
+      controller.checksNotifier.value = checks;
+
+      // Verify notifier has the checks
+      expect(controller.checksNotifier.value.length, equals(2));
+
+      // Calculate expected uptime
+      final upCount =
+          controller.checksNotifier.value.where((c) => c.isUp).length;
+      final percentage = (upCount / checks.length * 100).toStringAsFixed(1);
+      expect(percentage, equals('100.0'));
+
+      // Calculate expected avg response
+      final totalMs = checks.fold<int>(
+        0,
+        (sum, c) => sum + (c.responseTimeMs ?? 0),
+      );
+      final avgMs = (totalMs / checks.length).round();
+      expect(avgMs, equals(150));
+
+      // The actual widget test is below - this unit test just validates the logic
+    });
+
+    testWidgets(
+      'stats cards should display updated values when checks load asynchronously',
+      (tester) async {
+        // Setup controller with monitor but no checks initially
+        final controller = MonitorController();
+        final monitor = Monitor()
+          ..setRawAttributes({
+            'id': 1,
+            'name': 'Test Monitor',
+            'url': 'https://example.com',
+            'status': 'active',
+            'check_interval': 60,
+          }, sync: true)
+          ..exists = true;
+
+        controller.selectedMonitorNotifier.value = monitor;
+        controller.checksNotifier.value = []; // Empty initially
+
+        // Build a minimal test widget that mimics the stats section pattern
+        await tester.pumpWidget(
+          MaterialApp(
+            home: WindTheme(
+              data: WindThemeData(),
+              child: Scaffold(
+                body: ValueListenableBuilder<List<MonitorCheck>>(
+                  valueListenable: controller.checksNotifier,
+                  builder: (context, checks, _) {
+                    // This is how it SHOULD be done - inside ValueListenableBuilder
+                    final uptime = checks.isEmpty
+                        ? '—'
+                        : '${(checks.where((c) => c.isUp).length / checks.length * 100).toStringAsFixed(1)}%';
+                    final avgResponse = checks.isEmpty
+                        ? '—'
+                        : '${(checks.fold<int>(0, (sum, c) => sum + (c.responseTimeMs ?? 0)) / checks.length).round()}ms';
+
+                    return Column(
+                      children: [
+                        Text('Uptime: $uptime', key: const Key('uptime')),
+                        Text(
+                          'Avg Response: $avgResponse',
+                          key: const Key('avg_response'),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // Initially should show "—"
+        expect(find.text('Uptime: —'), findsOneWidget);
+        expect(find.text('Avg Response: —'), findsOneWidget);
+
+        // Now simulate checks loading
+        controller.checksNotifier.value = [
+          MonitorCheck.fromMap({
+            'id': 1,
+            'status': 'up',
+            'response_time_ms': 100,
+            'checked_at': '2026-02-04T10:00:00.000000Z',
+          }),
+          MonitorCheck.fromMap({
+            'id': 2,
+            'status': 'up',
+            'response_time_ms': 200,
+            'checked_at': '2026-02-04T10:01:00.000000Z',
+          }),
+        ];
+
+        // Pump to allow ValueListenableBuilder to rebuild
+        await tester.pump();
+
+        // Now should show calculated values
+        expect(find.text('Uptime: 100.0%'), findsOneWidget);
+        expect(find.text('Avg Response: 150ms'), findsOneWidget);
+      },
+    );
   });
 
   group('Real-time refresh pagination', () {

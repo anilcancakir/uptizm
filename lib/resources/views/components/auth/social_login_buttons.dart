@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 
 /// Social auth mode - determines button label text.
 enum SocialAuthMode { signIn, signUp }
@@ -56,7 +56,7 @@ class SocialLoginButtons extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const WSpacer(className: 'h-4'),
 
         // Google Button
         _buildSocialButton(
@@ -65,7 +65,7 @@ class SocialLoginButtons extends StatelessWidget {
           onTap: onGoogle,
           iconWidget: WSvg(src: 'assets/svg/google.svg', className: 'w-5 h-5'),
         ),
-        const SizedBox(height: 12),
+        const WSpacer(className: 'h-3'),
 
         // Microsoft Button
         _buildSocialButton(
@@ -77,7 +77,7 @@ class SocialLoginButtons extends StatelessWidget {
             className: 'w-5 h-5',
           ),
         ),
-        const SizedBox(height: 12),
+        const WSpacer(className: 'h-3'),
 
         // GitHub Button
         _buildSocialButton(

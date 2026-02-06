@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fluttersdk_magic/fluttersdk_magic.dart';
+import 'package:magic/magic.dart';
 import '../../../../app/models/user.dart';
 
 /// User Profile Card
@@ -96,22 +96,19 @@ class UserProfileCard extends StatelessWidget {
             ),
           ),
           // User Info
-          Expanded(
-            child: WDiv(
-              className: 'flex flex-col min-w-0',
-              children: [
-                WText(
-                  User.current.name ?? '',
-                  className:
-                      'text-sm font-medium text-gray-900 dark:text-white truncate',
-                ),
-                WText(
-                  User.current.email ?? '',
-                  className:
-                      'text-xs text-gray-500 dark:text-gray-400 truncate',
-                ),
-              ],
-            ),
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                User.current.name ?? '',
+                className:
+                    'text-sm font-medium text-gray-900 dark:text-white truncate',
+              ),
+              WText(
+                User.current.email ?? '',
+                className: 'text-xs text-gray-500 dark:text-gray-400 truncate',
+              ),
+            ],
           ),
           // Unfold Icon
           if (!compact)
@@ -150,7 +147,7 @@ class UserProfileCard extends StatelessWidget {
               ''',
             ),
             if (User.current.email?.isNotEmpty == true) ...[
-              const SizedBox(height: 2),
+              const WSpacer(className: 'h-0.5'),
               WText(
                 User.current.email ?? '',
                 className: '''
@@ -163,7 +160,7 @@ class UserProfileCard extends StatelessWidget {
           ],
         ),
 
-        const SizedBox(height: 4),
+        const WSpacer(className: 'h-1'),
 
         // Menu Items
         _buildMenuItem(
@@ -176,10 +173,10 @@ class UserProfileCard extends StatelessWidget {
         ),
         _buildMenuItem(
           icon: Icons.notifications_outlined,
-          label: trans('notifications.title'),
+          label: trans('notifications.settings'),
           onTap: () {
             close();
-            MagicRoute.to('/notifications');
+            MagicRoute.to('/settings/notifications');
           },
         ),
 
@@ -200,7 +197,7 @@ class UserProfileCard extends StatelessWidget {
           isDanger: true,
         ),
 
-        const SizedBox(height: 4),
+        const WSpacer(className: 'h-1'),
       ],
     );
   }
