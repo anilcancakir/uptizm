@@ -200,3 +200,399 @@ The validation layer is now aligned with UUID primary keys. Next phase should:
 2. Update factories to generate UUIDs
 3. Update tests to use UUID values
 4. Run full test suite to verify API endpoints work with UUID parameters
+
+## Task 4: Flutter Model UUID Migration
+
+### Execution Summary
+
+**Completed**: All Flutter models updated to use String IDs instead of int.
+
+### Changes Applied
+
+#### Model Files Updated (10 total)
+
+1. **monitor.dart**
+   - Changed `int? get id => get<int>('id')` → `String? get id => get<String>('id')`
+   - Changed `int? get teamId => get<int>('team_id')` → `String? get teamId => get<String>('team_id')`
+   - Changed `set teamId(int? value)` → `set teamId(String? value)`
+   - Changed `static Future<Monitor?> find(int id)` → `find(String id)`
+   - Added `@override bool get incrementing => false;`
+   - Added `@override` annotation to id getter
+
+2. **user.dart**
+   - Added `@override String? get id => getAttribute('id')?.toString();`
+   - Added `@override bool get incrementing => false;`
+
+3. **team.dart**
+   - Added `@override String? get id => getAttribute('id')?.toString();`
+   - Changed `int? get ownerId => getAttribute('owner_id') as int?` → `String? get ownerId => getAttribute('owner_id')?.toString()`
+   - Added `@override bool get incrementing => false;`
+
+4. **alert.dart**
+   - Changed all `(getAttribute('id') as num?)?.toInt()` patterns to `getAttribute('id')?.toString()`
+   - Changed `int? get alertRuleId`, `int? get monitorId` → `String?`
+   - Changed setters from `int?` to `String?`
+   - Added `@override bool get incrementing => false;`
+
+5. **alert_rule.dart**
+   - Same pattern as alert.dart for id, teamId, monitorId
+   - Added `@override bool get incrementing => false;`
+
+6. **status_page.dart**
+   - Added `@override String? get id => get<String>('id');`
+   - **Critical**: Changed `List<int> get monitorIds` → `List<String> get monitorIds`
+   - Changed `.map((e) => (e as num).toInt())` → `.map((e) => e.toString())`
+   - Changed `set monitorIds(List<int> value)` → `set monitorIds(List<String> value)`
+   - Changed `static Future<StatusPage?> find(int id)` → `find(String id)`
+   - Added `@override bool get incrementing => false;`
+
+7. **monitor_check.dart** (Plain Dart class - no Model superclass)
+   - Changed `int? get id => _attributes['id'] as int?` → `String? get id => _attributes['id']?.toString()`
+   - Changed `int? get monitorId` → `String? get monitorId`
+   - Changed `static forMonitor(int monitorId)` → `forMonitor(String monitorId)`
+   - **Note**: No `incrementing` override - not a Model subclass
+
+8. **monitor_metric_value.dart** (Plain Dart class)
+   - Changed `final int id` → `final String id`
+   - Changed `final int monitorId` → `final String monitorId`
+   - Changed `final int checkId` → `final String checkId`
+   - Changed `(map['id'] as num).toInt()` → `map['id'].toString()`
+   - **Note**: No `incrementing` override - not a Model subclass
+
+9. **team_invitation.dart** (Discovered via grep)
+   - Added `@override String? get id => getAttribute('id')?.toString();`
+   - Changed `int? get teamId => getAttribute('team_id') as int?` → `String? get teamId => getAttribute('team_id')?.toString()`
+   - Added `@override bool get incrementing => false;`
+
+10. **analytics_response.dart** (Discovered via grep)
+    - Changed `final int monitorId` → `final String monitorId`
+    - Changed `(data['monitor_id'] as num?)?.toInt() ?? 0` → `data['monitor_id']?.toString() ?? ''`
+
+### Key Patterns
+
+1. **Magic Framework Model Pattern**:
+   - Use `get<String>('id')` for typed getter access
+   - Use `getAttribute('id')?.toString()` for raw attribute access with null-safe conversion
+   - Add `@override` annotation when overriding base Model `id` getter
+
+2. **incrementing Override**:
+   - All Model subclasses must add `@override bool get incrementing => false;`
+   - Plain Dart classes (MonitorCheck, MonitorMetricValue) don't need this
+
+3. **Safe ID Conversion**:
+   - `?.toString()` handles both int/num backend responses and UUID string responses
+   - Avoids `as String` cast which would fail if backend returns int
+
+4. **Collection ID Conversion**:
+   - `monitorIds.map((e) => e.toString())` safely converts mixed-type lists
+
+### Verification Results
+
+- ✅ `grep "get<int>('id')|get<int>('.*_id')" lib/app/models/` = **0 matches** (only in AGENTS.md documentation)
+- ✅ `grep "incrementing => false" lib/app/models/` = **7 matches** (all 7 Model subclasses)
+- ✅ `flutter analyze lib/app/models/` = **No issues found**
+- ✅ Commit created: `refactor(flutter-models): change all model IDs from int to String for UUID support`
+
+### Gotchas Discovered
+
+1. **Additional Models Found**: team_invitation.dart and analytics_response.dart were not in original task list but contained int ID patterns - found via grep verification
+2. **Non-ID Integers Preserved**: `responseTimeMs`, `statusCode`, `checkInterval`, `expectedStatusCode`, `consecutiveChecks`, `displayOrder` remain as int - these are business logic integers, not IDs
+3. **Plain Classes vs Models**: MonitorCheck and MonitorMetricValue are plain Dart classes, not Model subclasses - they don't need `incrementing` override
+4. **Override Annotation**: LSP analysis flagged missing `@override` on `id` getters - added to satisfy lint rules
+
+### Files Modified Summary
+
+| File | Type | Changes |
+|------|------|---------|
+| monitor.dart | Model | id, teamId → String, incrementing, find() param |
+| user.dart | Model | Added id getter, incrementing |
+| team.dart | Model | id, ownerId → String, incrementing |
+| alert.dart | Model | id, alertRuleId, monitorId → String, incrementing |
+| alert_rule.dart | Model | id, teamId, monitorId → String, incrementing |
+| status_page.dart | Model | id, monitorIds → String/List<String>, incrementing, find() param |
+| monitor_check.dart | Plain | id, monitorId → String, forMonitor() param |
+| monitor_metric_value.dart | Plain | id, monitorId, checkId → String |
+| team_invitation.dart | Model | id, teamId → String, incrementing |
+| analytics_response.dart | Plain | monitorId → String |
+
+### Next Steps
+
+The Flutter models are now aligned with UUID backend. Next phase should:
+1. Update controllers/views that reference model IDs
+2. Update tests to use String IDs
+3. Verify API integration with UUID endpoints
+4. Run full Flutter test suite
+
+## Task 5: Backend Test UUID Compatibility
+
+### Execution Summary
+
+**Completed**: All 498 backend tests pass with UUID primary keys.
+
+### Critical Fixes Applied
+
+#### 1. Pivot Table Models (3 new files)
+
+Pivot tables with UUID primary keys need custom Pivot models with `HasUuids` trait:
+
+1. **PersonalAccessToken.php** - Custom Sanctum token model
+   ```php
+   class PersonalAccessToken extends SanctumPersonalAccessToken
+   {
+       use HasUuids;
+       public $incrementing = false;
+       protected $keyType = 'string';
+   }
+   ```
+   - Registered in AppServiceProvider: `Sanctum::usePersonalAccessTokenModel(\App\Models\PersonalAccessToken::class);`
+
+2. **TeamUser.php** - Pivot for `team_user` table
+   ```php
+   class TeamUser extends Pivot
+   {
+       use HasUuids;
+       public $incrementing = false;
+       protected $keyType = 'string';
+       protected $table = 'team_user';
+   }
+   ```
+   - Used in relationships: `->using(TeamUser::class)`
+
+3. **StatusPageMonitor.php** - Pivot for `status_page_monitor` table
+   ```php
+   class StatusPageMonitor extends Pivot
+   {
+       use HasUuids;
+       // same pattern as TeamUser
+   }
+   ```
+   - Used in relationships: `->using(StatusPageMonitor::class)`
+
+#### 2. Test File Updates
+
+**SessionTest.php**:
+- Changed `\Laravel\Sanctum\PersonalAccessToken` → `\App\Models\PersonalAccessToken`
+- Already had correct UUID format for nonexistent ID test
+
+**MonitorApiTest.php**:
+- Changed `/api/v1/monitors/99999` → `/api/v1/monitors/00000000-0000-0000-0000-000000099999` for 404 test
+
+#### 3. Relationship Updates
+
+**Team.php**:
+```php
+return $this->belongsToMany(User::class)->using(TeamUser::class)->withPivot('role')->withTimestamps();
+```
+
+**User.php**:
+```php
+return $this->belongsToMany(Team::class)->using(TeamUser::class);
+```
+
+**StatusPage.php**:
+```php
+return $this->belongsToMany(Monitor::class, 'status_page_monitor')
+    ->using(StatusPageMonitor::class)
+    ->withPivot('display_order', 'custom_label')
+    ->orderByPivot('display_order');
+```
+
+### Key Patterns Discovered
+
+1. **Pivot Tables Need Custom Models**: Any pivot table with UUID PK needs a custom Pivot class with HasUuids
+2. **Sanctum Custom Model**: Register with `Sanctum::usePersonalAccessTokenModel()` in AppServiceProvider boot()
+3. **Test UUID Format**: For "not found" tests, use valid UUID format like `00000000-0000-0000-0000-000000099999`
+4. **Response Body IDs**: Simulated API response bodies can have integer IDs - only model PKs/FKs need UUID conversion
+
+### Verification Results
+
+- ✅ `php artisan migrate:fresh --env=testing` → exit code 0
+- ✅ `php artisan test` → **498 passed** (1357 assertions)
+- ✅ No `QueryException` on pivot table inserts
+- ✅ All tests pass without `markTestSkipped`
+
+### Gotchas Discovered
+
+1. **Symlink Git Tracking**: The `back-end/` directory is a symlink to another location - backend files tracked separately
+2. **NOT NULL on uuid('id')**: SQLite throws `NOT NULL constraint failed` when pivot model doesn't generate UUID
+3. **Sanctum Default Model**: Default `Laravel\Sanctum\PersonalAccessToken` uses auto-increment IDs - must be replaced
+4. **BelongsToMany Using**: Must add `->using(CustomPivot::class)` to all many-to-many relationships with UUID pivot tables
+
+### Files Created/Modified
+
+| File | Action | Purpose |
+|------|--------|---------|
+| app/Models/PersonalAccessToken.php | Created | UUID-compatible Sanctum token |
+| app/Models/TeamUser.php | Created | UUID pivot for team_user |
+| app/Models/StatusPageMonitor.php | Created | UUID pivot for status_page_monitor |
+| app/Providers/AppServiceProvider.php | Modified | Register custom Sanctum model |
+| app/Models/Team.php | Modified | Add `->using(TeamUser::class)` |
+| app/Models/User.php | Modified | Add `->using(TeamUser::class)` |
+| app/Models/StatusPage.php | Modified | Add `->using(StatusPageMonitor::class)` |
+| tests/Feature/MonitorApiTest.php | Modified | UUID for 404 test |
+| tests/Feature/Api/V1/SessionTest.php | Modified | Use custom PersonalAccessToken |
+
+## Task 6: Flutter Controllers and Views — String ID Migration
+
+### Execution Summary
+
+**Completed**: All Flutter controllers and views updated to use String IDs instead of int.
+
+### Controllers Updated (4 files)
+
+1. **monitor_controller.dart** (9 method signatures changed)
+   - `loadMonitor(int id)` → `loadMonitor(String id)`
+   - `update(int id, ...)` → `update(String id, ...)`
+   - `destroy(int id)` → `destroy(String id)`
+   - `pause(int id)` → `pause(String id)`
+   - `resume(int id)` → `resume(String id)`
+   - `loadChecks(int monitorId)` → `loadChecks(String monitorId)`
+   - `loadNextPage(int monitorId)` → `loadNextPage(String monitorId)`
+   - `loadPreviousPage(int monitorId)` → `loadPreviousPage(String monitorId)`
+   - `fetchStatusMetrics(int monitorId)` → `fetchStatusMetrics(String monitorId)`
+
+2. **status_page_controller.dart** (9 signatures + store/update params)
+   - `loadStatusPage(int id)` → `loadStatusPage(String id)`
+   - `update(int id, ...)` → `update(String id, ...)`
+   - `destroy(int id)` → `destroy(String id)`
+   - `togglePublish(int id)` → `togglePublish(String id)`
+   - `attachMonitors(int id, ...)` → `attachMonitors(String id, ...)`
+   - `detachMonitor(int statusPageId, int monitorId)` → `detachMonitor(String statusPageId, String monitorId)`
+   - `reorderMonitors(int id, ...)` → `reorderMonitors(String id, ...)`
+   - `store(..., List<int>? monitorIds)` → `store(..., List<String>? monitorIds)`
+   - `update(..., List<int>? monitorIds)` → `update(..., List<String>? monitorIds)`
+
+3. **analytics_controller.dart** (6 method signatures changed)
+   - `fetchAnalytics(int monitorId, ...)` → `fetchAnalytics(String monitorId, ...)`
+   - `setLast24Hours(int monitorId)` → `setLast24Hours(String monitorId)`
+   - `setLast7Days(int monitorId)` → `setLast7Days(String monitorId)`
+   - `setLast30Days(int monitorId)` → `setLast30Days(String monitorId)`
+   - `setLast90Days(int monitorId)` → `setLast90Days(String monitorId)`
+   - `setCustomRange(int monitorId, ...)` → `setCustomRange(String monitorId, ...)`
+
+4. **alert_controller.dart** (5 changes)
+   - `fetchMonitorAlertRules(int monitorId)` → `fetchMonitorAlertRules(String monitorId)`
+   - `fetchMonitorAlerts(int monitorId)` → `fetchMonitorAlerts(String monitorId)`
+   - `deleteAlertRule(int ruleId)` → `deleteAlertRule(String ruleId)`
+   - `toggleAlertRule(int ruleId, ...)` → `toggleAlertRule(String ruleId, ...)`
+   - Removed `int.tryParse(monitorIdParam)` in `rulesCreate()` — now uses string directly
+
+### Views Updated (6 files)
+
+1. **monitor_show_view.dart**
+   - `int? _monitorId` → `String? _monitorId`
+   - Removed `int.tryParse(idParam)` — now `_monitorId = idParam` directly
+
+2. **monitor_edit_view.dart**
+   - `int? _monitorId` → `String? _monitorId`
+   - Removed nested `if (_monitorId != null)` block — simplified flow
+
+3. **monitor_alerts_view.dart**
+   - `int? _monitorId` → `String? _monitorId`
+   - Removed `int.tryParse(idParam)`
+
+4. **monitor_analytics_view.dart**
+   - `int? _monitorId` → `String? _monitorId`
+   - Removed `int.tryParse(idParam)` and nested conditional
+
+5. **status_page_show_view.dart**
+   - `int? _statusPageId` → `String? _statusPageId`
+   - Removed `int.tryParse(idParam)`
+
+6. **status_page_edit_view.dart**
+   - `int? _pageId` → `String? _pageId`
+   - Removed `int.tryParse(idStr)`
+
+### Supporting Files Updated (4 additional files)
+
+1. **alert_rule_create_view.dart**
+   - `final int? monitorId` → `final String? monitorId`
+
+2. **alert_rule_form.dart**
+   - `final int? monitorId` → `final String? monitorId`
+
+3. **monitor_alerts_tab.dart**
+   - `final int monitorId` → `final String monitorId`
+
+4. **status_page_create_view.dart**
+   - `WSelect<int>` → `WSelect<String>` for monitor selection
+
+### Key Patterns
+
+1. **Route ID Extraction Pattern**:
+   ```dart
+   // OLD: Parsed route param as int
+   final idParam = MagicRouter.instance.pathParameter('id');
+   _monitorId = int.tryParse(idParam);
+   
+   // NEW: Use string directly
+   final idParam = MagicRouter.instance.pathParameter('id');
+   _monitorId = idParam;
+   ```
+
+2. **Controller Method Signature Pattern**:
+   ```dart
+   // OLD
+   Future<void> loadMonitor(int id) async { ... }
+   
+   // NEW
+   Future<void> loadMonitor(String id) async { ... }
+   ```
+
+3. **List Type Updates**:
+   ```dart
+   // OLD
+   List<int>? monitorIds
+   
+   // NEW
+   List<String>? monitorIds
+   ```
+
+4. **Widget Props for IDs**:
+   ```dart
+   // OLD
+   WSelect<int>(...)
+   
+   // NEW
+   WSelect<String>(...)
+   ```
+
+### Verification Results
+
+- ✅ `grep -rn "int id|int monitorId|int statusPageId|int ruleId|int teamId|int alertId" lib/app/controllers/` = **0 matches**
+- ✅ `grep -rn "int.tryParse.*pathParameter|int.tryParse.*idParam|int.tryParse.*idStr" lib/resources/views/` = **0 matches**
+- ✅ `dart analyze lib/app/controllers/ lib/resources/views/` = **0 errors** (1 pre-existing warning)
+- ✅ Commit: `refactor(flutter): update controllers and views to use String IDs instead of int`
+
+### Critical Distinction Applied
+
+**Only removed `int.tryParse` for ROUTE ID parameters**, NOT for form values:
+- ✅ Removed: `int.tryParse` on route `pathParameter('id')` values
+- ❌ Preserved: `int.tryParse` for `expected_status_code`, `check_interval`, `timeout` form inputs
+
+### Files Modified Summary (14 total)
+
+| File | Layer | Changes |
+|------|-------|---------|
+| monitor_controller.dart | Controller | 9 method signatures |
+| status_page_controller.dart | Controller | 9 signatures + 2 param types |
+| analytics_controller.dart | Controller | 6 method signatures |
+| alert_controller.dart | Controller | 5 changes + int.tryParse removal |
+| monitor_show_view.dart | View | _monitorId type + int.tryParse removal |
+| monitor_edit_view.dart | View | _monitorId type + int.tryParse removal |
+| monitor_alerts_view.dart | View | _monitorId type + int.tryParse removal |
+| monitor_analytics_view.dart | View | _monitorId type + int.tryParse removal |
+| status_page_show_view.dart | View | _statusPageId type + int.tryParse removal |
+| status_page_edit_view.dart | View | _pageId type + int.tryParse removal |
+| alert_rule_create_view.dart | View | monitorId prop type |
+| alert_rule_form.dart | Component | monitorId prop type |
+| monitor_alerts_tab.dart | Component | monitorId prop type |
+| status_page_create_view.dart | View | WSelect type param |
+
+### Next Steps
+
+The Flutter controllers and views now use String IDs throughout. Next phase should:
+1. Update Flutter tests to use String IDs
+2. Verify end-to-end API integration with UUID endpoints
+3. Run full Flutter test suite
+4. Test complete user flows in app
