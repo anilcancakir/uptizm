@@ -19,6 +19,7 @@ class _StatusPageEditViewState
   late final MagicFormData form;
   final List<Map<String, dynamic>> _selectedMonitors = [];
   bool _isDataLoaded = false;
+  bool _isPublished = false;
   int? _pageId;
 
   @override
@@ -48,7 +49,6 @@ class _StatusPageEditViewState
       'logo_url': '',
       'favicon_url': '',
       'primary_color': '#009E60',
-      'is_published': false,
     }, controller: controller);
   }
 
@@ -59,41 +59,47 @@ class _StatusPageEditViewState
 
   void _populateForm(StatusPage page) {
     if (_isDataLoaded) return;
-
-    form.set('name', page.name);
-    form.set('slug', page.slug);
-    form.set('description', page.description ?? '');
-    form.set('logo_url', page.logoUrl ?? '');
-    form.set('favicon_url', page.faviconUrl ?? '');
-    form.set('primary_color', page.primaryColor);
-    form.setValue('is_published', page.isPublished);
-
-    // Populate monitors
-    _selectedMonitors.clear();
-    // Sort monitors by sort_order if available in pivot
-    final sortedMonitors = List<Monitor>.from(page.monitors);
-    sortedMonitors.sort((a, b) {
-      final pivotA = a.get<Map<String, dynamic>>('pivot');
-      final pivotB = b.get<Map<String, dynamic>>('pivot');
-      final orderA = pivotA?['sort_order'] as int? ?? 0;
-      final orderB = pivotB?['sort_order'] as int? ?? 0;
-      return orderA.compareTo(orderB);
-    });
-
-    for (var m in sortedMonitors) {
-      final pivot = m.get<Map<String, dynamic>>('pivot');
-      final id = m.id ?? (m.get('id') as num?)?.toInt();
-      _selectedMonitors.add({
-        'monitor_id': id,
-        'name': m.name,
-        'display_name': pivot?['display_name'] ?? m.name,
-        'metric_mappings': m.metricMappings,
-        'metric_keys':
-            (pivot?['selected_metrics'] as List?)?.cast<String>() ?? [],
-      });
-    }
-
     _isDataLoaded = true;
+
+    // Use WidgetsBinding to ensure setState is called after build completes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      form.set('name', page.name);
+      form.set('slug', page.slug);
+      form.set('description', page.description ?? '');
+      form.set('logo_url', page.logoUrl ?? '');
+      form.set('favicon_url', page.faviconUrl ?? '');
+      form.set('primary_color', page.primaryColor);
+
+      // Populate monitors
+      _selectedMonitors.clear();
+      // Sort monitors by display_order if available
+      final sortedMonitors = List<Monitor>.from(page.monitors);
+      sortedMonitors.sort((a, b) {
+        final orderA = (a.get('display_order') as num?)?.toInt() ?? 0;
+        final orderB = (b.get('display_order') as num?)?.toInt() ?? 0;
+        return orderA.compareTo(orderB);
+      });
+
+      for (var m in sortedMonitors) {
+        final id = m.id ?? (m.get('id') as num?)?.toInt();
+        // selected_metrics is at monitor level (from StatusPageResource)
+        final selectedMetrics =
+            m.get<List>('selected_metrics')?.cast<String>() ?? [];
+        // custom_label is at monitor level (from StatusPageResource)
+        final customLabel = m.get<String>('custom_label');
+        _selectedMonitors.add({
+          'monitor_id': id,
+          'name': m.name,
+          'display_name': customLabel ?? m.name,
+          'metric_mappings': m.metricMappings,
+          'metric_keys': List<String>.from(selectedMetrics),
+        });
+      }
+
+      setState(() {
+        _isPublished = page.isPublished;
+      });
+    });
   }
 
   Future<void> _handleSubmit() async {
@@ -120,7 +126,7 @@ class _StatusPageEditViewState
       logoUrl: form.get('logo_url'),
       faviconUrl: form.get('favicon_url'),
       primaryColor: form.get('primary_color'),
-      isPublished: form.value<bool>('is_published'),
+      isPublished: _isPublished,
       monitors: monitors,
     );
   }
@@ -149,6 +155,8 @@ class _StatusPageEditViewState
   }
 
   Widget _buildForm({bool isLoading = false, String? errorMessage}) {
+    Log.info("isPublished: ${_isPublished}");
+
     return MagicForm(
       formData: form,
       child: WDiv(
@@ -378,10 +386,18 @@ class _StatusPageEditViewState
                 ''',
               ),
 
-              WFormCheckbox(
-                value: form.value<bool>('is_published'),
-                onChanged: (val) => form.setValue('is_published', val),
-                label: WText(trans('status_pages.publish_immediately')),
+              GestureDetector(
+                onTap: () => setState(() => _isPublished = !_isPublished),
+                child: WDiv(
+                  className: 'flex flex-row items-center gap-2',
+                  children: [
+                    WCheckbox(
+                      value: _isPublished,
+                      onChanged: (val) => setState(() => _isPublished = val),
+                    ),
+                    WText(trans('status_pages.publish_immediately')),
+                  ],
+                ),
               ),
             ],
           ),
