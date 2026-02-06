@@ -6,7 +6,7 @@ import '../components/alerts/alert_rule_form.dart';
 
 class AlertRuleCreateView extends StatelessWidget {
   final ValueChanged<AlertRule> onSubmit;
-  final int? monitorId; // Optional: if creating for specific monitor
+  final String? monitorId; // Optional: if creating for specific monitor
 
   const AlertRuleCreateView({
     required this.onSubmit,

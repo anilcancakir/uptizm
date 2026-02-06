@@ -28,7 +28,7 @@ class MonitorEditView extends MagicStatefulView<MonitorController> {
 
 class _MonitorEditViewState
     extends MagicStatefulViewState<MonitorController, MonitorEditView> {
-  int? _monitorId;
+  String? _monitorId;
   MagicFormData? _form;
   bool _initialized = false;
 
@@ -57,13 +57,11 @@ class _MonitorEditViewState
 
     final idParam = MagicRouter.instance.pathParameter('id');
     if (idParam != null) {
-      _monitorId = int.tryParse(idParam);
-      if (_monitorId != null) {
-        // Schedule after build to avoid setState-during-build
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.loadMonitor(_monitorId!);
-        });
-      }
+      _monitorId = idParam;
+      // Schedule after build to avoid setState-during-build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.loadMonitor(_monitorId!);
+      });
     }
   }
 

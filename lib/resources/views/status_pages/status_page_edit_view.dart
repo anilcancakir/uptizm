@@ -20,7 +20,7 @@ class _StatusPageEditViewState
   final List<Map<String, dynamic>> _selectedMonitors = [];
   bool _isDataLoaded = false;
   bool _isPublished = false;
-  int? _pageId;
+  String? _pageId;
 
   @override
   void onInit() {
@@ -34,12 +34,10 @@ class _StatusPageEditViewState
 
     final idStr = MagicRouter.instance.pathParameter('id');
     if (idStr != null) {
-      _pageId = int.tryParse(idStr);
-      if (_pageId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.loadStatusPage(_pageId!);
-        });
-      }
+      _pageId = idStr;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.loadStatusPage(_pageId!);
+      });
     }
 
     form = MagicFormData({
@@ -773,10 +771,10 @@ class _StatusPageEditViewState
                   WDiv(
                     className: 'mt-2',
                     children: [
-                      WSelect<int>(
+                      WSelect<String>(
                         options: availableMonitors
                             .map(
-                              (m) => SelectOption<int>(
+                              (m) => SelectOption<String>(
                                 value: m.id!,
                                 label: m.name ?? 'Monitor #${m.id}',
                               ),

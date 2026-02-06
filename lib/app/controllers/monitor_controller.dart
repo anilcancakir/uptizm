@@ -95,7 +95,7 @@ class MonitorController extends MagicController
   }
 
   /// Load a single monitor
-  Future<void> loadMonitor(int id) async {
+  Future<void> loadMonitor(String id) async {
     _isLoading = true;
     notifyListeners();
 
@@ -172,7 +172,7 @@ class MonitorController extends MagicController
 
   /// Update an existing monitor
   Future<void> update(
-    int id, {
+    String id, {
     String? name,
     String? url,
     HttpMethod? method,
@@ -237,7 +237,7 @@ class MonitorController extends MagicController
   }
 
   /// Delete a monitor
-  Future<void> destroy(int id) async {
+  Future<void> destroy(String id) async {
     final confirmed = await Magic.confirm(
       title: trans('common.confirm'),
       message: trans('monitors.delete_confirm'),
@@ -277,7 +277,7 @@ class MonitorController extends MagicController
   }
 
   /// Pause a monitor
-  Future<void> pause(int id) async {
+  Future<void> pause(String id) async {
     setLoading();
 
     try {
@@ -297,7 +297,7 @@ class MonitorController extends MagicController
   }
 
   /// Resume a monitor
-  Future<void> resume(int id) async {
+  Future<void> resume(String id) async {
     setLoading();
 
     try {
@@ -317,7 +317,7 @@ class MonitorController extends MagicController
   }
 
   /// Load check history for a monitor
-  Future<void> loadChecks(int monitorId, {int page = 1}) async {
+  Future<void> loadChecks(String monitorId, {int page = 1}) async {
     try {
       final paginatedChecks = await MonitorCheck.forMonitor(
         monitorId,
@@ -332,7 +332,7 @@ class MonitorController extends MagicController
   }
 
   /// Load next page of checks
-  Future<void> loadNextPage(int monitorId) async {
+  Future<void> loadNextPage(String monitorId) async {
     final currentPagination = checksPaginationNotifier.value;
     if (currentPagination != null && currentPagination.hasNextPage) {
       await loadChecks(monitorId, page: currentPagination.currentPage + 1);
@@ -340,7 +340,7 @@ class MonitorController extends MagicController
   }
 
   /// Load previous page of checks
-  Future<void> loadPreviousPage(int monitorId) async {
+  Future<void> loadPreviousPage(String monitorId) async {
     final currentPagination = checksPaginationNotifier.value;
     if (currentPagination != null && currentPagination.hasPreviousPage) {
       await loadChecks(monitorId, page: currentPagination.currentPage - 1);
@@ -348,7 +348,7 @@ class MonitorController extends MagicController
   }
 
   /// Fetch status metrics for a monitor
-  Future<List<MonitorMetricValue>> fetchStatusMetrics(int monitorId) async {
+  Future<List<MonitorMetricValue>> fetchStatusMetrics(String monitorId) async {
     try {
       final response = await Http.get('/monitors/$monitorId/metrics/status');
 

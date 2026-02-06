@@ -11,7 +11,7 @@ class AlertRuleForm extends StatefulWidget {
   final AlertRule? initialRule;
   final AlertRuleType? initialType;
   final ValueChanged<AlertRule> onSubmit;
-  final int? monitorId; // Optional: for monitor-specific rules
+  final String? monitorId; // Optional: for monitor-specific rules
 
   const AlertRuleForm({
     required this.onSubmit,

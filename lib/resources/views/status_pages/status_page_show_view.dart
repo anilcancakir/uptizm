@@ -15,20 +15,18 @@ class StatusPageShowView extends MagicStatefulView<StatusPageController> {
 
 class _StatusPageShowViewState
     extends MagicStatefulViewState<StatusPageController, StatusPageShowView> {
-  int? _statusPageId;
+  String? _statusPageId;
 
   @override
   void onInit() {
     super.onInit();
     final idParam = MagicRouter.instance.pathParameter('id');
     if (idParam != null) {
-      _statusPageId = int.tryParse(idParam);
-      if (_statusPageId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          controller.selectedStatusPageNotifier.value = null;
-          await controller.loadStatusPage(_statusPageId!);
-        });
-      }
+      _statusPageId = idParam;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        controller.selectedStatusPageNotifier.value = null;
+        await controller.loadStatusPage(_statusPageId!);
+      });
     }
   }
 
