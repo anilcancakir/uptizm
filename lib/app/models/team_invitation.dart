@@ -19,10 +19,15 @@ class TeamInvitation extends Model
   @override
   List<String> get fillable => ['email', 'role', 'team_id'];
 
+  @override
+  bool get incrementing => false;
+
   // Typed Accessors
+  @override
+  String? get id => getAttribute('id')?.toString();
   String? get email => getAttribute('email') as String?;
   String? get role => getAttribute('role') as String?;
-  int? get teamId => getAttribute('team_id') as int?;
+  String? get teamId => getAttribute('team_id')?.toString();
 
   // Factory
   static TeamInvitation fromMap(Map<String, dynamic> map) {

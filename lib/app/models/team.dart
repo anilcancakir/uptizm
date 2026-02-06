@@ -26,9 +26,16 @@ class Team extends Model with HasTimestamps, InteractsWithPersistence {
   @override
   List<String> get fillable => ['name'];
 
+  @override
+  bool get incrementing => false;
+
   // ---------------------------------------------------------------------------
   // Typed Accessors
   // ---------------------------------------------------------------------------
+
+  /// Get the team ID.
+  @override
+  String? get id => getAttribute('id')?.toString();
 
   /// Get the team name.
   String? get name => getAttribute('name') as String?;
@@ -47,7 +54,7 @@ class Team extends Model with HasTimestamps, InteractsWithPersistence {
   bool get isPersonalTeam => getAttribute('personal_team') == true;
 
   /// Get the owner ID.
-  int? get ownerId => getAttribute('owner_id') as int?;
+  String? get ownerId => getAttribute('owner_id')?.toString();
 
   /// Current user's role in this team (from API response).
   String? get userRole => getAttribute('user_role') as String?;

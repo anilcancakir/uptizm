@@ -26,10 +26,14 @@ class AlertRule extends Model with HasTimestamps, InteractsWithPersistence {
     'consecutive_checks',
   ];
 
+  @override
+  bool get incrementing => false;
+
   // Getters
-  int? get id => (getAttribute('id') as num?)?.toInt();
-  int? get teamId => (getAttribute('team_id') as num?)?.toInt();
-  int? get monitorId => (getAttribute('monitor_id') as num?)?.toInt();
+  @override
+  String? get id => getAttribute('id')?.toString();
+  String? get teamId => getAttribute('team_id')?.toString();
+  String? get monitorId => getAttribute('monitor_id')?.toString();
   String? get name => getAttribute('name') as String?;
 
   AlertRuleType get type =>
@@ -65,8 +69,8 @@ class AlertRule extends Model with HasTimestamps, InteractsWithPersistence {
       (getAttribute('consecutive_checks') as num?)?.toInt() ?? 1;
 
   // Setters
-  set teamId(int? value) => setAttribute('team_id', value);
-  set monitorId(int? value) => setAttribute('monitor_id', value);
+  set teamId(String? value) => setAttribute('team_id', value);
+  set monitorId(String? value) => setAttribute('monitor_id', value);
   set name(String? value) => setAttribute('name', value);
   set type(AlertRuleType value) => setAttribute('type', value.value);
   set enabled(bool value) => setAttribute('enabled', value);

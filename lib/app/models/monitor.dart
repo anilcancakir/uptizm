@@ -35,9 +35,13 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'auth_config',
   ];
 
+  @override
+  bool get incrementing => false;
+
   // Typed getters
-  int? get id => get<int>('id');
-  int? get teamId => get<int>('team_id');
+  @override
+  String? get id => get<String>('id');
+  String? get teamId => get<String>('team_id');
   String? get name => get<String>('name');
   MonitorType? get type => MonitorType.fromValue(get<String>('type'));
   String? get url => get<String>('url');
@@ -65,7 +69,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   int? get lastResponseTimeMs => get<int>('last_response_time_ms');
 
   // Typed setters
-  set teamId(int? value) => set('team_id', value);
+  set teamId(String? value) => set('team_id', value);
   set name(String? value) => set('name', value);
   set type(MonitorType? value) => set('type', value?.value);
   set url(String? value) => set('url', value);
@@ -103,7 +107,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   // Use framework's built-in persistence methods
   // Framework automatically handles {data: {...}} response structure
 
-  static Future<Monitor?> find(int id) async {
+  static Future<Monitor?> find(String id) async {
     Log.debug('Monitor.find called with ID: $id');
     Log.debug('Monitor resource: monitors');
     Log.debug('Calling InteractsWithPersistence.findById...');

@@ -20,10 +20,14 @@ class Alert extends Model with HasTimestamps, InteractsWithPersistence {
     'trigger_message',
   ];
 
+  @override
+  bool get incrementing => false;
+
   // Getters
-  int? get id => (getAttribute('id') as num?)?.toInt();
-  int? get alertRuleId => (getAttribute('alert_rule_id') as num?)?.toInt();
-  int? get monitorId => (getAttribute('monitor_id') as num?)?.toInt();
+  @override
+  String? get id => getAttribute('id')?.toString();
+  String? get alertRuleId => getAttribute('alert_rule_id')?.toString();
+  String? get monitorId => getAttribute('monitor_id')?.toString();
 
   AlertStatus get status =>
       AlertStatus.fromValue(getAttribute('status') as String? ?? 'alerting') ??
@@ -62,8 +66,8 @@ class Alert extends Model with HasTimestamps, InteractsWithPersistence {
   }
 
   // Setters
-  set alertRuleId(int? value) => setAttribute('alert_rule_id', value);
-  set monitorId(int? value) => setAttribute('monitor_id', value);
+  set alertRuleId(String? value) => setAttribute('alert_rule_id', value);
+  set monitorId(String? value) => setAttribute('monitor_id', value);
   set status(AlertStatus value) => setAttribute('status', value.value);
   set triggeredAt(DateTime? value) =>
       setAttribute('triggered_at', value?.toIso8601String());

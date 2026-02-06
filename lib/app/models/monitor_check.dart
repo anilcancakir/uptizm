@@ -9,8 +9,8 @@ class MonitorCheck {
   final Map<String, dynamic> _attributes = {};
 
   // Typed getters
-  int? get id => _attributes['id'] as int?;
-  int? get monitorId => _attributes['monitor_id'] as int?;
+  String? get id => _attributes['id']?.toString();
+  String? get monitorId => _attributes['monitor_id']?.toString();
   MonitorLocation? get location =>
       MonitorLocation.fromValue(_attributes['location'] as String?);
   CheckStatus? get status =>
@@ -50,7 +50,7 @@ class MonitorCheck {
 
   // Fetch check history for a monitor
   static Future<PaginatedChecks> forMonitor(
-    int monitorId, {
+    String monitorId, {
     int page = 1,
   }) async {
     try {
