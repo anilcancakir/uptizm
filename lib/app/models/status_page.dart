@@ -28,6 +28,12 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
     'monitor_ids',
   ];
 
+  @override
+  bool get incrementing => false;
+
+  @override
+  String? get id => get<String>('id');
+
   String get name => get<String>('name') ?? '';
   set name(String value) => set('name', value);
 
@@ -51,20 +57,20 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
 
   String get publicUrl => 'https://$slug.uptizm.com';
 
-  List<int> get monitorIds {
+  List<String> get monitorIds {
     final ids = get('monitor_ids');
     if (ids is List) {
-      return ids.map((e) => (e as num).toInt()).toList();
+      return ids.map((e) => e.toString()).toList();
     }
     // Fallback: extract from monitors relationship if available
     final monitorsList = get('monitors');
     if (monitorsList is List) {
-      return monitorsList.map((m) => (m['id'] as num).toInt()).toList();
+      return monitorsList.map((m) => m['id'].toString()).toList();
     }
     return [];
   }
 
-  set monitorIds(List<int> value) => set('monitor_ids', value);
+  set monitorIds(List<String> value) => set('monitor_ids', value);
 
   List<Monitor> get monitors {
     final data = get<List>('monitors');
@@ -74,7 +80,7 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
         .toList();
   }
 
-  static Future<StatusPage?> find(int id) async {
+  static Future<StatusPage?> find(String id) async {
     return await InteractsWithPersistence.findById<StatusPage>(
       id,
       StatusPage.new,

@@ -1,9 +1,9 @@
 import '../enums/metric_status_value.dart';
 
 class MonitorMetricValue {
-  final int id;
-  final int monitorId;
-  final int checkId;
+  final String id;
+  final String monitorId;
+  final String checkId;
   final String metricKey;
   final String metricLabel;
   final double? numericValue;
@@ -27,9 +27,9 @@ class MonitorMetricValue {
 
   factory MonitorMetricValue.fromMap(Map<String, dynamic> map) {
     return MonitorMetricValue(
-      id: (map['id'] as num).toInt(),
-      monitorId: (map['monitor_id'] as num).toInt(),
-      checkId: (map['check_id'] as num).toInt(),
+      id: map['id'].toString(),
+      monitorId: map['monitor_id'].toString(),
+      checkId: map['check_id'].toString(),
       metricKey: map['metric_key'] as String,
       metricLabel: map['metric_label'] as String,
       numericValue: (map['numeric_value'] as num?)?.toDouble(),

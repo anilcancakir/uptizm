@@ -30,7 +30,7 @@ class AnalyticsSummary {
 }
 
 class AnalyticsResponse {
-  final int monitorId;
+  final String monitorId;
   final DateTime dateFrom;
   final DateTime dateTo;
   final String granularity;
@@ -49,7 +49,7 @@ class AnalyticsResponse {
   factory AnalyticsResponse.fromMap(Map<String, dynamic> map) {
     final data = map['data'] ?? map;
     return AnalyticsResponse(
-      monitorId: (data['monitor_id'] as num?)?.toInt() ?? 0,
+      monitorId: data['monitor_id']?.toString() ?? '',
       dateFrom: DateTime.tryParse(data['date_from'] ?? '') ?? DateTime.now(),
       dateTo: DateTime.tryParse(data['date_to'] ?? '') ?? DateTime.now(),
       granularity: data['granularity'] as String? ?? 'hourly',

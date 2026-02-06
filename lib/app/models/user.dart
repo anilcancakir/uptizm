@@ -50,9 +50,16 @@ class User extends Model
   @override
   Map<String, String> get casts => {'born_at': 'datetime', 'settings': 'json'};
 
+  @override
+  bool get incrementing => false;
+
   // ---------------------------------------------------------------------------
   // Typed Accessors
   // ---------------------------------------------------------------------------
+
+  /// Get the user's ID.
+  @override
+  String? get id => getAttribute('id')?.toString();
 
   /// Get the user's name.
   String? get name => getAttribute('name') as String?;
