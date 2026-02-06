@@ -171,7 +171,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ## TODOs
 
-- [ ] 1. Edit ALL Laravel migration files — Replace integer PKs and FKs with UUID
+- [x] 1. Edit ALL Laravel migration files — Replace integer PKs and FKs with UUID
 
   **What to do**:
 
