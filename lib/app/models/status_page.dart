@@ -65,4 +65,15 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
         .map((m) => Monitor()..fill(Map<String, dynamic>.from(m)))
         .toList();
   }
+
+  static Future<StatusPage?> find(int id) async {
+    return await InteractsWithPersistence.findById<StatusPage>(
+      id,
+      StatusPage.new,
+    );
+  }
+
+  static Future<List<StatusPage>> all() async {
+    return await InteractsWithPersistence.allModels<StatusPage>(StatusPage.new);
+  }
 }
