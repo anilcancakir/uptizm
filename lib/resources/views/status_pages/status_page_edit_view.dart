@@ -595,79 +595,92 @@ class _StatusPageEditViewState
                                           ),
                                           WDiv(
                                             className: 'flex flex-col gap-2',
-                                            children: (item['metric_mappings'] as List).map((
-                                              m,
-                                            ) {
-                                              final mapping =
-                                                  MetricMapping.fromMap(m);
-                                              final selectedKeys =
-                                                  (item['metric_keys'] as List?)
-                                                      ?.cast<String>() ??
-                                                  [];
-                                              final isSelected = selectedKeys
-                                                  .contains(mapping.path);
+                                            children: (item['metric_mappings'] as List)
+                                                .map(
+                                                  (
+                                                    m,
+                                                  ) => MetricMapping.tryFromMap(
+                                                    m as Map<String, dynamic>,
+                                                  ),
+                                                )
+                                                .whereType<MetricMapping>()
+                                                .map((mapping) {
+                                                  final selectedKeys =
+                                                      (item['metric_keys']
+                                                              as List?)
+                                                          ?.cast<String>() ??
+                                                      [];
+                                                  final isSelected =
+                                                      selectedKeys.contains(
+                                                        mapping.path,
+                                                      );
 
-                                              return WDiv(
-                                                className:
-                                                    'flex flex-row items-center gap-2 cursor-pointer',
-                                                children: [
-                                                  WCheckbox(
-                                                    value: isSelected,
-                                                    onChanged: (val) {
-                                                      setState(() {
-                                                        final currentKeys =
-                                                            (item['metric_keys']
-                                                                    as List?)
-                                                                ?.cast<
-                                                                  String
-                                                                >() ??
-                                                            [];
-                                                        if (val == true) {
-                                                          currentKeys.add(
-                                                            mapping.path,
-                                                          );
-                                                        } else {
-                                                          currentKeys.remove(
-                                                            mapping.path,
-                                                          );
-                                                        }
-                                                        item['metric_keys'] =
-                                                            currentKeys;
-                                                      });
-                                                    },
-                                                  ),
-                                                  GestureDetector(
-                                                    onTap: () {
-                                                      setState(() {
-                                                        final currentKeys =
-                                                            (item['metric_keys']
-                                                                    as List?)
-                                                                ?.cast<
-                                                                  String
-                                                                >() ??
-                                                            [];
-                                                        if (!isSelected) {
-                                                          currentKeys.add(
-                                                            mapping.path,
-                                                          );
-                                                        } else {
-                                                          currentKeys.remove(
-                                                            mapping.path,
-                                                          );
-                                                        }
-                                                        item['metric_keys'] =
-                                                            currentKeys;
-                                                      });
-                                                    },
-                                                    child: WText(
-                                                      '${mapping.label} (${mapping.path})',
-                                                      className:
-                                                          'text-sm text-gray-700 dark:text-gray-300',
-                                                    ),
-                                                  ),
-                                                ],
-                                              );
-                                            }).toList(),
+                                                  return WDiv(
+                                                    className:
+                                                        'flex flex-row items-center gap-2 cursor-pointer',
+                                                    children: [
+                                                      WCheckbox(
+                                                        value: isSelected,
+                                                        onChanged: (val) {
+                                                          setState(() {
+                                                            final currentKeys =
+                                                                (item['metric_keys']
+                                                                        as List?)
+                                                                    ?.cast<
+                                                                      String
+                                                                    >() ??
+                                                                [];
+                                                            if (val == true) {
+                                                              currentKeys.add(
+                                                                mapping.path,
+                                                              );
+                                                            } else {
+                                                              currentKeys
+                                                                  .remove(
+                                                                    mapping
+                                                                        .path,
+                                                                  );
+                                                            }
+                                                            item['metric_keys'] =
+                                                                currentKeys;
+                                                          });
+                                                        },
+                                                      ),
+                                                      GestureDetector(
+                                                        onTap: () {
+                                                          setState(() {
+                                                            final currentKeys =
+                                                                (item['metric_keys']
+                                                                        as List?)
+                                                                    ?.cast<
+                                                                      String
+                                                                    >() ??
+                                                                [];
+                                                            if (!isSelected) {
+                                                              currentKeys.add(
+                                                                mapping.path,
+                                                              );
+                                                            } else {
+                                                              currentKeys
+                                                                  .remove(
+                                                                    mapping
+                                                                        .path,
+                                                                  );
+                                                            }
+                                                            item['metric_keys'] =
+                                                                currentKeys;
+                                                          });
+                                                        },
+                                                        child: WText(
+                                                          '${mapping.label} (${mapping.path})',
+                                                          className:
+                                                              'text-sm text-gray-700 dark:text-gray-300',
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  );
+                                                })
+                                                .toList(),
                                           ),
                                         ],
                                       ),

@@ -60,6 +60,32 @@ class MetricMapping {
     );
   }
 
+  /// Safely parse a map to MetricMapping, returns null if invalid
+  static MetricMapping? tryFromMap(Map<String, dynamic>? map) {
+    if (map == null) return null;
+
+    final labelStr = map['label'] as String?;
+    final pathStr = map['path'] as String?;
+    final typeValue = map['type'] as String?;
+
+    if (labelStr == null || pathStr == null || typeValue == null) {
+      return null;
+    }
+
+    final type = MetricType.fromValue(typeValue);
+    if (type == null) {
+      return null;
+    }
+
+    return MetricMapping(
+      label: labelStr,
+      path: pathStr,
+      type: type,
+      unit: map['unit'] as String?,
+      upWhen: map['up_when'] as String?,
+    );
+  }
+
   String toDisplayString() {
     final buffer = StringBuffer('$label: $path (${type.value}');
     if (unit != null) {
