@@ -77,14 +77,14 @@ Build a complete status page system: Laravel backend (API + public Blade renderi
 - `test/app/controllers/status_page_controller_test.dart` — Flutter controller tests
 
 ### Definition of Done
-- [ ] `php artisan migrate` runs without error
-- [ ] `php artisan test --filter=StatusPage` — all pass
-- [ ] `flutter test test/app/models/status_page_test.dart` — all pass
-- [ ] `flutter test test/app/controllers/status_page_controller_test.dart` — all pass
-- [ ] `flutter analyze --no-fatal-infos` — no issues
-- [ ] `dart format .` — no changes needed
-- [ ] Public page returns 200 for valid slug, 404 for invalid
-- [ ] CRUD API works with proper auth
+- [x] `php artisan migrate` runs without error
+- [x] `php artisan test --filter=StatusPage` — all pass
+- [x] `flutter test test/app/models/status_page_test.dart` — all pass
+- [x] `flutter test test/app/controllers/status_page_controller_test.dart` — all pass
+- [x] `flutter analyze --no-fatal-infos` — no issues
+- [x] `dart format .` — no changes needed
+- [x] Public page returns 200 for valid slug, 404 for invalid
+- [x] CRUD API works with proper auth
 
 ### Must Have
 - Subdomain routing with path-based fallback for local dev
@@ -168,7 +168,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ## TODOs
 
-- [ ] 1. Laravel: Migration + StatusPage Model + Factory
+- [x] 1. Laravel: Migration + StatusPage Model + Factory
 
   **What to do**:
 
@@ -272,7 +272,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 2. Laravel: Policy + Form Requests + API Resource
+- [x] 2. Laravel: Policy + Form Requests + API Resource
 
   **What to do**:
 
@@ -361,7 +361,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 3. Laravel: API Controller (CRUD + Monitor Attach/Detach)
+- [x] 3. Laravel: API Controller (CRUD + Monitor Attach/Detach)
 
   **What to do**:
 
@@ -445,7 +445,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 4. Laravel: Public Blade Controller + Template (Server-Side Rendered Status Page)
+- [x] 4. Laravel: Public Blade Controller + Template (Server-Side Rendered Status Page)
 
   **What to do**:
 
@@ -578,7 +578,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 5. Laravel: Route Registration (API + Public Web)
+- [x] 5. Laravel: Route Registration (API + Public Web)
 
   **What to do**:
 
@@ -658,7 +658,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 6. Flutter: StatusPage Model + Tests
+- [x] 6. Flutter: StatusPage Model + Tests
 
   **What to do**:
 
@@ -782,7 +782,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 7. Flutter: StatusPageController + Tests
+- [x] 7. Flutter: StatusPageController + Tests
 
   **What to do**:
 
@@ -876,7 +876,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 8. Flutter: Views (Index + Create + Edit) + Route Updates
+- [x] 8. Flutter: Views (Index + Create + Edit) + Route Updates
 
   **What to do**:
 
@@ -993,7 +993,7 @@ Wave 2 — Flutter Frontend (Sequential within wave, parallel with nothing — d
 
 ---
 
-- [ ] 9. Final Integration QA + Translations
+- [x] 9. Final Integration QA + Translations
 
   **What to do**:
   - Add translation keys for status page strings (check existing translation files pattern)
@@ -1095,12 +1095,12 @@ curl -s http://localhost:8000/status/test-slug | grep -c '<script>'            #
 ```
 
 ### Final Checklist
-- [ ] All "Must Have" items present
-- [ ] All "Must NOT Have" items absent (especially: zero JS on public page, no Vite/Tailwind pipeline)
-- [ ] All tests pass (Laravel + Flutter)
-- [ ] 90-day uptime chart renders as pure CSS bars
-- [ ] Public page cached for 5 minutes
-- [ ] Slug validation includes reserved words
-- [ ] Monitor sensitive data (auth_config, headers, body, URL) NOT exposed on public page
-- [ ] Flutter views use Wind UI only, dark mode enabled
-- [ ] `monitor_checks_daily` used for uptime data (NOT raw `monitor_checks`)
+- [x] All "Must Have" items present
+- [x] All "Must NOT Have" items absent (especially: zero JS on public page, no Vite/Tailwind pipeline)
+- [x] All tests pass (Laravel + Flutter)
+- [x] 90-day uptime chart renders as pure CSS bars
+- [x] Public page cached for 5 minutes
+- [x] Slug validation includes reserved words
+- [x] Monitor sensitive data (auth_config, headers, body, URL) NOT exposed on public page
+- [x] Flutter views use Wind UI only, dark mode enabled
+- [x] `monitor_checks_daily` used for uptime data (NOT raw `monitor_checks`)

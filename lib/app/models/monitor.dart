@@ -36,6 +36,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   ];
 
   // Typed getters
+  int? get id => get<int>('id');
   int? get teamId => get<int>('team_id');
   String? get name => get<String>('name');
   MonitorType? get type => MonitorType.fromValue(get<String>('type'));

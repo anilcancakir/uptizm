@@ -8,7 +8,7 @@ Map<String, dynamic> get networkConfig => {
     'default': 'api',
     'drivers': {
       'api': {
-        'base_url': 'http://192.168.68.117:8412/api/v1',
+        'base_url': 'http://192.168.68.84:8412/api/v1',
         'timeout': 10000,
         'headers': {
           'Accept': 'application/json',
