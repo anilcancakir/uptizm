@@ -729,10 +729,10 @@ class _StatusPageCreateViewState
                   WDiv(
                     className: 'mt-2',
                     children: [
-                      WSelect<int>(
+                      WSelect<String>(
                         options: availableMonitors
                             .map(
-                              (m) => SelectOption<int>(
+                              (m) => SelectOption<String>(
                                 value: m.id!,
                                 label: m.name ?? 'Monitor #${m.id}',
                               ),

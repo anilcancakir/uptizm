@@ -18,7 +18,7 @@ class AnalyticsController extends MagicController {
   Widget analytics() => const MonitorAnalyticsView();
 
   Future<void> fetchAnalytics(
-    int monitorId, {
+    String monitorId, {
     DateTime? dateFrom,
     DateTime? dateTo,
     List<String>? metrics,
@@ -61,7 +61,7 @@ class AnalyticsController extends MagicController {
   }
 
   // Presets
-  void setLast24Hours(int monitorId) {
+  void setLast24Hours(String monitorId) {
     selectedPresetNotifier.value = '24h';
     granularityNotifier.value = 'hourly';
     dateRangeNotifier.value = null; // Clear custom range
@@ -72,7 +72,7 @@ class AnalyticsController extends MagicController {
     );
   }
 
-  void setLast7Days(int monitorId) {
+  void setLast7Days(String monitorId) {
     selectedPresetNotifier.value = '7d';
     granularityNotifier.value = 'daily';
     dateRangeNotifier.value = null;
@@ -83,7 +83,7 @@ class AnalyticsController extends MagicController {
     );
   }
 
-  void setLast30Days(int monitorId) {
+  void setLast30Days(String monitorId) {
     selectedPresetNotifier.value = '30d';
     granularityNotifier.value = 'daily';
     dateRangeNotifier.value = null;
@@ -94,7 +94,7 @@ class AnalyticsController extends MagicController {
     );
   }
 
-  void setLast90Days(int monitorId) {
+  void setLast90Days(String monitorId) {
     selectedPresetNotifier.value = '90d';
     granularityNotifier.value = 'daily';
     dateRangeNotifier.value = null;
@@ -105,7 +105,7 @@ class AnalyticsController extends MagicController {
     );
   }
 
-  void setCustomRange(int monitorId, DateTimeRange range) {
+  void setCustomRange(String monitorId, DateTimeRange range) {
     selectedPresetNotifier.value = null;
     dateRangeNotifier.value = range;
     // Auto-determine granularity based on range duration

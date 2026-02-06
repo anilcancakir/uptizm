@@ -39,7 +39,7 @@ class StatusPageController extends MagicController
     }
   }
 
-  Future<void> loadStatusPage(int id) async {
+  Future<void> loadStatusPage(String id) async {
     _isLoading = true;
     notifyListeners();
 
@@ -64,7 +64,7 @@ class StatusPageController extends MagicController
     String? faviconUrl,
     String? primaryColor,
     bool isPublished = false,
-    List<int>? monitorIds,
+    List<String>? monitorIds,
     List<Map<String, dynamic>>? monitors,
   }) async {
     setLoading();
@@ -109,7 +109,7 @@ class StatusPageController extends MagicController
   }
 
   Future<void> update(
-    int id, {
+    String id, {
     String? name,
     String? slug,
     String? description,
@@ -117,7 +117,7 @@ class StatusPageController extends MagicController
     String? faviconUrl,
     String? primaryColor,
     bool? isPublished,
-    List<int>? monitorIds,
+    List<String>? monitorIds,
     List<Map<String, dynamic>>? monitors,
   }) async {
     setLoading();
@@ -161,7 +161,7 @@ class StatusPageController extends MagicController
     }
   }
 
-  Future<void> destroy(int id) async {
+  Future<void> destroy(String id) async {
     final confirmed = await Magic.confirm(
       title: trans('common.confirm'),
       message: trans('status_pages.delete_confirm'),
@@ -196,7 +196,7 @@ class StatusPageController extends MagicController
     }
   }
 
-  Future<void> togglePublish(int id) async {
+  Future<void> togglePublish(String id) async {
     setLoading();
 
     try {
@@ -216,7 +216,7 @@ class StatusPageController extends MagicController
   }
 
   Future<void> attachMonitors(
-    int id,
+    String id,
     List<Map<String, dynamic>> monitors,
   ) async {
     setLoading();
@@ -240,7 +240,7 @@ class StatusPageController extends MagicController
     }
   }
 
-  Future<void> detachMonitor(int statusPageId, int monitorId) async {
+  Future<void> detachMonitor(String statusPageId, String monitorId) async {
     setLoading();
 
     try {
@@ -262,7 +262,7 @@ class StatusPageController extends MagicController
   }
 
   Future<void> reorderMonitors(
-    int id,
+    String id,
     List<Map<String, dynamic>> monitors,
   ) async {
     setLoading();

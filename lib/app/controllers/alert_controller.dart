@@ -92,7 +92,7 @@ class AlertController extends MagicController {
   }
 
   /// Fetch alert rules for a specific monitor
-  Future<void> fetchMonitorAlertRules(int monitorId) async {
+  Future<void> fetchMonitorAlertRules(String monitorId) async {
     isLoadingNotifier.value = true;
 
     try {
@@ -162,7 +162,7 @@ class AlertController extends MagicController {
   }
 
   /// Fetch monitor alerts
-  Future<void> fetchMonitorAlerts(int monitorId) async {
+  Future<void> fetchMonitorAlerts(String monitorId) async {
     isLoadingNotifier.value = true;
 
     try {
@@ -228,7 +228,7 @@ class AlertController extends MagicController {
   }
 
   /// Delete an alert rule
-  Future<bool> deleteAlertRule(int ruleId) async {
+  Future<bool> deleteAlertRule(String ruleId) async {
     isLoadingNotifier.value = true;
 
     try {
@@ -255,7 +255,7 @@ class AlertController extends MagicController {
   }
 
   /// Toggle alert rule enabled status
-  Future<bool> toggleAlertRule(int ruleId, bool enabled) async {
+  Future<bool> toggleAlertRule(String ruleId, bool enabled) async {
     try {
       final response = await Http.post(
         '/alert-rules/$ruleId/toggle',
@@ -323,9 +323,7 @@ class AlertController extends MagicController {
   Widget rulesCreate() {
     // Check if this is for a specific monitor
     final monitorIdParam = MagicRouter.instance.pathParameter('id');
-    final monitorId = monitorIdParam != null
-        ? int.tryParse(monitorIdParam)
-        : null;
+    final monitorId = monitorIdParam;
 
     return AlertRuleCreateView(
       monitorId: monitorId,

@@ -21,7 +21,7 @@ class MonitorAnalyticsView extends MagicStatefulView<AnalyticsController> {
 
 class _MonitorAnalyticsViewState
     extends MagicStatefulViewState<AnalyticsController, MonitorAnalyticsView> {
-  int? _monitorId;
+  String? _monitorId;
   Monitor? _monitor;
   bool _showTable = false; // Toggle between chart and table view
 
@@ -30,12 +30,10 @@ class _MonitorAnalyticsViewState
     super.onInit();
     final idParam = MagicRouter.instance.pathParameter('id');
     if (idParam != null) {
-      _monitorId = int.tryParse(idParam);
-      if (_monitorId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _loadMonitorAndAnalytics();
-        });
-      }
+      _monitorId = idParam;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadMonitorAndAnalytics();
+      });
     }
   }
 

@@ -16,7 +16,7 @@ class MonitorAlertsView extends MagicStatefulView<MonitorController> {
 
 class _MonitorAlertsViewState
     extends MagicStatefulViewState<MonitorController, MonitorAlertsView> {
-  int? _monitorId;
+  String? _monitorId;
 
   @override
   void onInit() {
@@ -26,13 +26,11 @@ class _MonitorAlertsViewState
     final idParam = MagicRouter.instance.pathParameter('id');
 
     if (idParam != null) {
-      _monitorId = int.tryParse(idParam);
-      if (_monitorId != null) {
-        // Load monitor data
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          await controller.loadMonitor(_monitorId!);
-        });
-      }
+      _monitorId = idParam;
+      // Load monitor data
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await controller.loadMonitor(_monitorId!);
+      });
     }
   }
 

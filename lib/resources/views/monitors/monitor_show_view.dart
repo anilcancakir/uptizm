@@ -28,7 +28,7 @@ class MonitorShowView extends MagicStatefulView<MonitorController> {
 
 class _MonitorShowViewState
     extends MagicStatefulViewState<MonitorController, MonitorShowView> {
-  int? _monitorId;
+  String? _monitorId;
   bool _isRealTimeEnabled = false;
   Timer? _refreshTimer;
 
@@ -40,30 +40,28 @@ class _MonitorShowViewState
     final idParam = MagicRouter.instance.pathParameter('id');
 
     if (idParam != null) {
-      _monitorId = int.tryParse(idParam);
-      if (_monitorId != null) {
-        // Schedule after build to avoid setState-during-build
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          // Clear previous monitor state
-          controller.selectedMonitorNotifier.value = null;
-          controller.checksNotifier.value = [];
+      _monitorId = idParam;
+      // Schedule after build to avoid setState-during-build
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        // Clear previous monitor state
+        controller.selectedMonitorNotifier.value = null;
+        controller.checksNotifier.value = [];
 
-          await controller.loadMonitor(_monitorId!);
-          await controller.loadChecks(_monitorId!);
-          controller.fetchStatusMetrics(_monitorId!);
+        await controller.loadMonitor(_monitorId!);
+        await controller.loadChecks(_monitorId!);
+        controller.fetchStatusMetrics(_monitorId!);
 
-          // Auto-enable real-time refresh if no checks exist
-          // (waiting for first check to complete)
-          if (controller.checksNotifier.value.isEmpty &&
-              controller.selectedMonitorNotifier.value?.status?.value ==
-                  'active') {
-            setState(() {
-              _isRealTimeEnabled = true;
-            });
-            _startRealTimeRefresh();
-          }
-        });
-      }
+        // Auto-enable real-time refresh if no checks exist
+        // (waiting for first check to complete)
+        if (controller.checksNotifier.value.isEmpty &&
+            controller.selectedMonitorNotifier.value?.status?.value ==
+                'active') {
+          setState(() {
+            _isRealTimeEnabled = true;
+          });
+          _startRealTimeRefresh();
+        }
+      });
     }
   }
 

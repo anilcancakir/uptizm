@@ -11,7 +11,7 @@ import '../components/alerts/alert_list_item.dart';
 ///
 /// Shows alert rules and recent alerts for a specific monitor.
 class MonitorAlertsTab extends StatefulWidget {
-  final int monitorId;
+  final String monitorId;
 
   const MonitorAlertsTab({required this.monitorId, super.key});
 
