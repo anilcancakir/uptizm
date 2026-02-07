@@ -52,11 +52,11 @@ class AlertListItem extends StatelessWidget {
               children: [
                 // Header: Rule name + Badges
                 WDiv(
-                  className: 'flex flex-row items-center gap-2 flex-wrap',
+                  className: 'wrap items-center gap-2',
                   children: [
                     if (alertRule != null)
                       WText(
-                        alertRule.name ?? 'Alert',
+                        alertRule.name ?? trans('alerts.fallback_name'),
                         className:
                             'text-sm font-semibold text-gray-900 dark:text-white',
                       ),
@@ -68,7 +68,9 @@ class AlertListItem extends StatelessWidget {
                           'px-2 py-0.5 rounded ${isAlerting ? 'bg-red-50 dark:bg-red-900/20' : 'bg-green-50 dark:bg-green-900/20'}',
                       children: [
                         WText(
-                          isAlerting ? 'Alerting' : 'Resolved',
+                          isAlerting
+                              ? trans('alerts.status_alerting')
+                              : trans('alerts.status_resolved'),
                           className:
                               'text-xs font-medium ${isAlerting ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}',
                         ),
@@ -87,7 +89,7 @@ class AlertListItem extends StatelessWidget {
 
                 // Time info
                 WDiv(
-                  className: 'flex flex-row items-center gap-1 flex-wrap',
+                  className: 'wrap items-center gap-1',
                   children: [
                     if (alert.triggeredAt != null)
                       WText(
@@ -97,7 +99,7 @@ class AlertListItem extends StatelessWidget {
                     if (alert.duration != null) ...[
                       WText('•', className: 'text-xs text-gray-400'),
                       WText(
-                        'Duration: ${_formatDuration(alert.duration!)}',
+                        '${trans('alerts.duration_label')} ${_formatDuration(alert.duration!)}',
                         className: 'text-xs text-gray-500 dark:text-gray-400',
                       ),
                     ],

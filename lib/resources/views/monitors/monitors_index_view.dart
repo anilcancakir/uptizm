@@ -73,7 +73,7 @@ class _MonitorsIndexViewState
       children: [
         // Header
         AppPageHeader(
-          title: trans('navigation.monitors'),
+          title: trans('nav.monitors'),
           subtitle: trans('monitors.welcome_subtitle'),
           actions: [
             WButton(
@@ -288,7 +288,7 @@ class _MonitorsIndexViewState
               StatusDot(status: monitor.lastStatus, size: 12),
               const WSpacer(className: 'w-3'),
               WText(
-                monitor.name ?? 'Unnamed Monitor',
+                monitor.name ?? trans('monitors.unnamed'),
                 className:
                     'flex-1 text-lg font-semibold text-gray-900 dark:text-white',
               ),
@@ -314,7 +314,7 @@ class _MonitorsIndexViewState
           // Meta Info Row (compact pills)
           const WSpacer(className: 'h-3'),
           WDiv(
-            className: 'flex flex-row flex-wrap gap-2',
+            className: 'wrap gap-2',
             children: [
               // Type pill
               WDiv(
@@ -388,7 +388,7 @@ class _MonitorsIndexViewState
           if (monitor.monitoringLocations != null &&
               monitor.monitoringLocations!.isNotEmpty)
             WDiv(
-              className: 'hidden md:flex flex-row flex-wrap gap-2 mt-3',
+              className: 'hidden md:wrap gap-2 mt-3',
               children: monitor.monitoringLocations!
                   .map((location) => LocationBadge(location: location))
                   .toList(),
@@ -398,7 +398,7 @@ class _MonitorsIndexViewState
           if (monitor.tags != null && monitor.tags!.isNotEmpty) ...[
             const WSpacer(className: 'h-3'),
             WDiv(
-              className: 'flex flex-row flex-wrap gap-2',
+              className: 'wrap gap-2',
               children: monitor.tags!
                   .map(
                     (tag) => WDiv(

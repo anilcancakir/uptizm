@@ -229,7 +229,7 @@ class _MonitorShowViewState
               className: 'text-xl text-gray-700 dark:text-gray-300',
             ),
           ),
-          title: monitor.name ?? 'Unnamed Monitor',
+          title: monitor.name ?? trans('monitors.unnamed'),
           subtitle: monitor.url,
           actions: [
             // Edit Button
@@ -680,12 +680,53 @@ class _MonitorShowViewState
         const WSpacer(className: 'h-2.5'),
         // Metrics grid
         WDiv(
-          className: 'flex flex-row flex-wrap gap-2',
+          className: 'wrap gap-2',
           children: mappings.map<Widget>((mapping) {
             final label = mapping['label'] as String? ?? 'Metric';
             final path = mapping['path'] as String? ?? '';
             final unit = mapping['unit'] as String? ?? '';
+            final metricType = mapping['type'] as String? ?? '';
             final rawValue = check.parsedMetrics?[path];
+
+            // Status type metrics or boolean values → green/red indicator
+            final isStatusType =
+                metricType == 'status' ||
+                rawValue is bool ||
+                rawValue == 'true' ||
+                rawValue == 'false';
+
+            if (isStatusType) {
+              // Truthy: true, "true", "1", non-empty string
+              // Falsy: false, "false", "", "0", null
+              final boolValue =
+                  rawValue == true ||
+                  rawValue == 'true' ||
+                  rawValue == '1' ||
+                  (rawValue is String &&
+                      rawValue.isNotEmpty &&
+                      rawValue != 'false' &&
+                      rawValue != '0');
+
+              return WDiv(
+                className:
+                    '''
+                  flex flex-row items-center gap-1.5 overflow-hidden
+                  px-2.5 py-1 rounded-full
+                  ${boolValue ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}
+                ''',
+                children: [
+                  WDiv(
+                    className:
+                        'w-2 h-2 rounded-full ${boolValue ? 'bg-green-500' : 'bg-red-500'}',
+                  ),
+                  WText(
+                    label,
+                    className:
+                        'text-xs ${boolValue ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}',
+                  ),
+                ],
+              );
+            }
 
             String displayValue;
             if (rawValue == null) {
@@ -825,7 +866,7 @@ class _MonitorShowViewState
                   ),
                   const WSpacer(className: 'h-2'),
                   WDiv(
-                    className: 'flex flex-wrap gap-2',
+                    className: 'wrap gap-2',
                     children: monitor.monitoringLocations!
                         .map((loc) => LocationBadge(location: loc))
                         .toList()

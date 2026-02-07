@@ -77,7 +77,7 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
 
   void _handleSubmit() {
     if (!_formKey.currentState!.validate()) {
-      Magic.toast('Please fill in all required fields');
+      Magic.toast(trans('alerts.fill_required_fields'));
       return;
     }
 
@@ -118,18 +118,18 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
         children: [
           // Basic Information Section
           AppCard(
-            title: 'Basic Information',
+            title: trans('alerts.basic_info'),
             body: WDiv(
               className: 'flex flex-col gap-4',
               children: [
                 // Rule Name
                 WFormInput(
                   controller: _nameController,
-                  label: 'Rule Name',
-                  placeholder: 'e.g., High Response Time',
+                  label: trans('alerts.rule_name'),
+                  placeholder: trans('alerts.rule_name_placeholder'),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Rule name is required';
+                      return trans('alerts.rule_name_required');
                     }
                     return null;
                   },
@@ -153,7 +153,7 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
 
                 // Alert Type
                 WFormSelect<AlertRuleType>(
-                  label: 'Alert Type',
+                  label: trans('alerts.alert_type'),
                   value: _selectedType,
                   options: AlertRuleType.selectOptions,
                   onChange: (type) {
@@ -184,7 +184,7 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
 
                 // Severity
                 WFormSelect<AlertSeverity>(
-                  label: 'Severity',
+                  label: trans('alerts.severity'),
                   value: _selectedSeverity,
                   options: AlertSeverity.selectOptions,
                   onChange: (sev) {
@@ -216,10 +216,9 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                 // Consecutive Checks
                 WFormInput(
                   controller: _consecutiveChecksController,
-                  label: 'Consecutive Failed Checks',
+                  label: trans('alerts.consecutive_checks'),
                   placeholder: '1',
-                  hint:
-                      'Number of consecutive failures before triggering alert',
+                  hint: trans('alerts.consecutive_checks_hint'),
                   labelClassName: '''
                     text-gray-900 dark:text-gray-200
                     mb-2 text-sm font-medium
@@ -243,17 +242,16 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
           if (_selectedType == AlertRuleType.threshold ||
               _selectedType == AlertRuleType.anomaly)
             AppCard(
-              title: 'Threshold Configuration',
+              title: trans('alerts.threshold_config'),
               body: WDiv(
                 className: 'flex flex-col gap-4',
                 children: [
                   // Metric Key
                   WFormInput(
                     controller: _metricKeyController,
-                    label: 'Metric Key',
-                    placeholder: 'e.g., response_time',
-                    hint:
-                        'The metric to monitor (e.g., response_time, uptime_percentage)',
+                    label: trans('alerts.metric_key'),
+                    placeholder: trans('alerts.metric_key_placeholder'),
+                    hint: trans('alerts.metric_key_hint'),
                     labelClassName: '''
                       text-gray-900 dark:text-gray-200
                       mb-2 text-sm font-medium
@@ -273,7 +271,7 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                   // Operator (for threshold only)
                   if (_selectedType == AlertRuleType.threshold)
                     WFormSelect<AlertOperator>(
-                      label: 'Operator',
+                      label: trans('alerts.operator'),
                       value: _selectedOperator,
                       options: AlertOperator.selectOptions,
                       onChange: (op) {
@@ -307,10 +305,11 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                       !_selectedOperator.requiresRange)
                     WFormInput(
                       controller: _thresholdValueController,
-                      label: 'Threshold Value',
-                      placeholder: '5000',
-                      hint:
-                          'Alert when metric ${_selectedOperator.value} this value',
+                      label: trans('alerts.threshold_value'),
+                      placeholder: trans('alerts.threshold_value_placeholder'),
+                      hint: trans('alerts.threshold_value_hint', {
+                        'operator': _selectedOperator.value,
+                      }),
                       labelClassName: '''
                         text-gray-900 dark:text-gray-200
                         mb-2 text-sm font-medium
@@ -336,7 +335,7 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                         Expanded(
                           child: WFormInput(
                             controller: _thresholdMinController,
-                            label: 'Minimum',
+                            label: trans('alerts.minimum'),
                             placeholder: '100',
                             labelClassName: '''
                               text-gray-900 dark:text-gray-200
@@ -357,7 +356,7 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
                         Expanded(
                           child: WFormInput(
                             controller: _thresholdMaxController,
-                            label: 'Maximum',
+                            label: trans('alerts.maximum'),
                             placeholder: '500',
                             labelClassName: '''
                               text-gray-900 dark:text-gray-200
@@ -388,23 +387,23 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
               WButton(
                 onTap: () => MagicRoute.back(),
                 className: '''
-                  px-4 py-2 rounded-lg
-                  bg-gray-200 dark:bg-gray-700
-                  text-gray-700 dark:text-gray-200
-                  hover:bg-gray-300 dark:hover:bg-gray-600
-                  text-sm font-medium
-                ''',
-                child: WText('Cancel'),
+                   px-4 py-2 rounded-lg
+                   bg-gray-200 dark:bg-gray-700
+                   text-gray-700 dark:text-gray-200
+                   hover:bg-gray-300 dark:hover:bg-gray-600
+                   text-sm font-medium
+                 ''',
+                child: WText(trans('common.cancel')),
               ),
               WButton(
                 onTap: _handleSubmit,
                 className: '''
-                  px-4 py-2 rounded-lg
-                  bg-primary hover:bg-green-600
-                  text-white
-                  text-sm font-medium
-                ''',
-                child: WText('Save Alert Rule'),
+                   px-4 py-2 rounded-lg
+                   bg-primary hover:bg-green-600
+                   text-white
+                   text-sm font-medium
+                 ''',
+                child: WText(trans('alerts.save_rule')),
               ),
             ],
           ),

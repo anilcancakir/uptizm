@@ -32,8 +32,8 @@ class AlertsIndexView extends StatelessWidget {
       children: [
         // Page Header
         AppPageHeader(
-          title: 'Alerts History',
-          subtitle: 'View and manage triggered alerts',
+          title: trans('alerts.alerts_history_title'),
+          subtitle: trans('alerts.alerts_history_subtitle'),
           actions: [
             WButton(
               onTap: () => MagicRoute.to('/alert-rules'),
@@ -46,7 +46,7 @@ class AlertsIndexView extends StatelessWidget {
                 className: 'flex flex-row items-center gap-2',
                 children: [
                   WIcon(Icons.rule_outlined, className: 'text-lg text-white'),
-                  WText('Manage Rules'),
+                  WText(trans('alerts.manage_rules')),
                 ],
               ),
             ),
@@ -64,13 +64,19 @@ class AlertsIndexView extends StatelessWidget {
               WDiv(
                 className: 'flex flex-row gap-2',
                 children: [
-                  _buildFilterChip('All', statusFilter == null),
                   _buildFilterChip(
-                    'Alerting',
+                    trans('common.all'),
+                    null,
+                    statusFilter == null,
+                  ),
+                  _buildFilterChip(
+                    trans('alerts.status_alerting'),
+                    AlertStatus.alerting,
                     statusFilter == AlertStatus.alerting,
                   ),
                   _buildFilterChip(
-                    'Resolved',
+                    trans('alerts.status_resolved'),
+                    AlertStatus.resolved,
                     statusFilter == AlertStatus.resolved,
                   ),
                 ],
@@ -98,7 +104,7 @@ class AlertsIndexView extends StatelessWidget {
                     className: 'text-6xl text-gray-400 dark:text-gray-500',
                   ),
                   WText(
-                    'No alerts',
+                    trans('alerts.no_alerts'),
                     className: 'text-gray-600 dark:text-gray-400 mt-4',
                   ),
                 ],
@@ -127,21 +133,15 @@ class AlertsIndexView extends StatelessWidget {
     );
   }
 
-  Widget _buildFilterChip(String label, bool isSelected) {
+  Widget _buildFilterChip(
+    String label,
+    AlertStatus? filterValue,
+    bool isSelected,
+  ) {
     return WAnchor(
       onTap: () {
         if (onStatusFilterChanged == null) return;
-
-        AlertStatus? newFilter;
-        if (label == 'Alerting') {
-          newFilter = isSelected ? null : AlertStatus.alerting;
-        } else if (label == 'Resolved') {
-          newFilter = isSelected ? null : AlertStatus.resolved;
-        } else {
-          newFilter = null;
-        }
-
-        onStatusFilterChanged!(newFilter);
+        onStatusFilterChanged!(isSelected ? null : filterValue);
       },
       child: WDiv(
         className:

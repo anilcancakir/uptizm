@@ -278,7 +278,9 @@ class TeamSelector extends StatelessWidget {
                 ''',
               ),
               WText(
-                team.isPersonalTeam ? 'Personal' : 'Team',
+                team.isPersonalTeam
+                    ? trans('teams.personal')
+                    : trans('teams.team'),
                 className: 'text-xs text-gray-500 dark:text-gray-400',
               ),
             ],

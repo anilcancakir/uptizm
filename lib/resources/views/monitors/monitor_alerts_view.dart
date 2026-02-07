@@ -41,7 +41,7 @@ class _MonitorAlertsViewState
         className: 'flex items-center justify-center h-full',
         children: [
           WText(
-            trans('errors.monitor_not_found'),
+            trans('monitors.not_found'),
             className: 'text-gray-600 dark:text-gray-400',
           ),
         ],
@@ -79,7 +79,7 @@ class _MonitorAlertsViewState
                   className: 'flex flex-col flex-1',
                   children: [
                     WText(
-                      monitor.name ?? 'Unnamed Monitor',
+                      monitor.name ?? trans('monitors.unnamed'),
                       className:
                           'text-2xl font-bold text-gray-900 dark:text-white',
                     ),

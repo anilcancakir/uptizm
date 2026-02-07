@@ -32,8 +32,8 @@ class AlertRulesIndexView extends StatelessWidget {
       children: [
         // Page Header
         AppPageHeader(
-          title: 'Alert Rules',
-          subtitle: 'Configure conditions for automated alerts',
+          title: trans('alerts.alert_rules'),
+          subtitle: trans('alerts.rules_subtitle'),
           actions: onAddRule != null
               ? [
                   WButton(
@@ -47,7 +47,10 @@ class AlertRulesIndexView extends StatelessWidget {
                       className: 'flex flex-row items-center sm:gap-2',
                       children: [
                         WIcon(Icons.add, className: 'text-lg text-white'),
-                        WText('Add Rule', className: 'hidden sm:block'),
+                        WText(
+                          trans('alerts.add_rule'),
+                          className: 'hidden sm:block',
+                        ),
                       ],
                     ),
                   ),
@@ -63,7 +66,7 @@ class AlertRulesIndexView extends StatelessWidget {
               items: rules,
               isLoading: isLoading,
               emptyIcon: Icons.notifications_off_outlined,
-              emptyText: 'No alert rules',
+              emptyText: trans('alerts.no_rules'),
               itemBuilder: (context, rule, index) => AlertRuleListItem(
                 rule: rule,
                 onEdit: onEditRule != null ? () => onEditRule!(rule) : null,
