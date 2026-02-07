@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import '../../../app/models/incident.dart';
+import '../../../app/models/monitor.dart';
 
 /// Search result item model
 class SearchResult {
@@ -41,100 +45,8 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
   final FocusNode _focusNode = FocusNode();
 
   String _query = '';
-
-  // Mock search results
-  static const List<SearchResult> _allResults = [
-    // Monitors
-    SearchResult(
-      id: 'm1',
-      title: 'api.example.com',
-      subtitle: 'HTTP Monitor • Up',
-      type: SearchResultType.monitor,
-      path: '/monitors/1',
-      icon: Icons.dns,
-    ),
-    SearchResult(
-      id: 'm2',
-      title: 'web.example.com',
-      subtitle: 'HTTP Monitor • Up',
-      type: SearchResultType.monitor,
-      path: '/monitors/2',
-      icon: Icons.dns,
-    ),
-    SearchResult(
-      id: 'm3',
-      title: 'db.example.com',
-      subtitle: 'TCP Monitor • Down',
-      type: SearchResultType.monitor,
-      path: '/monitors/3',
-      icon: Icons.dns,
-    ),
-    // Incidents
-    SearchResult(
-      id: 'i1',
-      title: 'API Outage - 2h ago',
-      subtitle: 'Incident • Resolved',
-      type: SearchResultType.incident,
-      path: '/incidents/1',
-      icon: Icons.warning,
-    ),
-    SearchResult(
-      id: 'i2',
-      title: 'Database Connection Issues',
-      subtitle: 'Incident • Investigating',
-      type: SearchResultType.incident,
-      path: '/incidents/2',
-      icon: Icons.warning,
-    ),
-    // Logs
-    SearchResult(
-      id: 'l1',
-      title: 'Activity Log',
-      subtitle: 'View all activity',
-      type: SearchResultType.log,
-      path: '/logs',
-      icon: Icons.history,
-    ),
-    // Status Pages
-    SearchResult(
-      id: 's1',
-      title: 'Public Status Page',
-      subtitle: 'Status Page • Active',
-      type: SearchResultType.statusPage,
-      path: '/status-pages/1',
-      icon: Icons.public,
-    ),
-    // Settings
-    SearchResult(
-      id: 'set1',
-      title: 'Team Settings',
-      subtitle: 'Manage team',
-      type: SearchResultType.setting,
-      path: '/settings/team',
-      icon: Icons.settings,
-    ),
-    SearchResult(
-      id: 'set2',
-      title: 'Notifications Settings',
-      subtitle: 'Configure alerts',
-      type: SearchResultType.setting,
-      path: '/settings/notifications',
-      icon: Icons.notifications,
-    ),
-  ];
-
-  List<SearchResult> get _filteredResults {
-    if (_query.isEmpty) return [];
-    final q = _query.toLowerCase();
-    return _allResults
-        .where(
-          (r) =>
-              r.title.toLowerCase().contains(q) ||
-              r.subtitle.toLowerCase().contains(q),
-        )
-        .take(6)
-        .toList();
-  }
+  List<SearchResult> _searchResults = [];
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -145,6 +57,7 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _focusNode.removeListener(_onFocusChange);
     _focusNode.dispose();
     _controller.removeListener(_onTextChanged);
@@ -163,12 +76,92 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
     if (newQuery != _query) {
       setState(() {
         _query = newQuery;
-        if (_query.isNotEmpty && !_popoverController.isOpen) {
+      });
+
+      _debounceTimer?.cancel();
+      _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+        _performSearch(newQuery);
+      });
+    }
+  }
+
+  Future<void> _performSearch(String query) async {
+    if (query.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _searchResults = [];
+        });
+        _popoverController.hide();
+      }
+      return;
+    }
+
+    try {
+      final results = <SearchResult>[];
+
+      // Monitors
+      final monitors = await Monitor.all();
+      if (monitors.isNotEmpty) {
+        final filtered = monitors
+            .where(
+              (m) =>
+                  (m.name?.toLowerCase().contains(query.toLowerCase()) ??
+                      false) ||
+                  (m.url?.toLowerCase().contains(query.toLowerCase()) ?? false),
+            )
+            .take(3);
+
+        results.addAll(
+          filtered.map(
+            (m) => SearchResult(
+              id: m.id ?? '',
+              title: m.name ?? 'Monitor',
+              subtitle: '${m.method?.label ?? 'GET'} ${m.url ?? ''}',
+              type: SearchResultType.monitor,
+              path: '/monitors/${m.id ?? ''}',
+              icon: Icons.dns_outlined,
+            ),
+          ),
+        );
+      }
+
+      // Incidents
+      final incidents = await Incident.all();
+      if (incidents.isNotEmpty) {
+        final filtered = incidents
+            .where(
+              (i) =>
+                  (i.title?.toLowerCase() ?? '').contains(query.toLowerCase()),
+            )
+            .take(3);
+
+        results.addAll(
+          filtered.map(
+            (i) => SearchResult(
+              id: i.id ?? '',
+              title: i.title ?? 'Incident',
+              subtitle: i.impact?.label ?? 'Incident',
+              type: SearchResultType.incident,
+              path: '/incidents/${i.id ?? ''}',
+              icon: Icons.warning_amber_rounded,
+            ),
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+        });
+
+        if (results.isNotEmpty && !_popoverController.isOpen) {
           _popoverController.show();
-        } else if (_query.isEmpty && _popoverController.isOpen) {
+        } else if (results.isEmpty && _popoverController.isOpen) {
           _popoverController.hide();
         }
-      });
+      }
+    } catch (e) {
+      Log.error('Search error', e);
     }
   }
 
@@ -247,7 +240,7 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
   }
 
   Widget _buildContent() {
-    if (_filteredResults.isEmpty) {
+    if (_searchResults.isEmpty) {
       return WDiv(
         className: 'py-8 flex flex-col items-center justify-center gap-2',
         children: [
@@ -264,13 +257,13 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
     }
 
     // Group results by type
-    final monitors = _filteredResults
+    final monitors = _searchResults
         .where((r) => r.type == SearchResultType.monitor)
         .toList();
-    final incidents = _filteredResults
+    final incidents = _searchResults
         .where((r) => r.type == SearchResultType.incident)
         .toList();
-    final others = _filteredResults
+    final others = _searchResults
         .where(
           (r) =>
               r.type != SearchResultType.monitor &&
