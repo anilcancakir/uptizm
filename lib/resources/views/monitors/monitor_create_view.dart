@@ -56,6 +56,7 @@ class _MonitorCreateViewState
       'expected_status_code': '200',
       'check_interval': '60',
       'timeout': '30',
+      'incident_threshold': '',
     }, controller: controller);
   }
 
@@ -82,6 +83,7 @@ class _MonitorCreateViewState
       expectedStatusCode: int.tryParse(form.get('expected_status_code')),
       checkInterval: int.tryParse(form.get('check_interval')) ?? 60,
       timeout: int.tryParse(form.get('timeout')) ?? 30,
+      incidentThreshold: int.tryParse(form.get('incident_threshold')),
       monitoringLocations: _selectedLocations,
       assertionRules: _assertionRules.isNotEmpty
           ? _assertionRules.map((rule) => rule.toMap()).toList()
