@@ -16,7 +16,7 @@ void main() {
   // Setup mock data
   final now = DateTime.now();
   final mockResponse = AnalyticsResponse(
-    monitorId: 1,
+    monitorId: 'test-monitor-uuid-1',
     dateFrom: now.subtract(const Duration(hours: 24)),
     dateTo: now,
     granularity: 'hourly',
@@ -106,7 +106,7 @@ void main() {
   ) async {
     final controller = AnalyticsController.instance;
     controller.analyticsNotifier.value = AnalyticsResponse(
-      monitorId: 1,
+      monitorId: 'test-monitor-uuid-1',
       dateFrom: now,
       dateTo: now,
       granularity: 'hourly',

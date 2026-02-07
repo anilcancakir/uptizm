@@ -29,13 +29,13 @@ void main() {
       // Simulate checks loading later
       final checks = [
         MonitorCheck.fromMap({
-          'id': 1,
+          'id': 'test-uuid-1',
           'status': 'up',
           'response_time_ms': 100,
           'checked_at': '2026-02-04T10:00:00.000000Z',
         }),
         MonitorCheck.fromMap({
-          'id': 2,
+          'id': 'test-uuid-2',
           'status': 'up',
           'response_time_ms': 200,
           'checked_at': '2026-02-04T10:01:00.000000Z',
@@ -73,7 +73,7 @@ void main() {
         final controller = MonitorController();
         final monitor = Monitor()
           ..setRawAttributes({
-            'id': 1,
+            'id': 'test-uuid-1',
             'name': 'Test Monitor',
             'url': 'https://example.com',
             'status': 'active',
@@ -124,13 +124,13 @@ void main() {
         // Now simulate checks loading
         controller.checksNotifier.value = [
           MonitorCheck.fromMap({
-            'id': 1,
+            'id': 'test-uuid-1',
             'status': 'up',
             'response_time_ms': 100,
             'checked_at': '2026-02-04T10:00:00.000000Z',
           }),
           MonitorCheck.fromMap({
-            'id': 2,
+            'id': 'test-uuid-2',
             'status': 'up',
             'response_time_ms': 200,
             'checked_at': '2026-02-04T10:01:00.000000Z',
@@ -176,7 +176,7 @@ void main() {
     test('parses metric_mappings from API response correctly', () {
       // Given: API response with metric_mappings
       final apiResponse = {
-        'id': 1,
+        'id': 'test-uuid-1',
         'name': 'Test Monitor',
         'type': 'http',
         'url': 'https://example.com/api',
@@ -211,7 +211,7 @@ void main() {
 
     test('returns null when metric_mappings is not set', () {
       final monitor = Monitor()
-        ..setRawAttributes({'id': 1, 'name': 'Test'}, sync: true);
+        ..setRawAttributes({'id': 'test-uuid-1', 'name': 'Test'}, sync: true);
 
       expect(monitor.metricMappings, isNull);
     });
@@ -219,7 +219,7 @@ void main() {
     test('returns empty list check for isEmpty works', () {
       final monitor = Monitor()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'name': 'Test',
           'metric_mappings': [],
         }, sync: true);
@@ -233,10 +233,10 @@ void main() {
     test('parses parsed_metrics from API response correctly', () {
       // Simulating exact API response structure
       final apiResponse = {
-        'id': 8,
-        'monitor_id': 1,
+        'id': 'test-uuid-8',
+        'monitor_id': 'test-monitor-uuid-1',
         'status': 'up',
-        'parsed_metrics': {'userId': 1, 'id': 1, 'title': 'Test Post Title'},
+        'parsed_metrics': {'userId': 1, 'id': 'test-uuid-1', 'title': 'Test Post Title'},
         'checked_at': '2026-02-02T23:24:43.000000Z',
       };
 

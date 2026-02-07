@@ -10,7 +10,7 @@ class MockMonitorController extends MonitorController {
   @override
   Future<void> loadMonitors() async {
     final m1 = Monitor()
-      ..id = 1
+      ..id = 'test-uuid-1'
       ..name = 'Monitor 1'
       ..metricMappings = [
         {'label': 'CPU', 'path': 'data.cpu', 'type': 'numeric'},
@@ -18,7 +18,7 @@ class MockMonitorController extends MonitorController {
       ];
 
     final m2 = Monitor()
-      ..id = 2
+      ..id = 'test-uuid-2'
       ..name = 'Monitor 2'; // No metrics
 
     monitorsNotifier.value = [m1, m2];
@@ -37,7 +37,7 @@ class MockStatusPageController extends StatusPageController {
     String? faviconUrl,
     String? primaryColor,
     bool isPublished = false,
-    List<int>? monitorIds,
+    List<String>? monitorIds,
     List<Map<String, dynamic>>? monitors,
   }) async {
     lastStoreArgs = {'name': name, 'monitors': monitors};
@@ -143,11 +143,11 @@ void main() {
     expect(monitors!.length, 2);
 
     // Monitor 1 should have metrics
-    expect(monitors[0]['monitor_id'], 1);
+    expect(monitors[0]['monitor_id'], 'test-uuid-1');
     expect(monitors[0]['metric_keys'], ['data.cpu']);
 
     // Monitor 2 should have no metrics
-    expect(monitors[1]['monitor_id'], 2);
+    expect(monitors[1]['monitor_id'], 'test-uuid-2');
     expect(monitors[1]['metric_keys'], isEmpty); // Should be empty list
   });
 }

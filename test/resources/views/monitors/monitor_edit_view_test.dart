@@ -50,7 +50,7 @@ void main() {
 
     testWidgets('renders form sections when monitor is loaded', (tester) async {
       MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
-        'id': 1,
+        'id': 'test-uuid-1',
         'name': 'Test Monitor',
         'type': 'http',
         'url': 'https://example.com',
@@ -75,7 +75,7 @@ void main() {
 
     testWidgets('pre-fills form with monitor data', (tester) async {
       MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
-        'id': 1,
+        'id': 'test-uuid-1',
         'name': 'My API Monitor',
         'type': 'http',
         'url': 'https://api.example.com/health',
@@ -99,7 +99,7 @@ void main() {
 
     testWidgets('type selector is not editable', (tester) async {
       MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
-        'id': 1,
+        'id': 'test-uuid-1',
         'name': 'Test',
         'type': 'http',
         'url': 'https://example.com',

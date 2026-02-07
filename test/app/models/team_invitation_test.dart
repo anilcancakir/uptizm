@@ -30,24 +30,24 @@ void main() {
       });
 
       test('teamId', () {
-        final inv = TeamInvitation.fromMap({'team_id': 7});
-        expect(inv.teamId, 7);
+        final inv = TeamInvitation.fromMap({'team_id': 'test-team-uuid-7'});
+        expect(inv.teamId, 'test-team-uuid-7');
       });
     });
 
     group('fromMap', () {
       test('with full data', () {
         final inv = TeamInvitation.fromMap({
-          'id': 1,
+          'id': 'test-uuid-1',
           'email': 'user@test.com',
           'role': 'member',
-          'team_id': 3,
+          'team_id': 'test-team-uuid-3',
         });
 
-        expect(inv.id, 1);
+        expect(inv.id, 'test-uuid-1');
         expect(inv.email, 'user@test.com');
         expect(inv.role, 'member');
-        expect(inv.teamId, 3);
+        expect(inv.teamId, 'test-team-uuid-3');
         expect(inv.exists, true);
       });
 

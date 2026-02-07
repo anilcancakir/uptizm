@@ -20,17 +20,17 @@ void main() {
 
     setUp(() {
       testAlert = Alert.fromMap({
-        'id': 1,
-        'alert_rule_id': 10,
-        'monitor_id': 20,
+        'id': 'test-uuid-1',
+        'alert_rule_id': 'test-alert-rule-uuid-10',
+        'monitor_id': 'test-monitor-uuid-20',
         'status': 'alerting',
         'triggered_at': '2026-02-05T10:00:00Z',
         'resolved_at': null,
         'trigger_value': 6500.0,
         'trigger_message': 'Response time exceeded 5000ms',
         'alert_rule': {
-          'id': 10,
-          'team_id': 5,
+          'id': 'test-uuid-10',
+          'team_id': 'test-team-uuid-5',
           'name': 'High Response Time',
           'type': 'threshold',
           'severity': 'warning',
@@ -48,16 +48,16 @@ void main() {
 
     testWidgets('renders resolved state with green indicator', (tester) async {
       final resolvedAlert = Alert.fromMap({
-        'id': 2,
-        'alert_rule_id': 10,
-        'monitor_id': 20,
+        'id': 'test-uuid-2',
+        'alert_rule_id': 'test-alert-rule-uuid-10',
+        'monitor_id': 'test-monitor-uuid-20',
         'status': 'resolved',
         'triggered_at': '2026-02-05T10:00:00Z',
         'resolved_at': '2026-02-05T10:15:00Z',
         'trigger_message': 'Monitor recovered',
         'alert_rule': {
-          'id': 10,
-          'team_id': 5,
+          'id': 'test-uuid-10',
+          'team_id': 'test-team-uuid-5',
           'name': 'Status Check',
           'type': 'status',
           'severity': 'critical',
@@ -98,16 +98,16 @@ void main() {
 
     testWidgets('shows duration for resolved alerts', (tester) async {
       final resolvedAlert = Alert.fromMap({
-        'id': 2,
-        'alert_rule_id': 10,
-        'monitor_id': 20,
+        'id': 'test-uuid-2',
+        'alert_rule_id': 'test-alert-rule-uuid-10',
+        'monitor_id': 'test-monitor-uuid-20',
         'status': 'resolved',
         'triggered_at': '2026-02-05T10:00:00Z',
         'resolved_at': '2026-02-05T10:15:00Z',
         'trigger_message': 'Monitor recovered',
         'alert_rule': {
-          'id': 10,
-          'team_id': 5,
+          'id': 'test-uuid-10',
+          'team_id': 'test-team-uuid-5',
           'name': 'Status Check',
           'type': 'status',
           'severity': 'critical',
@@ -146,9 +146,9 @@ void main() {
 
     testWidgets('handles missing alert rule gracefully', (tester) async {
       final alertWithoutRule = Alert.fromMap({
-        'id': 3,
-        'alert_rule_id': 10,
-        'monitor_id': 20,
+        'id': 'test-uuid-3',
+        'alert_rule_id': 'test-alert-rule-uuid-10',
+        'monitor_id': 'test-monitor-uuid-20',
         'status': 'alerting',
         'triggered_at': '2026-02-05T10:00:00Z',
         'trigger_message': 'Alert triggered',
@@ -171,16 +171,16 @@ void main() {
 
     testWidgets('shows status badge for resolved alerts', (tester) async {
       final resolvedAlert = Alert.fromMap({
-        'id': 2,
-        'alert_rule_id': 10,
-        'monitor_id': 20,
+        'id': 'test-uuid-2',
+        'alert_rule_id': 'test-alert-rule-uuid-10',
+        'monitor_id': 'test-monitor-uuid-20',
         'status': 'resolved',
         'triggered_at': '2026-02-05T10:00:00Z',
         'resolved_at': '2026-02-05T10:15:00Z',
         'trigger_message': 'Monitor back online',
         'alert_rule': {
-          'id': 10,
-          'team_id': 5,
+          'id': 'test-uuid-10',
+          'team_id': 'test-team-uuid-5',
           'name': 'Test',
           'type': 'status',
           'severity': 'info',

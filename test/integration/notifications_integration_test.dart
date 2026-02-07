@@ -59,9 +59,9 @@ void main() {
         'data': {
           'title': 'Monitor Down',
           'body': 'api.example.com is not responding',
-          'action_url': '/monitors/1',
+          'action_url': '/monitors/test-monitor-uuid-1',
           'data': {
-            'monitor_id': 1,
+            'monitor_id': 'test-monitor-uuid-1',
             'monitor_name': 'API Server',
             'type': 'monitor_down',
           },
@@ -76,7 +76,7 @@ void main() {
       expect(notification.type, 'monitor_down');
       expect(notification.title, 'Monitor Down');
       expect(notification.body, 'api.example.com is not responding');
-      expect(notification.actionUrl, '/monitors/1');
+      expect(notification.actionUrl, '/monitors/test-monitor-uuid-1');
       expect(notification.isRead, isFalse);
     });
 

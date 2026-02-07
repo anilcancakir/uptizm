@@ -40,9 +40,9 @@ void main() {
     group('fromMap', () {
       test('creates instance with complete data', () {
         final map = {
-          'id': 1,
-          'team_id': 10,
-          'monitor_id': 20,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
+          'monitor_id': 'test-monitor-uuid-20',
           'name': 'High Response Time',
           'type': 'threshold',
           'enabled': true,
@@ -56,9 +56,9 @@ void main() {
 
         final rule = AlertRule.fromMap(map);
 
-        expect(rule.id, 1);
-        expect(rule.teamId, 10);
-        expect(rule.monitorId, 20);
+        expect(rule.id, 'test-uuid-1');
+        expect(rule.teamId, 'test-team-uuid-10');
+        expect(rule.monitorId, 'test-monitor-uuid-20');
         expect(rule.name, 'High Response Time');
         expect(rule.type, AlertRuleType.threshold);
         expect(rule.enabled, isTrue);
@@ -71,8 +71,8 @@ void main() {
 
       test('creates team-level rule when monitor_id is null', () {
         final map = {
-          'id': 1,
-          'team_id': 10,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
           'monitor_id': null,
           'name': 'Team Default',
           'type': 'status',
@@ -86,9 +86,9 @@ void main() {
 
       test('creates monitor-level rule when monitor_id is set', () {
         final map = {
-          'id': 1,
-          'team_id': 10,
-          'monitor_id': 20,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
+          'monitor_id': 'test-monitor-uuid-20',
           'name': 'Monitor Override',
           'type': 'threshold',
         };
@@ -100,8 +100,8 @@ void main() {
 
       test('handles range operators with min/max', () {
         final map = {
-          'id': 1,
-          'team_id': 10,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
           'name': 'Between Rule',
           'type': 'threshold',
           'operator': 'between',
@@ -117,8 +117,8 @@ void main() {
 
       test('handles anomaly type rule', () {
         final map = {
-          'id': 1,
-          'team_id': 10,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
           'name': 'Order Anomaly',
           'type': 'anomaly',
           'metric_key': 'order_count',
@@ -131,13 +131,13 @@ void main() {
       });
 
       test('defaults enabled to true', () {
-        final map = {'id': 1, 'team_id': 10, 'name': 'Test'};
+        final map = {'id': 'test-uuid-1', 'team_id': 'test-team-uuid-10', 'name': 'Test'};
         final rule = AlertRule.fromMap(map);
         expect(rule.enabled, isTrue);
       });
 
       test('defaults consecutiveChecks to 1', () {
-        final map = {'id': 1, 'team_id': 10, 'name': 'Test'};
+        final map = {'id': 'test-uuid-1', 'team_id': 'test-team-uuid-10', 'name': 'Test'};
         final rule = AlertRule.fromMap(map);
         expect(rule.consecutiveChecks, 1);
       });

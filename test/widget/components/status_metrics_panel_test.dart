@@ -19,18 +19,18 @@ void main() {
     ) async {
       final metrics = [
         MonitorMetricValue.fromMap({
-          'id': 1,
-          'monitor_id': 10,
-          'check_id': 100,
+          'id': 'test-uuid-1',
+          'monitor_id': 'test-monitor-uuid-10',
+          'check_id': 'test-check-uuid-100',
           'metric_key': 'is_healthy',
           'metric_label': 'Service Health',
           'status_value': 'up',
           'recorded_at': '2026-02-04T12:00:00.000000Z',
         }),
         MonitorMetricValue.fromMap({
-          'id': 2,
-          'monitor_id': 10,
-          'check_id': 100,
+          'id': 'test-uuid-2',
+          'monitor_id': 'test-monitor-uuid-10',
+          'check_id': 'test-check-uuid-100',
           'metric_key': 'db_connected',
           'metric_label': 'Database',
           'status_value': 'down',
@@ -59,9 +59,9 @@ void main() {
     testWidgets('renders with title when provided', (tester) async {
       final metrics = [
         MonitorMetricValue.fromMap({
-          'id': 1,
-          'monitor_id': 10,
-          'check_id': 100,
+          'id': 'test-uuid-1',
+          'monitor_id': 'test-monitor-uuid-10',
+          'check_id': 'test-check-uuid-100',
           'metric_key': 'is_healthy',
           'metric_label': 'Health',
           'status_value': 'up',

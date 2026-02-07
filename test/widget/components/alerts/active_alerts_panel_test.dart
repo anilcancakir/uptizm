@@ -25,26 +25,26 @@ void main() {
     testWidgets('renders alert count in header', (tester) async {
       final alerts = [
         Alert.fromMap({
-          'id': 1,
+          'id': 'test-uuid-1',
           'status': 'alerting',
           'triggered_at': '2026-02-05T10:00:00Z',
           'trigger_message': 'Alert 1',
           'alert_rule': {
-            'id': 1,
-            'team_id': 1,
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-1',
             'name': 'Rule 1',
             'type': 'status',
             'severity': 'critical',
           },
         }),
         Alert.fromMap({
-          'id': 2,
+          'id': 'test-uuid-2',
           'status': 'alerting',
           'triggered_at': '2026-02-05T10:00:00Z',
           'trigger_message': 'Alert 2',
           'alert_rule': {
-            'id': 2,
-            'team_id': 1,
+            'id': 'test-uuid-2',
+            'team_id': 'test-team-uuid-1',
             'name': 'Rule 2',
             'type': 'threshold',
             'severity': 'warning',
@@ -63,26 +63,26 @@ void main() {
     testWidgets('renders list of AlertListItem components', (tester) async {
       final alerts = [
         Alert.fromMap({
-          'id': 1,
+          'id': 'test-uuid-1',
           'status': 'alerting',
           'triggered_at': '2026-02-05T10:00:00Z',
           'trigger_message': 'Alert 1',
           'alert_rule': {
-            'id': 1,
-            'team_id': 1,
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-1',
             'name': 'Rule 1',
             'type': 'status',
             'severity': 'critical',
           },
         }),
         Alert.fromMap({
-          'id': 2,
+          'id': 'test-uuid-2',
           'status': 'alerting',
           'triggered_at': '2026-02-05T10:00:00Z',
           'trigger_message': 'Alert 2',
           'alert_rule': {
-            'id': 2,
-            'team_id': 1,
+            'id': 'test-uuid-2',
+            'team_id': 'test-team-uuid-1',
             'name': 'Rule 2',
             'type': 'threshold',
             'severity': 'warning',
@@ -100,13 +100,13 @@ void main() {
     testWidgets('shows View All button', (tester) async {
       final alerts = [
         Alert.fromMap({
-          'id': 1,
+          'id': 'test-uuid-1',
           'status': 'alerting',
           'triggered_at': '2026-02-05T10:00:00Z',
           'trigger_message': 'Alert 1',
           'alert_rule': {
-            'id': 1,
-            'team_id': 1,
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-1',
             'name': 'Rule 1',
             'type': 'status',
             'severity': 'critical',
@@ -128,13 +128,13 @@ void main() {
 
       final alerts = [
         Alert.fromMap({
-          'id': 1,
+          'id': 'test-uuid-1',
           'status': 'alerting',
           'triggered_at': '2026-02-05T10:00:00Z',
           'trigger_message': 'Alert 1',
           'alert_rule': {
-            'id': 1,
-            'team_id': 1,
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-1',
             'name': 'Rule 1',
             'type': 'status',
             'severity': 'critical',
@@ -167,7 +167,7 @@ void main() {
           'trigger_message': 'Alert $i',
           'alert_rule': {
             'id': i,
-            'team_id': 1,
+            'team_id': 'test-team-uuid-1',
             'name': 'Rule $i',
             'type': 'status',
             'severity': 'critical',

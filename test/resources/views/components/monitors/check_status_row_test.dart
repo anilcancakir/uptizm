@@ -25,7 +25,7 @@ void main() {
       'renders status dot, response time, status code, location, and time',
       (tester) async {
         final check = MonitorCheck.fromMap({
-          'id': 1,
+          'id': 'test-uuid-1',
           'status': 'up',
           'response_time_ms': 245,
           'status_code': 200,
@@ -46,7 +46,7 @@ void main() {
 
     testWidgets('renders error message when check has error', (tester) async {
       final check = MonitorCheck.fromMap({
-        'id': 1,
+        'id': 'test-uuid-1',
         'status': 'down',
         'response_time_ms': null,
         'status_code': null,
@@ -66,7 +66,7 @@ void main() {
       tester,
     ) async {
       final check = MonitorCheck.fromMap({
-        'id': 1,
+        'id': 'test-uuid-1',
         'status': 'up',
         'response_time_ms': 123,
         'status_code': 201,
@@ -85,7 +85,7 @@ void main() {
 
     testWidgets('handles null responseTimeMs gracefully', (tester) async {
       final check = MonitorCheck.fromMap({
-        'id': 1,
+        'id': 'test-uuid-1',
         'status': 'down',
         'response_time_ms': null,
         'status_code': 500,

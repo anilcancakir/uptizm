@@ -8,7 +8,7 @@ void main() {
     test('fromMap parses valid response correctly', () {
       final map = {
         'data': {
-          'monitor_id': 1,
+          'monitor_id': 'test-monitor-uuid-1',
           'date_from': '2026-01-01T00:00:00Z',
           'date_to': '2026-01-02T00:00:00Z',
           'granularity': 'hourly',
@@ -37,7 +37,7 @@ void main() {
 
       final response = AnalyticsResponse.fromMap(map);
 
-      expect(response.monitorId, 1);
+      expect(response.monitorId, 'test-monitor-uuid-1');
       expect(response.granularity, 'hourly');
       expect(response.series.length, 2);
       expect(response.summary.totalChecks, 100);
@@ -46,7 +46,7 @@ void main() {
 
     test('getSeriesByKey returns correct series', () {
       final response = AnalyticsResponse(
-        monitorId: 1,
+        monitorId: 'test-monitor-uuid-1',
         dateFrom: DateTime.now(),
         dateTo: DateTime.now(),
         granularity: 'hourly',
@@ -67,7 +67,7 @@ void main() {
 
     test('numericSeries and statusSeries getters filter correctly', () {
       final response = AnalyticsResponse(
-        monitorId: 1,
+        monitorId: 'test-monitor-uuid-1',
         dateFrom: DateTime.now(),
         dateTo: DateTime.now(),
         granularity: 'hourly',
