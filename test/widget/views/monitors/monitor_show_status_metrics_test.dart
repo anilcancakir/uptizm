@@ -28,9 +28,9 @@ void main() {
       // Setup Status Metrics
       final metrics = [
         MonitorMetricValue.fromMap({
-          'id': 1,
-          'monitor_id': 1,
-          'check_id': 100,
+          'id': 'test-uuid-1',
+          'monitor_id': 'test-monitor-uuid-1',
+          'check_id': 'test-check-uuid-100',
           'metric_key': 'health',
           'metric_label': 'Health',
           'status_value': 'up',

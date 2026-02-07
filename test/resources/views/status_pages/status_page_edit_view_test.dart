@@ -10,7 +10,7 @@ class _MockMonitorController extends MonitorController {
   @override
   Future<void> loadMonitors() async {
     final m1 = Monitor()
-      ..id = 10
+      ..id = 'test-uuid-10'
       ..name = 'API Server'
       ..metricMappings = [
         {'label': 'CPU', 'path': 'data.cpu', 'type': 'numeric'},
@@ -19,7 +19,7 @@ class _MockMonitorController extends MonitorController {
       ];
 
     final m2 = Monitor()
-      ..id = 20
+      ..id = 'test-uuid-20'
       ..name = 'DB Server';
 
     monitorsNotifier.value = [m1, m2];
@@ -35,7 +35,7 @@ class _MockStatusPageController extends StatusPageController {
   }
 
   @override
-  Future<void> loadStatusPage(int id) async {
+  Future<void> loadStatusPage(String id) async {
     if (_pageToReturn != null) {
       selectedStatusPageNotifier.value = _pageToReturn;
     }
@@ -43,7 +43,7 @@ class _MockStatusPageController extends StatusPageController {
 
   @override
   Future<void> update(
-    int id, {
+    String id, {
     String? name,
     String? slug,
     String? description,
@@ -51,7 +51,7 @@ class _MockStatusPageController extends StatusPageController {
     String? faviconUrl,
     String? primaryColor,
     bool? isPublished,
-    List<int>? monitorIds,
+    List<String>? monitorIds,
     List<Map<String, dynamic>>? monitors,
   }) async {
     lastUpdateArgs = {'id': id, 'name': name, 'monitors': monitors};
@@ -59,7 +59,7 @@ class _MockStatusPageController extends StatusPageController {
 
   @override
   Future<void> attachMonitors(
-    int id,
+    String id,
     List<Map<String, dynamic>> monitors,
   ) async {}
 }
@@ -67,7 +67,7 @@ class _MockStatusPageController extends StatusPageController {
 StatusPage _buildStatusPageWithMetrics() {
   final page = StatusPage();
   page.setRawAttributes({
-    'id': 42,
+    'id': 'test-uuid-42',
     'name': 'Test Status Page',
     'slug': 'test-page',
     'description': 'Test description',
@@ -75,7 +75,7 @@ StatusPage _buildStatusPageWithMetrics() {
     'is_published': false,
     'monitors': [
       {
-        'id': 10,
+        'id': 'test-uuid-10',
         'name': 'API Server',
         'metric_mappings': [
           {'label': 'CPU', 'path': 'data.cpu', 'type': 'numeric'},
@@ -96,7 +96,7 @@ StatusPage _buildStatusPageWithMetrics() {
 StatusPage _buildStatusPageWithoutMetrics() {
   final page = StatusPage();
   page.setRawAttributes({
-    'id': 43,
+    'id': 'test-uuid-43',
     'name': 'No Metrics Page',
     'slug': 'no-metrics',
     'description': '',
@@ -104,7 +104,7 @@ StatusPage _buildStatusPageWithoutMetrics() {
     'is_published': true,
     'monitors': [
       {
-        'id': 20,
+        'id': 'test-uuid-20',
         'name': 'DB Server',
         'pivot': {'display_name': 'Database', 'sort_order': 0},
       },
@@ -142,7 +142,9 @@ void main() {
         buildTestApp(
           Builder(
             builder: (context) {
-              return const StatusPageEditViewTestHarness(pageId: 42);
+              return const StatusPageEditViewTestHarness(
+                pageId: 'test-uuid-42',
+              );
             },
           ),
         ),
@@ -165,7 +167,9 @@ void main() {
         buildTestApp(
           Builder(
             builder: (context) {
-              return const StatusPageEditViewTestHarness(pageId: 43);
+              return const StatusPageEditViewTestHarness(
+                pageId: 'test-uuid-43',
+              );
             },
           ),
         ),
@@ -180,7 +184,7 @@ void main() {
 }
 
 class StatusPageEditViewTestHarness extends StatefulWidget {
-  final int pageId;
+  final String pageId;
   const StatusPageEditViewTestHarness({super.key, required this.pageId});
 
   @override
@@ -225,7 +229,7 @@ class _StatusPageEditViewTestHarnessState
     _selectedMonitors.clear();
     for (var m in page.monitors) {
       final pivot = m.get<Map<String, dynamic>>('pivot');
-      final id = m.id ?? (m.get('id') as num?)?.toInt();
+      final id = m.id ?? m.get('id')?.toString();
       _selectedMonitors.add({
         'monitor_id': id,
         'name': m.name,

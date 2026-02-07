@@ -88,8 +88,8 @@ void main() {
 
     testWidgets('pre-fills form with existing rule data', (tester) async {
       final existingRule = AlertRule.fromMap({
-        'id': 1,
-        'team_id': 10,
+        'id': 'test-uuid-1',
+        'team_id': 'test-team-uuid-10',
         'name': 'High Response Time',
         'type': 'threshold',
         'enabled': true,

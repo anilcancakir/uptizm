@@ -41,17 +41,17 @@ void main() {
       test('activeAlertCount returns count of alerting alerts', () {
         controller.alertsNotifier.value = [
           Alert.fromMap({
-            'id': 1,
+            'id': 'test-uuid-1',
             'status': 'alerting',
             'triggered_at': '2026-02-05T10:00:00Z',
           }),
           Alert.fromMap({
-            'id': 2,
+            'id': 'test-uuid-2',
             'status': 'resolved',
             'triggered_at': '2026-02-05T10:00:00Z',
           }),
           Alert.fromMap({
-            'id': 3,
+            'id': 'test-uuid-3',
             'status': 'alerting',
             'triggered_at': '2026-02-05T10:00:00Z',
           }),
@@ -62,13 +62,13 @@ void main() {
       test('criticalAlertCount returns count of critical alerting alerts', () {
         controller.alertsNotifier.value = [
           Alert.fromMap({
-            'id': 1,
+            'id': 'test-uuid-1',
             'status': 'alerting',
             'triggered_at': '2026-02-05T10:00:00Z',
             'alert_rule': {'severity': 'critical'},
           }),
           Alert.fromMap({
-            'id': 2,
+            'id': 'test-uuid-2',
             'status': 'alerting',
             'triggered_at': '2026-02-05T10:00:00Z',
             'alert_rule': {'severity': 'warning'},
@@ -82,15 +82,15 @@ void main() {
       test('filters rules by scope correctly', () {
         controller.alertRulesNotifier.value = [
           AlertRule.fromMap({
-            'id': 1,
-            'team_id': 10,
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-10',
             'monitor_id': null,
             'name': 'Team Rule',
           }),
           AlertRule.fromMap({
-            'id': 2,
-            'team_id': 10,
-            'monitor_id': 20,
+            'id': 'test-uuid-2',
+            'team_id': 'test-team-uuid-10',
+            'monitor_id': 'test-monitor-uuid-20',
             'name': 'Monitor Rule',
           }),
         ];

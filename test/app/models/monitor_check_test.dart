@@ -18,9 +18,12 @@ void main() {
 
     group('typed accessors', () {
       test('id and monitorId', () {
-        final check = MonitorCheck.fromMap({'id': 1, 'monitor_id': 5});
-        expect(check.id, 1);
-        expect(check.monitorId, 5);
+        final check = MonitorCheck.fromMap({
+          'id': 'test-uuid-1',
+          'monitor_id': 'test-monitor-uuid-5',
+        });
+        expect(check.id, 'test-uuid-1');
+        expect(check.monitorId, 'test-monitor-uuid-5');
       });
 
       test('location returns MonitorLocation enum', () {
@@ -136,8 +139,8 @@ void main() {
     group('fromMap', () {
       test('with full data', () {
         final check = MonitorCheck.fromMap({
-          'id': 10,
-          'monitor_id': 3,
+          'id': 'test-uuid-10',
+          'monitor_id': 'test-monitor-uuid-3',
           'location': 'eu-west',
           'status': 'up',
           'response_time_ms': 200,
@@ -152,8 +155,8 @@ void main() {
           'checked_at': '2025-06-01T12:00:00.000Z',
         });
 
-        expect(check.id, 10);
-        expect(check.monitorId, 3);
+        expect(check.id, 'test-uuid-10');
+        expect(check.monitorId, 'test-monitor-uuid-3');
         expect(check.location, MonitorLocation.euWest);
         expect(check.status, CheckStatus.up);
         expect(check.responseTimeMs, 200);

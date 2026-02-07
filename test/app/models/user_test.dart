@@ -5,7 +5,7 @@ void main() {
   group('User Model - Timezone and Language', () {
     test('user timezone accessor', () {
       final user = User.fromMap({
-        'id': 1,
+        'id': 'test-user-uuid-1',
         'name': 'Test User',
         'email': 'test@example.com',
         'timezone': 'Europe/Istanbul',
@@ -16,7 +16,7 @@ void main() {
 
     test('user language accessor', () {
       final user = User.fromMap({
-        'id': 1,
+        'id': 'test-user-uuid-1',
         'name': 'Test User',
         'email': 'test@example.com',
         'language': 'tr',
@@ -27,7 +27,7 @@ void main() {
 
     test('user timezone setter', () {
       final user = User.fromMap({
-        'id': 1,
+        'id': 'test-user-uuid-1',
         'name': 'Test User',
         'email': 'test@example.com',
       });
@@ -39,7 +39,7 @@ void main() {
 
     test('user language setter', () {
       final user = User.fromMap({
-        'id': 1,
+        'id': 'test-user-uuid-1',
         'name': 'Test User',
         'email': 'test@example.com',
       });
@@ -51,7 +51,7 @@ void main() {
 
     test('user timezone and language can be null', () {
       final user = User.fromMap({
-        'id': 1,
+        'id': 'test-user-uuid-1',
         'name': 'Test User',
         'email': 'test@example.com',
       });

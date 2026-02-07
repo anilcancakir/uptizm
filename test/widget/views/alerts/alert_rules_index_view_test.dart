@@ -40,15 +40,15 @@ void main() {
     ) async {
       final rules = [
         AlertRule.fromMap({
-          'id': 1,
-          'team_id': 10,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
           'name': 'Rule 1',
           'type': 'status',
           'severity': 'critical',
         }),
         AlertRule.fromMap({
-          'id': 2,
-          'team_id': 10,
+          'id': 'test-uuid-2',
+          'team_id': 'test-team-uuid-10',
           'name': 'Rule 2',
           'type': 'threshold',
           'severity': 'warning',
@@ -90,8 +90,8 @@ void main() {
       bool editCalled = false;
       final rules = [
         AlertRule.fromMap({
-          'id': 1,
-          'team_id': 10,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
           'name': 'Rule 1',
           'type': 'status',
           'severity': 'critical',
@@ -120,8 +120,8 @@ void main() {
       bool deleteCalled = false;
       final rules = [
         AlertRule.fromMap({
-          'id': 1,
-          'team_id': 10,
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
           'name': 'Rule 1',
           'type': 'status',
           'severity': 'critical',

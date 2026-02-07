@@ -6,9 +6,9 @@ void main() {
   group('MonitorMetricValue', () {
     test('fromMap parses all fields including status_value', () {
       final map = {
-        'id': 1,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-1',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'is_healthy',
         'metric_label': 'Service Health',
         'numeric_value': null,
@@ -20,9 +20,9 @@ void main() {
 
       final metricValue = MonitorMetricValue.fromMap(map);
 
-      expect(metricValue.id, 1);
-      expect(metricValue.monitorId, 10);
-      expect(metricValue.checkId, 100);
+      expect(metricValue.id, 'test-uuid-1');
+      expect(metricValue.monitorId, 'test-monitor-uuid-10');
+      expect(metricValue.checkId, 'test-check-uuid-100');
       expect(metricValue.metricKey, 'is_healthy');
       expect(metricValue.metricLabel, 'Service Health');
       expect(metricValue.numericValue, isNull);
@@ -34,9 +34,9 @@ void main() {
 
     test('fromMap parses numeric metric', () {
       final map = {
-        'id': 2,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-2',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'response_time',
         'metric_label': 'Response Time',
         'numeric_value': 150.5,
@@ -55,9 +55,9 @@ void main() {
 
     test('statusValue getter returns MetricStatusValue enum', () {
       final map = {
-        'id': 1,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-1',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'db_connected',
         'metric_label': 'Database',
         'status_value': 'down',
@@ -71,9 +71,9 @@ void main() {
 
     test('isUp getter returns true when status is up', () {
       final map = {
-        'id': 1,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-1',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'is_healthy',
         'metric_label': 'Health',
         'status_value': 'up',
@@ -88,9 +88,9 @@ void main() {
 
     test('isDown getter returns true when status is down', () {
       final map = {
-        'id': 1,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-1',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'is_healthy',
         'metric_label': 'Health',
         'status_value': 'down',
@@ -105,9 +105,9 @@ void main() {
 
     test('isStatusMetric returns true when status_value is present', () {
       final statusMap = {
-        'id': 1,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-1',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'is_healthy',
         'metric_label': 'Health',
         'status_value': 'up',
@@ -115,9 +115,9 @@ void main() {
       };
 
       final numericMap = {
-        'id': 2,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-2',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'response_time',
         'metric_label': 'Response Time',
         'numeric_value': 150,
@@ -134,9 +134,9 @@ void main() {
 
     test('handles integer numeric_value from API', () {
       final map = {
-        'id': 1,
-        'monitor_id': 10,
-        'check_id': 100,
+        'id': 'test-uuid-1',
+        'monitor_id': 'test-monitor-uuid-10',
+        'check_id': 'test-check-uuid-100',
         'metric_key': 'cpu_usage',
         'metric_label': 'CPU Usage',
         'numeric_value': 75,

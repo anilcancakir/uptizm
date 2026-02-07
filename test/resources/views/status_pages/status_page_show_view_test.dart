@@ -24,7 +24,7 @@ void main() {
     testWidgets('displays status page name and public URL', (tester) async {
       final statusPage = StatusPage()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'name': 'Acme Status',
           'slug': 'acme',
           'description': 'Status page for Acme Corp',
@@ -68,7 +68,7 @@ void main() {
     ) async {
       final statusPage = StatusPage()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'name': 'Acme Status',
           'slug': 'acme',
           'is_published': true,
@@ -106,7 +106,7 @@ void main() {
     ) async {
       final statusPage = StatusPage()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'name': 'Acme Status',
           'slug': 'acme',
           'is_published': false,
@@ -142,14 +142,14 @@ void main() {
     testWidgets('displays attached monitors list', (tester) async {
       final statusPage = StatusPage()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'name': 'Acme Status',
           'slug': 'acme',
           'is_published': true,
           'monitor_ids': [1, 2],
           'monitors': [
-            {'id': 1, 'name': 'API Server', 'status': 'active'},
-            {'id': 2, 'name': 'Web App', 'status': 'active'},
+            {'id': 'test-uuid-1', 'name': 'API Server', 'status': 'active'},
+            {'id': 'test-uuid-2', 'name': 'Web App', 'status': 'active'},
           ],
         }, sync: true)
         ..exists = true;
@@ -216,7 +216,7 @@ void main() {
     testWidgets('displays description when present', (tester) async {
       final statusPage = StatusPage()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'name': 'Acme Status',
           'slug': 'acme',
           'description': 'Real-time status updates for Acme services',
@@ -256,7 +256,7 @@ void main() {
     testWidgets('displays primary color preview', (tester) async {
       final statusPage = StatusPage()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'name': 'Acme Status',
           'slug': 'acme',
           'primary_color': '#FF5733',
@@ -294,7 +294,7 @@ void main() {
   group('StatusPage model', () {
     test('publicUrl is correctly generated from slug', () {
       final statusPage = StatusPage()
-        ..setRawAttributes({'id': 1, 'slug': 'my-company'}, sync: true);
+        ..setRawAttributes({'id': 'test-uuid-1', 'slug': 'my-company'}, sync: true);
 
       expect(statusPage.publicUrl, 'https://my-company.uptizm.com');
     });
@@ -302,10 +302,10 @@ void main() {
     test('monitors relationship parses correctly', () {
       final statusPage = StatusPage()
         ..setRawAttributes({
-          'id': 1,
+          'id': 'test-uuid-1',
           'monitors': [
-            {'id': 1, 'name': 'API', 'status': 'active'},
-            {'id': 2, 'name': 'Web', 'status': 'paused'},
+            {'id': 'test-uuid-1', 'name': 'API', 'status': 'active'},
+            {'id': 'test-uuid-2', 'name': 'Web', 'status': 'paused'},
           ],
         }, sync: true);
 
@@ -315,7 +315,7 @@ void main() {
     });
 
     test('isPublished defaults to false', () {
-      final statusPage = StatusPage()..setRawAttributes({'id': 1}, sync: true);
+      final statusPage = StatusPage()..setRawAttributes({'id': 'test-status-page-uuid-1'}, sync: true);
 
       expect(statusPage.isPublished, false);
     });

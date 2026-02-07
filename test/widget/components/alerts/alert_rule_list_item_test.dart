@@ -20,8 +20,8 @@ void main() {
 
     setUp(() {
       testRule = AlertRule.fromMap({
-        'id': 1,
-        'team_id': 10,
+        'id': 'test-uuid-1',
+        'team_id': 'test-team-uuid-10',
         'name': 'High Response Time',
         'type': 'threshold',
         'enabled': true,
@@ -69,8 +69,8 @@ void main() {
 
     testWidgets('shows metric key for anomaly rules', (tester) async {
       final anomalyRule = AlertRule.fromMap({
-        'id': 2,
-        'team_id': 10,
+        'id': 'test-uuid-2',
+        'team_id': 'test-team-uuid-10',
         'name': 'Order Anomaly',
         'type': 'anomaly',
         'metric_key': 'order_count',
@@ -125,8 +125,8 @@ void main() {
       tester,
     ) async {
       final teamRule = AlertRule.fromMap({
-        'id': 4,
-        'team_id': 10,
+        'id': 'test-uuid-4',
+        'team_id': 'test-team-uuid-10',
         'monitor_id': null,
         'name': 'Team Default',
         'type': 'status',
@@ -145,9 +145,9 @@ void main() {
     ) async {
       // testRule has monitor_id = 20
       final monitorRule = AlertRule.fromMap({
-        'id': 5,
-        'team_id': 10,
-        'monitor_id': 20,
+        'id': 'test-uuid-5',
+        'team_id': 'test-team-uuid-10',
+        'monitor_id': 'test-monitor-uuid-20',
         'name': 'Monitor Override',
         'type': 'threshold',
         'severity': 'warning',

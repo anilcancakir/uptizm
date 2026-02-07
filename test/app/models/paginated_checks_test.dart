@@ -8,13 +8,13 @@ void main() {
       final response = {
         'data': [
           {
-            'id': 1,
+            'id': 'test-uuid-1',
             'status': 'up',
             'response_time_ms': 100,
             'checked_at': '2023-01-01T12:00:00Z',
           },
           {
-            'id': 2,
+            'id': 'test-uuid-2',
             'status': 'down',
             'response_time_ms': 500,
             'checked_at': '2023-01-01T12:01:00Z',
@@ -32,7 +32,7 @@ void main() {
 
       expect(paginated.checks.length, 2);
       expect(paginated.checks.first, isA<MonitorCheck>());
-      expect(paginated.checks.first.id, 1);
+      expect(paginated.checks.first.id, 'test-uuid-1');
 
       expect(paginated.currentPage, 2);
       expect(paginated.lastPage, 5);

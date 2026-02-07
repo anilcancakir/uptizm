@@ -49,9 +49,21 @@ void main() {
       expect(statusPage.isPublished, true);
       expect(statusPage.get<bool>('is_published'), true);
 
-      statusPage.monitorIds = [1, 2, 3];
-      expect(statusPage.monitorIds, [1, 2, 3]);
-      expect(statusPage.get<List>('monitor_ids'), [1, 2, 3]);
+      statusPage.monitorIds = [
+        'test-monitor-uuid-1',
+        'test-monitor-uuid-2',
+        'test-monitor-uuid-3',
+      ];
+      expect(statusPage.monitorIds, [
+        'test-monitor-uuid-1',
+        'test-monitor-uuid-2',
+        'test-monitor-uuid-3',
+      ]);
+      expect(statusPage.get<List>('monitor_ids'), [
+        'test-monitor-uuid-1',
+        'test-monitor-uuid-2',
+        'test-monitor-uuid-3',
+      ]);
     });
 
     test('primaryColor has default value #009E60', () {
@@ -70,20 +82,28 @@ void main() {
       expect(statusPage.publicUrl, 'https://uptizm.uptizm.com');
     });
 
-    test('monitorIds handles numeric values correctly', () {
+    test('monitorIds handles string values correctly', () {
       final statusPage = StatusPage();
       statusPage.setRawAttributes({
-        'monitor_ids': [1.0, 2, 3.5],
+        'monitor_ids': [
+          'test-monitor-uuid-1',
+          'test-monitor-uuid-2',
+          'test-monitor-uuid-3',
+        ],
       }, sync: true);
-      expect(statusPage.monitorIds, [1, 2, 3]);
+      expect(statusPage.monitorIds, [
+        'test-monitor-uuid-1',
+        'test-monitor-uuid-2',
+        'test-monitor-uuid-3',
+      ]);
     });
 
     test('monitors getter returns list of Monitor models', () {
       final statusPage = StatusPage();
       statusPage.setRawAttributes({
         'monitors': [
-          {'id': 1, 'name': 'Monitor 1'},
-          {'id': 2, 'name': 'Monitor 2'},
+          {'id': 'test-monitor-uuid-1', 'name': 'Monitor 1'},
+          {'id': 'test-monitor-uuid-2', 'name': 'Monitor 2'},
         ],
       }, sync: true);
 
@@ -104,11 +124,11 @@ void main() {
 
     test('fromMap creates model with correct attributes', () {
       final statusPage = StatusPage.fromMap({
-        'id': 1,
+        'id': 'test-status-page-uuid-1',
         'name': 'Test Page',
         'slug': 'test-page',
       });
-      expect(statusPage.id, 1);
+      expect(statusPage.id, 'test-status-page-uuid-1');
       expect(statusPage.name, 'Test Page');
       expect(statusPage.slug, 'test-page');
     });

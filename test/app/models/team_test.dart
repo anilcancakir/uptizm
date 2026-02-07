@@ -42,8 +42,8 @@ void main() {
       });
 
       test('ownerId', () {
-        final team = Team.fromMap({'owner_id': 42});
-        expect(team.ownerId, 42);
+        final team = Team.fromMap({'owner_id': 'test-user-uuid-42'});
+        expect(team.ownerId, 'test-user-uuid-42');
       });
 
       test('userRole', () {
@@ -92,17 +92,17 @@ void main() {
     group('fromMap', () {
       test('with full data sets exists true', () {
         final team = Team.fromMap({
-          'id': 1,
+          'id': 'test-team-uuid-1',
           'name': 'My Team',
-          'owner_id': 5,
+          'owner_id': 'test-user-uuid-5',
           'personal_team': false,
           'user_role': 'owner',
           'profile_photo_url': 'https://img.com/team.jpg',
         });
 
-        expect(team.id, 1);
+        expect(team.id, 'test-team-uuid-1');
         expect(team.name, 'My Team');
-        expect(team.ownerId, 5);
+        expect(team.ownerId, 'test-user-uuid-5');
         expect(team.isPersonalTeam, false);
         expect(team.userRole, 'owner');
         expect(team.profilePhotoUrl, 'https://img.com/team.jpg');
@@ -119,7 +119,7 @@ void main() {
 
       test('null handling for optional fields', () {
         final team = Team.fromMap({
-          'id': 1,
+          'id': 'test-team-uuid-1',
           'name': null,
           'owner_id': null,
           'profile_photo_url': null,
