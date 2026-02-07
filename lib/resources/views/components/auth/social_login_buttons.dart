@@ -26,8 +26,9 @@ class SocialLoginButtons extends StatelessWidget {
   });
 
   String _label(String provider) {
-    final action = mode == SocialAuthMode.signIn ? 'Sign in' : 'Sign up';
-    return '$action with $provider';
+    return mode == SocialAuthMode.signIn
+        ? trans('auth.sign_in_with', {'provider': provider})
+        : trans('auth.sign_up_with', {'provider': provider});
   }
 
   @override

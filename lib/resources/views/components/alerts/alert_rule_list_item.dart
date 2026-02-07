@@ -19,7 +19,7 @@ class AlertRuleListItem extends StatelessWidget {
   String _getConditionText() {
     switch (rule.type.value) {
       case 'status':
-        return 'Monitor down';
+        return trans('alerts.condition_monitor_down');
       case 'threshold':
         final metric = rule.metricKey ?? 'value';
         final op = rule.operator?.value ?? '>';
@@ -47,13 +47,13 @@ class AlertRuleListItem extends StatelessWidget {
               children: [
                 // Name
                 WText(
-                  rule.name ?? 'Unnamed Rule',
+                  rule.name ?? trans('alerts.unnamed_rule'),
                   className:
                       'text-sm font-semibold text-gray-900 dark:text-white',
                 ),
                 // Badges row
                 WDiv(
-                  className: 'flex flex-row items-center gap-2 flex-wrap',
+                  className: 'wrap items-center gap-2',
                   children: [
                     AlertSeverityBadge(severity: rule.severity),
                     if (rule.isTeamLevel)
@@ -62,7 +62,7 @@ class AlertRuleListItem extends StatelessWidget {
                             'px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20',
                         children: [
                           WText(
-                            'Team Level',
+                            trans('alerts.team_level'),
                             className:
                                 'text-xs font-medium text-blue-600 dark:text-blue-400',
                           ),
@@ -72,8 +72,7 @@ class AlertRuleListItem extends StatelessWidget {
                 ),
                 // Type + Condition row
                 WDiv(
-                  className:
-                      'flex flex-row items-center gap-1 flex-wrap min-w-0',
+                  className: 'wrap items-center gap-1',
                   children: [
                     WText(
                       rule.type.label,
@@ -82,8 +81,7 @@ class AlertRuleListItem extends StatelessWidget {
                     WText('•', className: 'text-xs text-gray-400'),
                     WText(
                       _getConditionText(),
-                      className:
-                          'text-xs text-gray-600 dark:text-gray-400 truncate',
+                      className: 'text-xs text-gray-600 dark:text-gray-400',
                     ),
                   ],
                 ),

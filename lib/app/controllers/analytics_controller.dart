@@ -56,7 +56,7 @@ class AnalyticsController extends MagicController {
       }
     } catch (e) {
       Log.error('Fetch analytics failed', e);
-      Magic.toast(trans('errors.network'));
+      Magic.toast(trans('errors.network_error'));
     }
   }
 

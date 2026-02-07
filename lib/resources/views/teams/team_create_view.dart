@@ -50,11 +50,11 @@ class _TeamCreateViewState
             className: 'mb-6',
             children: [
               WText(
-                trans('teams.create_team'),
+                trans('team.create_team'),
                 className: '''
-                    text-gray-900 dark:text-white 
-                    text-2xl font-bold
-                  ''',
+                     text-gray-900 dark:text-white 
+                     text-2xl font-bold
+                   ''',
               ),
               const WSpacer(className: 'h-1'),
               WText(

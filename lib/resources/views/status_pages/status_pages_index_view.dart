@@ -30,7 +30,7 @@ class _StatusPagesIndexViewState
       children: [
         // Header
         AppPageHeader(
-          title: trans('navigation.status_pages'),
+          title: trans('nav.status_pages'),
           subtitle: trans('status_pages.welcome_subtitle'),
           actions: [
             WButton(
@@ -45,7 +45,7 @@ class _StatusPagesIndexViewState
                 className: 'flex flex-row items-center gap-2',
                 children: [
                   WIcon(Icons.add, className: 'text-lg text-white'),
-                  WText(trans('status_pages.create')),
+                  WText(trans('status_pages.create_button')),
                 ],
               ),
             ),
@@ -87,7 +87,7 @@ class _StatusPagesIndexViewState
         ''',
         children: [
           WDiv(
-            className: 'flex flex-row items-center justify-between',
+            className: 'wrap items-center justify-between gap-3',
             children: [
               // Left: Icon + Info
               WDiv(
@@ -95,7 +95,7 @@ class _StatusPagesIndexViewState
                 children: [
                   WDiv(
                     className: '''
-                      w-12 h-12 rounded-xl
+                      w-12 h-12 rounded-xl flex-shrink-0
                       bg-primary/10 flex items-center justify-center
                     ''',
                     child: WIcon(
@@ -126,7 +126,6 @@ class _StatusPagesIndexViewState
                 className: 'flex flex-row items-center gap-2',
                 children: [
                   _buildPublishedBadge(page),
-                  const WSpacer(className: 'w-2'),
                   _buildMonitorCountBadge(page),
                 ],
               ),
@@ -163,7 +162,7 @@ class _StatusPagesIndexViewState
       ''',
       children: [
         WIcon(Icons.monitor_heart_outlined, className: 'text-xs'),
-        WText('$count ${trans('navigation.monitors')}'),
+        WText('$count ${trans('nav.monitors')}'),
       ],
     );
   }
