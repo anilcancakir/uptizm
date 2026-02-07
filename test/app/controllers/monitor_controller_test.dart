@@ -49,7 +49,7 @@ void main() {
       // Note: We can't easily mock the static MonitorCheck.forMonitor call here
       // so we just verify the method exists and handles the call
       try {
-        await controller.loadChecks(1);
+        await controller.loadChecks('test-monitor-uuid-1');
       } catch (_) {
         // Expected to fail due to no backend connection in unit test
       }

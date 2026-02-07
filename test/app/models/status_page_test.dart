@@ -112,8 +112,8 @@ void main() {
       expect(monitors[0], isA<Monitor>());
       expect(
         monitors[0].id,
-        isNull,
-      ); // fill() skips 'id' as it's not in fillable
+        'test-monitor-uuid-1',
+      ); // id is now set from raw attributes with UUID
       expect(monitors[0].name, 'Monitor 1');
     });
 
