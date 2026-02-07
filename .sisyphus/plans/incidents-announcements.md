@@ -492,7 +492,7 @@ Wave 4 (After Wave 3):
 
 ### WAVE 2: API Controllers + Flutter Views
 
-- [ ] 2. Backend: Incident API Controller + Routes + Policy
+- [x] 2. Backend: Incident API Controller + Routes + Policy
 
   **What to do**:
 
@@ -606,7 +606,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 3. Backend: IncidentAutoCreationService
+- [x] 3. Backend: IncidentAutoCreationService
 
   **What to do**:
 
@@ -725,7 +725,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 7. Backend: Announcement API Controller + Routes + Policy
+- [x] 7. Backend: Announcement API Controller + Routes + Policy
 
   **What to do**:
 
@@ -938,7 +938,7 @@ Wave 4 (After Wave 3):
 
 ### WAVE 3: Integration + Advanced Features
 
-- [ ] 4. Backend: Integrate IncidentAutoCreationService into ProcessCheckResult
+- [x] 4. Backend: Integrate IncidentAutoCreationService into ProcessCheckResult
 
   **What to do**:
   
@@ -1046,7 +1046,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 8. Backend: Scheduled Announcements Command
+- [x] 8. Backend: Scheduled Announcements Command
 
   **What to do**:
 
@@ -1107,7 +1107,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 11. Flutter: Announcement Controller + Views
+- [x] 11. Flutter: Announcement Controller + Views
 
   **What to do**:
 
