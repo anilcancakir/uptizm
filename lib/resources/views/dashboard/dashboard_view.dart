@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/models/user.dart';
+import '../../../app/models/incident.dart';
 import '../components/dashboard/stat_card.dart';
 import '../components/dashboard/monitor_list_item.dart';
 import '../components/dashboard/activity_item.dart';
@@ -71,10 +72,17 @@ class DashboardView extends StatelessWidget {
         value: '21',
         icon: Icons.check_circle_outline,
       ),
-      StatCard(
-        label: trans('dashboard.active_incidents'),
-        value: '2',
-        icon: Icons.warning_amber,
+      FutureBuilder<List<Incident>>(
+        future: Incident.all(),
+        builder: (context, snapshot) {
+          final count = snapshot.data?.where((i) => !i.isResolved).length ?? 0;
+          return StatCard(
+            label: trans('dashboard.active_incidents'),
+            value: count.toString(),
+            icon: Icons.warning_amber_rounded,
+            onTap: () => MagicRoute.to('/incidents'),
+          );
+        },
       ),
       StatCard(
         label: trans('dashboard.avg_response_time'),

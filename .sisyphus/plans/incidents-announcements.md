@@ -1187,7 +1187,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 12. Flutter: Status Page Incident Integration (Admin Side)
+- [x] 12. Flutter: Status Page Incident Integration (Admin Side)
 
   **What to do**:
 
@@ -1370,7 +1370,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 14. Flutter: Wiring (Search, Activity, Dashboard, Translations)
+- [x] 14. Flutter: Wiring (Search, Activity, Dashboard, Translations)
 
   **What to do**:
 
