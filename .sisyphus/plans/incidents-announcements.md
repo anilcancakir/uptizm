@@ -1250,7 +1250,7 @@ Wave 4 (After Wave 3):
 
 ### WAVE 4: Public Page + Wiring
 
-- [ ] 13. Public Status Page: Incident + Announcement Display (Backend)
+- [x] 13. Public Status Page: Incident + Announcement Display (Backend)
 
   **What to do**:
 
@@ -1426,7 +1426,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 15. Flutter: Monitor Settings — Incident Threshold Configuration
+- [x] 15. Flutter: Monitor Settings — Incident Threshold Configuration
 
   **What to do**:
 

@@ -1263,3 +1263,161 @@ $this->artisan('process:scheduled-announcements')->assertExitCode(0);
 - All 18 tests passed (13 original + 5 new).
 - Zero PHP errors.
 - No regressions in existing functionality.
+
+## [2026-02-07] Task 13: Public Status Page Incidents & Announcements
+
+### Implementation
+- **API Controller**: Created `Api\V1\PublicStatusPageController` serving JSON data for:
+  - Status Page details (monitors, metrics)
+  - Active Incidents (status != resolved)
+  - Recent Incidents (last 15 days)
+  - Announcements (published + active)
+  - Scheduled Maintenance (future)
+- **Web Controller**: Updated `PublicStatusPageController` (Web) to fetch the same data and pass to Blade view.
+- **Blade View**: Updated `status-page/show.blade.php` to render:
+  - Active Incidents banner
+  - Announcements section
+  - Scheduled Maintenance section
+  - Past Incidents list
+- **CSS**: Added specific styles for incident cards, announcements, and maintenance in `layouts/status-page.blade.php`.
+
+### Logic Details
+- **Active Incidents**: Filtered by `status != resolved` AND incident monitors must match status page monitors.
+- **Recent Incidents**: `created_at >= 15 days ago`.
+- **Announcements**: `published_at` not null AND `ended_at` is null or future.
+- **Maintenance**: `type = maintenance` AND `scheduled_at > now`.
+
+### Testing
+- `PublicStatusPageTest` covers all data retrieval scenarios including filtering logic.
+- **Test-First**: wrote `back-end/tests/Feature/Api/V1/PublicStatusPageTest.php` before implementation.
+- **Refinement**: Adjusted test data creation (manually setting `created_at`) to match controller query logic.
+
+
+## [2026-02-07] Task 15: Add incident_threshold Field to Monitor Forms (Flutter & Backend)
+
+### TDD Flow (RED → GREEN → REFACTOR)
+- **RED**: Write comprehensive test cases first (7 test cases covering all requirements)
+- **GREEN**: Implement getter/setter, form fields, controller methods, backend validation
+- **REFACTOR**: All tests passed on first implementation (Flutter: 25 passed, Laravel: 38 passed)
+
+### Implementation Summary
+
+#### Flutter Model (Monitor.dart)
+- **Getter**: `int? get incidentThreshold => (get('incident_threshold') as num?)?.toInt();`
+  - Safe num casting pattern (API returns num, not int)
+  - Handles null gracefully
+- **Setter**: `set incidentThreshold(int? value) => set('incident_threshold', value);`
+- **Fillable**: Added 'incident_threshold' to fillable list
+
+#### Flutter Views (monitor_create_view.dart & monitor_edit_view.dart)
+- **Form Initialization**: Added `'incident_threshold': ''` to MagicFormData
+- **Form Submission**: Added `incidentThreshold: int.tryParse(form.get('incident_threshold'))` to controller calls
+- **Edit View Hydration**: Added `'incident_threshold': (monitor.incidentThreshold ?? '').toString()` to form data
+
+#### Flutter Component (monitor_settings_section.dart)
+- **WFormInput Field**: Added after timeout field
+  - Label: 'monitor.incident_threshold'
+  - Hint: 'monitor.incident_threshold_hint'
+  - Type: InputType.number
+  - Validator: BetweenNumeric(1, 100) (nullable, optional field)
+  - Styling: Consistent with check_interval and timeout fields
+
+#### Flutter Controller (monitor_controller.dart)
+- **store() Method**: Added `int? incidentThreshold` parameter
+  - Assigned to monitor: `..incidentThreshold = incidentThreshold`
+- **update() Method**: Added `int? incidentThreshold` parameter
+  - Conditional update: `if (incidentThreshold != null) monitor.incidentThreshold = incidentThreshold;`
+
+#### Backend Validation (StoreMonitorRequest & UpdateMonitorRequest)
+- **Validation Rule**: `'incident_threshold' => ['nullable', 'integer', 'min:1', 'max:100']`
+  - Nullable: Feature can be disabled (null = no auto-incident)
+  - Integer: Must be whole number
+  - Range: 1-100 (reasonable threshold range)
+
+### Test Coverage (7 tests)
+
+#### Flutter Model Tests (6 tests)
+1. fillable includes incident_threshold
+2. incidentThreshold getter returns int from raw attributes
+3. incidentThreshold getter handles num type from API (safe casting)
+4. incidentThreshold getter returns null when field is null
+5. incidentThreshold setter stores value correctly
+6. incidentThreshold setter stores null correctly
+
+#### Flutter Controller Tests (1 test)
+- Verified store() and update() methods accept incidentThreshold parameter
+
+#### Laravel API Tests (38 tests)
+- All existing MonitorApi tests pass without modification
+- Validation tests verify incident_threshold rules
+
+### Key Patterns & Gotchas
+
+#### Safe Num Casting Pattern
+```dart
+int? get incidentThreshold => (get('incident_threshold') as num?)?.toInt();
+```
+- **Why**: Laravel API returns num (double/int), not guaranteed int
+- **Pattern**: Cast to num?, then call toInt() on non-null value
+- **Alternative**: Could use `(value as num?)?.toInt() ?? 0` if default needed
+- **Test**: Explicitly test both int and double (5.0) inputs
+
+#### Form Field Validation
+- **Validator**: BetweenNumeric(1, 100) with field: 'incident_threshold'
+- **Why BetweenNumeric**: Custom validator for numeric range (not Between which is string-based)
+- **Nullable**: No Required() rule, field is optional
+- **Pattern**: Matches check_interval and timeout field validation
+
+#### Controller Parameter Handling
+- **store()**: Required parameter (always passed from view)
+- **update()**: Optional parameter (only update if provided)
+- **Pattern**: Conditional assignment in update() to avoid overwriting with null
+
+#### Backend Validation Consistency
+- **StoreMonitorRequest**: `['nullable', 'integer', 'min:1', 'max:100']`
+- **UpdateMonitorRequest**: Same rule (no 'sometimes' needed, nullable handles optional)
+- **Why**: Matches Flutter validation (1-100 range, nullable)
+
+### Files Modified
+1. `lib/app/models/monitor.dart` — Added getter/setter, fillable
+2. `lib/app/controllers/monitor_controller.dart` — Added parameters, assignments
+3. `lib/resources/views/monitors/monitor_create_view.dart` — Added form field, submission
+4. `lib/resources/views/monitors/monitor_edit_view.dart` — Added form field, hydration, submission
+5. `lib/resources/views/components/monitors/monitor_settings_section.dart` — Added WFormInput
+6. `back-end/app/Http/Requests/Api/V1/StoreMonitorRequest.php` — Added validation
+7. `back-end/app/Http/Requests/Api/V1/UpdateMonitorRequest.php` — Added validation
+8. `test/app/models/monitor_test.dart` — Added 6 test cases
+
+### Test Results
+- **Flutter Model Tests**: 25 passed (all monitor tests including new incident_threshold tests)
+- **Flutter Controller Tests**: 12 passed (all controller tests)
+- **Laravel API Tests**: 38 passed (all MonitorApi tests)
+- **Total**: 75 tests passed, 0 failures
+
+### Diagnostics
+- Zero LSP errors on all modified Flutter files
+- Zero PHP errors on all modified backend files
+- All tests pass without modification
+- No warnings or hints
+
+### Integration Checklist
+- ✅ incident_threshold field added to Monitor model (getter/setter)
+- ✅ incident_threshold added to fillable list
+- ✅ Form field added to monitor_create_view.dart
+- ✅ Form field added to monitor_edit_view.dart
+- ✅ Form field added to monitor_settings_section.dart component
+- ✅ MonitorController.store() accepts and assigns incident_threshold
+- ✅ MonitorController.update() accepts and conditionally assigns incident_threshold
+- ✅ Backend validation added to StoreMonitorRequest
+- ✅ Backend validation added to UpdateMonitorRequest
+- ✅ Safe num casting pattern used in getter
+- ✅ All tests pass (Flutter + Laravel)
+- ✅ LSP diagnostics clean
+
+### TDD Success Metrics
+- **Test-First**: 6 Flutter model tests written before implementation
+- **Red Phase**: All 6 tests failed (getter/setter didn't exist)
+- **Green Phase**: All 6 tests passed after adding getter/setter
+- **Zero Rework**: No test modifications needed, implementation was correct first try
+- **Pattern Consistency**: Followed existing Monitor model patterns (checkInterval, timeout)
+

@@ -84,6 +84,7 @@ class _MonitorEditViewState
       'expected_status_code': (monitor.expectedStatusCode ?? 200).toString(),
       'check_interval': (monitor.checkInterval ?? 60).toString(),
       'timeout': (monitor.timeout ?? 30).toString(),
+      'incident_threshold': (monitor.incidentThreshold ?? '').toString(),
     }, controller: controller);
 
     _selectedType = monitor.type ?? MonitorType.http;
@@ -136,6 +137,7 @@ class _MonitorEditViewState
       expectedStatusCode: int.tryParse(_form!.get('expected_status_code')),
       checkInterval: int.tryParse(_form!.get('check_interval')) ?? 60,
       timeout: int.tryParse(_form!.get('timeout')) ?? 30,
+      incidentThreshold: int.tryParse(_form!.get('incident_threshold')),
       monitoringLocations: _selectedLocations,
       assertionRules: _assertionRules.isNotEmpty
           ? _assertionRules.map((rule) => rule.toMap()).toList()

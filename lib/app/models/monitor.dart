@@ -27,6 +27,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'expected_status_code',
     'check_interval',
     'timeout',
+    'incident_threshold',
     'monitoring_locations',
     'assertion_rules',
     'metric_mappings',
@@ -51,6 +52,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   int? get expectedStatusCode => get<int>('expected_status_code');
   int? get checkInterval => get<int>('check_interval');
   int? get timeout => get<int>('timeout');
+  int? get incidentThreshold => (get('incident_threshold') as num?)?.toInt();
   List<MonitorLocation>? get monitoringLocations =>
       MonitorLocation.fromValueList(get<List>('monitoring_locations'));
   List<Map<String, dynamic>>? get assertionRules =>
@@ -79,6 +81,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   set expectedStatusCode(int? value) => set('expected_status_code', value);
   set checkInterval(int? value) => set('check_interval', value);
   set timeout(int? value) => set('timeout', value);
+  set incidentThreshold(int? value) => set('incident_threshold', value);
   set monitoringLocations(List<MonitorLocation>? value) =>
       set('monitoring_locations', MonitorLocation.toValueList(value ?? []));
   set assertionRules(List<Map<String, dynamic>>? value) =>

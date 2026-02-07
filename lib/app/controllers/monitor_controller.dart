@@ -126,6 +126,7 @@ class MonitorController extends MagicController
     int? expectedStatusCode,
     required int checkInterval,
     required int timeout,
+    int? incidentThreshold,
     required List<MonitorLocation> monitoringLocations,
     List<Map<String, dynamic>>? assertionRules,
     List<Map<String, dynamic>>? metricMappings,
@@ -147,6 +148,7 @@ class MonitorController extends MagicController
         ..expectedStatusCode = expectedStatusCode ?? 200
         ..checkInterval = checkInterval
         ..timeout = timeout
+        ..incidentThreshold = incidentThreshold
         ..monitoringLocations = monitoringLocations
         ..assertionRules = assertionRules
         ..metricMappings = metricMappings
@@ -181,6 +183,7 @@ class MonitorController extends MagicController
     int? expectedStatusCode,
     int? checkInterval,
     int? timeout,
+    int? incidentThreshold,
     List<MonitorLocation>? monitoringLocations,
     List<Map<String, dynamic>>? assertionRules,
     List<Map<String, dynamic>>? metricMappings,
@@ -208,6 +211,8 @@ class MonitorController extends MagicController
       }
       if (checkInterval != null) monitor.checkInterval = checkInterval;
       if (timeout != null) monitor.timeout = timeout;
+      if (incidentThreshold != null)
+        monitor.incidentThreshold = incidentThreshold;
       if (monitoringLocations != null) {
         monitor.monitoringLocations = monitoringLocations;
       }
