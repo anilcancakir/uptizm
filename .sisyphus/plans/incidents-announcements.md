@@ -1006,7 +1006,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 5. Backend: Anti-Flapping Protection + Recovery Handling Tests
+- [x] 5. Backend: Anti-Flapping Protection + Recovery Handling Tests
 
   **What to do**:
   

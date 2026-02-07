@@ -1223,3 +1223,43 @@ $this->artisan('process:scheduled-announcements')->assertExitCode(0);
 - **Zero Rework**: No test modifications needed, implementation was correct first try
 - **Pattern Consistency**: Followed existing SendTestNotification and StartMonitoringEngine command patterns
 
+
+## [2026-02-07] Task 5: Incident Auto-Creation Edge Cases (Service Tests)
+
+### TDD Flow (RED → GREEN → REFACTOR)
+- **RED**: 5 new test methods added to `IncidentAutoCreationServiceTest.php` covering edge cases.
+- **GREEN**: Service logic was already robust; all 5 new tests passed immediately (0.41s total for 18 tests).
+- **REFACTOR**: No code changes needed in service. Tests served as verification of existing logic.
+
+### New Test Coverage (5 tests added)
+1. **test_anti_flapping_prevents_duplicate_incidents_within_cooldown**
+   - Verifies 30-minute cooldown logic explicitly preventing new incidents even with fresh failures.
+   - Ensures `evaluate()` returns null during cooldown.
+
+2. **test_recovery_adds_monitoring_update_without_resolving**
+   - Verifies recovery path adds "monitoring" update instead of resolving.
+   - Ensures `handleRecovery()` creates update with correct status/message.
+   - Confirms incident status remains 'investigating' (human confirmation required).
+
+3. **test_threshold_disabled_prevents_auto_incidents**
+   - Verifies `incident_threshold = null` completely disables auto-creation.
+   - Confirms `evaluate()` returns null.
+
+4. **test_multiple_monitors_can_share_same_incident**
+   - Verifies Many-to-Many relationship (multiple monitors attached to one incident).
+   - Confirms `monitors` relationship contains all attached monitors.
+
+5. **test_race_condition_only_creates_one_incident**
+   - Simulates sequential concurrent-like execution (relying on transaction logic).
+   - Confirms only 1 incident created even if `evaluate()` called twice.
+   - Validates idempotent behavior when race conditions might occur.
+
+### Key Learnings
+- **Service Robustness**: The initial implementation of `IncidentAutoCreationService` (Task 3) was solid enough to pass all edge cases without modification.
+- **Testing Concurrency**: True race condition testing in PHPUnit is difficult (single process). We simulate logic by calling methods sequentially and relying on transaction/locking expectations.
+- **Test Duplication**: Some new tests overlapped with existing ones but provided more specific scenario names or slightly different setup flows, increasing confidence.
+
+### Diagnostics
+- All 18 tests passed (13 original + 5 new).
+- Zero PHP errors.
+- No regressions in existing functionality.
