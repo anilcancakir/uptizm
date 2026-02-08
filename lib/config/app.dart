@@ -11,8 +11,8 @@ import '../app/providers/route_service_provider.dart';
 Map<String, dynamic> get appConfig => {
   'app': {
     'name': 'Uptizm',
-    'env': 'local',
-    'debug': true,
+    'env': env('APP_ENV', 'production'),
+    'debug': env('APP_DEBUG', false),
     'url': env('APP_URL', 'http://localhost'),
     'key': env('APP_KEY'),
     'providers': [
