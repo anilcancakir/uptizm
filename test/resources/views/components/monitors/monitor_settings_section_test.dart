@@ -10,7 +10,11 @@ void main() {
     late MagicFormData form;
 
     setUp(() {
-      form = MagicFormData({'check_interval': '60', 'timeout': '30'});
+      form = MagicFormData({
+        'check_interval': '60',
+        'timeout': '30',
+        'incident_threshold': '1',
+      });
     });
 
     Widget buildSubject({

@@ -50,8 +50,8 @@ void main() {
       expect(MonitorLocation.fromValue(null), null);
     });
 
-    test('fromValue returns usEast for unknown value', () {
-      expect(MonitorLocation.fromValue('unknown'), MonitorLocation.usEast);
+    test('fromValue returns null for unknown value', () {
+      expect(MonitorLocation.fromValue('unknown'), isNull);
     });
 
     test('selectOptions returns 6 options', () {

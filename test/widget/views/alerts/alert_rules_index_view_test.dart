@@ -17,22 +17,26 @@ void main() {
     testWidgets('renders page title', (tester) async {
       await tester.pumpWidget(buildTestApp(child: const AlertRulesIndexView()));
 
-      expect(find.text('Alert Rules'), findsOneWidget);
+      expect(find.text(trans('alerts.alert_rules')), findsOneWidget);
     });
 
     testWidgets('shows Add Rule button', (tester) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
       await tester.pumpWidget(
         buildTestApp(child: AlertRulesIndexView(onAddRule: () {})),
       );
 
-      expect(find.text('Add Rule'), findsOneWidget);
+      expect(find.text(trans('alerts.add_rule')), findsOneWidget);
     });
 
     testWidgets('renders empty state when no rules', (tester) async {
       await tester.pumpWidget(buildTestApp(child: const AlertRulesIndexView()));
       await tester.pumpAndSettle();
 
-      expect(find.text('No alert rules'), findsOneWidget);
+      expect(find.text(trans('alerts.no_rules')), findsOneWidget);
     });
 
     testWidgets('renders list of AlertRuleListItem when rules provided', (
@@ -72,6 +76,10 @@ void main() {
     });
 
     testWidgets('calls onAddRule when Add Rule button tapped', (tester) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
       bool addRuleCalled = false;
 
       await tester.pumpWidget(
@@ -80,7 +88,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Add Rule'));
+      await tester.tap(find.text(trans('alerts.add_rule')));
       await tester.pump();
 
       expect(addRuleCalled, isTrue);

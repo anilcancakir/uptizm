@@ -82,7 +82,8 @@ class ActiveAlertsPanel extends StatelessWidget {
           )
         else
           WDiv(
-            className: 'flex flex-col',
+            className: 'flex flex-col max-h-[400px] overflow-y-auto',
+            scrollPrimary: true,
             children: displayedAlerts
                 .map((alert) => AlertListItem(alert: alert))
                 .toList(),
