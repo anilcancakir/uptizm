@@ -1,11 +1,12 @@
+import 'package:magic/magic.dart';
+
 /// Magic Notifications Configuration
 Map<String, dynamic> get notificationConfig => {
   'notifications': {
     'push': {
       'driver': 'onesignal',
-      'app_id': '4573490d-2dfa-44c3-b211-8e04e2e96bdd',
-      'safari_web_id':
-          'web.onesignal.auto.2c5a7aa8-83b4-45ba-8e8f-e5cd6a2881a0',
+      'app_id': env('ONESIGNAL_APP_ID', ''),
+      'safari_web_id': env('ONESIGNAL_SAFARI_WEB_ID', ''),
       'notify_button_enabled': false,
     },
     'database': {
