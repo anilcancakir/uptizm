@@ -22,8 +22,8 @@ void main() {
       expect(ApiKeyLocation.fromValue('query'), ApiKeyLocation.query);
     });
 
-    test('fromValue returns header for null', () {
-      expect(ApiKeyLocation.fromValue(null), ApiKeyLocation.header);
+    test('fromValue returns null for null', () {
+      expect(ApiKeyLocation.fromValue(null), isNull);
     });
 
     test('selectOptions returns both', () {

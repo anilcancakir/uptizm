@@ -68,7 +68,8 @@ class ActiveAlertsPanel extends StatelessWidget {
         // Content
         if (alerts.isEmpty)
           WDiv(
-            className: 'flex flex-col items-center justify-center py-12 px-6',
+            className:
+                'w-full flex flex-col items-center justify-center py-12 px-6',
             children: [
               WIcon(
                 Icons.check_circle_outline,

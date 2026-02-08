@@ -231,7 +231,7 @@ class _MonitorAnalyticsViewState
 
   Widget _buildEmptyState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-16',
+      className: 'w-full flex flex-col items-center justify-center py-16',
       children: [
         WDiv(
           className:

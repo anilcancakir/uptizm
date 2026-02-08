@@ -389,7 +389,7 @@ Critical Path: Task 1 → Task 3 → Task 7
 
 ---
 
-- [ ] 7. Update Status Page Show View — Announcements Card Integration
+- [x] 7. Update Status Page Show View — Announcements Card Integration
 
   **What to do**:
   - Update `_buildAnnouncementsCard()` in `status_page_show_view.dart` to add navigation links
@@ -451,7 +451,7 @@ Critical Path: Task 1 → Task 3 → Task 7
 
 ---
 
-- [ ] 8. View Tests + Final Verification
+- [x] 8. View Tests + Final Verification
 
   **What to do**:
   - Create 4 view test files following existing minimal pattern:

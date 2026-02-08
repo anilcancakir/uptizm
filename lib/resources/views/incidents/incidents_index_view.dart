@@ -446,7 +446,7 @@ class _IncidentsIndexViewState
 
   Widget _buildEmptyState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-12 px-4',
+      className: 'w-full flex flex-col items-center justify-center py-12 px-4',
       children: [
         WIcon(
           Icons.warning_amber_outlined,
@@ -492,7 +492,7 @@ class _IncidentsIndexViewState
 
   Widget _buildNoResultsState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-12 px-4',
+      className: 'w-full flex flex-col items-center justify-center py-12 px-4',
       children: [
         WIcon(
           Icons.search_off,

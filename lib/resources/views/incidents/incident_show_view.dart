@@ -181,7 +181,7 @@ class _IncidentShowViewState
           return WDiv(
             className: 'py-12 flex items-center justify-center',
             child: WDiv(
-              className: 'flex flex-col items-center gap-4',
+              className: 'w-full flex flex-col items-center gap-4',
               children: [
                 const CircularProgressIndicator(),
                 WText(
@@ -411,7 +411,7 @@ class _IncidentShowViewState
         // Timeline entries (Claude style)
         if (incident.updates.isEmpty)
           WDiv(
-            className: 'p-12 flex flex-col items-center justify-center',
+            className: 'w-full p-12 flex flex-col items-center justify-center',
             children: [
               WIcon(
                 Icons.history,

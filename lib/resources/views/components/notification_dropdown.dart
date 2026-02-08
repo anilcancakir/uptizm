@@ -139,7 +139,8 @@ class NotificationDropdown extends StatelessWidget {
   Widget _buildNotificationsList(BuildContext context, VoidCallback close) {
     if (notifications.isEmpty) {
       return WDiv(
-        className: 'py-12 flex flex-col items-center justify-center gap-3',
+        className:
+            'w-full py-12 flex flex-col items-center justify-center gap-3',
         children: [
           WIcon(
             Icons.notifications_off_outlined,
@@ -451,7 +452,7 @@ class NotificationDropdownWithStream extends StatelessWidget {
   /// Build error content
   Widget _buildErrorContent() {
     return WDiv(
-      className: 'py-12 flex flex-col items-center justify-center gap-3',
+      className: 'w-full py-12 flex flex-col items-center justify-center gap-3',
       children: [
         WIcon(Icons.error_outline, className: 'text-4xl text-red-500'),
         WText(

@@ -314,14 +314,14 @@ class _AnnouncementsIndexViewState
 
   Widget _buildLoadingState() {
     return WDiv(
-      className: 'py-12 flex items-center justify-center',
+      className: 'w-full py-12 flex items-center justify-center',
       child: const CircularProgressIndicator(),
     );
   }
 
   Widget _buildEmptyState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-16 px-4',
+      className: 'w-full flex flex-col items-center justify-center py-16 px-4',
       children: [
         WIcon(
           Icons.campaign_outlined,
@@ -354,7 +354,7 @@ class _AnnouncementsIndexViewState
 
   Widget _buildNoResultsState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-12 px-4',
+      className: 'w-full flex flex-col items-center justify-center py-12 px-4',
       children: [
         WIcon(
           Icons.filter_list_off,

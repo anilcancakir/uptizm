@@ -242,7 +242,8 @@ class _SearchAutocompleteState extends State<SearchAutocomplete> {
   Widget _buildContent() {
     if (_searchResults.isEmpty) {
       return WDiv(
-        className: 'py-8 flex flex-col items-center justify-center gap-2',
+        className:
+            'w-full py-8 flex flex-col items-center justify-center gap-2',
         children: [
           WIcon(
             Icons.search_off,

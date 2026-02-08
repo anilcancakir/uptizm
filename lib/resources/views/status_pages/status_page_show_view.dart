@@ -382,7 +382,7 @@ class _StatusPageShowViewState
           // Published status
           Expanded(
             child: WDiv(
-              className: 'flex flex-col items-center',
+              className: 'w-full flex flex-col items-center',
               children: [
                 WText(
                   trans('status_pages.published_status'),
@@ -408,7 +408,7 @@ class _StatusPageShowViewState
           // Monitor count
           Expanded(
             child: WDiv(
-              className: 'flex flex-col items-center',
+              className: 'w-full flex flex-col items-center',
               children: [
                 WText(
                   trans('status_pages.monitor_count'),
@@ -479,7 +479,8 @@ class _StatusPageShowViewState
 
           if (relevantIncidents.isEmpty) {
             return WDiv(
-              className: 'py-8 flex flex-col items-center justify-center',
+              className:
+                  'w-full py-8 flex flex-col items-center justify-center',
               children: [
                 WIcon(
                   Icons.check_circle_outline,
@@ -835,7 +836,8 @@ class _StatusPageShowViewState
       ),
       body: announcements.isEmpty
           ? WDiv(
-              className: 'py-8 flex flex-col items-center justify-center gap-3',
+              className:
+                  'w-full py-8 flex flex-col items-center justify-center gap-3',
               children: [
                 WIcon(
                   Icons.campaign_outlined,

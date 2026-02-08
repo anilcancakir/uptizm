@@ -692,6 +692,7 @@ class _StatusPageCreateViewState
                     // Empty State
                     WDiv(
                       className: '''
+                        w-full
                         flex flex-col items-center justify-center py-10 px-4
                         bg-gray-50 dark:bg-gray-900/30
                         border-2 border-dashed border-gray-200 dark:border-gray-700

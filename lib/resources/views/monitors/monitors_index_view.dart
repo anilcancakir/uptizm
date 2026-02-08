@@ -424,7 +424,7 @@ class _MonitorsIndexViewState
 
   Widget _buildEmptyState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-12 px-4',
+      className: 'w-full flex flex-col items-center justify-center py-12 px-4',
       children: [
         WIcon(
           Icons.monitor_heart_outlined,
@@ -470,7 +470,7 @@ class _MonitorsIndexViewState
 
   Widget _buildNoResultsState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-12 px-4',
+      className: 'w-full flex flex-col items-center justify-center py-12 px-4',
       children: [
         WIcon(
           Icons.search_off,
@@ -514,7 +514,7 @@ class _MonitorsIndexViewState
 
   Widget _buildNoTeamState() {
     return WDiv(
-      className: 'flex flex-col items-center justify-center py-12 px-4',
+      className: 'w-full flex flex-col items-center justify-center py-12 px-4',
       children: [
         WIcon(
           Icons.group_outlined,
