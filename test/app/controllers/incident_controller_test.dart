@@ -1,9 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/controllers/incident_controller.dart';
-import 'package:uptizm/app/enums/incident_impact.dart';
-import 'package:uptizm/app/enums/incident_status.dart';
-import 'package:uptizm/app/models/incident.dart';
 
 void main() {
   late IncidentController controller;

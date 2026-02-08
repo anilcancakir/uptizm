@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:uptizm/app/enums/alert_operator.dart';
-import 'package:uptizm/app/enums/alert_rule_type.dart';
-import 'package:uptizm/app/enums/alert_severity.dart';
 import 'package:uptizm/app/models/alert_rule.dart';
 import 'package:uptizm/resources/views/components/alerts/alert_rule_list_item.dart';
 

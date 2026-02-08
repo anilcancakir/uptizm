@@ -3,7 +3,6 @@ import 'package:magic/magic.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/incident_impact.dart';
-import '../../../app/enums/incident_status.dart';
 
 class IncidentCreateView extends MagicStatefulView<IncidentController> {
   const IncidentCreateView({super.key});
@@ -31,7 +30,7 @@ class _IncidentCreateViewState
   }
 
   Future<void> _loadMonitors() async {
-    final monitors = await MonitorController.instance.loadMonitors();
+    await MonitorController.instance.loadMonitors();
     setState(() {
       _monitorOptions = MonitorController.instance.monitorsNotifier.value
           .map((m) => SelectOption(value: m.id!, label: m.name ?? 'Unnamed'))
@@ -160,9 +159,7 @@ class _IncidentCreateViewState
                       value: _selectedImpact,
                       options: IncidentImpact.selectOptions,
                       onChange: (impact) {
-                        if (impact != null) {
-                          setState(() => _selectedImpact = impact);
-                        }
+                        setState(() => _selectedImpact = impact);
                       },
                       className: '''
                         w-full px-3 py-3 rounded-lg text-sm

@@ -296,7 +296,7 @@ class _StatusPageShowViewState
                 statusPage.logoUrl!,
                 height: 48,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => WDiv(
+                errorBuilder: (context, error, stackTrace) => WDiv(
                   className:
                       'w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center',
                   child: WIcon(

@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/enums/alert_rule_type.dart';
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
 
 void main() {
   group('AlertRuleType', () {
