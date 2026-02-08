@@ -18,7 +18,7 @@ class DateRangeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return WDiv(
-      className: 'flex flex-row flex-wrap items-center gap-2 overflow-x-auto',
+      className: 'wrap items-center gap-2',
       children: [
         // Preset buttons
         _buildPresetButton(context, '24h', 'analytics.last_24h'),

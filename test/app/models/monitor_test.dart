@@ -81,5 +81,45 @@ void main() {
       expect(raw.length, 1);
       expect((raw[0] as Map)['label'], 'Test');
     });
+
+    test('fillable includes incident_threshold', () {
+      final monitor = Monitor();
+      expect(monitor.fillable.contains('incident_threshold'), true);
+    });
+
+    test('incidentThreshold getter returns int from raw attributes', () {
+      final monitor = Monitor();
+      monitor.setRawAttributes({'incident_threshold': 3}, sync: true);
+
+      expect(monitor.incidentThreshold, 3);
+    });
+
+    test('incidentThreshold getter handles num type from API', () {
+      final monitor = Monitor();
+      monitor.setRawAttributes({'incident_threshold': 5.0}, sync: true);
+
+      expect(monitor.incidentThreshold, 5);
+    });
+
+    test('incidentThreshold getter returns null when field is null', () {
+      final monitor = Monitor();
+      monitor.setRawAttributes({}, sync: true);
+
+      expect(monitor.incidentThreshold, isNull);
+    });
+
+    test('incidentThreshold setter stores value correctly', () {
+      final monitor = Monitor();
+      monitor.incidentThreshold = 7;
+
+      expect(monitor.getAttribute('incident_threshold'), 7);
+    });
+
+    test('incidentThreshold setter stores null correctly', () {
+      final monitor = Monitor();
+      monitor.incidentThreshold = null;
+
+      expect(monitor.getAttribute('incident_threshold'), isNull);
+    });
   });
 }

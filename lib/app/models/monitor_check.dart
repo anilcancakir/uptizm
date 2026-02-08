@@ -15,8 +15,8 @@ class MonitorCheck {
       MonitorLocation.fromValue(_attributes['location'] as String?);
   CheckStatus? get status =>
       CheckStatus.fromValue(_attributes['status'] as String?);
-  int? get responseTimeMs => _attributes['response_time_ms'] as int?;
-  int? get statusCode => _attributes['status_code'] as int?;
+  int? get responseTimeMs => (_attributes['response_time_ms'] as num?)?.toInt();
+  int? get statusCode => (_attributes['status_code'] as num?)?.toInt();
   String? get responseBody => _attributes['response_body'] as String?;
   Map<String, dynamic>? get parsedMetrics {
     final value = _attributes['parsed_metrics'];

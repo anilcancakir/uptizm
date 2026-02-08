@@ -236,7 +236,11 @@ void main() {
         'id': 'test-uuid-8',
         'monitor_id': 'test-monitor-uuid-1',
         'status': 'up',
-        'parsed_metrics': {'userId': 1, 'id': 'test-uuid-1', 'title': 'Test Post Title'},
+        'parsed_metrics': {
+          'userId': 1,
+          'id': 'test-uuid-1',
+          'title': 'Test Post Title',
+        },
         'checked_at': '2026-02-02T23:24:43.000000Z',
       };
 
@@ -248,4 +252,335 @@ void main() {
       expect(check.parsedMetrics!['title'], equals('Test Post Title'));
     });
   });
+
+  group('Boolean/status metric chip rendering', () {
+    Widget buildTestApp({required Widget child}) {
+      return WindTheme(
+        data: WindThemeData(),
+        child: MaterialApp(home: Scaffold(body: child)),
+      );
+    }
+
+    testWidgets('renders green chip for truthy boolean (true)', (tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'is_healthy': true},
+            mappings: [
+              {
+                'label': 'Healthy',
+                'path': 'is_healthy',
+                'type': 'status',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Healthy'), findsOneWidget);
+      expect(
+        find.byKey(const Key('metric-dot-is_healthy-green')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('renders red chip for falsy boolean (false)', (tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'is_healthy': false},
+            mappings: [
+              {
+                'label': 'Healthy',
+                'path': 'is_healthy',
+                'type': 'status',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Healthy'), findsOneWidget);
+      expect(
+        find.byKey(const Key('metric-dot-is_healthy-red')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('renders green chip for String "true"', (tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'db': 'true'},
+            mappings: [
+              {
+                'label': 'DB Connected',
+                'path': 'db',
+                'type': 'numeric',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('DB Connected'), findsOneWidget);
+      expect(find.byKey(const Key('metric-dot-db-green')), findsOneWidget);
+    });
+
+    testWidgets('renders red chip for String "false"', (tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'db': 'false'},
+            mappings: [
+              {
+                'label': 'DB Connected',
+                'path': 'db',
+                'type': 'numeric',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('DB Connected'), findsOneWidget);
+      expect(find.byKey(const Key('metric-dot-db-red')), findsOneWidget);
+    });
+
+    testWidgets('renders green chip for String "1"', (tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'active': '1'},
+            mappings: [
+              {
+                'label': 'Active',
+                'path': 'active',
+                'type': 'status',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Active'), findsOneWidget);
+      expect(find.byKey(const Key('metric-dot-active-green')), findsOneWidget);
+    });
+
+    testWidgets('renders red chip for String "0"', (tester) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'active': '0'},
+            mappings: [
+              {
+                'label': 'Active',
+                'path': 'active',
+                'type': 'status',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Active'), findsOneWidget);
+      expect(find.byKey(const Key('metric-dot-active-red')), findsOneWidget);
+    });
+
+    testWidgets('renders red chip for empty String (status type)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'active': ''},
+            mappings: [
+              {
+                'label': 'Active',
+                'path': 'active',
+                'type': 'status',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Active'), findsOneWidget);
+      expect(find.byKey(const Key('metric-dot-active-red')), findsOneWidget);
+    });
+
+    testWidgets('renders red chip for null value (status type)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'active': null},
+            mappings: [
+              {
+                'label': 'Active',
+                'path': 'active',
+                'type': 'status',
+                'unit': '',
+              },
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Active'), findsOneWidget);
+      expect(find.byKey(const Key('metric-dot-active-red')), findsOneWidget);
+    });
+
+    testWidgets(
+      'renders green chip for arbitrary truthy String (status type)',
+      (tester) async {
+        await tester.pumpWidget(
+          buildTestApp(
+            child: _MetricChipTestHarness(
+              parsedMetrics: {'svc': 'running'},
+              mappings: [
+                {
+                  'label': 'Service',
+                  'path': 'svc',
+                  'type': 'status',
+                  'unit': '',
+                },
+              ],
+            ),
+          ),
+        );
+
+        expect(find.text('Service'), findsOneWidget);
+        expect(find.byKey(const Key('metric-dot-svc-green')), findsOneWidget);
+      },
+    );
+
+    testWidgets('renders numeric chip for non-status numeric value', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildTestApp(
+          child: _MetricChipTestHarness(
+            parsedMetrics: {'cpu': 75},
+            mappings: [
+              {'label': 'CPU', 'path': 'cpu', 'type': 'numeric', 'unit': '%'},
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('CPU'), findsOneWidget);
+      expect(find.text('75 %'), findsOneWidget);
+      // Should NOT have a green/red dot
+      expect(find.byKey(const Key('metric-dot-cpu-green')), findsNothing);
+      expect(find.byKey(const Key('metric-dot-cpu-red')), findsNothing);
+    });
+  });
+}
+
+/// Test harness that replicates the metric chip rendering logic from MonitorShowView._buildMetricRow
+class _MetricChipTestHarness extends StatelessWidget {
+  final Map<String, dynamic>? parsedMetrics;
+  final List<Map<String, dynamic>> mappings;
+
+  const _MetricChipTestHarness({
+    required this.parsedMetrics,
+    required this.mappings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return WDiv(
+      className: 'flex flex-row flex-wrap gap-2',
+      children: mappings.map<Widget>((mapping) {
+        final label = mapping['label'] as String? ?? 'Metric';
+        final path = mapping['path'] as String? ?? '';
+        final unit = mapping['unit'] as String? ?? '';
+        final metricType = mapping['type'] as String? ?? '';
+        final rawValue = parsedMetrics?[path];
+
+        // Status type metrics or boolean values → green/red indicator
+        final isStatusType =
+            metricType == 'status' ||
+            rawValue is bool ||
+            rawValue == 'true' ||
+            rawValue == 'false';
+
+        if (isStatusType) {
+          final boolValue =
+              rawValue == true ||
+              rawValue == 'true' ||
+              rawValue == '1' ||
+              (rawValue is String &&
+                  rawValue.isNotEmpty &&
+                  rawValue != 'false' &&
+                  rawValue != '0');
+
+          return WDiv(
+            key: Key('metric-chip-$path'),
+            className:
+                '''
+              flex flex-row items-center gap-1.5 overflow-hidden
+              px-2.5 py-1 rounded-full
+              ${boolValue ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}
+            ''',
+            children: [
+              WDiv(
+                key: Key('metric-dot-$path-${boolValue ? 'green' : 'red'}'),
+                className:
+                    'w-2 h-2 rounded-full ${boolValue ? 'bg-green-500' : 'bg-red-500'}',
+              ),
+              WText(
+                label,
+                className:
+                    'text-xs ${boolValue ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}',
+              ),
+            ],
+          );
+        }
+
+        String displayValue;
+        if (rawValue == null) {
+          displayValue = '—';
+        } else if (rawValue is String && rawValue.length > 12) {
+          displayValue = '${rawValue.substring(0, 12)}…';
+        } else {
+          displayValue = rawValue.toString();
+        }
+
+        if (unit.isNotEmpty && rawValue is num) {
+          displayValue = '$displayValue $unit';
+        }
+
+        return WDiv(
+          key: Key('metric-chip-$path'),
+          className: '''
+            flex flex-row items-center gap-1.5 overflow-hidden
+            px-2.5 py-1 rounded-full
+            bg-white dark:bg-gray-800
+            border border-gray-200 dark:border-gray-700
+          ''',
+          children: [
+            WText(
+              label,
+              className: 'text-xs text-gray-500 dark:text-gray-400 truncate',
+            ),
+            WText(
+              displayValue,
+              className:
+                  'text-xs font-mono font-semibold text-gray-900 dark:text-white truncate',
+            ),
+          ],
+        );
+      }).toList(),
+    );
+  }
 }

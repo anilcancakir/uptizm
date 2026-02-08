@@ -14,10 +14,24 @@ class AnalyticsSummary {
 
   factory AnalyticsSummary.fromMap(Map<String, dynamic> map) {
     return AnalyticsSummary(
-      totalChecks: (map['total_checks'] as num?)?.toInt() ?? 0,
-      uptimePercent: (map['uptime_percent'] as num?)?.toDouble() ?? 0.0,
-      avgResponseTime: (map['avg_response_time'] as num?)?.toDouble() ?? 0.0,
+      totalChecks: _toInt(map['total_checks']) ?? 0,
+      uptimePercent: _toDouble(map['uptime_percent']) ?? 0.0,
+      avgResponseTime: _toDouble(map['avg_response_time']) ?? 0.0,
     );
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   factory AnalyticsSummary.empty() {

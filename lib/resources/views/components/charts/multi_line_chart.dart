@@ -59,7 +59,7 @@ class _MultiLineChartState extends State<MultiLineChart> {
 
   Widget _buildLegend() {
     return WDiv(
-      className: 'flex flex-row flex-wrap gap-4 overflow-x-auto',
+      className: 'wrap gap-4',
       children: widget.series.asMap().entries.map((entry) {
         final index = entry.key;
         final series = entry.value;

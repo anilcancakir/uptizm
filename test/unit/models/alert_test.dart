@@ -54,6 +54,46 @@ void main() {
         expect(alert.isResolved, isTrue);
         expect(alert.resolvedAt, DateTime.utc(2026, 2, 5, 10, 15, 0));
       });
+
+      group('handles String values from API', () {
+        test('parses triggerValue from String', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'alert_rule_id': 'test-alert-rule-uuid-10',
+            'monitor_id': 'test-monitor-uuid-20',
+            'status': 'alerting',
+            'triggered_at': '2026-02-05T10:00:00Z',
+            'trigger_value': '6500.50',
+          };
+
+          final alert = Alert.fromMap(map);
+          expect(alert.triggerValue, 6500.50);
+        });
+
+        test('handles null triggerValue', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'status': 'alerting',
+            'triggered_at': '2026-02-05T10:00:00Z',
+            'trigger_value': null,
+          };
+
+          final alert = Alert.fromMap(map);
+          expect(alert.triggerValue, isNull);
+        });
+
+        test('handles empty String triggerValue', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'status': 'alerting',
+            'triggered_at': '2026-02-05T10:00:00Z',
+            'trigger_value': '',
+          };
+
+          final alert = Alert.fromMap(map);
+          expect(alert.triggerValue, isNull);
+        });
+      });
     });
 
     group('computed properties', () {

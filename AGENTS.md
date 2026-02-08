@@ -192,6 +192,7 @@ import 'package:flutter/material.dart';
 - Check Wind widgets BEFORE building custom
 - `WFormMultiSelect.onCreateOption` must `setState(() => options.add(opt))`
 - All inputs same padding context (`py-3` everywhere)
+- **NEVER use `flex-wrap`** — it's a no-op in Wind UI. Use `wrap` display type instead (`wrap gap-2`)
 
 ## DESIGN (brand.md)
 

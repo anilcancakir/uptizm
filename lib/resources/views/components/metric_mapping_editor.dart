@@ -200,30 +200,32 @@ class _MetricMappingEditorState extends State<MetricMappingEditor> {
         Row(
           children: [
             Expanded(
-              child: TextField(
+              child: WInput(
                 controller: state.labelController,
                 onChanged: (_) => _notifyChanged(),
-                decoration: inputDecoration.copyWith(
-                  hintText: trans('monitor.label_placeholder'),
-                ),
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark ? Colors.white : Colors.grey[900],
-                ),
+                placeholder: trans('monitor.label_placeholder'),
+                className: '''
+                  w-full px-3 py-3 rounded-lg text-sm
+                  bg-white dark:bg-gray-800
+                  text-gray-900 dark:text-white
+                  border border-gray-200 dark:border-gray-700
+                  focus:border-primary focus:ring-2 focus:ring-primary/20
+                ''',
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: TextField(
+              child: WInput(
                 controller: state.pathController,
                 onChanged: (_) => _notifyChanged(),
-                decoration: inputDecoration.copyWith(
-                  hintText: trans('monitor.path_placeholder'),
-                ),
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark ? Colors.white : Colors.grey[900],
-                ),
+                placeholder: trans('monitor.path_placeholder'),
+                className: '''
+                  w-full px-3 py-3 rounded-lg text-sm
+                  bg-white dark:bg-gray-800
+                  text-gray-900 dark:text-white
+                  border border-gray-200 dark:border-gray-700
+                  focus:border-primary focus:ring-2 focus:ring-primary/20
+                ''',
               ),
             ),
           ],
@@ -271,31 +273,33 @@ class _MetricMappingEditorState extends State<MetricMappingEditor> {
               if (state.upWhenType == 'equals') ...[
                 const SizedBox(width: 8),
                 Expanded(
-                  child: TextField(
+                  child: WInput(
                     controller: state.upWhenController,
                     onChanged: (_) => _notifyChanged(),
-                    decoration: inputDecoration.copyWith(
-                      hintText: trans('monitor.value_placeholder'),
-                    ),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDark ? Colors.white : Colors.grey[900],
-                    ),
+                    placeholder: trans('monitor.value_placeholder'),
+                    className: '''
+                      w-full px-3 py-3 rounded-lg text-sm
+                      bg-white dark:bg-gray-800
+                      text-gray-900 dark:text-white
+                      border border-gray-200 dark:border-gray-700
+                      focus:border-primary focus:ring-2 focus:ring-primary/20
+                    ''',
                   ),
                 ),
               ],
             ] else
               Expanded(
-                child: TextField(
+                child: WInput(
                   controller: state.unitController,
                   onChanged: (_) => _notifyChanged(),
-                  decoration: inputDecoration.copyWith(
-                    hintText: trans('monitor.unit_placeholder'),
-                  ),
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark ? Colors.white : Colors.grey[900],
-                  ),
+                  placeholder: trans('monitor.unit_placeholder'),
+                  className: '''
+                    w-full px-3 py-3 rounded-lg text-sm
+                    bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    border border-gray-200 dark:border-gray-700
+                    focus:border-primary focus:ring-2 focus:ring-primary/20
+                  ''',
                 ),
               ),
           ],

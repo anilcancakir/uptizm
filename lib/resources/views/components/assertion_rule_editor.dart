@@ -223,16 +223,17 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
 
             // Value input
             Expanded(
-              child: TextField(
+              child: WInput(
                 controller: state.valueController,
                 onChanged: (_) => _notifyChanged(),
-                decoration: inputDecoration.copyWith(
-                  hintText: trans('monitor.value_placeholder'),
-                ),
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark ? Colors.white : Colors.grey[900],
-                ),
+                placeholder: trans('monitor.value_placeholder'),
+                className: '''
+                  w-full px-3 py-3 rounded-lg text-sm
+                  bg-white dark:bg-gray-800
+                  text-gray-900 dark:text-white
+                  border border-gray-200 dark:border-gray-700
+                  focus:border-primary focus:ring-2 focus:ring-primary/20
+                ''',
               ),
             ),
           ],
@@ -240,16 +241,17 @@ class _AssertionRuleEditorState extends State<AssertionRuleEditor> {
 
         // Path input (only for bodyJsonPath)
         if (state.type == AssertionType.bodyJsonPath)
-          TextField(
+          WInput(
             controller: state.pathController,
             onChanged: (_) => _notifyChanged(),
-            decoration: inputDecoration.copyWith(
-              hintText: trans('monitor.json_path_placeholder'),
-            ),
-            style: TextStyle(
-              fontSize: 14,
-              color: isDark ? Colors.white : Colors.grey[900],
-            ),
+            placeholder: trans('monitor.json_path_placeholder'),
+            className: '''
+              w-full px-3 py-3 rounded-lg text-sm
+              bg-white dark:bg-gray-800
+              text-gray-900 dark:text-white
+              border border-gray-200 dark:border-gray-700
+              focus:border-primary focus:ring-2 focus:ring-primary/20
+            ''',
           ),
       ],
     );

@@ -65,8 +65,8 @@ class ResponsePreview extends StatelessWidget {
   }
 
   Widget _buildResponse() {
-    final statusCode = (response!['status_code'] as num?)?.toInt() ?? 0;
-    final responseTime = (response!['response_time_ms'] as num?)?.toInt() ?? 0;
+    final statusCode = _toInt(response!['status_code']) ?? 0;
+    final responseTime = _toInt(response!['response_time_ms']) ?? 0;
     final contentType = response!['content_type'] as String?;
     final body = response!['body'] as String?;
 
@@ -199,5 +199,12 @@ class ResponsePreview extends StatelessWidget {
       selectable: true,
       className: 'font-mono text-xs text-white',
     );
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
   }
 }

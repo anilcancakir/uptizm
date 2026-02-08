@@ -173,5 +173,47 @@ void main() {
       // Should show truncation message
       expect(find.textContaining('Response truncated'), findsOneWidget);
     });
+
+    testWidgets('handles String status_code and response_time_ms from API', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapWithTheme(
+          const ResponsePreview(
+            response: {
+              'status_code': '200',
+              'response_time_ms': '145',
+              'content_type': 'application/json',
+              'body': '{"success": true}',
+            },
+            isLoading: false,
+          ),
+        ),
+      );
+
+      expect(find.text('200'), findsOneWidget);
+      expect(find.text('145ms'), findsOneWidget);
+    });
+
+    testWidgets('handles invalid String status_code gracefully', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapWithTheme(
+          const ResponsePreview(
+            response: {
+              'status_code': 'invalid',
+              'response_time_ms': 'abc',
+              'content_type': 'application/json',
+              'body': '{"ok": true}',
+            },
+            isLoading: false,
+          ),
+        ),
+      );
+
+      expect(find.text('0'), findsOneWidget);
+      expect(find.text('0ms'), findsOneWidget);
+    });
   });
 }

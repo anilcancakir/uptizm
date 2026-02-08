@@ -131,15 +131,101 @@ void main() {
       });
 
       test('defaults enabled to true', () {
-        final map = {'id': 'test-uuid-1', 'team_id': 'test-team-uuid-10', 'name': 'Test'};
+        final map = {
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
+          'name': 'Test',
+        };
         final rule = AlertRule.fromMap(map);
         expect(rule.enabled, isTrue);
       });
 
       test('defaults consecutiveChecks to 1', () {
-        final map = {'id': 'test-uuid-1', 'team_id': 'test-team-uuid-10', 'name': 'Test'};
+        final map = {
+          'id': 'test-uuid-1',
+          'team_id': 'test-team-uuid-10',
+          'name': 'Test',
+        };
         final rule = AlertRule.fromMap(map);
         expect(rule.consecutiveChecks, 1);
+      });
+
+      group('handles String values from API', () {
+        test('parses threshold values from String', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-10',
+            'name': 'String Test',
+            'type': 'threshold',
+            'threshold_value': '5000.0000',
+            'threshold_min': '100.50',
+            'threshold_max': '500.99',
+          };
+
+          final rule = AlertRule.fromMap(map);
+
+          expect(rule.thresholdValue, 5000.0);
+          expect(rule.thresholdMin, 100.50);
+          expect(rule.thresholdMax, 500.99);
+        });
+
+        test('parses consecutiveChecks from String', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-10',
+            'name': 'String Test',
+            'consecutive_checks': '3',
+          };
+
+          final rule = AlertRule.fromMap(map);
+          expect(rule.consecutiveChecks, 3);
+        });
+
+        test('handles null threshold values', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-10',
+            'name': 'Null Test',
+            'threshold_value': null,
+            'threshold_min': null,
+            'threshold_max': null,
+          };
+
+          final rule = AlertRule.fromMap(map);
+
+          expect(rule.thresholdValue, isNull);
+          expect(rule.thresholdMin, isNull);
+          expect(rule.thresholdMax, isNull);
+        });
+
+        test('handles empty String threshold values', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-10',
+            'name': 'Empty Test',
+            'threshold_value': '',
+            'threshold_min': '',
+            'threshold_max': '',
+          };
+
+          final rule = AlertRule.fromMap(map);
+
+          expect(rule.thresholdValue, isNull);
+          expect(rule.thresholdMin, isNull);
+          expect(rule.thresholdMax, isNull);
+        });
+
+        test('handles empty String consecutiveChecks defaults to 1', () {
+          final map = {
+            'id': 'test-uuid-1',
+            'team_id': 'test-team-uuid-10',
+            'name': 'Empty Test',
+            'consecutive_checks': '',
+          };
+
+          final rule = AlertRule.fromMap(map);
+          expect(rule.consecutiveChecks, 1);
+        });
       });
     });
 

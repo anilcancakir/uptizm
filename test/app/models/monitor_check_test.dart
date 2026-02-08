@@ -46,14 +46,18 @@ void main() {
         expect(check.status, null);
       });
 
-      test('responseTimeMs', () {
-        final check = MonitorCheck.fromMap({'response_time_ms': 150});
-        expect(check.responseTimeMs, 150);
+      test('responseTimeMs handles num values safely', () {
+        final checkInt = MonitorCheck.fromMap({'response_time_ms': 150});
+        final checkDouble = MonitorCheck.fromMap({'response_time_ms': 150.5});
+        expect(checkInt.responseTimeMs, 150);
+        expect(checkDouble.responseTimeMs, 150);
       });
 
-      test('statusCode', () {
-        final check = MonitorCheck.fromMap({'status_code': 200});
-        expect(check.statusCode, 200);
+      test('statusCode handles num values safely', () {
+        final checkInt = MonitorCheck.fromMap({'status_code': 200});
+        final checkDouble = MonitorCheck.fromMap({'status_code': 200.0});
+        expect(checkInt.statusCode, 200);
+        expect(checkDouble.statusCode, 200);
       });
 
       test('responseBody', () {

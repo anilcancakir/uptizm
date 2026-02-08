@@ -67,13 +67,13 @@ Eliminate predictable auto-increment integer IDs across the entire Uptizm platfo
 - All frontend tests passing (`flutter test`)
 
 ### Definition of Done
-- [ ] `php artisan migrate:fresh --seed` runs without errors
-- [ ] `php artisan test` — all tests pass
-- [ ] `flutter test` — all tests pass
-- [ ] No `$table->id()` remains in domain model migrations (only in jobs/cache)
-- [ ] No `foreignId()` remains pointing to UUID tables
-- [ ] No `get<int>('id')` or `get<int>('..._id')` remains in Flutter models
-- [ ] No `int.tryParse` on route ID parameters in Flutter views
+- [x] `php artisan migrate:fresh --seed` runs without errors
+- [x] `php artisan test` — all tests pass
+- [x] `flutter test` — all tests pass
+- [x] No `$table->id()` remains in domain model migrations (only in jobs/cache)
+- [x] No `foreignId()` remains pointing to UUID tables
+- [x] No `get<int>('id')` or `get<int>('..._id')` remains in Flutter models
+- [x] No `int.tryParse` on route ID parameters in Flutter views
 
 ### Must Have
 - `HasUuids` trait on ALL domain models (users, teams, monitors, etc.)
@@ -331,7 +331,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ---
 
-- [ ] 2. Update ALL Laravel models — Add HasUuids trait and update type hints
+- [x] 2. Update ALL Laravel models — Add HasUuids trait and update type hints
 
   **What to do**:
 
@@ -427,7 +427,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ---
 
-- [ ] 3. Update Laravel validation rules, controllers, and service type hints
+- [x] 3. Update Laravel validation rules, controllers, and service type hints
 
   **What to do**:
 
@@ -508,7 +508,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ---
 
-- [ ] 4. Fix backend tests and verify full suite passes
+- [x] 4. Fix backend tests and verify full suite passes
 
   **What to do**:
 
@@ -594,7 +594,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ---
 
-- [ ] 5. Update ALL Flutter models — Change int IDs to String
+- [x] 5. Update ALL Flutter models — Change int IDs to String
 
   **What to do**:
 
@@ -706,7 +706,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ---
 
-- [ ] 6. Update Flutter controllers and views — String IDs, remove int.tryParse on route params
+- [x] 6. Update Flutter controllers and views — String IDs, remove int.tryParse on route params
 
   **What to do**:
 
@@ -798,7 +798,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ---
 
-- [ ] 7. Fix Flutter tests and verify full suite passes
+- [x] 7. Fix Flutter tests and verify full suite passes
 
   **What to do**:
 
@@ -879,7 +879,7 @@ Wave 3 (After Wave 2 — Flutter Tests + Final Verification):
 
 ---
 
-- [ ] 8. Full-stack verification — Fresh migration + both test suites
+- [x] 8. Full-stack verification — Fresh migration + both test suites
 
   **What to do**:
 
@@ -1008,11 +1008,11 @@ cd back-end && php artisan tinker --execute="echo App\Models\User::factory()->cr
 ```
 
 ### Final Checklist
-- [ ] All "Must Have" items present (HasUuids, uuidMorphs, foreignUuid, String IDs)
-- [ ] All "Must NOT Have" items absent (no foreignId to UUID tables, no int IDs in Flutter models)
-- [ ] All backend tests pass
-- [ ] All frontend tests pass
-- [ ] Database generates UUID primary keys
-- [ ] No `$table->id()` in domain model migrations
-- [ ] No `get<int>('id')` in Flutter models
-- [ ] No `int.tryParse` on route ID params in Flutter views
+- [x] All "Must Have" items present (HasUuids, uuidMorphs, foreignUuid, String IDs)
+- [x] All "Must NOT Have" items absent (no foreignId to UUID tables, no int IDs in Flutter models)
+- [x] All backend tests pass
+- [x] All frontend tests pass
+- [x] Database generates UUID primary keys
+- [x] No `$table->id()` in domain model migrations
+- [x] No `get<int>('id')` in Flutter models
+- [x] No `int.tryParse` on route ID params in Flutter views

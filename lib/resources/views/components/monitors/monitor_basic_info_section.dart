@@ -86,41 +86,19 @@ class MonitorBasicInfoSection extends StatelessWidget {
                       padding: EdgeInsets.only(
                         right: type != MonitorType.values.last ? 8 : 0,
                       ),
-                      child: GestureDetector(
+                      child: WAnchor(
                         onTap: typeEditable ? () => onTypeChanged(type) : null,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? const Color(0xFF009E60).withOpacity(0.1)
-                                : Colors.transparent,
-                            border: Border.all(
-                              color: isSelected
-                                  ? const Color(0xFF009E60)
-                                  : Theme.of(context).brightness ==
-                                        Brightness.dark
-                                  ? Colors.grey[700]!
-                                  : Colors.grey[200]!,
-                              width: 2,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                        child: WDiv(
+                          className:
+                              '''
+                            px-4 py-3 rounded-lg border-2
+                            ${isSelected ? 'bg-primary/10 border-primary' : 'bg-transparent border-gray-200 dark:border-gray-700'}
+                          ''',
                           child: Center(
-                            child: Text(
+                            child: WText(
                               type.label,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: isSelected
-                                    ? const Color(0xFF009E60)
-                                    : Theme.of(context).brightness ==
-                                          Brightness.dark
-                                    ? Colors.grey[300]
-                                    : Colors.grey[700],
-                              ),
+                              className:
+                                  'text-sm font-medium ${isSelected ? 'text-[#009E60]' : 'text-gray-700 dark:text-gray-300'}',
                             ),
                           ),
                         ),

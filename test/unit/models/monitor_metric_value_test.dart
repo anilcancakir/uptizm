@@ -148,5 +148,54 @@ void main() {
 
       expect(metricValue.numericValue, 75.0);
     });
+
+    group('handles String numeric_value from API', () {
+      test('parses String numeric_value', () {
+        final map = {
+          'id': 'test-uuid-1',
+          'monitor_id': 'test-monitor-uuid-10',
+          'check_id': 'test-check-uuid-100',
+          'metric_key': 'response_time',
+          'metric_label': 'Response Time',
+          'numeric_value': '150.5',
+          'unit': 'ms',
+          'recorded_at': '2026-02-04T12:00:00.000000Z',
+        };
+
+        final metricValue = MonitorMetricValue.fromMap(map);
+        expect(metricValue.numericValue, 150.5);
+      });
+
+      test('parses String integer as double', () {
+        final map = {
+          'id': 'test-uuid-1',
+          'monitor_id': 'test-monitor-uuid-10',
+          'check_id': 'test-check-uuid-100',
+          'metric_key': 'cpu_usage',
+          'metric_label': 'CPU Usage',
+          'numeric_value': '75',
+          'unit': '%',
+          'recorded_at': '2026-02-04T12:00:00.000000Z',
+        };
+
+        final metricValue = MonitorMetricValue.fromMap(map);
+        expect(metricValue.numericValue, 75.0);
+      });
+
+      test('handles empty String numeric_value', () {
+        final map = {
+          'id': 'test-uuid-1',
+          'monitor_id': 'test-monitor-uuid-10',
+          'check_id': 'test-check-uuid-100',
+          'metric_key': 'cpu_usage',
+          'metric_label': 'CPU Usage',
+          'numeric_value': '',
+          'recorded_at': '2026-02-04T12:00:00.000000Z',
+        };
+
+        final metricValue = MonitorMetricValue.fromMap(map);
+        expect(metricValue.numericValue, isNull);
+      });
+    });
   });
 }

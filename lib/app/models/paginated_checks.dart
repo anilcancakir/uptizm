@@ -18,6 +18,13 @@ class PaginatedChecks {
   bool get hasNextPage => currentPage < lastPage;
   bool get hasPreviousPage => currentPage > 1;
 
+  static int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
   factory PaginatedChecks.fromResponse(Map<String, dynamic> response) {
     // Parse checks list
     List<MonitorCheck> checks = [];
@@ -32,10 +39,10 @@ class PaginatedChecks {
 
     return PaginatedChecks(
       checks: checks,
-      currentPage: (meta['current_page'] as num?)?.toInt() ?? 1,
-      lastPage: (meta['last_page'] as num?)?.toInt() ?? 1,
-      perPage: (meta['per_page'] as num?)?.toInt() ?? 15,
-      total: (meta['total'] as num?)?.toInt() ?? 0,
+      currentPage: _toInt(meta['current_page']) ?? 1,
+      lastPage: _toInt(meta['last_page']) ?? 1,
+      perPage: _toInt(meta['per_page']) ?? 15,
+      total: _toInt(meta['total']) ?? 0,
     );
   }
 }

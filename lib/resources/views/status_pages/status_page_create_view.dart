@@ -5,6 +5,7 @@ import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/metric_mapping.dart';
+import '../components/app_card.dart';
 
 class StatusPageCreateView extends MagicStatefulView<StatusPageController> {
   const StatusPageCreateView({super.key});
@@ -159,203 +160,199 @@ class _StatusPageCreateViewState
             ),
 
           // Basic Info Section
-          WDiv(
-            className: '''
-              bg-white dark:bg-gray-800
-              border border-gray-100 dark:border-gray-700
-              rounded-2xl p-6
-              flex flex-col gap-4
-            ''',
-            children: [
-              WText(
-                trans('status_pages.basic_info'),
-                className:
-                    'text-lg font-semibold text-gray-900 dark:text-white',
-              ),
-
-              // Name
-              WFormInput(
-                controller: form['name'],
-                label: trans('status_pages.name'),
-                hint: trans('status_pages.name_placeholder'),
-                labelClassName: '''
-                  text-gray-900 dark:text-gray-200
-                  mb-2 text-sm font-medium
-                ''',
-                className: '''
-                  w-full bg-white dark:bg-gray-800
-                  text-gray-900 dark:text-white
-                  rounded-lg
-                  border border-gray-200 dark:border-gray-700
-                  px-3 py-3
-                  text-sm
-                  focus:border-primary
-                  focus:ring-2 focus:ring-primary/20
-                  error:border-red-500
-                ''',
-                validator: FormValidator.rules([
-                  Required(),
-                  Min(3),
-                  Max(100),
-                ], field: 'name'),
-              ),
-
-              // Slug
-              WFormInput(
-                controller: form['slug'],
-                focusNode: _slugFocus,
-                label: trans('status_pages.slug'),
-                hint: trans('status_pages.slug_placeholder'),
-                prefix: WDiv(
-                  className: 'pl-3',
-                  child: WText(
-                    'https://',
-                    className: 'text-gray-500 dark:text-gray-400 text-sm',
-                  ),
+          AppCard(
+            title: trans('status_pages.basic_info'),
+            icon: Icons.info_outline,
+            body: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Name
+                WFormInput(
+                  controller: form['name'],
+                  label: trans('status_pages.name'),
+                  hint: trans('status_pages.name_placeholder'),
+                  labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                  className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                  validator: FormValidator.rules([
+                    Required(),
+                    Min(3),
+                    Max(100),
+                  ], field: 'name'),
                 ),
-                suffix: WDiv(
-                  className: 'pr-3',
-                  child: WText(
-                    '.uptizm.com',
-                    className: 'text-gray-500 dark:text-gray-400 text-sm',
+
+                const SizedBox(height: 16),
+
+                // Slug
+                WFormInput(
+                  controller: form['slug'],
+                  focusNode: _slugFocus,
+                  label: trans('status_pages.slug'),
+                  hint: trans('status_pages.slug_placeholder'),
+                  prefix: WDiv(
+                    className: 'pl-3',
+                    child: WText(
+                      'https://',
+                      className: 'text-gray-500 dark:text-gray-400 text-sm',
+                    ),
                   ),
+                  suffix: WDiv(
+                    className: 'pr-3',
+                    child: WText(
+                      '.uptizm.com',
+                      className: 'text-gray-500 dark:text-gray-400 text-sm',
+                    ),
+                  ),
+                  labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                  className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm font-mono
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                  validator: FormValidator.rules([
+                    Required(),
+                    Min(1),
+                    Max(63),
+                  ], field: 'slug'),
                 ),
-                labelClassName: '''
-                  text-gray-900 dark:text-gray-200
-                  mb-2 text-sm font-medium
-                ''',
-                className: '''
-                  w-full bg-white dark:bg-gray-800
-                  text-gray-900 dark:text-white
-                  rounded-lg
-                  border border-gray-200 dark:border-gray-700
-                  px-3 py-3
-                  text-sm font-mono
-                  focus:border-primary
-                  focus:ring-2 focus:ring-primary/20
-                  error:border-red-500
-                ''',
-                validator: FormValidator.rules([
-                  Required(),
-                  Min(1),
-                  Max(63),
-                ], field: 'slug'),
-              ),
 
-              // Description
-              WFormInput(
-                controller: form['description'],
-                label: trans('status_pages.description'),
-                hint: trans('status_pages.description_placeholder'),
-                type: InputType.multiline,
-                maxLines: 3,
-                labelClassName: '''
-                  text-gray-900 dark:text-gray-200
-                  mb-2 text-sm font-medium
-                ''',
-                className: '''
-                  w-full bg-white dark:bg-gray-800
-                  text-gray-900 dark:text-white
-                  rounded-lg
-                  border border-gray-200 dark:border-gray-700
-                  px-3 py-3
-                  text-sm
-                  focus:border-primary
-                  focus:ring-2 focus:ring-primary/20
-                  error:border-red-500
-                ''',
-              ),
+                const SizedBox(height: 16),
 
-              // Primary Color
-              WFormInput(
-                controller: form['primary_color'],
-                label: trans('status_pages.primary_color'),
-                hint: trans('status_pages.primary_color_placeholder'),
-                labelClassName: '''
-                  text-gray-900 dark:text-gray-200
-                  mb-2 text-sm font-medium
-                ''',
-                className: '''
-                  w-full bg-white dark:bg-gray-800
-                  text-gray-900 dark:text-white
-                  rounded-lg
-                  border border-gray-200 dark:border-gray-700
-                  px-3 py-3
-                  text-sm font-mono
-                  focus:border-primary
-                  focus:ring-2 focus:ring-primary/20
-                  error:border-red-500
-                ''',
-              ),
-            ],
+                // Description
+                WFormInput(
+                  controller: form['description'],
+                  label: trans('status_pages.description'),
+                  hint: trans('status_pages.description_placeholder'),
+                  type: InputType.multiline,
+                  maxLines: 3,
+                  labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                  className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                ),
+
+                const SizedBox(height: 16),
+
+                // Primary Color
+                WFormInput(
+                  controller: form['primary_color'],
+                  label: trans('status_pages.primary_color'),
+                  hint: trans('status_pages.primary_color_placeholder'),
+                  labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                  className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm font-mono
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                ),
+              ],
+            ),
           ),
 
           // Monitors Section
           _buildMonitorsSection(),
 
           // Advanced / Optional
-          WDiv(
-            className: '''
-              bg-white dark:bg-gray-800
-              border border-gray-100 dark:border-gray-700
-              rounded-2xl p-6
-              flex flex-col gap-4
-            ''',
-            children: [
-              WText(
-                trans('status_pages.branding'),
-                className:
-                    'text-lg font-semibold text-gray-900 dark:text-white',
-              ),
+          AppCard(
+            title: trans('status_pages.branding'),
+            icon: Icons.palette_outlined,
+            body: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                WFormInput(
+                  controller: form['logo_url'],
+                  label: trans('status_pages.logo_url'),
+                  hint: trans('status_pages.logo_url_placeholder'),
+                  labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                  className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                ),
 
-              WFormInput(
-                controller: form['logo_url'],
-                label: trans('status_pages.logo_url'),
-                hint: trans('status_pages.logo_url_placeholder'),
-                labelClassName: '''
-                  text-gray-900 dark:text-gray-200
-                  mb-2 text-sm font-medium
-                ''',
-                className: '''
-                  w-full bg-white dark:bg-gray-800
-                  text-gray-900 dark:text-white
-                  rounded-lg
-                  border border-gray-200 dark:border-gray-700
-                  px-3 py-3
-                  text-sm
-                  focus:border-primary
-                  focus:ring-2 focus:ring-primary/20
-                  error:border-red-500
-                ''',
-              ),
+                const SizedBox(height: 16),
 
-              WFormInput(
-                controller: form['favicon_url'],
-                label: trans('status_pages.favicon_url'),
-                hint: trans('status_pages.favicon_url_placeholder'),
-                labelClassName: '''
-                  text-gray-900 dark:text-gray-200
-                  mb-2 text-sm font-medium
-                ''',
-                className: '''
-                  w-full bg-white dark:bg-gray-800
-                  text-gray-900 dark:text-white
-                  rounded-lg
-                  border border-gray-200 dark:border-gray-700
-                  px-3 py-3
-                  text-sm
-                  focus:border-primary
-                  focus:ring-2 focus:ring-primary/20
-                  error:border-red-500
-                ''',
-              ),
+                WFormInput(
+                  controller: form['favicon_url'],
+                  label: trans('status_pages.favicon_url'),
+                  hint: trans('status_pages.favicon_url_placeholder'),
+                  labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                  className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                ),
 
-              WFormCheckbox(
-                value: form.value<bool>('is_published'),
-                onChanged: (val) => form.setValue('is_published', val),
-                label: WText(trans('status_pages.publish_immediately')),
-              ),
-            ],
+                const SizedBox(height: 16),
+
+                WFormCheckbox(
+                  value: form.value<bool>('is_published'),
+                  onChanged: (val) => form.setValue('is_published', val),
+                  label: WText(trans('status_pages.publish_immediately')),
+                ),
+              ],
+            ),
           ),
 
           // Actions
@@ -392,393 +389,396 @@ class _StatusPageCreateViewState
   }
 
   Widget _buildMonitorsSection() {
-    return WDiv(
-      className: '''
-        bg-white dark:bg-gray-800
-        border border-gray-100 dark:border-gray-700
-        rounded-2xl p-6
-        flex flex-col gap-6
-      ''',
-      children: [
-        // Section Header
+    return AppCard(
+      title: trans('status_pages.monitors_section'),
+      icon: Icons.monitor_heart_outlined,
+      headerActions: [
         WDiv(
-          className: 'flex flex-col gap-1',
-          children: [
-            WText(
-              trans('status_pages.monitors_section'),
-              className: 'text-lg font-bold text-gray-900 dark:text-white',
-            ),
-            WText(
-              trans('status_pages.monitors_section_hint'),
-              className: 'text-sm text-gray-500 dark:text-gray-400',
-            ),
-          ],
+          className: 'px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full',
+          child: WText(
+            '${_selectedMonitors.length}',
+            className: 'text-xs font-medium text-gray-600 dark:text-gray-300',
+          ),
         ),
+      ],
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Hint text
+          WText(
+            trans('status_pages.monitors_section_hint'),
+            className: 'text-sm text-gray-500 dark:text-gray-400 mb-4',
+          ),
 
-        ValueListenableBuilder<List<Monitor>>(
-          valueListenable: MonitorController.instance.monitorsNotifier,
-          builder: (context, allMonitors, _) {
-            if (MonitorController.instance.isLoading && allMonitors.isEmpty) {
+          ValueListenableBuilder<List<Monitor>>(
+            valueListenable: MonitorController.instance.monitorsNotifier,
+            builder: (context, allMonitors, _) {
+              if (MonitorController.instance.isLoading && allMonitors.isEmpty) {
+                return WDiv(
+                  className: 'py-8 flex items-center justify-center',
+                  child: const CircularProgressIndicator(),
+                );
+              }
+
+              final selectedIds = _selectedMonitors
+                  .map((m) => m['monitor_id'])
+                  .toSet();
+              final availableMonitors = allMonitors
+                  .where((m) => !selectedIds.contains(m.id))
+                  .toList();
+
               return WDiv(
-                className: 'py-8 flex items-center justify-center',
-                child: const CircularProgressIndicator(),
-              );
-            }
-
-            final selectedIds = _selectedMonitors
-                .map((m) => m['monitor_id'])
-                .toSet();
-            final availableMonitors = allMonitors
-                .where((m) => !selectedIds.contains(m.id))
-                .toList();
-
-            return WDiv(
-              className: 'flex flex-col gap-4',
-              children: [
-                // Selected Monitors List
-                if (_selectedMonitors.isNotEmpty)
-                  WDiv(
-                    className: 'flex flex-col gap-3',
-                    children: [
-                      ReorderableListView(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        proxyDecorator: (child, index, animation) {
-                          return Material(
-                            color: Colors.transparent,
-                            elevation: 0,
-                            child: WDiv(
-                              className:
-                                  'shadow-lg rounded-xl opacity-90 scale-105 transition-transform',
-                              children: [child],
-                            ),
-                          );
-                        },
-                        onReorder: (oldIndex, newIndex) {
-                          setState(() {
-                            if (oldIndex < newIndex) {
-                              newIndex -= 1;
-                            }
-                            final item = _selectedMonitors.removeAt(oldIndex);
-                            _selectedMonitors.insert(newIndex, item);
-                          });
-                        },
-                        children: _selectedMonitors.asMap().entries.map((
-                          entry,
-                        ) {
-                          final index = entry.key;
-                          final item = entry.value;
-                          return WDiv(
-                            key: ValueKey(item['monitor_id']),
-                            className: '''
-                              group
-                              flex flex-row items-start gap-3 p-4 mb-3
-                              bg-gray-50 dark:bg-gray-900/50
-                              border border-gray-200 dark:border-gray-700
-                              rounded-xl
-                              hover:border-primary/50 dark:hover:border-primary/50
-                              transition-colors duration-200
-                            ''',
-                            children: [
-                              // Drag Handle
-                              WDiv(
+                className: 'flex flex-col gap-4',
+                children: [
+                  // Selected Monitors List
+                  if (_selectedMonitors.isNotEmpty)
+                    WDiv(
+                      className: 'flex flex-col gap-3',
+                      children: [
+                        ReorderableListView(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          proxyDecorator: (child, index, animation) {
+                            return Material(
+                              color: Colors.transparent,
+                              elevation: 0,
+                              child: WDiv(
                                 className:
-                                    'h-6 flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400',
-                                children: [
-                                  WIcon(
-                                    Icons.drag_indicator,
-                                    className: 'text-xl',
-                                  ),
-                                ],
+                                    'shadow-lg rounded-xl opacity-90 scale-105 transition-transform',
+                                children: [child],
                               ),
-
-                              // Content
-                              Expanded(
-                                child: WDiv(
-                                  className: 'flex flex-col gap-3',
+                            );
+                          },
+                          onReorder: (oldIndex, newIndex) {
+                            setState(() {
+                              if (oldIndex < newIndex) {
+                                newIndex -= 1;
+                              }
+                              final item = _selectedMonitors.removeAt(oldIndex);
+                              _selectedMonitors.insert(newIndex, item);
+                            });
+                          },
+                          children: _selectedMonitors.asMap().entries.map((
+                            entry,
+                          ) {
+                            final index = entry.key;
+                            final item = entry.value;
+                            return WDiv(
+                              key: ValueKey(item['monitor_id']),
+                              className: '''
+                                group
+                                flex flex-row items-start gap-3 p-4 mb-3
+                                bg-gray-50 dark:bg-gray-900/50
+                                border border-gray-200 dark:border-gray-700
+                                rounded-xl
+                                hover:border-primary/50 dark:hover:border-primary/50
+                                transition-colors duration-200
+                              ''',
+                              children: [
+                                // Drag Handle
+                                WDiv(
+                                  className:
+                                      'h-6 flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400',
                                   children: [
-                                    // Monitor Info
-                                    WDiv(
-                                      className:
-                                          'flex flex-row items-center gap-2',
-                                      children: [
-                                        // Status Dot (Simulated for UI)
-                                        WDiv(
-                                          className:
-                                              'w-2 h-2 rounded-full bg-green-500 shadow-glow-green',
-                                        ),
-                                        WText(
-                                          item['name'] ?? 'Unknown Monitor',
-                                          className:
-                                              'text-sm font-bold text-gray-900 dark:text-white',
-                                        ),
-                                        WDiv(
-                                          className:
-                                              'px-2 py-0.5 rounded-md bg-gray-200 dark:bg-gray-700',
-                                          children: [
-                                            WText(
-                                              '#${index + 1}',
-                                              className:
-                                                  'text-xs font-mono font-medium text-gray-500 dark:text-gray-400',
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                    WIcon(
+                                      Icons.drag_indicator,
+                                      className: 'text-xl',
                                     ),
+                                  ],
+                                ),
 
-                                    // Custom Label Input
-                                    WInput(
-                                      value: item['display_name'] ?? '',
-                                      placeholder: trans(
-                                        'status_pages.custom_label',
-                                      ),
-                                      onChanged: (val) {
-                                        setState(() {
-                                          item['display_name'] = val;
-                                        });
-                                      },
-                                      className: '''
-                                        w-full
-                                        bg-white dark:bg-gray-800
-                                        text-gray-900 dark:text-white
-                                        text-sm
-                                        px-3 py-2
-                                        rounded-lg
-                                        border border-gray-200 dark:border-gray-700
-                                        focus:border-primary focus:ring-2 focus:ring-primary/10
-                                        placeholder:text-gray-400 dark:placeholder:text-gray-500
-                                      ''',
-                                    ),
-
-                                    // Metric Selection
-                                    if (item['metric_mappings'] != null &&
-                                        (item['metric_mappings'] as List)
-                                            .isNotEmpty)
+                                // Content
+                                Expanded(
+                                  child: WDiv(
+                                    className: 'flex flex-col gap-3',
+                                    children: [
+                                      // Monitor Info
                                       WDiv(
                                         className:
-                                            'mt-2 pt-3 border-t border-gray-100 dark:border-gray-800',
+                                            'flex flex-row items-center gap-2',
                                         children: [
-                                          WText(
-                                            trans(
-                                              'status_pages.custom_metrics',
-                                            ),
+                                          // Status Dot (Simulated for UI)
+                                          WDiv(
                                             className:
-                                                'text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2',
+                                                'w-2 h-2 rounded-full bg-green-500 shadow-glow-green',
+                                          ),
+                                          WText(
+                                            item['name'] ?? 'Unknown Monitor',
+                                            className:
+                                                'text-sm font-bold text-gray-900 dark:text-white',
                                           ),
                                           WDiv(
-                                            className: 'flex flex-col gap-2',
-                                            children: (item['metric_mappings'] as List)
-                                                .map(
-                                                  (
-                                                    m,
-                                                  ) => MetricMapping.tryFromMap(
-                                                    m as Map<String, dynamic>,
-                                                  ),
-                                                )
-                                                .whereType<MetricMapping>()
-                                                .map((mapping) {
-                                                  final selectedKeys =
-                                                      (item['metric_keys']
-                                                              as List?)
-                                                          ?.cast<String>() ??
-                                                      [];
-                                                  final isSelected =
-                                                      selectedKeys.contains(
-                                                        mapping.path,
-                                                      );
-
-                                                  return WDiv(
-                                                    className:
-                                                        'flex flex-row items-center gap-2 cursor-pointer',
-                                                    children: [
-                                                      WCheckbox(
-                                                        value: isSelected,
-                                                        onChanged: (val) {
-                                                          setState(() {
-                                                            final currentKeys =
-                                                                (item['metric_keys']
-                                                                        as List?)
-                                                                    ?.cast<
-                                                                      String
-                                                                    >() ??
-                                                                [];
-                                                            if (val == true) {
-                                                              currentKeys.add(
-                                                                mapping.path,
-                                                              );
-                                                            } else {
-                                                              currentKeys
-                                                                  .remove(
-                                                                    mapping
-                                                                        .path,
-                                                                  );
-                                                            }
-                                                            item['metric_keys'] =
-                                                                currentKeys;
-                                                          });
-                                                        },
-                                                      ),
-                                                      GestureDetector(
-                                                        onTap: () {
-                                                          setState(() {
-                                                            final currentKeys =
-                                                                (item['metric_keys']
-                                                                        as List?)
-                                                                    ?.cast<
-                                                                      String
-                                                                    >() ??
-                                                                [];
-                                                            if (!isSelected) {
-                                                              currentKeys.add(
-                                                                mapping.path,
-                                                              );
-                                                            } else {
-                                                              currentKeys
-                                                                  .remove(
-                                                                    mapping
-                                                                        .path,
-                                                                  );
-                                                            }
-                                                            item['metric_keys'] =
-                                                                currentKeys;
-                                                          });
-                                                        },
-                                                        child: WText(
-                                                          '${mapping.label} (${mapping.path})',
-                                                          className:
-                                                              'text-sm text-gray-700 dark:text-gray-300',
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  );
-                                                })
-                                                .toList(),
+                                            className:
+                                                'px-2 py-0.5 rounded-md bg-gray-200 dark:bg-gray-700',
+                                            children: [
+                                              WText(
+                                                '#${index + 1}',
+                                                className:
+                                                    'text-xs font-mono font-medium text-gray-500 dark:text-gray-400',
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
+
+                                      // Custom Label Input
+                                      WInput(
+                                        value: item['display_name'] ?? '',
+                                        placeholder: trans(
+                                          'status_pages.custom_label',
+                                        ),
+                                        onChanged: (val) {
+                                          setState(() {
+                                            item['display_name'] = val;
+                                          });
+                                        },
+                                        className: '''
+                                          w-full
+                                          bg-white dark:bg-gray-800
+                                          text-gray-900 dark:text-white
+                                          text-sm
+                                          px-3 py-2
+                                          rounded-lg
+                                          border border-gray-200 dark:border-gray-700
+                                          focus:border-primary focus:ring-2 focus:ring-primary/10
+                                          placeholder:text-gray-400 dark:placeholder:text-gray-500
+                                        ''',
+                                      ),
+
+                                      // Metric Selection
+                                      if (item['metric_mappings'] != null &&
+                                          (item['metric_mappings'] as List)
+                                              .isNotEmpty)
+                                        WDiv(
+                                          className:
+                                              'mt-2 pt-3 border-t border-gray-100 dark:border-gray-800',
+                                          children: [
+                                            WText(
+                                              trans(
+                                                'status_pages.custom_metrics',
+                                              ),
+                                              className:
+                                                  'text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2',
+                                            ),
+                                            WDiv(
+                                              className: 'flex flex-col gap-2',
+                                              children: (item['metric_mappings'] as List)
+                                                  .map(
+                                                    (m) =>
+                                                        MetricMapping.tryFromMap(
+                                                          m
+                                                              as Map<
+                                                                String,
+                                                                dynamic
+                                                              >,
+                                                        ),
+                                                  )
+                                                  .whereType<MetricMapping>()
+                                                  .map((mapping) {
+                                                    final selectedKeys =
+                                                        (item['metric_keys']
+                                                                as List?)
+                                                            ?.cast<String>() ??
+                                                        [];
+                                                    final isSelected =
+                                                        selectedKeys.contains(
+                                                          mapping.path,
+                                                        );
+
+                                                    return WDiv(
+                                                      className:
+                                                          'flex flex-row items-center gap-2 cursor-pointer',
+                                                      children: [
+                                                        WCheckbox(
+                                                          value: isSelected,
+                                                          onChanged: (val) {
+                                                            setState(() {
+                                                              final currentKeys =
+                                                                  (item['metric_keys']
+                                                                          as List?)
+                                                                      ?.cast<
+                                                                        String
+                                                                      >() ??
+                                                                  [];
+                                                              if (val == true) {
+                                                                currentKeys.add(
+                                                                  mapping.path,
+                                                                );
+                                                              } else {
+                                                                currentKeys
+                                                                    .remove(
+                                                                      mapping
+                                                                          .path,
+                                                                    );
+                                                              }
+                                                              item['metric_keys'] =
+                                                                  currentKeys;
+                                                            });
+                                                          },
+                                                        ),
+                                                        WAnchor(
+                                                          onTap: () {
+                                                            setState(() {
+                                                              final currentKeys =
+                                                                  (item['metric_keys']
+                                                                          as List?)
+                                                                      ?.cast<
+                                                                        String
+                                                                      >() ??
+                                                                  [];
+                                                              if (!isSelected) {
+                                                                currentKeys.add(
+                                                                  mapping.path,
+                                                                );
+                                                              } else {
+                                                                currentKeys
+                                                                    .remove(
+                                                                      mapping
+                                                                          .path,
+                                                                    );
+                                                              }
+                                                              item['metric_keys'] =
+                                                                  currentKeys;
+                                                            });
+                                                          },
+                                                          child: WText(
+                                                            '${mapping.label} (${mapping.path})',
+                                                            className:
+                                                                'text-sm text-gray-700 dark:text-gray-300',
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    );
+                                                  })
+                                                  .toList(),
+                                            ),
+                                          ],
+                                        ),
+                                    ],
+                                  ),
+                                ),
+
+                                // Remove Button
+                                WDiv(
+                                  className:
+                                      'h-6 flex items-center justify-center',
+                                  children: [
+                                    WButton(
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedMonitors.removeAt(index);
+                                        });
+                                      },
+                                      className: '''
+                                        p-1 rounded-lg
+                                        text-gray-400 hover:text-red-500 hover:bg-red-50
+                                        dark:text-gray-500 dark:hover:text-red-400 dark:hover:bg-red-900/20
+                                        transition-colors
+                                      ''',
+                                      child: WIcon(
+                                        Icons.close,
+                                        className: 'text-lg',
+                                      ),
+                                    ),
                                   ],
                                 ),
-                              ),
+                              ],
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    )
+                  else
+                    // Empty State
+                    WDiv(
+                      className: '''
+                        flex flex-col items-center justify-center py-10 px-4
+                        bg-gray-50 dark:bg-gray-900/30
+                        border-2 border-dashed border-gray-200 dark:border-gray-700
+                        rounded-xl
+                      ''',
+                      children: [
+                        WDiv(
+                          className:
+                              'w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-3',
+                          children: [
+                            WIcon(
+                              Icons.monitor_heart_outlined,
+                              className:
+                                  'text-2xl text-gray-400 dark:text-gray-500',
+                            ),
+                          ],
+                        ),
+                        WText(
+                          trans('status_pages.no_monitors_selected'),
+                          className:
+                              'text-sm font-semibold text-gray-900 dark:text-white mb-1',
+                        ),
+                        WText(
+                          trans('status_pages.no_monitors_selected_hint'),
+                          className:
+                              'text-xs text-gray-500 dark:text-gray-400 text-center max-w-xs',
+                        ),
+                      ],
+                    ),
 
-                              // Remove Button
-                              WDiv(
-                                className:
-                                    'h-6 flex items-center justify-center',
-                                children: [
-                                  WButton(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedMonitors.removeAt(index);
-                                      });
-                                    },
-                                    className: '''
-                                      p-1 rounded-lg
-                                      text-gray-400 hover:text-red-500 hover:bg-red-50
-                                      dark:text-gray-500 dark:hover:text-red-400 dark:hover:bg-red-900/20
-                                      transition-colors
-                                    ''',
-                                    child: WIcon(
-                                      Icons.close,
-                                      className: 'text-lg',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  )
-                else
-                  // Empty State
-                  WDiv(
-                    className: '''
-                      flex flex-col items-center justify-center py-10 px-4
-                      bg-gray-50 dark:bg-gray-900/30
-                      border-2 border-dashed border-gray-200 dark:border-gray-700
-                      rounded-xl
-                    ''',
-                    children: [
-                      WDiv(
-                        className:
-                            'w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-3',
-                        children: [
-                          WIcon(
-                            Icons.monitor_heart_outlined,
-                            className:
-                                'text-2xl text-gray-400 dark:text-gray-500',
-                          ),
-                        ],
-                      ),
-                      WText(
-                        trans('status_pages.no_monitors_selected'),
-                        className:
-                            'text-sm font-semibold text-gray-900 dark:text-white mb-1',
-                      ),
-                      WText(
-                        trans('status_pages.no_monitors_selected_hint'),
-                        className:
-                            'text-xs text-gray-500 dark:text-gray-400 text-center max-w-xs',
-                      ),
-                    ],
-                  ),
-
-                // Add Monitor Select
-                if (availableMonitors.isNotEmpty)
-                  WDiv(
-                    className: 'mt-2',
-                    children: [
-                      WSelect<String>(
-                        options: availableMonitors
-                            .map(
-                              (m) => SelectOption<String>(
-                                value: m.id!,
-                                label: m.name ?? 'Monitor #${m.id}',
-                              ),
-                            )
-                            .toList(),
-                        value: null,
-                        placeholder: trans('status_pages.add_monitor'),
-                        className: '''
-                          w-full
-                          bg-white dark:bg-gray-800
-                          text-gray-900 dark:text-white
-                          rounded-xl
-                          border border-gray-200 dark:border-gray-700
-                          px-4 py-3
-                          text-sm font-medium
-                          focus:border-primary focus:ring-2 focus:ring-primary/20
-                          shadow-sm
-                        ''',
-                        menuClassName: '''
-                          bg-white dark:bg-gray-800
-                          border border-gray-200 dark:border-gray-700
-                          rounded-xl shadow-xl mt-2
-                        ''',
-                        onChange: (monitorId) {
-                          final monitor = availableMonitors.firstWhere(
-                            (m) => m.id == monitorId,
-                          );
-                          setState(() {
-                            _selectedMonitors.add({
-                              'monitor_id':
-                                  monitor.id ?? monitorId, // Ensure ID is used
-                              'name': monitor.name,
-                              'display_name': monitor.name,
-                              'metric_mappings': monitor.metricMappings,
-                              'metric_keys': <String>[],
+                  // Add Monitor Select
+                  if (availableMonitors.isNotEmpty)
+                    WDiv(
+                      className: 'mt-2',
+                      children: [
+                        WSelect<String>(
+                          options: availableMonitors
+                              .map(
+                                (m) => SelectOption<String>(
+                                  value: m.id!,
+                                  label: m.name ?? 'Monitor #${m.id}',
+                                ),
+                              )
+                              .toList(),
+                          value: null,
+                          placeholder: trans('status_pages.add_monitor'),
+                          className: '''
+                            w-full
+                            bg-white dark:bg-gray-800
+                            text-gray-900 dark:text-white
+                            rounded-xl
+                            border border-gray-200 dark:border-gray-700
+                            px-4 py-3
+                            text-sm font-medium
+                            focus:border-primary focus:ring-2 focus:ring-primary/20
+                            shadow-sm
+                          ''',
+                          menuClassName: '''
+                            bg-white dark:bg-gray-800
+                            border border-gray-200 dark:border-gray-700
+                            rounded-xl shadow-xl mt-2
+                          ''',
+                          onChange: (monitorId) {
+                            final monitor = availableMonitors.firstWhere(
+                              (m) => m.id == monitorId,
+                            );
+                            setState(() {
+                              _selectedMonitors.add({
+                                'monitor_id':
+                                    monitor.id ??
+                                    monitorId, // Ensure ID is used
+                                'name': monitor.name,
+                                'display_name': monitor.name,
+                                'metric_mappings': monitor.metricMappings,
+                                'metric_keys': <String>[],
+                              });
                             });
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-              ],
-            );
-          },
-        ),
-      ],
+                          },
+                        ),
+                      ],
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }

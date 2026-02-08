@@ -1421,3 +1421,11 @@ int? get incidentThreshold => (get('incident_threshold') as num?)?.toInt();
 - **Zero Rework**: No test modifications needed, implementation was correct first try
 - **Pattern Consistency**: Followed existing Monitor model patterns (checkInterval, timeout)
 
+
+## Wiring Incidents (Task 14)
+- **Search Autocomplete**: Updated to fetch real data from `Monitor.all()` and `Incident.all()`. Handled nullable fields in models.
+- **Dashboard**: Added "Active Incidents" counter using `FutureBuilder` wrapping `Incident.all()`.
+- **Navigation**: Added `/incidents` routes to `lib/routes/app.dart` pointing to `IncidentController`.
+- **Components**: Enhanced `StatCard` with `onTap` support for navigation.
+- **Translations**: Added full set of keys for incidents and announcements in `en.json`.
+- **Logic**: Used `Incident.all()` directly for stats/search instead of controller methods that don't return data (they update notifiers). This is cleaner for stateless widgets like SearchAutocomplete.
