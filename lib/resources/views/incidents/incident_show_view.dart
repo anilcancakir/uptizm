@@ -6,6 +6,7 @@ import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_status.dart';
 import '../../../app/enums/incident_impact.dart';
 import '../components/app_page_header.dart';
+import '../components/monitors/stat_card.dart';
 
 class IncidentShowView extends MagicStatefulView<IncidentController> {
   const IncidentShowView({super.key});
@@ -292,74 +293,30 @@ class _IncidentShowViewState
       className: 'grid grid-cols-2 md:grid-cols-4 gap-4',
       children: [
         // Impact
-        _buildStatCard(
+        StatCard(
           label: trans('incidents.impact'),
           value: incident.impact?.label ?? trans('common.unknown'),
           icon: Icons.warning_amber_outlined,
           valueColor: _impactTextColor(incident.impact),
-          bgColor: _impactBgColor(incident.impact),
         ),
         // Status
-        _buildStatCard(
+        StatCard(
           label: trans('incidents.status'),
           value: incident.status?.label ?? trans('common.unknown'),
           icon: Icons.info_outline,
           valueColor: _statusTextColor(incident.status),
-          bgColor: _statusBgColor(incident.status),
         ),
         // Duration
-        _buildStatCard(
+        StatCard(
           label: trans('incidents.duration'),
           value: _formatDuration(incident),
           icon: Icons.timer_outlined,
         ),
         // Updates
-        _buildStatCard(
+        StatCard(
           label: trans('common.updates'),
           value: '${incident.updates.length}',
           icon: Icons.history,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard({
-    required String label,
-    required String value,
-    required IconData icon,
-    String? valueColor,
-    String? bgColor,
-  }) {
-    return WDiv(
-      className: '''
-        bg-white dark:bg-gray-800
-        border border-gray-100 dark:border-gray-700
-        rounded-2xl p-4
-      ''',
-      children: [
-        WDiv(
-          className: 'flex flex-row items-center gap-2 mb-3',
-          children: [
-            WDiv(
-              className:
-                  'p-2 rounded-lg ${bgColor ?? 'bg-gray-100 dark:bg-gray-700'}',
-              child: WIcon(
-                icon,
-                className:
-                    'text-base ${valueColor ?? 'text-gray-600 dark:text-gray-400'}',
-              ),
-            ),
-          ],
-        ),
-        WText(
-          label.toUpperCase(),
-          className:
-              'text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1',
-        ),
-        WText(
-          value,
-          className:
-              'text-lg font-semibold ${valueColor ?? 'text-gray-900 dark:text-white'}',
         ),
       ],
     );
@@ -683,21 +640,6 @@ class _IncidentShowViewState
     }
   }
 
-  String _impactBgColor(IncidentImpact? impact) {
-    switch (impact) {
-      case IncidentImpact.majorOutage:
-        return 'bg-red-50 dark:bg-red-900/20';
-      case IncidentImpact.partialOutage:
-        return 'bg-orange-50 dark:bg-orange-900/20';
-      case IncidentImpact.degradedPerformance:
-        return 'bg-yellow-50 dark:bg-yellow-900/20';
-      case IncidentImpact.underMaintenance:
-        return 'bg-blue-50 dark:bg-blue-900/20';
-      default:
-        return 'bg-gray-100 dark:bg-gray-700';
-    }
-  }
-
   String _statusTextColor(IncidentStatus? status) {
     switch (status) {
       case IncidentStatus.investigating:
@@ -710,21 +652,6 @@ class _IncidentShowViewState
         return 'text-green-600 dark:text-green-400';
       default:
         return 'text-gray-600 dark:text-gray-400';
-    }
-  }
-
-  String _statusBgColor(IncidentStatus? status) {
-    switch (status) {
-      case IncidentStatus.investigating:
-        return 'bg-gray-100 dark:bg-gray-700';
-      case IncidentStatus.identified:
-        return 'bg-orange-50 dark:bg-orange-900/20';
-      case IncidentStatus.monitoring:
-        return 'bg-blue-50 dark:bg-blue-900/20';
-      case IncidentStatus.resolved:
-        return 'bg-green-50 dark:bg-green-900/20';
-      default:
-        return 'bg-gray-100 dark:bg-gray-700';
     }
   }
 }

@@ -96,6 +96,8 @@ class _MonitorAnalyticsViewState
     return WDiv(
       className: 'overflow-y-auto p-4 lg:p-6 flex flex-col gap-6',
       children: [
+        // Loading indicator for tests
+        WText(trans('analytics.loading'), className: 'sr-only'),
         // Header skeleton
         WDiv(
           className: 'flex flex-row items-center gap-4',

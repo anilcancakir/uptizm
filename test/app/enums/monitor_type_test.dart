@@ -32,8 +32,8 @@ void main() {
       expect(MonitorType.fromValue(null), null);
     });
 
-    test('fromValue returns http for unknown value', () {
-      expect(MonitorType.fromValue('unknown'), MonitorType.http);
+    test('fromValue returns null for unknown value', () {
+      expect(MonitorType.fromValue('unknown'), isNull);
     });
 
     test('selectOptions includes all types', () {

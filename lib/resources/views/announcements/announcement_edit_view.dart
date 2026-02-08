@@ -252,7 +252,7 @@ class _AnnouncementEditViewState
                       className:
                           'text-sm font-medium text-gray-700 dark:text-gray-300',
                     ),
-                    GestureDetector(
+                    WAnchor(
                       onTap: () => _selectDate(isStart: true),
                       child: WDiv(
                         className: '''
@@ -283,7 +283,7 @@ class _AnnouncementEditViewState
                       className:
                           'text-sm font-medium text-gray-700 dark:text-gray-300',
                     ),
-                    GestureDetector(
+                    WAnchor(
                       onTap: () => _selectDate(isStart: false),
                       child: WDiv(
                         className: '''

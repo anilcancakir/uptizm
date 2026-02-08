@@ -134,7 +134,7 @@ void main() {
         buildTestApp(child: AlertRuleListItem(rule: teamRule)),
       );
 
-      expect(find.text('Team Level'), findsOneWidget);
+      expect(find.text(trans('alerts.team_level')), findsOneWidget);
     });
 
     testWidgets('hides team-level badge for monitor-specific rules', (

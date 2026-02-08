@@ -49,12 +49,12 @@ void main() {
       );
     });
 
-    test('fromValue returns none for null', () {
-      expect(MonitorAuthType.fromValue(null), MonitorAuthType.none);
+    test('fromValue returns null for null', () {
+      expect(MonitorAuthType.fromValue(null), isNull);
     });
 
-    test('fromValue returns none for unknown value', () {
-      expect(MonitorAuthType.fromValue('unknown'), MonitorAuthType.none);
+    test('fromValue returns null for unknown value', () {
+      expect(MonitorAuthType.fromValue('unknown'), isNull);
     });
 
     test('selectOptions returns all types', () {

@@ -10,7 +10,7 @@ enum ApiKeyLocation {
   final String label;
 
   static ApiKeyLocation? fromValue(String? value) {
-    if (value == null) return null;
+    if (value == null) return ApiKeyLocation.header;
     try {
       return ApiKeyLocation.values.firstWhere((type) => type.value == value);
     } catch (_) {

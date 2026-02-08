@@ -163,7 +163,7 @@ void main() {
         buildTestApp(child: AlertListItem(alert: testAlert)),
       );
 
-      expect(find.text('Alerting'), findsOneWidget);
+      expect(find.text(trans('alerts.status_alerting')), findsOneWidget);
     });
 
     testWidgets('shows status badge for resolved alerts', (tester) async {
@@ -188,7 +188,7 @@ void main() {
         buildTestApp(child: AlertListItem(alert: resolvedAlert)),
       );
 
-      expect(find.text('Resolved'), findsOneWidget);
+      expect(find.text(trans('alerts.status_resolved')), findsOneWidget);
     });
   });
 }

@@ -105,7 +105,6 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
       }
     }
 
-    Log.debug('Submitting alert rule: ${rule.toMap()}');
     widget.onSubmit(rule);
   }
 

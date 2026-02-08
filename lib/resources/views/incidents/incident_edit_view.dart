@@ -103,7 +103,14 @@ class _IncidentEditViewState
             className: 'flex flex-row items-center gap-3 mb-2',
             children: [
               WButton(
-                onTap: () => MagicRoute.back(),
+                onTap: () {
+                  final incident = controller.selectedIncidentNotifier.value;
+                  if (incident?.id != null) {
+                    MagicRoute.to('/incidents/${incident!.id}');
+                  } else {
+                    MagicRoute.to('/incidents');
+                  }
+                },
                 className: '''
                   p-2 rounded-lg
                   hover:bg-gray-100 dark:hover:bg-gray-700
@@ -266,7 +273,14 @@ class _IncidentEditViewState
             className: 'flex flex-row justify-end gap-3 w-full pb-2',
             children: [
               WButton(
-                onTap: () => MagicRoute.back(),
+                onTap: () {
+                  final incident = controller.selectedIncidentNotifier.value;
+                  if (incident?.id != null) {
+                    MagicRoute.to('/incidents/${incident!.id}');
+                  } else {
+                    MagicRoute.to('/incidents');
+                  }
+                },
                 className: '''
                   px-4 py-2 rounded-lg
                   bg-gray-200 dark:bg-gray-700

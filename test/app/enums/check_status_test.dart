@@ -32,8 +32,8 @@ void main() {
       expect(CheckStatus.fromValue(null), null);
     });
 
-    test('fromValue returns down for unknown value', () {
-      expect(CheckStatus.fromValue('unknown'), CheckStatus.down);
+    test('fromValue returns null for unknown value', () {
+      expect(CheckStatus.fromValue('unknown'), null);
     });
 
     test('selectOptions returns 3 options', () {
