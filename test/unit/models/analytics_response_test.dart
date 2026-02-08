@@ -93,5 +93,78 @@ void main() {
       expect(response.statusSeries.length, 1);
       expect(response.statusSeries.first.metricKey, 's2');
     });
+
+    test('fromMap handles String summary values from API', () {
+      final map = {
+        'data': {
+          'monitor_id': 'test-monitor-uuid-1',
+          'date_from': '2026-01-01T00:00:00Z',
+          'date_to': '2026-01-02T00:00:00Z',
+          'granularity': 'hourly',
+          'series': [],
+          'summary': {
+            'total_checks': '100',
+            'uptime_percent': '99.5',
+            'avg_response_time': '200.5',
+          },
+        },
+      };
+
+      final response = AnalyticsResponse.fromMap(map);
+
+      expect(response.summary.totalChecks, 100);
+      expect(response.summary.uptimePercent, 99.5);
+      expect(response.summary.avgResponseTime, 200.5);
+    });
+  });
+
+  group('AnalyticsSummary handles String values from API', () {
+    test('parses all summary fields from Strings', () {
+      final summary = AnalyticsSummary.fromMap({
+        'total_checks': '100',
+        'uptime_percent': '99.5',
+        'avg_response_time': '200.5',
+      });
+
+      expect(summary.totalChecks, 100);
+      expect(summary.uptimePercent, 99.5);
+      expect(summary.avgResponseTime, 200.5);
+    });
+
+    test('handles null values with defaults', () {
+      final summary = AnalyticsSummary.fromMap({
+        'total_checks': null,
+        'uptime_percent': null,
+        'avg_response_time': null,
+      });
+
+      expect(summary.totalChecks, 0);
+      expect(summary.uptimePercent, 0.0);
+      expect(summary.avgResponseTime, 0.0);
+    });
+
+    test('handles empty String values with defaults', () {
+      final summary = AnalyticsSummary.fromMap({
+        'total_checks': '',
+        'uptime_percent': '',
+        'avg_response_time': '',
+      });
+
+      expect(summary.totalChecks, 0);
+      expect(summary.uptimePercent, 0.0);
+      expect(summary.avgResponseTime, 0.0);
+    });
+
+    test('handles String "0" correctly', () {
+      final summary = AnalyticsSummary.fromMap({
+        'total_checks': '0',
+        'uptime_percent': '0.0',
+        'avg_response_time': '0',
+      });
+
+      expect(summary.totalChecks, 0);
+      expect(summary.uptimePercent, 0.0);
+      expect(summary.avgResponseTime, 0.0);
+    });
   });
 }

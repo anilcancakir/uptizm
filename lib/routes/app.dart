@@ -5,6 +5,7 @@ import '../resources/views/layouts/app_layout.dart';
 import '../app/controllers/alert_controller.dart';
 import '../app/controllers/analytics_controller.dart';
 import '../app/controllers/dashboard_controller.dart';
+import '../app/controllers/incident_controller.dart';
 import '../app/controllers/monitor_controller.dart';
 import '../app/controllers/notification_controller.dart';
 import '../app/controllers/profile_controller.dart';
@@ -101,10 +102,27 @@ void registerAppRoutes() {
       // Incidents
       MagicRoute.page(
         '/incidents',
-        () => Center(
-          child: WText('Coming Soon', className: 'text-lg text-gray-500'),
+        () => IncidentController.instance.index(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/incidents/create',
+        () => IncidentController.instance.create(),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/incidents/:id',
+        () => IncidentController.instance.show(
+          MagicRouter.instance.pathParameter('id') ?? '',
         ),
-      );
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/incidents/:id/edit',
+        () => IncidentController.instance.edit(
+          MagicRouter.instance.pathParameter('id') ?? '',
+        ),
+      ).transition(RouteTransition.none);
 
       // Status Pages
       MagicRoute.page(

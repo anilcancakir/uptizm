@@ -109,14 +109,10 @@ class _ResponseTimeChartState extends State<ResponseTimeChart> {
                   final point = widget.dataPoints[index];
                   return Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Text(
+                    child: WText(
                       _formatTime(point.timestamp),
-                      style: TextStyle(
-                        color: isDark
-                            ? UptizmChartTheme.textDark
-                            : UptizmChartTheme.textLight,
-                        fontSize: 10,
-                      ),
+                      className:
+                          'text-[10px] ${isDark ? 'text-gray-400' : 'text-gray-600'}',
                     ),
                   );
                 },
@@ -128,15 +124,10 @@ class _ResponseTimeChartState extends State<ResponseTimeChart> {
                 reservedSize: 40,
                 interval: _getGridInterval(maxY, minY),
                 getTitlesWidget: (value, meta) {
-                  return Text(
+                  return WText(
                     '${value.toInt()}ms',
-                    style: TextStyle(
-                      color: isDark
-                          ? UptizmChartTheme.textDark
-                          : UptizmChartTheme.textLight,
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                    ),
+                    className:
+                        'text-[10px] font-mono ${isDark ? 'text-gray-400' : 'text-gray-600'}',
                   );
                 },
               ),

@@ -32,7 +32,7 @@ class MonitorMetricValue {
       checkId: map['check_id'].toString(),
       metricKey: map['metric_key'] as String,
       metricLabel: map['metric_label'] as String,
-      numericValue: (map['numeric_value'] as num?)?.toDouble(),
+      numericValue: _toDouble(map['numeric_value']),
       stringValue: map['string_value'] as String?,
       statusValue: MetricStatusValue.fromValue(map['status_value'] as String?),
       unit: map['unit'] as String?,
@@ -47,4 +47,11 @@ class MonitorMetricValue {
   bool get isDown => statusValue == MetricStatusValue.down;
 
   bool get isStatusMetric => statusValue != null;
+
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
 }

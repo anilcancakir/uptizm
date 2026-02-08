@@ -127,16 +127,24 @@ class _IncidentCreateViewState
               children: [
                 // Title
                 WFormInput(
-                  label: trans('incidents.title'),
-                  placeholder: trans('incidents.title_placeholder'),
+                  controller: form['title'],
+                  label: trans('incidents.title_label'),
+                  hint: trans('incidents.title_placeholder'),
                   className: '''
                     w-full px-3 py-3 rounded-lg text-sm
                     bg-white dark:bg-gray-900
+                    text-gray-900 dark:text-white
                     border border-gray-200 dark:border-gray-700
                     focus:border-primary focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
                   ''',
                   labelClassName:
                       'text-sm font-medium text-gray-700 dark:text-gray-300 mb-2',
+                  validator: FormValidator.rules([
+                    Required(),
+                    Min(3),
+                    Max(255),
+                  ], field: 'title'),
                 ),
 
                 // Impact
@@ -159,7 +167,13 @@ class _IncidentCreateViewState
                       className: '''
                         w-full px-3 py-3 rounded-lg text-sm
                         bg-white dark:bg-gray-900
+                        text-gray-900 dark:text-white
                         border border-gray-200 dark:border-gray-700
+                      ''',
+                      menuClassName: '''
+                        bg-white dark:bg-gray-800
+                        border border-gray-200 dark:border-gray-700
+                        rounded-xl shadow-xl
                       ''',
                     ),
                   ],
@@ -183,7 +197,13 @@ class _IncidentCreateViewState
                       className: '''
                         w-full px-3 py-3 rounded-lg text-sm
                         bg-white dark:bg-gray-900
+                        text-gray-900 dark:text-white
                         border border-gray-200 dark:border-gray-700
+                      ''',
+                      menuClassName: '''
+                        bg-white dark:bg-gray-800
+                        border border-gray-200 dark:border-gray-700
+                        rounded-xl shadow-xl
                       ''',
                       placeholder: trans('incidents.select_monitors'),
                     ),
@@ -192,17 +212,24 @@ class _IncidentCreateViewState
 
                 // Initial Message
                 WFormInput(
+                  controller: form['message'],
                   label: trans('incidents.initial_message'),
-                  placeholder: trans('incidents.message_placeholder'),
+                  hint: trans('incidents.message_placeholder'),
                   maxLines: 4,
                   className: '''
                     w-full px-3 py-3 rounded-lg text-sm
                     bg-white dark:bg-gray-900
+                    text-gray-900 dark:text-white
                     border border-gray-200 dark:border-gray-700
                     focus:border-primary focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
                   ''',
                   labelClassName:
                       'text-sm font-medium text-gray-700 dark:text-gray-300 mb-2',
+                  validator: FormValidator.rules([
+                    Required(),
+                    Min(10),
+                  ], field: 'message'),
                 ),
               ],
             ),

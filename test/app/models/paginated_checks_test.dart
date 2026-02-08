@@ -101,5 +101,45 @@ void main() {
       expect(paginated.perPage, 15);
       expect(paginated.total, 0);
     });
+
+    group('handles String meta values from API', () {
+      test('parses pagination meta from Strings', () {
+        final response = {
+          'data': [],
+          'meta': {
+            'current_page': '2',
+            'last_page': '5',
+            'per_page': '10',
+            'total': '50',
+          },
+        };
+
+        final paginated = PaginatedChecks.fromResponse(response);
+
+        expect(paginated.currentPage, 2);
+        expect(paginated.lastPage, 5);
+        expect(paginated.perPage, 10);
+        expect(paginated.total, 50);
+      });
+
+      test('handles empty String meta values with defaults', () {
+        final response = {
+          'data': [],
+          'meta': {
+            'current_page': '',
+            'last_page': '',
+            'per_page': '',
+            'total': '',
+          },
+        };
+
+        final paginated = PaginatedChecks.fromResponse(response);
+
+        expect(paginated.currentPage, 1);
+        expect(paginated.lastPage, 1);
+        expect(paginated.perPage, 15);
+        expect(paginated.total, 0);
+      });
+    });
   });
 }

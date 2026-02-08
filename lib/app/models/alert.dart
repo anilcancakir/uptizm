@@ -41,8 +41,15 @@ class Alert extends Model with HasTimestamps, InteractsWithPersistence {
       ? DateTime.tryParse(getAttribute('resolved_at') as String)
       : null;
 
-  double? get triggerValue =>
-      (getAttribute('trigger_value') as num?)?.toDouble();
+  double? get triggerValue => _toDouble(getAttribute('trigger_value'));
+
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
   String? get triggerMessage => getAttribute('trigger_message') as String?;
 
   // Relationships

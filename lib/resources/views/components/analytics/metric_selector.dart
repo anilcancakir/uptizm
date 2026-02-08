@@ -28,8 +28,7 @@ class MetricSelector extends StatelessWidget {
       className: 'flex flex-col gap-3',
       children: [
         WDiv(
-          className:
-              'flex flex-row flex-wrap items-center justify-between gap-2',
+          className: 'wrap items-center justify-between gap-2',
           children: [
             WText(
               trans('analytics.select_metrics'),
@@ -57,7 +56,7 @@ class MetricSelector extends StatelessWidget {
           ],
         ),
         WDiv(
-          className: 'flex flex-row flex-wrap gap-2 overflow-x-auto',
+          className: 'wrap gap-2',
           children: availableMetrics.map((series) {
             final isSelected = selectedKeys.contains(series.metricKey);
             return WButton(

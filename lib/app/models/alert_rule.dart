@@ -52,12 +52,16 @@ class AlertRule extends Model with HasTimestamps, InteractsWithPersistence {
       ? AlertOperator.fromValue(getAttribute('operator') as String)
       : null;
 
-  double? get thresholdValue =>
-      (getAttribute('threshold_value') as num?)?.toDouble();
-  double? get thresholdMin =>
-      (getAttribute('threshold_min') as num?)?.toDouble();
-  double? get thresholdMax =>
-      (getAttribute('threshold_max') as num?)?.toDouble();
+  double? get thresholdValue => _toDouble(getAttribute('threshold_value'));
+  double? get thresholdMin => _toDouble(getAttribute('threshold_min'));
+  double? get thresholdMax => _toDouble(getAttribute('threshold_max'));
+
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
 
   AlertSeverity get severity =>
       AlertSeverity.fromValue(
@@ -65,8 +69,13 @@ class AlertRule extends Model with HasTimestamps, InteractsWithPersistence {
       ) ??
       AlertSeverity.warning;
 
-  int get consecutiveChecks =>
-      (getAttribute('consecutive_checks') as num?)?.toInt() ?? 1;
+  int get consecutiveChecks {
+    final value = getAttribute('consecutive_checks');
+    if (value == null) return 1;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 1;
+    return 1;
+  }
 
   // Setters
   set teamId(String? value) => setAttribute('team_id', value);

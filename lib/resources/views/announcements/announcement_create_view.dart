@@ -6,6 +6,6 @@ class AnnouncementCreateView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: Text('Announcement Create')));
+    return const Scaffold(body: Center(child: WText('Announcement Create')));
   }
 }

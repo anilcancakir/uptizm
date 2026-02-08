@@ -77,24 +77,50 @@ class MonitorSettingsSection extends StatelessWidget {
               className: 'text-xs text-gray-500',
             ),
             labelClassName: '''
-              text-gray-900 dark:text-gray-200
-              mb-2 text-sm font-medium
-            ''',
+               text-gray-900 dark:text-gray-200
+               mb-2 text-sm font-medium
+             ''',
             className: '''
-              w-full bg-white dark:bg-gray-800
-              text-gray-900 dark:text-white
-              rounded-lg
-              border border-gray-200 dark:border-gray-700
-              px-3 py-3
-              text-sm
-              focus:border-primary
-              focus:ring-2 focus:ring-primary/20
-              error:border-red-500
-            ''',
+               w-full bg-white dark:bg-gray-800
+               text-gray-900 dark:text-white
+               rounded-lg
+               border border-gray-200 dark:border-gray-700
+               px-3 py-3
+               text-sm
+               focus:border-primary
+               focus:ring-2 focus:ring-primary/20
+               error:border-red-500
+             ''',
             validator: FormValidator.rules([
               Required(),
               BetweenNumeric(1, 120),
             ], field: 'timeout'),
+          ),
+
+          // Auto-Incident Threshold
+          WFormInput(
+            label: trans('monitor.incident_threshold'),
+            hint: trans('monitor.incident_threshold_hint'),
+            controller: form['incident_threshold'],
+            type: InputType.number,
+            labelClassName: '''
+               text-gray-900 dark:text-gray-200
+               mb-2 text-sm font-medium
+             ''',
+            className: '''
+               w-full bg-white dark:bg-gray-800
+               text-gray-900 dark:text-white
+               rounded-lg
+               border border-gray-200 dark:border-gray-700
+               px-3 py-3
+               text-sm
+               focus:border-primary
+               focus:ring-2 focus:ring-primary/20
+               error:border-red-500
+             ''',
+            validator: FormValidator.rules([
+              BetweenNumeric(1, 100),
+            ], field: 'incident_threshold'),
           ),
 
           // Monitoring Locations

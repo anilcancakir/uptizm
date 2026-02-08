@@ -11,6 +11,7 @@ class StatCard extends StatelessWidget {
   final IconData? icon;
   final Color? valueColor;
   final String? subtitle;
+  final VoidCallback? onTap;
 
   const StatCard({
     super.key,
@@ -19,17 +20,20 @@ class StatCard extends StatelessWidget {
     this.icon,
     this.valueColor,
     this.subtitle,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return WDiv(
-      className: '''
+    final content = WDiv(
+      className:
+          '''
         flex flex-col p-5
         bg-white dark:bg-gray-800
         rounded-2xl
         border border-gray-100 dark:border-gray-700
         w-full
+        ${onTap != null ? 'hover:border-primary/30 cursor-pointer' : ''}
       ''',
       children: [
         // Header row: label + icon
@@ -66,5 +70,10 @@ class StatCard extends StatelessWidget {
         ],
       ],
     );
+
+    if (onTap != null) {
+      return WAnchor(onTap: onTap, child: content);
+    }
+    return content;
   }
 }

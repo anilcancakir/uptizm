@@ -46,8 +46,9 @@ class _StatusPageShowViewState
   }
 
   Future<void> _loadAnnouncements() async {
+    if (_statusPageId == null) return;
     try {
-      final announcements = await Announcement.all();
+      final announcements = await Announcement.allForStatusPage(_statusPageId!);
       _announcementsNotifier.value = announcements;
     } catch (e) {
       Log.error('Failed to load announcements', e);
@@ -88,8 +89,8 @@ class _StatusPageShowViewState
               children: [
                 _buildInfoCard(statusPage),
                 _buildMonitorsCard(statusPage),
-                _buildActiveIncidents(statusPage),
-                _buildAnnouncements(statusPage),
+                // Reactive conditional sections (incidents + announcements)
+                _buildReactiveConditionalSections(statusPage),
                 _buildIncidentHistory(statusPage),
                 _buildStatusCard(statusPage),
               ],
@@ -455,90 +456,6 @@ class _StatusPageShowViewState
     }
   }
 
-  Widget _buildActiveIncidents(StatusPage statusPage) {
-    return ValueListenableBuilder<List<Incident>>(
-      valueListenable: IncidentController.instance.incidentsNotifier,
-      builder: (context, allIncidents, _) {
-        final activeIncidents = allIncidents.where((incident) {
-          if (incident.status == IncidentStatus.resolved) return false;
-          final pageMonitorIds = statusPage.monitorIds;
-          final incidentMonitorIds = incident.monitorIds;
-          return incidentMonitorIds.any((id) => pageMonitorIds.contains(id));
-        }).toList();
-
-        if (activeIncidents.isEmpty) return const SizedBox.shrink();
-
-        return AppCard(
-          title: trans('status_pages.active_incidents'),
-          icon: Icons.warning_amber_rounded,
-          titleClassName: 'text-red-600 dark:text-red-400',
-          body: WDiv(
-            className: 'flex flex-col gap-4',
-            children: activeIncidents
-                .map((i) => _buildIncidentItem(i))
-                .toList(),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildAnnouncements(StatusPage statusPage) {
-    return ValueListenableBuilder<List<Announcement>>(
-      valueListenable: _announcementsNotifier,
-      builder: (context, allAnnouncements, _) {
-        final announcements = allAnnouncements.where((a) {
-          return a.statusPageId == statusPage.id && a.isActive;
-        }).toList();
-
-        if (announcements.isEmpty) return const SizedBox.shrink();
-
-        return AppCard(
-          title: trans('status_pages.announcements'),
-          icon: Icons.campaign_outlined,
-          titleClassName: 'text-blue-600 dark:text-blue-400',
-          body: WDiv(
-            className: 'flex flex-col gap-4',
-            children: announcements.map((a) {
-              return WDiv(
-                className:
-                    'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30',
-                children: [
-                  WText(
-                    a.title ?? '',
-                    className:
-                        'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
-                  ),
-                  if (a.body != null)
-                    WText(
-                      a.body!,
-                      className: 'text-sm text-blue-800 dark:text-blue-200',
-                    ),
-                  WDiv(
-                    className: 'mt-2 flex items-center gap-2',
-                    children: [
-                      WIcon(
-                        Icons.schedule,
-                        className: 'text-xs text-blue-600 dark:text-blue-400',
-                      ),
-                      WText(
-                        DateFormat.yMMMd().format(
-                          DateTime.parse(a.publishedAt.toString()),
-                        ),
-                        className:
-                            'text-xs font-medium text-blue-600 dark:text-blue-400',
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildIncidentHistory(StatusPage statusPage) {
     return AppCard(
       title: trans('status_pages.incident_history'),
@@ -546,12 +463,6 @@ class _StatusPageShowViewState
       body: ValueListenableBuilder<List<Incident>>(
         valueListenable: IncidentController.instance.incidentsNotifier,
         builder: (context, allIncidents, _) {
-          // Get last 15 days
-          final now = DateTime.now();
-          final historyDays = List.generate(15, (index) {
-            return now.subtract(Duration(days: index));
-          });
-
           // Filter incidents for this page
           final pageMonitorIds = statusPage.monitorIds;
           final relevantIncidents = allIncidents.where((incident) {
@@ -559,60 +470,47 @@ class _StatusPageShowViewState
             return incidentMonitorIds.any((id) => pageMonitorIds.contains(id));
           }).toList();
 
-          return WDiv(
-            className: 'flex flex-col gap-4',
-            children: historyDays.map((date) {
-              final incidentsForDay = relevantIncidents.where((i) {
-                if (i.startedAt == null) return false;
-                final start = DateTime.parse(i.startedAt.toString());
-                return start.year == date.year &&
-                    start.month == date.month &&
-                    start.day == date.day;
-              }).toList();
+          if (relevantIncidents.isEmpty) {
+            return WDiv(
+              className: 'py-8 flex flex-col items-center justify-center',
+              children: [
+                WIcon(
+                  Icons.check_circle_outline,
+                  className: 'text-4xl text-green-500 mb-2',
+                ),
+                WText(
+                  trans('status_pages.no_past_incidents'),
+                  className: 'text-gray-500 dark:text-gray-400',
+                ),
+              ],
+            );
+          }
 
+          // Group incidents by date
+          final groupedByDate = <String, List<Incident>>{};
+          for (final incident in relevantIncidents) {
+            if (incident.startedAt == null) continue;
+            final date = DateTime.parse(incident.startedAt.toString());
+            final dateKey = DateFormat('MMM d, yyyy').format(date);
+            groupedByDate.putIfAbsent(dateKey, () => []);
+            groupedByDate[dateKey]!.add(incident);
+          }
+
+          return WDiv(
+            className: 'flex flex-col gap-6',
+            children: groupedByDate.entries.map((entry) {
               return WDiv(
-                className: 'flex flex-row items-start gap-4',
+                className: 'flex flex-col gap-4',
                 children: [
-                  // Date
-                  WDiv(
-                    className: 'w-24 flex-shrink-0 pt-1',
-                    child: WText(
-                      DateFormat.MMMd().format(date),
-                      className: 'text-sm font-medium text-gray-500',
-                    ),
+                  // Date header (Claude style)
+                  WText(
+                    entry.key,
+                    className:
+                        'text-base font-semibold text-gray-900 dark:text-white',
                   ),
-                  // Timeline line
-                  WDiv(
-                    className: 'flex flex-col items-center self-stretch',
-                    children: [
-                      WDiv(
-                        className:
-                            'w-3 h-3 rounded-full ${incidentsForDay.isEmpty ? 'bg-green-500' : 'bg-orange-500'}',
-                      ),
-                      if (date != historyDays.last)
-                        Expanded(
-                          child: WDiv(
-                            className:
-                                'w-0.5 bg-gray-100 dark:bg-gray-700 my-1',
-                          ),
-                        ),
-                    ],
-                  ),
-                  // Content
-                  Expanded(
-                    child: incidentsForDay.isEmpty
-                        ? WText(
-                            trans('status_pages.no_incidents'),
-                            className: 'text-sm text-gray-400 py-0.5',
-                          )
-                        : WDiv(
-                            className: 'flex flex-col gap-3 pb-4',
-                            children: incidentsForDay
-                                .map(
-                                  (i) => _buildIncidentItem(i, minimal: true),
-                                )
-                                .toList(),
-                          ),
+                  // Incidents for this date
+                  ...entry.value.map(
+                    (incident) => _buildClaudeStyleIncident(incident),
                   ),
                 ],
               );
@@ -621,6 +519,102 @@ class _StatusPageShowViewState
         },
       ),
     );
+  }
+
+  /// Claude-style incident card with inline updates
+  Widget _buildClaudeStyleIncident(Incident incident) {
+    return WDiv(
+      className:
+          'p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-100 dark:border-gray-700',
+      children: [
+        // Header: Title + Status badge
+        WDiv(
+          className: 'flex flex-row items-start justify-between gap-3 mb-3',
+          children: [
+            // Title in amber/orange color (Claude style)
+            WDiv(
+              className: 'flex-1 min-w-0',
+              child: WText(
+                incident.title ?? trans('incidents.untitled'),
+                className:
+                    'text-base font-semibold text-amber-600 dark:text-amber-400',
+              ),
+            ),
+            // Status badge
+            WDiv(
+              className:
+                  'px-2.5 py-1 rounded-full text-xs font-medium border ${_statusOutlineBadgeColor(incident.status)}',
+              child: WText(_getIncidentStatusLabel(incident.status)),
+            ),
+          ],
+        ),
+        // Updates list (Claude style: Status - Message format)
+        if (incident.updates.isNotEmpty)
+          WDiv(
+            className: 'flex flex-col gap-2',
+            children: incident.updates.map((update) {
+              return WDiv(
+                className: 'flex flex-col',
+                children: [
+                  // Status - Message
+                  WDiv(
+                    className: 'wrap gap-1',
+                    children: [
+                      WText(
+                        update.status?.label ?? 'Update',
+                        className:
+                            'text-sm font-semibold ${_statusTextColor(update.status)}',
+                      ),
+                      if (update.message != null && update.message!.isNotEmpty)
+                        WText(
+                          ' - ${update.message}',
+                          className: 'text-sm text-gray-700 dark:text-gray-300',
+                        ),
+                    ],
+                  ),
+                  // Timestamp
+                  if (update.createdAt != null)
+                    WText(
+                      update.createdAt!.format('MMM d, HH:mm'),
+                      className:
+                          'text-xs text-gray-500 dark:text-gray-400 mt-0.5',
+                    ),
+                ],
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  String _statusOutlineBadgeColor(IncidentStatus? status) {
+    switch (status) {
+      case IncidentStatus.investigating:
+        return 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400';
+      case IncidentStatus.identified:
+        return 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400';
+      case IncidentStatus.monitoring:
+        return 'border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400';
+      case IncidentStatus.resolved:
+        return 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400';
+      default:
+        return 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400';
+    }
+  }
+
+  String _statusTextColor(IncidentStatus? status) {
+    switch (status) {
+      case IncidentStatus.investigating:
+        return 'text-gray-700 dark:text-gray-300';
+      case IncidentStatus.identified:
+        return 'text-orange-600 dark:text-orange-400';
+      case IncidentStatus.monitoring:
+        return 'text-blue-600 dark:text-blue-400';
+      case IncidentStatus.resolved:
+        return 'text-green-600 dark:text-green-400';
+      default:
+        return 'text-gray-700 dark:text-gray-300';
+    }
   }
 
   Widget _buildIncidentItem(Incident incident, {bool minimal = false}) {
@@ -642,7 +636,7 @@ class _StatusPageShowViewState
                   ),
                   const SizedBox(height: 4),
                   WDiv(
-                    className: 'flex flex-row items-center gap-2',
+                    className: 'wrap gap-2',
                     children: [
                       _buildBadge(
                         label: _getIncidentStatusLabel(incident.status),
@@ -740,5 +734,115 @@ class _StatusPageShowViewState
       default:
         return trans('monitor_status.unknown');
     }
+  }
+
+  /// Build reactive conditional sections (incidents + announcements)
+  /// Uses ValueListenableBuilder to react to async data loads
+  Widget _buildReactiveConditionalSections(StatusPage statusPage) {
+    return ValueListenableBuilder<List<Incident>>(
+      valueListenable: IncidentController.instance.incidentsNotifier,
+      builder: (context, allIncidents, _) {
+        return ValueListenableBuilder<List<Announcement>>(
+          valueListenable: _announcementsNotifier,
+          builder: (context, allAnnouncements, _) {
+            // Filter active incidents for this status page
+            final activeIncidents = allIncidents.where((incident) {
+              if (incident.status == IncidentStatus.resolved) return false;
+              final pageMonitorIds = statusPage.monitorIds;
+              final incidentMonitorIds = incident.monitorIds;
+              return incidentMonitorIds.any(
+                (id) => pageMonitorIds.contains(id),
+              );
+            }).toList();
+
+            // Filter active announcements for this status page
+            final announcements = allAnnouncements.where((a) {
+              return a.statusPageId == statusPage.id && a.isActive;
+            }).toList();
+
+            // Build sections list
+            final sections = <Widget>[];
+
+            if (activeIncidents.isNotEmpty) {
+              sections.add(_buildActiveIncidentsCard(activeIncidents));
+            }
+
+            if (announcements.isNotEmpty) {
+              sections.add(_buildAnnouncementsCard(announcements));
+            }
+
+            // Return empty widget if no sections (takes no space in gap layout)
+            if (sections.isEmpty) {
+              return const SizedBox.shrink();
+            }
+
+            // Wrap in column with gap when multiple sections
+            return WDiv(
+              className: 'flex flex-col gap-4 lg:gap-6',
+              children: sections,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildActiveIncidentsCard(List<Incident> activeIncidents) {
+    return AppCard(
+      title: trans('status_pages.active_incidents'),
+      icon: Icons.warning_amber_rounded,
+      titleClassName: 'text-red-600 dark:text-red-400',
+      body: WDiv(
+        className: 'flex flex-col gap-4',
+        children: activeIncidents.map((i) => _buildIncidentItem(i)).toList(),
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementsCard(List<Announcement> announcements) {
+    return AppCard(
+      title: trans('status_pages.announcements'),
+      icon: Icons.campaign_outlined,
+      titleClassName: 'text-blue-600 dark:text-blue-400',
+      body: WDiv(
+        className: 'flex flex-col gap-4',
+        children: announcements.map((a) {
+          return WDiv(
+            className:
+                'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30',
+            children: [
+              WText(
+                a.title ?? '',
+                className:
+                    'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
+              ),
+              if (a.body != null)
+                WText(
+                  a.body!,
+                  className: 'text-sm text-blue-800 dark:text-blue-200',
+                ),
+              WDiv(
+                className: 'mt-2 flex items-center gap-2',
+                children: [
+                  WIcon(
+                    Icons.schedule,
+                    className: 'text-xs text-blue-600 dark:text-blue-400',
+                  ),
+                  WText(
+                    a.publishedAt != null
+                        ? DateFormat.yMMMd().format(
+                            DateTime.parse(a.publishedAt.toString()),
+                          )
+                        : '',
+                    className:
+                        'text-xs font-medium text-blue-600 dark:text-blue-400',
+                  ),
+                ],
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
   }
 }

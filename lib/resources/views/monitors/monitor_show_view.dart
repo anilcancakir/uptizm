@@ -457,7 +457,7 @@ class _MonitorShowViewState
         .map(
           (c) => ChartDataPoint(
             timestamp: DateTime.parse(c.checkedAt.toString()),
-            value: c.responseTimeMs as int,
+            value: (c.responseTimeMs as num?)?.toInt() ?? 0,
             status: c.status?.value,
           ),
         )
@@ -914,7 +914,7 @@ class _MonitorShowViewState
 
     final totalMs = checksWithResponse.fold<int>(
       0,
-      (sum, c) => sum + ((c.responseTimeMs ?? 0) as int),
+      (sum, c) => sum + ((c.responseTimeMs ?? 0) as num).toInt(),
     );
     final avgMs = (totalMs / checksWithResponse.length).round();
     return '${avgMs}ms';
