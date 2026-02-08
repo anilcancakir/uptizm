@@ -59,8 +59,8 @@ class NotificationController extends MagicController {
           }
         }
       }
-    } catch (e) {
-      Log.error('Failed to fetch notification preferences: $e');
+    } catch (e, s) {
+      Log.error('Failed to fetch notification preferences: $e\n$s', e);
     } finally {
       isLoadingNotifier.value = false;
     }
@@ -92,8 +92,8 @@ class NotificationController extends MagicController {
         _revertGlobalPreference(key, !value);
         Magic.toast(trans('common.error'));
       }
-    } catch (e) {
-      Log.error('Failed to update preference: $e');
+    } catch (e, s) {
+      Log.error('Failed to update preference: $e\n$s', e);
       _revertGlobalPreference(key, !value);
       Magic.toast(trans('errors.network_error'));
     }
@@ -146,8 +146,8 @@ class NotificationController extends MagicController {
         typePreferencesNotifier.value = oldPrefs;
         Magic.toast(trans('common.error'));
       }
-    } catch (e) {
-      Log.error('Failed to update type preference: $e');
+    } catch (e, s) {
+      Log.error('Failed to update type preference: $e\n$s', e);
       typePreferencesNotifier.value = oldPrefs;
       Magic.toast(trans('errors.network_error'));
     }

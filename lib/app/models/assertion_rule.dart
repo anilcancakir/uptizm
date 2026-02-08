@@ -12,7 +12,7 @@ import '../enums/assertion_operator.dart';
 ///   path: 'data.status',
 /// );
 ///
-/// print(rule.toDisplayString()); // "data.status == healthy"
+/// Log.debug(rule.toDisplayString()); // "data.status == healthy"
 /// ```
 class AssertionRule {
   final AssertionType type;

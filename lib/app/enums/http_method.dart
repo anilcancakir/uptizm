@@ -13,10 +13,11 @@ enum HttpMethod {
 
   static HttpMethod? fromValue(String? value) {
     if (value == null) return null;
-    return HttpMethod.values.firstWhere(
-      (method) => method.value == value,
-      orElse: () => HttpMethod.get,
-    );
+    try {
+      return HttpMethod.values.firstWhere((method) => method.value == value);
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<SelectOption<HttpMethod>> get selectOptions {

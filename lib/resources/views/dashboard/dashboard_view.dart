@@ -16,7 +16,7 @@ class DashboardView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userName = User.current.name ?? 'there';
+    final userName = User.current.name ?? trans('common.guest');
     final isDesktop = wScreenIs(context, 'lg');
 
     return WDiv(

@@ -49,8 +49,8 @@ class IncidentController extends MagicController
       } else {
         incidentsNotifier.value = incidents;
       }
-    } catch (e) {
-      Log.error('Failed to load incidents', e);
+    } catch (e, s) {
+      Log.error('Failed to load incidents: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       _isLoading = false;
@@ -65,8 +65,8 @@ class IncidentController extends MagicController
     try {
       final incident = await Incident.find(id);
       selectedIncidentNotifier.value = incident;
-    } catch (e) {
-      Log.error('Failed to load incident', e);
+    } catch (e, s) {
+      Log.error('Failed to load incident: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
       selectedIncidentNotifier.value = null;
     } finally {
@@ -116,8 +116,8 @@ class IncidentController extends MagicController
       } else {
         setError(trans('incidents.create_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to create incident', e);
+    } catch (e, s) {
+      Log.error('Failed to create incident: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -148,8 +148,8 @@ class IncidentController extends MagicController
       } else {
         setError(trans('incidents.update_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to update incident', e);
+    } catch (e, s) {
+      Log.error('Failed to update incident: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -177,8 +177,8 @@ class IncidentController extends MagicController
       } else {
         setError(trans('incidents.delete_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to delete incident', e);
+    } catch (e, s) {
+      Log.error('Failed to delete incident: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -210,8 +210,8 @@ class IncidentController extends MagicController
       } else {
         setError(trans('incidents.add_update_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to add incident update', e);
+    } catch (e, s) {
+      Log.error('Failed to add incident update: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }

@@ -12,10 +12,11 @@ enum MonitorType {
 
   static MonitorType? fromValue(String? value) {
     if (value == null) return null;
-    return MonitorType.values.firstWhere(
-      (type) => type.value == value,
-      orElse: () => MonitorType.http,
-    );
+    try {
+      return MonitorType.values.firstWhere((type) => type.value == value);
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<SelectOption<MonitorType>> get selectOptions {

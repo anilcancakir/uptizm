@@ -12,12 +12,13 @@ enum MonitorAuthType {
   final String value;
   final String label;
 
-  static MonitorAuthType fromValue(String? value) {
-    if (value == null) return MonitorAuthType.none;
-    return MonitorAuthType.values.firstWhere(
-      (type) => type.value == value,
-      orElse: () => MonitorAuthType.none,
-    );
+  static MonitorAuthType? fromValue(String? value) {
+    if (value == null) return null;
+    try {
+      return MonitorAuthType.values.firstWhere((type) => type.value == value);
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<SelectOption<MonitorAuthType>> get selectOptions {

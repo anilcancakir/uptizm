@@ -9,12 +9,13 @@ enum ApiKeyLocation {
   final String value;
   final String label;
 
-  static ApiKeyLocation fromValue(String? value) {
-    if (value == null) return ApiKeyLocation.header;
-    return ApiKeyLocation.values.firstWhere(
-      (type) => type.value == value,
-      orElse: () => ApiKeyLocation.header,
-    );
+  static ApiKeyLocation? fromValue(String? value) {
+    if (value == null) return null;
+    try {
+      return ApiKeyLocation.values.firstWhere((type) => type.value == value);
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<SelectOption<ApiKeyLocation>> get selectOptions {

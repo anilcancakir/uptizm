@@ -85,8 +85,8 @@ class MonitorController extends MagicController
       // Backend automatically uses user's current_team_id
       final monitors = await Monitor.all();
       monitorsNotifier.value = monitors;
-    } catch (e) {
-      Log.error('Failed to load monitors', e);
+    } catch (e, s) {
+      Log.error('Failed to load monitors: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       _isLoading = false;
@@ -105,10 +105,10 @@ class MonitorController extends MagicController
       final monitor = await Monitor.find(id);
       Log.debug('Monitor loaded: ${monitor?.name ?? 'null'}');
       selectedMonitorNotifier.value = monitor;
-    } catch (e) {
-      Log.error('Failed to load monitor', e);
+    } catch (e, s) {
+      Log.error('Failed to load monitor: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
-      selectedMonitorNotifier.value = null;
+      // Keep existing data to prevent flicker
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -166,8 +166,8 @@ class MonitorController extends MagicController
       } else {
         setError(trans('monitors.create_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to create monitor', e);
+    } catch (e, s) {
+      Log.error('Failed to create monitor: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -235,8 +235,8 @@ class MonitorController extends MagicController
       } else {
         setError(trans('monitors.update_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to update monitor', e);
+    } catch (e, s) {
+      Log.error('Failed to update monitor: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -275,8 +275,8 @@ class MonitorController extends MagicController
       } else {
         setError(trans('monitors.delete_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to delete monitor', e);
+    } catch (e, s) {
+      Log.error('Failed to delete monitor: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -295,8 +295,8 @@ class MonitorController extends MagicController
       } else {
         setError(trans('monitors.pause_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to pause monitor', e);
+    } catch (e, s) {
+      Log.error('Failed to pause monitor: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -315,8 +315,8 @@ class MonitorController extends MagicController
       } else {
         setError(trans('monitors.resume_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to resume monitor', e);
+    } catch (e, s) {
+      Log.error('Failed to resume monitor: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -330,8 +330,8 @@ class MonitorController extends MagicController
       );
       checksNotifier.value = paginatedChecks.checks;
       checksPaginationNotifier.value = paginatedChecks;
-    } catch (e) {
-      Log.error('Failed to load checks', e);
+    } catch (e, s) {
+      Log.error('Failed to load checks: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
     }
   }
@@ -368,8 +368,8 @@ class MonitorController extends MagicController
         }
       }
       return [];
-    } catch (e) {
-      Log.error('Failed to fetch status metrics', e);
+    } catch (e, s) {
+      Log.error('Failed to fetch status metrics: $e\n$s', e);
       return [];
     }
   }

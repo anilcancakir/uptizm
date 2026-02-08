@@ -12,10 +12,11 @@ enum MonitorStatus {
 
   static MonitorStatus? fromValue(String? value) {
     if (value == null) return null;
-    return MonitorStatus.values.firstWhere(
-      (status) => status.value == value,
-      orElse: () => MonitorStatus.active,
-    );
+    try {
+      return MonitorStatus.values.firstWhere((status) => status.value == value);
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<SelectOption<MonitorStatus>> get selectOptions {

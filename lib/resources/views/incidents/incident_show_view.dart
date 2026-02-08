@@ -260,7 +260,7 @@ class _IncidentShowViewState
               className: 'flex flex-row items-center sm:gap-2',
               children: [
                 WIcon(Icons.edit_outlined, className: 'text-base'),
-                WText('Edit', className: 'hidden sm:block'),
+                WText(trans('common.edit'), className: 'hidden sm:block'),
               ],
             ),
           ),
@@ -279,7 +279,7 @@ class _IncidentShowViewState
             className: 'flex flex-row items-center sm:gap-2',
             children: [
               WIcon(Icons.delete_outline, className: 'text-base'),
-              WText('Delete', className: 'hidden sm:block'),
+              WText(trans('common.delete'), className: 'hidden sm:block'),
             ],
           ),
         ),
@@ -293,29 +293,29 @@ class _IncidentShowViewState
       children: [
         // Impact
         _buildStatCard(
-          label: 'Impact',
-          value: incident.impact?.label ?? 'Unknown',
+          label: trans('incidents.impact'),
+          value: incident.impact?.label ?? trans('common.unknown'),
           icon: Icons.warning_amber_outlined,
           valueColor: _impactTextColor(incident.impact),
           bgColor: _impactBgColor(incident.impact),
         ),
         // Status
         _buildStatCard(
-          label: 'Status',
-          value: incident.status?.label ?? 'Unknown',
+          label: trans('incidents.status'),
+          value: incident.status?.label ?? trans('common.unknown'),
           icon: Icons.info_outline,
           valueColor: _statusTextColor(incident.status),
           bgColor: _statusBgColor(incident.status),
         ),
         // Duration
         _buildStatCard(
-          label: 'Duration',
+          label: trans('incidents.duration'),
           value: _formatDuration(incident),
           icon: Icons.timer_outlined,
         ),
         // Updates
         _buildStatCard(
-          label: 'Updates',
+          label: trans('common.updates'),
           value: '${incident.updates.length}',
           icon: Icons.history,
         ),
@@ -391,7 +391,7 @@ class _IncidentShowViewState
               ),
               const WSpacer(className: 'w-3'),
               WText(
-                'AFFECTED MONITORS',
+                trans('incidents.affected_monitors').toUpperCase(),
                 className:
                     'text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-400',
               ),
@@ -412,7 +412,7 @@ class _IncidentShowViewState
                 ''',
                 children: [
                   WText(
-                    monitor.name ?? 'Unknown',
+                    monitor.name ?? trans('common.unknown'),
                     className:
                         'text-sm font-medium text-gray-900 dark:text-white',
                   ),
@@ -546,7 +546,7 @@ class _IncidentShowViewState
               ),
               const WSpacer(className: 'w-3'),
               WText(
-                'ADD UPDATE',
+                trans('incidents.add_update').toUpperCase(),
                 className:
                     'text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-400',
               ),
@@ -566,7 +566,7 @@ class _IncidentShowViewState
                   className: 'flex flex-col gap-2',
                   children: [
                     WText(
-                      'Status',
+                      trans('incidents.status'),
                       className:
                           'text-sm font-medium text-gray-700 dark:text-gray-300',
                     ),
@@ -596,7 +596,7 @@ class _IncidentShowViewState
                 // Title (optional)
                 WFormInput(
                   controller: _updateForm['title'],
-                  label: 'Update Title (Optional)',
+                  label: trans('incidents.title_optional'),
                   hint: 'Brief summary of this update',
                   className: '''
                     w-full px-3 py-3 rounded-lg text-sm
@@ -612,8 +612,8 @@ class _IncidentShowViewState
                 // Message
                 WFormInput(
                   controller: _updateForm['message'],
-                  label: 'Message',
-                  hint: 'Describe the current situation...',
+                  label: trans('incidents.message'),
+                  hint: trans('incidents.message_placeholder'),
                   maxLines: 4,
                   className: '''
                     w-full px-3 py-3 rounded-lg text-sm
@@ -646,7 +646,7 @@ class _IncidentShowViewState
                       className: 'flex flex-row items-center gap-2',
                       children: [
                         WIcon(Icons.send_outlined, className: 'text-base'),
-                        WText('Post Update'),
+                        WText(trans('incidents.add_update_button')),
                       ],
                     ),
                   ),

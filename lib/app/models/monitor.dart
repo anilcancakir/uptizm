@@ -111,25 +111,17 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   // Framework automatically handles {data: {...}} response structure
 
   static Future<Monitor?> find(String id) async {
-    Log.debug('Monitor.find called with ID: $id');
-    Log.debug('Monitor resource: monitors');
-    Log.debug('Calling InteractsWithPersistence.findById...');
     final result = await InteractsWithPersistence.findById<Monitor>(
       id,
       Monitor.new,
-    );
-    Log.debug(
-      'Monitor.find result: ${result != null ? "found (${result.name})" : "null"}',
     );
     return result;
   }
 
   static Future<List<Monitor>> all() async {
-    Log.debug('Monitor.all called');
     final result = await InteractsWithPersistence.allModels<Monitor>(
       Monitor.new,
     );
-    Log.debug('Monitor.all returned ${result.length} monitors');
     return result;
   }
 }

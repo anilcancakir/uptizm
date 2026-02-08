@@ -12,10 +12,11 @@ enum CheckStatus {
 
   static CheckStatus? fromValue(String? value) {
     if (value == null) return null;
-    return CheckStatus.values.firstWhere(
-      (status) => status.value == value,
-      orElse: () => CheckStatus.down,
-    );
+    try {
+      return CheckStatus.values.firstWhere((status) => status.value == value);
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<SelectOption<CheckStatus>> get selectOptions {

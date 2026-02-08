@@ -50,8 +50,8 @@ class ProfileController extends MagicController
         );
         return false;
       }
-    } catch (e) {
-      Log.error('Update profile error: $e');
+    } catch (e, s) {
+      Log.error('Update profile error: $e\n$s', e);
       setError(trans('common.unexpected_error'));
       return false;
     }
@@ -88,8 +88,8 @@ class ProfileController extends MagicController
         );
         return false;
       }
-    } catch (e) {
-      Log.error('Update password error: $e');
+    } catch (e, s) {
+      Log.error('Update password error: $e\n$s', e);
       setError(trans('common.unexpected_error'));
       return false;
     }
@@ -112,8 +112,8 @@ class ProfileController extends MagicController
         setError(trans('profile_settings.save_failed'));
         return false;
       }
-    } catch (e) {
-      Log.error('Upload photo error: $e');
+    } catch (e, s) {
+      Log.error('Upload photo error: $e\n$s', e);
       setError(trans('common.unexpected_error'));
       return false;
     }
@@ -130,8 +130,8 @@ class ProfileController extends MagicController
         return true;
       }
       return false;
-    } catch (e) {
-      Log.error('Remove photo error: $e');
+    } catch (e, s) {
+      Log.error('Remove photo error: $e\n$s', e);
       return false;
     }
   }
@@ -157,9 +157,9 @@ class ProfileController extends MagicController
         );
         return false;
       }
-    } catch (e) {
+    } catch (e, s) {
       Magic.closeLoading();
-      Log.error('Delete account error: $e');
+      Log.error('Delete account error: $e\n$s', e);
       return false;
     }
   }

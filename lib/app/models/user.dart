@@ -12,7 +12,7 @@ import 'team.dart';
 ///
 /// ```dart
 /// final user = await User.find(1);
-/// print(user?.name); // Uses typed accessor
+/// Log.debug(user?.name); // Uses typed accessor
 /// user?.name = 'Updated';
 /// await user?.save();
 /// ```
@@ -21,7 +21,7 @@ import 'team.dart';
 ///
 /// ```dart
 /// final user = await User.find(1);
-/// print(user?.get<String>('name', defaultValue: 'Unknown'));
+/// Log.debug(user?.get<String>('name', defaultValue: 'Unknown'));
 /// user?.set('name', 'Updated');
 /// await user?.save();
 /// ```

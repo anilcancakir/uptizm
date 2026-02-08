@@ -86,8 +86,8 @@ class TeamController extends MagicController
         setError(trans('team_settings.save_failed'));
         return false;
       }
-    } catch (e) {
-      Log.error('Update team error: $e');
+    } catch (e, s) {
+      Log.error('Update team error: $e\n$s', e);
       setError(trans('common.unexpected_error'));
       return false;
     }
@@ -241,8 +241,8 @@ class TeamController extends MagicController
       } else {
         setError(trans('teams.create_failed'));
       }
-    } catch (e) {
-      Log.error('Create team error: $e');
+    } catch (e, s) {
+      Log.error('Create team error: $e\n$s', e);
       setError(trans('common.unexpected_error'));
     }
   }
@@ -282,9 +282,9 @@ class TeamController extends MagicController
         handleApiError(response, fallback: trans('teams.switch_failed'));
         return false;
       }
-    } catch (e) {
+    } catch (e, s) {
       Magic.closeLoading();
-      Log.error('Switch team error: $e');
+      Log.error('Switch team error: $e\n$s', e);
       Magic.error(trans('common.error'), trans('common.unexpected_error'));
       return false;
     }
@@ -318,9 +318,9 @@ class TeamController extends MagicController
         handleApiError(response, fallback: trans('teams.delete_failed'));
         return false;
       }
-    } catch (e) {
+    } catch (e, s) {
       Magic.closeLoading();
-      Log.error('Delete team error: $e');
+      Log.error('Delete team error: $e\n$s', e);
       Magic.error(trans('common.error'), trans('common.unexpected_error'));
       return false;
     }
@@ -351,9 +351,9 @@ class TeamController extends MagicController
         handleApiError(response, fallback: trans('teams.leave_failed'));
         return false;
       }
-    } catch (e) {
+    } catch (e, s) {
       Magic.closeLoading();
-      Log.error('Leave team error: $e');
+      Log.error('Leave team error: $e\n$s', e);
       Magic.error(trans('common.error'), trans('common.unexpected_error'));
       return false;
     }
