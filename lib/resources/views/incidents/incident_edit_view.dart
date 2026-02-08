@@ -65,7 +65,7 @@ class _IncidentEditViewState
           return WDiv(
             className: 'flex-1 flex items-center justify-center',
             child: WDiv(
-              className: 'flex flex-col items-center gap-4',
+              className: 'w-full flex flex-col items-center gap-4',
               children: [
                 const CircularProgressIndicator(),
                 WText(

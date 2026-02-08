@@ -36,7 +36,7 @@ class ResponsePreview extends StatelessWidget {
   Widget _buildLoading() {
     return WDiv(
       className: '''
-        flex flex-col items-center justify-center
+        w-full flex flex-col items-center justify-center
         py-12 gap-3
         bg-gray-50 dark:bg-gray-900 rounded-lg
       ''',
@@ -53,7 +53,7 @@ class ResponsePreview extends StatelessWidget {
   Widget _buildEmptyState() {
     return WDiv(
       className: '''
-        flex items-center justify-center
+        w-full flex items-center justify-center
         py-12
         bg-gray-50 dark:bg-gray-900 rounded-lg
       ''',

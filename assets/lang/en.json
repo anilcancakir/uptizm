@@ -758,6 +758,8 @@
     "ended_at": "End At",
     "no_announcements": "No announcements yet",
     "create_first": "Create First Announcement",
+    "empty_title": "No Announcements",
+    "empty_desc": "Keep your users informed by creating announcements for maintenance, improvements, or general updates.",
     "maintenance": "Maintenance",
     "improvement": "Improvement",
     "informational": "Informational",
