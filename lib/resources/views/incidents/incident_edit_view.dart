@@ -181,9 +181,7 @@ class _IncidentEditViewState
                       value: _selectedImpact,
                       options: IncidentImpact.selectOptions,
                       onChange: (impact) {
-                        if (impact != null) {
-                          setState(() => _selectedImpact = impact);
-                        }
+                        setState(() => _selectedImpact = impact);
                       },
                       className: '''
                         w-full px-3 py-3 rounded-lg text-sm
@@ -213,9 +211,7 @@ class _IncidentEditViewState
                       value: _selectedStatus,
                       options: IncidentStatus.selectOptions,
                       onChange: (status) {
-                        if (status != null) {
-                          setState(() => _selectedStatus = status);
-                        }
+                        setState(() => _selectedStatus = status);
                       },
                       className: '''
                         w-full px-3 py-3 rounded-lg text-sm

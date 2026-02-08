@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
-import 'package:intl/intl.dart';
 
 import '../../../../app/models/alert.dart';
 import 'alert_severity_badge.dart';

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
-import '../../../lib/resources/views/components/app_page_header.dart';
+import 'package:uptizm/resources/views/components/app_page_header.dart';
 
 /// Helper to wrap widget with WindTheme for testing
 Widget wrapWithTheme(Widget child) {
@@ -56,8 +56,8 @@ void main() {
               actions: [
                 WButton(
                   onTap: () {},
-                  child: WText('Add'),
-                  key: Key('add-button'),
+                  key: const Key('add-button'),
+                  child: const WText('Add'),
                 ),
               ],
             ),
@@ -252,8 +252,8 @@ void main() {
               title: 'Test Title',
               leading: WButton(
                 onTap: () => tapped = true,
-                child: WIcon(Icons.arrow_back),
-                key: Key('back-button'),
+                key: const Key('back-button'),
+                child: const WIcon(Icons.arrow_back),
               ),
             ),
           ),
@@ -276,13 +276,13 @@ void main() {
               actions: [
                 WButton(
                   onTap: () => searchTapped = true,
-                  child: WIcon(Icons.search),
-                  key: Key('search-button'),
+                  key: const Key('search-button'),
+                  child: const WIcon(Icons.search),
                 ),
                 WButton(
                   onTap: () => addTapped = true,
-                  child: WIcon(Icons.add),
-                  key: Key('add-button'),
+                  key: const Key('add-button'),
+                  child: const WIcon(Icons.add),
                 ),
               ],
             ),

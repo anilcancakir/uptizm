@@ -154,7 +154,7 @@ class _StatusPageEditViewState
   }
 
   Widget _buildForm({bool isLoading = false, String? errorMessage}) {
-    Log.info("isPublished: ${_isPublished}");
+    Log.info("isPublished: $_isPublished");
 
     return MagicForm(
       formData: form,

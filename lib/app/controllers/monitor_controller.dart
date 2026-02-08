@@ -211,8 +211,9 @@ class MonitorController extends MagicController
       }
       if (checkInterval != null) monitor.checkInterval = checkInterval;
       if (timeout != null) monitor.timeout = timeout;
-      if (incidentThreshold != null)
+      if (incidentThreshold != null) {
         monitor.incidentThreshold = incidentThreshold;
+      }
       if (monitoringLocations != null) {
         monitor.monitoringLocations = monitoringLocations;
       }

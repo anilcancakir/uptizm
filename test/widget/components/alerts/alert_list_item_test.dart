@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:uptizm/app/enums/alert_severity.dart';
-import 'package:uptizm/app/enums/alert_status.dart';
 import 'package:uptizm/app/models/alert.dart';
-import 'package:uptizm/app/models/alert_rule.dart';
 import 'package:uptizm/resources/views/components/alerts/alert_list_item.dart';
 
 Widget buildTestApp({required Widget child}) {

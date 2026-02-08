@@ -1,4 +1,4 @@
-import 'package:fluttersdk_wind/fluttersdk_wind.dart';
+import 'package:magic/magic.dart';
 
 enum AlertOperator {
   greaterThan('>', 'Greater than (>)'),

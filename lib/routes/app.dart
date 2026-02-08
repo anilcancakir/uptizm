@@ -1,5 +1,4 @@
 import 'package:magic/magic.dart';
-import 'package:flutter/material.dart';
 
 import '../resources/views/layouts/app_layout.dart';
 import '../app/controllers/alert_controller.dart';

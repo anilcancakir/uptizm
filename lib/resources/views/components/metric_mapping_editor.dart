@@ -150,28 +150,6 @@ class _MetricMappingEditorState extends State<MetricMappingEditor> {
       unit: unit,
     );
 
-    final inputDecoration = InputDecoration(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(
-          color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
-        ),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(
-          color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
-        ),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFF009E60)),
-      ),
-      filled: true,
-      fillColor: isDark ? Colors.grey[800] : Colors.white,
-    );
-
     return WDiv(
       className:
           'flex flex-col gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800',

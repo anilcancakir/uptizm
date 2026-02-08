@@ -375,8 +375,8 @@ class _IncidentsIndexViewState
   }
 
   String _formatDuration(Incident incident) {
-    if (incident.isResolved && incident.duration != null) {
-      final duration = incident.duration!;
+    if (incident.isResolved) {
+      final duration = incident.duration;
       if (duration.inMinutes < 60) {
         return '${duration.inMinutes}m';
       } else if (duration.inHours < 24) {

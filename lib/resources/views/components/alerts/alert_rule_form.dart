@@ -55,8 +55,8 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
           widget.initialRule!.thresholdMin?.toString() ?? '';
       _thresholdMaxController.text =
           widget.initialRule!.thresholdMax?.toString() ?? '';
-      _consecutiveChecksController.text =
-          widget.initialRule!.consecutiveChecks?.toString() ?? '1';
+      _consecutiveChecksController.text = widget.initialRule!.consecutiveChecks
+          .toString();
     } else {
       _selectedType = widget.initialType ?? AlertRuleType.status;
       _selectedSeverity = AlertSeverity.warning;

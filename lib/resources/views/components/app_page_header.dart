@@ -59,6 +59,7 @@ class AppPageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final leading = this.leading;
     return WDiv(
       className: '''
         w-full
@@ -72,7 +73,7 @@ class AppPageHeader extends StatelessWidget {
           className: 'flex flex-row items-center gap-3 sm:flex-1 min-w-0',
           children: [
             // Leading widget (optional)
-            if (leading != null) leading!,
+            ?leading,
 
             // Title and subtitle
             WDiv(

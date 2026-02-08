@@ -366,7 +366,7 @@ class _IncidentShowViewState
   }
 
   Widget _buildAffectedMonitors(Incident incident) {
-    if (incident.monitors == null || incident.monitors!.isEmpty) {
+    if (incident.monitors.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -403,7 +403,7 @@ class _IncidentShowViewState
           className: 'p-5',
           child: WDiv(
             className: 'wrap gap-2',
-            children: incident.monitors!.map((monitor) {
+            children: incident.monitors.map((monitor) {
               return WDiv(
                 className: '''
                   px-3 py-2 rounded-lg
@@ -574,9 +574,7 @@ class _IncidentShowViewState
                       value: _updateStatus,
                       options: IncidentStatus.selectOptions,
                       onChange: (status) {
-                        if (status != null) {
-                          setState(() => _updateStatus = status);
-                        }
+                        setState(() => _updateStatus = status);
                       },
                       className: '''
                         w-full px-3 py-3 rounded-lg text-sm
@@ -660,22 +658,7 @@ class _IncidentShowViewState
   }
 
   String _formatDuration(Incident incident) {
-    if (incident.duration == null) {
-      if (incident.startedAt != null) {
-        final now = DateTime.now();
-        final startedDateTime = incident.startedAt!.toDateTime;
-        final diff = now.difference(startedDateTime);
-        if (diff.inMinutes < 60) {
-          return '${diff.inMinutes}m';
-        } else if (diff.inHours < 24) {
-          return '${diff.inHours}h ${diff.inMinutes % 60}m';
-        } else {
-          return '${diff.inDays}d ${diff.inHours % 24}h';
-        }
-      }
-      return 'Ongoing';
-    }
-    final duration = incident.duration!;
+    final duration = incident.duration;
     if (duration.inMinutes < 60) {
       return '${duration.inMinutes}m';
     } else if (duration.inHours < 24) {
@@ -742,36 +725,6 @@ class _IncidentShowViewState
         return 'bg-green-50 dark:bg-green-900/20';
       default:
         return 'bg-gray-100 dark:bg-gray-700';
-    }
-  }
-
-  String _statusDotColor(IncidentStatus? status) {
-    switch (status) {
-      case IncidentStatus.investigating:
-        return 'bg-gray-400 dark:bg-gray-500';
-      case IncidentStatus.identified:
-        return 'bg-orange-500';
-      case IncidentStatus.monitoring:
-        return 'bg-blue-500';
-      case IncidentStatus.resolved:
-        return 'bg-green-500';
-      default:
-        return 'bg-gray-400';
-    }
-  }
-
-  String _statusBadgeColor(IncidentStatus? status) {
-    switch (status) {
-      case IncidentStatus.investigating:
-        return 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
-      case IncidentStatus.identified:
-        return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300';
-      case IncidentStatus.monitoring:
-        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
-      case IncidentStatus.resolved:
-        return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
-      default:
-        return 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
     }
   }
 }

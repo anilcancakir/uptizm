@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/controllers/status_page_controller.dart';
-import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/status_pages/status_page_show_view.dart';
 
@@ -48,7 +47,7 @@ void main() {
                   }
                   return Column(
                     children: [
-                      Text(page.name ?? '', key: const Key('status_page_name')),
+                      Text(page.name, key: const Key('status_page_name')),
                       Text(page.publicUrl, key: const Key('status_page_url')),
                     ],
                   );
@@ -202,7 +201,7 @@ void main() {
                       ),
                     );
                   }
-                  return Text(page.name ?? '');
+                  return Text(page.name);
                 },
               ),
             ),
@@ -277,7 +276,7 @@ void main() {
                 builder: (context, page, _) {
                   if (page == null) return const SizedBox.shrink();
                   return Text(
-                    page.primaryColor ?? 'No color',
+                    page.primaryColor,
                     key: const Key('primary_color'),
                   );
                 },
@@ -294,7 +293,10 @@ void main() {
   group('StatusPage model', () {
     test('publicUrl is correctly generated from slug', () {
       final statusPage = StatusPage()
-        ..setRawAttributes({'id': 'test-uuid-1', 'slug': 'my-company'}, sync: true);
+        ..setRawAttributes({
+          'id': 'test-uuid-1',
+          'slug': 'my-company',
+        }, sync: true);
 
       expect(statusPage.publicUrl, 'https://my-company.uptizm.com');
     });
@@ -315,7 +317,8 @@ void main() {
     });
 
     test('isPublished defaults to false', () {
-      final statusPage = StatusPage()..setRawAttributes({'id': 'test-status-page-uuid-1'}, sync: true);
+      final statusPage = StatusPage()
+        ..setRawAttributes({'id': 'test-status-page-uuid-1'}, sync: true);
 
       expect(statusPage.isPublished, false);
     });
