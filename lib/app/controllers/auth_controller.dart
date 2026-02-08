@@ -236,12 +236,9 @@ class AuthController extends MagicController
       setSuccess(false);
     } on SocialAuthException catch (e) {
       setError(e.message);
-    } catch (e) {
-      Log.error('Social Login Error: $e');
-      setError('Social login failed. Please try again.');
-    } finally {
-      socialLoginProvider = null; // Clear loading state
-      notifyListeners();
+    } catch (e, s) {
+      Log.error('Reset password failed: $e\n$s', e);
+      setError('An unexpected error occurred');
     }
   }
 
@@ -292,8 +289,8 @@ class AuthController extends MagicController
 
       // Navigate to login
       MagicRoute.to('/auth/login');
-    } catch (e) {
-      Log.error('Logout error: $e');
+    } catch (e, s) {
+      Log.error('Logout error: $e\n$s', e);
       // Still try to logout even if social signout fails
       await Auth.logout();
       MagicRoute.to('/auth/login');

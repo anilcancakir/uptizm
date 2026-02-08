@@ -30,8 +30,8 @@ class StatusPageController extends MagicController
     try {
       final statusPages = await StatusPage.all();
       statusPagesNotifier.value = statusPages;
-    } catch (e) {
-      Log.error('Failed to load status pages', e);
+    } catch (e, s) {
+      Log.error('Failed to load status pages: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       _isLoading = false;
@@ -46,8 +46,8 @@ class StatusPageController extends MagicController
     try {
       final statusPage = await StatusPage.find(id);
       selectedStatusPageNotifier.value = statusPage;
-    } catch (e) {
-      Log.error('Failed to load status page', e);
+    } catch (e, s) {
+      Log.error('Failed to load status page: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
       selectedStatusPageNotifier.value = null;
     } finally {
@@ -102,8 +102,8 @@ class StatusPageController extends MagicController
       } else {
         setError(trans('status_pages.create_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to create status page', e);
+    } catch (e, s) {
+      Log.error('Failed to create status page: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -155,8 +155,8 @@ class StatusPageController extends MagicController
       } else {
         setError(trans('status_pages.update_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to update status page', e);
+    } catch (e, s) {
+      Log.error('Failed to update status page: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -190,8 +190,8 @@ class StatusPageController extends MagicController
       } else {
         setError(trans('status_pages.delete_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to delete status page', e);
+    } catch (e, s) {
+      Log.error('Failed to delete status page: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -209,8 +209,8 @@ class StatusPageController extends MagicController
       } else {
         setError(trans('status_pages.toggle_publish_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to toggle publish status', e);
+    } catch (e, s) {
+      Log.error('Failed to toggle publish status: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -234,8 +234,8 @@ class StatusPageController extends MagicController
       } else {
         setError(trans('status_pages.attach_monitors_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to attach monitors', e);
+    } catch (e, s) {
+      Log.error('Failed to attach monitors: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -255,8 +255,8 @@ class StatusPageController extends MagicController
       } else {
         setError(trans('status_pages.detach_monitor_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to detach monitor', e);
+    } catch (e, s) {
+      Log.error('Failed to detach monitor: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -280,8 +280,8 @@ class StatusPageController extends MagicController
       } else {
         setError(trans('status_pages.reorder_monitors_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to reorder monitors', e);
+    } catch (e, s) {
+      Log.error('Failed to reorder monitors: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }

@@ -107,10 +107,14 @@ class _IncidentsIndexViewState
               return _buildLoadingState();
             }
 
+            if (incidents.isEmpty) {
+              return _buildEmptyState();
+            }
+
             final filteredIncidents = _filterIncidents(incidents);
 
             if (filteredIncidents.isEmpty) {
-              return _buildEmptyState();
+              return _buildNoResultsState();
             }
 
             return _buildIncidentsList(filteredIncidents);
@@ -449,12 +453,27 @@ class _IncidentsIndexViewState
           className: 'text-6xl text-gray-400 dark:text-gray-600 mb-4',
         ),
         WText(
-          trans('incidents.no_incidents'),
+          trans('search.no_results_desc'),
           className:
-              'text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2',
+              'text-sm text-gray-600 dark:text-gray-400 mb-6 text-center max-w-sm',
+        ),
+        WButton(
+          onTap: () {
+            setState(() {
+              _searchQuery = '';
+              _statusFilter = null;
+            });
+          },
+          className: '''
+            px-4 py-2 rounded-lg
+            bg-gray-100 dark:bg-gray-800
+            hover:bg-gray-200 dark:hover:bg-gray-700
+            text-gray-700 dark:text-gray-300 font-medium
+          ''',
+          child: WText(trans('common.clear_filters')),
         ),
         WText(
-          'No incidents have been reported yet.',
+          trans('incidents.no_incidents_desc'),
           className:
               'text-sm text-gray-600 dark:text-gray-400 mb-6 text-center',
         ),
@@ -466,6 +485,43 @@ class _IncidentsIndexViewState
             text-white font-medium
           ''',
           child: WText(trans('incidents.create')),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNoResultsState() {
+    return WDiv(
+      className: 'flex flex-col items-center justify-center py-12 px-4',
+      children: [
+        WIcon(
+          Icons.search_off,
+          className: 'text-6xl text-gray-300 dark:text-gray-600 mb-4',
+        ),
+        WText(
+          trans('search.no_results'),
+          className:
+              'text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2',
+        ),
+        WText(
+          trans('search.no_results_desc'),
+          className:
+              'text-sm text-gray-600 dark:text-gray-400 mb-6 text-center max-w-sm',
+        ),
+        WButton(
+          onTap: () {
+            setState(() {
+              _searchQuery = '';
+              _statusFilter = null;
+            });
+          },
+          className: '''
+            px-4 py-2 rounded-lg
+            bg-gray-100 dark:bg-gray-800
+            hover:bg-gray-200 dark:hover:bg-gray-700
+            text-gray-700 dark:text-gray-300 font-medium
+          ''',
+          child: WText(trans('common.clear_filters')),
         ),
       ],
     );

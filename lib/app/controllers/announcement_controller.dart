@@ -32,8 +32,8 @@ class AnnouncementController extends MagicController
     try {
       final announcements = await Announcement.allForStatusPage(statusPageId);
       announcementsNotifier.value = announcements;
-    } catch (e) {
-      Log.error('Failed to load announcements', e);
+    } catch (e, s) {
+      Log.error('Failed to load announcements: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       _isLoading = false;
@@ -51,8 +51,8 @@ class AnnouncementController extends MagicController
         id,
       );
       selectedAnnouncementNotifier.value = announcement;
-    } catch (e) {
-      Log.error('Failed to load announcement', e);
+    } catch (e, s) {
+      Log.error('Failed to load announcement: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
       selectedAnnouncementNotifier.value = null;
     } finally {
@@ -94,8 +94,8 @@ class AnnouncementController extends MagicController
       } else {
         setError(trans('announcements.create_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to create announcement', e);
+    } catch (e, s) {
+      Log.error('Failed to create announcement: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -142,8 +142,8 @@ class AnnouncementController extends MagicController
       } else {
         setError(trans('announcements.update_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to update announcement', e);
+    } catch (e, s) {
+      Log.error('Failed to update announcement: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }
@@ -180,8 +180,8 @@ class AnnouncementController extends MagicController
       } else {
         setError(trans('announcements.delete_failed'));
       }
-    } catch (e) {
-      Log.error('Failed to delete announcement', e);
+    } catch (e, s) {
+      Log.error('Failed to delete announcement: $e\n$s', e);
       setError(trans('errors.network_error'));
     }
   }

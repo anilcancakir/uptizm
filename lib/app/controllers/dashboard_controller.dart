@@ -27,7 +27,8 @@ class DashboardController extends MagicController
       } else {
         setError('Failed to load dashboard stats');
       }
-    } catch (e) {
+    } catch (e, s) {
+      Log.error('Failed to load dashboard stats: $e\n$s', e);
       setError('An unexpected error occurred');
     }
   }

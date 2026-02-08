@@ -83,8 +83,7 @@ class AlertController extends MagicController {
         Magic.toast(response.message ?? trans('errors.network_error'));
       }
     } catch (e, stackTrace) {
-      Log.error('Failed to fetch alert rules', e);
-      Log.error('Stack trace', stackTrace);
+      Log.error('Failed to fetch alert rules: $e\n$stackTrace', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       isLoadingNotifier.value = false;
@@ -103,8 +102,8 @@ class AlertController extends MagicController {
             .map((r) => AlertRule.fromMap(r))
             .toList();
       }
-    } catch (e) {
-      Log.error('Failed to fetch monitor alert rules', e);
+    } catch (e, s) {
+      Log.error('Failed to fetch monitor alert rules: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       isLoadingNotifier.value = false;
@@ -153,8 +152,7 @@ class AlertController extends MagicController {
         Magic.toast(response.message ?? trans('errors.network_error'));
       }
     } catch (e, stackTrace) {
-      Log.error('Failed to fetch alerts', e);
-      Log.error('Stack trace', stackTrace);
+      Log.error('Failed to fetch alerts: $e\n$stackTrace', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       isLoadingNotifier.value = false;
@@ -171,8 +169,8 @@ class AlertController extends MagicController {
         final data = response.data['data'] as List;
         alertsNotifier.value = data.map((a) => Alert.fromMap(a)).toList();
       }
-    } catch (e) {
-      Log.error('Failed to fetch monitor alerts', e);
+    } catch (e, s) {
+      Log.error('Failed to fetch monitor alerts: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
     } finally {
       isLoadingNotifier.value = false;
@@ -199,9 +197,8 @@ class AlertController extends MagicController {
       }
       return success;
     } catch (e, stackTrace) {
-      Log.error('Failed to create alert rule', e);
-      Log.error('Stack trace', stackTrace);
-      Magic.toast('Error: ${e.toString()}');
+      Log.error('Failed to create alert rule: $e\n$stackTrace', e);
+      Magic.toast(trans('errors.network_error'));
       return false;
     } finally {
       isLoadingNotifier.value = false;
@@ -218,8 +215,8 @@ class AlertController extends MagicController {
         Magic.toast(trans('alerts.rule_updated'));
       }
       return success;
-    } catch (e) {
-      Log.error('Failed to update alert rule', e);
+    } catch (e, s) {
+      Log.error('Failed to update alert rule: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
       return false;
     } finally {
@@ -245,8 +242,8 @@ class AlertController extends MagicController {
         return success;
       }
       return false;
-    } catch (e) {
-      Log.error('Failed to delete alert rule', e);
+    } catch (e, s) {
+      Log.error('Failed to delete alert rule: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
       return false;
     } finally {
@@ -278,8 +275,8 @@ class AlertController extends MagicController {
         return true;
       }
       return false;
-    } catch (e) {
-      Log.error('Failed to toggle alert rule', e);
+    } catch (e, s) {
+      Log.error('Failed to toggle alert rule: $e\n$s', e);
       Magic.toast(trans('errors.network_error'));
       return false;
     }

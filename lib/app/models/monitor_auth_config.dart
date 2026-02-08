@@ -25,7 +25,9 @@ class MonitorAuthConfig {
   factory MonitorAuthConfig.fromMap(Map<String, dynamic>? map) {
     if (map == null || map.isEmpty) return MonitorAuthConfig.none();
 
-    final type = MonitorAuthType.fromValue(map['type'] as String?);
+    final type =
+        MonitorAuthType.fromValue(map['type'] as String?) ??
+        MonitorAuthType.none;
 
     switch (type) {
       case MonitorAuthType.basicAuth:

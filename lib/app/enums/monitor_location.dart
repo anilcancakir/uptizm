@@ -15,10 +15,13 @@ enum MonitorLocation {
 
   static MonitorLocation? fromValue(String? value) {
     if (value == null) return null;
-    return MonitorLocation.values.firstWhere(
-      (location) => location.value == value,
-      orElse: () => MonitorLocation.usEast,
-    );
+    try {
+      return MonitorLocation.values.firstWhere(
+        (location) => location.value == value,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<SelectOption<MonitorLocation>> get selectOptions {
