@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import '../resources/views/layouts/app_layout.dart';
 import '../app/controllers/alert_controller.dart';
 import '../app/controllers/analytics_controller.dart';
+import '../app/controllers/announcement_controller.dart';
 import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/incident_controller.dart';
 import '../app/controllers/monitor_controller.dart';
@@ -142,6 +143,37 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/status-pages/:id/edit',
         () => StatusPageController.instance.edit(),
+      ).transition(RouteTransition.none);
+
+      // Status Page Announcements
+      MagicRoute.page(
+        '/status-pages/:statusPageId/announcements',
+        () => AnnouncementController.instance.index(
+          MagicRouter.instance.pathParameter('statusPageId')!,
+        ),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/status-pages/:statusPageId/announcements/create',
+        () => AnnouncementController.instance.create(
+          MagicRouter.instance.pathParameter('statusPageId')!,
+        ),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/status-pages/:statusPageId/announcements/:id',
+        () => AnnouncementController.instance.show(
+          MagicRouter.instance.pathParameter('statusPageId')!,
+          MagicRouter.instance.pathParameter('id')!,
+        ),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/status-pages/:statusPageId/announcements/:id/edit',
+        () => AnnouncementController.instance.edit(
+          MagicRouter.instance.pathParameter('statusPageId')!,
+          MagicRouter.instance.pathParameter('id')!,
+        ),
       ).transition(RouteTransition.none);
 
       // Teams

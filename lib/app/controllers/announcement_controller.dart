@@ -89,7 +89,7 @@ class AnnouncementController extends MagicController
       if (announcement != null) {
         setSuccess(true);
         Magic.toast(trans('announcements.created_successfully'));
-        MagicRoute.back();
+        MagicRoute.to('/status-pages/$statusPageId/announcements');
         await loadAnnouncements(statusPageId);
       } else {
         setError(trans('announcements.create_failed'));
@@ -137,7 +137,7 @@ class AnnouncementController extends MagicController
       if (success) {
         setSuccess(true);
         Magic.toast(trans('announcements.updated_successfully'));
-        MagicRoute.back();
+        MagicRoute.to('/status-pages/$statusPageId/announcements/$id');
         await loadAnnouncements(statusPageId);
       } else {
         setError(trans('announcements.update_failed'));
@@ -175,7 +175,7 @@ class AnnouncementController extends MagicController
       if (success) {
         setSuccess(true);
         Magic.toast(trans('announcements.deleted_successfully'));
-        MagicRoute.back();
+        MagicRoute.to('/status-pages/$statusPageId/announcements');
         await loadAnnouncements(statusPageId);
       } else {
         setError(trans('announcements.delete_failed'));
