@@ -774,9 +774,8 @@ class _StatusPageShowViewState
               sections.add(_buildActiveIncidentsCard(activeIncidents));
             }
 
-            if (announcements.isNotEmpty) {
-              sections.add(_buildAnnouncementsCard(announcements));
-            }
+            // Always show announcements card (with empty state if needed)
+            sections.add(_buildAnnouncementsCard(announcements));
 
             // Return empty widget if no sections (takes no space in gap layout)
             if (sections.isEmpty) {
@@ -834,51 +833,74 @@ class _StatusPageShowViewState
           className: 'text-sm font-medium text-gray-600 dark:text-gray-400',
         ),
       ),
-      body: WDiv(
-        className: 'flex flex-col gap-4',
-        children: announcements.map((a) {
-          return WAnchor(
-            onTap: () => MagicRoute.to(
-              '/status-pages/$_statusPageId/announcements/${a.id}',
-            ),
-            child: WDiv(
-              className:
-                  'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30 hover:border-blue-300 dark:hover:border-blue-700 transition-colors',
+      body: announcements.isEmpty
+          ? WDiv(
+              className: 'py-8 flex flex-col items-center justify-center gap-3',
               children: [
-                WText(
-                  a.title ?? '',
-                  className:
-                      'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
+                WIcon(
+                  Icons.campaign_outlined,
+                  className: 'text-4xl text-gray-300 dark:text-gray-600',
                 ),
-                if (a.body != null)
-                  WText(
-                    a.body!,
-                    className:
-                        'text-sm text-blue-800 dark:text-blue-200 line-clamp-2',
+                WText(
+                  trans('announcements.no_announcements'),
+                  className: 'text-sm text-gray-500 dark:text-gray-400',
+                ),
+                WButton(
+                  onTap: () => MagicRoute.to(
+                    '/status-pages/$_statusPageId/announcements/create',
                   ),
-                WDiv(
-                  className: 'mt-2 flex items-center gap-2',
-                  children: [
-                    WIcon(
-                      Icons.schedule,
-                      className: 'text-xs text-blue-600 dark:text-blue-400',
-                    ),
-                    WText(
-                      a.publishedAt != null
-                          ? DateFormat.yMMMd().format(
-                              DateTime.parse(a.publishedAt.toString()),
-                            )
-                          : '',
-                      className:
-                          'text-xs font-medium text-blue-600 dark:text-blue-400',
-                    ),
-                  ],
+                  className:
+                      'mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg',
+                  child: WText(trans('announcements.create_first')),
                 ),
               ],
+            )
+          : WDiv(
+              className: 'flex flex-col gap-4',
+              children: announcements.map((a) {
+                return WAnchor(
+                  onTap: () => MagicRoute.to(
+                    '/status-pages/$_statusPageId/announcements/${a.id}',
+                  ),
+                  child: WDiv(
+                    className:
+                        'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30 hover:border-blue-300 dark:hover:border-blue-700 transition-colors',
+                    children: [
+                      WText(
+                        a.title ?? '',
+                        className:
+                            'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
+                      ),
+                      if (a.body != null)
+                        WText(
+                          a.body!,
+                          className:
+                              'text-sm text-blue-800 dark:text-blue-200 line-clamp-2',
+                        ),
+                      WDiv(
+                        className: 'mt-2 flex items-center gap-2',
+                        children: [
+                          WIcon(
+                            Icons.schedule,
+                            className:
+                                'text-xs text-blue-600 dark:text-blue-400',
+                          ),
+                          WText(
+                            a.publishedAt != null
+                                ? DateFormat.yMMMd().format(
+                                    DateTime.parse(a.publishedAt.toString()),
+                                  )
+                                : '',
+                            className:
+                                'text-xs font-medium text-blue-600 dark:text-blue-400',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
             ),
-          );
-        }).toList(),
-      ),
     );
   }
 }
