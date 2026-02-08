@@ -117,12 +117,18 @@ class _StatusPageShowViewState
         // Edit button
         WButton(
           onTap: () => MagicRoute.to('/status-pages/$_statusPageId/edit'),
-          className:
-              'px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm font-medium',
+          className: '''
+            w-10 h-10 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-lg
+            bg-gray-100 dark:bg-gray-700
+            text-gray-700 dark:text-gray-200
+            hover:bg-gray-200 dark:hover:bg-gray-600
+            text-sm font-medium
+            flex items-center justify-center
+          ''',
           child: WDiv(
             className: 'flex flex-row items-center sm:gap-2',
             children: [
-              WIcon(Icons.edit_outlined, className: 'text-base'),
+              WIcon(Icons.edit_outlined, className: 'text-lg'),
               WText(trans('common.edit'), className: 'hidden sm:block'),
             ],
           ),
@@ -141,14 +147,15 @@ class _StatusPageShowViewState
             return WButton(
               className:
                   '''
-                px-3 py-2 rounded-lg
+                w-10 h-10 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-lg
                 bg-gray-100 dark:bg-gray-700
                 text-gray-700 dark:text-gray-200
                 hover:bg-gray-200 dark:hover:bg-gray-600
                 text-sm font-medium
+                flex items-center justify-center
                 ${isOpen ? 'bg-gray-200 dark:bg-gray-600' : ''}
               ''',
-              child: WIcon(Icons.more_vert, className: 'text-xl'),
+              child: WIcon(Icons.more_vert, className: 'text-lg'),
             );
           },
           contentBuilder: (context, close) {
@@ -804,42 +811,71 @@ class _StatusPageShowViewState
       title: trans('status_pages.announcements'),
       icon: Icons.campaign_outlined,
       titleClassName: 'text-blue-600 dark:text-blue-400',
+      headerActions: [
+        WButton(
+          onTap: () => MagicRoute.to(
+            '/status-pages/$_statusPageId/announcements/create',
+          ),
+          className:
+              'p-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg',
+          child: WIcon(
+            Icons.add_outlined,
+            className: 'text-lg text-blue-600 dark:text-blue-400',
+          ),
+        ),
+      ],
+      footer: WButton(
+        onTap: () =>
+            MagicRoute.to('/status-pages/$_statusPageId/announcements'),
+        className:
+            'w-full py-3 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-b-2xl transition-colors',
+        child: WText(
+          trans('common.view_all'),
+          className: 'text-sm font-medium text-gray-600 dark:text-gray-400',
+        ),
+      ),
       body: WDiv(
         className: 'flex flex-col gap-4',
         children: announcements.map((a) {
-          return WDiv(
-            className:
-                'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30',
-            children: [
-              WText(
-                a.title ?? '',
-                className:
-                    'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
-              ),
-              if (a.body != null)
+          return WAnchor(
+            onTap: () => MagicRoute.to(
+              '/status-pages/$_statusPageId/announcements/${a.id}',
+            ),
+            child: WDiv(
+              className:
+                  'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30 hover:border-blue-300 dark:hover:border-blue-700 transition-colors',
+              children: [
                 WText(
-                  a.body!,
-                  className: 'text-sm text-blue-800 dark:text-blue-200',
+                  a.title ?? '',
+                  className:
+                      'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
                 ),
-              WDiv(
-                className: 'mt-2 flex items-center gap-2',
-                children: [
-                  WIcon(
-                    Icons.schedule,
-                    className: 'text-xs text-blue-600 dark:text-blue-400',
-                  ),
+                if (a.body != null)
                   WText(
-                    a.publishedAt != null
-                        ? DateFormat.yMMMd().format(
-                            DateTime.parse(a.publishedAt.toString()),
-                          )
-                        : '',
+                    a.body!,
                     className:
-                        'text-xs font-medium text-blue-600 dark:text-blue-400',
+                        'text-sm text-blue-800 dark:text-blue-200 line-clamp-2',
                   ),
-                ],
-              ),
-            ],
+                WDiv(
+                  className: 'mt-2 flex items-center gap-2',
+                  children: [
+                    WIcon(
+                      Icons.schedule,
+                      className: 'text-xs text-blue-600 dark:text-blue-400',
+                    ),
+                    WText(
+                      a.publishedAt != null
+                          ? DateFormat.yMMMd().format(
+                              DateTime.parse(a.publishedAt.toString()),
+                            )
+                          : '',
+                      className:
+                          'text-xs font-medium text-blue-600 dark:text-blue-400',
+                    ),
+                  ],
+                ),
+              ],
+            ),
           );
         }).toList(),
       ),
