@@ -445,7 +445,7 @@ Test coverage includes:
 
 ## Related Components
 
-- **PageHeader** (settings pages) — `/components/settings/page_header.dart`
+ **StarterPageHeader** (settings pages) — Part of `magic_starter` plugin
 - **AppHeader** (navigation) — `/components/navigation/app_header.dart`
 - **AppSidebar** (navigation) — `/components/navigation/app_sidebar.dart`
 

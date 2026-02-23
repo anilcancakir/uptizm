@@ -1,6 +1,7 @@
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_social_auth/magic_social_auth.dart';
+import 'package:magic_starter/magic_starter.dart';
 import 'package:magic_deeplink/magic_deeplink.dart';
 
 import '../app/providers/app_service_provider.dart';
@@ -26,6 +27,7 @@ Map<String, dynamic> get appConfig => {
       (app) => SocialAuthServiceProvider(app),
       (app) => NotificationServiceProvider(app),
       (app) => DeeplinkServiceProvider(app),
+      (app) => MagicStarterServiceProvider(app),
       (app) => EventServiceProvider(app),
     ],
   },

@@ -1,6 +1,9 @@
 {
-  "active_plan": "/Users/anilcan/StudioProjects/uptizm/.sisyphus/plans/production-readiness.md",
-  "plan_name": "production-readiness",
-  "started_at": "2026-02-08T00:00:00.000Z",
-  "session_ids": ["ses_3c58d27a4ffeGTtZNrTRXbt041"]
+  "active_plan": "/Users/anilcan/StudioProjects/uptizm/.sisyphus/plans/magic-starter-laravel.md",
+  "started_at": "2026-02-23T15:57:55.983Z",
+  "session_ids": [
+    "ses_37813003bffetuYug4V7PnJ7bB"
+  ],
+  "plan_name": "magic-starter-laravel",
+  "agent": "atlas"
 }

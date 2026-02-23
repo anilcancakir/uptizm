@@ -19,6 +19,8 @@ dependencies:
     path: ./plugins/magic_notifications
   magic_deeplink:
     path: ./plugins/magic_deeplink
+  magic_starter:
+    path: ./plugins/magic_starter
   cupertino_icons: ^1.0.8
   url_launcher: ^6.3.2
   fl_chart: ^1.1.1

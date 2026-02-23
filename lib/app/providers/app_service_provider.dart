@@ -1,8 +1,10 @@
 import 'package:magic/magic.dart';
 import 'package:magic_deeplink/magic_deeplink.dart';
+import 'package:magic_starter/magic_starter.dart';
 import '../models/user.dart';
 import '../policies/team_policy.dart';
 import '../policies/monitor_policy.dart';
+import '../../resources/views/profile/profile_settings_view.dart';
 
 class AppServiceProvider extends ServiceProvider {
   AppServiceProvider(super.app);
@@ -27,5 +29,11 @@ class AppServiceProvider extends ServiceProvider {
         .map((e) => e.toString())
         .toList();
     DeeplinkManager().registerHandler(RouteDeeplinkHandler(paths: paths));
+
+    // Override starter plugin's profile view with Uptizm-styled version
+    MagicStarter.view.register(
+      'profile.settings',
+      () => const ProfileSettingsView(),
+    );
   }
 }
