@@ -47,7 +47,11 @@ app.*.map.json
 # App related
 .env
 # AI coding tools
-AGENTS.md
+**/AGENTS.md
+CLAUDE.md
 .claude/
 .opencode/
 .sisyphus/
+.agent
+.omc/
+.mcp.json
