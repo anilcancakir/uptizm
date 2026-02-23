@@ -46,7 +46,6 @@ app.*.map.json
 
 # App related
 .env
-/back-end
 # AI coding tools
 AGENTS.md
 .claude/

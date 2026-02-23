@@ -18,3 +18,7 @@
 	path = plugins/magic_starter
 	url = git@github.com:fluttersdk/magic_starter.git
 	branch = main
+[submodule "back-end"]
+	path = back-end
+	url = git@github.com:anilcancakir/uptizm.com.git
+	branch = master
