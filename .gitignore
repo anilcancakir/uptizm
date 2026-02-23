@@ -45,7 +45,10 @@ app.*.map.json
 /android/app/release
 
 # App related
-/plugins/
 .env
 /back-end
-/.claude/plans
+# AI coding tools
+AGENTS.md
+.claude/
+.opencode/
+.sisyphus/

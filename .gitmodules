@@ -1,0 +1,20 @@
+[submodule "plugins/magic"]
+	path = plugins/magic
+	url = git@github.com:fluttersdk/magic.git
+	branch = master
+[submodule "plugins/magic_notifications"]
+	path = plugins/magic_notifications
+	url = git@github.com:fluttersdk/magic_notifications.git
+	branch = master
+[submodule "plugins/magic_social_auth"]
+	path = plugins/magic_social_auth
+	url = git@github.com:fluttersdk/magic_social_auth.git
+	branch = master
+[submodule "plugins/magic_deeplink"]
+	path = plugins/magic_deeplink
+	url = git@github.com:fluttersdk/magic_deeplink.git
+	branch = master
+[submodule "plugins/magic_starter"]
+	path = plugins/magic_starter
+	url = git@github.com:fluttersdk/magic_starter.git
+	branch = main
