@@ -1,6 +1,6 @@
 import 'package:magic/magic.dart';
 import 'package:flutter/material.dart';
-import '../../resources/views/layouts/app_layout.dart';
+import 'package:magic_starter/magic_starter.dart';
 import '../models/user.dart';
 
 class AuthRestoreListener extends MagicListener<AuthRestored> {
@@ -13,6 +13,6 @@ class AuthRestoreListener extends MagicListener<AuthRestored> {
     }
 
     // Force AppLayout to rebuild/refresh state
-    AppLayout.refreshNotifier.value++;
+    MagicStarterAppLayout.refreshNotifier.value++;
   }
 }

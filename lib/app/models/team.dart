@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:magic_starter/magic_starter.dart';
 import 'package:magic/magic.dart';
 
 /// Team Model
@@ -97,4 +98,19 @@ class Team extends Model with HasTimestamps, InteractsWithPersistence {
     final map = jsonDecode(json) as Map<String, dynamic>;
     return Team.fromMap(map);
   }
+
+  // ---------------------------------------------------------------------------
+  // Plugin Interop
+  // ---------------------------------------------------------------------------
+
+  /// Convert to [StarterTeam] for the magic_starter plugin's team resolver.
+  StarterTeam toStarterTeam() {
+    return StarterTeam(
+      id: id,
+      name: name,
+      photoUrl: profilePhotoUrl,
+      isPersonalTeam: isPersonalTeam,
+    );
+  }
+
 }
