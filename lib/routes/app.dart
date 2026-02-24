@@ -1,6 +1,5 @@
 import 'package:magic/magic.dart';
-
-import '../resources/views/layouts/app_layout.dart';
+import 'package:magic_starter/magic_starter.dart';
 import '../app/controllers/alert_controller.dart';
 import '../app/controllers/analytics_controller.dart';
 import '../app/controllers/announcement_controller.dart';
@@ -8,9 +7,8 @@ import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/incident_controller.dart';
 import '../app/controllers/monitor_controller.dart';
 import '../app/controllers/notification_controller.dart';
-import '../app/controllers/profile_controller.dart';
 import '../app/controllers/status_page_controller.dart';
-import '../app/controllers/team_controller.dart';
+import '../app/controllers/team_controller.dart' as app;
 
 /// Application routes.
 ///
@@ -18,7 +16,7 @@ import '../app/controllers/team_controller.dart';
 void registerAppRoutes() {
   // Auth-protected routes with AppLayout
   MagicRoute.group(
-    layout: (child) => AppLayout(child: child),
+    layout: (child) => MagicStarter.view.makeLayout('layout.app', child: child),
     middleware: ['auth'],
     routes: () {
       // Dashboard
@@ -176,34 +174,15 @@ void registerAppRoutes() {
         ),
       ).transition(RouteTransition.none);
 
-      // Teams
-      MagicRoute.page(
-        '/teams/create',
-        () => TeamController.instance.create(),
-      ).transition(RouteTransition.none);
-
-      // Profile Settings
-      MagicRoute.page(
-        '/settings/profile',
-        () => ProfileController.instance.profile(),
-      ).transition(RouteTransition.none);
-
       // Notification Preferences
       MagicRoute.page(
         '/settings/notifications',
         () => NotificationController.instance.preferences(),
       ).transition(RouteTransition.none);
-
-      // Team Settings
-      MagicRoute.page(
-        '/teams/settings',
-        () => TeamController.instance.edit(),
-      ).transition(RouteTransition.none);
-
       // Team Members
       MagicRoute.page(
         '/teams/members',
-        () => TeamController.instance.membersPage(),
+        () => app.TeamController.instance.membersPage(),
       ).transition(RouteTransition.none);
     },
   );
