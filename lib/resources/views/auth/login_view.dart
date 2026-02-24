@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 
 import '../../../app/controllers/auth_controller.dart';
 import '../components/auth/auth_form_card.dart';
-import '../components/auth/social_login_buttons.dart';
+import 'package:magic_social_auth/magic_social_auth.dart';
 
 /// Login View
 ///
@@ -157,12 +157,10 @@ class _LoginViewState
             const WSpacer(className: 'h-4'),
 
             // Social Login Buttons
-            SocialLoginButtons(
+            SocialAuthButtons(
+              onAuthenticate: controller.doSocialLogin,
               loadingProvider: controller.socialLoginProvider,
               mode: SocialAuthMode.signIn,
-              onGoogle: controller.doGoogleLogin,
-              onMicrosoft: controller.doMicrosoftLogin,
-              onGithub: controller.doGithubLogin,
             ),
             const WSpacer(className: 'h-6'),
 

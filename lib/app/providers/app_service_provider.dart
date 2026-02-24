@@ -8,7 +8,9 @@ import '../controllers/team_controller.dart' as app;
 import '../models/user.dart';
 import '../policies/team_policy.dart';
 import '../policies/monitor_policy.dart';
+import '../controllers/auth_controller.dart';
 import '../../resources/views/components/navigation/app_header.dart';
+
 
 class AppServiceProvider extends ServiceProvider {
   AppServiceProvider(super.app);
@@ -136,6 +138,28 @@ class AppServiceProvider extends ServiceProvider {
     // });
 
     // -----------------------------------------------------------------------
+    // Magic Starter: Social Login
+    // -----------------------------------------------------------------------
+    MagicStarter.useSocialLogin((context, isLoading) {
+      return ListenableBuilder(
+        listenable: AuthController.instance,
+        builder: (context, _) {
+          final controller = AuthController.instance;
+
+          // When the main form is loading, disable all social buttons
+          // by providing a non-null provider that matches no button.
+          final effectiveLoadingProvider = isLoading
+              ? ''
+              : controller.socialLoginProvider;
+
+          return SocialAuthButtons(
+            onAuthenticate: controller.doSocialLogin,
+            loadingProvider: effectiveLoadingProvider,
+          );
+        },
+      );
+    });
+
     // Magic Starter: Custom Logout
     // -----------------------------------------------------------------------
     MagicStarter.useLogout(() async {
