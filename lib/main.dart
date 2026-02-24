@@ -11,6 +11,7 @@ import 'config/view.dart';
 import 'config/notifications.dart';
 import 'config/deeplink.dart';
 
+import 'config/magic_starter.dart';
 void main() async {
   usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,7 @@ void main() async {
       () => viewConfig,
       () => notificationConfig,
       () => deeplinkConfig,
+      () => magicStarterConfig,
     ],
   );
 
