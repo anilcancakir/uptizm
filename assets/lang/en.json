@@ -140,6 +140,7 @@
   },
    "nav": {
     "dashboard": "Dashboard",
+    "profile": "Profile",
     "monitors": "Monitors",
     "alerts": "Alerts",
     "alert_rules": "Alert Rules",
@@ -148,11 +149,12 @@
     "settings": "Settings",
     "team": "Team",
     "team_members": "Team Members",
-    "system": "System"
+    "system": "System",
+    "profile": "Profile"
   },
   "team": {
     "switch_team": "Switch Team",
-    "create_team": "Create New Team"
+    "create_team": "Create Team"
   },
   "search": {
     "placeholder": "Search monitors, incidents...",
@@ -495,6 +497,7 @@
   "teams": {
     "invite_member": "Invite Member",
     "settings": "Team Settings",
+    "create_team": "Create Team",
     "settings_subtitle": "Manage your team name, members, and invitations",
     "team_name": "Team Name",
     "feature_disabled": "Team features are not enabled for this application.",
@@ -511,6 +514,7 @@
     "select_team": "Select a team",
     "team": "Team",
     "create_team_subtitle": "Create a new team to collaborate with others",
+    "create_team": "Create New Team",
     "accept_invitation": "Accept Invitation",
     "accept_invitation_subtitle": "Join a team by accepting this invitation",
     "invite_accepted": "You have joined the team successfully.",
