@@ -9,7 +9,6 @@ import '../models/user.dart';
 import '../policies/team_policy.dart';
 import '../policies/monitor_policy.dart';
 import '../../resources/views/components/navigation/app_header.dart';
-import '../../resources/views/profile/profile_settings_view.dart';
 
 class AppServiceProvider extends ServiceProvider {
   AppServiceProvider(super.app);
@@ -24,21 +23,10 @@ class AppServiceProvider extends ServiceProvider {
     // Register User factory for Auth session restoration
     Auth.manager.setUserFactory((data) => User.fromMap(data));
     MagicStarter.useUserModel((data) => User.fromMap(data));
+
     // Register policies
     TeamPolicy().register();
     MonitorPolicy().register();
-    final configPaths = Config.get('deeplink.paths');
-    final paths = (configPaths as List? ?? [])
-        .map((e) => e.toString())
-        .toList();
-    DeeplinkManager().registerHandler(RouteDeeplinkHandler(paths: paths));
-    // -----------------------------------------------------------------------
-    // Magic Starter: View Overrides
-    // -----------------------------------------------------------------------
-    MagicStarter.view.register(
-      'profile.settings',
-      () => const ProfileSettingsView(),
-    );
 
     // -----------------------------------------------------------------------
     // Magic Starter: Navigation
@@ -143,9 +131,9 @@ class AppServiceProvider extends ServiceProvider {
     // -----------------------------------------------------------------------
     // Magic Starter: Custom Header
     // -----------------------------------------------------------------------
-    MagicStarter.useHeader((context, isDesktop) {
-      return AppHeader(showMenuButton: !isDesktop);
-    });
+    // MagicStarter.useHeader((context, isDesktop) {
+    //   return AppHeader(showMenuButton: !isDesktop);
+    // });
 
     // -----------------------------------------------------------------------
     // Magic Starter: Custom Logout
