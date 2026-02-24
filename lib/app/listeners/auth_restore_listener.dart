@@ -1,8 +1,12 @@
-import 'package:magic/magic.dart';
 import 'package:flutter/material.dart';
-import 'package:magic_starter/magic_starter.dart';
+import 'package:magic/magic.dart';
+
 import '../models/user.dart';
 
+/// Listener for [AuthRestored] events.
+///
+/// Restores user's preferred locale after auth state is refreshed.
+/// Layout rebuild is handled automatically by [Auth.stateNotifier].
 class AuthRestoreListener extends MagicListener<AuthRestored> {
   @override
   Future<void> handle(AuthRestored event) async {
@@ -11,8 +15,5 @@ class AuthRestoreListener extends MagicListener<AuthRestored> {
     if (user?.language != null && user!.language!.isNotEmpty) {
       Lang.setLocale(Locale(user.language!));
     }
-
-    // Force AppLayout to rebuild/refresh state
-    MagicStarterAppLayout.refreshNotifier.value++;
   }
 }

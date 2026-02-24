@@ -33,6 +33,7 @@ class _AppLayoutState extends State<AppLayout> {
   void initState() {
     super.initState();
     AppLayout.refreshNotifier.addListener(_refresh);
+    Auth.stateNotifier.addListener(_refresh);
 
     // Start notification polling when app layout mounts (user is authenticated)
     // Note: startPolling() already calls fetchNotifications() immediately
@@ -47,6 +48,7 @@ class _AppLayoutState extends State<AppLayout> {
   @override
   void dispose() {
     AppLayout.refreshNotifier.removeListener(_refresh);
+    Auth.stateNotifier.removeListener(_refresh);
     super.dispose();
   }
 
