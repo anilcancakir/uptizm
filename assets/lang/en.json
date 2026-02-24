@@ -549,6 +549,7 @@
     "deleting": "Deleting team...",
     "deleted_successfully": "Team deleted successfully",
     "delete_failed": "Failed to delete team",
+    "general_settings": "General",
     "roles": {
       "owner": "Owner",
       "admin": "Admin",
