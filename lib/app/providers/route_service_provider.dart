@@ -1,6 +1,6 @@
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 import '../../routes/app.dart';
-import '../../routes/auth.dart';
 import '../kernel.dart';
 
 class RouteServiceProvider extends ServiceProvider {
@@ -14,8 +14,12 @@ class RouteServiceProvider extends ServiceProvider {
 
   @override
   Future<void> boot() async {
-    // Register routes
+    // Starter plugin routes (auth, profile, teams)
+    registerMagicStarterAuthRoutes();
+    registerMagicStarterProfileRoutes();
+    registerMagicStarterTeamRoutes();
+
+    // App-specific routes
     registerAppRoutes();
-    registerAuthRoutes();
   }
 }
