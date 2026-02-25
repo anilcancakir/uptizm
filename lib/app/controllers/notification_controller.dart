@@ -11,13 +11,10 @@ class NotificationController extends MagicController {
   static NotificationController get instance =>
       Magic.findOrPut(NotificationController.new);
 
-  /// Notification preference notifiers.
-  final pushEnabledNotifier = ValueNotifier<bool>(true);
-  final emailEnabledNotifier = ValueNotifier<bool>(true);
-  final inAppEnabledNotifier = ValueNotifier<bool>(true);
-  final typePreferencesNotifier = ValueNotifier<Map<String, Map<String, bool>>>(
-    {},
-  );
+  /// Matrix holding notification preferences from the backend
+  /// Structure: { "monitor_down": { "label": "...", "channels": { "mail": { "enabled": true, "locked": false } } } }
+  final matrixNotifier = ValueNotifier<Map<String, dynamic>>({});
+
   final isLoadingNotifier = ValueNotifier<bool>(false);
   final isSavingNotifier = ValueNotifier<bool>(false);
 
@@ -42,21 +39,7 @@ class NotificationController extends MagicController {
       if (response.successful) {
         final data = response.data['data'] as Map<String, dynamic>?;
         if (data != null) {
-          pushEnabledNotifier.value = data['push_enabled'] as bool? ?? true;
-          emailEnabledNotifier.value = data['email_enabled'] as bool? ?? true;
-          inAppEnabledNotifier.value = data['in_app_enabled'] as bool? ?? true;
-
-          final typePrefs = data['type_preferences'] as Map<String, dynamic>?;
-          if (typePrefs != null) {
-            typePreferencesNotifier.value = typePrefs.map((key, value) {
-              final prefs = value as Map<String, dynamic>;
-              return MapEntry(key, {
-                'push': prefs['push'] as bool? ?? true,
-                'email': prefs['email'] as bool? ?? true,
-                'in_app': prefs['in_app'] as bool? ?? true,
-              });
-            });
-          }
+          matrixNotifier.value = data;
         }
       }
     } catch (e, s) {
@@ -66,106 +49,57 @@ class NotificationController extends MagicController {
     }
   }
 
-  /// Update a global preference.
-  Future<void> updateGlobalPreference(String key, bool value) async {
-    // Optimistically update local state
-    switch (key) {
-      case 'push_enabled':
-        pushEnabledNotifier.value = value;
-        break;
-      case 'email_enabled':
-        emailEnabledNotifier.value = value;
-        break;
-      case 'in_app_enabled':
-        inAppEnabledNotifier.value = value;
-        break;
-    }
-
-    try {
-      final response = await Http.put(
-        '/notification-preferences',
-        data: {key: value},
-      );
-
-      if (!response.successful) {
-        // Revert on failure
-        _revertGlobalPreference(key, !value);
-        Magic.toast(trans('common.error'));
-      }
-    } catch (e, s) {
-      Log.error('Failed to update preference: $e\n$s', e);
-      _revertGlobalPreference(key, !value);
-      Magic.toast(trans('errors.network_error'));
-    }
-  }
-
-  void _revertGlobalPreference(String key, bool value) {
-    switch (key) {
-      case 'push_enabled':
-        pushEnabledNotifier.value = value;
-        break;
-      case 'email_enabled':
-        emailEnabledNotifier.value = value;
-        break;
-      case 'in_app_enabled':
-        inAppEnabledNotifier.value = value;
-        break;
-    }
-  }
-
   /// Update a type-specific preference.
   Future<void> updateTypePreference(
     String type,
     String channel,
-    bool value,
+    bool isEnabled,
   ) async {
     // Optimistically update local state
-    final oldPrefs = Map<String, Map<String, bool>>.from(
-      typePreferencesNotifier.value.map(
-        (k, v) => MapEntry(k, Map<String, bool>.from(v)),
-      ),
-    );
+    final oldMatrix = Map<String, dynamic>.from(matrixNotifier.value);
+    
+    final newMatrix = Map<String, dynamic>.from(matrixNotifier.value);
+    if (newMatrix.containsKey(type)) {
+      final typeData = Map<String, dynamic>.from(newMatrix[type]);
+      if (typeData.containsKey('channels')) {
+        final channelsData = Map<String, dynamic>.from(typeData['channels']);
+        if (channelsData.containsKey(channel)) {
+          final channelData = Map<String, dynamic>.from(channelsData[channel]);
+          channelData['enabled'] = isEnabled;
+          channelsData[channel] = channelData;
+        }
+        typeData['channels'] = channelsData;
+      }
+      newMatrix[type] = typeData;
+    }
 
-    final typePrefs =
-        typePreferencesNotifier.value[type] ??
-        {'push': true, 'email': true, 'in_app': true};
-
-    typePreferencesNotifier.value = {
-      ...typePreferencesNotifier.value,
-      type: {...typePrefs, channel: value},
-    };
+    matrixNotifier.value = newMatrix;
 
     try {
       final response = await Http.put(
         '/notification-preferences',
-        data: {'type_preferences': typePreferencesNotifier.value},
+        data: {
+          'type': type,
+          'channel': channel,
+          'is_enabled': isEnabled,
+        },
       );
 
       if (!response.successful) {
         // Revert on failure
-        typePreferencesNotifier.value = oldPrefs;
+        matrixNotifier.value = oldMatrix;
         Magic.toast(trans('common.error'));
       }
     } catch (e, s) {
       Log.error('Failed to update type preference: $e\n$s', e);
-      typePreferencesNotifier.value = oldPrefs;
+      matrixNotifier.value = oldMatrix;
       Magic.toast(trans('errors.network_error'));
     }
   }
 
-  /// Get type preference value.
-  bool getTypePreference(String type, String channel) {
-    final typePrefs = typePreferencesNotifier.value[type];
-    if (typePrefs == null) return true; // Default to enabled
-    return typePrefs[channel] ?? true;
-  }
-
   @override
   void dispose() {
-    pushEnabledNotifier.dispose();
-    emailEnabledNotifier.dispose();
-    inAppEnabledNotifier.dispose();
-    typePreferencesNotifier.dispose();
+    matrixNotifier.dispose();
     isLoadingNotifier.dispose();
     isSavingNotifier.dispose();
     super.dispose();
