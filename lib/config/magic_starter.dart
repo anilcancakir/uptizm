@@ -9,6 +9,7 @@ Map<String, dynamic> get magicStarterConfig => {
       'profile_photos': true,
       'registration': true,
       'social_login': true,
+      'notifications': true,
     },
     'routes': {
       'home': '/',

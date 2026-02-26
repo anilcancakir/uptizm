@@ -112,5 +112,4 @@ class Team extends Model with HasTimestamps, InteractsWithPersistence {
       isPersonalTeam: isPersonalTeam,
     );
   }
-
 }

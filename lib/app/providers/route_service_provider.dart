@@ -18,6 +18,7 @@ class RouteServiceProvider extends ServiceProvider {
     registerMagicStarterAuthRoutes();
     registerMagicStarterProfileRoutes();
     registerMagicStarterTeamRoutes();
+    registerMagicStarterNotificationRoutes();
 
     // App-specific routes
     registerAppRoutes();

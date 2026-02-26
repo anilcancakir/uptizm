@@ -6,7 +6,6 @@ import '../app/controllers/announcement_controller.dart';
 import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/incident_controller.dart';
 import '../app/controllers/monitor_controller.dart';
-import '../app/controllers/notification_controller.dart';
 import '../app/controllers/status_page_controller.dart';
 import '../app/controllers/team_controller.dart' as app;
 
@@ -18,15 +17,10 @@ void registerAppRoutes() {
   MagicRoute.group(
     layout: (child) => MagicStarter.view.makeLayout('layout.app', child: child),
     middleware: ['auth'],
+    layoutId: 'app',
     routes: () {
       // Dashboard
       MagicRoute.page('/', () => DashboardController.instance.index());
-
-      // Notifications List
-      MagicRoute.page(
-        '/notifications',
-        () => NotificationController.instance.index(),
-      ).transition(RouteTransition.none);
 
       // Monitors
       MagicRoute.page(
@@ -174,11 +168,6 @@ void registerAppRoutes() {
         ),
       ).transition(RouteTransition.none);
 
-      // Notification Preferences
-      MagicRoute.page(
-        '/settings/notifications',
-        () => NotificationController.instance.preferences(),
-      ).transition(RouteTransition.none);
       // Team Members
       MagicRoute.page(
         '/teams/members',

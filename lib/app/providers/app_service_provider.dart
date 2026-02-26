@@ -11,7 +11,6 @@ import '../policies/monitor_policy.dart';
 import '../controllers/auth_controller.dart';
 import '../../resources/views/components/navigation/app_header.dart';
 
-
 class AppServiceProvider extends ServiceProvider {
   AppServiceProvider(super.app);
 
@@ -72,20 +71,7 @@ class AppServiceProvider extends ServiceProvider {
           activeIcon: Icons.dns,
         ),
       ],
-      systemItems: const [
-        StarterNavItem(
-          icon: Icons.people_outline,
-          labelKey: 'nav.team_members',
-          path: '/teams/members',
-          activeIcon: Icons.people,
-        ),
-        StarterNavItem(
-          icon: Icons.settings,
-          labelKey: 'nav.settings',
-          path: '/settings',
-          activeIcon: Icons.settings,
-        ),
-      ],
+      systemItems: const [],
       bottomItems: const [
         StarterNavItem(
           icon: Icons.dashboard_outlined,
@@ -119,9 +105,8 @@ class AppServiceProvider extends ServiceProvider {
     // -----------------------------------------------------------------------
     MagicStarter.useTeamResolver(
       currentTeam: () => User.current.currentTeam?.toStarterTeam(),
-      allTeams: () => User.current.allTeams
-          .map((t) => t.toStarterTeam())
-          .toList(),
+      allTeams: () =>
+          User.current.allTeams.map((t) => t.toStarterTeam()).toList(),
       onSwitch: (teamId) async {
         final team = User.current.allTeams.firstWhere(
           (t) => t.id.toString() == teamId.toString(),
@@ -187,5 +172,4 @@ class AppServiceProvider extends ServiceProvider {
       MagicRoute.to('/auth/login');
     });
   }
-
 }

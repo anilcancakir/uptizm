@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 
 import '../../../../app/controllers/auth_controller.dart';
-import '../notification_dropdown.dart';
+import 'package:magic_starter/magic_starter.dart';
 import '../search_autocomplete.dart';
 import '../theme_toggle_button.dart';
 import 'user_profile_card.dart';
@@ -66,13 +66,19 @@ class AppHeader extends StatelessWidget {
             // Theme Toggle Button
             const ThemeToggleButton(),
 
-            // Notifications Dropdown with real data
-            NotificationDropdownWithStream(
+            // Notifications Dropdown from magic_starter plugin
+            StarterNotificationDropdown(
               notificationStream: Notify.notifications(),
               onMarkAsRead: (id) => Notify.markAsRead(id),
               onMarkAllAsRead: () => Notify.markAllAsRead(),
-              onNavigate: (path) => MagicRoute.to(path),
-              onViewAll: () => MagicRoute.to('/notifications'),
+              onNotificationTap: (notification) {
+                if (notification.actionUrl != null) {
+                  MagicRoute.to(notification.actionUrl!);
+                }
+              },
+              onViewAll: () => MagicRoute.to(
+                MagicStarterConfig.notificationsRoute(),
+              ),
             ),
 
             const WSpacer(className: 'w-1'),
