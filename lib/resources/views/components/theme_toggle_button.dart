@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/helpers/theme_preference_service.dart';
 
 /// Theme Toggle Button
 ///
 /// Shared component for toggling between light and dark themes.
-/// Automatically saves the user's preference to device storage.
+/// Preference is automatically persisted by MagicApplication.
 ///
 /// Usage:
 /// ```dart
@@ -20,7 +19,6 @@ class ThemeToggleButton extends StatelessWidget {
     return WAnchor(
       onTap: () {
         context.windTheme.toggleTheme();
-        ThemePreferenceService.save(context.windIsDark);
       },
       child: WDiv(
         className: '''
