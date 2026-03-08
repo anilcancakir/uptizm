@@ -103,9 +103,9 @@ class Team extends Model with HasTimestamps, InteractsWithPersistence {
   // Plugin Interop
   // ---------------------------------------------------------------------------
 
-  /// Convert to [StarterTeam] for the magic_starter plugin's team resolver.
-  StarterTeam toStarterTeam() {
-    return StarterTeam(
+  /// Convert to [MagicStarterTeam] for the magic_starter plugin's team resolver.
+  MagicStarterTeam toMagicStarterTeam() {
+    return MagicStarterTeam(
       id: id,
       name: name,
       photoUrl: profilePhotoUrl,

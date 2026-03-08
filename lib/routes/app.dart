@@ -7,7 +7,6 @@ import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/incident_controller.dart';
 import '../app/controllers/monitor_controller.dart';
 import '../app/controllers/status_page_controller.dart';
-import '../app/controllers/team_controller.dart' as app;
 
 /// Application routes.
 ///
@@ -166,12 +165,6 @@ void registerAppRoutes() {
           MagicRouter.instance.pathParameter('statusPageId')!,
           MagicRouter.instance.pathParameter('id')!,
         ),
-      ).transition(RouteTransition.none);
-
-      // Team Members
-      MagicRoute.page(
-        '/teams/members',
-        () => app.TeamController.instance.membersPage(),
       ).transition(RouteTransition.none);
     },
   );
