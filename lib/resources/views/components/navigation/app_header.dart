@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
-
-import '../../../../app/controllers/auth_controller.dart';
 import 'package:magic_starter/magic_starter.dart';
 import '../search_autocomplete.dart';
 import '../theme_toggle_button.dart';
@@ -67,7 +65,7 @@ class AppHeader extends StatelessWidget {
             const ThemeToggleButton(),
 
             // Notifications Dropdown from magic_starter plugin
-            StarterNotificationDropdown(
+            MagicStarterNotificationDropdown(
               notificationStream: Notify.notifications(),
               onMarkAsRead: (id) => Notify.markAsRead(id),
               onMarkAllAsRead: () => Notify.markAllAsRead(),
@@ -76,9 +74,8 @@ class AppHeader extends StatelessWidget {
                   MagicRoute.to(notification.actionUrl!);
                 }
               },
-              onViewAll: () => MagicRoute.to(
-                MagicStarterConfig.notificationsRoute(),
-              ),
+              onViewAll: () =>
+                  MagicRoute.to(MagicStarterConfig.notificationsRoute()),
             ),
 
             const WSpacer(className: 'w-1'),
@@ -88,7 +85,7 @@ class AppHeader extends StatelessWidget {
               onlyAvatar: true,
               showLogout: true,
               onLogout: () {
-                AuthController.instance.doLogout();
+                MagicStarterAuthController.instance.logout();
               },
             ),
           ],

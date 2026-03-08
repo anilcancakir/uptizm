@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 
-import '../../../../app/controllers/team_controller.dart';
+import 'package:magic_starter/magic_starter.dart';
 import 'team_selector.dart';
 import 'navigation_list.dart';
 
@@ -29,7 +29,8 @@ class AppSidebar extends StatelessWidget {
           className: 'px-4 py-2 border-b border-gray-200 dark:border-gray-700',
           child: TeamSelector(
             compact: true,
-            onTeamSelect: (team) => TeamController.instance.switchTeam(team),
+            onTeamSelect: (team) =>
+                MagicStarterTeamController.instance.switchTeam(team.id),
             onTeamSettings: () => MagicRoute.to('/teams/settings'),
             onCreateTeam: () => MagicRoute.to('/teams/create'),
           ),
