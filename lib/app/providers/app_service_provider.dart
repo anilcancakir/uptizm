@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_deeplink/magic_deeplink.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_social_auth/magic_social_auth.dart';
 import 'package:magic_starter/magic_starter.dart';
-import '../controllers/team_controller.dart' as app;
 import '../models/user.dart';
 import '../policies/team_policy.dart';
 import '../policies/monitor_policy.dart';
-import '../controllers/auth_controller.dart';
-import '../../resources/views/components/navigation/app_header.dart';
 
 class AppServiceProvider extends ServiceProvider {
   AppServiceProvider(super.app);
@@ -34,37 +30,37 @@ class AppServiceProvider extends ServiceProvider {
     // -----------------------------------------------------------------------
     MagicStarter.useNavigation(
       mainItems: const [
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.dashboard,
           labelKey: 'nav.dashboard',
           path: '/',
           activeIcon: Icons.dashboard,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.ssid_chart,
           labelKey: 'nav.monitors',
           path: '/monitors',
           activeIcon: Icons.ssid_chart,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.notifications_outlined,
           labelKey: 'nav.alerts',
           path: '/alerts',
           activeIcon: Icons.notifications,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.rule_outlined,
           labelKey: 'nav.alert_rules',
           path: '/alert-rules',
           activeIcon: Icons.rule,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.warning_amber,
           labelKey: 'nav.incidents',
           path: '/incidents',
           activeIcon: Icons.warning_amber,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.dns,
           labelKey: 'nav.status_pages',
           path: '/status-pages',
@@ -73,25 +69,25 @@ class AppServiceProvider extends ServiceProvider {
       ],
       systemItems: const [],
       bottomItems: const [
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.dashboard_outlined,
           labelKey: 'nav.dashboard',
           path: '/',
           activeIcon: Icons.dashboard,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.ssid_chart_outlined,
           labelKey: 'nav.monitors',
           path: '/monitors',
           activeIcon: Icons.ssid_chart,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.warning_amber_outlined,
           labelKey: 'nav.incidents',
           path: '/incidents',
           activeIcon: Icons.warning_amber,
         ),
-        StarterNavItem(
+        MagicStarterNavItem(
           icon: Icons.settings_outlined,
           labelKey: 'nav.settings',
           path: '/settings',
@@ -104,14 +100,11 @@ class AppServiceProvider extends ServiceProvider {
     // Magic Starter: Team Resolver
     // -----------------------------------------------------------------------
     MagicStarter.useTeamResolver(
-      currentTeam: () => User.current.currentTeam?.toStarterTeam(),
+      currentTeam: () => User.current.currentTeam?.toMagicStarterTeam(),
       allTeams: () =>
-          User.current.allTeams.map((t) => t.toStarterTeam()).toList(),
+          User.current.allTeams.map((t) => t.toMagicStarterTeam()).toList(),
       onSwitch: (teamId) async {
-        final team = User.current.allTeams.firstWhere(
-          (t) => t.id.toString() == teamId.toString(),
-        );
-        await app.TeamController.instance.switchTeam(team);
+        await MagicStarterTeamController.instance.switchTeam(teamId);
       },
     );
 
@@ -125,20 +118,28 @@ class AppServiceProvider extends ServiceProvider {
     // -----------------------------------------------------------------------
     // Magic Starter: Social Login
     // -----------------------------------------------------------------------
-    MagicStarter.useSocialLogin((context, isLoading) {
-      return ListenableBuilder(
-        listenable: AuthController.instance,
-        builder: (context, _) {
-          final controller = AuthController.instance;
+    // Create a ValueNotifier to track social login loading state
+    final socialLoginProviderNotifier = ValueNotifier<String?>('');
 
+    MagicStarter.useSocialLogin((context, isLoading) {
+      return ValueListenableBuilder<String?>(
+        valueListenable: socialLoginProviderNotifier,
+        builder: (context, loadingProvider, _) {
           // When the main form is loading, disable all social buttons
           // by providing a non-null provider that matches no button.
-          final effectiveLoadingProvider = isLoading
-              ? ''
-              : controller.socialLoginProvider;
+          final effectiveLoadingProvider = isLoading ? '' : loadingProvider;
 
           return SocialAuthButtons(
-            onAuthenticate: controller.doSocialLogin,
+            onAuthenticate: (provider) async {
+              socialLoginProviderNotifier.value = provider;
+              try {
+                await SocialAuth.driver(provider).authenticate();
+              } catch (e) {
+                Log.error('Social login error: $e');
+              } finally {
+                socialLoginProviderNotifier.value = '';
+              }
+            },
             loadingProvider: effectiveLoadingProvider,
           );
         },
