@@ -46,6 +46,11 @@ app.*.map.json
 
 # App related
 .env
+
+# Cache / build artifacts
+.phpstan-cache/
+**/.phpstan-cache/
+
 # AI coding tools
 **/AGENTS.md
 CLAUDE.md

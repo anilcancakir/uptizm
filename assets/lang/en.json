@@ -76,7 +76,14 @@
     "photo_update_failed": "Failed to update profile photo.",
     "photo_updated": "Profile photo updated successfully.",
     "photo_delete_failed": "Failed to remove profile photo.",
-    "photo_deleted": "Profile photo removed."
+    "photo_deleted": "Profile photo removed.",
+    "two_factor_authentication": "Two-Factor Authentication",
+    "two_factor_disabled_description": "Two-factor authentication is currently disabled for your account.",
+    "two_factor_enable": "Enable",
+    "browser_sessions": "Browser Sessions",
+    "browser_sessions_description": "Manage and sign out your active sessions on other browsers and devices.",
+    "no_active_sessions": "No active sessions found.",
+    "logout_other_sessions": "Log Out Other Browser Sessions"
   },
   "fields": {
     "name_placeholder": "Enter your full name",
@@ -493,6 +500,28 @@
     "pause": "Pause",
     "resume": "Resume"
   },
+  "magic_starter": {
+    "newsletter": {
+      "section_title": "Newsletter Preferences",
+      "section_description": "Receive product updates and announcements by email.",
+      "toggle_label": "Receive Newsletter",
+      "unsubscribed_status": "You are not subscribed."
+    },
+    "profile": {
+      "delete_account": {
+        "title": "Delete Account",
+        "description": "Permanently delete your account and all associated data. This action cannot be undone.",
+        "password_label": "Confirm your password",
+        "button": "Delete Account"
+      }
+    },
+    "email_verification": {
+      "section_title": "Email Verification",
+      "unverified_title": "Email address not verified",
+      "unverified_description": "Your email address is not verified yet. Please verify it to secure your account.",
+      "resend_button": "Resend Verification Email"
+    }
+  },
   "teams": {
     "invite_member": "Invite Member",
     "settings": "Team Settings",
@@ -581,7 +610,8 @@
     "create": "Create Team"
   },
   "errors": {
-    "network_error": "Network error. Please check your connection and try again.",
+    "network_error": "Network connection failed. Please check your internet connection and try again.",
+    "network_timeout": "Request timed out. Please try again later.",
     "load_failed": "Failed to load data",
     "unexpected": "An unexpected error occurred. Please try again."
   },
