@@ -56,7 +56,8 @@
     "invalid_response": "An unexpected error occurred. Please try again.",
     "register_failed": "Registration failed. Please try again.",
     "register_title": "Create Account",
-    "sign_in": "Sign In"
+    "sign_in": "Sign In",
+    "profile": "Profile"
   },
   "profile": {
     "my_profile": "My Profile",
