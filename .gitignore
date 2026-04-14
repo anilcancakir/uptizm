@@ -53,8 +53,7 @@ app.*.map.json
 
 # AI coding tools
 **/AGENTS.md
-CLAUDE.md
-.claude/
+.claude/settings.local.json
 .opencode/
 .sisyphus/
 .agent
