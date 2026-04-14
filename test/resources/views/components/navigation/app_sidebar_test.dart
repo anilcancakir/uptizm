@@ -5,9 +5,11 @@ import 'package:uptizm/resources/views/components/navigation/app_sidebar.dart';
 import 'package:uptizm/resources/views/components/navigation/navigation_list.dart';
 import 'package:uptizm/resources/views/components/navigation/team_selector.dart';
 
+import '../../../../test_setup.dart';
+
 void main() {
-  setUpAll(() {
-    Magic.init();
+  setUpAll(() async {
+    await initMagicForTests();
   });
 
   group('AppSidebar', () {

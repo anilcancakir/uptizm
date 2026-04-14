@@ -9,7 +9,13 @@ import 'package:uptizm/resources/views/monitors/monitor_edit_view.dart';
 import 'package:uptizm/resources/views/components/monitors/monitor_basic_info_section.dart';
 import 'package:uptizm/resources/views/components/monitors/monitor_settings_section.dart';
 
+import '../../../test_setup.dart';
+
 void main() {
+  setUpAll(() async {
+    await initMagicForTests();
+  });
+
   group('MonitorEditView', () {
     setUp(() {
       // Reset controller state between tests
@@ -41,7 +47,6 @@ void main() {
 
     testWidgets('renders not-found when monitor is null', (tester) async {
       await tester.pumpWidget(buildSubject());
-      await tester.pump();
 
       expect(find.byType(MonitorEditView), findsOneWidget);
       // No form sections when monitor is null
@@ -49,6 +54,11 @@ void main() {
     });
 
     testWidgets('renders form sections when monitor is loaded', (tester) async {
+      await pumpWithSize(tester, buildSubject());
+      // Let the post-frame callback (loadMonitor) fire and fail
+      await tester.pump();
+
+      // Set monitor data after loadMonitor has failed
       MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
         'id': 'test-uuid-1',
         'name': 'Test Monitor',
@@ -61,9 +71,7 @@ void main() {
         'monitoring_locations': ['us-east'],
         'status': 'active',
       });
-
-      await pumpWithSize(tester, buildSubject());
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       expect(find.byType(MonitorBasicInfoSection), findsOneWidget);
       expect(find.byType(MonitorSettingsSection), findsOneWidget);
@@ -74,6 +82,9 @@ void main() {
     });
 
     testWidgets('pre-fills form with monitor data', (tester) async {
+      await pumpWithSize(tester, buildSubject());
+      await tester.pump();
+
       MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
         'id': 'test-uuid-1',
         'name': 'My API Monitor',
@@ -87,9 +98,7 @@ void main() {
         'tags': ['api', 'health'],
         'status': 'active',
       });
-
-      await pumpWithSize(tester, buildSubject());
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       // Name should be pre-filled
       expect(find.text('My API Monitor'), findsWidgets);
@@ -98,6 +107,9 @@ void main() {
     });
 
     testWidgets('type selector is not editable', (tester) async {
+      await pumpWithSize(tester, buildSubject());
+      await tester.pump();
+
       MonitorController.instance.selectedMonitorNotifier.value = createMonitor({
         'id': 'test-uuid-1',
         'name': 'Test',
@@ -110,9 +122,7 @@ void main() {
         'monitoring_locations': ['us-east'],
         'status': 'active',
       });
-
-      await pumpWithSize(tester, buildSubject());
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       // Find the basic info section and verify typeEditable is false
       final section = tester.widget<MonitorBasicInfoSection>(

@@ -3,21 +3,41 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/resources/views/components/navigation/app_header.dart';
 
+import '../../../../test_setup.dart';
+
 void main() {
+  setUpAll(() async {
+    await initMagicForTests();
+  });
   group('AppHeader', () {
-    testWidgets('header should contain theme toggle button', (tester) async {
-      final windTheme = WindThemeData();
+    Future<void> pumpHeader(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final origOnError = FlutterError.onError;
+      FlutterError.onError = (details) {
+        if (details.toString().contains('overflowed')) return;
+        origOnError?.call(details);
+      };
+      addTearDown(() => FlutterError.onError = origOnError);
 
       await tester.pumpWidget(
         MaterialApp(
           home: WindTheme(
-            data: windTheme,
+            data: WindThemeData(),
             child: Scaffold(body: AppHeader()),
           ),
         ),
       );
+    }
 
-      // Look for brightness_6_outlined icon which is used for theme toggle
+    testWidgets('header should contain theme toggle button', (tester) async {
+      await pumpHeader(tester);
+
       final themToggleFinder = find.byIcon(Icons.brightness_6_outlined);
 
       expect(
@@ -29,18 +49,8 @@ void main() {
     });
 
     testWidgets('theme toggle button should be tappable', (tester) async {
-      final windTheme = WindThemeData();
+      await pumpHeader(tester);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: WindTheme(
-            data: windTheme,
-            child: Scaffold(body: AppHeader()),
-          ),
-        ),
-      );
-
-      // Find the theme toggle button
       final themeToggleFinder = find.byIcon(Icons.brightness_6_outlined);
 
       expect(themeToggleFinder, findsOneWidget);

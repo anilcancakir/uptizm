@@ -12,7 +12,13 @@ import 'package:uptizm/resources/views/components/charts/status_timeline_chart.d
 import 'package:uptizm/resources/views/monitors/monitor_analytics_view.dart';
 import 'package:magic/magic.dart';
 
+import '../../test_setup.dart';
+
 void main() {
+  setUpAll(() async {
+    await initMagicForTests();
+  });
+
   // Setup mock data
   final now = DateTime.now();
   final mockResponse = AnalyticsResponse(
@@ -72,11 +78,12 @@ void main() {
   testWidgets('MonitorAnalyticsView shows loading state initially', (
     tester,
   ) async {
-    await tester.pumpWidget(buildTestWidget());
+    await tester.runAsync(() async {
+      await tester.pumpWidget(buildTestWidget());
+    });
+    await tester.pump();
 
     // Should find skeleton elements (animate-pulse) or hidden text
-    // The loading text is sr-only, so it might not be found by find.text depending on visibility
-    // Instead we check for skeleton structure (e.g. multiple containers)
     expect(find.byType(WDiv), findsWidgets);
   });
 
@@ -88,8 +95,12 @@ void main() {
     controller.analyticsNotifier.value = mockResponse;
     controller.selectedMetricsNotifier.value = ['response_time'];
 
-    await tester.pumpWidget(buildTestWidget());
-    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(buildTestWidget());
+      // Let async operations (onInit HTTP calls) resolve/fail
+      await Future.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
 
     // Verify main components are present
     expect(find.byType(DateRangeSelector), findsOneWidget);
@@ -98,7 +109,6 @@ void main() {
     expect(find.byType(StatusTimelineChart), findsOneWidget);
 
     // Verify summary is shown
-    // StatCard upper-cases the label
     expect(
       find.text(trans('analytics.total_checks').toUpperCase()),
       findsOneWidget,
@@ -120,9 +130,13 @@ void main() {
       summary: AnalyticsSummary.empty(),
     );
 
-    await tester.pumpWidget(buildTestWidget());
-    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(buildTestWidget());
+      await Future.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
 
-    expect(find.text('analytics.no_data'), findsOneWidget);
+    // trans() resolves the key to the English translation
+    expect(find.text(trans('analytics.no_data')), findsOneWidget);
   });
 }
