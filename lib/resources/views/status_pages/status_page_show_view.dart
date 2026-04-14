@@ -13,7 +13,9 @@ import '../components/app_card.dart';
 import '../components/app_page_header.dart';
 
 class StatusPageShowView extends MagicStatefulView<StatusPageController> {
-  const StatusPageShowView({super.key});
+  const StatusPageShowView({super.key, required this.statusPageId});
+
+  final String statusPageId;
 
   @override
   State<StatusPageShowView> createState() => _StatusPageShowViewState();
@@ -21,22 +23,18 @@ class StatusPageShowView extends MagicStatefulView<StatusPageController> {
 
 class _StatusPageShowViewState
     extends MagicStatefulViewState<StatusPageController, StatusPageShowView> {
-  String? _statusPageId;
+  String get _statusPageId => widget.statusPageId;
   final _announcementsNotifier = ValueNotifier<List<Announcement>>([]);
 
   @override
   void onInit() {
     super.onInit();
-    final idParam = MagicRouter.instance.pathParameter('id');
-    if (idParam != null) {
-      _statusPageId = idParam;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        controller.selectedStatusPageNotifier.value = null;
-        await controller.loadStatusPage(_statusPageId!);
-        IncidentController.instance.loadIncidents();
-        _loadAnnouncements();
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      controller.selectedStatusPageNotifier.value = null;
+      await controller.loadStatusPage(_statusPageId);
+      IncidentController.instance.loadIncidents();
+      _loadAnnouncements();
+    });
   }
 
   @override
@@ -46,9 +44,8 @@ class _StatusPageShowViewState
   }
 
   Future<void> _loadAnnouncements() async {
-    if (_statusPageId == null) return;
     try {
-      final announcements = await Announcement.allForStatusPage(_statusPageId!);
+      final announcements = await Announcement.allForStatusPage(_statusPageId);
       _announcementsNotifier.value = announcements;
     } catch (e) {
       Log.error('Failed to load announcements', e);
@@ -187,7 +184,7 @@ class _StatusPageShowViewState
                       : trans('status_pages.publish'),
                   onTap: () async {
                     close();
-                    await controller.togglePublish(_statusPageId!);
+                    await controller.togglePublish(_statusPageId);
                   },
                 ),
                 // Divider
@@ -199,7 +196,7 @@ class _StatusPageShowViewState
                   isDestructive: true,
                   onTap: () {
                     close();
-                    controller.destroy(_statusPageId!);
+                    controller.destroy(_statusPageId);
                   },
                 ),
               ],

@@ -4,7 +4,7 @@ import 'package:uptizm/resources/views/announcements/announcement_create_view.da
 void main() {
   group('AnnouncementCreateView', () {
     test('can be instantiated', () {
-      const view = AnnouncementCreateView();
+      const view = AnnouncementCreateView(statusPageId: 'test-sp-id');
       expect(view, isA<AnnouncementCreateView>());
     });
   });

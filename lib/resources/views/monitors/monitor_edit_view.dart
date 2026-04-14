@@ -20,7 +20,9 @@ import '../components/monitors/monitor_validation_section.dart';
 /// Form for editing an existing monitor. Reuses shared section components
 /// from the create view, hydrated with existing monitor data.
 class MonitorEditView extends MagicStatefulView<MonitorController> {
-  const MonitorEditView({super.key});
+  const MonitorEditView({super.key, required this.monitorId});
+
+  final String monitorId;
 
   @override
   State<MonitorEditView> createState() => _MonitorEditViewState();
@@ -28,7 +30,7 @@ class MonitorEditView extends MagicStatefulView<MonitorController> {
 
 class _MonitorEditViewState
     extends MagicStatefulViewState<MonitorController, MonitorEditView> {
-  String? _monitorId;
+  String get _monitorId => widget.monitorId;
   MagicFormData? _form;
   bool _initialized = false;
 
@@ -55,14 +57,10 @@ class _MonitorEditViewState
     super.onInit();
     controller.clearErrors();
 
-    final idParam = MagicRouter.instance.pathParameter('id');
-    if (idParam != null) {
-      _monitorId = idParam;
-      // Schedule after build to avoid setState-during-build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadMonitor(_monitorId!);
-      });
-    }
+    // Schedule after build to avoid setState-during-build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.loadMonitor(_monitorId);
+    });
   }
 
   @override
@@ -123,10 +121,9 @@ class _MonitorEditViewState
 
   Future<void> _handleSubmit() async {
     if (_form == null || !_form!.validate()) return;
-    if (_monitorId == null) return;
 
     await controller.update(
-      _monitorId!,
+      _monitorId,
       name: _form!.get('name'),
       url: _form!.get('url'),
       method: _selectedType == MonitorType.http

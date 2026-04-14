@@ -317,10 +317,7 @@ class AlertController extends MagicController {
   }
 
   /// Show create alert rule form
-  Widget rulesCreate() {
-    // Check if this is for a specific monitor
-    final monitorIdParam = MagicRouter.instance.pathParameter('id');
-    final monitorId = monitorIdParam;
+  Widget rulesCreate({String? monitorId}) {
 
     return AlertRuleCreateView(
       monitorId: monitorId,
@@ -350,18 +347,10 @@ class AlertController extends MagicController {
   }
 
   /// Show edit alert rule form
-  Widget rulesEdit() {
-    // Get rule ID from route parameter
-    final id = MagicRouter.instance.pathParameter('id');
-    if (id == null) {
-      Magic.toast('Alert rule ID not found');
-      MagicRoute.back();
-      return const SizedBox.shrink();
-    }
-
+  Widget rulesEdit(String ruleId, {String? monitorId}) {
     // Find rule from current list or fetch
     final rule = alertRulesNotifier.value
-        .where((r) => r.id.toString() == id)
+        .where((r) => r.id.toString() == ruleId)
         .firstOrNull;
 
     if (rule == null) {

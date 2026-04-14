@@ -7,7 +7,14 @@ import '../components/app_page_header.dart';
 import '../components/monitors/stat_card.dart';
 
 class AnnouncementShowView extends MagicStatefulView<AnnouncementController> {
-  const AnnouncementShowView({super.key});
+  const AnnouncementShowView({
+    super.key,
+    required this.statusPageId,
+    required this.id,
+  });
+
+  final String statusPageId;
+  final String id;
 
   @override
   State<AnnouncementShowView> createState() => _AnnouncementShowViewState();
@@ -16,9 +23,8 @@ class AnnouncementShowView extends MagicStatefulView<AnnouncementController> {
 class _AnnouncementShowViewState
     extends
         MagicStatefulViewState<AnnouncementController, AnnouncementShowView> {
-  String get statusPageId =>
-      MagicRouter.instance.pathParameter('statusPageId')!;
-  String get id => MagicRouter.instance.pathParameter('id')!;
+  String get statusPageId => widget.statusPageId;
+  String get id => widget.id;
 
   @override
   void onInit() {

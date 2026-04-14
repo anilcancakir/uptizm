@@ -62,18 +62,18 @@ class MonitorController extends MagicController
   }
 
   /// Render show monitor view
-  Widget show() {
-    return const MonitorShowView();
+  Widget show(String id) {
+    return MonitorShowView(monitorId: id);
   }
 
   /// Render edit monitor view
-  Widget edit() {
-    return const MonitorEditView();
+  Widget edit(String id) {
+    return MonitorEditView(monitorId: id);
   }
 
   /// Render monitor alerts view
-  Widget alerts() {
-    return const MonitorAlertsView();
+  Widget alerts(String id) {
+    return MonitorAlertsView(monitorId: id);
   }
 
   /// Load monitors for current team

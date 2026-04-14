@@ -19,7 +19,7 @@ void main() {
 
     test('show() returns MonitorShowView widget', () {
       final controller = MonitorController();
-      final result = controller.show();
+      final result = controller.show('test-id');
       expect(result, isA<MonitorShowView>());
     });
 

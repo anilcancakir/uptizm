@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:magic/magic.dart';
 
 import 'config/app.dart';
@@ -9,11 +8,14 @@ import 'config/social_auth.dart';
 import 'config/view.dart';
 import 'config/notifications.dart';
 import 'config/deeplink.dart';
+import 'config/routing.dart';
+import 'config/cache.dart';
+import 'config/database.dart';
+import 'config/logging.dart';
 
 import 'config/magic_starter.dart';
 
 void main() async {
-  usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Magic
@@ -26,6 +28,10 @@ void main() async {
       () => viewConfig,
       () => notificationConfig,
       () => deeplinkConfig,
+      () => routingConfig,
+      () => cacheConfig,
+      () => databaseConfig,
+      () => loggingConfig,
       () => magicStarterConfig,
     ],
   );

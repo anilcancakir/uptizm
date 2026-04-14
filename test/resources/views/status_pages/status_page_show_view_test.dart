@@ -8,7 +8,7 @@ import 'package:uptizm/resources/views/status_pages/status_page_show_view.dart';
 void main() {
   group('StatusPageShowView', () {
     test('can be instantiated', () {
-      const view = StatusPageShowView();
+      const view = StatusPageShowView(statusPageId: 'test-id');
       expect(view, isA<StatusPageShowView>());
     });
   });

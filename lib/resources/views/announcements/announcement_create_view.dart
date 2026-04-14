@@ -4,7 +4,9 @@ import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/enums/announcement_type.dart';
 
 class AnnouncementCreateView extends MagicStatefulView<AnnouncementController> {
-  const AnnouncementCreateView({super.key});
+  const AnnouncementCreateView({super.key, required this.statusPageId});
+
+  final String statusPageId;
 
   @override
   State<AnnouncementCreateView> createState() => _AnnouncementCreateViewState();
@@ -17,12 +19,11 @@ class _AnnouncementCreateViewState
   AnnouncementType _selectedType = AnnouncementType.maintenance;
   DateTime? _scheduledAt;
   final _dateController = TextEditingController();
-  late final String statusPageId;
+  String get statusPageId => widget.statusPageId;
 
   @override
   void onInit() {
     super.onInit();
-    statusPageId = MagicRouter.instance.pathParameter('statusPageId')!;
     controller.clearErrors();
     form = MagicFormData({'title': '', 'body': ''}, controller: controller);
   }

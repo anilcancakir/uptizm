@@ -19,7 +19,7 @@ void main() {
     Widget buildSubject() {
       return WindTheme(
         data: WindThemeData(),
-        child: MaterialApp(home: Scaffold(body: const MonitorEditView())),
+        child: MaterialApp(home: Scaffold(body: const MonitorEditView(monitorId: 'test-id'))),
       );
     }
 

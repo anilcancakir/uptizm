@@ -20,10 +20,14 @@ class AnnouncementController extends MagicController
   @override
   bool get isLoading => _isLoading;
 
-  Widget index(String statusPageId) => const AnnouncementsIndexView();
-  Widget create(String statusPageId) => const AnnouncementCreateView();
-  Widget show(String statusPageId, String id) => const AnnouncementShowView();
-  Widget edit(String statusPageId, String id) => const AnnouncementEditView();
+  Widget index(String statusPageId) =>
+      AnnouncementsIndexView(statusPageId: statusPageId);
+  Widget create(String statusPageId) =>
+      AnnouncementCreateView(statusPageId: statusPageId);
+  Widget show(String statusPageId, String id) =>
+      AnnouncementShowView(statusPageId: statusPageId, id: id);
+  Widget edit(String statusPageId, String id) =>
+      AnnouncementEditView(statusPageId: statusPageId, id: id);
 
   Future<void> loadAnnouncements(String statusPageId) async {
     _isLoading = true;

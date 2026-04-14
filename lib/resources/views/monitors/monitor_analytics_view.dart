@@ -13,7 +13,9 @@ import '../components/charts/status_timeline_chart.dart';
 import '../components/monitors/stat_card.dart';
 
 class MonitorAnalyticsView extends MagicStatefulView<AnalyticsController> {
-  const MonitorAnalyticsView({super.key});
+  const MonitorAnalyticsView({super.key, required this.monitorId});
+
+  final String monitorId;
 
   @override
   State<MonitorAnalyticsView> createState() => _MonitorAnalyticsViewState();
@@ -21,31 +23,26 @@ class MonitorAnalyticsView extends MagicStatefulView<AnalyticsController> {
 
 class _MonitorAnalyticsViewState
     extends MagicStatefulViewState<AnalyticsController, MonitorAnalyticsView> {
-  String? _monitorId;
+  String get _monitorId => widget.monitorId;
   Monitor? _monitor;
   bool _showTable = false; // Toggle between chart and table view
 
   @override
   void onInit() {
     super.onInit();
-    final idParam = MagicRouter.instance.pathParameter('id');
-    if (idParam != null) {
-      _monitorId = idParam;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _loadMonitorAndAnalytics();
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMonitorAndAnalytics();
+    });
   }
 
   Future<void> _loadMonitorAndAnalytics() async {
-    if (_monitorId == null) return;
-    _monitor = await Monitor.find(_monitorId!);
+    _monitor = await Monitor.find(_monitorId);
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() {});
       });
     }
-    controller.setLast24Hours(_monitorId!);
+    controller.setLast24Hours(_monitorId);
   }
 
   @override
@@ -170,22 +167,19 @@ class _MonitorAnalyticsViewState
               selectedPreset: preset,
               customRange: customRange,
               onPresetSelected: (val) {
-                if (_monitorId == null) return;
                 switch (val) {
                   case '24h':
-                    controller.setLast24Hours(_monitorId!);
+                    controller.setLast24Hours(_monitorId);
                   case '7d':
-                    controller.setLast7Days(_monitorId!);
+                    controller.setLast7Days(_monitorId);
                   case '30d':
-                    controller.setLast30Days(_monitorId!);
+                    controller.setLast30Days(_monitorId);
                   case '90d':
-                    controller.setLast90Days(_monitorId!);
+                    controller.setLast90Days(_monitorId);
                 }
               },
               onCustomRangeSelected: (range) {
-                if (_monitorId != null) {
-                  controller.setCustomRange(_monitorId!, range);
-                }
+                controller.setCustomRange(_monitorId, range);
               },
             );
           },

@@ -36,7 +36,7 @@ void main() {
       // 4. After first check appears, should switch to 64 seconds (60 + 4)
 
       expect(MonitorShowView, isNotNull);
-      expect(const MonitorShowView().runtimeType, MonitorShowView);
+      expect(const MonitorShowView(monitorId: 'test-id').runtimeType, MonitorShowView);
     });
 
     testWidgets('restarts timer with normal interval after first check arrives', (

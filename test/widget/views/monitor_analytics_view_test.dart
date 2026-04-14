@@ -60,7 +60,7 @@ void main() {
               scrollDirection: Axis.horizontal,
               child: SizedBox(
                 width: 1400, // Wide enough for desktop layout
-                child: const MonitorAnalyticsView(),
+                child: const MonitorAnalyticsView(monitorId: 'test-id'),
               ),
             ),
           ),

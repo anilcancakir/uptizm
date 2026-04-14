@@ -11,7 +11,7 @@
 /// - User caching (instant restore)
 /// - Auto token refresh on 401
 /// - Driver-agnostic interceptors
-final Map<String, dynamic> authConfig = {
+Map<String, dynamic> get authConfig => {
   'auth': {
     // -------------------------------------------------------------------------
     // Defaults

@@ -20,7 +20,9 @@ import '../components/app_list.dart';
 /// Displays monitor details and check history.
 /// TODO: Implement full view with charts and check history.
 class MonitorShowView extends MagicStatefulView<MonitorController> {
-  const MonitorShowView({super.key});
+  const MonitorShowView({super.key, required this.monitorId});
+
+  final String monitorId;
 
   @override
   State<MonitorShowView> createState() => _MonitorShowViewState();
@@ -28,7 +30,7 @@ class MonitorShowView extends MagicStatefulView<MonitorController> {
 
 class _MonitorShowViewState
     extends MagicStatefulViewState<MonitorController, MonitorShowView> {
-  String? _monitorId;
+  String get _monitorId => widget.monitorId;
   bool _isRealTimeEnabled = false;
   Timer? _refreshTimer;
 
@@ -36,33 +38,27 @@ class _MonitorShowViewState
   void onInit() {
     super.onInit();
 
-    // Extract ID from route parameters
-    final idParam = MagicRouter.instance.pathParameter('id');
+    // Schedule after build to avoid setState-during-build
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Clear previous monitor state
+      controller.selectedMonitorNotifier.value = null;
+      controller.checksNotifier.value = [];
 
-    if (idParam != null) {
-      _monitorId = idParam;
-      // Schedule after build to avoid setState-during-build
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        // Clear previous monitor state
-        controller.selectedMonitorNotifier.value = null;
-        controller.checksNotifier.value = [];
+      await controller.loadMonitor(_monitorId);
+      await controller.loadChecks(_monitorId);
+      controller.fetchStatusMetrics(_monitorId);
 
-        await controller.loadMonitor(_monitorId!);
-        await controller.loadChecks(_monitorId!);
-        controller.fetchStatusMetrics(_monitorId!);
-
-        // Auto-enable real-time refresh if no checks exist
-        // (waiting for first check to complete)
-        if (controller.checksNotifier.value.isEmpty &&
-            controller.selectedMonitorNotifier.value?.status?.value ==
-                'active') {
-          setState(() {
-            _isRealTimeEnabled = true;
-          });
-          _startRealTimeRefresh();
-        }
-      });
-    }
+      // Auto-enable real-time refresh if no checks exist
+      // (waiting for first check to complete)
+      if (controller.checksNotifier.value.isEmpty &&
+          controller.selectedMonitorNotifier.value?.status?.value ==
+              'active') {
+        setState(() {
+          _isRealTimeEnabled = true;
+        });
+        _startRealTimeRefresh();
+      }
+    });
   }
 
   @override
@@ -86,8 +82,6 @@ class _MonitorShowViewState
   void _startRealTimeRefresh() {
     _stopRealTimeRefresh(); // Cancel any existing timer
 
-    if (_monitorId == null) return;
-
     final monitor = controller.selectedMonitorNotifier.value;
     if (monitor == null) return;
 
@@ -104,15 +98,15 @@ class _MonitorShowViewState
     }
 
     _refreshTimer = Timer.periodic(Duration(seconds: refreshInterval), (_) {
-      if (_monitorId != null && _isRealTimeEnabled) {
+      if (_isRealTimeEnabled) {
         final checksBeforeRefresh = controller.checksNotifier.value;
         final wasEmpty = checksBeforeRefresh.isEmpty;
 
         final currentPage =
             controller.checksPaginationNotifier.value?.currentPage ?? 1;
-        controller.loadMonitor(_monitorId!);
-        controller.loadChecks(_monitorId!, page: currentPage);
-        controller.fetchStatusMetrics(_monitorId!);
+        controller.loadMonitor(_monitorId);
+        controller.loadChecks(_monitorId, page: currentPage);
+        controller.fetchStatusMetrics(_monitorId);
 
         // If we were waiting for first check and now have checks, restart timer with normal interval
         if (wasEmpty) {
@@ -544,9 +538,9 @@ class _MonitorShowViewState
                   onPageChange: pagination != null && pagination.lastPage > 1
                       ? (page) {
                           if (page > (pagination.currentPage)) {
-                            controller.loadNextPage(_monitorId!);
+                            controller.loadNextPage(_monitorId);
                           } else {
-                            controller.loadPreviousPage(_monitorId!);
+                            controller.loadPreviousPage(_monitorId);
                           }
                         }
                       : null,
@@ -922,9 +916,9 @@ class _MonitorShowViewState
 
   void _handlePauseResume(Monitor monitor) async {
     if (monitor.isPaused) {
-      await controller.resume(_monitorId!);
+      await controller.resume(_monitorId);
     } else {
-      await controller.pause(_monitorId!);
+      await controller.pause(_monitorId);
     }
   }
 }

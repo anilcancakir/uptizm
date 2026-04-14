@@ -15,7 +15,7 @@ class AnalyticsController extends MagicController {
   final selectedPresetNotifier = ValueNotifier<String?>('24h');
 
   // Actions
-  Widget analytics() => const MonitorAnalyticsView();
+  Widget analytics(String id) => MonitorAnalyticsView(monitorId: id);
 
   Future<void> fetchAnalytics(
     String monitorId, {

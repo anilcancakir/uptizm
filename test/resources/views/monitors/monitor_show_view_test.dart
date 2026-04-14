@@ -10,7 +10,7 @@ import 'package:uptizm/resources/views/monitors/monitor_show_view.dart';
 void main() {
   group('MonitorShowView', () {
     test('can be instantiated', () {
-      const view = MonitorShowView();
+      const view = MonitorShowView(monitorId: 'test-id');
       expect(view, isA<MonitorShowView>());
     });
   });

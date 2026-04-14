@@ -1,7 +1,7 @@
 /// Logging Configuration
 ///
 /// Defines the logging channels and levels for the application.
-final Map<String, dynamic> loggingConfig = {
+Map<String, dynamic> get loggingConfig => {
   'logging': {
     'default': 'stack',
     'channels': {

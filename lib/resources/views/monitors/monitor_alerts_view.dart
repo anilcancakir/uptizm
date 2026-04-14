@@ -8,7 +8,9 @@ import 'monitor_alerts_tab.dart';
 ///
 /// Full page view for managing alert rules and viewing alerts for a specific monitor.
 class MonitorAlertsView extends MagicStatefulView<MonitorController> {
-  const MonitorAlertsView({super.key});
+  const MonitorAlertsView({super.key, required this.monitorId});
+
+  final String monitorId;
 
   @override
   State<MonitorAlertsView> createState() => _MonitorAlertsViewState();
@@ -16,38 +18,20 @@ class MonitorAlertsView extends MagicStatefulView<MonitorController> {
 
 class _MonitorAlertsViewState
     extends MagicStatefulViewState<MonitorController, MonitorAlertsView> {
-  String? _monitorId;
+  String get _monitorId => widget.monitorId;
 
   @override
   void onInit() {
     super.onInit();
 
-    // Extract ID from route parameters
-    final idParam = MagicRouter.instance.pathParameter('id');
-
-    if (idParam != null) {
-      _monitorId = idParam;
-      // Load monitor data
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await controller.loadMonitor(_monitorId!);
-      });
-    }
+    // Load monitor data
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await controller.loadMonitor(_monitorId);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_monitorId == null) {
-      return WDiv(
-        className: 'flex items-center justify-center h-full',
-        children: [
-          WText(
-            trans('monitors.not_found'),
-            className: 'text-gray-600 dark:text-gray-400',
-          ),
-        ],
-      );
-    }
-
     return ValueListenableBuilder(
       valueListenable: controller.selectedMonitorNotifier,
       builder: (context, monitor, _) {
@@ -93,7 +77,7 @@ class _MonitorAlertsViewState
             ),
 
             // Alerts Tab Content
-            MonitorAlertsTab(monitorId: _monitorId!),
+            MonitorAlertsTab(monitorId: _monitorId),
           ],
         );
       },

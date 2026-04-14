@@ -36,7 +36,7 @@ void main() {
 
     test('edit() returns StatusPageEditView widget', () {
       final controller = StatusPageController.instance;
-      final result = controller.edit();
+      final result = controller.edit('test-id');
       expect(result, isA<StatusPageEditView>());
     });
 

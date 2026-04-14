@@ -4,23 +4,16 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.4
+  sdk: ^3.11.0
 
 dependencies:
   flutter:
     sdk: flutter
-  flutter_web_plugins:
-    sdk: flutter
-  magic:
-    path: ./plugins/magic
-  magic_social_auth:
-    path: ./plugins/magic_social_auth
-  magic_notifications:
-    path: ./plugins/magic_notifications
-  magic_deeplink:
-    path: ./plugins/magic_deeplink
-  magic_starter:
-    path: ./plugins/magic_starter
+  magic: ^1.0.0-alpha.12
+  magic_social_auth: ^0.0.1-alpha.1
+  magic_notifications: ^0.0.1-alpha.1
+  magic_deeplink: ^0.0.1-alpha.1
+  magic_starter: ^0.0.1-alpha.13
   cupertino_icons: ^1.0.8
   url_launcher: ^6.3.2
   fl_chart: ^1.1.1

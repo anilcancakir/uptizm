@@ -9,7 +9,9 @@ import '../../../app/models/status_page.dart';
 import '../components/app_card.dart';
 
 class StatusPageEditView extends MagicStatefulView<StatusPageController> {
-  const StatusPageEditView({super.key});
+  const StatusPageEditView({super.key, required this.statusPageId});
+
+  final String statusPageId;
 
   @override
   State<StatusPageEditView> createState() => _StatusPageEditViewState();
@@ -21,7 +23,7 @@ class _StatusPageEditViewState
   final List<Map<String, dynamic>> _selectedMonitors = [];
   bool _isDataLoaded = false;
   bool _isPublished = false;
-  String? _pageId;
+  String get _pageId => widget.statusPageId;
 
   @override
   void onInit() {
@@ -33,13 +35,9 @@ class _StatusPageEditViewState
       MonitorController.instance.loadMonitors();
     });
 
-    final idStr = MagicRouter.instance.pathParameter('id');
-    if (idStr != null) {
-      _pageId = idStr;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadStatusPage(_pageId!);
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.loadStatusPage(_pageId);
+    });
 
     form = MagicFormData({
       'name': '',
@@ -103,7 +101,6 @@ class _StatusPageEditViewState
 
   Future<void> _handleSubmit() async {
     if (!form.validate()) return;
-    if (_pageId == null) return;
 
     // Prepare monitors list with order
     final monitors = _selectedMonitors.asMap().entries.map((entry) {
@@ -118,7 +115,7 @@ class _StatusPageEditViewState
     }).toList();
 
     await controller.update(
-      _pageId!,
+      _pageId,
       name: form.get('name'),
       slug: form.get('slug'),
       description: form.get('description'),

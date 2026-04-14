@@ -20,8 +20,8 @@ class StatusPageController extends MagicController
 
   Widget index() => const StatusPagesIndexView();
   Widget create() => const StatusPageCreateView();
-  Widget show() => const StatusPageShowView();
-  Widget edit() => const StatusPageEditView();
+  Widget show(String id) => StatusPageShowView(statusPageId: id);
+  Widget edit(String id) => StatusPageEditView(statusPageId: id);
 
   Future<void> loadStatusPages() async {
     _isLoading = true;

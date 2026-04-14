@@ -7,22 +7,11 @@ import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/incident_controller.dart';
 import '../app/controllers/monitor_controller.dart';
 import '../app/controllers/status_page_controller.dart';
-import '../resources/views/dashboard_view.dart';
 
 /// Application routes.
 ///
 /// Routes call controller actions (Laravel-style).
 void registerAppRoutes() {
-  // Auth-protected routes with AppLayout
-  MagicRoute.group(
-    layout: (child) => MagicStarter.view.makeLayout('layout.app', child: child),
-    middleware: ['auth'],
-    layoutId: 'app',
-    routes: () {
-      MagicRoute.page('/', () => const DashboardView());
-    },
-  );
-
   // Auth-protected routes with AppLayout
   MagicRoute.group(
     layout: (child) => MagicStarter.view.makeLayout('layout.app', child: child),
@@ -44,39 +33,39 @@ void registerAppRoutes() {
         () => MonitorController.instance.create(),
       ).transition(RouteTransition.none);
 
-      // Monitor Show - ID extracted from URL in view
+      // Monitor Show
       MagicRoute.page(
         '/monitors/:id',
-        () => MonitorController.instance.show(),
+        (String id) => MonitorController.instance.show(id),
       ).transition(RouteTransition.none);
 
-      // Monitor Edit - ID extracted from URL in view
+      // Monitor Edit
       MagicRoute.page(
         '/monitors/:id/edit',
-        () => MonitorController.instance.edit(),
+        (String id) => MonitorController.instance.edit(id),
       ).transition(RouteTransition.none);
 
       // Monitor Analytics
       MagicRoute.page(
         '/monitors/:id/analytics',
-        () => AnalyticsController.instance.analytics(),
+        (String id) => AnalyticsController.instance.analytics(id),
       ).transition(RouteTransition.none);
 
       // Monitor Alerts
       MagicRoute.page(
         '/monitors/:id/alerts',
-        () => MonitorController.instance.alerts(),
+        (String id) => MonitorController.instance.alerts(id),
       ).transition(RouteTransition.none);
 
       // Monitor Alert Rules (create/edit for specific monitor)
       MagicRoute.page(
         '/monitors/:id/alert-rules/create',
-        () => AlertController.instance.rulesCreate(),
+        (String id) => AlertController.instance.rulesCreate(monitorId: id),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/monitors/:id/alert-rules/:ruleId/edit',
-        () => AlertController.instance.rulesEdit(),
+        (String id, String ruleId) => AlertController.instance.rulesEdit(ruleId, monitorId: id),
       ).transition(RouteTransition.none);
 
       // Alert Rules
@@ -92,7 +81,7 @@ void registerAppRoutes() {
 
       MagicRoute.page(
         '/alert-rules/:id/edit',
-        () => AlertController.instance.rulesEdit(),
+        (String id) => AlertController.instance.rulesEdit(id),
       ).transition(RouteTransition.none);
 
       // Alerts History
@@ -114,16 +103,12 @@ void registerAppRoutes() {
 
       MagicRoute.page(
         '/incidents/:id',
-        () => IncidentController.instance.show(
-          MagicRouter.instance.pathParameter('id') ?? '',
-        ),
+        (String id) => IncidentController.instance.show(id),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/incidents/:id/edit',
-        () => IncidentController.instance.edit(
-          MagicRouter.instance.pathParameter('id') ?? '',
-        ),
+        (String id) => IncidentController.instance.edit(id),
       ).transition(RouteTransition.none);
 
       // Status Pages
@@ -139,43 +124,33 @@ void registerAppRoutes() {
 
       MagicRoute.page(
         '/status-pages/:id',
-        () => StatusPageController.instance.show(),
+        (String id) => StatusPageController.instance.show(id),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/status-pages/:id/edit',
-        () => StatusPageController.instance.edit(),
+        (String id) => StatusPageController.instance.edit(id),
       ).transition(RouteTransition.none);
 
       // Status Page Announcements
       MagicRoute.page(
         '/status-pages/:statusPageId/announcements',
-        () => AnnouncementController.instance.index(
-          MagicRouter.instance.pathParameter('statusPageId')!,
-        ),
+        (String statusPageId) => AnnouncementController.instance.index(statusPageId),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/status-pages/:statusPageId/announcements/create',
-        () => AnnouncementController.instance.create(
-          MagicRouter.instance.pathParameter('statusPageId')!,
-        ),
+        (String statusPageId) => AnnouncementController.instance.create(statusPageId),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/status-pages/:statusPageId/announcements/:id',
-        () => AnnouncementController.instance.show(
-          MagicRouter.instance.pathParameter('statusPageId')!,
-          MagicRouter.instance.pathParameter('id')!,
-        ),
+        (String statusPageId, String id) => AnnouncementController.instance.show(statusPageId, id),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/status-pages/:statusPageId/announcements/:id/edit',
-        () => AnnouncementController.instance.edit(
-          MagicRouter.instance.pathParameter('statusPageId')!,
-          MagicRouter.instance.pathParameter('id')!,
-        ),
+        (String statusPageId, String id) => AnnouncementController.instance.edit(statusPageId, id),
       ).transition(RouteTransition.none);
     },
   );

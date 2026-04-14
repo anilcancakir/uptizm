@@ -5,7 +5,14 @@ import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/enums/announcement_type.dart';
 
 class AnnouncementEditView extends MagicStatefulView<AnnouncementController> {
-  const AnnouncementEditView({super.key});
+  const AnnouncementEditView({
+    super.key,
+    required this.statusPageId,
+    required this.id,
+  });
+
+  final String statusPageId;
+  final String id;
 
   @override
   State<AnnouncementEditView> createState() => _AnnouncementEditViewState();
@@ -20,9 +27,8 @@ class _AnnouncementEditViewState
   DateTime? _endedAt;
   bool _initialized = false;
 
-  String get statusPageId =>
-      MagicRouter.instance.pathParameter('statusPageId')!;
-  String get id => MagicRouter.instance.pathParameter('id')!;
+  String get statusPageId => widget.statusPageId;
+  String get id => widget.id;
 
   @override
   void onInit() {
