@@ -7,11 +7,22 @@ import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/incident_controller.dart';
 import '../app/controllers/monitor_controller.dart';
 import '../app/controllers/status_page_controller.dart';
+import '../resources/views/dashboard_view.dart';
 
 /// Application routes.
 ///
 /// Routes call controller actions (Laravel-style).
 void registerAppRoutes() {
+  // Auth-protected routes with AppLayout
+  MagicRoute.group(
+    layout: (child) => MagicStarter.view.makeLayout('layout.app', child: child),
+    middleware: ['auth'],
+    layoutId: 'app',
+    routes: () {
+      MagicRoute.page('/', () => const DashboardView());
+    },
+  );
+
   // Auth-protected routes with AppLayout
   MagicRoute.group(
     layout: (child) => MagicStarter.view.makeLayout('layout.app', child: child),

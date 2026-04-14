@@ -172,5 +172,8 @@ class AppServiceProvider extends ServiceProvider {
       // 5. Navigate to login
       MagicRoute.to('/auth/login');
     });
+
+    // Magic Starter: Supported locale options for profile settings.
+    MagicStarter.useLocaleOptions({'en': 'English'});
   }
 }

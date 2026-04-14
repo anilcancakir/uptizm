@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 
-
 /// Theme Toggle Button
 ///
 /// Shared component for toggling between light and dark themes.
