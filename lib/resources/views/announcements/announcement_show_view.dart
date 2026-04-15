@@ -3,8 +3,9 @@ import 'package:magic/magic.dart';
 
 import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/models/announcement.dart';
-import 'package:magic_starter/magic_starter.dart';
-import '../components/dashboard/stat_card.dart';
+
+import '../components/common/page_header.dart';
+import '../components/ui/stat_card.dart';
 
 class AnnouncementShowView extends MagicStatefulView<AnnouncementController> {
   const AnnouncementShowView({
@@ -54,31 +55,24 @@ class _AnnouncementShowViewState
         }
 
         return WDiv(
-          className: 'overflow-y-auto flex flex-col gap-4 lg:gap-6 pb-4',
+          className: 'flex-1 overflow-y-auto',
           scrollPrimary: true,
-          children: [
-            _buildHeader(announcement),
-            WDiv(
-              className: 'flex flex-col px-4 lg:px-6 gap-4 lg:gap-6',
-              children: [
-                _buildStatsSection(announcement),
-                _buildBodyCard(announcement),
-                _buildDatesCard(announcement),
-              ],
-            ),
-          ],
+          child: WDiv(
+            className: 'flex flex-col gap-6 p-4 pb-8',
+            children: [
+              _buildHeader(announcement),
+              _buildStatsSection(announcement),
+              _buildBodyCard(announcement),
+              _buildDatesCard(announcement),
+            ],
+          ),
         );
       },
     );
   }
 
   Widget _buildHeader(Announcement announcement) {
-    final createdAt = announcement.createdAt;
-    final formattedDate = createdAt != null
-        ? createdAt.format('MMM d, yyyy HH:mm')
-        : '';
-
-    return MagicStarterPageHeader(
+    return PageHeader(
       leading: WButton(
         onTap: () => MagicRoute.to('/status-pages/$statusPageId/announcements'),
         className: 'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
@@ -88,69 +82,63 @@ class _AnnouncementShowViewState
         ),
       ),
       title: announcement.title ?? trans('announcements.announcement'),
-      subtitle: formattedDate,
-      actions: [
-        // Edit Button
-        WButton(
-          onTap: () => MagicRoute.to(
-            '/status-pages/$statusPageId/announcements/$id/edit',
+      trailing: WDiv(
+        className: 'flex flex-row gap-2',
+        children: [
+          // Edit Button
+          WButton(
+            onTap: () => MagicRoute.to(
+              '/status-pages/$statusPageId/announcements/$id/edit',
+            ),
+            className: '''
+              px-3 py-2 rounded-lg
+              bg-gray-100 dark:bg-gray-700
+              text-gray-700 dark:text-gray-200
+              hover:bg-gray-200 dark:hover:bg-gray-600
+              text-sm font-medium
+            ''',
+            child: WDiv(
+              className: 'flex flex-row items-center sm:gap-2',
+              children: [
+                WIcon(Icons.edit_outlined, className: 'text-base'),
+                WText(trans('common.edit'), className: 'hidden sm:block'),
+              ],
+            ),
           ),
-          className: '''
-            px-3 py-2 rounded-lg
-            bg-gray-100 dark:bg-gray-700
-            text-gray-700 dark:text-gray-200
-            hover:bg-gray-200 dark:hover:bg-gray-600
-            text-sm font-medium
-          ''',
-          child: WDiv(
-            className: 'flex flex-row items-center sm:gap-2',
-            children: [
-              WIcon(Icons.edit_outlined, className: 'text-base'),
-              WText(trans('common.edit'), className: 'hidden sm:block'),
-            ],
-          ),
-        ),
 
-        // Delete Button
-        WButton(
-          onTap: () => controller.destroy(statusPageId, id),
-          className: '''
-            px-3 py-2 rounded-lg
-            bg-red-50 dark:bg-red-900/20
-            text-red-600 dark:text-red-400
-            hover:bg-red-100 dark:hover:bg-red-900/30
-            text-sm font-medium
-          ''',
-          child: WDiv(
-            className: 'flex flex-row items-center sm:gap-2',
-            children: [
-              WIcon(Icons.delete_outline, className: 'text-base'),
-              WText(trans('common.delete'), className: 'hidden sm:block'),
-            ],
+          // Delete Button
+          WButton(
+            onTap: () => controller.destroy(statusPageId, id),
+            className: '''
+              px-3 py-2 rounded-lg
+              bg-red-50 dark:bg-red-900/20
+              text-red-600 dark:text-red-400
+              hover:bg-red-100 dark:hover:bg-red-900/30
+              text-sm font-medium
+            ''',
+            child: WDiv(
+              className: 'flex flex-row items-center sm:gap-2',
+              children: [
+                WIcon(Icons.delete_outline, className: 'text-base'),
+                WText(trans('common.delete'), className: 'hidden sm:block'),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildStatsSection(Announcement announcement) {
     String statusLabel = 'Active';
-    String statusTextClass = 'text-green-600 dark:text-green-400';
 
     final now = DateTime.now();
 
     // Check scheduled
     if (announcement.scheduledAt != null) {
-      // Convert Carbon to DateTime for comparison if needed, or assume Carbon is comparable
-      // Carbon usually implements Comparable<DateTime> or similar.
-      // But to be safe and avoid "Carbon can't be assigned to DateTime" if we pass it to something expecting DateTime
-      // we'll use toDateTime() if available or parse.
-      // Since we are comparing, let's try strict comparison if Carbon extends DateTime.
-      // If not, we parse.
       final scheduled = DateTime.parse(announcement.scheduledAt.toString());
       if (scheduled.isAfter(now)) {
         statusLabel = 'Scheduled';
-        statusTextClass = 'text-blue-600 dark:text-blue-400';
       }
     }
 
@@ -159,7 +147,6 @@ class _AnnouncementShowViewState
       final ended = DateTime.parse(announcement.endedAt.toString());
       if (ended.isBefore(now)) {
         statusLabel = 'Ended';
-        statusTextClass = 'text-gray-600 dark:text-gray-400';
       }
     }
 
@@ -184,7 +171,6 @@ class _AnnouncementShowViewState
           label: trans('common.status'),
           value: statusLabel,
           icon: Icons.info_outline,
-          valueColor: statusTextClass,
         ),
         // Date
         StatCard(

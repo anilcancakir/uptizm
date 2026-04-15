@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/enums/alert_status.dart';
 import '../../../app/models/alert.dart';
 import '../components/alerts/alert_list_item.dart';
+import '../components/common/page_header.dart';
 
 class AlertsIndexView extends StatelessWidget {
   final List<Alert>? initialAlerts;
@@ -27,15 +27,15 @@ class AlertsIndexView extends StatelessWidget {
     final alerts = initialAlerts ?? [];
 
     return WDiv(
-      className: 'overflow-y-auto flex flex-col',
+      className: 'flex-1 overflow-y-auto',
       scrollPrimary: true,
-      children: [
-        // Page Header
-        MagicStarterPageHeader(
-          title: trans('alerts.alerts_history_title'),
-          subtitle: trans('alerts.alerts_history_subtitle'),
-          actions: [
-            WButton(
+      child: WDiv(
+        className: 'flex flex-col gap-6 p-4 pb-8',
+        children: [
+          // Page Header
+          PageHeader(
+            title: trans('alerts.alerts_history_title'),
+            trailing: WButton(
               onTap: () => MagicRoute.to('/alert-rules'),
               className: '''
                 px-4 py-2 rounded-lg
@@ -50,86 +50,81 @@ class AlertsIndexView extends StatelessWidget {
                 ],
               ),
             ),
-          ],
-        ),
-
-        // Filters
-        if (onStatusFilterChanged != null)
-          WDiv(
-            className: '''
-              w-full p-4 lg:px-6
-              border-b border-gray-200 dark:border-gray-700
-            ''',
-            children: [
-              WDiv(
-                className: 'flex flex-row gap-2',
-                children: [
-                  _buildFilterChip(
-                    trans('common.all'),
-                    null,
-                    statusFilter == null,
-                  ),
-                  _buildFilterChip(
-                    trans('alerts.status_alerting'),
-                    AlertStatus.alerting,
-                    statusFilter == AlertStatus.alerting,
-                  ),
-                  _buildFilterChip(
-                    trans('alerts.status_resolved'),
-                    AlertStatus.resolved,
-                    statusFilter == AlertStatus.resolved,
-                  ),
-                ],
-              ),
-            ],
           ),
 
-        // Content Container
-        WDiv(
-          className: 'p-4 lg:p-6',
-          children: [
-            // Content
-            if (isLoading)
-              WDiv(
-                className: 'flex items-center justify-center py-12',
-                children: const [CircularProgressIndicator()],
-              )
-            else if (alerts.isEmpty)
-              WDiv(
-                className:
-                    'flex flex-col items-center justify-center w-full py-12',
-                children: [
-                  WIcon(
-                    Icons.notification_important_outlined,
-                    className: 'text-6xl text-gray-400 dark:text-gray-500',
-                  ),
-                  WText(
-                    trans('alerts.no_alerts'),
-                    className: 'text-gray-600 dark:text-gray-400 mt-4',
-                  ),
-                ],
-              )
-            else
-              WDiv(
-                className: '''
-                  bg-white dark:bg-gray-800
-                  border border-gray-200 dark:border-gray-700
-                  rounded-2xl
-                ''',
-                children: alerts
-                    .map(
-                      (alert) => AlertListItem(
-                        alert: alert,
-                        onTap: onAlertTap != null
-                            ? () => onAlertTap!(alert)
-                            : null,
-                      ),
-                    )
-                    .toList(),
-              ),
-          ],
-        ),
-      ],
+          // Filters
+          if (onStatusFilterChanged != null)
+            WDiv(
+              className: '''
+                w-full
+                border-b border-gray-200 dark:border-gray-700
+                pb-4
+              ''',
+              children: [
+                WDiv(
+                  className: 'flex flex-row gap-2',
+                  children: [
+                    _buildFilterChip(
+                      trans('common.all'),
+                      null,
+                      statusFilter == null,
+                    ),
+                    _buildFilterChip(
+                      trans('alerts.status_alerting'),
+                      AlertStatus.alerting,
+                      statusFilter == AlertStatus.alerting,
+                    ),
+                    _buildFilterChip(
+                      trans('alerts.status_resolved'),
+                      AlertStatus.resolved,
+                      statusFilter == AlertStatus.resolved,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+          // Content
+          if (isLoading)
+            WDiv(
+              className: 'flex items-center justify-center py-12',
+              children: const [CircularProgressIndicator()],
+            )
+          else if (alerts.isEmpty)
+            WDiv(
+              className:
+                  'flex flex-col items-center justify-center w-full py-12',
+              children: [
+                WIcon(
+                  Icons.notification_important_outlined,
+                  className: 'text-6xl text-gray-400 dark:text-gray-500',
+                ),
+                WText(
+                  trans('alerts.no_alerts'),
+                  className: 'text-gray-600 dark:text-gray-400 mt-4',
+                ),
+              ],
+            )
+          else
+            WDiv(
+              className: '''
+                bg-white dark:bg-gray-800
+                border border-gray-200 dark:border-gray-700
+                rounded-2xl
+              ''',
+              children: alerts
+                  .map(
+                    (alert) => AlertListItem(
+                      alert: alert,
+                      onTap: onAlertTap != null
+                          ? () => onAlertTap!(alert)
+                          : null,
+                    ),
+                  )
+                  .toList(),
+            ),
+        ],
+      ),
     );
   }
 

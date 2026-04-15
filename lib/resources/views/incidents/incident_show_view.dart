@@ -4,9 +4,9 @@ import 'package:magic/magic.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_status.dart';
-import '../../../app/enums/incident_impact.dart';
-import 'package:magic_starter/magic_starter.dart';
-import '../components/dashboard/stat_card.dart';
+
+import '../components/common/page_header.dart';
+import '../components/ui/stat_card.dart';
 
 class IncidentShowView extends MagicStatefulView<IncidentController> {
   const IncidentShowView({super.key});
@@ -194,27 +194,25 @@ class _IncidentShowViewState
         }
 
         return WDiv(
-          className: 'overflow-y-auto flex flex-col gap-4 lg:gap-6 pb-4',
+          className: 'flex-1 overflow-y-auto',
           scrollPrimary: true,
-          children: [
-            _buildHeader(incident),
-            WDiv(
-              className: 'flex flex-col px-4 lg:px-6 gap-4 lg:gap-6',
-              children: [
-                _buildStatsSection(incident),
-                _buildAffectedMonitors(incident),
-                _buildTimeline(incident),
-                if (!incident.isResolved) _buildAddUpdateSection(incident),
-              ],
-            ),
-          ],
+          child: WDiv(
+            className: 'flex flex-col gap-6 p-4 pb-8',
+            children: [
+              _buildHeader(incident),
+              _buildStatsSection(incident),
+              _buildAffectedMonitors(incident),
+              _buildTimeline(incident),
+              if (!incident.isResolved) _buildAddUpdateSection(incident),
+            ],
+          ),
         );
       },
     );
   }
 
   Widget _buildHeader(Incident incident) {
-    return MagicStarterPageHeader(
+    return PageHeader(
       leading: WButton(
         onTap: () => MagicRoute.to('/incidents'),
         className: 'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
@@ -223,68 +221,73 @@ class _IncidentShowViewState
           className: 'text-xl text-gray-700 dark:text-gray-300',
         ),
       ),
-      title: incident.title ?? 'Incident',
-      subtitle: incident.startedAt?.format('MMM d, yyyy HH:mm'),
-      actions: [
-        // Resolve Button (only for unresolved incidents)
-        if (!incident.isResolved)
+      title: incident.title ?? trans('incidents.title'),
+      trailing: WDiv(
+        className: 'flex flex-row gap-2',
+        children: [
+          // Resolve Button (only for unresolved incidents)
+          if (!incident.isResolved)
+            WButton(
+              onTap: () => _showResolveDialog(incident),
+              className: '''
+                px-3 py-2 rounded-lg
+                bg-green-50 dark:bg-green-900/20
+                text-green-600 dark:text-green-400
+                hover:bg-green-100 dark:hover:bg-green-900/30
+                text-sm font-medium
+              ''',
+              child: WDiv(
+                className: 'flex flex-row items-center sm:gap-2',
+                children: [
+                  WIcon(Icons.check_circle_outline, className: 'text-base'),
+                  WText(
+                    trans('incidents.resolve'),
+                    className: 'hidden sm:block',
+                  ),
+                ],
+              ),
+            ),
+
+          // Edit Button
+          if (!incident.isResolved)
+            WButton(
+              onTap: () => MagicRoute.to('/incidents/${incident.id}/edit'),
+              className: '''
+                px-3 py-2 rounded-lg
+                bg-gray-100 dark:bg-gray-700
+                text-gray-700 dark:text-gray-200
+                hover:bg-gray-200 dark:hover:bg-gray-600
+                text-sm font-medium
+              ''',
+              child: WDiv(
+                className: 'flex flex-row items-center sm:gap-2',
+                children: [
+                  WIcon(Icons.edit_outlined, className: 'text-base'),
+                  WText(trans('common.edit'), className: 'hidden sm:block'),
+                ],
+              ),
+            ),
+
+          // Delete Button
           WButton(
-            onTap: () => _showResolveDialog(incident),
+            onTap: () => controller.destroy(incident.id!),
             className: '''
               px-3 py-2 rounded-lg
-              bg-green-50 dark:bg-green-900/20
-              text-green-600 dark:text-green-400
-              hover:bg-green-100 dark:hover:bg-green-900/30
+              bg-red-50 dark:bg-red-900/20
+              text-red-600 dark:text-red-400
+              hover:bg-red-100 dark:hover:bg-red-900/30
               text-sm font-medium
             ''',
             child: WDiv(
               className: 'flex flex-row items-center sm:gap-2',
               children: [
-                WIcon(Icons.check_circle_outline, className: 'text-base'),
-                WText(trans('incidents.resolve'), className: 'hidden sm:block'),
+                WIcon(Icons.delete_outline, className: 'text-base'),
+                WText(trans('common.delete'), className: 'hidden sm:block'),
               ],
             ),
           ),
-
-        // Edit Button
-        if (!incident.isResolved)
-          WButton(
-            onTap: () => MagicRoute.to('/incidents/${incident.id}/edit'),
-            className: '''
-              px-3 py-2 rounded-lg
-              bg-gray-100 dark:bg-gray-700
-              text-gray-700 dark:text-gray-200
-              hover:bg-gray-200 dark:hover:bg-gray-600
-              text-sm font-medium
-            ''',
-            child: WDiv(
-              className: 'flex flex-row items-center sm:gap-2',
-              children: [
-                WIcon(Icons.edit_outlined, className: 'text-base'),
-                WText(trans('common.edit'), className: 'hidden sm:block'),
-              ],
-            ),
-          ),
-
-        // Delete Button
-        WButton(
-          onTap: () => controller.destroy(incident.id!),
-          className: '''
-            px-3 py-2 rounded-lg
-            bg-red-50 dark:bg-red-900/20
-            text-red-600 dark:text-red-400
-            hover:bg-red-100 dark:hover:bg-red-900/30
-            text-sm font-medium
-          ''',
-          child: WDiv(
-            className: 'flex flex-row items-center sm:gap-2',
-            children: [
-              WIcon(Icons.delete_outline, className: 'text-base'),
-              WText(trans('common.delete'), className: 'hidden sm:block'),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -297,14 +300,12 @@ class _IncidentShowViewState
           label: trans('incidents.impact'),
           value: incident.impact?.label ?? trans('common.unknown'),
           icon: Icons.warning_amber_outlined,
-          valueColor: _impactTextColor(incident.impact),
         ),
         // Status
         StatCard(
           label: trans('incidents.status'),
           value: incident.status?.label ?? trans('common.unknown'),
           icon: Icons.info_outline,
-          valueColor: _statusTextColor(incident.status),
         ),
         // Duration
         StatCard(
@@ -622,36 +623,6 @@ class _IncidentShowViewState
       return '${duration.inHours}h ${duration.inMinutes % 60}m';
     } else {
       return '${duration.inDays}d ${duration.inHours % 24}h';
-    }
-  }
-
-  String _impactTextColor(IncidentImpact? impact) {
-    switch (impact) {
-      case IncidentImpact.majorOutage:
-        return 'text-red-600 dark:text-red-400';
-      case IncidentImpact.partialOutage:
-        return 'text-orange-600 dark:text-orange-400';
-      case IncidentImpact.degradedPerformance:
-        return 'text-yellow-600 dark:text-yellow-400';
-      case IncidentImpact.underMaintenance:
-        return 'text-blue-600 dark:text-blue-400';
-      default:
-        return 'text-gray-600 dark:text-gray-400';
-    }
-  }
-
-  String _statusTextColor(IncidentStatus? status) {
-    switch (status) {
-      case IncidentStatus.investigating:
-        return 'text-gray-600 dark:text-gray-400';
-      case IncidentStatus.identified:
-        return 'text-orange-600 dark:text-orange-400';
-      case IncidentStatus.monitoring:
-        return 'text-blue-600 dark:text-blue-400';
-      case IncidentStatus.resolved:
-        return 'text-green-600 dark:text-green-400';
-      default:
-        return 'text-gray-600 dark:text-gray-400';
     }
   }
 }

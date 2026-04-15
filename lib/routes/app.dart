@@ -1,49 +1,41 @@
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart';
 import '../app/controllers/alert_controller.dart';
 import '../app/controllers/announcement_controller.dart';
 import '../app/controllers/dashboard_controller.dart';
 import '../app/controllers/incident_controller.dart';
 import '../app/controllers/status_page_controller.dart';
-import '../resources/views_v2/layouts/v2_app_shell.dart';
-import '../resources/views_v2/monitors/monitor_create_view.dart';
-import '../resources/views_v2/monitors/monitor_show_view.dart';
-import '../resources/views_v2/monitors/monitors_list_view.dart';
+import '../resources/views/layouts/app_shell.dart';
+import '../resources/views/monitors/monitor_create_view.dart';
+import '../resources/views/monitors/monitor_show_view.dart';
+import '../resources/views/monitors/monitors_list_view.dart';
 
 /// Application routes.
 ///
 /// Routes call controller actions (Laravel-style).
 void registerAppRoutes() {
-  // V2 Monitor routes with V2AppShell layout
   MagicRoute.group(
-    layout: (child) => V2AppShell(child: child),
-    layoutId: 'v2',
+    layout: (child) => AppShell(child: child),
+    layoutId: 'app',
+    middleware: ['auth'],
     routes: () {
+      // Dashboard
+      MagicRoute.page('/', () => DashboardController.instance.index());
+
+      // Monitors
       MagicRoute.page(
         '/monitors',
-        () => const MonitorsListV2View(),
+        () => const MonitorsListView(),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/monitors/create',
-        () => const MonitorCreateV2View(),
+        () => const MonitorCreateView(),
       ).transition(RouteTransition.none);
 
       MagicRoute.page(
         '/monitors/:id',
-        (String id) => MonitorShowV2View(monitorId: id),
+        (String id) => MonitorShowView(monitorId: id),
       ).transition(RouteTransition.none);
-    },
-  );
-
-  // Auth-protected routes with AppLayout
-  MagicRoute.group(
-    layout: (child) => MagicStarter.view.makeLayout('layout.app', child: child),
-    middleware: ['auth'],
-    layoutId: 'app',
-    routes: () {
-      // Dashboard
-      MagicRoute.page('/', () => DashboardController.instance.index());
 
       // Alert Rules
       MagicRoute.page(

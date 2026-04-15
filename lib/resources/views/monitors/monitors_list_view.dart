@@ -16,11 +16,11 @@ import 'monitor_create_view.dart';
 ///
 /// ## Usage
 /// Registered as a route in `routes/app.dart` under `/v2/monitors`.
-class MonitorsListV2View extends StatefulWidget {
-  const MonitorsListV2View({super.key});
+class MonitorsListView extends StatefulWidget {
+  const MonitorsListView({super.key});
 
   @override
-  State<MonitorsListV2View> createState() => _MonitorsListV2ViewState();
+  State<MonitorsListView> createState() => _MonitorsListViewState();
 }
 
 enum _StatusFilter {
@@ -35,7 +35,7 @@ enum _StatusFilter {
   };
 }
 
-class _MonitorsListV2ViewState extends State<MonitorsListV2View> {
+class _MonitorsListViewState extends State<MonitorsListView> {
   _StatusFilter _activeFilter = _StatusFilter.all;
   bool _isSearching = false;
   final _searchController = TextEditingController();
@@ -153,7 +153,7 @@ class _MonitorsListV2ViewState extends State<MonitorsListV2View> {
                       ),
                     ),
                     WButton(
-                      onTap: () => MonitorCreateV2View.show(context),
+                      onTap: () => MonitorCreateView.show(context),
                       className: 'p-3 rounded-lg',
                       child: WIcon(
                         Icons.add_rounded,
@@ -206,7 +206,7 @@ class _MonitorsListV2ViewState extends State<MonitorsListV2View> {
               else if (monitors.isEmpty)
                 MonitorsEmptyState(
                   isFiltered: isFiltered,
-                  onAddMonitor: () => MonitorCreateV2View.show(context),
+                  onAddMonitor: () => MonitorCreateView.show(context),
                 )
               else
                 WDiv(

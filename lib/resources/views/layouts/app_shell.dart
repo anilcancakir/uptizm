@@ -1,72 +1,87 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 
-/// V2 application shell layout.
+/// Application shell layout.
 ///
 /// Desktop (>=lg): fixed sidebar (w-64) on left + content area.
 /// Mobile (<lg): content area + bottom tab bar.
 ///
 /// ## Usage
 /// ```dart
-/// V2AppShell(child: MonitorShowV2View())
+/// AppShell(child: MonitorShowView())
 /// ```
-class V2AppShell extends StatelessWidget {
-  const V2AppShell({super.key, required this.child});
+class AppShell extends StatelessWidget {
+  const AppShell({super.key, required this.child});
 
   /// Page content rendered in the main content area.
   final Widget child;
 
   // -------  Navigation Data  -------
 
-  static const _sidebarItems = <_NavEntry>[
+  static List<_NavEntry> _buildSidebarItems() => <_NavEntry>[
     _NavEntry(
       Icons.grid_view_outlined,
       Icons.grid_view_rounded,
-      'Dashboard',
+      trans('navigation.dashboard'),
       '/',
     ),
     _NavEntry(
       Icons.monitor_heart_outlined,
       Icons.monitor_heart,
-      'Monitors',
+      trans('navigation.monitors'),
       '/monitors',
     ),
     _NavEntry(
       Icons.notifications_outlined,
       Icons.notifications,
-      'Alerts',
+      trans('navigation.alerts'),
       '/alerts',
     ),
-    _NavEntry(Icons.rule_outlined, Icons.rule, 'Alert Rules', '/alert-rules'),
+    _NavEntry(
+      Icons.rule_outlined,
+      Icons.rule,
+      trans('navigation.alert_rules'),
+      '/alert-rules',
+    ),
     _NavEntry(
       Icons.warning_amber_outlined,
       Icons.warning_amber,
-      'Incidents',
+      trans('navigation.incidents'),
       '/incidents',
     ),
-    _NavEntry(Icons.dns_outlined, Icons.dns, 'Status Pages', '/status-pages'),
+    _NavEntry(
+      Icons.dns_outlined,
+      Icons.dns,
+      trans('navigation.status_pages'),
+      '/status-pages',
+    ),
   ];
 
-  static const _bottomTabs = <_NavEntry>[
+  static List<_NavEntry> _buildBottomTabs() => <_NavEntry>[
     _NavEntry(
       Icons.grid_view_outlined,
       Icons.grid_view_rounded,
-      'Dashboard',
+      trans('navigation.dashboard'),
       '/',
     ),
     _NavEntry(
       Icons.monitor_heart_outlined,
       Icons.monitor_heart,
-      'Monitors',
+      trans('navigation.monitors'),
       '/monitors',
     ),
     _NavEntry(
       Icons.insert_chart_outlined,
       Icons.insert_chart,
-      'Status',
+      trans('navigation.status'),
       '/status',
     ),
-    _NavEntry(Icons.settings_outlined, Icons.settings, 'Settings', '/settings'),
+    _NavEntry(
+      Icons.settings_outlined,
+      Icons.settings,
+      trans('navigation.settings'),
+      '/settings',
+    ),
   ];
 
   // -------  Helpers  -------
@@ -110,6 +125,8 @@ class V2AppShell extends StatelessWidget {
   }
 
   Widget _buildSidebar(BuildContext context) {
+    final sidebarItems = _buildSidebarItems();
+
     return WDiv(
       className: '''
         w-64 h-full flex flex-col
@@ -124,7 +141,7 @@ class V2AppShell extends StatelessWidget {
             border-b border-gray-200 dark:border-gray-700
           ''',
           child: WText(
-            'Uptizm',
+            trans('app.name'),
             className: 'text-xl font-bold text-primary dark:text-primary-400',
           ),
         ),
@@ -132,7 +149,7 @@ class V2AppShell extends StatelessWidget {
         // Navigation items
         WDiv(
           className: 'flex-1 flex flex-col gap-1 p-3 overflow-y-auto',
-          children: _sidebarItems
+          children: sidebarItems
               .map(
                 (item) => _SidebarItem(
                   item: item,
@@ -157,7 +174,7 @@ class V2AppShell extends StatelessWidget {
       ),
       body: SafeArea(child: child),
       bottomNavigationBar: _BottomTabBar(
-        tabs: _bottomTabs,
+        tabs: _buildBottomTabs(),
         currentPath: _currentPath(context),
       ),
     );

@@ -13,10 +13,10 @@ import '../components/settings/settings_section.dart';
 ///
 /// ## Usage
 /// ```dart
-/// MonitorCreateV2View.show(context);
+/// MonitorCreateView.show(context);
 /// ```
-class MonitorCreateV2View extends StatefulWidget {
-  const MonitorCreateV2View({super.key});
+class MonitorCreateView extends StatefulWidget {
+  const MonitorCreateView({super.key});
 
   /// Show the monitor create view as a pushed route.
   static void show(BuildContext context) {
@@ -24,10 +24,10 @@ class MonitorCreateV2View extends StatefulWidget {
   }
 
   @override
-  State<MonitorCreateV2View> createState() => _MonitorCreateV2ViewState();
+  State<MonitorCreateView> createState() => _MonitorCreateViewState();
 }
 
-class _MonitorCreateV2ViewState extends State<MonitorCreateV2View> {
+class _MonitorCreateViewState extends State<MonitorCreateView> {
   final _nameController = TextEditingController();
   final _urlController = TextEditingController();
   final _statusCodeController = TextEditingController(text: '200');

@@ -5,7 +5,7 @@ import '../../../../app/enums/alert_operator.dart';
 import '../../../../app/enums/alert_rule_type.dart';
 import '../../../../app/enums/alert_severity.dart';
 import '../../../../app/models/alert_rule.dart';
-import '../app_card.dart';
+import '../ui/content_section.dart';
 
 class AlertRuleForm extends StatefulWidget {
   final AlertRule? initialRule;
@@ -116,9 +116,10 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
         className: 'flex flex-col gap-6',
         children: [
           // Basic Information Section
-          AppCard(
+          ContentSection(
             title: trans('alerts.basic_info'),
-            body: WDiv(
+            icon: Icons.info_outline_rounded,
+            child: WDiv(
               className: 'flex flex-col gap-4',
               children: [
                 // Rule Name
@@ -240,9 +241,10 @@ class _AlertRuleFormState extends State<AlertRuleForm> {
           // Threshold Configuration (for threshold and anomaly types)
           if (_selectedType == AlertRuleType.threshold ||
               _selectedType == AlertRuleType.anomaly)
-            AppCard(
+            ContentSection(
               title: trans('alerts.threshold_config'),
-              body: WDiv(
+              icon: Icons.tune_rounded,
+              child: WDiv(
                 className: 'flex flex-col gap-4',
                 children: [
                   // Metric Key

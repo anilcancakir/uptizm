@@ -5,9 +5,9 @@ import '../../../app/controllers/incident_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_status.dart';
 import '../../../app/enums/incident_impact.dart';
-import 'package:magic_starter/magic_starter.dart';
 
-import '../components/dashboard/stat_card.dart';
+import '../components/common/page_header.dart';
+import '../components/ui/stat_card.dart';
 
 /// Incidents Index View
 ///
@@ -59,22 +59,22 @@ class _IncidentsIndexViewState
   @override
   Widget build(BuildContext context) {
     return WDiv(
-      className: 'overflow-y-auto flex flex-col',
+      className: 'flex-1 overflow-y-auto',
       scrollPrimary: true,
-      children: [
-        // Header
-        MagicStarterPageHeader(
-          title: trans('incidents.title'),
-          subtitle: trans('incidents.list'),
-          actions: [
-            WButton(
+      child: WDiv(
+        className: 'flex flex-col gap-6 p-4 pb-8',
+        children: [
+          // Header
+          PageHeader(
+            title: trans('incidents.title'),
+            trailing: WButton(
               onTap: () => MagicRoute.to('/incidents/create'),
               className: '''
-                px-4 py-2 rounded-lg
-                bg-primary hover:bg-green-600
-                text-white font-medium text-sm
-                flex flex-row items-center gap-2
-              ''',
+              px-4 py-2 rounded-lg
+              bg-primary hover:bg-green-600
+              text-white font-medium text-sm
+              flex flex-row items-center gap-2
+            ''',
               child: WDiv(
                 className: 'flex flex-row items-center gap-2',
                 children: [
@@ -83,45 +83,45 @@ class _IncidentsIndexViewState
                 ],
               ),
             ),
-          ],
-        ),
+          ),
 
-        // Stats Row
-        ValueListenableBuilder<List<Incident>>(
-          valueListenable: controller.incidentsNotifier,
-          builder: (context, incidents, _) {
-            return _buildStatsRow(incidents);
-          },
-        ),
+          // Stats Row
+          ValueListenableBuilder<List<Incident>>(
+            valueListenable: controller.incidentsNotifier,
+            builder: (context, incidents, _) {
+              return _buildStatsRow(incidents);
+            },
+          ),
 
-        // Search Bar
-        _buildSearchBar(),
+          // Search Bar
+          _buildSearchBar(),
 
-        // Filter Tabs
-        _buildFilterTabs(),
+          // Filter Tabs
+          _buildFilterTabs(),
 
-        // Incidents List
-        ValueListenableBuilder<List<Incident>>(
-          valueListenable: controller.incidentsNotifier,
-          builder: (context, incidents, _) {
-            if (controller.isLoading && incidents.isEmpty) {
-              return _buildLoadingState();
-            }
+          // Incidents List
+          ValueListenableBuilder<List<Incident>>(
+            valueListenable: controller.incidentsNotifier,
+            builder: (context, incidents, _) {
+              if (controller.isLoading && incidents.isEmpty) {
+                return _buildLoadingState();
+              }
 
-            if (incidents.isEmpty) {
-              return _buildEmptyState();
-            }
+              if (incidents.isEmpty) {
+                return _buildEmptyState();
+              }
 
-            final filteredIncidents = _filterIncidents(incidents);
+              final filteredIncidents = _filterIncidents(incidents);
 
-            if (filteredIncidents.isEmpty) {
-              return _buildNoResultsState();
-            }
+              if (filteredIncidents.isEmpty) {
+                return _buildNoResultsState();
+              }
 
-            return _buildIncidentsList(filteredIncidents);
-          },
-        ),
-      ],
+              return _buildIncidentsList(filteredIncidents);
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -141,27 +141,24 @@ class _IncidentsIndexViewState
           className: 'grid grid-cols-2 md:grid-cols-4 gap-4',
           children: [
             StatCard(
-              label: 'TOTAL',
+              label: trans('incidents.stats.total'),
               value: '$totalCount',
               icon: Icons.warning_amber_outlined,
             ),
             StatCard(
-              label: 'ACTIVE',
+              label: trans('incidents.stats.active'),
               value: '$activeCount',
               icon: Icons.error_outline,
-              valueColor: activeCount > 0 ? 'text-red-500' : null,
             ),
             StatCard(
-              label: 'RESOLVED',
+              label: trans('incidents.stats.resolved'),
               value: '$resolvedCount',
               icon: Icons.check_circle_outline,
-              valueColor: 'text-green-500',
             ),
             StatCard(
-              label: 'MAJOR OUTAGES',
+              label: trans('incidents.stats.major_outages'),
               value: '$majorCount',
               icon: Icons.dangerous_outlined,
-              valueColor: majorCount > 0 ? 'text-red-600' : null,
             ),
           ],
         ),

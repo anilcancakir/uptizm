@@ -7,7 +7,7 @@ import 'package:magic/magic.dart';
 /// ```dart
 /// MonitorsEmptyState(
 ///   isFiltered: true,
-///   onAddMonitor: () => MonitorCreateV2View.show(context),
+///   onAddMonitor: () => MonitorCreateView.show(context),
 /// )
 /// ```
 class MonitorsEmptyState extends StatelessWidget {

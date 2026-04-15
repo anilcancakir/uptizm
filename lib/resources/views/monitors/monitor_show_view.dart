@@ -19,21 +19,21 @@ import '../components/ui/config_row.dart';
 import '../components/ui/content_section.dart';
 import '../components/ui/stat_card.dart';
 
-/// Monitor detail page (v2).
+/// Monitor detail page.
 ///
 /// Wired to [MonitorController] notifiers for real-time data.
 /// Fetches monitor, uptime, response times, and checks on init.
-class MonitorShowV2View extends StatefulWidget {
-  const MonitorShowV2View({super.key, required this.monitorId});
+class MonitorShowView extends StatefulWidget {
+  const MonitorShowView({super.key, required this.monitorId});
 
   /// The monitor ID from the route parameter.
   final String monitorId;
 
   @override
-  State<MonitorShowV2View> createState() => _MonitorShowV2ViewState();
+  State<MonitorShowView> createState() => _MonitorShowViewState();
 }
 
-class _MonitorShowV2ViewState extends State<MonitorShowV2View> {
+class _MonitorShowViewState extends State<MonitorShowView> {
   final _controller = MonitorController.instance;
 
   @override
@@ -176,7 +176,7 @@ class _MonitorShowV2ViewState extends State<MonitorShowV2View> {
                   currentValue: uptimeValue,
                   unit: '%',
                 ),
-                child: V2StatCard(
+                child: StatCard(
                   label: trans('monitors.uptime'),
                   value: uptimeValue,
                   icon: Icons.arrow_upward_rounded,
@@ -195,7 +195,7 @@ class _MonitorShowV2ViewState extends State<MonitorShowV2View> {
                   currentValue: avgResponseValue,
                   unit: 'ms',
                 ),
-                child: V2StatCard(
+                child: StatCard(
                   label: trans('monitors.avg_response_time'),
                   value: avgResponseValue,
                   icon: Icons.speed_rounded,
@@ -218,7 +218,7 @@ class _MonitorShowV2ViewState extends State<MonitorShowV2View> {
                   type: MetricType.string,
                   currentValue: lastCheckValue,
                 ),
-                child: V2StatCard(
+                child: StatCard(
                   label: trans('monitors.last_check'),
                   value: lastCheckValue,
                   icon: Icons.schedule_rounded,
@@ -234,7 +234,7 @@ class _MonitorShowV2ViewState extends State<MonitorShowV2View> {
                   type: MetricType.string,
                   currentValue: intervalValue,
                 ),
-                child: V2StatCard(
+                child: StatCard(
                   label: trans('monitors.check_interval_label'),
                   value: intervalValue,
                   icon: Icons.repeat_rounded,

@@ -9,8 +9,8 @@ import '../../../app/models/announcement.dart';
 import '../../../app/models/status_page.dart';
 import '../../../app/enums/incident_status.dart';
 import '../../../app/enums/incident_impact.dart';
-import '../components/app_card.dart';
-import 'package:magic_starter/magic_starter.dart';
+import '../components/common/page_header.dart';
+import '../components/ui/content_section.dart';
 
 class StatusPageShowView extends MagicStatefulView<StatusPageController> {
   const StatusPageShowView({super.key, required this.statusPageId});
@@ -77,29 +77,27 @@ class _StatusPageShowViewState
         }
 
         return WDiv(
-          className: 'overflow-y-auto flex flex-col gap-4 lg:gap-6 pb-4',
+          className: 'overflow-y-auto',
           scrollPrimary: true,
-          children: [
-            _buildHeader(statusPage),
-            WDiv(
-              className: 'flex flex-col px-4 lg:px-6 gap-4 lg:gap-6',
-              children: [
-                _buildInfoCard(statusPage),
-                _buildMonitorsCard(statusPage),
-                // Reactive conditional sections (incidents + announcements)
-                _buildReactiveConditionalSections(statusPage),
-                _buildIncidentHistory(statusPage),
-                _buildStatusCard(statusPage),
-              ],
-            ),
-          ],
+          child: WDiv(
+            className: 'flex flex-col gap-6 p-4 pb-8',
+            children: [
+              _buildHeader(statusPage),
+              _buildInfoCard(statusPage),
+              _buildMonitorsCard(statusPage),
+              // Reactive conditional sections (incidents + announcements)
+              _buildReactiveConditionalSections(statusPage),
+              _buildIncidentHistory(statusPage),
+              _buildStatusCard(statusPage),
+            ],
+          ),
         );
       },
     );
   }
 
   Widget _buildHeader(StatusPage statusPage) {
-    return MagicStarterPageHeader(
+    return PageHeader(
       leading: WButton(
         onTap: () => MagicRoute.to('/status-pages'),
         className: 'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
@@ -109,101 +107,103 @@ class _StatusPageShowViewState
         ),
       ),
       title: statusPage.name,
-      subtitle: statusPage.publicUrl,
-      actions: [
-        // Edit button
-        WButton(
-          onTap: () => MagicRoute.to('/status-pages/$_statusPageId/edit'),
-          className: '''
-            w-10 h-10 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-lg
-            bg-gray-100 dark:bg-gray-700
-            text-gray-700 dark:text-gray-200
-            hover:bg-gray-200 dark:hover:bg-gray-600
-            text-sm font-medium
-            flex items-center justify-center
-          ''',
-          child: WDiv(
-            className: 'flex flex-row items-center sm:gap-2',
-            children: [
-              WIcon(Icons.edit_outlined, className: 'text-lg'),
-              WText(trans('common.edit'), className: 'hidden sm:block'),
-            ],
-          ),
-        ),
-        // More actions popover
-        WPopover(
-          alignment: PopoverAlignment.bottomRight,
-          className: '''
-            w-56
-            bg-white dark:bg-gray-800
-            border border-gray-100 dark:border-gray-700
-            rounded-xl shadow-xl
-            z-50
-          ''',
-          triggerBuilder: (context, isOpen, isHovering) {
-            return WButton(
-              className:
-                  '''
-                w-10 h-10 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-lg
-                bg-gray-100 dark:bg-gray-700
-                text-gray-700 dark:text-gray-200
-                hover:bg-gray-200 dark:hover:bg-gray-600
-                text-sm font-medium
-                flex items-center justify-center
-                ${isOpen ? 'bg-gray-200 dark:bg-gray-600' : ''}
-              ''',
-              child: WIcon(Icons.more_vert, className: 'text-lg'),
-            );
-          },
-          contentBuilder: (context, close) {
-            return WDiv(
-              className: 'flex flex-col py-1',
+      trailing: WDiv(
+        className: 'flex flex-row items-center gap-2',
+        children: [
+          // Edit button
+          WButton(
+            onTap: () => MagicRoute.to('/status-pages/$_statusPageId/edit'),
+            className: '''
+              w-10 h-10 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-lg
+              bg-gray-100 dark:bg-gray-700
+              text-gray-700 dark:text-gray-200
+              hover:bg-gray-200 dark:hover:bg-gray-600
+              text-sm font-medium
+              flex items-center justify-center
+            ''',
+            child: WDiv(
+              className: 'flex flex-row items-center sm:gap-2',
               children: [
-                // Open public page
-                _buildPopoverItem(
-                  icon: Icons.open_in_new,
-                  label: trans('status_pages.open_public_page'),
-                  onTap: () async {
-                    close();
-                    final url = Uri.parse(statusPage.publicUrl);
-                    if (await canLaunchUrl(url)) {
-                      await launchUrl(
-                        url,
-                        mode: LaunchMode.externalApplication,
-                      );
-                    }
-                  },
-                ),
-                // Publish/Unpublish toggle
-                _buildPopoverItem(
-                  icon: statusPage.isPublished
-                      ? Icons.unpublished_outlined
-                      : Icons.publish_outlined,
-                  label: statusPage.isPublished
-                      ? trans('status_pages.unpublish')
-                      : trans('status_pages.publish'),
-                  onTap: () async {
-                    close();
-                    await controller.togglePublish(_statusPageId);
-                  },
-                ),
-                // Divider
-                WDiv(className: 'h-px bg-gray-100 dark:bg-gray-700 my-1'),
-                // Delete
-                _buildPopoverItem(
-                  icon: Icons.delete_outline,
-                  label: trans('common.delete'),
-                  isDestructive: true,
-                  onTap: () {
-                    close();
-                    controller.destroy(_statusPageId);
-                  },
-                ),
+                WIcon(Icons.edit_outlined, className: 'text-lg'),
+                WText(trans('common.edit'), className: 'hidden sm:block'),
               ],
-            );
-          },
-        ),
-      ],
+            ),
+          ),
+          // More actions popover
+          WPopover(
+            alignment: PopoverAlignment.bottomRight,
+            className: '''
+              w-56
+              bg-white dark:bg-gray-800
+              border border-gray-100 dark:border-gray-700
+              rounded-xl shadow-xl
+              z-50
+            ''',
+            triggerBuilder: (context, isOpen, isHovering) {
+              return WButton(
+                className:
+                    '''
+                  w-10 h-10 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-lg
+                  bg-gray-100 dark:bg-gray-700
+                  text-gray-700 dark:text-gray-200
+                  hover:bg-gray-200 dark:hover:bg-gray-600
+                  text-sm font-medium
+                  flex items-center justify-center
+                  ${isOpen ? 'bg-gray-200 dark:bg-gray-600' : ''}
+                ''',
+                child: WIcon(Icons.more_vert, className: 'text-lg'),
+              );
+            },
+            contentBuilder: (context, close) {
+              return WDiv(
+                className: 'flex flex-col py-1',
+                children: [
+                  // Open public page
+                  _buildPopoverItem(
+                    icon: Icons.open_in_new,
+                    label: trans('status_pages.open_public_page'),
+                    onTap: () async {
+                      close();
+                      final url = Uri.parse(statusPage.publicUrl);
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(
+                          url,
+                          mode: LaunchMode.externalApplication,
+                        );
+                      }
+                    },
+                  ),
+                  // Publish/Unpublish toggle
+                  _buildPopoverItem(
+                    icon: statusPage.isPublished
+                        ? Icons.unpublished_outlined
+                        : Icons.publish_outlined,
+                    label: statusPage.isPublished
+                        ? trans('status_pages.unpublish')
+                        : trans('status_pages.publish'),
+                    onTap: () async {
+                      close();
+                      await controller.togglePublish(_statusPageId);
+                    },
+                  ),
+                  // Divider
+                  WDiv(className: 'h-px bg-gray-100 dark:bg-gray-700 my-1'),
+                  // Delete
+                  _buildPopoverItem(
+                    icon: Icons.delete_outline,
+                    label: trans('common.delete'),
+                    isDestructive: true,
+                    onTap: () {
+                      close();
+                      controller.destroy(_statusPageId);
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -232,11 +232,11 @@ class _StatusPageShowViewState
   }
 
   Widget _buildInfoCard(StatusPage statusPage) {
-    return AppCard(
+    return ContentSection(
       title: trans('status_pages.info'),
       icon: Icons.info_outline,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: WDiv(
+        className: 'flex flex-col',
         children: [
           // Description
           if (statusPage.description != null &&
@@ -319,19 +319,17 @@ class _StatusPageShowViewState
   Widget _buildMonitorsCard(StatusPage statusPage) {
     final monitors = statusPage.monitors;
 
-    return AppCard(
+    return ContentSection(
       title: trans('status_pages.monitors'),
       icon: Icons.monitor_heart_outlined,
-      headerActions: [
-        WDiv(
-          className: 'px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full',
-          child: WText(
-            '${monitors.length}',
-            className: 'text-xs font-medium text-gray-600 dark:text-gray-300',
-          ),
+      trailing: WDiv(
+        className: 'px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full',
+        child: WText(
+          '${monitors.length}',
+          className: 'text-xs font-medium text-gray-600 dark:text-gray-300',
         ),
-      ],
-      body: monitors.isEmpty
+      ),
+      child: monitors.isEmpty
           ? WText(
               trans('status_pages.no_monitors'),
               className: 'text-sm text-gray-500 dark:text-gray-400',
@@ -372,9 +370,9 @@ class _StatusPageShowViewState
   }
 
   Widget _buildStatusCard(StatusPage statusPage) {
-    return AppCard(
-      title: trans('status_pages.overview'),
-      body: Row(
+    return WDiv(
+      className: 'bg-gray-50 dark:bg-gray-800 rounded-xl p-4',
+      child: Row(
         children: [
           // Published status
           Expanded(
@@ -461,10 +459,10 @@ class _StatusPageShowViewState
   }
 
   Widget _buildIncidentHistory(StatusPage statusPage) {
-    return AppCard(
+    return ContentSection(
       title: trans('status_pages.incident_history'),
       icon: Icons.history,
-      body: ValueListenableBuilder<List<Incident>>(
+      child: ValueListenableBuilder<List<Incident>>(
         valueListenable: IncidentController.instance.incidentsNotifier,
         builder: (context, allIncidents, _) {
           // Filter incidents for this page
@@ -792,11 +790,10 @@ class _StatusPageShowViewState
   }
 
   Widget _buildActiveIncidentsCard(List<Incident> activeIncidents) {
-    return AppCard(
+    return ContentSection(
       title: trans('status_pages.active_incidents'),
       icon: Icons.warning_amber_rounded,
-      titleClassName: 'text-red-600 dark:text-red-400',
-      body: WDiv(
+      child: WDiv(
         className: 'flex flex-col gap-4',
         children: activeIncidents.map((i) => _buildIncidentItem(i)).toList(),
       ),
@@ -804,102 +801,134 @@ class _StatusPageShowViewState
   }
 
   Widget _buildAnnouncementsCard(List<Announcement> announcements) {
-    return AppCard(
-      title: trans('status_pages.announcements'),
-      icon: Icons.campaign_outlined,
-      titleClassName: 'text-blue-600 dark:text-blue-400',
-      headerActions: [
-        WButton(
-          onTap: () => MagicRoute.to(
-            '/status-pages/$_statusPageId/announcements/create',
-          ),
+    return WDiv(
+      className: '''
+        flex flex-col rounded-xl
+        bg-gray-50 dark:bg-gray-800
+        border border-gray-200 dark:border-gray-700
+      ''',
+      children: [
+        // Header
+        WDiv(
           className:
-              'p-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg',
-          child: WIcon(
-            Icons.add_outlined,
-            className: 'text-lg text-blue-600 dark:text-blue-400',
-          ),
-        ),
-      ],
-      footer: WButton(
-        onTap: () =>
-            MagicRoute.to('/status-pages/$_statusPageId/announcements'),
-        className:
-            'w-full py-3 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-b-2xl transition-colors',
-        child: WText(
-          trans('common.view_all'),
-          className: 'text-sm font-medium text-gray-600 dark:text-gray-400',
-        ),
-      ),
-      body: announcements.isEmpty
-          ? WDiv(
-              className:
-                  'w-full py-8 flex flex-col items-center justify-center gap-3',
+              'flex flex-row items-center justify-between px-4 pt-4 pb-3',
+          children: [
+            WDiv(
+              className: 'flex flex-row items-center gap-2',
               children: [
                 WIcon(
                   Icons.campaign_outlined,
-                  className: 'text-4xl text-gray-300 dark:text-gray-600',
+                  className: 'text-[16px] text-gray-400 dark:text-gray-500',
                 ),
                 WText(
-                  trans('announcements.no_announcements'),
-                  className: 'text-sm text-gray-500 dark:text-gray-400',
-                ),
-                WButton(
-                  onTap: () => MagicRoute.to(
-                    '/status-pages/$_statusPageId/announcements/create',
-                  ),
-                  className:
-                      'mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg',
-                  child: WText(trans('announcements.create_first')),
+                  trans('status_pages.announcements'),
+                  className: '''
+                    text-xs font-bold tracking-wide
+                    text-gray-500 dark:text-gray-400
+                  ''',
                 ),
               ],
-            )
-          : WDiv(
-              className: 'flex flex-col gap-4',
-              children: announcements.map((a) {
-                return WAnchor(
-                  onTap: () => MagicRoute.to(
-                    '/status-pages/$_statusPageId/announcements/${a.id}',
-                  ),
-                  child: WDiv(
-                    className:
-                        'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30 hover:border-blue-300 dark:hover:border-blue-700 transition-colors',
-                    children: [
-                      WText(
-                        a.title ?? '',
-                        className:
-                            'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
+            ),
+            WButton(
+              onTap: () => MagicRoute.to(
+                '/status-pages/$_statusPageId/announcements/create',
+              ),
+              className:
+                  'p-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg',
+              child: WIcon(
+                Icons.add_outlined,
+                className: 'text-lg text-blue-600 dark:text-blue-400',
+              ),
+            ),
+          ],
+        ),
+        // Body
+        WDiv(
+          className: 'px-4 pb-4',
+          child: announcements.isEmpty
+              ? WDiv(
+                  className:
+                      'w-full py-8 flex flex-col items-center justify-center gap-3',
+                  children: [
+                    WIcon(
+                      Icons.campaign_outlined,
+                      className: 'text-4xl text-gray-300 dark:text-gray-600',
+                    ),
+                    WText(
+                      trans('announcements.no_announcements'),
+                      className: 'text-sm text-gray-500 dark:text-gray-400',
+                    ),
+                    WButton(
+                      onTap: () => MagicRoute.to(
+                        '/status-pages/$_statusPageId/announcements/create',
                       ),
-                      if (a.body != null)
-                        WText(
-                          a.body!,
-                          className:
-                              'text-sm text-blue-800 dark:text-blue-200 line-clamp-2',
-                        ),
-                      WDiv(
-                        className: 'mt-2 flex items-center gap-2',
+                      className:
+                          'mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg',
+                      child: WText(trans('announcements.create_first')),
+                    ),
+                  ],
+                )
+              : WDiv(
+                  className: 'flex flex-col gap-4',
+                  children: announcements.map((a) {
+                    return WAnchor(
+                      onTap: () => MagicRoute.to(
+                        '/status-pages/$_statusPageId/announcements/${a.id}',
+                      ),
+                      child: WDiv(
+                        className:
+                            'p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/30 hover:border-blue-300 dark:hover:border-blue-700 transition-colors',
                         children: [
-                          WIcon(
-                            Icons.schedule,
-                            className:
-                                'text-xs text-blue-600 dark:text-blue-400',
-                          ),
                           WText(
-                            a.publishedAt != null
-                                ? DateFormat.yMMMd().format(
-                                    DateTime.parse(a.publishedAt.toString()),
-                                  )
-                                : '',
+                            a.title ?? '',
                             className:
-                                'text-xs font-medium text-blue-600 dark:text-blue-400',
+                                'text-base font-bold text-blue-900 dark:text-blue-100 mb-1',
+                          ),
+                          if (a.body != null)
+                            WText(
+                              a.body!,
+                              className:
+                                  'text-sm text-blue-800 dark:text-blue-200 line-clamp-2',
+                            ),
+                          WDiv(
+                            className: 'mt-2 flex items-center gap-2',
+                            children: [
+                              WIcon(
+                                Icons.schedule,
+                                className:
+                                    'text-xs text-blue-600 dark:text-blue-400',
+                              ),
+                              WText(
+                                a.publishedAt != null
+                                    ? DateFormat.yMMMd().format(
+                                        DateTime.parse(
+                                          a.publishedAt.toString(),
+                                        ),
+                                      )
+                                    : '',
+                                className:
+                                    'text-xs font-medium text-blue-600 dark:text-blue-400',
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
+                    );
+                  }).toList(),
+                ),
+        ),
+        // Footer
+        WButton(
+          onTap: () =>
+              MagicRoute.to('/status-pages/$_statusPageId/announcements'),
+          className:
+              'w-full py-3 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-b-2xl transition-colors',
+          child: WText(
+            trans('common.view_all'),
+            className: 'text-sm font-medium text-gray-600 dark:text-gray-400',
+          ),
+        ),
+      ],
     );
   }
 }

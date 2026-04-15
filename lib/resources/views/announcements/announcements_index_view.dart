@@ -4,9 +4,9 @@ import 'package:magic/magic.dart';
 import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/enums/announcement_type.dart';
 import '../../../app/models/announcement.dart';
-import 'package:magic_starter/magic_starter.dart';
 
-import '../components/dashboard/stat_card.dart';
+import '../components/common/page_header.dart';
+import '../components/ui/stat_card.dart';
 
 class AnnouncementsIndexView extends MagicStatefulView<AnnouncementController> {
   const AnnouncementsIndexView({super.key, required this.statusPageId});
@@ -44,30 +44,30 @@ class _AnnouncementsIndexViewState
   @override
   Widget build(BuildContext context) {
     return WDiv(
-      className: 'overflow-y-auto flex flex-col',
+      className: 'flex-1 overflow-y-auto',
       scrollPrimary: true,
-      children: [
-        // Header
-        MagicStarterPageHeader(
-          title: trans('announcements.title'),
-          subtitle: trans('announcements.subtitle'),
-          leading: WButton(
-            onTap: () => MagicRoute.to('/status-pages/$_statusPageId'),
-            className:
-                'mr-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500',
-            child: WIcon(Icons.arrow_back, className: 'text-xl'),
-          ),
-          actions: [
-            WButton(
+      child: WDiv(
+        className: 'flex flex-col gap-6 p-4 pb-8',
+        children: [
+          // Header
+          PageHeader(
+            title: trans('announcements.title'),
+            leading: WButton(
+              onTap: () => MagicRoute.to('/status-pages/$_statusPageId'),
+              className:
+                  'mr-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500',
+              child: WIcon(Icons.arrow_back, className: 'text-xl'),
+            ),
+            trailing: WButton(
               onTap: () => MagicRoute.to(
                 '/status-pages/$_statusPageId/announcements/create',
               ),
               className: '''
-                px-4 py-2 rounded-lg
-                bg-primary hover:bg-green-600
-                text-white font-medium text-sm
-                flex flex-row items-center gap-2
-              ''',
+              px-4 py-2 rounded-lg
+              bg-primary hover:bg-green-600
+              text-white font-medium text-sm
+              flex flex-row items-center gap-2
+            ''',
               child: WDiv(
                 className: 'flex flex-row items-center gap-2',
                 children: [
@@ -76,49 +76,51 @@ class _AnnouncementsIndexViewState
                 ],
               ),
             ),
-          ],
-        ),
+          ),
 
-        // Stats Row
-        ValueListenableBuilder<List<Announcement>>(
-          valueListenable: controller.announcementsNotifier,
-          builder: (context, announcements, _) {
-            return _buildStatsRow(announcements);
-          },
-        ),
+          // Stats Row
+          ValueListenableBuilder<List<Announcement>>(
+            valueListenable: controller.announcementsNotifier,
+            builder: (context, announcements, _) {
+              return _buildStatsRow(announcements);
+            },
+          ),
 
-        // Filter Tabs
-        _buildFilterTabs(),
+          // Filter Tabs
+          _buildFilterTabs(),
 
-        // List
-        ValueListenableBuilder<List<Announcement>>(
-          valueListenable: controller.announcementsNotifier,
-          builder: (context, announcements, _) {
-            return ValueListenableBuilder<AnnouncementType?>(
-              valueListenable: controller.typeFilterNotifier,
-              builder: (context, typeFilter, _) {
-                if (controller.isLoading && announcements.isEmpty) {
-                  return _buildLoadingState();
-                }
+          // List
+          ValueListenableBuilder<List<Announcement>>(
+            valueListenable: controller.announcementsNotifier,
+            builder: (context, announcements, _) {
+              return ValueListenableBuilder<AnnouncementType?>(
+                valueListenable: controller.typeFilterNotifier,
+                builder: (context, typeFilter, _) {
+                  if (controller.isLoading && announcements.isEmpty) {
+                    return _buildLoadingState();
+                  }
 
-                if (announcements.isEmpty) {
-                  return _buildEmptyState();
-                }
+                  if (announcements.isEmpty) {
+                    return _buildEmptyState();
+                  }
 
-                final filtered = typeFilter == null
-                    ? announcements
-                    : announcements.where((a) => a.type == typeFilter).toList();
+                  final filtered = typeFilter == null
+                      ? announcements
+                      : announcements
+                            .where((a) => a.type == typeFilter)
+                            .toList();
 
-                if (filtered.isEmpty) {
-                  return _buildNoResultsState();
-                }
+                  if (filtered.isEmpty) {
+                    return _buildNoResultsState();
+                  }
 
-                return _buildList(filtered);
-              },
-            );
-          },
-        ),
-      ],
+                  return _buildList(filtered);
+                },
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -143,13 +145,11 @@ class _AnnouncementsIndexViewState
               label: trans('announcements.stats.active'),
               value: '$active',
               icon: Icons.check_circle_outline,
-              valueColor: 'text-green-500',
             ),
             StatCard(
               label: trans('announcements.stats.scheduled'),
               value: '$scheduled',
               icon: Icons.calendar_today_outlined,
-              valueColor: 'text-blue-500',
             ),
           ],
         ),

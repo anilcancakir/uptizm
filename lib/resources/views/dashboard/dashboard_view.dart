@@ -3,9 +3,7 @@ import 'package:magic/magic.dart';
 
 import '../../../app/models/user.dart';
 import '../../../app/models/incident.dart';
-import '../components/dashboard/stat_card.dart';
-import '../components/dashboard/monitor_list_item.dart';
-import '../components/dashboard/activity_item.dart';
+import '../components/ui/stat_card.dart';
 
 /// Dashboard View
 ///
@@ -20,43 +18,45 @@ class DashboardView extends StatelessWidget {
     final isDesktop = wScreenIs(context, 'lg');
 
     return WDiv(
-      className: 'overflow-y-auto p-5',
+      className: 'flex-1 overflow-y-auto',
       scrollPrimary: true,
-      children: [
-        // Welcome header
-        WText(
-          trans('dashboard.welcome_greeting', {'name': userName}),
-          className: 'text-2xl font-bold text-gray-900 dark:text-white',
-        ),
-        const WSpacer(className: 'h-1'),
-        WText(
-          trans('dashboard.welcome_subtitle'),
-          className: 'text-sm text-gray-500 dark:text-gray-400',
-        ),
-        const WSpacer(className: 'h-6'),
-
-        // Stat cards grid
-        _buildStatCards(context, isDesktop),
-        const WSpacer(className: 'h-6'),
-
-        // Desktop: two-column layout for monitors + activity
-        // Mobile: stacked
-        if (isDesktop)
+      child: WDiv(
+        className: 'flex flex-col gap-6 p-4 pb-8',
+        children: [
+          // Welcome header
           WDiv(
-            className: 'flex flex-row gap-5 w-full',
+            className: 'flex flex-col gap-1',
             children: [
-              WDiv(className: 'flex-3', child: _buildMonitorsOverview()),
-              WDiv(className: 'flex-2', child: _buildRecentActivity()),
+              WText(
+                trans('dashboard.welcome_greeting', {'name': userName}),
+                className: 'text-2xl font-bold text-gray-900 dark:text-white',
+              ),
+              WText(
+                trans('dashboard.welcome_subtitle'),
+                className: 'text-sm text-gray-500 dark:text-gray-400',
+              ),
             ],
-          )
-        else ...[
-          _buildMonitorsOverview(),
-          const WSpacer(className: 'h-5'),
-          _buildRecentActivity(),
-        ],
+          ),
 
-        const WSpacer(className: 'h-10'),
-      ],
+          // Stat cards grid
+          _buildStatCards(context, isDesktop),
+
+          // Desktop: two-column layout for monitors + activity
+          // Mobile: stacked
+          if (isDesktop)
+            WDiv(
+              className: 'flex flex-row gap-5 w-full',
+              children: [
+                WDiv(className: 'flex-3', child: _buildMonitorsOverview()),
+                WDiv(className: 'flex-2', child: _buildRecentActivity()),
+              ],
+            )
+          else ...[
+            _buildMonitorsOverview(),
+            _buildRecentActivity(),
+          ],
+        ],
+      ),
     );
   }
 
@@ -76,11 +76,13 @@ class DashboardView extends StatelessWidget {
         future: Incident.all(),
         builder: (context, snapshot) {
           final count = snapshot.data?.where((i) => !i.isResolved).length ?? 0;
-          return StatCard(
-            label: trans('dashboard.active_incidents'),
-            value: count.toString(),
-            icon: Icons.warning_amber_rounded,
+          return WButton(
             onTap: () => MagicRoute.to('/incidents'),
+            child: StatCard(
+              label: trans('dashboard.active_incidents'),
+              value: count.toString(),
+              icon: Icons.warning_amber_rounded,
+            ),
           );
         },
       ),
@@ -107,35 +109,35 @@ class DashboardView extends StatelessWidget {
 
   Widget _buildMonitorsOverview() {
     // Mock data - will be replaced with real API data
-    final monitors = [
-      const MonitorListItem(
+    const monitors = [
+      _MonitorRow(
         name: 'API Core Service',
         url: 'api.uptizm.com/health',
-        status: MonitorStatus.up,
+        status: _MonitorStatus.up,
         responseTime: '145ms',
       ),
-      const MonitorListItem(
+      _MonitorRow(
         name: 'Web Dashboard',
         url: 'app.uptizm.com',
-        status: MonitorStatus.up,
+        status: _MonitorStatus.up,
         responseTime: '89ms',
       ),
-      const MonitorListItem(
+      _MonitorRow(
         name: 'Payment Gateway',
         url: 'pay.uptizm.com/status',
-        status: MonitorStatus.down,
+        status: _MonitorStatus.down,
         responseTime: '2.5s',
       ),
-      const MonitorListItem(
+      _MonitorRow(
         name: 'CDN Endpoint',
         url: 'cdn.uptizm.com/ping',
-        status: MonitorStatus.degraded,
+        status: _MonitorStatus.degraded,
         responseTime: '520ms',
       ),
-      const MonitorListItem(
+      _MonitorRow(
         name: 'Auth Service',
         url: 'auth.uptizm.com/health',
-        status: MonitorStatus.up,
+        status: _MonitorStatus.up,
         responseTime: '67ms',
       ),
     ];
@@ -176,30 +178,30 @@ class DashboardView extends StatelessWidget {
 
   Widget _buildRecentActivity() {
     // Mock data
-    final activities = [
-      const ActivityItem(
+    const activities = [
+      _ActivityRow(
         title: 'Payment Gateway Down',
         description: 'pay.uptizm.com/status returned 503',
         timeAgo: '5m ago',
-        type: ActivityType.incident,
+        type: _ActivityType.incident,
       ),
-      const ActivityItem(
+      _ActivityRow(
         title: 'CDN Degraded',
         description: 'cdn.uptizm.com/ping response time > 500ms',
         timeAgo: '12m ago',
-        type: ActivityType.warning,
+        type: _ActivityType.warning,
       ),
-      const ActivityItem(
+      _ActivityRow(
         title: 'Auth Service Recovered',
         description: 'auth.uptizm.com/health is back online',
         timeAgo: '1h ago',
-        type: ActivityType.recovery,
+        type: _ActivityType.recovery,
       ),
-      const ActivityItem(
+      _ActivityRow(
         title: 'SSL Certificate Check',
         description: 'api.uptizm.com certificate expires in 30 days',
         timeAgo: '3h ago',
-        type: ActivityType.info,
+        type: _ActivityType.info,
       ),
     ];
 
@@ -225,6 +227,192 @@ class DashboardView extends StatelessWidget {
         // Activity list
         ...activities,
       ],
+    );
+  }
+}
+
+/// Monitor status for dashboard overview row styling.
+enum _MonitorStatus { up, down, degraded, paused }
+
+/// Single row in the monitors overview list on the dashboard.
+class _MonitorRow extends StatelessWidget {
+  final String name;
+  final String url;
+  final _MonitorStatus status;
+  final String responseTime;
+
+  const _MonitorRow({
+    required this.name,
+    required this.url,
+    required this.status,
+    required this.responseTime,
+  });
+
+  String get _statusColorClass {
+    switch (status) {
+      case _MonitorStatus.up:
+        return 'bg-green-500';
+      case _MonitorStatus.down:
+        return 'bg-red-500';
+      case _MonitorStatus.degraded:
+        return 'bg-amber-500';
+      case _MonitorStatus.paused:
+        return 'bg-gray-400';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WAnchor(
+      onTap: () {},
+      child: WDiv(
+        className: '''
+          flex flex-row items-center gap-3 px-4 py-3 w-full
+          hover:bg-gray-50 dark:hover:bg-gray-800/50
+          border-b border-gray-100 dark:border-gray-700
+          duration-150
+        ''',
+        children: [
+          // Status dot
+          WDiv(
+            className: 'w-2.5 h-2.5 rounded-full $_statusColorClass',
+            child: const SizedBox.shrink(),
+          ),
+
+          // Name + URL
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                name,
+                className:
+                    'text-sm font-semibold text-gray-900 dark:text-white truncate',
+              ),
+              WText(
+                url,
+                className:
+                    'text-xs text-gray-500 dark:text-gray-400 truncate font-mono',
+              ),
+            ],
+          ),
+
+          // Response time badge
+          WDiv(
+            className: '''
+              px-2 py-1 rounded-md
+              bg-gray-100 dark:bg-gray-700
+              border border-gray-200 dark:border-gray-600
+            ''',
+            child: WText(
+              responseTime,
+              className:
+                  'text-xs font-mono font-medium text-gray-700 dark:text-gray-300',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Activity type for dashboard recent-activity row styling.
+enum _ActivityType { incident, recovery, warning, info }
+
+/// Single entry in the recent activity timeline on the dashboard.
+class _ActivityRow extends StatelessWidget {
+  final String title;
+  final String description;
+  final String timeAgo;
+  final _ActivityType type;
+
+  const _ActivityRow({
+    required this.title,
+    required this.description,
+    required this.timeAgo,
+    this.type = _ActivityType.info,
+  });
+
+  IconData get _icon {
+    switch (type) {
+      case _ActivityType.incident:
+        return Icons.error_outline;
+      case _ActivityType.recovery:
+        return Icons.check_circle_outline;
+      case _ActivityType.warning:
+        return Icons.warning_amber;
+      case _ActivityType.info:
+        return Icons.info_outline;
+    }
+  }
+
+  String get _iconBgClass {
+    switch (type) {
+      case _ActivityType.incident:
+        return 'bg-red-500/10';
+      case _ActivityType.recovery:
+        return 'bg-green-500/10';
+      case _ActivityType.warning:
+        return 'bg-amber-500/10';
+      case _ActivityType.info:
+        return 'bg-blue-500/10';
+    }
+  }
+
+  String get _iconColorClass {
+    switch (type) {
+      case _ActivityType.incident:
+        return 'text-red-500';
+      case _ActivityType.recovery:
+        return 'text-green-500';
+      case _ActivityType.warning:
+        return 'text-amber-500';
+      case _ActivityType.info:
+        return 'text-blue-500';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WAnchor(
+      onTap: () {},
+      child: WDiv(
+        className: '''
+          flex flex-row items-start gap-3 px-4 py-3 w-full
+          hover:bg-gray-50 dark:hover:bg-gray-800/50
+          duration-150
+        ''',
+        children: [
+          // Icon container
+          WDiv(
+            className:
+                'w-9 h-9 rounded-lg $_iconBgClass flex items-center justify-center mt-0.5',
+            child: WIcon(_icon, className: 'text-lg $_iconColorClass'),
+          ),
+
+          // Content
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                title,
+                className: 'text-sm font-medium text-gray-900 dark:text-white',
+              ),
+              const WSpacer(className: 'h-0.5'),
+              WText(
+                description,
+                className: 'text-xs text-gray-500 dark:text-gray-400 truncate',
+              ),
+            ],
+          ),
+
+          // Timestamp
+          WText(
+            timeAgo,
+            className:
+                'text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap',
+          ),
+        ],
+      ),
     );
   }
 }

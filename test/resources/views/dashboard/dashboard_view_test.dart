@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/resources/views/dashboard/dashboard_view.dart';
-import 'package:uptizm/resources/views/components/dashboard/stat_card.dart';
+import 'package:uptizm/resources/views/components/ui/stat_card.dart';
 
 import '../../../test_setup.dart';
 
 Widget buildTestApp({required Widget child}) {
   return WindTheme(
     data: WindThemeData(),
-    child: MaterialApp(home: Scaffold(body: child)),
+    child: MaterialApp(
+      home: Scaffold(
+        body: WDiv(className: 'flex flex-col', child: child),
+      ),
+    ),
   );
 }
 

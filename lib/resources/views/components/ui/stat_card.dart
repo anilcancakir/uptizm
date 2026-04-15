@@ -5,7 +5,7 @@ import 'package:magic/magic.dart';
 ///
 /// ## Usage
 /// ```dart
-/// V2StatCard(
+/// StatCard(
 ///   label: 'Uptime',
 ///   value: '99.95%',
 ///   icon: Icons.arrow_upward_rounded,
@@ -13,8 +13,8 @@ import 'package:magic/magic.dart';
 ///   trendPositive: true,
 /// )
 /// ```
-class V2StatCard extends StatelessWidget {
-  const V2StatCard({
+class StatCard extends StatelessWidget {
+  const StatCard({
     super.key,
     required this.label,
     required this.value,

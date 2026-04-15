@@ -1,286 +1,252 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
-import 'chart_theme.dart';
 
-/// Data point for response time chart
-class ChartDataPoint {
-  const ChartDataPoint({
+import '../../../../app/enums/check_status.dart';
+
+/// Data point for response time chart.
+class ResponseTimeDataPoint {
+  const ResponseTimeDataPoint({
     required this.timestamp,
-    required this.value,
-    this.status,
+    required this.responseTimeMs,
+    this.status = CheckStatus.up,
   });
 
   final DateTime timestamp;
-  final int value;
-  final String? status;
+  final int responseTimeMs;
+  final CheckStatus status;
 }
 
-/// Full-size response time line chart
+/// Response time line chart using fl_chart.
 ///
-/// Interactive chart with touch tooltips, responsive sizing.
-/// Designed for monitor show page Performance section.
-class ResponseTimeChart extends StatefulWidget {
+/// ## Usage
+/// ```dart
+/// ResponseTimeChart(dataPoints: points, height: 200)
+/// ```
+class ResponseTimeChart extends StatelessWidget {
   const ResponseTimeChart({
     super.key,
     required this.dataPoints,
     this.height = 200,
-    this.showTooltip = true,
-    this.showGrid = true,
-    this.showDots = true,
   });
 
-  /// Data points with timestamp and response time
-  final List<ChartDataPoint> dataPoints;
-
-  /// Chart height
+  final List<ResponseTimeDataPoint> dataPoints;
   final double height;
-
-  /// Whether to show tooltip on touch
-  final bool showTooltip;
-
-  /// Whether to show grid lines
-  final bool showGrid;
-
-  /// Whether to show dots at data points
-  final bool showDots;
-
-  @override
-  State<ResponseTimeChart> createState() => _ResponseTimeChartState();
-}
-
-class _ResponseTimeChartState extends State<ResponseTimeChart> {
-  int? _touchedIndex;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (widget.dataPoints.isEmpty) {
+    if (dataPoints.isEmpty) {
       return WDiv(
-        className:
-            'h-[${widget.height.toInt()}px] flex items-center justify-center',
+        className: '''
+          flex items-center justify-center w-full h-[200px] rounded-xl
+          bg-gray-50 dark:bg-gray-800
+        ''',
         child: WText(
-          trans('analytics.no_data'),
-          className: 'text-gray-500 dark:text-gray-400 text-xs',
+          'No data available',
+          className: 'text-sm text-gray-400 dark:text-gray-500',
         ),
       );
     }
 
-    final spots = _buildSpots();
-    final maxY = _getMaxY();
-    final minY = _getMinY();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return SizedBox(
-      height: widget.height,
-      child: LineChart(
-        LineChartData(
-          gridData: FlGridData(
-            show: widget.showGrid,
-            drawVerticalLine: false,
-            horizontalInterval: _getGridInterval(maxY, minY),
-            getDrawingHorizontalLine: (value) {
-              return FlLine(
-                color: isDark
-                    ? UptizmChartTheme.gridDark
-                    : UptizmChartTheme.gridLight,
-                strokeWidth: 1,
-                dashArray: [5, 5],
-              );
-            },
-          ),
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
+    final primaryColor = wColor(context, 'primary')!;
+    final gridColor = wColor(
+      context,
+      'gray',
+      shade: 100,
+      darkColorName: 'gray',
+      darkShade: 700,
+    )!;
+    final textColor = wColor(
+      context,
+      'gray',
+      shade: 500,
+      darkColorName: 'gray',
+      darkShade: 400,
+    )!;
+    final fillColorStart = primaryColor.withValues(alpha: isDark ? 0.15 : 0.1);
+    final fillColorEnd = primaryColor.withValues(alpha: 0.0);
+
+    final spots = <FlSpot>[];
+    for (var i = 0; i < dataPoints.length; i++) {
+      spots.add(FlSpot(i.toDouble(), dataPoints[i].responseTimeMs.toDouble()));
+    }
+
+    final maxY =
+        dataPoints
+            .map((d) => d.responseTimeMs.toDouble())
+            .reduce((a, b) => a > b ? a : b) *
+        1.2;
+
+    return WDiv(
+      className: 'rounded-xl',
+      // native: required by fl_chart (SizedBox, LineChart, Text, TextStyle)
+      child: SizedBox(
+        height: height,
+        child: LineChart(
+          LineChartData(
+            gridData: FlGridData(
+              show: true,
+              drawVerticalLine: false,
+              horizontalInterval: _calculateInterval(maxY),
+              getDrawingHorizontalLine: (value) =>
+                  FlLine(color: gridColor, strokeWidth: 1),
             ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 22,
-                interval: _getTimeInterval(),
-                getTitlesWidget: (value, meta) {
-                  final index = value.toInt();
-                  if (index < 0 || index >= widget.dataPoints.length) {
-                    return const SizedBox.shrink();
-                  }
-                  final point = widget.dataPoints[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 4),
+            titlesData: FlTitlesData(
+              topTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              rightTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 48,
+                  interval: _calculateInterval(maxY),
+                  // native: required by fl_chart
+                  getTitlesWidget: (value, meta) => Padding(
+                    padding: const EdgeInsets.only(right: 8),
                     child: Text(
-                      _formatTime(point.timestamp),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: isDark ? Colors.grey[400] : Colors.grey[600],
+                      '${value.toInt()}ms',
+                      style: TextStyle(color: textColor, fontSize: 10),
+                    ),
+                  ),
+                ),
+              ),
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 28,
+                  interval: _calculateBottomInterval(),
+                  // native: required by fl_chart
+                  getTitlesWidget: (value, meta) {
+                    final index = value.toInt();
+                    if (index < 0 || index >= dataPoints.length) {
+                      return const SizedBox.shrink();
+                    }
+                    final time = dataPoints[index].timestamp;
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+                        style: TextStyle(color: textColor, fontSize: 10),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 40,
-                interval: _getGridInterval(maxY, minY),
-                getTitlesWidget: (value, meta) {
-                  return Text(
-                    '${value.toInt()}ms',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                      color: isDark ? Colors.grey[400] : Colors.grey[600],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          borderData: FlBorderData(show: false),
-          lineTouchData: LineTouchData(
-            enabled: widget.showTooltip,
-            touchCallback: (event, response) {
-              setState(() {
-                if (response?.lineBarSpots != null &&
-                    response!.lineBarSpots!.isNotEmpty) {
-                  _touchedIndex = response.lineBarSpots!.first.spotIndex;
-                } else {
-                  _touchedIndex = null;
-                }
-              });
-            },
-            touchTooltipData: LineTouchTooltipData(
-              getTooltipColor: (spot) =>
-                  isDark ? UptizmChartTheme.bgDark : Colors.white,
-              tooltipBorderRadius: BorderRadius.circular(
-                UptizmChartTheme.tooltipRadius,
-              ),
-              tooltipPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 8,
-              ),
-              getTooltipItems: (touchedSpots) {
-                return touchedSpots.map((spot) {
-                  final index = spot.spotIndex;
-                  if (index < 0 || index >= widget.dataPoints.length) {
-                    return null;
-                  }
-                  final point = widget.dataPoints[index];
-                  return LineTooltipItem(
-                    '${point.value}ms\n',
-                    TextStyle(
-                      color: UptizmChartTheme.primary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      fontFamily: 'monospace',
-                    ),
-                    children: [
-                      TextSpan(
-                        text: _formatFullTime(point.timestamp),
-                        style: TextStyle(
-                          color: isDark
-                              ? UptizmChartTheme.textDark
-                              : UptizmChartTheme.textLight,
-                          fontWeight: FontWeight.normal,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList();
-              },
-            ),
-          ),
-          minY: minY * 0.9,
-          maxY: maxY * 1.1,
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              isCurved: true,
-              curveSmoothness: 0.25,
-              color: UptizmChartTheme.primary,
-              barWidth: UptizmChartTheme.lineWidth,
-              isStrokeCapRound: true,
-              dotData: FlDotData(
-                show: widget.showDots,
-                getDotPainter: (spot, percent, bar, index) {
-                  final isSelected = index == _touchedIndex;
-                  final status = index < widget.dataPoints.length
-                      ? widget.dataPoints[index].status
-                      : null;
-                  final dotColor = UptizmChartTheme.getStatusColor(status);
-
-                  return FlDotCirclePainter(
-                    radius: isSelected
-                        ? UptizmChartTheme.dotRadius * 1.5
-                        : UptizmChartTheme.dotRadius,
-                    color: dotColor,
-                    strokeWidth: isSelected ? 2 : 0,
-                    strokeColor: Colors.white,
-                  );
-                },
-              ),
-              belowBarData: BarAreaData(
-                show: true,
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: UptizmChartTheme.primaryGradient,
+                    );
+                  },
                 ),
               ),
             ),
-          ],
+            borderData: FlBorderData(show: false),
+            minX: 0,
+            maxX: (dataPoints.length - 1).toDouble(),
+            minY: 0,
+            maxY: maxY,
+            lineBarsData: [
+              LineChartBarData(
+                spots: spots,
+                isCurved: true,
+                curveSmoothness: 0.3,
+                color: primaryColor,
+                barWidth: 2.5,
+                isStrokeCapRound: true,
+                dotData: FlDotData(
+                  show: true,
+                  getDotPainter: (spot, percent, barData, index) {
+                    final status = dataPoints[index].status;
+                    final dotColor = switch (status) {
+                      CheckStatus.up => primaryColor,
+                      CheckStatus.down => wColor(context, 'red')!,
+                      CheckStatus.degraded => wColor(context, 'yellow')!,
+                    };
+                    return FlDotCirclePainter(
+                      radius: 3,
+                      color: dotColor,
+                      strokeWidth: 1.5,
+                      strokeColor: wColor(
+                        context,
+                        'white',
+                        darkColorName: 'gray',
+                        darkShade: 800,
+                      )!,
+                    );
+                  },
+                ),
+                belowBarData: BarAreaData(
+                  show: true,
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [fillColorStart, fillColorEnd],
+                  ),
+                ),
+              ),
+            ],
+            lineTouchData: LineTouchData(
+              touchTooltipData: LineTouchTooltipData(
+                getTooltipColor: (spot) => wColor(
+                  context,
+                  'white',
+                  darkColorName: 'gray',
+                  darkShade: 700,
+                )!,
+                tooltipBorderRadius: BorderRadius.circular(8),
+                tooltipPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                getTooltipItems: (touchedSpots) {
+                  return touchedSpots.map((spot) {
+                    final index = spot.spotIndex;
+                    final point = dataPoints[index];
+                    final time = point.timestamp;
+                    final timeStr =
+                        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+                    return LineTooltipItem(
+                      '${point.responseTimeMs}ms\n',
+                      TextStyle(
+                        color: primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: timeStr,
+                          style: TextStyle(
+                            color: textColor,
+                            fontWeight: FontWeight.normal,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList();
+                },
+              ),
+              handleBuiltInTouches: true,
+            ),
+          ),
         ),
-        duration: UptizmChartTheme.tooltipDuration,
       ),
     );
   }
 
-  List<FlSpot> _buildSpots() {
-    return widget.dataPoints.asMap().entries.map((entry) {
-      return FlSpot(entry.key.toDouble(), entry.value.value.toDouble());
-    }).toList();
+  // -------  Helpers  -------
+
+  double _calculateInterval(double maxY) {
+    if (maxY <= 100) return 25;
+    if (maxY <= 500) return 100;
+    if (maxY <= 1000) return 200;
+    if (maxY <= 5000) return 1000;
+    return (maxY / 5).roundToDouble();
   }
 
-  double _getMaxY() {
-    if (widget.dataPoints.isEmpty) return 100;
-    return widget.dataPoints
-        .map((p) => p.value)
-        .reduce((a, b) => a > b ? a : b)
-        .toDouble();
-  }
-
-  double _getMinY() {
-    if (widget.dataPoints.isEmpty) return 0;
-    return widget.dataPoints
-        .map((p) => p.value)
-        .reduce((a, b) => a < b ? a : b)
-        .toDouble();
-  }
-
-  double _getGridInterval(double maxY, double minY) {
-    final range = maxY - minY;
-    if (range <= 50) return 10;
-    if (range <= 100) return 25;
-    if (range <= 500) return 100;
-    return 200;
-  }
-
-  double _getTimeInterval() {
-    final count = widget.dataPoints.length;
-    if (count <= 5) return 1;
-    if (count <= 10) return 2;
-    if (count <= 20) return 4;
-    return (count / 5).ceilToDouble();
-  }
-
-  String _formatTime(DateTime dt) {
-    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _formatFullTime(DateTime dt) {
-    return '${dt.day}/${dt.month} ${_formatTime(dt)}';
+  double _calculateBottomInterval() {
+    final count = dataPoints.length;
+    if (count <= 6) return 1;
+    if (count <= 12) return 2;
+    if (count <= 24) return 4;
+    return (count / 6).roundToDouble();
   }
 }

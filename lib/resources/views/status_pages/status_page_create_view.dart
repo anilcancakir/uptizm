@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/metric_mapping.dart';
-import '../components/app_card.dart';
+import '../components/common/page_header.dart';
+import '../components/ui/content_section.dart';
 
 class StatusPageCreateView extends MagicStatefulView<StatusPageController> {
   const StatusPageCreateView({super.key});
@@ -120,53 +120,188 @@ class _StatusPageCreateViewState
     return MagicForm(
       formData: form,
       child: WDiv(
-        className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
+        className: 'overflow-y-auto',
         scrollPrimary: true,
-        children: [
-          // Page Header
-          MagicStarterPageHeader(
-            title: trans('status_pages.create_title'),
-            leading: WButton(
-              onTap: () => MagicRoute.to('/status-pages'),
-              child: WIcon(
-                Icons.arrow_back,
-                className: 'text-xl text-gray-600 dark:text-gray-400',
+        child: WDiv(
+          className: 'flex flex-col gap-6 p-4 pb-8',
+          children: [
+            // Page Header
+            PageHeader(
+              title: trans('status_pages.create_title'),
+              leading: WButton(
+                onTap: () => MagicRoute.to('/status-pages'),
+                child: WIcon(
+                  Icons.arrow_back,
+                  className: 'text-xl text-gray-600 dark:text-gray-400',
+                ),
               ),
             ),
-          ),
 
-          // Error Message
-          if (errorMessage != null)
-            WDiv(
-              className: '''
+            // Error Message
+            if (errorMessage != null)
+              WDiv(
+                className: '''
                 p-3 mb-2
                 bg-red-100 dark:bg-red-900
                 border border-red-300 dark:border-red-700
                 rounded-lg
               ''',
-              child: WText(
-                errorMessage,
-                className: 'text-red-700 dark:text-red-200',
+                child: WText(
+                  errorMessage,
+                  className: 'text-red-700 dark:text-red-200',
+                ),
+              ),
+
+            // Basic Info Section
+            ContentSection(
+              title: trans('status_pages.basic_info'),
+              icon: Icons.info_outline,
+              child: WDiv(
+                className: 'flex flex-col',
+                children: [
+                  // Name
+                  WFormInput(
+                    controller: form['name'],
+                    label: trans('status_pages.name'),
+                    hint: trans('status_pages.name_placeholder'),
+                    labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                    className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                    validator: FormValidator.rules([
+                      Required(),
+                      Min(3),
+                      Max(100),
+                    ], field: 'name'),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Slug
+                  WFormInput(
+                    controller: form['slug'],
+                    focusNode: _slugFocus,
+                    label: trans('status_pages.slug'),
+                    hint: trans('status_pages.slug_placeholder'),
+                    prefix: WDiv(
+                      className: 'pl-3',
+                      child: WText(
+                        'https://',
+                        className: 'text-gray-500 dark:text-gray-400 text-sm',
+                      ),
+                    ),
+                    suffix: WDiv(
+                      className: 'pr-3',
+                      child: WText(
+                        '.uptizm.com',
+                        className: 'text-gray-500 dark:text-gray-400 text-sm',
+                      ),
+                    ),
+                    labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                    className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm font-mono
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                    validator: FormValidator.rules([
+                      Required(),
+                      Min(1),
+                      Max(63),
+                    ], field: 'slug'),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Description
+                  WFormInput(
+                    controller: form['description'],
+                    label: trans('status_pages.description'),
+                    hint: trans('status_pages.description_placeholder'),
+                    type: InputType.multiline,
+                    maxLines: 3,
+                    labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                    className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Primary Color
+                  WFormInput(
+                    controller: form['primary_color'],
+                    label: trans('status_pages.primary_color'),
+                    hint: trans('status_pages.primary_color_placeholder'),
+                    labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                    className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm font-mono
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
+                  ),
+                ],
               ),
             ),
 
-          // Basic Info Section
-          AppCard(
-            title: trans('status_pages.basic_info'),
-            icon: Icons.info_outline,
-            body: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Name
-                WFormInput(
-                  controller: form['name'],
-                  label: trans('status_pages.name'),
-                  hint: trans('status_pages.name_placeholder'),
-                  labelClassName: '''
+            // Monitors Section
+            _buildMonitorsSection(),
+
+            // Advanced / Optional
+            ContentSection(
+              title: trans('status_pages.branding'),
+              icon: Icons.palette_outlined,
+              child: WDiv(
+                className: 'flex flex-col',
+                children: [
+                  WFormInput(
+                    controller: form['logo_url'],
+                    label: trans('status_pages.logo_url'),
+                    hint: trans('status_pages.logo_url_placeholder'),
+                    labelClassName: '''
                     text-gray-900 dark:text-gray-200
                     mb-2 text-sm font-medium
                   ''',
-                  className: '''
+                    className: '''
                     w-full bg-white dark:bg-gray-800
                     text-gray-900 dark:text-white
                     rounded-lg
@@ -177,223 +312,82 @@ class _StatusPageCreateViewState
                     focus:ring-2 focus:ring-primary/20
                     error:border-red-500
                   ''',
-                  validator: FormValidator.rules([
-                    Required(),
-                    Min(3),
-                    Max(100),
-                  ], field: 'name'),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Slug
-                WFormInput(
-                  controller: form['slug'],
-                  focusNode: _slugFocus,
-                  label: trans('status_pages.slug'),
-                  hint: trans('status_pages.slug_placeholder'),
-                  prefix: WDiv(
-                    className: 'pl-3',
-                    child: WText(
-                      'https://',
-                      className: 'text-gray-500 dark:text-gray-400 text-sm',
-                    ),
                   ),
-                  suffix: WDiv(
-                    className: 'pr-3',
-                    child: WText(
-                      '.uptizm.com',
-                      className: 'text-gray-500 dark:text-gray-400 text-sm',
-                    ),
+
+                  const SizedBox(height: 16),
+
+                  WFormInput(
+                    controller: form['favicon_url'],
+                    label: trans('status_pages.favicon_url'),
+                    hint: trans('status_pages.favicon_url_placeholder'),
+                    labelClassName: '''
+                    text-gray-900 dark:text-gray-200
+                    mb-2 text-sm font-medium
+                  ''',
+                    className: '''
+                    w-full bg-white dark:bg-gray-800
+                    text-gray-900 dark:text-white
+                    rounded-lg
+                    border border-gray-200 dark:border-gray-700
+                    px-3 py-3
+                    text-sm
+                    focus:border-primary
+                    focus:ring-2 focus:ring-primary/20
+                    error:border-red-500
+                  ''',
                   ),
-                  labelClassName: '''
-                    text-gray-900 dark:text-gray-200
-                    mb-2 text-sm font-medium
-                  ''',
-                  className: '''
-                    w-full bg-white dark:bg-gray-800
-                    text-gray-900 dark:text-white
-                    rounded-lg
-                    border border-gray-200 dark:border-gray-700
-                    px-3 py-3
-                    text-sm font-mono
-                    focus:border-primary
-                    focus:ring-2 focus:ring-primary/20
-                    error:border-red-500
-                  ''',
-                  validator: FormValidator.rules([
-                    Required(),
-                    Min(1),
-                    Max(63),
-                  ], field: 'slug'),
-                ),
 
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Description
-                WFormInput(
-                  controller: form['description'],
-                  label: trans('status_pages.description'),
-                  hint: trans('status_pages.description_placeholder'),
-                  type: InputType.multiline,
-                  maxLines: 3,
-                  labelClassName: '''
-                    text-gray-900 dark:text-gray-200
-                    mb-2 text-sm font-medium
-                  ''',
-                  className: '''
-                    w-full bg-white dark:bg-gray-800
-                    text-gray-900 dark:text-white
-                    rounded-lg
-                    border border-gray-200 dark:border-gray-700
-                    px-3 py-3
-                    text-sm
-                    focus:border-primary
-                    focus:ring-2 focus:ring-primary/20
-                    error:border-red-500
-                  ''',
-                ),
-
-                const SizedBox(height: 16),
-
-                // Primary Color
-                WFormInput(
-                  controller: form['primary_color'],
-                  label: trans('status_pages.primary_color'),
-                  hint: trans('status_pages.primary_color_placeholder'),
-                  labelClassName: '''
-                    text-gray-900 dark:text-gray-200
-                    mb-2 text-sm font-medium
-                  ''',
-                  className: '''
-                    w-full bg-white dark:bg-gray-800
-                    text-gray-900 dark:text-white
-                    rounded-lg
-                    border border-gray-200 dark:border-gray-700
-                    px-3 py-3
-                    text-sm font-mono
-                    focus:border-primary
-                    focus:ring-2 focus:ring-primary/20
-                    error:border-red-500
-                  ''',
-                ),
-              ],
+                  WFormCheckbox(
+                    value: form.value<bool>('is_published'),
+                    onChanged: (val) => form.setValue('is_published', val),
+                    label: WText(trans('status_pages.publish_immediately')),
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          // Monitors Section
-          _buildMonitorsSection(),
-
-          // Advanced / Optional
-          AppCard(
-            title: trans('status_pages.branding'),
-            icon: Icons.palette_outlined,
-            body: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            // Actions
+            WDiv(
+              className: 'flex flex-row justify-end gap-3 w-full pb-2',
               children: [
-                WFormInput(
-                  controller: form['logo_url'],
-                  label: trans('status_pages.logo_url'),
-                  hint: trans('status_pages.logo_url_placeholder'),
-                  labelClassName: '''
-                    text-gray-900 dark:text-gray-200
-                    mb-2 text-sm font-medium
-                  ''',
+                WButton(
+                  onTap: () => MagicRoute.to('/status-pages'),
                   className: '''
-                    w-full bg-white dark:bg-gray-800
-                    text-gray-900 dark:text-white
-                    rounded-lg
-                    border border-gray-200 dark:border-gray-700
-                    px-3 py-3
-                    text-sm
-                    focus:border-primary
-                    focus:ring-2 focus:ring-primary/20
-                    error:border-red-500
-                  ''',
-                ),
-
-                const SizedBox(height: 16),
-
-                WFormInput(
-                  controller: form['favicon_url'],
-                  label: trans('status_pages.favicon_url'),
-                  hint: trans('status_pages.favicon_url_placeholder'),
-                  labelClassName: '''
-                    text-gray-900 dark:text-gray-200
-                    mb-2 text-sm font-medium
-                  ''',
-                  className: '''
-                    w-full bg-white dark:bg-gray-800
-                    text-gray-900 dark:text-white
-                    rounded-lg
-                    border border-gray-200 dark:border-gray-700
-                    px-3 py-3
-                    text-sm
-                    focus:border-primary
-                    focus:ring-2 focus:ring-primary/20
-                    error:border-red-500
-                  ''',
-                ),
-
-                const SizedBox(height: 16),
-
-                WFormCheckbox(
-                  value: form.value<bool>('is_published'),
-                  onChanged: (val) => form.setValue('is_published', val),
-                  label: WText(trans('status_pages.publish_immediately')),
-                ),
-              ],
-            ),
-          ),
-
-          // Actions
-          WDiv(
-            className: 'flex flex-row justify-end gap-3 w-full pb-2',
-            children: [
-              WButton(
-                onTap: () => MagicRoute.to('/status-pages'),
-                className: '''
                   px-4 py-2 rounded-lg
                   bg-gray-200 dark:bg-gray-700
                   text-gray-700 dark:text-gray-200
                   hover:bg-gray-300 dark:hover:bg-gray-600
                   text-sm font-medium
                 ''',
-                child: WText(trans('common.cancel')),
-              ),
-              WButton(
-                isLoading: isLoading,
-                onTap: _handleSubmit,
-                className: '''
+                  child: WText(trans('common.cancel')),
+                ),
+                WButton(
+                  isLoading: isLoading,
+                  onTap: _handleSubmit,
+                  className: '''
                   px-4 py-2 rounded-lg
                   bg-primary hover:bg-green-600
                   text-white
                   text-sm font-medium
                 ''',
-                child: WText(trans('common.create')),
-              ),
-            ],
-          ),
-        ],
+                  child: WText(trans('common.create')),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildMonitorsSection() {
-    return AppCard(
+    return ContentSection(
       title: trans('status_pages.monitors_section'),
       icon: Icons.monitor_heart_outlined,
-      headerActions: [
-        WDiv(
-          className: 'px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full',
-          child: WText(
-            '${_selectedMonitors.length}',
-            className: 'text-xs font-medium text-gray-600 dark:text-gray-300',
-          ),
-        ),
-      ],
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: WDiv(
+        className: 'flex flex-col',
         children: [
           // Hint text
           WText(

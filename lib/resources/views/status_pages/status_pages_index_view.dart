@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/models/status_page.dart';
-import 'package:magic_starter/magic_starter.dart';
+import '../components/common/page_header.dart';
 
 class StatusPagesIndexView extends MagicStatefulView<StatusPageController> {
   const StatusPagesIndexView({super.key});
@@ -25,15 +25,15 @@ class _StatusPagesIndexViewState
   @override
   Widget build(BuildContext context) {
     return WDiv(
-      className: 'overflow-y-auto flex flex-col',
+      className: 'overflow-y-auto',
       scrollPrimary: true,
-      children: [
-        // Header
-        MagicStarterPageHeader(
-          title: trans('nav.status_pages'),
-          subtitle: trans('status_pages.welcome_subtitle'),
-          actions: [
-            WButton(
+      child: WDiv(
+        className: 'flex flex-col gap-6 p-4 pb-8',
+        children: [
+          // Header
+          PageHeader(
+            title: trans('nav.status_pages'),
+            trailing: WButton(
               onTap: () => MagicRoute.to('/status-pages/create'),
               className: '''
                 px-4 py-2 rounded-lg
@@ -49,28 +49,28 @@ class _StatusPagesIndexViewState
                 ],
               ),
             ),
-          ],
-        ),
+          ),
 
-        // List
-        ValueListenableBuilder<List<StatusPage>>(
-          valueListenable: controller.statusPagesNotifier,
-          builder: (context, statusPages, _) {
-            if (controller.isLoading && statusPages.isEmpty) {
-              return _buildLoadingState();
-            }
+          // List
+          ValueListenableBuilder<List<StatusPage>>(
+            valueListenable: controller.statusPagesNotifier,
+            builder: (context, statusPages, _) {
+              if (controller.isLoading && statusPages.isEmpty) {
+                return _buildLoadingState();
+              }
 
-            if (statusPages.isEmpty) {
-              return _buildEmptyState();
-            }
+              if (statusPages.isEmpty) {
+                return _buildEmptyState();
+              }
 
-            return WDiv(
-              className: 'w-full grid grid-cols-1 gap-4 p-4 lg:p-6',
-              children: statusPages.map(_buildStatusPageCard).toList(),
-            );
-          },
-        ),
-      ],
+              return WDiv(
+                className: 'w-full grid grid-cols-1 gap-4 p-4 lg:p-6',
+                children: statusPages.map(_buildStatusPageCard).toList(),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 

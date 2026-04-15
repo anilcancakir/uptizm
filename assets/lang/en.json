@@ -910,8 +910,24 @@
     "fallback_name": "Alert",
     "duration_label": "Duration:"
   },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "monitors": "Monitors",
+    "alerts": "Alerts",
+    "alert_rules": "Alert Rules",
+    "incidents": "Incidents",
+    "status_pages": "Status Pages",
+    "status": "Status",
+    "settings": "Settings"
+  },
   "incidents": {
     "title": "Incidents",
+    "stats": {
+      "total": "Total",
+      "active": "Active",
+      "resolved": "Resolved",
+      "major_outages": "Major Outages"
+    },
     "create": "Create Incident",
     "create_title": "New Incident",
     "edit": "Edit Incident",
