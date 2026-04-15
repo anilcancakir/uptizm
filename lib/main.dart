@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 
 import 'config/app.dart';
+import 'config/app_theme.dart';
 import 'config/auth.dart';
 import 'config/network.dart';
 import 'config/social_auth.dart';
@@ -36,27 +37,10 @@ void main() async {
     ],
   );
 
-  final windTheme = WindThemeData(
-    colors: {
-      'primary': MaterialColor(0xFF009E60, <int, Color>{
-        50: Color(0xFFCEFFE0),
-        100: Color(0xFF73FFB4),
-        200: Color(0xFF00EC92),
-        300: Color(0xFF00D080),
-        400: Color(0xFF00B870),
-        500: Color(0xFF009E60),
-        600: Color(0xFF007D4B),
-        700: Color(0xFF005D36),
-        800: Color(0xFF004024),
-        900: Color(0xFF002312),
-      }),
-    },
-  );
-
   runApp(
     MagicApplication(
       title: 'Uptizm',
-      windTheme: windTheme,
+      windTheme: AppTheme.windThemeData,
       onInit: () {
         Log.info('Uptizm App initialized!');
       },

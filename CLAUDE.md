@@ -106,7 +106,6 @@ All user-facing strings MUST be in `assets/lang/en.json` and accessed via `trans
 | `magic-framework` | **Every** code task: framework patterns, conventions, lifecycle  | Mandatory |
 | `wind-ui`         | **Every** UI task: Wind UI tokens, components, theme system      | Mandatory |
 | `frontend-design` | **Every** design/UI task: visual hierarchy, layout, components   | Mandatory |
-| `wind-designer`   | Design system creation: wind.md, WindThemeData, token audit      | Mandatory |
 
 ## Agent Context (MUST inject into all subagent prompts)
 
@@ -119,11 +118,9 @@ prompt, subagents do NOT auto-inherit CLAUDE.md:
    strings in views. Params: `trans('key', {'param': value.toString()})`, placeholder syntax `:param`
 3. **Component structure**: Reusable widgets in `lib/resources/views/components/{domain}/`. Feature views in
    `lib/resources/views/{feature}/`
-4. **Layout standard**: Root `WDiv(className: 'p-4 lg:p-6 flex flex-col gap-6')` + AppPageHeader + AppCard. No
-   max-w-*, no SingleChildScrollView
+4. **Layout standard**: Root `WDiv(className: 'p-4 lg:p-6 flex flex-col gap-6')` + AppPageHeader + AppCard. No *max-w-*, no SingleChildScrollView
 5. **w-full on centered containers**: WDiv with `flex items-center justify-center` MUST include `w-full`
-6. **Magic framework**: Http facade, MagicRoute, MagicController+MagicStateMixin, Vault, Config, Log. Never raw Dio,
-   GoRouter, print()
+6. **Magic framework**: Http facade, MagicRoute, MagicController+MagicStateMixin, Vault, Config, Log. Never raw Dio, GoRouter, print
 
 ## Gotchas
 
