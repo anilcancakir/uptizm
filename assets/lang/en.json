@@ -591,7 +591,8 @@
     "resume": "Resume",
     "done": "Done",
     "error_occurred": "An unexpected error occurred. Please try again.",
-    "page_of": ":current / :total"
+    "page_of": ":current / :total",
+    "every": "Every"
   },
   "magic_starter": {
     "newsletter": {

@@ -7,7 +7,10 @@ import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/monitor_auth_config.dart';
 import 'package:uptizm/app/models/monitor_check.dart';
 import 'package:uptizm/app/models/monitor_metric_value.dart';
+import 'package:uptizm/app/models/monitor_stats.dart';
 import 'package:uptizm/app/models/paginated_checks.dart';
+import 'package:uptizm/app/models/response_times_series.dart';
+import 'package:uptizm/app/models/uptime_timeline.dart';
 
 /// Monitor Controller
 ///
@@ -40,6 +43,9 @@ class MonitorController extends MagicController
   final checksNotifier = ValueNotifier<List<MonitorCheck>>([]);
   final checksPaginationNotifier = ValueNotifier<PaginatedChecks?>(null);
   final statusMetricsNotifier = ValueNotifier<List<MonitorMetricValue>>([]);
+  final monitorStatsNotifier = ValueNotifier<MonitorStats?>(null);
+  final uptimeNotifier = ValueNotifier<UptimeTimeline?>(null);
+  final responseTimesNotifier = ValueNotifier<ResponseTimesSeries?>(null);
 
   // Loading states
   bool _isLoading = false;
@@ -345,6 +351,76 @@ class MonitorController extends MagicController
     }
   }
 
+  /// Fetch aggregated monitor stats for the team.
+  Future<MonitorStats?> fetchMonitorStats() async {
+    try {
+      final response = await Http.get('/monitors/stats');
+
+      if (response.successful) {
+        final data = response.data['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          final stats = MonitorStats.fromMap(data);
+          monitorStatsNotifier.value = stats;
+          return stats;
+        }
+      }
+      return null;
+    } catch (e, s) {
+      Log.error('Failed to fetch monitor stats: $e\n$s', e);
+      return null;
+    }
+  }
+
+  /// Fetch uptime timeline for a monitor.
+  Future<UptimeTimeline?> fetchUptime(
+    String monitorId, {
+    String range = '30d',
+  }) async {
+    try {
+      final response = await Http.get(
+        '/monitors/$monitorId/uptime?range=$range',
+      );
+
+      if (response.successful) {
+        final data = response.data['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          final uptime = UptimeTimeline.fromMap(data);
+          uptimeNotifier.value = uptime;
+          return uptime;
+        }
+      }
+      return null;
+    } catch (e, s) {
+      Log.error('Failed to fetch uptime: $e\n$s', e);
+      return null;
+    }
+  }
+
+  /// Fetch response times series for a monitor.
+  Future<ResponseTimesSeries?> fetchResponseTimes(
+    String monitorId, {
+    String range = '1h',
+  }) async {
+    try {
+      final response = await Http.get(
+        '/monitors/$monitorId/response-times?range=$range',
+      );
+
+      if (response.successful) {
+        final data = response.data['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          final series = ResponseTimesSeries.fromMap(data);
+          responseTimesNotifier.value = series;
+          return series;
+        }
+      }
+      return null;
+    } catch (e, s) {
+      Log.error('Failed to fetch response times: $e\n$s', e);
+      return null;
+    }
+  }
+
   @override
   void dispose() {
     monitorsNotifier.dispose();
@@ -352,6 +428,9 @@ class MonitorController extends MagicController
     checksNotifier.dispose();
     checksPaginationNotifier.dispose();
     statusMetricsNotifier.dispose();
+    monitorStatsNotifier.dispose();
+    uptimeNotifier.dispose();
+    responseTimesNotifier.dispose();
     super.dispose();
   }
 }

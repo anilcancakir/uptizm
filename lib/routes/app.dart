@@ -31,7 +31,7 @@ void registerAppRoutes() {
 
       MagicRoute.page(
         '/monitors/:id',
-        (String id) => const MonitorShowV2View(),
+        (String id) => MonitorShowV2View(monitorId: id),
       ).transition(RouteTransition.none);
     },
   );

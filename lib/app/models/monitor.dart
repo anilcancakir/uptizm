@@ -70,6 +70,35 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
 
   int? get lastResponseTimeMs => get<int>('last_response_time_ms');
 
+  // -- Show endpoint accessors (populated only by monitor detail response) --
+
+  /// 24-hour uptime percentage (0.0 to 100.0).
+  double? get uptime24hPercent =>
+      (get('uptime_24h_percent') as num?)?.toDouble();
+
+  /// 7-day uptime percentage (0.0 to 100.0).
+  double? get uptime7dPercent => (get('uptime_7d_percent') as num?)?.toDouble();
+
+  /// 30-day uptime percentage (0.0 to 100.0).
+  double? get uptime30dPercent =>
+      (get('uptime_30d_percent') as num?)?.toDouble();
+
+  /// Uptime trend percentage (positive = improving, negative = declining).
+  double? get uptimeTrendPercent =>
+      (get('uptime_trend_percent') as num?)?.toDouble();
+
+  /// Average response time in milliseconds.
+  double? get avgResponseTimeMs =>
+      (get('avg_response_time_ms') as num?)?.toDouble();
+
+  /// Average response time trend in milliseconds.
+  double? get avgResponseTimeTrendMs =>
+      (get('avg_response_time_trend_ms') as num?)?.toDouble();
+
+  /// Latest parsed metrics from the most recent check.
+  Map<String, dynamic>? get latestParsedMetrics =>
+      get<Map<String, dynamic>>('latest_parsed_metrics');
+
   // Typed setters
   set teamId(String? value) => set('team_id', value);
   set name(String? value) => set('name', value);

@@ -48,5 +48,20 @@ void main() {
       final controller = MonitorController();
       expect(controller.selectedMonitorNotifier.value, isNull);
     });
+
+    test('monitorStatsNotifier starts with null', () {
+      final controller = MonitorController();
+      expect(controller.monitorStatsNotifier.value, isNull);
+    });
+
+    test('uptimeNotifier starts with null', () {
+      final controller = MonitorController();
+      expect(controller.uptimeNotifier.value, isNull);
+    });
+
+    test('responseTimesNotifier starts with null', () {
+      final controller = MonitorController();
+      expect(controller.responseTimesNotifier.value, isNull);
+    });
   });
 }
