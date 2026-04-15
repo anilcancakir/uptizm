@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/monitor_status.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/user.dart';
-import '../components/app_page_header.dart';
 import '../components/monitors/stat_card.dart';
 import '../components/monitors/status_dot.dart';
 import '../components/monitors/location_badge.dart';
@@ -72,7 +72,7 @@ class _MonitorsIndexViewState
       scrollPrimary: true,
       children: [
         // Header
-        AppPageHeader(
+        MagicStarterPageHeader(
           title: trans('nav.monitors'),
           subtitle: trans('monitors.welcome_subtitle'),
           actions: [

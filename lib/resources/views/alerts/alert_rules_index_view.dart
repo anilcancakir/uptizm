@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/models/alert_rule.dart';
-import '../components/app_page_header.dart';
 import '../components/app_list.dart';
 import '../components/alerts/alert_rule_list_item.dart';
 
@@ -31,7 +31,7 @@ class AlertRulesIndexView extends StatelessWidget {
       scrollPrimary: true,
       children: [
         // Page Header
-        AppPageHeader(
+        MagicStarterPageHeader(
           title: trans('alerts.alert_rules'),
           subtitle: trans('alerts.rules_subtitle'),
           actions: onAddRule != null

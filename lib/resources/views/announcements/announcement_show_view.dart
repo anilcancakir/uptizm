@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 
 import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/models/announcement.dart';
-import '../components/app_page_header.dart';
+import 'package:magic_starter/magic_starter.dart';
 import '../components/monitors/stat_card.dart';
 
 class AnnouncementShowView extends MagicStatefulView<AnnouncementController> {
@@ -78,7 +78,7 @@ class _AnnouncementShowViewState
         ? createdAt.format('MMM d, yyyy HH:mm')
         : '';
 
-    return AppPageHeader(
+    return MagicStarterPageHeader(
       leading: WButton(
         onTap: () => MagicRoute.to('/status-pages/$statusPageId/announcements'),
         className: 'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',

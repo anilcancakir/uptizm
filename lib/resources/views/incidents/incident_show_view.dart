@@ -5,7 +5,7 @@ import '../../../app/controllers/incident_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_status.dart';
 import '../../../app/enums/incident_impact.dart';
-import '../components/app_page_header.dart';
+import 'package:magic_starter/magic_starter.dart';
 import '../components/monitors/stat_card.dart';
 
 class IncidentShowView extends MagicStatefulView<IncidentController> {
@@ -214,7 +214,7 @@ class _IncidentShowViewState
   }
 
   Widget _buildHeader(Incident incident) {
-    return AppPageHeader(
+    return MagicStarterPageHeader(
       leading: WButton(
         onTap: () => MagicRoute.to('/incidents'),
         className: 'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',

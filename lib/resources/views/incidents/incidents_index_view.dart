@@ -5,7 +5,8 @@ import '../../../app/controllers/incident_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_status.dart';
 import '../../../app/enums/incident_impact.dart';
-import '../components/app_page_header.dart';
+import 'package:magic_starter/magic_starter.dart';
+
 import '../components/monitors/stat_card.dart';
 
 /// Incidents Index View
@@ -62,7 +63,7 @@ class _IncidentsIndexViewState
       scrollPrimary: true,
       children: [
         // Header
-        AppPageHeader(
+        MagicStarterPageHeader(
           title: trans('incidents.title'),
           subtitle: trans('incidents.list'),
           actions: [

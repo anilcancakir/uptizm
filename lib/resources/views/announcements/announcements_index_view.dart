@@ -4,7 +4,8 @@ import 'package:magic/magic.dart';
 import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/enums/announcement_type.dart';
 import '../../../app/models/announcement.dart';
-import '../components/app_page_header.dart';
+import 'package:magic_starter/magic_starter.dart';
+
 import '../components/monitors/stat_card.dart';
 
 class AnnouncementsIndexView extends MagicStatefulView<AnnouncementController> {
@@ -47,7 +48,7 @@ class _AnnouncementsIndexViewState
       scrollPrimary: true,
       children: [
         // Header
-        AppPageHeader(
+        MagicStarterPageHeader(
           title: trans('announcements.title'),
           subtitle: trans('announcements.subtitle'),
           leading: WButton(

@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/monitor_check.dart';
-import '../components/app_page_header.dart';
 import '../components/charts/response_time_chart.dart';
 import '../components/monitors/check_status_row.dart';
 import '../components/monitors/location_badge.dart';
@@ -51,8 +51,7 @@ class _MonitorShowViewState
       // Auto-enable real-time refresh if no checks exist
       // (waiting for first check to complete)
       if (controller.checksNotifier.value.isEmpty &&
-          controller.selectedMonitorNotifier.value?.status?.value ==
-              'active') {
+          controller.selectedMonitorNotifier.value?.status?.value == 'active') {
         setState(() {
           _isRealTimeEnabled = true;
         });
@@ -213,7 +212,7 @@ class _MonitorShowViewState
       className: 'flex flex-col',
       children: [
         // App Page Header
-        AppPageHeader(
+        MagicStarterPageHeader(
           leading: WButton(
             onTap: () => MagicRoute.to('/monitors'),
             className:

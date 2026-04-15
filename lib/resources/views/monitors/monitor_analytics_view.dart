@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/analytics_controller.dart';
 import '../../../app/models/analytics_response.dart';
@@ -7,7 +8,6 @@ import '../../../app/models/monitor.dart';
 import '../components/analytics/date_range_selector.dart';
 import '../components/analytics/metric_data_table.dart';
 import '../components/analytics/metric_selector.dart';
-import '../components/app_page_header.dart';
 import '../components/charts/multi_line_chart.dart';
 import '../components/charts/status_timeline_chart.dart';
 import '../components/monitors/stat_card.dart';
@@ -58,7 +58,7 @@ class _MonitorAnalyticsViewState
           className: 'overflow-y-auto flex flex-col',
           scrollPrimary: true,
           children: [
-            AppPageHeader(
+            MagicStarterPageHeader(
               leading: WButton(
                 onTap: () => MagicRoute.to('/monitors/$_monitorId'),
                 className:

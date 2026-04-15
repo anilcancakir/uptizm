@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import 'monitor_alerts_tab.dart';
@@ -47,33 +48,16 @@ class _MonitorAlertsViewState
           scrollPrimary: true,
           children: [
             // Header with back button
-            WDiv(
-              className: 'flex flex-row items-center gap-4',
-              children: [
-                WButton(
-                  onTap: () => MagicRoute.to('/monitors/$_monitorId'),
-                  className:
-                      'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',
-                  child: WIcon(
-                    Icons.arrow_back,
-                    className: 'text-xl text-gray-700 dark:text-gray-300',
-                  ),
+            MagicStarterPageHeader(
+              title: monitor.name ?? trans('monitors.unnamed'),
+              subtitle: trans('alerts.alert_management'),
+              leading: WButton(
+                onTap: () => MagicRoute.to('/monitors/$_monitorId'),
+                child: WIcon(
+                  Icons.arrow_back,
+                  className: 'text-xl text-gray-600 dark:text-gray-400',
                 ),
-                WDiv(
-                  className: 'flex flex-col flex-1',
-                  children: [
-                    WText(
-                      monitor.name ?? trans('monitors.unnamed'),
-                      className:
-                          'text-2xl font-bold text-gray-900 dark:text-white',
-                    ),
-                    WText(
-                      trans('alerts.alert_management'),
-                      className: 'text-sm text-gray-600 dark:text-gray-400',
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
 
             // Alerts Tab Content

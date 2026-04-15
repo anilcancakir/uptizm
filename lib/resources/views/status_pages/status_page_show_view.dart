@@ -10,7 +10,7 @@ import '../../../app/models/status_page.dart';
 import '../../../app/enums/incident_status.dart';
 import '../../../app/enums/incident_impact.dart';
 import '../components/app_card.dart';
-import '../components/app_page_header.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 class StatusPageShowView extends MagicStatefulView<StatusPageController> {
   const StatusPageShowView({super.key, required this.statusPageId});
@@ -99,7 +99,7 @@ class _StatusPageShowViewState
   }
 
   Widget _buildHeader(StatusPage statusPage) {
-    return AppPageHeader(
+    return MagicStarterPageHeader(
       leading: WButton(
         onTap: () => MagicRoute.to('/status-pages'),
         className: 'p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700',

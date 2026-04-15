@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
@@ -160,25 +161,15 @@ class _StatusPageEditViewState
         scrollPrimary: true,
         children: [
           // Page Header
-          WDiv(
-            className: 'flex flex-row items-center gap-3 mb-2',
-            children: [
-              WButton(
-                onTap: () => MagicRoute.to('/status-pages'),
-                className: '''
-                  p-2 rounded-lg
-                  hover:bg-gray-100 dark:hover:bg-gray-700
-                ''',
-                child: WIcon(
-                  Icons.arrow_back,
-                  className: 'text-xl text-gray-700 dark:text-gray-300',
-                ),
+          MagicStarterPageHeader(
+            title: trans('status_pages.edit_title'),
+            leading: WButton(
+              onTap: () => MagicRoute.to('/status-pages'),
+              child: WIcon(
+                Icons.arrow_back,
+                className: 'text-xl text-gray-600 dark:text-gray-400',
               ),
-              WText(
-                trans('status_pages.edit_title'),
-                className: 'text-2xl font-bold text-gray-900 dark:text-white',
-              ),
-            ],
+            ),
           ),
 
           if (errorMessage != null)

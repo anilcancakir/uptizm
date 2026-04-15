@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/models/status_page.dart';
-import '../components/app_page_header.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 class StatusPagesIndexView extends MagicStatefulView<StatusPageController> {
   const StatusPagesIndexView({super.key});
@@ -29,7 +29,7 @@ class _StatusPagesIndexViewState
       scrollPrimary: true,
       children: [
         // Header
-        AppPageHeader(
+        MagicStarterPageHeader(
           title: trans('nav.status_pages'),
           subtitle: trans('status_pages.welcome_subtitle'),
           actions: [

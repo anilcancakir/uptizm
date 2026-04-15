@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/enums/announcement_type.dart';
@@ -142,33 +143,23 @@ class _AnnouncementEditViewState
         scrollPrimary: true,
         children: [
           // Page Header
-          WDiv(
-            className: 'flex flex-row items-center gap-3 mb-2',
-            children: [
-              WButton(
-                onTap: () {
-                  if (announcement?.id != null) {
-                    MagicRoute.to(
-                      '/status-pages/$statusPageId/announcements/${announcement!.id}',
-                    );
-                  } else {
-                    MagicRoute.to('/status-pages/$statusPageId/announcements');
-                  }
-                },
-                className: '''
-                  p-2 rounded-lg
-                  hover:bg-gray-100 dark:hover:bg-gray-700
-                ''',
-                child: WIcon(
-                  Icons.arrow_back_outlined,
-                  className: 'text-xl text-gray-700 dark:text-gray-300',
-                ),
+          MagicStarterPageHeader(
+            title: trans('announcements.edit_title'),
+            leading: WButton(
+              onTap: () {
+                if (announcement?.id != null) {
+                  MagicRoute.to(
+                    '/status-pages/$statusPageId/announcements/${announcement!.id}',
+                  );
+                } else {
+                  MagicRoute.to('/status-pages/$statusPageId/announcements');
+                }
+              },
+              child: WIcon(
+                Icons.arrow_back_outlined,
+                className: 'text-xl text-gray-600 dark:text-gray-400',
               ),
-              WText(
-                trans('announcements.edit_title'),
-                className: 'text-2xl font-bold text-gray-900 dark:text-white',
-              ),
-            ],
+            ),
           ),
 
           // Error Message

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
-import 'package:uptizm/resources/views/components/app_page_header.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 /// Helper to wrap widget with WindTheme for testing
 Widget wrapWithTheme(Widget child) {
@@ -13,11 +13,11 @@ Widget wrapWithTheme(Widget child) {
 }
 
 void main() {
-  group('AppPageHeader', () {
+  group('MagicStarterPageHeader', () {
     group('Basic Rendering', () {
       testWidgets('renders title only', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         expect(find.text('Test Title'), findsOneWidget);
@@ -26,7 +26,10 @@ void main() {
       testWidgets('renders title and subtitle', (tester) async {
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(title: 'Test Title', subtitle: 'Test Subtitle'),
+            MagicStarterPageHeader(
+              title: 'Test Title',
+              subtitle: 'Test Subtitle',
+            ),
           ),
         );
 
@@ -37,7 +40,7 @@ void main() {
       testWidgets('renders with leading widget', (tester) async {
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(
+            MagicStarterPageHeader(
               title: 'Test Title',
               leading: Icon(Icons.arrow_back, key: Key('back-button')),
             ),
@@ -51,7 +54,7 @@ void main() {
       testWidgets('renders with trailing action', (tester) async {
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(
+            MagicStarterPageHeader(
               title: 'Test Title',
               actions: [
                 WButton(
@@ -71,7 +74,7 @@ void main() {
       testWidgets('renders with multiple trailing actions', (tester) async {
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(
+            MagicStarterPageHeader(
               title: 'Test Title',
               actions: [
                 WButton(
@@ -101,7 +104,7 @@ void main() {
 
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(
+            MagicStarterPageHeader(
               title: 'Test Title',
               subtitle: 'Test Subtitle',
               actions: [WButton(onTap: () {}, child: WText('Add'))],
@@ -124,7 +127,7 @@ void main() {
 
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(
+            MagicStarterPageHeader(
               title: 'Test Title',
               subtitle: 'Test Subtitle',
               actions: [WButton(onTap: () {}, child: WText('Add'))],
@@ -142,7 +145,7 @@ void main() {
     group('Styling', () {
       testWidgets('has proper border styling', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         final header = tester.widget<WDiv>(find.byType(WDiv).first);
@@ -155,19 +158,19 @@ void main() {
 
       testWidgets('has proper padding', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         final header = tester.widget<WDiv>(find.byType(WDiv).first);
 
         // Should have responsive padding
-        expect(header.className?.contains('p-4'), isTrue);
-        expect(header.className?.contains('lg:p-6'), isTrue);
+        expect(header.className?.contains('p-2'), isTrue);
+        expect(header.className?.contains('lg:p-4'), isTrue);
       });
 
       testWidgets('title has proper text styling', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         final titleTexts = tester.widgetList<WText>(find.byType(WText));
@@ -185,7 +188,10 @@ void main() {
       testWidgets('subtitle has proper text styling', (tester) async {
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(title: 'Test Title', subtitle: 'Test Subtitle'),
+            MagicStarterPageHeader(
+              title: 'Test Title',
+              subtitle: 'Test Subtitle',
+            ),
           ),
         );
 
@@ -207,7 +213,7 @@ void main() {
     group('Null States', () {
       testWidgets('works without subtitle', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         expect(find.text('Test Title'), findsOneWidget);
@@ -216,7 +222,7 @@ void main() {
 
       testWidgets('works without leading', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         expect(find.text('Test Title'), findsOneWidget);
@@ -225,7 +231,7 @@ void main() {
 
       testWidgets('works without actions', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         expect(find.text('Test Title'), findsOneWidget);
@@ -234,7 +240,9 @@ void main() {
 
       testWidgets('works with empty actions list', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title', actions: [])),
+          wrapWithTheme(
+            MagicStarterPageHeader(title: 'Test Title', actions: []),
+          ),
         );
 
         expect(find.text('Test Title'), findsOneWidget);
@@ -248,7 +256,7 @@ void main() {
 
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(
+            MagicStarterPageHeader(
               title: 'Test Title',
               leading: WButton(
                 onTap: () => tapped = true,
@@ -271,7 +279,7 @@ void main() {
 
         await tester.pumpWidget(
           wrapWithTheme(
-            AppPageHeader(
+            MagicStarterPageHeader(
               title: 'Test Title',
               actions: [
                 WButton(
@@ -302,7 +310,7 @@ void main() {
     group('Full Width', () {
       testWidgets('spans full width', (tester) async {
         await tester.pumpWidget(
-          wrapWithTheme(AppPageHeader(title: 'Test Title')),
+          wrapWithTheme(MagicStarterPageHeader(title: 'Test Title')),
         );
 
         final header = tester.widget<WDiv>(find.byType(WDiv).first);

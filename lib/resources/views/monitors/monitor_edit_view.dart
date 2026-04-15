@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/http_method.dart';
@@ -230,142 +231,125 @@ class _MonitorEditViewState
     final form = _form;
     if (form == null) return const SizedBox.shrink();
 
-    return WKeyboardActions(
-      focusNodes: [
-        _expectedStatusCodeFocus,
-        _checkIntervalFocus,
-        _timeoutFocus,
-      ],
-      platform: 'ios',
-      child: MagicForm(
-        formData: form,
-        child: WDiv(
-          className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
-          scrollPrimary: true,
-          children: [
-            // Page Header
-            WDiv(
-              className: 'flex flex-row items-center gap-3 mb-2',
-              children: [
-                WButton(
-                  onTap: () => MagicRoute.to('/monitors/$_monitorId'),
-                  className: '''
-                    p-2 rounded-lg
-                    hover:bg-gray-100 dark:hover:bg-gray-700
-                  ''',
-                  child: WIcon(
-                    Icons.arrow_back,
-                    className: 'text-xl text-gray-700 dark:text-gray-300',
-                  ),
-                ),
-                WText(
-                  '${trans('monitor.edit_title')}: ${monitor.name ?? trans('monitor.fallback_name')}',
-                  className: 'text-2xl font-bold text-gray-900 dark:text-white',
-                ),
-              ],
+    return MagicForm(
+      formData: form,
+      child: WDiv(
+        className: 'overflow-y-auto flex flex-col gap-6 p-4 lg:p-6',
+        scrollPrimary: true,
+        children: [
+          // Page Header
+          MagicStarterPageHeader(
+            title:
+                '${trans('monitor.edit_title')}: ${monitor.name ?? trans('monitor.fallback_name')}',
+            leading: WButton(
+              onTap: () => MagicRoute.to('/monitors/$_monitorId'),
+              child: WIcon(
+                Icons.arrow_back,
+                className: 'text-xl text-gray-600 dark:text-gray-400',
+              ),
             ),
+          ),
 
-            // Error Message
-            if (errorMessage != null)
-              WDiv(
-                className: '''
+          // Error Message
+          if (errorMessage != null)
+            WDiv(
+              className: '''
                   p-3 mb-2
                   bg-red-100 dark:bg-red-900
                   border border-red-300 dark:border-red-700
                   rounded-lg
                 ''',
-                child: WText(
-                  errorMessage,
-                  className: 'text-red-700 dark:text-red-200',
-                ),
+              child: WText(
+                errorMessage,
+                className: 'text-red-700 dark:text-red-200',
               ),
-
-            // Basic Information (type not editable)
-            MonitorBasicInfoSection(
-              form: form,
-              selectedType: _selectedType,
-              onTypeChanged: (type) => setState(() => _selectedType = type),
-              typeEditable: false,
-              tags: _tags,
-              tagOptions: _tagOptions,
-              onTagsChanged: (tags) => setState(() => _tags = tags),
-              onTagOptionsChanged: (options) =>
-                  setState(() => _tagOptions = options),
-              expectedStatusCodeFocusNode: _expectedStatusCodeFocus,
             ),
 
-            // Monitoring Settings
-            MonitorSettingsSection(
-              form: form,
-              selectedLocations: _selectedLocations,
-              onLocationsChanged: (locs) =>
-                  setState(() => _selectedLocations = locs),
-              checkIntervalFocusNode: _checkIntervalFocus,
-              timeoutFocusNode: _timeoutFocus,
+          // Basic Information (type not editable)
+          MonitorBasicInfoSection(
+            form: form,
+            selectedType: _selectedType,
+            onTypeChanged: (type) => setState(() => _selectedType = type),
+            typeEditable: false,
+            tags: _tags,
+            tagOptions: _tagOptions,
+            onTagsChanged: (tags) => setState(() => _tags = tags),
+            onTagOptionsChanged: (options) =>
+                setState(() => _tagOptions = options),
+            expectedStatusCodeFocusNode: _expectedStatusCodeFocus,
+          ),
+
+          // Monitoring Settings
+          MonitorSettingsSection(
+            form: form,
+            selectedLocations: _selectedLocations,
+            onLocationsChanged: (locs) =>
+                setState(() => _selectedLocations = locs),
+            checkIntervalFocusNode: _checkIntervalFocus,
+            timeoutFocusNode: _timeoutFocus,
+          ),
+
+          // Authentication (only for HTTP monitors)
+          if (_selectedType == MonitorType.http)
+            MonitorAuthSection(
+              authConfig: _authConfig,
+              onChanged: (config) => setState(() => _authConfig = config),
             ),
 
-            // Authentication (only for HTTP monitors)
-            if (_selectedType == MonitorType.http)
-              MonitorAuthSection(
-                authConfig: _authConfig,
-                onChanged: (config) => setState(() => _authConfig = config),
-              ),
+          // HTTP Request Details (only for HTTP monitors with POST/PUT)
+          if (_selectedType == MonitorType.http &&
+              (form.get('method') == HttpMethod.post.value ||
+                  form.get('method') == HttpMethod.put.value))
+            MonitorRequestDetailsSection(
+              headers: _headers,
+              onHeadersChanged: (h) => setState(() => _headers = h),
+              body: _body,
+              onBodyChanged: (b) => setState(() => _body = b),
+            ),
 
-            // HTTP Request Details (only for HTTP monitors with POST/PUT)
-            if (_selectedType == MonitorType.http &&
-                (form.get('method') == HttpMethod.post.value ||
-                    form.get('method') == HttpMethod.put.value))
-              MonitorRequestDetailsSection(
-                headers: _headers,
-                onHeadersChanged: (h) => setState(() => _headers = h),
-                body: _body,
-                onBodyChanged: (b) => setState(() => _body = b),
-              ),
+          // Validation & Parsing
+          if (_selectedType == MonitorType.http)
+            MonitorValidationSection(
+              testFetchResponse: _testFetchResponse,
+              isTestingFetch: _isTestingFetch,
+              onTestFetch: _handleTestFetch,
+              assertionRules: _assertionRules,
+              onAssertionRulesChanged: (rules) =>
+                  setState(() => _assertionRules = rules),
+              metricMappings: _metricMappings,
+              onMetricMappingsChanged: (mappings) =>
+                  setState(() => _metricMappings = mappings),
+            ),
 
-            // Validation & Parsing
-            if (_selectedType == MonitorType.http)
-              MonitorValidationSection(
-                testFetchResponse: _testFetchResponse,
-                isTestingFetch: _isTestingFetch,
-                onTestFetch: _handleTestFetch,
-                assertionRules: _assertionRules,
-                onAssertionRulesChanged: (rules) =>
-                    setState(() => _assertionRules = rules),
-                metricMappings: _metricMappings,
-                onMetricMappingsChanged: (mappings) =>
-                    setState(() => _metricMappings = mappings),
-              ),
-
-            // Action Buttons
-            WDiv(
-              className: 'flex flex-row justify-end gap-3 w-full pb-2',
-              children: [
-                WButton(
-                  onTap: () => MagicRoute.to('/monitors/$_monitorId'),
-                  className: '''
+          // Action Buttons
+          WDiv(
+            className: 'flex flex-row justify-end gap-3 w-full pb-2',
+            children: [
+              WButton(
+                onTap: () => MagicRoute.to('/monitors/$_monitorId'),
+                className: '''
                     px-4 py-2 rounded-lg
                     bg-gray-200 dark:bg-gray-700
                     text-gray-700 dark:text-gray-200
                     hover:bg-gray-300 dark:hover:bg-gray-600
                     text-sm font-medium
                   ''',
-                  child: WText(trans('common.cancel')),
-                ),
-                WButton(
-                  isLoading: isLoading,
-                  onTap: _handleSubmit,
-                  className: '''
+                child: WText(trans('common.cancel')),
+              ),
+              WButton(
+                isLoading: isLoading,
+                onTap: _handleSubmit,
+                className: '''
                     px-4 py-2 rounded-lg
                     bg-primary hover:bg-green-600
                     text-white
                     text-sm font-medium
                   ''',
-                  child: WText(trans('common.save_changes')),
-                ),
-              ],
-            ),
-          ],
-        ),
+                child: WText(trans('common.save_changes')),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

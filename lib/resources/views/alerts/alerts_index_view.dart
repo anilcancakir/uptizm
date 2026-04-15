@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/enums/alert_status.dart';
 import '../../../app/models/alert.dart';
-import '../components/app_page_header.dart';
 import '../components/alerts/alert_list_item.dart';
 
 class AlertsIndexView extends StatelessWidget {
@@ -31,7 +31,7 @@ class AlertsIndexView extends StatelessWidget {
       scrollPrimary: true,
       children: [
         // Page Header
-        AppPageHeader(
+        MagicStarterPageHeader(
           title: trans('alerts.alerts_history_title'),
           subtitle: trans('alerts.alerts_history_subtitle'),
           actions: [
