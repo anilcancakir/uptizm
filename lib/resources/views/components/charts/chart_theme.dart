@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// Uptizm Chart Theme
 ///
 /// Brand-compliant colors and styles for fl_chart widgets.
-/// Based on brand.md color palette.
+/// Based on wind.md color palette.
 class UptizmChartTheme {
   UptizmChartTheme._();
 

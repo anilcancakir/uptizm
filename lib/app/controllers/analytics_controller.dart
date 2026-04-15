@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/models/analytics_response.dart';
-import 'package:uptizm/resources/views/monitors/monitor_analytics_view.dart';
 
 class AnalyticsController extends MagicController {
   static AnalyticsController get instance =>
@@ -13,9 +12,6 @@ class AnalyticsController extends MagicController {
   final dateRangeNotifier = ValueNotifier<DateTimeRange?>(null);
   final granularityNotifier = ValueNotifier<String>('hourly');
   final selectedPresetNotifier = ValueNotifier<String?>('24h');
-
-  // Actions
-  Widget analytics(String id) => MonitorAnalyticsView(monitorId: id);
 
   Future<void> fetchAnalytics(
     String monitorId, {

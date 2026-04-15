@@ -4,7 +4,7 @@ import 'package:magic/magic.dart';
 import '../../../app/controllers/announcement_controller.dart';
 import '../../../app/models/announcement.dart';
 import 'package:magic_starter/magic_starter.dart';
-import '../components/monitors/stat_card.dart';
+import '../components/dashboard/stat_card.dart';
 
 class AnnouncementShowView extends MagicStatefulView<AnnouncementController> {
   const AnnouncementShowView({

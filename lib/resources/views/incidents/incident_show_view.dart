@@ -6,7 +6,7 @@ import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_status.dart';
 import '../../../app/enums/incident_impact.dart';
 import 'package:magic_starter/magic_starter.dart';
-import '../components/monitors/stat_card.dart';
+import '../components/dashboard/stat_card.dart';
 
 class IncidentShowView extends MagicStatefulView<IncidentController> {
   const IncidentShowView({super.key});

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/enums/http_method.dart';
 import 'package:uptizm/app/enums/monitor_location.dart';
@@ -8,11 +8,6 @@ import 'package:uptizm/app/models/monitor_auth_config.dart';
 import 'package:uptizm/app/models/monitor_check.dart';
 import 'package:uptizm/app/models/monitor_metric_value.dart';
 import 'package:uptizm/app/models/paginated_checks.dart';
-import 'package:uptizm/resources/views/monitors/monitors_index_view.dart';
-import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
-import 'package:uptizm/resources/views/monitors/monitor_show_view.dart';
-import 'package:uptizm/resources/views/monitors/monitor_edit_view.dart';
-import 'package:uptizm/resources/views/monitors/monitor_alerts_view.dart';
 
 /// Monitor Controller
 ///
@@ -50,31 +45,6 @@ class MonitorController extends MagicController
   bool _isLoading = false;
   @override
   bool get isLoading => _isLoading;
-
-  /// Render index view
-  Widget index() {
-    return const MonitorsIndexView();
-  }
-
-  /// Render create monitor view
-  Widget create() {
-    return const MonitorCreateView();
-  }
-
-  /// Render show monitor view
-  Widget show(String id) {
-    return MonitorShowView(monitorId: id);
-  }
-
-  /// Render edit monitor view
-  Widget edit(String id) {
-    return MonitorEditView(monitorId: id);
-  }
-
-  /// Render monitor alerts view
-  Widget alerts(String id) {
-    return MonitorAlertsView(monitorId: id);
-  }
 
   /// Load monitors for current team
   Future<void> loadMonitors() async {

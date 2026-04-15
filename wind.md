@@ -2,7 +2,7 @@
 
 ## 1. Atmosphere & Visual Tone
 
-Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity and quick comprehension over decoration. Content-first with generous whitespace, subtle borders, and restrained color usage. Feels professional yet approachable for both DevOps engineers scanning incident timelines and startup founders checking uptime at a glance. Inspired by BetterStack's quiet confidence: data speaks, chrome stays silent.
+Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity and quick comprehension over decoration. Content-first with generous whitespace, subtle borders, and restrained color usage. Feels professional yet approachable for both DevOps engineers scanning incident timelines and startup founders checking uptime at a glance. Data speaks, chrome stays silent. Cards use tinted gray surfaces (bg-gray-50) rather than pure white to create subtle depth hierarchy against the white page background.
 
 ## 2. Color Palette & Roles
 
@@ -10,17 +10,17 @@ Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity a
 
 | Shade | Hex | HSL | Usage |
 |:------|:----|:----|:------|
-| 50 | #EDF8F3 | 155, 50%, 96% | Tinted backgrounds, hover states |
-| 100 | #D2EDDF | 155, 45%, 88% | Light accent backgrounds |
-| 200 | #A3D9BF | 155, 40%, 75% | Soft badges, progress fills |
-| 300 | #5EBD96 | 155, 48%, 55% | Secondary accents |
-| 400 | #20AF74 | 155, 70%, 41% | Hover/active states |
+| 50 | #ECFDF5 | 152, 81%, 96% | Tinted backgrounds, hover states |
+| 100 | #D1FAE5 | 149, 80%, 90% | Light accent backgrounds |
+| 200 | #A7F3D0 | 152, 76%, 80% | Soft badges, progress fills |
+| 300 | #6EE7B7 | 156, 72%, 67% | Secondary accents |
+| 400 | #34D399 | 160, 64%, 52% | Hover/active states |
 | 500 | #009E60 | 155, 100%, 31% | Primary actions, CTAs, brand anchor |
-| 600 | #008551 | 153, 100%, 26% | Pressed states |
-| 700 | #006B3F | 151, 100%, 21% | Dark mode primary text on light surfaces |
-| 800 | #00522F | 149, 100%, 16% | Dark mode pressed states |
-| 900 | #013820 | 147, 95%, 11% | Dark mode deep backgrounds |
-| 950 | #022113 | 145, 90%, 7% | Darkest tint |
+| 600 | #008750 | 153, 100%, 26% | Pressed states |
+| 700 | #006D40 | 151, 100%, 21% | Dark mode primary text on light surfaces |
+| 800 | #005430 | 149, 100%, 16% | Dark mode pressed states |
+| 900 | #003D23 | 150, 100%, 12% | Dark mode deep backgrounds |
+| 950 | #002414 | 147, 100%, 7% | Darkest tint |
 
 ### Color Roles
 
@@ -70,6 +70,7 @@ Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity a
 |:-----|:----------|:------|
 | Page Title | text-2xl font-bold text-gray-900 dark:text-white | Screen heading (one per page) |
 | Section Heading | text-lg font-semibold text-gray-900 dark:text-white | Card titles, group headings |
+| Section Title (Card) | text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400 | ContentSection header, uppercase text |
 | Subsection | text-base font-semibold text-gray-800 dark:text-gray-100 | Nested section titles |
 | Body | text-base font-normal text-gray-600 dark:text-gray-400 | Paragraphs, descriptions |
 | Secondary | text-sm font-normal text-gray-500 dark:text-gray-400 | Supporting details, captions |
@@ -77,7 +78,7 @@ Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity a
 | Metadata | text-xs font-normal text-gray-400 dark:text-gray-500 | Timestamps, counts, IDs |
 | Link | text-sm font-medium text-primary dark:text-primary-400 | Inline navigation, clickable text |
 | Error | text-sm font-medium text-red-600 dark:text-red-400 | Validation messages |
-| Value Large | text-3xl font-bold text-gray-900 dark:text-white | Dashboard stat values |
+| Value Large | text-2xl font-bold text-gray-900 dark:text-white | Dashboard stat values, stat card values |
 | Value Medium | text-xl font-semibold text-gray-900 dark:text-white | Card stat values |
 | Code | text-sm font-mono text-gray-800 dark:text-gray-200 | URLs, technical identifiers |
 
@@ -103,7 +104,11 @@ Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity a
 - Input height: h-11 (44pt minimum touch target)
 - Button height: h-11 (44pt minimum, py-3 px-4 for text buttons)
 - Icon button size: p-3 (44pt with 20px icon)
-- Navigation pattern: sidebar (desktop), bottom tab-bar (mobile, max 5)
+- Navigation pattern: fixed sidebar w-64 (desktop >=lg), bottom tab-bar h-[49px] (mobile \<lg, max 5)
+- Bottom tab: icon text-[22px] + label text-[10px], active state via primary color
+- Sidebar: brand header h-16 + nav items with rounded-lg hover, active state bg-primary-50 text-primary
+- App shell: Scaffold with wColor(context, 'white', darkColorName: 'gray', darkShade: 900) background
+- Mobile body: SafeArea wrapping content
 - Max content width: full (no max-w constraints)
 - Grid columns (mobile): 1, (tablet): 2, (desktop): 2-4
 - List item spacing: gap-3
@@ -134,10 +139,12 @@ Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity a
 
 ## 6. Component Style Tokens
 
-### Cards
+### Cards (ContentSection pattern)
 
-- className: bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700
-- No shadow by default (flat with border)
+- className: bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700
+- No shadow by default (flat with border, tinted surface)
+- Section header: icon text-[16px] + uppercase title text-xs font-bold tracking-wide text-gray-500, separated by border-b
+- Supports noPadding mode for list content (check rows, config rows)
 - Hover state (if interactive): hover:border-gray-300 dark:hover:border-gray-600
 
 ### Buttons
@@ -155,22 +162,24 @@ Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity a
 
 | Variant | className |
 |:--------|:----------|
-| Success | bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-medium px-2.5 py-1 rounded-full |
-| Warning | bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium px-2.5 py-1 rounded-full |
-| Error | bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-xs font-medium px-2.5 py-1 rounded-full |
-| Info | bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-medium px-2.5 py-1 rounded-full |
-| Neutral | bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs font-medium px-2.5 py-1 rounded-full |
+| Success | bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-semibold px-2.5 py-1 rounded-full |
+| Warning | bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-xs font-semibold px-2.5 py-1 rounded-full |
+| Error | bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-xs font-semibold px-2.5 py-1 rounded-full |
+| Info | bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-semibold px-2.5 py-1 rounded-full |
+| Neutral | bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs font-semibold px-2.5 py-1 rounded-full |
 
 ### Inputs
 
 - className: w-full h-11 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-base placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-primary dark:focus:border-primary-400 focus:ring-2 focus:ring-primary/20
 
-### Stat Cards (Dashboard)
+### Stat Cards (Compact)
 
-- className: bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 lg:p-6
-- Label: Label typography role
-- Value: Value Large or Value Medium typography role
-- Icon container: w-10 h-10 rounded-lg bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center
+- className: bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4
+- Label: text-xs text-gray-500 dark:text-gray-400
+- Value: text-2xl font-bold text-gray-900 dark:text-white
+- Icon: inline text-[16px] text-gray-400 dark:text-gray-500 (no container, placed in header row)
+- Trend (optional): text-xs font-medium, positive green-600/green-400, negative red-600/red-400, with directional dot (w-1.5 h-1.5 rounded-full)
+- Layout: flex flex-col gap-2, header row has icon + label, value row has value + trend
 
 ### Empty States
 
@@ -180,6 +189,35 @@ Minimal, clean, and confident. A monitoring dashboard that prioritizes clarity a
 - Title: Section Heading typography
 - Description: Secondary typography, text-center max-w-sm
 - CTA: Primary button variant
+
+### Info Badges (Pill-shaped metadata)
+
+- className: flex flex-row items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800
+- Icon: text-[12px] text-gray-400 dark:text-gray-500
+- Label: text-xs text-gray-600 dark:text-gray-400
+- Usage: monitor URL, response time, check interval, locations
+
+### Status Badge (Dot + Label)
+
+- className: flex flex-row items-center gap-1.5 px-2.5 py-1 rounded-full
+- Dot: w-2 h-2 rounded-full, color matches status (green/red/yellow/gray)
+- Label: text-xs font-semibold
+- Backgrounds: up:bg-green-100, down:bg-red-100, degraded:bg-yellow-100, paused:bg-gray-100
+- Dark backgrounds: up:dark:bg-green-900/30, down:dark:bg-red-900/30, etc.
+
+### Check History Row
+
+- className: flex flex-row items-center py-3.5 px-4 gap-3 border-b border-gray-200 dark:border-gray-700
+- Status dot: w-2.5 h-2.5 rounded-full (green/red/yellow by status)
+- Response time: w-[60px] fixed width, font-mono
+- Status code: px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800, font-mono text-xs
+- Error state: full-width error message in red replaces response time / status code
+
+### Config Row
+
+- className: flex flex-row items-center justify-between py-3 px-4 border-b border-gray-200 dark:border-gray-700
+- Label: text-sm text-gray-500 dark:text-gray-400
+- Value: text-sm font-mono font-medium text-gray-900 dark:text-white
 
 ### Skeleton / Loading
 

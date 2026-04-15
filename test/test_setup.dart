@@ -17,11 +17,11 @@ Future<void> initMagicForTests() async {
   // Mock path_provider platform channel for test environment
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
-    const MethodChannel('plugins.flutter.io/path_provider'),
-    (MethodCall methodCall) async {
-      return testDir;
-    },
-  );
+        const MethodChannel('plugins.flutter.io/path_provider'),
+        (MethodCall methodCall) async {
+          return testDir;
+        },
+      );
 
   await Magic.init(
     configs: [

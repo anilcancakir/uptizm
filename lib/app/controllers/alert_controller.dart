@@ -318,7 +318,6 @@ class AlertController extends MagicController {
 
   /// Show create alert rule form
   Widget rulesCreate({String? monitorId}) {
-
     return AlertRuleCreateView(
       monitorId: monitorId,
       onSubmit: (rule) async {

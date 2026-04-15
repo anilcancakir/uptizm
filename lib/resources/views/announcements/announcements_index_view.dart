@@ -6,7 +6,7 @@ import '../../../app/enums/announcement_type.dart';
 import '../../../app/models/announcement.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import '../components/monitors/stat_card.dart';
+import '../components/dashboard/stat_card.dart';
 
 class AnnouncementsIndexView extends MagicStatefulView<AnnouncementController> {
   const AnnouncementsIndexView({super.key, required this.statusPageId});

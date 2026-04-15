@@ -86,10 +86,15 @@ All user-facing strings MUST be in `assets/lang/en.json` and accessed via `trans
 
 ## Design System
 
-- Primary color: Green `#009E60` (hue 155)
-- Brand identity: Sage (70%) + Hero (30%)
+- **Source of truth**: `wind.md` (project root), defines all design tokens, color roles, typography, spacing, and component patterns
+- Primary color: Green `#009E60` (hue 155), shades in `lib/config/app_theme.dart`
+- Cards: `bg-gray-50 dark:bg-gray-800` (tinted surface, not pure white)
+- Content sections: uppercase title with small icon, border-separated header
+- Stat cards: compact with optional trend indicator
+- Status badges: dot + label, `-100` tone backgrounds (green-100, red-100, yellow-100)
+- Navigation: sidebar w-64 (desktop), bottom tab-bar h-[49px] (mobile)
+- Dark mode: every color token has a `dark:` pair, enforced by wind.md
 - Wind UI tokens for all spacing, typography, and components
-- Dark mode support via WindThemeData
 
 ## Testing
 

@@ -1,32 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
-import 'package:uptizm/resources/views/monitors/monitors_index_view.dart';
-import 'package:uptizm/resources/views/monitors/monitor_show_view.dart';
 
 void main() {
   group('MonitorController', () {
     test('can be instantiated', () {
       final controller = MonitorController();
       expect(controller, isA<MonitorController>());
-    });
-
-    test('index() returns MonitorsIndexView widget', () {
-      final controller = MonitorController();
-      final result = controller.index();
-      expect(result, isA<MonitorsIndexView>());
-    });
-
-    test('show() returns MonitorShowView widget', () {
-      final controller = MonitorController();
-      final result = controller.show('test-id');
-      expect(result, isA<MonitorShowView>());
-    });
-
-    test('create() returns Widget', () {
-      final controller = MonitorController();
-      final result = controller.create();
-      expect(result, isA<Widget>());
     });
 
     test('monitorsNotifier starts with empty list', () {
