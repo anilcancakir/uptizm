@@ -106,6 +106,17 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Self-hosted Geist variable fonts (copied from the design source's
+  # public/fonts/, NOT the Google Fonts build). Geist is the sans family;
+  # Geist Mono carries metric/latency/timestamp columns.
+  fonts:
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/GeistVariable.woff2
+    - family: Geist Mono
+      fonts:
+        - asset: assets/fonts/GeistMonoVariable.woff2
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

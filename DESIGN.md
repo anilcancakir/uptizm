@@ -1,110 +1,178 @@
 ---
-name: Magic Example
+name: Uptizm
 description: >
-  Reference app for the magic framework, magic_starter, and the design-first
-  component system. Single-brand violet, Wind semantic tokens, M3-role palette.
+  Uptime, incident, and status-page monitoring mock built on the magic
+  framework and magic_starter. Single-brand green, Wind semantic tokens, Geist
+  typography, and a dedicated monitoring status vocabulary.
 colors:
   surface:
-    light: "#FFFFFF"
-    dark: "#030712"
-  surface-container:
     light: "#F9FAFB"
-    dark: "#111827"
+    dark: "#07090C"
+  surface-container:
+    light: "#FFFFFF"
+    dark: "#121518"
   surface-container-high:
-    light: "#F3F4F6"
-    dark: "#1F2937"
+    light: "#F1F3F6"
+    dark: "#202529"
   fg:
-    light: "#111827"
-    dark: "#F9FAFB"
+    light: "#040608"
+    dark: "#F1F3F6"
   fg-muted:
-    light: "#6B7280"
-    dark: "#9CA3AF"
+    light: "#555D65"
+    dark: "#AAB1B7"
   fg-disabled:
-    light: "#D1D5DB"
-    dark: "#4B5563"
+    light: "#D1D5DA"
+    dark: "#3A4147"
   primary:
-    light: "#7C3AED"
-    dark: "#8B5CF6"
+    light: "#009A6F"
+    dark: "#00C292"
   on-primary:
     light: "#FFFFFF"
-    dark: "#FFFFFF"
+    dark: "#07090C"
   primary-container:
-    light: "#EDE9FE"
-    dark: "#4C1D95"
+    light: "#E0F9EE"
+    dark: "#003223"
   accent:
-    light: "#4F46E5"
-    dark: "#6366F1"
+    light: "#007A54"
+    dark: "#98E8C9"
   border:
-    light: "#E5E7EB"
-    dark: "#374151"
+    light: "#DEE2E5"
+    dark: "#2A2E33"
   border-subtle:
-    light: "#F3F4F6"
-    dark: "#1F2937"
+    light: "#ECEFF1"
+    dark: "#1C2023"
   destructive:
-    light: "#DC2626"
-    dark: "#EF4444"
+    light: "#DF202E"
+    dark: "#FF645F"
   on-destructive:
     light: "#FFFFFF"
-    dark: "#FFFFFF"
+    dark: "#07090C"
   destructive-container:
-    light: "#FEE2E2"
-    dark: "#7F1D1D"
+    light: "#FFE3DF"
+    dark: "#4C1010"
   success:
-    light: "#15803D"
-    dark: "#16A34A"
+    light: "#30A556"
+    dark: "#45C06A"
   warning:
-    light: "#D97706"
-    dark: "#B45309"
+    light: "#E69825"
+    dark: "#F5AE39"
+  # ----------------------------------------------------------------------------
+  # Monitoring status families (human reference only). design:sync ignores
+  # these; they are mirrored into className tokens by the hand-authored
+  # lib/config/uptizm_status_tokens.dart supplement, merged into the
+  # WindThemeData alias map. up/down/degraded/paused/info/ai, each: solid
+  # (dot / strong text), soft (badge background), soft-foreground (badge text).
+  # `down` deliberately equals `destructive` so outages and danger read alike.
+  # ----------------------------------------------------------------------------
+  up:
+    light: "#30A556"
+    dark: "#45C06A"
+  up-soft:
+    light: "#DCF9E1"
+    dark: "#0C2E16"
+  up-soft-foreground:
+    light: "#197037"
+    dark: "#8CE6A0"
+  down:
+    light: "#DF202E"
+    dark: "#FF645F"
+  down-soft:
+    light: "#FFE3DF"
+    dark: "#4C1010"
+  down-soft-foreground:
+    light: "#B71824"
+    dark: "#FFAEA6"
+  degraded:
+    light: "#E69825"
+    dark: "#F5AE39"
+  degraded-soft:
+    light: "#FFECCC"
+    dark: "#412400"
+  degraded-soft-foreground:
+    light: "#834100"
+    dark: "#FAC871"
+  paused:
+    light: "#79828A"
+    dark: "#999FA6"
+  paused-soft:
+    light: "#F1F3F6"
+    dark: "#23272B"
+  paused-soft-foreground:
+    light: "#555D65"
+    dark: "#AAB1B7"
+  info:
+    light: "#207FE8"
+    dark: "#53A0FF"
+  info-soft:
+    light: "#DBEFFF"
+    dark: "#00265D"
+  info-soft-foreground:
+    light: "#005DD1"
+    dark: "#B0D4FF"
+  ai:
+    light: "#6E59E2"
+    dark: "#9E8AFA"
+  ai-soft:
+    light: "#ECE8FF"
+    dark: "#2B195A"
+  ai-soft-foreground:
+    light: "#5F40D5"
+    dark: "#D6D0FF"
 typography:
   display:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 36px
     fontWeight: "700"
     lineHeight: 44px
     letterSpacing: -0.02em
   headline-lg:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 28px
     fontWeight: "700"
     lineHeight: 36px
     letterSpacing: -0.01em
   headline-md:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 22px
     fontWeight: "600"
     lineHeight: 30px
   title-lg:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 18px
     fontWeight: "600"
     lineHeight: 26px
   body-lg:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 16px
     fontWeight: "400"
     lineHeight: 26px
   body-md:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 14px
     fontWeight: "400"
     lineHeight: 22px
   label-md:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 14px
     fontWeight: "600"
     lineHeight: 20px
     letterSpacing: 0.01em
   label-sm:
-    fontFamily: Inter
+    fontFamily: Geist
     fontSize: 12px
     fontWeight: "500"
     lineHeight: 16px
+  metric:
+    fontFamily: Geist Mono
+    fontSize: 14px
+    fontWeight: "500"
+    lineHeight: 20px
 rounded:
   sm: 4px
   DEFAULT: 8px
   md: 12px
   lg: 16px
-  xl: 24px
+  xl: 20px
   full: 9999px
 spacing:
   xs: 4px
@@ -146,15 +214,24 @@ components:
 
 ## Overview
 
-Magic Example is the reference consumer app for the magic framework plus
-magic_starter starter kit. Its design system is built around a single violet
-brand with Material 3 role semantics, Wind utility tokens, and a mobile-first
-responsive layout.
+Uptizm is a monitoring product mock: uptime checks, incident timelines, and a
+public status page, built on the magic framework plus magic_starter starter
+kit. Its design system is built around a single green brand with Material 3
+role semantics, Wind utility tokens, a dedicated monitoring status vocabulary,
+and a mobile-first responsive layout.
 
-The brand personality is precise, professional, and approachable. The violet
-primary anchors interactive surfaces (buttons, active tabs, focus rings) while
-gray neutrals keep the reading experience calm. The accent indigo provides a
-distinct secondary signal without introducing a second brand color.
+The brand personality is calm, precise, and operational. The green primary
+(emerald-leaning, hue 168) anchors interactive surfaces (buttons, active tabs,
+focus rings) while cool-tinted neutrals keep the dense monitoring tables
+readable. A single brand color carries the whole interface; there is no second
+brand color or accent-preset system.
+
+Monitoring state lives in a separate six-family status vocabulary
+(up/down/degraded/paused/info/ai), each with a solid tone for dots and strong
+text, a soft tone for badge backgrounds, and a soft-foreground for badge text.
+The brand green (hue 168) is deliberately distinct from the operational `up`
+green (hue 150) so the two never blur, and `down` deliberately equals
+`destructive` so outages and danger actions read identically.
 
 For the responsive direction and accessible usage patterns, see
 [docs/design-culture/](docs/design-culture/).
@@ -165,22 +242,35 @@ The palette uses the M3 role model mapped onto 17 Wind semantic alias keys. A
 single consumer-supplied `primary` MaterialColor drives shade resolution across
 the component system; nothing else is hardcoded.
 
-Light mode background hierarchy: `surface` (white page) -> `surface-container`
-(cards) -> `surface-container-high` (input backgrounds). Dark mode inverts
-toward near-black gray steps.
+Light mode background hierarchy: `surface` (page canvas) -> `surface-container`
+(cards, white) -> `surface-container-high` (input backgrounds, nested panels).
+Dark mode inverts toward near-black cool-gray steps.
 
-Primary violet (#7C3AED light, #8B5CF6 dark) provides a 5.7:1 contrast ratio
-against white, passing WCAG AA for normal text. Destructive red (#DC2626) and
-on-destructive white also pass at 4.8:1.
+Primary green (#009A6F light, #00C292 dark) carries every interactive surface.
+On the light canvas it sits on white text (`on-primary`); on the dark canvas it
+brightens and pairs with a near-black foreground for contrast. Destructive red
+(#DF202E) equals the `down` status so outages and danger actions share a single
+red.
+
+The six monitoring status families are mirrored into the `colors:` block above
+for human reference, but `design:sync` only emits the 17 standard roles. The
+status families reach the runtime as className tokens
+(`bg-up`, `text-up`, `bg-up-soft`, `text-up-soft-foreground`, and the same for
+down/degraded/paused/info/ai) through the hand-authored
+`lib/config/uptizm_status_tokens.dart` supplement, which is merged into the
+`WindThemeData` alias map in `lib/main.dart`.
 
 See [docs/design-culture/accessibility-wcag.md](docs/design-culture/accessibility-wcag.md)
 for contrast requirements and how `design:lint` enforces them.
 
 ## Typography
 
-Inter is the app font: geometric, legible on small mobile screens, and neutral
-enough not to compete with the violet brand. All sizes are in logical pixels
-aligned to a 4px grid.
+Geist is the app font: a precise, low-personality grotesque that stays legible
+in dense monitoring tables and does not compete with the green brand. Geist
+Mono carries every metric, latency, percentage, and timestamp column (use the
+`tabular-nums` utility on those). Both are self-hosted variable woff2 files
+shipped in `assets/fonts/`, not the Google Fonts build (which strips the
+OpenType feature set). All sizes are in logical pixels aligned to a 4px grid.
 
 For type hierarchy guidance see
 [docs/design-culture/refactoring-ui.md](docs/design-culture/refactoring-ui.md).
@@ -203,15 +293,17 @@ shadows. `surface-container` sits one level above `surface`; `surface-container-
 is used for input backgrounds and nested panels.
 
 Subtle border lines (`border-color-border`) separate sections instead of
-shadows, keeping the UI light and reducing visual noise.
+shadows, keeping the UI light and reducing visual noise in dense tables.
 
 ## Shapes
 
-Corner radii follow the 4px logical scale:
+Corner radii follow the 4px logical scale (matching the design source: sm
+0.25rem, md 0.5rem, lg 0.75rem, xl 1.25rem in CSS, expressed here in logical
+px):
 
 - Inputs and small controls: `DEFAULT` (8px) for a modern, structured look.
 - Cards and dialogs: `lg` (16px) to feel contained and distinct.
-- Badges and chips: `full` (9999px) for a pill shape.
+- Badges and status chips: `full` (9999px) for a pill shape.
 - Buttons: `md` (12px), balancing substance and friendliness.
 
 ## Components

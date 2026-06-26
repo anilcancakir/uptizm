@@ -1,6 +1,6 @@
-# Magic Example
+# Uptizm
 
-Reference app for the `magic` framework and `magic_starter` starter kit. Single-brand violet, Wind semantic tokens, M3-role palette. Consumes and demonstrates the full design-first component system.
+Uptime, incident, and status-page monitoring mock built on the `magic` framework and `magic_starter` starter kit. Single-brand green, Geist + Geist Mono typography, Wind semantic tokens, M3-role palette, plus a dedicated monitoring status vocabulary (up/down/degraded/paused/info/ai). Consumes and demonstrates the full design-first component system.
 
 ## Stack
 
@@ -21,7 +21,7 @@ No `Color(0xFF...)`, no `Colors.*`, no hardcoded pixel values in component or vi
 Check `docs/component-registry.md` before writing any widget. If a component covers the need, use it. Only scaffold a new component when the registry has no match.
 
 **3. DESIGN.md is the theme source.**
-`magic_example/DESIGN.md` is the single source of truth for colors, typography, spacing, and rounded values. The generated theme lives at `lib/config/wind_theme.g.dart` (do not hand-edit it). Regenerate after any DESIGN.md change with `dart run bin/dispatcher.dart design:sync`.
+`uptizm/DESIGN.md` is the single source of truth for colors, typography, spacing, and rounded values. The generated theme lives at `lib/config/wind_theme.g.dart` (do not hand-edit it). Regenerate after any DESIGN.md change with `dart run bin/dispatcher.dart design:sync`. The monitoring status families (up/down/degraded/paused/info/ai) are NOT emitted by design:sync; they are hand-authored in `lib/config/uptizm_status_tokens.dart` and merged into the `WindThemeData` alias map in `lib/main.dart`.
 
 **4. The `/preview` catalog is the visual feedback loop.**
 Every new component requires a preview widget before it ships. Navigate to `/preview` in debug mode to see all registered previews in dark and light. Use dusk screenshots to verify token compliance before merging.

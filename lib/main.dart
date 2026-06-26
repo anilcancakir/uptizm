@@ -11,6 +11,7 @@ import 'config/logging.dart';
 import 'config/broadcasting.dart';
 import 'config/deeplink.dart';
 import 'config/wind_theme.g.dart';
+import 'config/uptizm_status_tokens.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:fluttersdk_dusk/dusk.dart';
 import 'package:magic_devtools/dusk.dart';
@@ -50,9 +51,14 @@ void main() async {
   if (kDebugMode) {
     MagicDuskIntegration.install();
   }
-  // Theme generated from DESIGN.md via `design:sync`. Regenerate with:
-  //   dart run bin/dispatcher.dart design:sync
-  final windTheme = WindThemeData(colors: designColors, aliases: designAliases);
+  // Theme generated from DESIGN.md via `design:sync` (the 17 standard semantic
+  // roles), merged with the hand-authored monitoring status families
+  // (up/down/degraded/paused/info/ai) that design:sync never emits. Regenerate
+  // the generated half with: dart run bin/dispatcher.dart design:sync
+  final windTheme = WindThemeData(
+    colors: designColors,
+    aliases: {...designAliases, ...uptizmStatusAliases},
+  );
 
   runApp(MagicApplication(title: 'Uptizm', windTheme: windTheme));
 }
