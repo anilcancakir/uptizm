@@ -1,0 +1,26 @@
+# Local development overrides (gitignored).
+# Wires sibling fluttersdk packages to their local checkouts so this
+# package builds and tests against the latest local sibling code.
+dependency_overrides:
+  magic:
+    path: ../magic
+  magic_deeplink:
+    path: ../magic_deeplink
+  magic_devtools:
+    path: ../magic_devtools
+  magic_notifications:
+    path: ../magic_notifications
+  magic_social_auth:
+    path: ../magic_social_auth
+  magic_starter:
+    path: ../magic_starter
+  fluttersdk_artisan:
+    path: ../artisan
+  fluttersdk_dusk:
+    path: ../dusk
+  fluttersdk_telescope:
+    path: ../telescope
+  fluttersdk_wind:
+    path: ../wind
+  fluttersdk_wind_diagnostics_contracts:
+    path: ../wind_diagnostics_contracts
