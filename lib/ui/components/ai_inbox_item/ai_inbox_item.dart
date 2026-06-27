@@ -112,10 +112,13 @@ class AiInboxItem extends StatelessWidget {
 
         const SizedBox(width: 6),
 
-        // Relative time string in tabular mono.
-        WText(
-          incident.startedAt,
-          className: 'font-mono text-xs tabular-nums text-fg-muted',
+        // Relative time string in tabular mono. Flexible + truncate so a long
+        // timestamp never overflows the header on a narrow (mobile) column.
+        Flexible(
+          child: WText(
+            incident.startedAt,
+            className: 'font-mono text-xs tabular-nums text-fg-muted truncate',
+          ),
         ),
       ],
     );
@@ -131,7 +134,11 @@ class AiInboxItem extends StatelessWidget {
   /// Both buttons require explicit user interaction; neither fires a callback
   /// automatically (graduated-trust principle).
   Widget _buildActions() {
-    return Row(
+    // Wrap (not Row) so the two buttons reflow to a second line on a narrow
+    // column instead of overflowing.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
         // Approve: promote the anomaly to a full incident.
         WButton(
@@ -144,8 +151,6 @@ class AiInboxItem extends StatelessWidget {
             className: 'text-xs font-semibold text-on-primary',
           ),
         ),
-
-        const SizedBox(width: 8),
 
         // Dismiss: mark as noise so the detector can learn.
         WButton(

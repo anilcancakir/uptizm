@@ -4,7 +4,6 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/incidents.dart';
 import '../ai_insight/index.dart';
-import 'ai_analysis_card.recipe.dart';
 
 /// **Incident AI Analysis Card**
 ///
@@ -68,28 +67,31 @@ class AiAnalysisCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Resolve the inner container className from the recipe.
-    final String containerClass = aiAnalysisCardRecipe();
+    // An explicit Flutter Column scaffolds the body so each section (and the
+    // nested Row-based action/similar rows) receives a bounded width from the
+    // Card shell and wraps cleanly on a narrow (mobile) column, rather than the
+    // unbounded-width regime a Wind flex-col would introduce.
+    final List<Widget> sections = [
+      // Header row: sparkle glyph + label + trigger + confidence badge.
+      _buildHeader(),
+      // AI insight block (evidence for/against, confidence, citations).
+      AiInsight(ai: ai),
+      // Suggested actions section (advisory, approval-gated).
+      if (ai.suggestedActions.isNotEmpty) _buildSuggestedActions(),
+      // Similar incidents section.
+      if (ai.similarIncidents.isNotEmpty) _buildSimilarIncidents(),
+      // Footer disclaimer: graduated trust note.
+      _buildFooter(),
+    ];
 
-    // 2. Compose the card shell from magic_starter Card.
     return Card(
-      child: WDiv(
-        className: containerClass,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 3. Header row: sparkle glyph + label + trigger + confidence badge.
-          _buildHeader(),
-
-          // 4. AI insight block (evidence for/against, confidence, citations).
-          AiInsight(ai: ai),
-
-          // 5. Suggested actions section (advisory, approval-gated).
-          if (ai.suggestedActions.isNotEmpty) _buildSuggestedActions(),
-
-          // 6. Similar incidents section.
-          if (ai.similarIncidents.isNotEmpty) _buildSimilarIncidents(),
-
-          // 7. Footer disclaimer: graduated trust note.
-          _buildFooter(),
+          for (var i = 0; i < sections.length; i++) ...[
+            if (i > 0) const SizedBox(height: 24),
+            sections[i],
+          ],
         ],
       ),
     );
@@ -127,17 +129,19 @@ class AiAnalysisCard extends StatelessWidget {
   /// [onActionTap] with the relevant [AiSuggestedAction]; the callback is
   /// never invoked automatically (graduated-trust principle).
   Widget _buildSuggestedActions() {
-    return WDiv(
-      className: 'flex flex-col gap-3',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Section label.
         WText(
           trans('uptizm.ai.suggested_actions'),
           className: 'text-xs font-semibold text-ai',
         ),
-
         // One row per suggested action.
-        for (final action in ai.suggestedActions) _buildActionRow(action),
+        for (final action in ai.suggestedActions) ...[
+          const SizedBox(height: 12),
+          _buildActionRow(action),
+        ],
       ],
     );
   }
@@ -180,18 +184,19 @@ class AiAnalysisCard extends StatelessWidget {
   /// Each row shows the past incident title and a percentage similarity score
   /// rendered in tabular-nums Geist Mono.
   Widget _buildSimilarIncidents() {
-    return WDiv(
-      className: 'flex flex-col gap-3',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Section label.
         WText(
           trans('uptizm.ai.similar_incidents'),
           className: 'text-xs font-semibold text-ai',
         ),
-
         // One row per similar incident.
-        for (final incident in ai.similarIncidents)
+        for (final incident in ai.similarIncidents) ...[
+          const SizedBox(height: 12),
           _buildSimilarIncidentRow(incident),
+        ],
       ],
     );
   }

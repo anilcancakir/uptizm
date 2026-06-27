@@ -370,6 +370,7 @@
       "tab_incidents": "Incidents",
       "kpi_uptime_24h": "Uptime (24h)",
       "kpi_last_check": "Last check",
+      "kpi_last_check_value": "8s ago",
       "kpi_open_incidents_for_monitor": "Open incidents",
       "kpi_hint_p50": "p50 over 24h",
       "kpi_hint_paused": "paused",

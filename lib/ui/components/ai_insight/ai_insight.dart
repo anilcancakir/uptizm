@@ -3,7 +3,6 @@ import 'package:magic/magic.dart';
 
 import '../../../app/mocks/incidents.dart';
 import '../ai_confidence_badge/index.dart';
-import 'ai_insight.recipe.dart';
 
 /// **AI Insight Block**
 ///
@@ -49,56 +48,65 @@ class AiInsight extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Resolve the outer container className from the recipe.
-    final String containerClass = aiInsightRecipe();
+    // Visual-only container classes (the flex layout is handled by an explicit
+    // Flutter Column below so leaf text wraps within a bounded width on narrow
+    // columns instead of overflowing in a Wind flex regime).
+    final List<Widget> sections = [
+      // Header: sparkle glyph + label + confidence badge.
+      _buildHeader(),
+      // TL;DR summary paragraph.
+      _buildTldr(),
+      // Evidence-FOR list (always rendered when list is non-empty).
+      if (ai.evidenceFor.isNotEmpty)
+        _buildEvidenceSection(
+          label: trans('uptizm.ai.evidence'),
+          evidenceList: ai.evidenceFor,
+        ),
+      // Evidence-AGAINST list (graduated trust: show both sides).
+      if (ai.evidenceAgainst.isNotEmpty)
+        _buildEvidenceSection(
+          label: trans('uptizm.ai.evidence_against'),
+          evidenceList: ai.evidenceAgainst,
+        ),
+    ];
 
-    // 2. Build the full block inside the ai-toned container.
     return WDiv(
-      className: containerClass,
-      children: [
-        // 3. Header: sparkle glyph + label + confidence badge.
-        _buildHeader(),
-
-        // 4. TL;DR summary paragraph.
-        _buildTldr(),
-
-        // 5. Evidence-FOR list (always rendered when list is non-empty).
-        if (ai.evidenceFor.isNotEmpty)
-          _buildEvidenceSection(
-            label: trans('uptizm.ai.evidence'),
-            evidenceList: ai.evidenceFor,
-          ),
-
-        // 6. Evidence-AGAINST list (graduated trust: show both sides).
-        if (ai.evidenceAgainst.isNotEmpty)
-          _buildEvidenceSection(
-            label: trans('uptizm.ai.evidence_against'),
-            evidenceList: ai.evidenceAgainst,
-          ),
-      ],
+      className: 'rounded-lg border border-ai bg-ai-soft p-4',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < sections.length; i++) ...[
+            if (i > 0) const SizedBox(height: 16),
+            sections[i],
+          ],
+        ],
+      ),
     );
   }
 
   /// Builds the header row: sparkle glyph + label on the left, confidence
-  /// badge on the right, using [justify-between] to distribute space.
+  /// badge on the right. The left cluster is Expanded so a long label wraps
+  /// rather than overflowing on a narrow column.
   Widget _buildHeader() {
-    return WDiv(
-      className: 'flex flex-row items-center justify-between gap-2',
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Left cluster: sparkle glyph + label.
-        WDiv(
-          className: 'flex flex-row items-center gap-2',
-          children: [
-            // Sparkle glyph rendered as a unicode character styled with ai tone.
-            WText('✦', className: 'text-sm font-medium text-ai'),
-
-            // Bold label anchoring the block to Uptizm AI.
-            WText(
-              trans('uptizm.ai.ai_detected'),
-              className: 'text-sm font-semibold text-ai',
-            ),
-          ],
+        Expanded(
+          child: Row(
+            children: [
+              WText('✦', className: 'text-sm font-medium text-ai'),
+              const SizedBox(width: 8),
+              Flexible(
+                child: WText(
+                  trans('uptizm.ai.ai_detected'),
+                  className: 'text-sm font-semibold text-ai',
+                ),
+              ),
+            ],
+          ),
         ),
+
+        const SizedBox(width: 8),
 
         // Confidence badge: graduated-trust anchor (high/medium/low).
         AiConfidenceBadge(ai.confidence),
