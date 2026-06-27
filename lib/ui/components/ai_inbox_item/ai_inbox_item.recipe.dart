@@ -21,12 +21,13 @@ import 'package:magic/magic.dart';
 ///
 /// Emission order: `base`.
 ///
-/// Token reference:
-/// - Root: `relative overflow-hidden rounded-lg border border-ai bg-ai-soft`
+/// Token reference (matches the design source `ai-inbox-item.variants.ts`):
+/// - Root: `relative overflow-hidden rounded-lg border border-color-border bg-surface-container`
+///   (a NEUTRAL card; only the stripe carries the `ai` tone, not the whole fill)
 /// - Stripe: `absolute top-0 bottom-0 left-0 w-1 bg-ai` (overflow-hidden clips)
 /// - Text: `text-sm text-fg`, `text-xs text-fg-muted`, `font-mono text-xs`
 const WindRecipe aiInboxItemRecipe = WindRecipe(
   base:
-      'relative flex flex-col gap-2 overflow-hidden rounded-lg border border-ai '
-      'bg-ai-soft pt-4 pr-4 pb-4 pl-5',
+      'relative flex flex-col gap-2 overflow-hidden rounded-lg '
+      'border border-color-border bg-surface-container pt-4 pr-4 pb-4 pl-5',
 );

@@ -36,15 +36,19 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('aiInboxItemRecipe', () {
-    test('base emits ai-soft background token', () {
+    test('base emits a neutral surface-container card (not an ai fill)', () {
       final cls = aiInboxItemRecipe();
-      expect(cls, contains('bg-ai-soft'));
+      expect(cls, contains('bg-surface-container'));
+      expect(cls, isNot(contains('bg-ai-soft')));
     });
 
-    test('base emits ai border token', () {
-      final cls = aiInboxItemRecipe();
-      expect(cls, contains('border-ai'));
-    });
+    test(
+      'base emits a neutral border (ai tone is the stripe, not the border)',
+      () {
+        final cls = aiInboxItemRecipe();
+        expect(cls, contains('border-color-border'));
+      },
+    );
 
     test('base emits rounded-lg', () {
       final cls = aiInboxItemRecipe();

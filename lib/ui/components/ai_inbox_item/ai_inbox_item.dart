@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
@@ -113,9 +114,13 @@ class AiInboxItem extends StatelessWidget {
         // Confidence badge: shrink-wrap pill; non-greedy inside the wrap row.
         AiConfidenceBadge(incident.ai!.confidence),
 
-        // Relative time: pushed to the end via ml-auto; truncates on overflow.
+        // Relative time ("4m ago"): pushed to the end via ml-auto. Strip the
+        // "started "/"resolved " prefix the incident carries for incident lists.
         WText(
-          incident.startedAt,
+          incident.startedAt.replaceFirst(
+            RegExp(r'^(started|resolved)\s+'),
+            '',
+          ),
           className: 'ml-auto font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
@@ -149,15 +154,25 @@ class AiInboxItem extends StatelessWidget {
           ),
         ),
 
-        // Dismiss: mark as noise so the detector can learn.
+        // Dismiss: a ghost button with a trailing chevron (the design source's
+        // dropdown trigger; the reason menu is a deferred follow-up).
         WButton(
           onTap: onDismiss,
           className:
-              'flex flex-row items-center rounded-md border border-color-border '
-              'bg-surface-container px-3 py-1.5 text-xs font-medium text-fg-muted',
-          child: WText(
-            trans('uptizm.ai.dismiss'),
-            className: 'text-xs font-medium text-fg-muted',
+              'flex flex-row items-center gap-1 rounded-md px-3 py-1.5 '
+              'text-xs font-medium text-fg-muted hover:bg-surface-container',
+          child: WDiv(
+            className: 'flex flex-row items-center gap-1',
+            children: [
+              WText(
+                trans('uptizm.ai.dismiss'),
+                className: 'text-xs font-medium text-fg-muted',
+              ),
+              WIcon(
+                Icons.keyboard_arrow_down,
+                className: 'text-sm text-fg-muted',
+              ),
+            ],
           ),
         ),
       ],
