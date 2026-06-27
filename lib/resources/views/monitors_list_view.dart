@@ -2,22 +2,28 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../app/mocks/incidents.dart';
 import '../../app/mocks/monitors.dart';
 import '../../app/mocks/status.dart';
+import '../../ui/components/kpi_stat_card/index.dart';
 import '../../ui/components/monitor_list_row/index.dart';
 import '../../ui/layouts/page_container.dart';
 
 /// **The Monitors list screen.**
 ///
 /// Renders the full monitor inventory from design-lab mock fixtures (no
-/// controller, no network): a page header, a [SegmentedControl] status filter,
-/// and a scrollable list of [MonitorListRow] cards. An [EmptyState] placeholder
-/// is shown when the active filter produces zero results.
+/// controller, no network): a page header with a "New monitor" action, a KPI
+/// summary row, a [SegmentedControl] status filter, and a scrollable list of
+/// [MonitorListRow] cards. An [EmptyState] placeholder is shown when the active
+/// filter produces zero results.
 ///
 /// Layout follows the same discipline as [DashboardView]: a plain Flutter
 /// [Column] scaffolds the page so leaf components receive a bounded
 /// full-width constraint from the shared [PageContainer]; Wind utilities only
 /// appear on leaf containers, never as the outermost flex-scroll context.
+///
+/// Composition mirrors `MonitorsListPage.tsx`:
+///   header → KPI row → filter row + count → monitor list or empty state.
 ///
 /// ### Example
 /// ```dart
@@ -78,21 +84,91 @@ class _MonitorsListViewState extends State<MonitorsListView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Page header.
+          // 1. Page header with a "New monitor" action button.
           PageHeader(
             title: trans('uptizm.monitors.title'),
             subtitle: trans('uptizm.monitors.description'),
+            actions: [
+              Button(
+                onPressed: () => MagicRoute.to('/monitors/new'),
+                child: WText(trans('uptizm.monitors.new_monitor')),
+              ),
+            ],
           ),
           const SizedBox(height: 24),
 
-          // 2. Status filter + visible count.
+          // 2. KPI summary row: monitors used, operational, open incidents,
+          //    average response time. Mirrors the React grid above the filter.
+          _buildKpiRow(),
+          const SizedBox(height: 32),
+
+          // 3. Status filter + visible count.
           _buildFilterRow(),
           const SizedBox(height: 16),
 
-          // 3. Monitor list, or an empty state when zero rows match.
+          // 4. Monitor list, or an empty state when zero rows match.
           _buildList(),
         ],
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // KPI row
+  // ---------------------------------------------------------------------------
+
+  /// Builds the four KPI stat cards that mirror the React `grid grid-cols-2
+  /// lg:grid-cols-4 gap-4` row: monitors used, operational, open incidents,
+  /// and average response time.
+  Widget _buildKpiRow() {
+    // 1. Derive headline metrics from the mock fixtures.
+    final int upCount = monitors.where((m) => m.status == StatusKey.up).length;
+    final int downCount = monitors
+        .where((m) => m.status == StatusKey.down)
+        .length;
+    final List<IncidentSummary> openIncidents = incidents
+        .where((i) => i.lifecycle != IncidentLifecycle.resolved)
+        .toList();
+    final int aiActive = openIncidents.where((i) => i.aiOwned).length;
+    final List<MonitorSummary> responders = monitors
+        .where((m) => m.responseMs != null)
+        .toList();
+    final int avgResponse = responders.isEmpty
+        ? 0
+        : (responders.fold<int>(0, (sum, m) => sum + m.responseMs!) /
+                  responders.length)
+              .round();
+
+    // 2. Single-column base; widen to two then four columns at breakpoints.
+    return WDiv(
+      className: 'grid grid-cols-2 lg:grid-cols-4 gap-4',
+      children: [
+        KpiStatCard(
+          label: trans('uptizm.monitors.kpi_monitors_used'),
+          value: '${monitors.length} / 50',
+          hint: 'Pro plan',
+        ),
+        KpiStatCard(
+          label: trans('uptizm.monitors.kpi_operational'),
+          value: '$upCount / ${monitors.length}',
+          delta: '$downCount down',
+          trend: KpiTrend.down,
+        ),
+        KpiStatCard(
+          label: trans('uptizm.monitors.kpi_open_incidents'),
+          value: '${openIncidents.length}',
+          delta: '1 new',
+          hint: '$aiActive AI-detected',
+          trend: KpiTrend.down,
+        ),
+        KpiStatCard(
+          label: trans('uptizm.monitors.kpi_avg_response'),
+          value: '${avgResponse}ms',
+          delta: '12ms',
+          hint: 'vs. last 24h',
+          trend: KpiTrend.down,
+        ),
+      ],
     );
   }
 
@@ -101,12 +177,15 @@ class _MonitorsListViewState extends State<MonitorsListView> {
   // ---------------------------------------------------------------------------
 
   /// Builds the status filter row: [SegmentedControl] on the left, a tabular
-  /// visible/total count on the right (hidden on narrow screens to save width).
+  /// visible/total count on the right.
+  ///
+  /// A Flutter [Row] with the SegmentedControl in a [Flexible] (loose) slot
+  /// lets the pill shrink-wrap naturally without forcing the Row to overflow.
   Widget _buildFilterRow() {
     return Row(
       children: [
-        // The segmented control scrolls horizontally on very small screens via
-        // a constrained shrink-wrap; min-w-0 keeps it from forcing the row wide.
+        // The Flexible shrink-wraps the pill and lets it yield width on very
+        // narrow screens rather than forcing the Row to overflow.
         Flexible(
           child: SegmentedControl(
             options: _filters.map((f) => f.label).toList(),
@@ -116,7 +195,7 @@ class _MonitorsListViewState extends State<MonitorsListView> {
         ),
         const SizedBox(width: 12),
         WText(
-          '${_visible.length} / ${monitors.length}',
+          '${_visible.length} of ${monitors.length}',
           className: 'font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
@@ -157,18 +236,31 @@ class _MonitorsListViewState extends State<MonitorsListView> {
   /// Builds the appropriate [EmptyState] for the current situation:
   ///   - No monitors at all: invite the user to add their first endpoint.
   ///   - Filter active with no matches: invite the user to clear the filter.
+  ///
+  /// The dashed-border container mirrors `rounded-xl border-dashed border-border`
+  /// from the React source.
   Widget _buildEmptyState() {
     final bool noMonitorsAtAll = monitors.isEmpty;
 
     return WDiv(
-      className: 'rounded-lg border border-color-border',
+      className: 'rounded-xl border border-dashed border-color-border',
       child: EmptyState(
         title: noMonitorsAtAll
-            ? trans('uptizm.monitors.empty_title')
-            : trans('uptizm.monitors.empty_filter_title'),
+            ? trans('uptizm.monitors.empty_no_monitors_title')
+            : trans('uptizm.monitors.empty_no_match_title'),
         description: noMonitorsAtAll
-            ? trans('uptizm.monitors.empty_description')
-            : trans('uptizm.monitors.empty_filter_description'),
+            ? trans('uptizm.monitors.empty_no_monitors_description')
+            : trans('uptizm.monitors.empty_no_match_description'),
+        action: noMonitorsAtAll
+            ? Button(
+                onPressed: () => MagicRoute.to('/monitors/new'),
+                child: WText(trans('uptizm.monitors.new_monitor')),
+              )
+            : Button(
+                intent: ButtonIntent.secondary,
+                onPressed: () => setState(() => _filterIndex = 0),
+                child: WText(trans('uptizm.monitors.empty_no_match_clear')),
+              ),
       ),
     );
   }

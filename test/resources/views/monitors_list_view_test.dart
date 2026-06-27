@@ -5,16 +5,54 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/resources/views/monitors_list_view.dart';
+import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 
+/// In-memory loader feeding the monitors page prose so [trans] returns short,
+/// wrappable strings instead of raw key tokens. Without this, the full dot-
+/// separated keys (e.g. `'uptizm.monitors.kpi_monitors_used'`) render as
+/// unbreakable 30-char labels inside the narrow KPI stat cards and cause layout
+/// overflow, mirroring what the dashboard_view_test already guards against.
+class _MonitorsLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    return {
+      'uptizm.monitors.title': 'Monitors',
+      'uptizm.monitors.description':
+          'Endpoints Uptizm is watching across regions.',
+      'uptizm.monitors.new_monitor': 'New monitor',
+      'uptizm.monitors.kpi_monitors_used': 'Monitors used',
+      'uptizm.monitors.kpi_operational': 'Operational',
+      'uptizm.monitors.kpi_open_incidents': 'Open incidents',
+      'uptizm.monitors.kpi_avg_response': 'Avg response',
+      'uptizm.monitors.empty_no_monitors_title': 'No monitors yet',
+      'uptizm.monitors.empty_no_monitors_description':
+          'Add your first endpoint and Uptizm starts checking it from every '
+          'region within seconds.',
+      'uptizm.monitors.empty_no_match_title': 'No monitors match',
+      'uptizm.monitors.empty_no_match_description':
+          'Nothing in this status right now. Try a different filter or add a '
+          'new monitor.',
+      'uptizm.monitors.empty_no_match_clear': 'Clear filter',
+    };
+  }
+}
+
 void main() {
-  setUp(() {
+  setUp(() async {
     MagicApp.reset();
     Magic.flush();
     // Bind the MagicStarter manager so PageHeader / SegmentedControl / EmptyState
     // resolve their themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+
+    // Load the real monitors prose so trans() returns wrappable text.
+    // Without this, long key tokens (e.g. 'uptizm.monitors.kpi_monitors_used')
+    // render as unbreakable strings inside narrow KPI stat card cells and cause
+    // layout overflow at test viewport widths.
+    Translator.instance.setLoader(_MonitorsLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
   });
 
   tearDown(() {
@@ -55,6 +93,24 @@ void main() {
     await tester.pump();
 
     expect(find.byType(SegmentedControl), findsOneWidget);
+  });
+
+  testWidgets('renders the four KPI stat cards', (tester) async {
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+    await tester.pump();
+
+    // Mirrors the React grid: monitors used, operational, open incidents, avg
+    // response — four cards always present regardless of the active filter.
+    expect(find.byType(KpiStatCard), findsNWidgets(4));
+  });
+
+  testWidgets('renders a PageHeader with New monitor action', (tester) async {
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+    await tester.pump();
+
+    expect(find.byType(PageHeader), findsOneWidget);
+    // The "New monitor" button label must be visible in the header actions.
+    expect(find.text('New monitor'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('does not overflow at a mobile width', (tester) async {

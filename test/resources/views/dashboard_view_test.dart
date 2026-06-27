@@ -5,18 +5,68 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/dashboard_view.dart';
+import 'package:uptizm/ui/components/ai_insight/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
 
+/// In-memory loader feeding the dashboard's prose so [trans] resolves the real
+/// English strings (which wrap on multiple words) instead of falling back to
+/// the raw, unbreakable key tokens. This mirrors production, where the bundled
+/// `assets/lang/en.json` is loaded; without it the long single-token fleet
+/// summary key cannot wrap and overflows its banner row.
+class _DashboardLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    // The Translator caches whatever the loader returns verbatim; flattening is
+    // the loader's job (see JsonAssetLoader), so the keys are pre-flattened.
+    return {
+      'uptizm.dashboard.title': 'Dashboard',
+      'uptizm.dashboard.description':
+          'Everything Uptizm is watching, at a glance.',
+      'uptizm.dashboard.ai_fleet_summary':
+          'Checkout is in a major outage (origin-side 503s across all regions) '
+          'and API gateway is degraded as your cpu_load metric climbs. Docs is '
+          'paused for maintenance. Marketing site is the only fully operational '
+          'service right now.',
+      'uptizm.dashboard.section_active_incidents': 'Active incidents',
+      'uptizm.dashboard.section_monitors': 'Monitors',
+      'uptizm.dashboard.section_ai_inbox': 'AI inbox',
+      'uptizm.dashboard.ai_inbox_subtitle':
+          'Anomalies Uptizm flagged from its own checks and metrics, not yet '
+          'incidents. Your call.',
+      'uptizm.dashboard.ai_inbox_pending': ':count pending',
+      'uptizm.dashboard.ai_inbox_weekly_digest': 'Weekly digest',
+      'uptizm.dashboard.ai_inbox_empty':
+          'Inbox zero. No anomalies need your attention.',
+      'uptizm.dashboard.kpi_monitors_up': 'Monitors up',
+      'uptizm.dashboard.kpi_uptime_24h': 'Uptime (24h)',
+      'uptizm.dashboard.kpi_open_incidents': 'Open incidents',
+      'uptizm.dashboard.kpi_avg_response': 'Avg response',
+      'uptizm.dashboard.kpi_hint_vs_yesterday': 'vs. yesterday',
+      'uptizm.dashboard.kpi_hint_vs_24h': 'vs. last 24h',
+      'uptizm.dashboard.kpi_hint_ai_detected': ':count AI-detected',
+      'uptizm.dashboard.kpi_delta_down': ':count down',
+      'uptizm.dashboard.kpi_delta_new': ':count new',
+      'uptizm.ai.right_now_label': 'Right now',
+      'uptizm.ai.open_incident': 'Open incident',
+      'uptizm.ai.dismiss': 'Dismiss',
+    };
+  }
+}
+
 void main() {
-  setUp(() {
+  setUp(() async {
     MagicApp.reset();
     Magic.flush();
     // Bind the MagicStarter manager so Card / PageHeader resolve their themes
     // via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+
+    // Load the real dashboard prose so trans() returns wrappable text.
+    Translator.instance.setLoader(_DashboardLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
   });
 
   tearDown(() {
@@ -82,5 +132,33 @@ void main() {
     await tester.pump();
 
     expect(find.byType(PageContainer), findsOneWidget);
+  });
+
+  testWidgets('DashboardView renders the AI fleet-summary banner', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const DashboardView()));
+    await tester.pump();
+
+    // The "Right now" banner ([AiInsight] tone: banner) sits between the header
+    // and the KPI row, matching the React DashboardPage source. AiInsight
+    // renders its label with a trailing space, so match on a substring.
+    expect(find.byType(AiInsight), findsOneWidget);
+    expect(
+      find.textContaining(trans('uptizm.ai.right_now_label')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('DashboardView surfaces the AI inbox weekly-digest link', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const DashboardView()));
+    await tester.pump();
+
+    expect(
+      find.text(trans('uptizm.dashboard.ai_inbox_weekly_digest')),
+      findsOneWidget,
+    );
   });
 }

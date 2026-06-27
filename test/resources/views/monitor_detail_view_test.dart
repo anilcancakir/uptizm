@@ -65,6 +65,15 @@ void main() {
       // Overview is the default tab: the response chart + recent checks table.
       expect(find.byType(MetricChart), findsOneWidget);
       expect(find.byType(CheckHistoryTable), findsOneWidget);
+
+      // Fidelity: the Overview response chart mirrors MonitorDetailPage.tsx
+      // (no AI expected-range band; series + anomalies only). The band is
+      // reserved for the deeper per-metric history view on the Metrics tab.
+      final MetricChart overviewChart = tester.widget<MetricChart>(
+        find.byType(MetricChart),
+      );
+      expect(overviewChart.band, isNull);
+      expect(overviewChart.unit, 'ms');
     },
   );
 
@@ -134,6 +143,13 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byType(MetricChart), findsOneWidget);
       expect(find.byType(AiAnalysisCard), findsOneWidget);
+
+      // Fidelity: unlike the Overview chart, the Metrics-tab chart draws the
+      // AI expected-range band (mirrors MonitorMetricsTab.tsx's DetailBody).
+      final MetricChart metricsChart = tester.widget<MetricChart>(
+        find.byType(MetricChart),
+      );
+      expect(metricsChart.band, isNotNull);
     },
   );
 }

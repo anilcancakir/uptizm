@@ -6,6 +6,7 @@ import '../../app/mocks/incidents.dart';
 import '../../app/mocks/monitors.dart';
 import '../../app/mocks/status.dart';
 import '../../ui/components/ai_inbox_item/index.dart';
+import '../../ui/components/ai_insight/index.dart';
 import '../../ui/components/incident_card/index.dart';
 import '../../ui/components/kpi_stat_card/index.dart';
 import '../../ui/components/monitor_list_row/index.dart';
@@ -17,19 +18,24 @@ import '../../ui/layouts/page_container.dart';
 /// (no controller, no network): a KPI summary row, the active incidents, a
 /// monitor snippet, and the AI inbox (anomalies awaiting the operator's call).
 ///
-/// Layout discipline mirrors the React source while respecting Wind's grid
-/// limitations and the existing components' width needs:
+/// Section order mirrors the React `DashboardPage.tsx` source (header → AI
+/// fleet-summary banner → KPI row → active incidents → monitor snippet → AI
+/// inbox), while the column layout respects the in-repo components' real width
+/// floors:
 ///
+/// - A `"Right now"` AI fleet-summary banner ([AiInsight] `tone: banner`) sits
+///   between the header and the KPI row, matching the React source placement.
 /// - The KPI row is a responsive Wind grid: single column on mobile, two on
 ///   `sm:`, four on `lg:` (single-column base, never a bare multi-column grid).
 /// - The lower region stacks full-width sections (active incidents, monitor
 ///   snippet, AI inbox). The React source places the AI inbox in a narrow `1/3`
-///   right column, but the in-repo [AiInboxItem] (built in an earlier step,
-///   outside this step's edit scope) renders its header / action rows with raw
-///   Flutter `Row`s that overflow below ~640px logical width. A 2:1 desktop
-///   split of the shared `max-w-6xl` page leaves the right column far below
-///   that floor, so the inbox is given the full content width here. The active
-///   incidents still widen to two columns at `sm:` (single-column base).
+///   right column (`lg:grid-cols-3`, content `lg:col-span-2`). That split is
+///   NOT reproduced here: at the shared `max-w-6xl` width a `1/3` column lands
+///   near ~234px, and the badge rows inside [IncidentCard]'s `StatusBadge` and
+///   the [AiInboxItem] header do not shrink below their content floor at that
+///   width (both components are outside this step's edit scope). The inbox and
+///   incidents therefore keep the full content width; the active incidents
+///   still widen to two columns at `sm:` (single-column base).
 ///
 /// It reads the fixtures DIRECTLY: this is a mock screen, so a plain
 /// [StatelessWidget] is intentional. The routed app shell wraps this content
@@ -73,23 +79,44 @@ class DashboardView extends StatelessWidget {
             title: trans('uptizm.dashboard.title'),
             subtitle: trans('uptizm.dashboard.description'),
           ),
+          const SizedBox(height: 24),
+
+          // 2. AI fleet-summary banner ("Right now"), matching the React source
+          //    placement between the header and the KPI row.
+          _buildFleetSummary(),
           const SizedBox(height: 32),
 
-          // 2. KPI summary row.
+          // 3. KPI summary row.
           _buildKpiRow(),
           const SizedBox(height: 32),
 
-          // 3. Active incidents.
+          // 4. Active incidents.
           _buildActiveIncidents(),
           const SizedBox(height: 32),
 
-          // 4. Monitor snippet.
+          // 5. Monitor snippet.
           _buildMonitorSnippet(),
           const SizedBox(height: 32),
 
-          // 5. AI inbox.
+          // 6. AI inbox.
           _buildAiInbox(),
         ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // AI fleet-summary banner
+  // ---------------------------------------------------------------------------
+
+  /// Builds the "Right now" AI fleet-summary banner shown above the KPI row.
+  Widget _buildFleetSummary() {
+    return AiInsight(
+      tone: 'banner',
+      label: trans('uptizm.ai.right_now_label'),
+      child: WText(
+        trans('uptizm.dashboard.ai_fleet_summary'),
+        className: 'text-sm text-fg-muted',
       ),
     );
   }
@@ -155,10 +182,6 @@ class DashboardView extends StatelessWidget {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Lower region: incidents + monitors (left), AI inbox (right)
-  // ---------------------------------------------------------------------------
-
   /// Builds the active-incidents section: a heading and a single-column base
   /// grid that widens to two columns at `sm:`.
   Widget _buildActiveIncidents() {
@@ -201,26 +224,35 @@ class DashboardView extends StatelessWidget {
 
   /// Builds the AI inbox section: heading + pending count, a subtitle, then the
   /// suggestion list (or an [EmptyState] when the inbox is clear).
-  ///
-  /// The list scaffold is a plain Flutter [Column] (not a Wind flex column) so
-  /// each [AiInboxItem] receives a bounded full-width constraint from the page,
-  /// the width its raw header / action rows need to lay out without overflow.
   Widget _buildAiInbox() {
     final List<IncidentSummary> suggestions = _aiSuggestions;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Heading row: section title + pending count.
+        // 1. Heading row: section title on the left; pending count + the
+        //    "Weekly digest" link on the right (React `justify-between`).
         WDiv(
           className: 'flex flex-row items-center justify-between gap-3',
           children: [
             _sectionHeading(trans('uptizm.dashboard.section_ai_inbox')),
-            WText(
-              trans('uptizm.dashboard.ai_inbox_pending', {
-                'count': '${suggestions.length}',
-              }),
-              className: 'font-mono text-xs tabular-nums text-fg-muted',
+            WDiv(
+              className: 'flex flex-row items-center gap-3',
+              children: [
+                WText(
+                  trans('uptizm.dashboard.ai_inbox_pending', {
+                    'count': '${suggestions.length}',
+                  }),
+                  className: 'font-mono text-xs tabular-nums text-fg-muted',
+                ),
+                WButton(
+                  onTap: () => MagicRoute.to('/incidents/digest'),
+                  child: WText(
+                    trans('uptizm.dashboard.ai_inbox_weekly_digest'),
+                    className: 'text-xs text-primary',
+                  ),
+                ),
+              ],
             ),
           ],
         ),

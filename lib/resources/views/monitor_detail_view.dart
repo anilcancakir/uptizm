@@ -305,11 +305,14 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     final List<MetricDatum>? series = _responseSeriesFor(monitor);
 
     if (series != null) {
+      // The Overview response chart mirrors the React source (`MonitorDetailPage`
+      // line 256): series + unit + anomalies, but no AI expected-range band. The
+      // band belongs to the deeper per-metric history view, which on the Metrics
+      // tab does draw it.
       return MetricChart(
         data: series,
         series: _responseSeriesDescriptors,
         unit: 'ms',
-        band: 'band',
         anomalies: apiResponseAnomalies,
       );
     }
