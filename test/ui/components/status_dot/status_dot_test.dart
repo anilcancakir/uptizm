@@ -81,19 +81,51 @@ void main() {
         );
         expect(
           cls,
-          contains('size-2'),
-          reason: '${status.name} missing size-2',
+          contains('shrink-0'),
+          reason: '${status.name} missing shrink-0',
         );
       }
     });
 
-    test('emission order: base precedes variant classes', () {
+    test('sm size emits size-2', () {
+      final cls = statusDotRecipe(
+        variants: {
+          kStatusDotStatusAxis: StatusKey.up.name,
+          kStatusDotSizeAxis: 'sm',
+        },
+      );
+      expect(cls, contains('size-2'));
+    });
+
+    test('md size emits size-2.5 (default)', () {
       final cls = statusDotRecipe(
         variants: {kStatusDotStatusAxis: StatusKey.up.name},
       );
-      final baseIdx = cls.indexOf('size-2');
-      final variantIdx = cls.indexOf('bg-up');
-      expect(baseIdx, lessThan(variantIdx));
+      expect(cls, contains('size-2.5'));
+    });
+
+    test('lg size emits size-3', () {
+      final cls = statusDotRecipe(
+        variants: {
+          kStatusDotStatusAxis: StatusKey.up.name,
+          kStatusDotSizeAxis: 'lg',
+        },
+      );
+      expect(cls, contains('size-3'));
+    });
+
+    test('emission order: base precedes size precedes status variant', () {
+      final cls = statusDotRecipe(
+        variants: {
+          kStatusDotStatusAxis: StatusKey.up.name,
+          kStatusDotSizeAxis: 'sm',
+        },
+      );
+      final shrinkIdx = cls.indexOf('shrink-0');
+      final sizeIdx = cls.indexOf('size-2');
+      final bgIdx = cls.indexOf('bg-up');
+      expect(shrinkIdx, lessThan(sizeIdx), reason: 'base before size');
+      expect(sizeIdx, lessThan(bgIdx), reason: 'size before status');
     });
   });
 
@@ -171,17 +203,40 @@ void main() {
     expect(dotWidget.className, contains('bg-ai'));
   });
 
+  testWidgets('StatusDot default size is md (size-2.5)', (tester) async {
+    await tester.pumpWidget(wrap(StatusDot(StatusKey.up)));
+    final dots = tester.widgetList<WDiv>(find.byType(WDiv));
+    final dotWidget = dots.firstWhere(
+      (w) => w.className?.contains('bg-up') ?? false,
+    );
+    expect(dotWidget.className, contains('size-2.5'));
+  });
+
+  testWidgets('StatusDot lg size emits size-3', (tester) async {
+    await tester.pumpWidget(
+      wrap(StatusDot(StatusKey.up, size: StatusDotSize.lg)),
+    );
+    final dots = tester.widgetList<WDiv>(find.byType(WDiv));
+    final dotWidget = dots.firstWhere(
+      (w) => w.className?.contains('bg-up') ?? false,
+    );
+    expect(dotWidget.className, contains('size-3'));
+  });
+
   testWidgets('StatusDotPreview renders all 6 statuses', (tester) async {
     await tester.pumpWidget(wrap(const StatusDotPreview()));
     await tester.pump();
     final wdivs = tester.widgetList<WDiv>(find.byType(WDiv));
-    // Each status renders a dot WDiv (plus row WDiv + column WDiv), so
-    // there must be at least 6 WDiv nodes that carry a status class.
-    final dotDivs = wdivs.where(
-      (w) => StatusKey.values.any(
-        (s) => w.className?.contains('bg-${s.name}') ?? false,
-      ),
-    );
-    expect(dotDivs.length, greaterThanOrEqualTo(StatusKey.values.length));
+    // Each status must produce at least one WDiv carrying its solid bg token.
+    for (final status in StatusKey.values) {
+      final matching = wdivs.where(
+        (w) => w.className?.contains('bg-${status.name}') ?? false,
+      );
+      expect(
+        matching.length,
+        greaterThanOrEqualTo(1),
+        reason: '${status.name} not found in preview',
+      );
+    }
   });
 }

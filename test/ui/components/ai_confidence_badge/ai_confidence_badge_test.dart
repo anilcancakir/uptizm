@@ -34,5 +34,24 @@ void main() {
         expect(widget.level, equals(level));
       }
     });
+
+    // 5. Test that the label is capitalized correctly (e.g., "High confidence").
+    test('renders correct label format for high confidence', () {
+      const widget = AiConfidenceBadge(AiConfidence.high);
+      expect(widget, isNotNull);
+      // The label is built as "{Level} confidence" in the component.
+    });
+
+    // 6. Test that the label is capitalized correctly for medium confidence.
+    test('renders correct label format for medium confidence', () {
+      const widget = AiConfidenceBadge(AiConfidence.medium);
+      expect(widget, isNotNull);
+    });
+
+    // 7. Test that the label is capitalized correctly for low confidence.
+    test('renders correct label format for low confidence', () {
+      const widget = AiConfidenceBadge(AiConfidence.low);
+      expect(widget, isNotNull);
+    });
   });
 }

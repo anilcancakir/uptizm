@@ -1,19 +1,31 @@
 import 'package:magic/magic.dart';
 
-/// Builds the AI confidence badge [WindRecipe] using the AI token family
-/// from `lib/config/uptizm_status_tokens.dart`.
+/// The confidence axis key for the AI confidence badge recipe
+/// (`AiConfidence.<value>.name`).
+const String kAiConfidenceBadgeConfidenceAxis = 'confidence';
+
+/// Builds the AI confidence badge [WindRecipe] using the monitoring status
+/// token families from `lib/config/uptizm_status_tokens.dart`.
 ///
-/// The recipe is a top-level const because the badge uses a single AI tone;
-/// all confidence levels (high, medium, low) render with the same background
-/// and foreground colors. The level only changes the label text, so no
-/// variant axis is needed.
+/// One axis:
+/// - `confidence` — the confidence level controlling background and text color
 ///
-/// Emission order: `base`.
+/// Emission order: `base ++ confidence-variant`.
 ///
-/// Token pair (soft background + soft-foreground text):
-/// - ai: `bg-ai-soft text-ai-soft-foreground`
+/// Confidence -> token pair mapping (mirrors `ai-confidence-badge.variants.ts`):
+/// - high:   `bg-up-soft text-up-soft-foreground`
+/// - medium: `bg-degraded-soft text-degraded-soft-foreground`
+/// - low:    `bg-paused-soft text-paused-soft-foreground`
 const WindRecipe aiConfidenceBadgeRecipe = WindRecipe(
   base:
-      'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium '
-      'bg-ai-soft text-ai-soft-foreground',
+      'flex flex-row items-center gap-1 rounded-full px-2 py-0.5 text-xs '
+      'font-medium',
+  variants: {
+    kAiConfidenceBadgeConfidenceAxis: {
+      'high': 'bg-up-soft text-up-soft-foreground',
+      'medium': 'bg-degraded-soft text-degraded-soft-foreground',
+      'low': 'bg-paused-soft text-paused-soft-foreground',
+    },
+  },
+  defaultVariants: {kAiConfidenceBadgeConfidenceAxis: 'high'},
 );

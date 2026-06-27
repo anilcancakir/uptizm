@@ -10,7 +10,7 @@ const String kUptimeBarStatusAxis = 'status';
 ///
 /// Slots:
 /// - `track` — the outer full-width row that lays out the segment list.
-/// - `segment` — each individual colored bucket segment.
+/// - `segment` — each individual colored bucket segment (`rounded-[2px]`, matches React original).
 /// - `label` — the trailing uptime percentage label (tabular-nums, Geist Mono).
 ///
 /// Variants:
@@ -30,7 +30,7 @@ Map<String, String> uptimeBarRecipe({
   const recipe = WindSlotRecipe(
     slots: {
       'track': 'flex flex-row w-full items-stretch gap-[1px]',
-      'segment': 'flex-1 min-w-0 rounded-sm',
+      'segment': 'flex-1 min-w-0 rounded-[2px]',
       'label': 'tabular-nums font-mono text-xs text-fg-muted',
     },
     variants: {

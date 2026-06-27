@@ -88,18 +88,21 @@ void main() {
       expect(classes['label'], contains('tabular-nums'));
     });
 
-    test('segment slot has rounded-sm base class', () {
-      for (final status in StatusKey.values) {
-        final classes = uptimeBarRecipe(
-          variants: {kUptimeBarStatusAxis: status.name},
-        );
-        expect(
-          classes['segment'],
-          contains('rounded-sm'),
-          reason: '${status.name} segment missing rounded-sm',
-        );
-      }
-    });
+    test(
+      'segment slot has rounded-[2px] base class (matches React original)',
+      () {
+        for (final status in StatusKey.values) {
+          final classes = uptimeBarRecipe(
+            variants: {kUptimeBarStatusAxis: status.name},
+          );
+          expect(
+            classes['segment'],
+            contains('rounded-[2px]'),
+            reason: '${status.name} segment missing rounded-[2px]',
+          );
+        }
+      },
+    );
   });
 
   group('uptimeBarSegmentClassName', () {

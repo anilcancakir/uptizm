@@ -18,88 +18,128 @@ void main() {
   }
 
   // ---------------------------------------------------------------------------
-  // Recipe variant-class assertions
+  // Recipe variant-class assertions (WindSlotRecipe returns Map<String, String>)
   // ---------------------------------------------------------------------------
 
   group('statusBadgeRecipe', () {
-    test('up status emits bg-up-soft token', () {
-      final cls = statusBadgeRecipe(
+    test('up status emits bg-up-soft token on root slot', () {
+      final classes = statusBadgeRecipe(
         variants: {kStatusBadgeStatusAxis: StatusKey.up.name},
       );
-      expect(cls, contains('bg-up-soft'));
-      expect(cls, contains('text-up-soft-foreground'));
+      expect(classes['root'], contains('bg-up-soft'));
+      expect(classes['root'], contains('text-up-soft-foreground'));
+      expect(classes['dot'], contains('bg-up'));
     });
 
     test('down status emits bg-down-soft token', () {
-      final cls = statusBadgeRecipe(
+      final classes = statusBadgeRecipe(
         variants: {kStatusBadgeStatusAxis: StatusKey.down.name},
       );
-      expect(cls, contains('bg-down-soft'));
-      expect(cls, contains('text-down-soft-foreground'));
+      expect(classes['root'], contains('bg-down-soft'));
+      expect(classes['root'], contains('text-down-soft-foreground'));
+      expect(classes['dot'], contains('bg-down'));
     });
 
     test('degraded status emits bg-degraded-soft token', () {
-      final cls = statusBadgeRecipe(
+      final classes = statusBadgeRecipe(
         variants: {kStatusBadgeStatusAxis: StatusKey.degraded.name},
       );
-      expect(cls, contains('bg-degraded-soft'));
-      expect(cls, contains('text-degraded-soft-foreground'));
+      expect(classes['root'], contains('bg-degraded-soft'));
+      expect(classes['root'], contains('text-degraded-soft-foreground'));
     });
 
     test('paused status emits bg-paused-soft token', () {
-      final cls = statusBadgeRecipe(
+      final classes = statusBadgeRecipe(
         variants: {kStatusBadgeStatusAxis: StatusKey.paused.name},
       );
-      expect(cls, contains('bg-paused-soft'));
-      expect(cls, contains('text-paused-soft-foreground'));
+      expect(classes['root'], contains('bg-paused-soft'));
+      expect(classes['root'], contains('text-paused-soft-foreground'));
     });
 
     test('info status emits bg-info-soft token', () {
-      final cls = statusBadgeRecipe(
+      final classes = statusBadgeRecipe(
         variants: {kStatusBadgeStatusAxis: StatusKey.info.name},
       );
-      expect(cls, contains('bg-info-soft'));
-      expect(cls, contains('text-info-soft-foreground'));
+      expect(classes['root'], contains('bg-info-soft'));
+      expect(classes['root'], contains('text-info-soft-foreground'));
     });
 
     test('ai status emits bg-ai-soft token', () {
-      final cls = statusBadgeRecipe(
+      final classes = statusBadgeRecipe(
         variants: {kStatusBadgeStatusAxis: StatusKey.ai.name},
       );
-      expect(cls, contains('bg-ai-soft'));
-      expect(cls, contains('text-ai-soft-foreground'));
+      expect(classes['root'], contains('bg-ai-soft'));
+      expect(classes['root'], contains('text-ai-soft-foreground'));
     });
 
     test('default variant produces up status when nothing is passed', () {
-      final cls = statusBadgeRecipe();
-      expect(cls, contains('bg-up-soft'));
+      final classes = statusBadgeRecipe();
+      expect(classes['root'], contains('bg-up-soft'));
+      expect(classes['dot'], contains('bg-up'));
     });
 
     test('base classes are present on every status', () {
       for (final status in StatusKey.values) {
-        final cls = statusBadgeRecipe(
+        final classes = statusBadgeRecipe(
           variants: {kStatusBadgeStatusAxis: status.name},
         );
         expect(
-          cls,
+          classes['root'],
           contains('rounded-full'),
-          reason: '${status.name} missing rounded-full',
+          reason: '${status.name} root missing rounded-full',
         );
         expect(
-          cls,
-          contains('inline-flex'),
-          reason: '${status.name} missing inline-flex',
+          classes['root'],
+          contains('flex'),
+          reason: '${status.name} root missing flex',
+        );
+        expect(
+          classes['dot'],
+          contains('rounded-full'),
+          reason: '${status.name} dot missing rounded-full',
         );
       }
     });
 
-    test('emission order: base precedes variant classes', () {
-      final cls = statusBadgeRecipe(
-        variants: {kStatusBadgeStatusAxis: StatusKey.up.name},
+    test('sm size emits correct geometry', () {
+      final classes = statusBadgeRecipe(
+        variants: {
+          kStatusBadgeStatusAxis: StatusKey.up.name,
+          kStatusBadgeSizeAxis: 'sm',
+        },
       );
-      final baseIdx = cls.indexOf('inline-flex');
-      final variantIdx = cls.indexOf('bg-up-soft');
-      expect(baseIdx, lessThan(variantIdx));
+      expect(classes['root'], contains('px-2'));
+      expect(classes['root'], contains('py-0.5'));
+      expect(classes['root'], contains('text-xs'));
+      expect(classes['dot'], contains('size-1.5'));
+    });
+
+    test('md size emits correct geometry', () {
+      final classes = statusBadgeRecipe(
+        variants: {
+          kStatusBadgeStatusAxis: StatusKey.up.name,
+          kStatusBadgeSizeAxis: 'md',
+        },
+      );
+      expect(classes['root'], contains('px-2.5'));
+      expect(classes['root'], contains('py-1'));
+      expect(classes['root'], contains('text-sm'));
+      expect(classes['dot'], contains('size-2'));
+    });
+
+    test('emission order: base precedes size precedes status variant', () {
+      final classes = statusBadgeRecipe(
+        variants: {
+          kStatusBadgeStatusAxis: StatusKey.up.name,
+          kStatusBadgeSizeAxis: 'sm',
+        },
+      );
+      final root = classes['root']!;
+      final flexIdx = root.indexOf('flex');
+      final pxIdx = root.indexOf('px-2');
+      final bgIdx = root.indexOf('bg-up-soft');
+      expect(flexIdx, lessThan(pxIdx), reason: 'base before size');
+      expect(pxIdx, lessThan(bgIdx), reason: 'size before status');
     });
   });
 
@@ -113,63 +153,130 @@ void main() {
     for (final status in StatusKey.values) {
       await tester.pumpWidget(wrap(StatusBadge(status)));
       expect(
-        find.byType(WBadge),
-        findsOneWidget,
-        reason: '${status.name} did not render a WBadge',
+        find.byType(WDiv),
+        findsWidgets,
+        reason: '${status.name} did not render',
       );
     }
   });
 
-  testWidgets('StatusBadge(up) applies bg-up-soft className', (tester) async {
+  testWidgets('StatusBadge(up) root WDiv carries bg-up-soft className', (
+    tester,
+  ) async {
     await tester.pumpWidget(wrap(StatusBadge(StatusKey.up)));
-    final badge = tester.widget<WBadge>(find.byType(WBadge));
-    expect(badge.className, contains('bg-up-soft'));
-    expect(badge.className, contains('text-up-soft-foreground'));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    final root = divs.firstWhere(
+      (w) => w.className?.contains('bg-up-soft') ?? false,
+    );
+    expect(root.className, contains('bg-up-soft'));
+    expect(root.className, contains('text-up-soft-foreground'));
   });
 
-  testWidgets('StatusBadge(down) applies bg-down-soft className', (
+  testWidgets('StatusBadge(down) root WDiv carries bg-down-soft className', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(StatusBadge(StatusKey.down)));
-    final badge = tester.widget<WBadge>(find.byType(WBadge));
-    expect(badge.className, contains('bg-down-soft'));
-    expect(badge.className, contains('text-down-soft-foreground'));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    final root = divs.firstWhere(
+      (w) => w.className?.contains('bg-down-soft') ?? false,
+    );
+    expect(root.className, contains('bg-down-soft'));
+    expect(root.className, contains('text-down-soft-foreground'));
   });
 
-  testWidgets('StatusBadge(degraded) applies bg-degraded-soft className', (
+  testWidgets('StatusBadge(degraded) root WDiv carries bg-degraded-soft', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(StatusBadge(StatusKey.degraded)));
-    final badge = tester.widget<WBadge>(find.byType(WBadge));
-    expect(badge.className, contains('bg-degraded-soft'));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    final root = divs.firstWhere(
+      (w) => w.className?.contains('bg-degraded-soft') ?? false,
+    );
+    expect(root.className, contains('bg-degraded-soft'));
   });
 
-  testWidgets('StatusBadge(paused) applies bg-paused-soft className', (
+  testWidgets('StatusBadge(paused) root WDiv carries bg-paused-soft', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(StatusBadge(StatusKey.paused)));
-    final badge = tester.widget<WBadge>(find.byType(WBadge));
-    expect(badge.className, contains('bg-paused-soft'));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    final root = divs.firstWhere(
+      (w) => w.className?.contains('bg-paused-soft') ?? false,
+    );
+    expect(root.className, contains('bg-paused-soft'));
   });
 
-  testWidgets('StatusBadge(info) applies bg-info-soft className', (
+  testWidgets('StatusBadge(info) root WDiv carries bg-info-soft', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(StatusBadge(StatusKey.info)));
-    final badge = tester.widget<WBadge>(find.byType(WBadge));
-    expect(badge.className, contains('bg-info-soft'));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    final root = divs.firstWhere(
+      (w) => w.className?.contains('bg-info-soft') ?? false,
+    );
+    expect(root.className, contains('bg-info-soft'));
   });
 
-  testWidgets('StatusBadge(ai) applies bg-ai-soft className', (tester) async {
+  testWidgets('StatusBadge(ai) root WDiv carries bg-ai-soft', (tester) async {
     await tester.pumpWidget(wrap(StatusBadge(StatusKey.ai)));
-    final badge = tester.widget<WBadge>(find.byType(WBadge));
-    expect(badge.className, contains('bg-ai-soft'));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    final root = divs.firstWhere(
+      (w) => w.className?.contains('bg-ai-soft') ?? false,
+    );
+    expect(root.className, contains('bg-ai-soft'));
+  });
+
+  testWidgets('StatusBadge showDot=true renders a dot WDiv', (tester) async {
+    await tester.pumpWidget(wrap(StatusBadge(StatusKey.up)));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    // The dot carries rounded-full and bg-up.
+    final dot = divs.firstWhere(
+      (w) =>
+          (w.className?.contains('bg-up') ?? false) &&
+          (w.className?.contains('rounded-full') ?? false),
+    );
+    expect(dot, isNotNull);
+  });
+
+  testWidgets('StatusBadge showDot=false omits the dot WDiv', (tester) async {
+    await tester.pumpWidget(wrap(StatusBadge(StatusKey.up, showDot: false)));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    // No WDiv should carry the solid bg-up dot token.
+    final dots = divs.where(
+      (w) =>
+          (w.className?.contains('size-1.5') ?? false) ||
+          (w.className?.contains('size-2') ?? false) &&
+              (w.className?.contains('rounded-full') ?? false) &&
+              (w.className?.contains('bg-up') ?? false),
+    );
+    expect(dots.length, 0);
+  });
+
+  testWidgets('StatusBadge md size emits px-2.5 on root', (tester) async {
+    await tester.pumpWidget(
+      wrap(StatusBadge(StatusKey.up, size: StatusBadgeSize.md)),
+    );
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    final root = divs.firstWhere(
+      (w) => w.className?.contains('bg-up-soft') ?? false,
+    );
+    expect(root.className, contains('px-2.5'));
   });
 
   testWidgets('StatusBadgePreview renders all 6 statuses', (tester) async {
     await tester.pumpWidget(wrap(const StatusBadgePreview()));
     await tester.pump();
-    final badges = tester.widgetList<WBadge>(find.byType(WBadge));
-    expect(badges.length, greaterThanOrEqualTo(StatusKey.values.length));
+    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+    // Each status must produce at least one WDiv carrying its soft bg token.
+    for (final status in StatusKey.values) {
+      final matching = divs.where(
+        (w) => w.className?.contains('bg-${status.name}-soft') ?? false,
+      );
+      expect(
+        matching.length,
+        greaterThanOrEqualTo(1),
+        reason: '${status.name} not found in preview',
+      );
+    }
   });
 }

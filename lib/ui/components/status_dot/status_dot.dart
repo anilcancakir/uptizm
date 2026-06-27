@@ -4,6 +4,18 @@ import 'package:magic/magic.dart';
 import '../../../app/mocks/status.dart';
 import 'status_dot.recipe.dart';
 
+/// Dot size; maps to the `size` axis of [statusDotRecipe].
+enum StatusDotSize {
+  /// Compact: `size-2`.
+  sm,
+
+  /// Standard: `size-2.5`.
+  md,
+
+  /// Prominent: `size-3`.
+  lg,
+}
+
 /// A small solid circle visualizing a monitoring [StatusKey].
 ///
 /// Uses [statusDotRecipe] to emit the solid token color for each status;
@@ -11,9 +23,11 @@ import 'status_dot.recipe.dart';
 /// compact companion to [StatusBadge] for tight rows such as monitor lists
 /// and metric bands where a full badge is too heavy.
 ///
+/// ### Example Usage:
+///
 /// ```dart
 /// StatusDot(StatusKey.up)
-/// StatusDot(StatusKey.down)
+/// StatusDot(StatusKey.down, size: StatusDotSize.lg)
 /// StatusDot(StatusKey.degraded)
 /// ```
 @immutable
@@ -21,12 +35,20 @@ class StatusDot extends StatelessWidget {
   /// The monitoring status controlling the dot color.
   final StatusKey status;
 
-  /// Creates a [StatusDot] for the given [status].
-  const StatusDot(this.status, {super.key});
+  /// Dot size variant. Defaults to [StatusDotSize.md].
+  final StatusDotSize size;
 
-  /// Resolves the className from the recipe for the current [status].
+  /// Creates a [StatusDot] for the given [status].
+  const StatusDot(this.status, {super.key, this.size = StatusDotSize.md});
+
+  /// Resolves the className from the recipe for the current [status] and [size].
   String _resolveClassName() {
-    return statusDotRecipe(variants: {kStatusDotStatusAxis: status.name});
+    return statusDotRecipe(
+      variants: {
+        kStatusDotStatusAxis: status.name,
+        kStatusDotSizeAxis: size.name,
+      },
+    );
   }
 
   @override

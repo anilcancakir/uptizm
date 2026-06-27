@@ -3,33 +3,59 @@ import 'package:magic/magic.dart';
 /// The status axis key for the status badge recipe (`StatusKey.<value>.name`).
 const String kStatusBadgeStatusAxis = 'status';
 
-/// Builds the status badge [WindRecipe] using the monitoring status token
+/// The size axis key for the status badge recipe (`StatusBadgeSize.<value>.name`).
+const String kStatusBadgeSizeAxis = 'size';
+
+/// Builds the status badge [WindSlotRecipe] using the monitoring status token
 /// families from `lib/config/uptizm_status_tokens.dart`.
 ///
-/// The recipe is a top-level const because the badge has no theme-override
-/// hook; statuses read straight from the supplement alias map merged in
-/// `lib/main.dart`.
+/// Two slots:
+/// - `root` — the pill container (soft background + text + layout)
+/// - `dot` — the leading solid circle (solid status color)
 ///
-/// Emission order: `base ++ status-variant`.
+/// Emission order per slot: `base ++ size-variant ++ status-variant`.
 ///
-/// Status -> token pair mapping (soft background + soft-foreground text):
-/// - up:       `bg-up-soft text-up-soft-foreground`
-/// - down:     `bg-down-soft text-down-soft-foreground`
-/// - degraded: `bg-degraded-soft text-degraded-soft-foreground`
-/// - paused:   `bg-paused-soft text-paused-soft-foreground`
-/// - info:     `bg-info-soft text-info-soft-foreground`
-/// - ai:       `bg-ai-soft text-ai-soft-foreground`
-const WindRecipe statusBadgeRecipe = WindRecipe(
-  base: 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+/// Status -> token pair mapping:
+/// - up:       root `bg-up-soft text-up-soft-foreground`,  dot `bg-up`
+/// - down:     root `bg-down-soft text-down-soft-foreground`, dot `bg-down`
+/// - degraded: root `bg-degraded-soft text-degraded-soft-foreground`, dot `bg-degraded`
+/// - paused:   root `bg-paused-soft text-paused-soft-foreground`, dot `bg-paused`
+/// - info:     root `bg-info-soft text-info-soft-foreground`, dot `bg-info`
+/// - ai:       root `bg-ai-soft text-ai-soft-foreground`, dot `bg-ai`
+///
+/// Size -> geometry mapping (mirrors `status-badge.variants.ts`):
+/// - sm: root `gap-1.5 px-2 py-0.5 text-xs`, dot `size-1.5`
+/// - md: root `gap-2 px-2.5 py-1 text-sm`, dot `size-2`
+const WindSlotRecipe statusBadgeRecipe = WindSlotRecipe(
+  slots: {
+    'root': 'flex flex-row items-center rounded-full font-medium',
+    'dot': 'shrink-0 rounded-full',
+  },
   variants: {
+    kStatusBadgeSizeAxis: {
+      'sm': {'root': 'gap-1.5 px-2 py-0.5 text-xs', 'dot': 'size-1.5'},
+      'md': {'root': 'gap-2 px-2.5 py-1 text-sm', 'dot': 'size-2'},
+    },
     kStatusBadgeStatusAxis: {
-      'up': 'bg-up-soft text-up-soft-foreground',
-      'down': 'bg-down-soft text-down-soft-foreground',
-      'degraded': 'bg-degraded-soft text-degraded-soft-foreground',
-      'paused': 'bg-paused-soft text-paused-soft-foreground',
-      'info': 'bg-info-soft text-info-soft-foreground',
-      'ai': 'bg-ai-soft text-ai-soft-foreground',
+      'up': {'root': 'bg-up-soft text-up-soft-foreground', 'dot': 'bg-up'},
+      'down': {
+        'root': 'bg-down-soft text-down-soft-foreground',
+        'dot': 'bg-down',
+      },
+      'degraded': {
+        'root': 'bg-degraded-soft text-degraded-soft-foreground',
+        'dot': 'bg-degraded',
+      },
+      'paused': {
+        'root': 'bg-paused-soft text-paused-soft-foreground',
+        'dot': 'bg-paused',
+      },
+      'info': {
+        'root': 'bg-info-soft text-info-soft-foreground',
+        'dot': 'bg-info',
+      },
+      'ai': {'root': 'bg-ai-soft text-ai-soft-foreground', 'dot': 'bg-ai'},
     },
   },
-  defaultVariants: {kStatusBadgeStatusAxis: 'up'},
+  defaultVariants: {kStatusBadgeStatusAxis: 'up', kStatusBadgeSizeAxis: 'sm'},
 );
