@@ -7,11 +7,31 @@ import 'package:uptizm/ui/components/notification_center/index.dart';
 import 'package:uptizm/ui/components/notification_center/notification_center.preview.dart';
 import 'package:uptizm/ui/components/status_dot/index.dart';
 
+/// In-memory loader feeding the panel's fixed labels so [trans] resolves the
+/// real English strings instead of falling back to the raw key. This mirrors
+/// production, where the bundled `assets/lang/en.json` is loaded.
+class _NotificationLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    // The Translator caches whatever the loader returns verbatim; flattening
+    // is the loader's job (see JsonAssetLoader), so the keys are pre-flattened.
+    return {
+      'notifications.title': 'Notifications',
+      'notifications.mark_all_read': 'Mark all as read',
+      'notifications.settings': 'Notification Settings',
+      'notifications.empty': 'No notifications',
+    };
+  }
+}
+
 void main() {
-  setUp(() {
+  setUp(() async {
     MagicApp.reset();
     Magic.flush();
     Magic.singleton('magic_starter', () => MagicStarterManager());
+
+    Translator.instance.setLoader(_NotificationLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
   });
 
   tearDown(() {
@@ -67,12 +87,13 @@ void main() {
   // Widget tests
   // ---------------------------------------------------------------------------
 
-  testWidgets('renders the panel header label', (tester) async {
+  testWidgets('renders the localized panel header label', (tester) async {
     await tester.pumpWidget(wrap(const NotificationCenter()));
 
+    final label = trans('notifications.title');
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
     expect(
-      texts.any((w) => w.data == 'Notifications'),
+      texts.any((w) => w.data == label),
       isTrue,
       reason: 'header label not found',
     );
@@ -97,21 +118,21 @@ void main() {
     expect(find.byType(StatusDot), findsNWidgets(kSampleNotifications.length));
   });
 
-  testWidgets('shows "Mark all read" while unread items remain', (
+  testWidgets('shows the mark-all-read action while unread items remain', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(const NotificationCenter()));
 
-    expect(find.text('Mark all read'), findsOneWidget);
+    expect(find.text(trans('notifications.mark_all_read')), findsOneWidget);
   });
 
-  testWidgets('"Mark all read" clears the unread action', (tester) async {
+  testWidgets('mark-all-read clears the unread action', (tester) async {
     await tester.pumpWidget(wrap(const NotificationCenter()));
 
-    await tester.tap(find.text('Mark all read'));
+    await tester.tap(find.text(trans('notifications.mark_all_read')));
     await tester.pump();
 
-    expect(find.text('Mark all read'), findsNothing);
+    expect(find.text(trans('notifications.mark_all_read')), findsNothing);
   });
 
   testWidgets('tapping a row fires onItemTap then onClose', (tester) async {
@@ -147,11 +168,26 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Notification settings'));
+    await tester.tap(find.text(trans('notifications.settings')));
     await tester.pump();
 
     expect(settings, isTrue);
     expect(closed, isTrue);
+  });
+
+  testWidgets('renders the empty state when the feed has no items', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const NotificationCenter(items: [])));
+
+    expect(find.text(trans('notifications.empty')), findsOneWidget);
+    expect(find.byType(StatusDot), findsNothing);
+  });
+
+  testWidgets('every sample item carries a route target', (tester) async {
+    for (final item in kSampleNotifications) {
+      expect(item.to, isNotEmpty, reason: '"${item.title}" is missing a route');
+    }
   });
 
   testWidgets('preview renders without error', (tester) async {

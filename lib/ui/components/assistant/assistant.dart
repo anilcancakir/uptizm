@@ -132,13 +132,15 @@ class _AssistantState extends State<Assistant> {
   }
 
   /// The collapsed FAB: a circular `ai`-toned button with press feedback and
-  /// Material elevation (PORTING.md §6 / §7).
+  /// Material elevation (PORTING.md §6 / §7). The sparkle glyph reads at 24px,
+  /// matching the design lab `size-6` icon.
   Widget _buildFab() {
     return Material(
       type: MaterialType.transparency,
       elevation: 6,
       child: WButton(
         onTap: () => setState(() => _open = true),
+        semanticLabel: 'Open Uptizm AI',
         className: assistantFabRecipe(),
         child: WIcon(Icons.auto_awesome, className: 'text-[24px] text-on-ai'),
       ),
@@ -201,7 +203,7 @@ class _AssistantState extends State<Assistant> {
         WDiv(
           className: '''
             flex items-center justify-center size-8 shrink-0
-            rounded-md bg-ai-soft
+            rounded-lg bg-ai-soft
           ''',
           child: WIcon(Icons.auto_awesome, className: 'text-[20px] text-ai'),
         ),
@@ -219,10 +221,11 @@ class _AssistantState extends State<Assistant> {
         ),
         WAnchor(
           onTap: () => setState(() => _open = false),
+          semanticLabel: 'Close assistant',
           child: WDiv(
             className: '''
               flex items-center justify-center size-8 shrink-0
-              rounded-md text-fg-muted hover:bg-surface-container
+              rounded-md text-fg-muted
             ''',
             child: WIcon(Icons.close, className: 'text-[18px] text-fg-muted'),
           ),
@@ -246,27 +249,49 @@ class _AssistantState extends State<Assistant> {
     );
   }
 
-  /// A single chat bubble aligned by role.
+  /// A single chat-message row, aligned and tinted by role.
   ///
-  /// A Flutter [Row] drives the alignment and a [Flexible] caps the bubble so a
-  /// long reply wraps inside the surface instead of overflowing; a single-child
-  /// flex `WDiv` would not bound its child's width here.
+  /// Mirrors the design lab `row`: an assistant message leads with a small
+  /// `ai`-toned avatar then its bubble, left-aligned; a user message reverses
+  /// (`flex-row-reverse`) so its bubble sits on the trailing edge with no
+  /// avatar. A Flutter [Row] drives the alignment and a [Flexible] caps the
+  /// bubble so a long reply wraps inside the surface instead of overflowing; a
+  /// single-child flex `WDiv` would not bound its child's width here. The bubble
+  /// tone, geometry, and `max-w-[85%]` come from [assistantBubbleRecipe]; the
+  /// inner [WText] inherits the bubble's foreground color through the Wind text
+  /// cascade.
   Widget _buildBubble(AssistantMessage message) {
     final bool isUser = message.role == AssistantRole.user;
 
-    return Row(
-      mainAxisAlignment: isUser
-          ? MainAxisAlignment.end
-          : MainAxisAlignment.start,
-      children: [
-        Flexible(
-          child: WDiv(
-            className: assistantBubbleRecipe(
-              variants: {kAssistantRoleAxis: message.role.name},
-            ),
-            child: WText(message.text, className: 'text-sm'),
-          ),
+    final Widget bubble = Flexible(
+      child: WDiv(
+        className: assistantBubbleRecipe(
+          variants: {kAssistantRoleAxis: message.role.name},
         ),
+        child: WText(message.text),
+      ),
+    );
+
+    if (isUser) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [bubble],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        WDiv(
+          className: '''
+            flex items-center justify-center size-7 shrink-0
+            rounded-full bg-ai-soft
+          ''',
+          child: WIcon(Icons.auto_awesome, className: 'text-[16px] text-ai'),
+        ),
+        const SizedBox(width: 8),
+        bubble,
       ],
     );
   }
@@ -283,12 +308,13 @@ class _AssistantState extends State<Assistant> {
         for (final prompt in _quickPrompts)
           WAnchor(
             onTap: () => _send(prompt),
+            semanticLabel: prompt,
             child: WDiv(
               className: '''
                 rounded-full border border-color-border px-3 py-1.5
-                text-xs text-fg hover:bg-surface-container
+                text-xs text-fg
               ''',
-              child: WText(prompt, className: 'text-xs text-fg'),
+              child: WText(prompt, className: 'text-xs'),
             ),
           ),
       ],
@@ -316,6 +342,7 @@ class _AssistantState extends State<Assistant> {
         ),
         WButton(
           onTap: () => _send(_input.text),
+          semanticLabel: 'Send',
           className: '''
             flex items-center justify-center size-11 shrink-0
             rounded-lg bg-primary text-on-primary

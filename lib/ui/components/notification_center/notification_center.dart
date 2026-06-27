@@ -46,7 +46,7 @@ enum AppNotificationKind {
 /// A minimal, self-contained model for the mock: there is no notifications
 /// fixture in `lib/app/mocks/` yet, so the sample feed lives inline in
 /// [kSampleNotifications]. The shape mirrors the design lab's `AppNotification`
-/// (id, kind, title, detail, time, read).
+/// (id, kind, title, detail, time, to, read).
 @immutable
 class NotificationItem {
   /// Stable identity used to track read-state locally.
@@ -64,6 +64,10 @@ class NotificationItem {
   /// A human-readable relative timestamp (e.g. "14m ago").
   final String time;
 
+  /// The route this row links to (mirrors the design lab's `to`); the shell
+  /// navigates here after marking the item read.
+  final String to;
+
   /// Whether the item is already read in the seed data.
   final bool read;
 
@@ -74,6 +78,7 @@ class NotificationItem {
     required this.title,
     required this.detail,
     required this.time,
+    required this.to,
     this.read = false,
   });
 }
@@ -89,6 +94,7 @@ const List<NotificationItem> kSampleNotifications = [
     title: 'Checkout service is down',
     detail: '503s across all regions',
     time: '14m ago',
+    to: '/monitors/checkout',
   ),
   NotificationItem(
     id: 'n2',
@@ -96,6 +102,7 @@ const List<NotificationItem> kSampleNotifications = [
     title: 'AI flagged a latency anomaly',
     detail: 'API gateway · cpu_load climbing',
     time: '4m ago',
+    to: '/incidents/api-latency',
   ),
   NotificationItem(
     id: 'n3',
@@ -103,6 +110,7 @@ const List<NotificationItem> kSampleNotifications = [
     title: 'Incident opened',
     detail: 'Checkout service returning 503s',
     time: '14m ago',
+    to: '/incidents/checkout-503',
   ),
   NotificationItem(
     id: 'n4',
@@ -110,6 +118,7 @@ const List<NotificationItem> kSampleNotifications = [
     title: 'Incident resolved',
     detail: 'EU region packet loss',
     time: '2h ago',
+    to: '/incidents/eu-packet-loss',
     read: true,
   ),
   NotificationItem(
@@ -118,6 +127,7 @@ const List<NotificationItem> kSampleNotifications = [
     title: 'Docs recovered',
     detail: 'Latency back within its band',
     time: '5h ago',
+    to: '/incidents/docs-blip',
     read: true,
   ),
 ];
@@ -208,21 +218,25 @@ class _NotificationCenterState extends State<NotificationCenter> {
     // 1. Resolve the outer panel className from the recipe.
     final String panelClass = notificationCenterRecipe();
 
-    // 2. Build the panel: header, separator, rows, separator, footer.
+    // 2. Build the panel: header, separator, body (rows or empty state),
+    //    separator, footer. Mirrors the design lab's dropdown content order.
     return WDiv(
       className: panelClass,
       children: [
         _buildHeader(),
         _buildSeparator(),
-        for (final item in widget.items) _buildRow(item),
+        if (widget.items.isEmpty)
+          _buildEmptyState()
+        else
+          for (final item in widget.items) _buildRow(item),
         _buildSeparator(),
         _buildSettingsRow(),
       ],
     );
   }
 
-  /// Header: the "Notifications" label and a "Mark all read" action that is
-  /// only shown while unread items remain.
+  /// Header: the localized "Notifications" label and a "Mark all read" action
+  /// that is only shown while unread items remain.
   ///
   /// A Flutter [Row] drives the layout (an [Expanded] label that can truncate
   /// plus the trailing action) so the constraint behavior is deterministic; a
@@ -236,14 +250,17 @@ class _NotificationCenterState extends State<NotificationCenter> {
         children: [
           Expanded(
             child: WText(
-              'Notifications',
+              trans('notifications.title'),
               className: 'text-sm font-semibold text-fg truncate',
             ),
           ),
           if (hasUnread)
             WAnchor(
               onTap: _markAll,
-              child: WText('Mark all read', className: 'text-xs text-primary'),
+              child: WText(
+                trans('notifications.mark_all_read'),
+                className: 'text-xs text-primary',
+              ),
             ),
         ],
       ),
@@ -253,6 +270,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
   /// A single notification row: leading status dot, title / detail / time
   /// column, and an unread marker. The whole row is a [WAnchor] for press
   /// feedback (PORTING.md §7).
+  ///
+  /// The leading dot and the trailing unread marker are nudged down with
+  /// `mt-1.5` so they align with the first text line, mirroring the design
+  /// lab's `items-start gap-3` + `mt-1.5` row.
   Widget _buildRow(NotificationItem item) {
     final bool isRead = _readIds.contains(item.id);
 
@@ -264,7 +285,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Leading status dot, nudged to align with the first text line.
-            WDiv(className: 'pt-1.5 pr-3', child: StatusDot(item.kind.status)),
+            WDiv(
+              className: 'mt-1.5 mr-3',
+              child: StatusDot(item.kind.status, size: StatusDotSize.sm),
+            ),
 
             // Title / detail / time column; the detail truncates within it.
             Expanded(
@@ -301,6 +325,19 @@ class _NotificationCenterState extends State<NotificationCenter> {
     );
   }
 
+  /// The empty state shown when the feed has no items: a centered, muted
+  /// "No notifications" line. The design lab seeds a non-empty feed and so
+  /// never renders this, but the panel must read sensibly when empty.
+  Widget _buildEmptyState() {
+    return WDiv(
+      className: 'px-3 py-8 flex items-center justify-center',
+      child: WText(
+        trans('notifications.empty'),
+        className: 'text-sm text-fg-muted',
+      ),
+    );
+  }
+
   /// Footer row linking to the full notification settings page.
   Widget _buildSettingsRow() {
     return WAnchor(
@@ -310,7 +347,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
       },
       child: WDiv(
         className: 'px-3 py-2 hover:bg-surface-container',
-        child: WText('Notification settings', className: 'text-sm text-fg'),
+        child: WText(
+          trans('notifications.settings'),
+          className: 'text-sm text-fg',
+        ),
       ),
     );
   }

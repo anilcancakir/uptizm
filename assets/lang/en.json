@@ -466,7 +466,11 @@
       "right_now_label": "Right now",
       "ai_detected": "AI-detected",
       "similar_incidents": "Similar incidents",
-      "analysis_disclaimer": "AI analysis is advisory. Review the evidence before acting."
+      "analysis_disclaimer": "Uptizm AI reasons only from your monitoring checks and metrics; it can't see inside your app. Verify before acting.",
+      "analysis_title": "AI analysis",
+      "recommended_next_steps": "Recommended next steps",
+      "helpful": "Helpful",
+      "not_helpful": "Not helpful"
     },
     "common": {
       "save": "Save",

@@ -53,6 +53,23 @@ void main() {
       expect(cls, contains('bg-surface-container'));
       expect(cls, contains('text-fg'));
     });
+
+    test('base emits the design-lab bubble geometry', () {
+      final cls = assistantBubbleRecipe(
+        variants: {kAssistantRoleAxis: 'assistant'},
+      );
+      expect(cls, contains('rounded-2xl'));
+      expect(cls, contains('max-w-[85%]'));
+      expect(cls, contains('leading-relaxed'));
+    });
+  });
+
+  group('assistantSurfaceRecipe', () {
+    test('base emits the 2xl rounding and glass surface fallback', () {
+      final cls = assistantSurfaceRecipe();
+      expect(cls, contains('rounded-2xl'));
+      expect(cls, contains('bg-surface/95'));
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -75,6 +92,32 @@ void main() {
     expect(find.text('Uptizm AI'), findsOneWidget);
     // The greeting bubble is shown on open.
     expect(find.textContaining("Hi, I'm Uptizm AI"), findsOneWidget);
+  });
+
+  testWidgets('assistant messages lead with an ai-toned avatar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const Assistant()));
+    await tester.tap(find.byType(WButton));
+    await tester.pump();
+
+    // The header glyph plus the greeting's assistant avatar both render the
+    // sparkle; a user bubble would not, so the open surface shows exactly two.
+    expect(find.byIcon(Icons.auto_awesome), findsNWidgets(2));
+  });
+
+  testWidgets('a user message renders without an avatar', (tester) async {
+    await tester.pumpWidget(wrap(const Assistant()));
+    await tester.tap(find.byType(WButton));
+    await tester.pump();
+
+    await tester.tap(find.text('Which monitors are slow?'));
+    await tester.pump();
+
+    // Header glyph + greeting avatar + the canned reply's avatar = 3 sparkles;
+    // the user bubble between them contributes none (flex-row-reverse, no
+    // avatar), matching the design-lab row model.
+    expect(find.byIcon(Icons.auto_awesome), findsNWidgets(3));
   });
 
   testWidgets('quick-prompt chips appear before the first reply', (
