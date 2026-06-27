@@ -14,6 +14,7 @@ import '../ui/components/ai_inbox_item/ai_inbox_item.preview.dart';
 import '../ui/components/ai_insight/ai_insight.preview.dart';
 import '../ui/components/assistant/assistant.preview.dart';
 import '../ui/components/check_history_table/check_history_table.preview.dart';
+import '../ui/components/empty_state/empty_state.preview.dart';
 import '../ui/components/incident_card/incident_card.preview.dart';
 import '../ui/components/kpi_stat_card/kpi_stat_card.preview.dart';
 import '../ui/components/metric_chart/metric_chart.preview.dart';
@@ -59,6 +60,11 @@ List<PreviewEntry> previewEntries() {
       label: 'DashboardScreen',
       slug: 'dashboard_screen',
       builder: (_) => const DashboardScreenPreview(),
+    ),
+    PreviewEntry(
+      label: 'EmptyState',
+      slug: 'empty_state',
+      builder: (_) => const EmptyStatePreview(),
     ),
     PreviewEntry(
       label: 'Foundations',
