@@ -164,10 +164,19 @@ void main() {
     expect(find.byType(WButton), findsOneWidget);
   });
 
-  testWidgets('preview renders the FAB without error', (tester) async {
-    await tester.pumpWidget(wrap(const AssistantPreview()));
+  testWidgets('preview renders the embedded chat surface without error', (
+    tester,
+  ) async {
+    // The catalog page scrolls; the embedded surface is a fixed 560px tall, so
+    // give it a scrollable host (the 800x600 test viewport is shorter).
+    await tester.pumpWidget(
+      wrap(const SingleChildScrollView(child: AssistantPreview())),
+    );
     await tester.pump();
 
     expect(find.byType(Assistant), findsOneWidget);
+    // Embedded mode shows the open surface (header title) at rest, not the FAB.
+    expect(find.text('Uptizm AI'), findsOneWidget);
+    expect(find.textContaining("Hi, I'm Uptizm AI"), findsOneWidget);
   });
 }

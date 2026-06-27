@@ -72,19 +72,33 @@ const List<String> _quickPrompts = [
 /// const Assistant()
 /// ```
 class Assistant extends StatefulWidget {
-  /// Creates the floating [Assistant].
-  const Assistant({super.key});
+  /// When `true`, render the chat surface statically (no floating FAB, no
+  /// backdrop), sized like the design lab's `panelEmbedded` slot. The preview
+  /// catalog uses this so the open conversation is the resting affordance.
+  final bool embedded;
+
+  /// Seeds the conversation. When `null`, the surface opens with the single
+  /// [_greeting]. The preview passes the full design-lab seed so the embedded
+  /// surface shows a representative exchange.
+  final List<AssistantMessage>? initialMessages;
+
+  /// Creates the [Assistant]. Floating by default; pass `embedded: true` for
+  /// the static chat surface.
+  const Assistant({super.key, this.embedded = false, this.initialMessages});
 
   @override
   State<Assistant> createState() => _AssistantState();
 }
 
 class _AssistantState extends State<Assistant> {
-  /// Whether the assistant surface is open.
+  /// Whether the floating surface is open. Always shown in embedded mode.
   bool _open = false;
 
-  /// The running conversation, seeded with the greeting.
-  final List<AssistantMessage> _messages = [_greeting];
+  /// The running conversation, seeded from [Assistant.initialMessages] or the
+  /// greeting.
+  late final List<AssistantMessage> _messages = List.of(
+    widget.initialMessages ?? const [_greeting],
+  );
 
   /// The composer text controller.
   final TextEditingController _input = TextEditingController();
@@ -124,10 +138,38 @@ class _AssistantState extends State<Assistant> {
 
   @override
   Widget build(BuildContext context) {
-    // The FAB and the open surface live in a Stack so the surface can overlay
-    // the FAB; the shell mounts this whole widget in its own overlay slot.
+    // Embedded: render the chat surface statically, capped to the design lab's
+    // `max-w-sm` (384px) and `h-[560px]` so the message list scrolls inside it.
+    if (widget.embedded) {
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 384),
+        child: SizedBox(height: 560, child: _buildPanel(embedded: true)),
+      );
+    }
+
+    // Floating: the FAB and the open surface live in a Stack so the surface can
+    // overlay the FAB; the shell mounts this whole widget in its overlay slot.
     return Stack(
       children: [if (!_open) _buildFab(), if (_open) _buildSurface()],
+    );
+  }
+
+  /// The styled surface panel (header, list, chips, input bar), shared by the
+  /// floating overlay and the embedded preview. The `embedded` flag selects the
+  /// solid-vs-glass surface fill via [assistantSurfaceRecipe].
+  Widget _buildPanel({required bool embedded}) {
+    return WDiv(
+      className: assistantSurfaceRecipe(
+        variants: {
+          kAssistantSurfaceModeAxis: embedded ? 'embedded' : 'floating',
+        },
+      ),
+      children: [
+        _buildHeader(),
+        _buildList(),
+        if (_showChips) _buildChips(),
+        _buildInputBar(),
+      ],
     );
   }
 
@@ -175,15 +217,7 @@ class _AssistantState extends State<Assistant> {
                 constraints: BoxConstraints(
                   maxHeight: MediaQuery.sizeOf(context).height * 0.7,
                 ),
-                child: WDiv(
-                  className: assistantSurfaceRecipe(),
-                  children: [
-                    _buildHeader(),
-                    _buildList(),
-                    if (_showChips) _buildChips(),
-                    _buildInputBar(),
-                  ],
-                ),
+                child: _buildPanel(embedded: false),
               ),
             ),
           ),

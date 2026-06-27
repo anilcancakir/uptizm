@@ -3,6 +3,9 @@ import 'package:magic/magic.dart';
 /// The role axis key for the assistant message-bubble recipe.
 const String kAssistantRoleAxis = 'role';
 
+/// The surface-mode axis key for the assistant surface recipe.
+const String kAssistantSurfaceModeAxis = 'mode';
+
 /// Builds the assistant FAB [WindRecipe].
 ///
 /// The floating action button uses the `ai` token family: a solid `bg-ai`
@@ -20,17 +23,29 @@ const WindRecipe assistantFabRecipe = WindRecipe(
 
 /// Builds the assistant surface (panel) [WindRecipe].
 ///
-/// The opened assistant surface is a contained card with `2xl` rounding (the
-/// design lab's `rounded-2xl` panel) and a hairline border over a high-opacity
-/// surface fallback (`bg-surface/95`) so it stays legible when the [Assistant]
-/// composites it over a [BackdropFilter] blur (PORTING.md §4). All internal
-/// layout (header, list, chips, input bar) is applied inline in [Assistant].
+/// The assistant surface is a contained card with `2xl` rounding (the design
+/// lab's `rounded-2xl` panel) and a hairline border. Two modes:
 ///
-/// Emission order: `base`.
+/// - `floating` (default) — the overlay panel: a fixed-width card over a
+///   high-opacity surface fallback (`bg-surface/95`) so it stays legible when
+///   the [Assistant] composites it over a [BackdropFilter] blur (PORTING.md §4).
+/// - `embedded` — the static catalog/preview panel: full width (capped by a
+///   Flutter constraint to the design lab's `max-w-sm`) on a solid `bg-surface`,
+///   mirroring the React `panelEmbedded` slot. No blur sits behind it.
+///
+/// All internal layout (header, list, chips, input bar) is applied inline in
+/// [Assistant].
+///
+/// Emission order: `base ++ mode-variant`.
 const WindRecipe assistantSurfaceRecipe = WindRecipe(
-  base:
-      'flex flex-col w-80 max-w-full overflow-hidden rounded-2xl '
-      'bg-surface/95 border border-color-border',
+  base: 'flex flex-col overflow-hidden rounded-2xl border border-color-border',
+  variants: {
+    kAssistantSurfaceModeAxis: {
+      'floating': 'w-80 max-w-full bg-surface/95',
+      'embedded': 'w-full bg-surface',
+    },
+  },
+  defaultVariants: {kAssistantSurfaceModeAxis: 'floating'},
 );
 
 /// Builds the assistant chat-bubble [WindRecipe].
