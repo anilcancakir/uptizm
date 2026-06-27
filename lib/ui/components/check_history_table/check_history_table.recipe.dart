@@ -40,8 +40,12 @@ Map<String, String> checkHistoryTableRecipe({
   const recipe = WindSlotRecipe(
     slots: {
       'table': 'flex flex-col w-full',
-      'header': 'flex flex-row items-center border-b border-color-border',
-      'row': 'flex flex-row items-center border-b border-color-border',
+      // `w-full` forces each row to fill the table width: a Wind `flex flex-row`
+      // WDiv otherwise sizes to its content (mainAxisSize.min) and overflows a
+      // narrow viewport instead of letting the flex cells shrink.
+      'header':
+          'w-full flex flex-row items-center border-b border-color-border',
+      'row': 'w-full flex flex-row items-center border-b border-color-border',
       'th':
           'flex-1 min-w-0 py-2.5 text-xs font-medium tracking-wide text-fg-muted uppercase',
       'thStatus':

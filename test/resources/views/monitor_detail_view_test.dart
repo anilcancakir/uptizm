@@ -1,22 +1,70 @@
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart';
+import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 import 'package:uptizm/resources/views/monitor_detail_view.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/index.dart';
 import 'package:uptizm/ui/components/check_history_table/index.dart';
+import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/metric_chart/index.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 
+/// In-memory loader feeding the monitor-detail prose so [trans] returns short,
+/// wrappable strings instead of raw key tokens. Without it the StatusBadge and
+/// KPI labels render the full dot-separated keys (e.g.
+/// `'uptizm.status.degraded'`) as unbreakable ~30-char strings inside narrow
+/// cells and overflow at the test viewport, mirroring the other view tests.
+class _MonitorDetailLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    return {
+      'uptizm.status.up': 'Operational',
+      'uptizm.status.down': 'Major outage',
+      'uptizm.status.degraded': 'Degraded',
+      'uptizm.status.paused': 'Paused',
+      'uptizm.status.info': 'Maintenance',
+      'uptizm.status.ai': 'AI',
+      'uptizm.monitors.back_to_monitors': 'Back to monitors',
+      'uptizm.monitors.tab_overview': 'Overview',
+      'uptizm.monitors.tab_metrics': 'Metrics',
+      'uptizm.monitors.kpi_uptime_24h': 'Uptime 24h',
+      'uptizm.monitors.kpi_avg_response': 'Avg response',
+      'uptizm.monitors.kpi_last_check': 'Last check',
+      'uptizm.monitors.kpi_last_check_value': 'Just now',
+      'uptizm.monitors.kpi_open_incidents_for_monitor': 'Open incidents',
+      'uptizm.monitors.kpi_delta_ongoing': 'ongoing',
+      'uptizm.monitors.kpi_hint_p50': 'p50 baseline',
+      'uptizm.monitors.kpi_hint_paused': 'Paused',
+      'uptizm.monitors.section_recent_checks': 'Recent checks',
+      'uptizm.monitors.uptime_last_90_days': 'Uptime, last 90 days',
+      'uptizm.monitors.uptime_90_days_ago': '90 days ago',
+      'uptizm.monitors.uptime_today': 'Today',
+      'uptizm.monitors.metrics_system_title': 'System metrics',
+      'uptizm.monitors.no_response_data_title': 'No response data',
+      'uptizm.monitors.no_response_data_description': 'No timing yet.',
+      'uptizm.monitors.paused_title': 'Monitor paused',
+      'uptizm.monitors.paused_description': 'Checks are paused.',
+      'uptizm.monitors.error_load_title': 'Monitor not found',
+      'uptizm.monitors.error_load_description': 'No monitor with that id.',
+    };
+  }
+}
+
 void main() {
-  setUp(() {
+  setUp(() async {
     MagicApp.reset();
     Magic.flush();
     // Bind the MagicStarter manager so Card / PageHeader / Tabs resolve their
     // themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+
+    // Load short prose so trans() returns wrappable labels; without it the raw
+    // 'uptizm.status.*' keys render as long unbreakable strings and overflow
+    // the StatusBadge / KPI cells at the test viewport width.
+    Translator.instance.setLoader(_MonitorDetailLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
   });
 
   tearDown(() {
@@ -45,7 +93,15 @@ void main() {
     await tester.pump();
 
     expect(find.byType(PageHeader), findsOneWidget);
-    expect(find.byType(StatusBadge), findsOneWidget);
+    // The header carries one StatusBadge; the Overview's CheckHistoryTable adds
+    // one per row, so scope the assertion to the header.
+    expect(
+      find.descendant(
+        of: find.byType(PageHeader),
+        matching: find.byType(StatusBadge),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('MonitorDetailView renders four KPI stat cards', (tester) async {
