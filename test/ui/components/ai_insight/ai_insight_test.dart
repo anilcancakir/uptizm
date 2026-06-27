@@ -36,27 +36,56 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('aiInsightRecipe', () {
-    test('base emits ai-soft background token', () {
-      final cls = aiInsightRecipe();
-      expect(cls, contains('bg-ai-soft'));
+    test('inline tone root emits flex items-start', () {
+      final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'inline'});
+      expect(classes['root'], contains('flex'));
+      expect(classes['root'], contains('items-start'));
     });
 
-    test('base emits ai border token', () {
-      final cls = aiInsightRecipe();
-      expect(cls, contains('border-ai'));
+    test(
+      'banner tone root emits ai-soft background, border, rounded-xl, p-4',
+      () {
+        final classes = aiInsightRecipe(
+          variants: {kAiInsightToneAxis: 'banner'},
+        );
+        expect(classes['root'], contains('bg-ai-soft'));
+        expect(classes['root'], contains('border-ai-soft'));
+        expect(classes['root'], contains('rounded-xl'));
+        expect(classes['root'], contains('p-4'));
+      },
+    );
+
+    test('glyph wrap always emits text-ai', () {
+      final inlineClasses = aiInsightRecipe(
+        variants: {kAiInsightToneAxis: 'inline'},
+      );
+      final bannerClasses = aiInsightRecipe(
+        variants: {kAiInsightToneAxis: 'banner'},
+      );
+      expect(inlineClasses['glyphWrap'], contains('text-ai'));
+      expect(bannerClasses['glyphWrap'], contains('text-ai'));
     });
 
-    test('base emits rounded-lg', () {
-      final cls = aiInsightRecipe();
-      expect(cls, contains('rounded-lg'));
+    test('banner glyphWrap gets size-8 and rounded-lg tile', () {
+      final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'banner'});
+      expect(classes['glyphWrap'], contains('size-8'));
+      expect(classes['glyphWrap'], contains('rounded-lg'));
+      expect(classes['glyphWrap'], contains('bg-ai-soft'));
     });
 
-    test('base emits flex flex-col gap-4 p-4', () {
-      final cls = aiInsightRecipe();
-      expect(cls, contains('flex'));
-      expect(cls, contains('flex-col'));
-      expect(cls, contains('gap-4'));
-      expect(cls, contains('p-4'));
+    test('inline glyphWrap gets mt-0.5 nudge', () {
+      final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'inline'});
+      expect(classes['glyphWrap'], contains('mt-0.5'));
+    });
+
+    test('banner text slot emits text-fg', () {
+      final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'banner'});
+      expect(classes['text'], contains('text-fg'));
+    });
+
+    test('inline text slot emits text-fg-muted', () {
+      final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'inline'});
+      expect(classes['text'], contains('text-fg-muted'));
     });
   });
 
@@ -64,117 +93,76 @@ void main() {
   // Widget tests
   // ---------------------------------------------------------------------------
 
-  // Use the first fixture incident which has a rich IncidentAi payload.
-  final IncidentAi sampleAi = incidents.first.ai!;
-
-  testWidgets('AiInsight renders tl;dr text', (tester) async {
-    await tester.pumpWidget(wrap(AiInsight(ai: sampleAi)));
+  testWidgets('AiInsight renders child text', (tester) async {
+    await tester.pumpWidget(
+      wrap(const AiInsight(child: WText('Based on 7 days of checks.'))),
+    );
 
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
     expect(
-      texts.any((w) => w.data == sampleAi.tldr),
+      texts.any((w) => w.data == 'Based on 7 days of checks.'),
       isTrue,
-      reason: 'tl;dr WText not found in tree',
+      reason: 'child WText not found in tree',
     );
   });
 
-  testWidgets('AiInsight composes AiConfidenceBadge', (tester) async {
-    await tester.pumpWidget(wrap(AiInsight(ai: sampleAi)));
+  testWidgets('AiInsight renders sparkle glyph', (tester) async {
+    await tester.pumpWidget(
+      wrap(const AiInsight(child: WText('Any insight text.'))),
+    );
+
+    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    expect(
+      texts.any((w) => w.data == '✦'),
+      isTrue,
+      reason: 'Sparkle glyph WText not found',
+    );
+  });
+
+  testWidgets('AiInsight shows AiConfidenceBadge when confidence is set', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        const AiInsight(
+          confidence: AiConfidence.high,
+          child: WText('Insight with confidence.'),
+        ),
+      ),
+    );
 
     expect(
       find.byType(AiConfidenceBadge),
       findsOneWidget,
-      reason: 'AiConfidenceBadge should be present',
+      reason: 'AiConfidenceBadge should be present when confidence is set',
     );
   });
 
-  testWidgets('AiInsight renders evidence-for item labels', (tester) async {
-    await tester.pumpWidget(wrap(AiInsight(ai: sampleAi)));
-
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    for (final evidence in sampleAi.evidenceFor) {
-      expect(
-        texts.any((w) => w.data == evidence.label),
-        isTrue,
-        reason: 'evidence-for label "${evidence.label}" not found',
-      );
-    }
-  });
-
-  testWidgets('AiInsight renders evidence-against item labels', (tester) async {
-    await tester.pumpWidget(wrap(AiInsight(ai: sampleAi)));
-
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    for (final evidence in sampleAi.evidenceAgainst) {
-      expect(
-        texts.any((w) => w.data == evidence.label),
-        isTrue,
-        reason: 'evidence-against label "${evidence.label}" not found',
-      );
-    }
-  });
-
-  testWidgets('AiInsight renders source citations for evidence with source', (
+  testWidgets('AiInsight omits AiConfidenceBadge when confidence is null', (
     tester,
   ) async {
-    await tester.pumpWidget(wrap(AiInsight(ai: sampleAi)));
+    await tester.pumpWidget(
+      wrap(const AiInsight(child: WText('Insight without confidence.'))),
+    );
 
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    for (final evidence in [
-      ...sampleAi.evidenceFor,
-      ...sampleAi.evidenceAgainst,
-    ]) {
-      if (evidence.source != null) {
-        expect(
-          texts.any((w) => w.data == evidence.source),
-          isTrue,
-          reason: 'citation "${evidence.source}" not found',
-        );
-      }
-    }
+    expect(
+      find.byType(AiConfidenceBadge),
+      findsNothing,
+      reason: 'AiConfidenceBadge must be absent when confidence is null',
+    );
   });
 
   testWidgets('AiInsight passes correct confidence level to badge', (
     tester,
   ) async {
-    await tester.pumpWidget(wrap(AiInsight(ai: sampleAi)));
-
-    final badge = tester.widget<AiConfidenceBadge>(
-      find.byType(AiConfidenceBadge),
+    await tester.pumpWidget(
+      wrap(
+        const AiInsight(
+          confidence: AiConfidence.medium,
+          child: WText('Medium confidence insight.'),
+        ),
+      ),
     );
-    expect(badge.level, equals(sampleAi.confidence));
-  });
-
-  testWidgets('AiInsight omits evidence sections when lists are empty', (
-    tester,
-  ) async {
-    // Build a minimal IncidentAi with empty evidence lists.
-    const IncidentAi minimalAi = IncidentAi(
-      trigger: 'AI anomaly',
-      confidence: AiConfidence.low,
-      tldr: 'Brief analysis with no evidence items.',
-      evidenceFor: [],
-      evidenceAgainst: [],
-      suggestedActions: [],
-      similarIncidents: [],
-    );
-
-    await tester.pumpWidget(wrap(const AiInsight(ai: minimalAi)));
-
-    // tl;dr should still be rendered.
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    expect(
-      texts.any((w) => w.data == minimalAi.tldr),
-      isTrue,
-      reason: 'tl;dr WText must appear even with empty evidence lists',
-    );
-  });
-
-  testWidgets('AiInsight renders for medium-confidence fixture', (
-    tester,
-  ) async {
-    final IncidentAi mediumAi = incidents[1].ai!;
-    await tester.pumpWidget(wrap(AiInsight(ai: mediumAi)));
 
     final badge = tester.widget<AiConfidenceBadge>(
       find.byType(AiConfidenceBadge),
@@ -182,12 +170,70 @@ void main() {
     expect(badge.level, equals(AiConfidence.medium));
   });
 
+  testWidgets('AiInsight renders label before child text', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        const AiInsight(
+          label: 'Uptizm AI',
+          child: WText('Something interesting.'),
+        ),
+      ),
+    );
+
+    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    expect(
+      texts.any((w) => w.data == 'Uptizm AI '),
+      isTrue,
+      reason: 'Label WText not found',
+    );
+    expect(
+      texts.any((w) => w.data == 'Something interesting.'),
+      isTrue,
+      reason: 'Child WText not found',
+    );
+  });
+
+  testWidgets('AiInsight renders action widget when provided', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        AiInsight(
+          action: const WText('View report'),
+          child: const WText('Insight with action.'),
+        ),
+      ),
+    );
+
+    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    expect(
+      texts.any((w) => w.data == 'View report'),
+      isTrue,
+      reason: 'Action WText not found',
+    );
+  });
+
+  testWidgets('AiInsight omits meta row when confidence and action are null', (
+    tester,
+  ) async {
+    // Minimal AiInsight: no confidence, no action. Only child + sparkle.
+    await tester.pumpWidget(
+      wrap(const AiInsight(child: WText('Minimal insight.'))),
+    );
+
+    // Only the child WText and the sparkle glyph should be present.
+    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    expect(
+      texts,
+      hasLength(2),
+      reason: 'Expected exactly 2 WTexts: sparkle glyph + child',
+    );
+    expect(find.byType(AiConfidenceBadge), findsNothing);
+  });
+
   testWidgets('AiInsightPreview renders without error', (tester) async {
     await tester.pumpWidget(wrap(const AiInsightPreview()));
     await tester.pump();
 
-    // All fixture AI incidents should produce an AiInsight widget.
-    final aiIncidentCount = incidents.where((i) => i.ai != null).length;
-    expect(find.byType(AiInsight), findsNWidgets(aiIncidentCount));
+    // The preview always renders exactly 3 AiInsight widgets.
+    expect(find.byType(AiInsight), findsNWidgets(3));
   });
 }

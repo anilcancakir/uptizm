@@ -9,4 +9,10 @@
 
 export 'metric_chart.dart' show MetricChart, metricChartBarIsSeries;
 export 'metric_chart.recipe.dart'
-    show metricChartRecipe, metricChartToneColor, metricChartAnomalyColor;
+    show
+        metricChartRecipe,
+        metricChartToneColor,
+        metricChartAnomalyColor,
+        metricChartAxisColor,
+        metricChartBorderColor,
+        metricChartSurfaceColor;

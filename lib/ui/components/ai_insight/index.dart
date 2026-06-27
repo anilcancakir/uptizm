@@ -7,4 +7,4 @@
 // directly, and the preview must stay out of the release barrel.
 
 export 'ai_insight.dart' show AiInsight;
-export 'ai_insight.recipe.dart' show aiInsightRecipe;
+export 'ai_insight.recipe.dart' show aiInsightRecipe, kAiInsightToneAxis;

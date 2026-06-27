@@ -42,6 +42,19 @@ void main() {
       expect(classes['header'], contains('border-color-border'));
     });
 
+    test('th slot emits uppercase tracking-wide text-fg-muted', () {
+      final classes = checkHistoryTableRecipe();
+      expect(classes['th'], contains('uppercase'));
+      expect(classes['th'], contains('tracking-wide'));
+      expect(classes['th'], contains('text-fg-muted'));
+    });
+
+    test('thRight slot emits text-right and text-fg-muted', () {
+      final classes = checkHistoryTableRecipe();
+      expect(classes['thRight'], contains('text-right'));
+      expect(classes['thRight'], contains('text-fg-muted'));
+    });
+
     test('cellMuted slot emits tabular-nums and font-mono', () {
       final classes = checkHistoryTableRecipe();
       expect(classes['cellMuted'], contains('tabular-nums'));
@@ -60,7 +73,7 @@ void main() {
       expect(classes['statusCell'], contains('items-center'));
     });
 
-    test('all slots carry min-w-0 overflow guard', () {
+    test('all variable-width slots carry min-w-0 overflow guard', () {
       final classes = checkHistoryTableRecipe();
       for (final slot in ['cell', 'cellMuted', 'cellMono', 'statusCell']) {
         expect(
@@ -136,6 +149,7 @@ void main() {
     await tester.pumpWidget(wrap(const CheckHistoryTable(rows: rows)));
     await tester.pump();
 
+    // Both responseMs and statusCode are null, so two dash cells.
     expect(find.text('—'), findsWidgets);
   });
 
@@ -156,6 +170,56 @@ void main() {
     expect(find.text('142ms'), findsWidgets);
   });
 
+  testWidgets('CheckHistoryTable renders status code when present', (
+    tester,
+  ) async {
+    const rows = [
+      CheckRow(
+        time: '14:00:00',
+        region: 'us-east',
+        status: StatusKey.down,
+        responseMs: 5021,
+        statusCode: 503,
+      ),
+    ];
+    await tester.pumpWidget(wrap(const CheckHistoryTable(rows: rows)));
+    await tester.pump();
+
+    expect(find.text('503'), findsWidgets);
+  });
+
+  testWidgets('CheckHistoryTable renders dash for null statusCode', (
+    tester,
+  ) async {
+    const rows = [
+      CheckRow(
+        time: '14:00:00',
+        region: 'us-east',
+        status: StatusKey.down,
+        responseMs: 5021,
+      ),
+    ];
+    await tester.pumpWidget(wrap(const CheckHistoryTable(rows: rows)));
+    await tester.pump();
+
+    expect(find.text('—'), findsWidgets);
+  });
+
+  testWidgets('CheckHistoryTable renders all five header column labels', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(CheckHistoryTable(rows: const [])));
+    await tester.pump();
+
+    // WText with `uppercase` className transforms the string to uppercase;
+    // find.text must match the transformed value.
+    expect(find.text('TIME'), findsOneWidget);
+    expect(find.text('REGION'), findsOneWidget);
+    expect(find.text('STATUS'), findsOneWidget);
+    expect(find.text('RESPONSE'), findsOneWidget);
+    expect(find.text('CODE'), findsOneWidget);
+  });
+
   testWidgets('CheckHistoryTable passes correct status to each StatusDot', (
     tester,
   ) async {
@@ -165,18 +229,21 @@ void main() {
         region: 'us-east',
         status: StatusKey.up,
         responseMs: 100,
+        statusCode: 200,
       ),
       CheckRow(
         time: '13:59:00',
         region: 'eu-west',
         status: StatusKey.down,
         responseMs: 5000,
+        statusCode: 503,
       ),
       CheckRow(
         time: '13:58:00',
         region: 'ap-southeast',
         status: StatusKey.degraded,
         responseMs: 800,
+        statusCode: 200,
       ),
     ];
     await tester.pumpWidget(wrap(const CheckHistoryTable(rows: rows)));

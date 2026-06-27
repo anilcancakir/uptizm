@@ -1,32 +1,51 @@
 import 'package:magic/magic.dart';
 
-/// Builds the AI insight block [WindRecipe].
+/// The tone axis key for [aiInsightRecipe].
+const String kAiInsightToneAxis = 'tone';
+
+/// Builds the AI insight [WindSlotRecipe].
 ///
-/// The recipe encodes the `ai`-toned container shell (banner card with the
-/// `ai-soft` background and `ai` border). All internal layout tokens
-/// (section labels, evidence rows, citation chips) are applied inline in
-/// [AiInsight] using fixed semantic strings; only the outer container shape
-/// varies through the recipe.
+/// Ported from `ai-insight.variants.ts`. Two tones:
+/// - `banner` — prominent card with ai-soft gradient background and rounded-xl
+///   border; glyph tile is an 8-unit rounded-lg ai-soft square.
+/// - `inline` — quiet sparkle + muted line; no background or border; glyph
+///   nudged to `mt-0.5` so it aligns to the first line of text.
 ///
 /// ### Slot structure
 ///
 /// ```
-/// AiInsight
-/// └── container (ai-soft bg, ai border, md rounded, p-4, flex-col gap-4)
-///     ├── header row (sparkle icon + "Uptizm AI" label + AiConfidenceBadge)
-///     ├── tl;dr text (body-md)
-///     ├── evidence-for list (each: label + optional source citation)
-///     ├── evidence-against list (each: label + optional source citation)
-///     └── (optional) suggested actions
+/// root      — flex items-start gap-2.5 (+ banner overlay)
+/// glyphWrap — shrink-0 text-ai (+ per-tone size/shape)
+/// glyph     — size-4 (inline) / size-5 (banner)
+/// body      — min-w-0 flex-1
+/// text      — text-sm leading-relaxed (color per tone)
+/// meta      — mt-2 flex flex-row flex-wrap items-center gap-2
 /// ```
 ///
-/// Emission order: `base`.
-///
-/// Token reference:
-/// - Container: `bg-ai-soft border border-ai rounded-lg p-4`
-/// - Section labels: `text-xs font-semibold text-ai`
-/// - Row evidence: `text-sm text-fg`, `text-xs text-fg-muted`
-/// - Citations: `text-xs font-mono text-ai-soft-foreground`
-const WindRecipe aiInsightRecipe = WindRecipe(
-  base: 'flex flex-col gap-4 rounded-lg border border-ai bg-ai-soft p-4',
+/// Emission order: `base ++ tone-variant ++ caller`.
+const WindSlotRecipe aiInsightRecipe = WindSlotRecipe(
+  slots: {
+    'root': 'flex items-start gap-2.5',
+    'glyphWrap': 'shrink-0 text-ai',
+    'glyph': 'size-4',
+    'body': 'min-w-0 flex-1',
+    'text': '',
+    'meta': 'mt-2 flex flex-row flex-wrap items-center gap-2',
+  },
+  variants: {
+    kAiInsightToneAxis: {
+      'banner': {
+        'root': 'gap-3 rounded-xl border border-ai-soft bg-ai-soft p-4',
+        'glyphWrap':
+            'size-8 flex items-center justify-center rounded-lg bg-ai-soft',
+        'glyph': 'size-5',
+        'text': 'text-sm leading-relaxed text-fg',
+      },
+      'inline': {
+        'glyphWrap': 'mt-0.5',
+        'text': 'text-sm leading-relaxed text-fg-muted',
+      },
+    },
+  },
+  defaultVariants: {kAiInsightToneAxis: 'inline'},
 );

@@ -65,14 +65,14 @@ class MonitorListRow extends StatelessWidget {
           ],
         ),
 
-        // Center-right: status badge.
-        StatusBadge(monitor.status),
-
-        // Trailing: response-time metric.
+        // Center-right: response-time metric (right-aligned, fixed width).
         WText(
           monitor.responseMs != null ? '${monitor.responseMs}ms' : '—',
           className: slots['metric'],
         ),
+
+        // Trailing: status badge (rightmost, per the React original).
+        StatusBadge(monitor.status),
       ],
     );
 

@@ -24,6 +24,16 @@ const double _bandFillOpacity = 0.08;
 const double _anomalyDotRadius = 4.0;
 const double _anomalyDotStroke = 2.0;
 
+/// Radius of the active (touched) series dot. Mirrors the React source's
+/// `activeDot={{ r: 3 }}`.
+const double _activeDotRadius = 3.0;
+
+/// Series area-fill gradient stops. The React source fills each series with a
+/// vertical `linearGradient` running from `stopOpacity 0.25` at the top of the
+/// plot to `0` at the baseline (`x1=0 y1=0 x2=0 y2=1`); these mirror that.
+const double _seriesFillTopOpacity = 0.25;
+const double _seriesFillBottomOpacity = 0.0;
+
 /// Default chart canvas height, mobile-first. Width is responsive (the chart
 /// fills its parent constraints).
 const double _defaultHeight = 240.0;
@@ -149,26 +159,37 @@ class MetricChart extends StatelessWidget {
 
   /// One [LineChartBarData] per [MetricSeries], colored by its resolved tone.
   List<LineChartBarData> _buildSeriesBars(Brightness brightness) {
-    return [
-      for (final s in series)
-        LineChartBarData(
-          spots: [
-            for (var i = 0; i < data.length; i++)
-              FlSpot(i.toDouble(), (data[i].values[s.key] ?? 0).toDouble()),
+    return [for (final s in series) _seriesBar(s, brightness)];
+  }
+
+  /// A single series line with a vertical area-fill gradient.
+  ///
+  /// The fill runs from the tone at [_seriesFillTopOpacity] near the line down
+  /// to transparent at the baseline, the fl_chart equivalent of the React
+  /// source's per-series top-to-bottom `linearGradient`.
+  LineChartBarData _seriesBar(MetricSeries s, Brightness brightness) {
+    final toneColor = metricChartToneColor(s.tone, brightness);
+    return LineChartBarData(
+      spots: [
+        for (var i = 0; i < data.length; i++)
+          FlSpot(i.toDouble(), (data[i].values[s.key] ?? 0).toDouble()),
+      ],
+      isCurved: true,
+      color: toneColor,
+      barWidth: _seriesStrokeWidth,
+      dotData: const FlDotData(show: false),
+      belowBarData: BarAreaData(
+        show: true,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            toneColor.withValues(alpha: _seriesFillTopOpacity),
+            toneColor.withValues(alpha: _seriesFillBottomOpacity),
           ],
-          isCurved: true,
-          color: metricChartToneColor(s.tone, brightness),
-          barWidth: _seriesStrokeWidth,
-          dotData: const FlDotData(show: false),
-          belowBarData: BarAreaData(
-            show: true,
-            color: metricChartToneColor(
-              s.tone,
-              brightness,
-            ).withValues(alpha: 0.12),
-          ),
         ),
-    ];
+      ),
+    );
   }
 
   /// The two bounding lines (low, high) for the AI expected-range band.
@@ -242,13 +263,17 @@ class MetricChart extends StatelessWidget {
     );
   }
 
-  /// Horizontal-only dashed grid in the border tone (resolved for the chart).
+  /// Horizontal-only dashed grid in the border tone.
+  ///
+  /// Mirrors the React `CartesianGrid` (`vertical={false}`,
+  /// `stroke="var(--color-border)"`, `strokeDasharray="3 3"`): only horizontal
+  /// guides, drawn as 3-3 dashes in the border tone.
   FlGridData _gridData(Brightness brightness) {
     return FlGridData(
       show: true,
       drawVerticalLine: false,
       getDrawingHorizontalLine: (value) => FlLine(
-        color: _axisColor(brightness).withValues(alpha: 0.25),
+        color: _borderColor(brightness),
         strokeWidth: 1,
         dashArray: _bandDashArray,
       ),
@@ -289,21 +314,49 @@ class MetricChart extends StatelessWidget {
     );
   }
 
-  /// Touch tooltip: one line per series at the touched x, value + unit suffix.
+  /// Touch tooltip and cursor.
+  ///
+  /// Mirrors the React `Tooltip` + per-series `activeDot={{ r: 3 }}`: a border-
+  /// tone cursor line, a series-toned active dot at the touched point, and one
+  /// tooltip row per series (`label  value+unit`) tinted in the series tone.
+  /// Band bounding lines and the anomaly overlay are excluded from both.
   LineTouchData _touchData(Brightness brightness) {
-    final tooltipText = _axisColor(brightness);
+    final labelColor = _axisColor(brightness);
 
     return LineTouchData(
       handleBuiltInTouches: true,
+      getTouchedSpotIndicator: (bar, spotIndexes) {
+        // Series get a border-tone cursor line and a tone-colored r=3 dot;
+        // band/anomaly bars get no indicator (return null per index).
+        if (!_isSeriesBar(bar)) {
+          return [for (final _ in spotIndexes) null];
+        }
+        final toneColor = bar.color ?? labelColor;
+        return [
+          for (final _ in spotIndexes)
+            TouchedSpotIndicatorData(
+              FlLine(color: _borderColor(brightness), strokeWidth: 1),
+              FlDotData(
+                getDotPainter: (spot, percent, b, index) => FlDotCirclePainter(
+                  radius: _activeDotRadius,
+                  color: toneColor,
+                  strokeWidth: 0,
+                ),
+              ),
+            ),
+        ];
+      },
       touchTooltipData: LineTouchTooltipData(
         getTooltipColor: (spot) => _surfaceColor(brightness),
+        tooltipBorder: BorderSide(color: _borderColor(brightness)),
         getTooltipItems: (touchedSpots) {
           return [
             for (final spot in touchedSpots)
               if (_isSeriesBar(spot.bar))
                 LineTooltipItem(
+                  '${_seriesLabelFor(spot.barIndex)}  '
                   '${spot.y.toStringAsFixed(0)}${unit ?? ''}',
-                  TextStyle(color: tooltipText, fontSize: 12),
+                  TextStyle(color: spot.bar.color ?? labelColor, fontSize: 12),
                 )
               else
                 null,
@@ -311,6 +364,16 @@ class MetricChart extends StatelessWidget {
         },
       ),
     );
+  }
+
+  /// The legend label for the series at [barIndex] in `lineBarsData`.
+  ///
+  /// Series bars occupy the leading slots (band bounding lines and the anomaly
+  /// overlay follow), so the descriptor index equals the bar index for any
+  /// series spot.
+  String _seriesLabelFor(int barIndex) {
+    if (barIndex < 0 || barIndex >= series.length) return '';
+    return series[barIndex].label;
   }
 
   /// X tick interval so the axis never crowds on a narrow phone screen.
@@ -322,19 +385,20 @@ class MetricChart extends StatelessWidget {
 
   bool _isSeriesBar(LineChartBarData bar) => metricChartBarIsSeries(bar);
 
-  /// Muted axis/grid color. Resolved here (chart needs a Color); kept tonal.
-  Color _axisColor(Brightness brightness) {
-    return brightness == Brightness.dark
-        ? const Color(0xFF999FA6)
-        : const Color(0xFF79828A);
-  }
+  /// Muted axis-tick text color (delegates to the recipe-file resolver).
+  Color _axisColor(Brightness brightness) => metricChartAxisColor(brightness);
 
-  /// Tooltip surface color. Resolved here (chart needs a Color); tonal neutral.
-  Color _surfaceColor(Brightness brightness) {
-    return brightness == Brightness.dark
-        ? const Color(0xFF23272B)
-        : const Color(0xFFFFFFFF);
-  }
+  /// Border-tone color for grid lines, the touch cursor, and the tooltip edge.
+  ///
+  /// Mirrors `var(--color-border)` from the React source (delegates to the
+  /// recipe-file resolver, which keeps it in lockstep with the
+  /// `border-color-border` token).
+  Color _borderColor(Brightness brightness) =>
+      metricChartBorderColor(brightness);
+
+  /// Tooltip surface color (delegates to the recipe-file resolver).
+  Color _surfaceColor(Brightness brightness) =>
+      metricChartSurfaceColor(brightness);
 }
 
 /// True when [bar] is a plotted [MetricSeries] line (not a band bounding line

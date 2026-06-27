@@ -54,6 +54,18 @@ const Map<ChartTone, _ToneHex> _toneHexes = {
 /// The `down` status red used for anomaly dots (light, dark).
 const _ToneHex _anomalyHex = _ToneHex(0xFFDF202E, 0xFFFF645F);
 
+/// Neutral chart chrome colors (axis-tick text, border lines, page surface).
+///
+/// These are the same `--color-*` neutrals the React source feeds Recharts
+/// (`muted-foreground` for ticks, `border` for grid/cursor/tooltip edge, and
+/// `--color-bg`/`surface` for the tooltip background and the anomaly-dot halo).
+/// They live in this resolver, not scattered through the component, so it stays
+/// the single home for every chart `Color`. Kept in lockstep with the
+/// `border-color-border` and `surface` tokens.
+const _ToneHex _axisHex = _ToneHex(0xFF79828A, 0xFF999FA6);
+const _ToneHex _borderHex = _ToneHex(0xFFDEE2E5, 0xFF2A2E33);
+const _ToneHex _surfaceHex = _ToneHex(0xFFF9FAFB, 0xFF07090C);
+
 /// Resolves a [ChartTone] to a concrete series `Color` for the given
 /// [brightness].
 ///
@@ -68,5 +80,24 @@ Color metricChartToneColor(ChartTone tone, Brightness brightness) {
 Color metricChartAnomalyColor(Brightness brightness) {
   return Color(
     brightness == Brightness.dark ? _anomalyHex.dark : _anomalyHex.light,
+  );
+}
+
+/// Resolves the muted axis-tick text `Color` for the given [brightness].
+Color metricChartAxisColor(Brightness brightness) {
+  return Color(brightness == Brightness.dark ? _axisHex.dark : _axisHex.light);
+}
+
+/// Resolves the border-tone `Color` (grid lines, touch cursor, tooltip edge).
+Color metricChartBorderColor(Brightness brightness) {
+  return Color(
+    brightness == Brightness.dark ? _borderHex.dark : _borderHex.light,
+  );
+}
+
+/// Resolves the page-surface `Color` (tooltip background, anomaly-dot halo).
+Color metricChartSurfaceColor(Brightness brightness) {
+  return Color(
+    brightness == Brightness.dark ? _surfaceHex.dark : _surfaceHex.light,
   );
 }

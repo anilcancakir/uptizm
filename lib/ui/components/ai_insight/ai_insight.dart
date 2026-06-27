@@ -3,169 +3,151 @@ import 'package:magic/magic.dart';
 
 import '../../../app/mocks/incidents.dart';
 import '../ai_confidence_badge/index.dart';
+import 'ai_insight.recipe.dart';
 
-/// **AI Insight Block**
+/// **AI Insight — Inline Annotation**
 ///
-/// Renders the full graduated-trust AI analysis for an incident:
-/// - An `ai`-toned container using the `bg-ai-soft` / `border-ai` family.
-/// - A header row with a sparkle glyph, "Uptizm AI" label, and an
-///   [AiConfidenceBadge].
-/// - A tl;dr paragraph taken from [IncidentAi.tldr].
-/// - An evidence-FOR list showing [AiEvidence.label] and
-///   [AiEvidence.source] for each supporting data point.
-/// - An evidence-AGAINST list with the same structure for qualifying
-///   or contradicting data points.
+/// A small, reusable AI annotation marked with a sparkle glyph and the `ai`
+/// token family. Ported from the React `AiInsight` component 1:1.
 ///
-/// Both evidence lists are always rendered when non-empty so the caller cannot
-/// accidentally omit one and violate the graduated-trust principle.
+/// Two tones (via [tone]):
+/// - `inline` (default) — quiet sparkle + muted text; no background/border;
+///   for quiet asides next to charts and fields.
+/// - `banner` — prominent ai-soft card with a rounded-xl border and a glyph
+///   tile; for fleet summaries and postmortem drafts.
 ///
-/// ### Graduated-trust UX
-///
-/// Every AI surface in Uptizm shows evidence for AND against, a confidence
-/// level, and source citations so operators can form their own judgment before
-/// acting. [AiInsight] enforces this contract structurally: the three surfaces
-/// (confidence badge, evidence-for, evidence-against) are always rendered when
-/// data is present.
+/// Optional slots:
+/// - [label] — a bold lead-in shown before [child] (e.g. `"Uptizm AI"`).
+/// - [confidence] — an [AiConfidenceBadge] rendered in the meta row below the
+///   text. Omit to suppress the badge entirely.
+/// - [action] — a trailing control (e.g. a button) placed alongside the badge
+///   in the meta row. The meta row is omitted when both [confidence] and
+///   [action] are null.
 ///
 /// ### Example Usage:
 ///
 /// ```dart
-/// // Full AI analysis from a fixture incident
-/// final ai = incidents.first.ai!;
-/// AiInsight(ai: ai)
+/// // Quiet inline aside (default tone)
+/// AiInsight(
+///   child: WText('Suggested bounds: warn at 400 ms, critical at 900 ms.'),
+/// )
 ///
-/// // Inside a detail page column
-/// if (incident.ai != null)
-///   AiInsight(ai: incident.ai!)
+/// // Banner card with confidence badge
+/// AiInsight(
+///   tone: 'banner',
+///   label: 'This week',
+///   confidence: AiConfidence.medium,
+///   child: WText('99.97% uptime across 50 monitors.'),
+/// )
 /// ```
 @immutable
 class AiInsight extends StatelessWidget {
-  /// The AI analysis data to render.
-  final IncidentAi ai;
+  /// The tone variant. Accepts `'banner'` or `'inline'` (default).
+  final String? tone;
 
-  /// Creates an [AiInsight] block for the given [ai] analysis.
-  const AiInsight({super.key, required this.ai});
+  /// Optional bold lead-in displayed before [child].
+  final String? label;
+
+  /// Optional confidence level rendered as an [AiConfidenceBadge] in the meta
+  /// row. When `null` no badge is shown.
+  final AiConfidence? confidence;
+
+  /// Optional trailing control placed in the meta row alongside [confidence].
+  final Widget? action;
+
+  /// The insight body text or rich child widget.
+  final Widget child;
+
+  /// Creates an [AiInsight] widget.
+  const AiInsight({
+    super.key,
+    this.tone,
+    this.label,
+    this.confidence,
+    this.action,
+    required this.child,
+  });
+
+  /// Resolves all slot classNames from the recipe for the current [tone].
+  Map<String, String> _resolveClasses() {
+    return aiInsightRecipe(variants: {kAiInsightToneAxis: tone ?? 'inline'});
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Visual-only container classes (the flex layout is handled by an explicit
-    // Flutter Column below so leaf text wraps within a bounded width on narrow
-    // columns instead of overflowing in a Wind flex regime).
-    final List<Widget> sections = [
-      // Header: sparkle glyph + label + confidence badge.
-      _buildHeader(),
-      // TL;DR summary paragraph.
-      _buildTldr(),
-      // Evidence-FOR list (always rendered when list is non-empty).
-      if (ai.evidenceFor.isNotEmpty)
-        _buildEvidenceSection(
-          label: trans('uptizm.ai.evidence'),
-          evidenceList: ai.evidenceFor,
-        ),
-      // Evidence-AGAINST list (graduated trust: show both sides).
-      if (ai.evidenceAgainst.isNotEmpty)
-        _buildEvidenceSection(
-          label: trans('uptizm.ai.evidence_against'),
-          evidenceList: ai.evidenceAgainst,
-        ),
-    ];
+    // 1. Resolve all slot classNames from the recipe once.
+    final classes = _resolveClasses();
+    final rootClass = classes['root'] ?? '';
+    final glyphWrapClass = classes['glyphWrap'] ?? '';
+    final glyphClass = classes['glyph'] ?? '';
+    final bodyClass = classes['body'] ?? '';
+    final textClass = classes['text'] ?? '';
+    final metaClass = classes['meta'] ?? '';
 
+    // 2. Determine whether the meta row should be rendered.
+    final bool hasMeta = confidence != null || action != null;
+
+    // 3. Build root: a Wind container with an explicit Flutter Column body so
+    //    text wraps at bounded width on narrow columns.
     return WDiv(
-      className: 'rounded-lg border border-ai bg-ai-soft p-4',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      className: rootClass,
+      children: [
+        // Sparkle glyph wrap.
+        _buildGlyphWrap(glyphWrapClass, glyphClass),
+
+        // Body column: text paragraph + optional meta row.
+        WDiv(
+          className: bodyClass,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Text paragraph; label is an optional bold lead-in.
+              _buildTextParagraph(textClass),
+
+              // Meta row: confidence badge + action (omitted when both null).
+              if (hasMeta) _buildMeta(metaClass),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Builds the sparkle glyph wrapped in its toned container.
+  Widget _buildGlyphWrap(String wrapClass, String gClass) {
+    return WDiv(
+      className: wrapClass,
+      child: WText('✦', className: gClass),
+    );
+  }
+
+  /// Builds the text paragraph, optionally prefixed with a bold [label].
+  Widget _buildTextParagraph(String textClass) {
+    if (label == null) {
+      return WDiv(className: textClass, child: child);
+    }
+
+    // Label is bold `text-fg` regardless of tone; the insight text then follows.
+    return WDiv(
+      className: textClass,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (var i = 0; i < sections.length; i++) ...[
-            if (i > 0) const SizedBox(height: 16),
-            sections[i],
-          ],
+          WText('$label ', className: 'font-medium text-fg'),
+          Expanded(child: child),
         ],
       ),
     );
   }
 
-  /// Builds the header row: sparkle glyph + label on the left, confidence
-  /// badge on the right. The left cluster is Expanded so a long label wraps
-  /// rather than overflowing on a narrow column.
-  Widget _buildHeader() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              WText('✦', className: 'text-sm font-medium text-ai'),
-              const SizedBox(width: 8),
-              Flexible(
-                child: WText(
-                  trans('uptizm.ai.ai_detected'),
-                  className: 'text-sm font-semibold text-ai',
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(width: 8),
-
-        // Confidence badge: graduated-trust anchor (high/medium/low).
-        AiConfidenceBadge(ai.confidence),
-      ],
-    );
-  }
-
-  /// Builds the tl;dr section: a label and the summary paragraph.
-  Widget _buildTldr() {
+  /// Builds the meta row containing the optional [AiConfidenceBadge] and the
+  /// optional [action] widget.
+  Widget _buildMeta(String metaClass) {
     return WDiv(
-      className: 'flex flex-col gap-1',
+      className: metaClass,
       children: [
-        WText(
-          trans('uptizm.ai.tldr'),
-          className: 'text-xs font-semibold text-ai',
-        ),
-        WText(ai.tldr, className: 'text-sm text-fg'),
-      ],
-    );
-  }
-
-  /// Builds a labeled evidence section (either supporting or qualifying).
-  ///
-  /// [label] is the section heading displayed above the list.
-  /// [evidenceList] contains the [AiEvidence] items to render.
-  Widget _buildEvidenceSection({
-    required String label,
-    required List<AiEvidence> evidenceList,
-  }) {
-    return WDiv(
-      className: 'flex flex-col gap-2',
-      children: [
-        // Section label.
-        WText(label, className: 'text-xs font-semibold text-ai'),
-
-        // Evidence rows.
-        for (final evidence in evidenceList) _buildEvidenceRow(evidence),
-      ],
-    );
-  }
-
-  /// Renders a single evidence row: a label headline, an expanded detail
-  /// line, and an optional source citation in mono font.
-  Widget _buildEvidenceRow(AiEvidence evidence) {
-    return WDiv(
-      className: 'flex flex-col gap-0.5 pl-2',
-      children: [
-        // Evidence label (the short headline).
-        WText(evidence.label, className: 'text-sm text-fg'),
-
-        // Detail line (expanded explanation, muted).
-        WText(evidence.detail, className: 'text-xs text-fg-muted'),
-
-        // Optional source citation in mono font using the ai foreground.
-        if (evidence.source != null)
-          WText(
-            evidence.source!,
-            className: 'font-mono text-xs text-ai-soft-foreground',
-          ),
+        if (confidence != null) AiConfidenceBadge(confidence!),
+        ?action,
       ],
     );
   }

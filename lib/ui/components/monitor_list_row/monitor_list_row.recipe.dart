@@ -57,7 +57,8 @@ Map<String, String> monitorListRowSlots({String? className}) {
       'main': 'flex flex-col gap-0.5 min-w-0 flex-1',
       'name': 'truncate text-sm font-medium text-fg',
       'url': 'truncate font-mono text-xs text-fg-muted',
-      'metric': 'tabular-nums font-mono text-sm text-fg shrink-0',
+      'metric':
+          'w-16 shrink-0 text-right tabular-nums font-mono text-sm text-fg',
       'meta': 'flex flex-row gap-2 flex-wrap',
       'metaItem': 'text-xs text-fg-muted',
     },

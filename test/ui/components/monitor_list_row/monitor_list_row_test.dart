@@ -56,11 +56,16 @@ void main() {
       expect(slots['url'], contains('text-fg-muted'));
     });
 
-    test('metric slot contains tabular-nums and font-mono', () {
-      final slots = monitorListRowSlots();
-      expect(slots['metric'], contains('tabular-nums'));
-      expect(slots['metric'], contains('font-mono'));
-    });
+    test(
+      'metric slot contains tabular-nums, font-mono, shrink-0, and text-right',
+      () {
+        final slots = monitorListRowSlots();
+        expect(slots['metric'], contains('tabular-nums'));
+        expect(slots['metric'], contains('font-mono'));
+        expect(slots['metric'], contains('shrink-0'));
+        expect(slots['metric'], contains('text-right'));
+      },
+    );
 
     test('caller className is appended to root slot', () {
       final slots = monitorListRowSlots(className: 'shadow-md');

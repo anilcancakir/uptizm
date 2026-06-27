@@ -77,6 +77,21 @@ void main() {
       );
       expect(metricChartAnomalyColor(Brightness.dark), const Color(0xFFFF645F));
     });
+
+    test('neutral chrome colors match the border/axis/surface tokens', () {
+      // Border tone is the border-color-border token (grid, cursor, tooltip edge).
+      expect(metricChartBorderColor(Brightness.light), const Color(0xFFDEE2E5));
+      expect(metricChartBorderColor(Brightness.dark), const Color(0xFF2A2E33));
+      // Surface tone is the page surface (tooltip background + anomaly halo).
+      expect(
+        metricChartSurfaceColor(Brightness.light),
+        const Color(0xFFF9FAFB),
+      );
+      expect(metricChartSurfaceColor(Brightness.dark), const Color(0xFF07090C));
+      // Axis-tick text is the muted-foreground neutral.
+      expect(metricChartAxisColor(Brightness.light), const Color(0xFF79828A));
+      expect(metricChartAxisColor(Brightness.dark), const Color(0xFF999FA6));
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -114,6 +129,33 @@ void main() {
         .where((bar) => metricChartBarIsSeries(bar))
         .length;
     expect(seriesBars, equals(apiResponseSeries_.length));
+  });
+
+  testWidgets('MetricChart series fill with a top-down area gradient', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(MetricChart(data: apiResponseSeries, series: apiResponseSeries_)),
+    );
+
+    final chart = tester.widget<LineChart>(find.byType(LineChart));
+    final seriesBars = chart.data.lineBarsData
+        .where((bar) => metricChartBarIsSeries(bar))
+        .toList();
+
+    for (final bar in seriesBars) {
+      final gradient = bar.belowBarData.gradient;
+      // Each series fills via a vertical LinearGradient (top opaque tone ->
+      // transparent baseline), mirroring the React per-series linearGradient.
+      expect(gradient, isA<LinearGradient>());
+      final linear = gradient! as LinearGradient;
+      expect(linear.begin, Alignment.topCenter);
+      expect(linear.end, Alignment.bottomCenter);
+      expect(linear.colors.first.a, greaterThan(0.0));
+      expect(linear.colors.last.a, 0.0);
+      // The flat solid color must be absent when a gradient is used.
+      expect(bar.belowBarData.color, isNull);
+    }
   });
 
   testWidgets('MetricChart with a band adds BetweenBarsData', (tester) async {

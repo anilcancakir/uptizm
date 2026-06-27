@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/incidents.dart';
+import '../../../app/mocks/status.dart';
 import '../status_badge/index.dart';
 import 'incident_card.recipe.dart';
 
@@ -103,13 +104,10 @@ class IncidentCard extends StatelessWidget {
               'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-surface-container text-fg-muted border border-color-border',
         ),
 
-        // AI-owned incidents get an ai-toned badge.
+        // AI-owned incidents get an ai StatusBadge (mirrors React's
+        // `<StatusBadge status="ai" size="sm">AI-detected</StatusBadge>`).
         if (incident.aiOwned)
-          WBadge(
-            trans('uptizm.ai.ai_detected'),
-            className:
-                'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-ai-soft text-ai-soft-foreground',
-          ),
+          StatusBadge(StatusKey.ai, label: trans('uptizm.ai.ai_detected')),
       ],
     );
   }

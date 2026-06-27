@@ -143,7 +143,9 @@ void main() {
   });
 
   testWidgets('IncidentCard composes StatusBadge for impact', (tester) async {
-    await tester.pumpWidget(wrap(IncidentCard(incident: incidents[0])));
+    // incidents[3] is non-AI-owned (info/monitoring) — exactly one StatusBadge
+    // for the impact; no AI badge.
+    await tester.pumpWidget(wrap(IncidentCard(incident: incidents[3])));
     expect(find.byType(StatusBadge), findsOneWidget);
   });
 
@@ -163,30 +165,32 @@ void main() {
     expect(find.byType(GestureDetector), findsNothing);
   });
 
-  testWidgets('IncidentCard shows more badges for AI-owned than non-AI-owned', (
-    tester,
-  ) async {
-    // AI-owned incident: StatusBadge WBadge + lifecycle WBadge + AI WBadge = 3.
-    await tester.pumpWidget(
-      wrap(IncidentCard(incident: incidents[0])), // aiOwned: true
-    );
-    final aiOwnedBadges = tester
-        .widgetList<WBadge>(find.byType(WBadge))
-        .toList();
+  testWidgets(
+    'IncidentCard shows more StatusBadges for AI-owned than non-AI-owned',
+    (tester) async {
+      // AI-owned: impact StatusBadge + AI StatusBadge = 2 StatusBadges.
+      await tester.pumpWidget(
+        wrap(IncidentCard(incident: incidents[0])), // aiOwned: true
+      );
+      final aiOwnedBadges = tester
+          .widgetList<StatusBadge>(find.byType(StatusBadge))
+          .toList();
 
-    await tester.pumpWidget(
-      wrap(IncidentCard(incident: incidents[2])), // aiOwned: false
-    );
-    final nonAiOwnedBadges = tester
-        .widgetList<WBadge>(find.byType(WBadge))
-        .toList();
+      // Non-AI-owned: impact StatusBadge only = 1 StatusBadge.
+      await tester.pumpWidget(
+        wrap(IncidentCard(incident: incidents[2])), // aiOwned: false
+      );
+      final nonAiOwnedBadges = tester
+          .widgetList<StatusBadge>(find.byType(StatusBadge))
+          .toList();
 
-    expect(
-      aiOwnedBadges.length,
-      greaterThan(nonAiOwnedBadges.length),
-      reason: 'AI-owned incident should have one extra AI badge',
-    );
-  });
+      expect(
+        aiOwnedBadges.length,
+        greaterThan(nonAiOwnedBadges.length),
+        reason: 'AI-owned incident should have one extra AI StatusBadge',
+      );
+    },
+  );
 
   testWidgets('IncidentCard renders lifecycle label as WBadge', (tester) async {
     final incident = incidents[0]; // lifecycle: investigating
