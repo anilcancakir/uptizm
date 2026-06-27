@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/incidents.dart';
 import 'ai_insight.dart';
@@ -24,9 +25,11 @@ class AiInsightPreview extends StatelessWidget {
           tone: 'banner',
           label: 'This week',
           confidence: AiConfidence.medium,
-          action: WText(
-            'View report',
-            className: 'text-sm font-medium text-ai',
+          action: Button(
+            intent: ButtonIntent.secondary,
+            size: ButtonSize.sm,
+            onPressed: () {},
+            child: const WText('View report'),
           ),
           child: const WText(
             '99.97% uptime across 50 monitors, 3 incidents (2 origin-side, '
@@ -36,9 +39,14 @@ class AiInsightPreview extends StatelessWidget {
           ),
         ),
 
-        // 2. Inline tone: no label, with a plain action control.
+        // 2. Inline tone: no label, with a secondary-button action control.
         AiInsight(
-          action: WText('Use', className: 'text-sm font-medium text-ai'),
+          action: Button(
+            intent: ButtonIntent.secondary,
+            size: ButtonSize.sm,
+            onPressed: () {},
+            child: const WText('Use'),
+          ),
           child: const WText(
             'Based on 7 days of checks, normal p95 sits near 120 ms. '
             'Suggested bounds: warn at 400 ms, critical at 900 ms.',

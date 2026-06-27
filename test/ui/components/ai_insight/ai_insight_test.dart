@@ -42,28 +42,26 @@ void main() {
       expect(classes['root'], contains('items-start'));
     });
 
-    test(
-      'banner tone root emits ai-soft background, border, rounded-xl, p-4',
-      () {
-        final classes = aiInsightRecipe(
-          variants: {kAiInsightToneAxis: 'banner'},
-        );
-        expect(classes['root'], contains('bg-ai-soft'));
-        expect(classes['root'], contains('border-ai-soft'));
-        expect(classes['root'], contains('rounded-xl'));
-        expect(classes['root'], contains('p-4'));
-      },
-    );
+    test('banner tone root emits a neutral fill framed by the ai border', () {
+      final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'banner'});
+      // Neutral fill (not bg-ai-soft) so the ai-soft glyph tile stays visible
+      // against it; the ai signal is the border + tile, not a tinted wash.
+      expect(classes['root'], contains('bg-surface-container'));
+      expect(classes['root'], isNot(contains('bg-ai-soft')));
+      expect(classes['root'], contains('border-ai-soft'));
+      expect(classes['root'], contains('rounded-xl'));
+      expect(classes['root'], contains('p-4'));
+    });
 
-    test('glyph wrap always emits text-ai', () {
+    test('glyph always emits text-ai (the sparkle is the ai-toned mark)', () {
       final inlineClasses = aiInsightRecipe(
         variants: {kAiInsightToneAxis: 'inline'},
       );
       final bannerClasses = aiInsightRecipe(
         variants: {kAiInsightToneAxis: 'banner'},
       );
-      expect(inlineClasses['glyphWrap'], contains('text-ai'));
-      expect(bannerClasses['glyphWrap'], contains('text-ai'));
+      expect(inlineClasses['glyph'], contains('text-ai'));
+      expect(bannerClasses['glyph'], contains('text-ai'));
     });
 
     test('banner glyphWrap gets size-8 and rounded-lg tile', () {
