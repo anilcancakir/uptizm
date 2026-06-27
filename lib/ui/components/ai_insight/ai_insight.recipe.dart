@@ -48,7 +48,7 @@ const WindSlotRecipe aiInsightRecipe = WindSlotRecipe(
             'gap-3 rounded-xl border border-ai-soft bg-surface-container p-4',
         'glyphWrap':
             'size-8 flex items-center justify-center rounded-lg bg-ai-soft',
-        'glyph': 'text-base text-ai',
+        'glyph': 'text-lg text-ai',
         'text': 'text-sm leading-relaxed text-fg',
       },
       'inline': {
