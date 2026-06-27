@@ -82,23 +82,31 @@ class AiAnalysisCard extends StatelessWidget {
   // -- Header ----------------------------------------------------------------
 
   Widget _buildHeader() {
-    // A Wind flex-row lays this out: Wind sizes the badge (a shrink-wrap pill)
-    // and the glyph tile to content, while the `flex-1` trigger grows to push
-    // the badge to the right. A Flutter Row here would treat the Wind-flex
-    // badge as an infinite-width child and overflow.
-    // `wrap` (the design source's `flex-wrap`) reflows instead of overflowing:
-    // on a wide panel everything sits on one line; on a narrow column the badge
-    // drops to the next line. A plain flex-row would overflow because a Wind
-    // badge is a shrink-wrap pill that does not cooperate with flex-shrink.
+    // Wind flex-row: the size-8 glyph tile is width-fixed (not greedy), a
+    // `flex-1` spacer absorbs the slack so the confidence badge is pushed to the
+    // far right (the design source's `badgeSlot: ml-auto`). Wind sizes the badge
+    // pill to content within its own flex layout (a Flutter Row would treat the
+    // Wind pill as an infinite-width child and overflow).
     return WDiv(
-      className: 'wrap items-center gap-2',
+      className: 'flex flex-row items-center gap-2.5',
       children: [
-        WText('✦', className: 'text-ai text-lg'),
+        // Glyph tile: a rounded ai-soft square with the sparkle centered.
+        WDiv(
+          className: 'size-8 rounded-lg bg-ai-soft',
+          child: const Center(
+            child: WText('✦', className: 'text-ai text-base'),
+          ),
+        ),
         WText(
           trans('uptizm.ai.analysis_title'),
           className: 'text-base font-semibold text-fg',
         ),
-        WText(ai.trigger, className: 'text-sm text-fg-muted'),
+        // Trigger grows on desktop (pushing the badge right) and shrinks +
+        // truncates on a narrow column (min-w-0) so the header never overflows.
+        WText(
+          ai.trigger,
+          className: 'flex-1 min-w-0 truncate text-sm text-fg-muted',
+        ),
         AiConfidenceBadge(ai.confidence),
       ],
     );
@@ -172,12 +180,17 @@ class AiAnalysisCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Leading dot (green for-side / red against-side); nudged to the text
-        // baseline.
+        // baseline. Bounded by a SizedBox so the childless WDiv keeps its 6px
+        // box (an empty Wind div otherwise collapses to zero size).
         Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: WDiv(
-            className: aiAnalysisCardDotRecipe(
-              variants: {kAiEvidenceSideAxis: side.name},
+          child: SizedBox(
+            width: 6,
+            height: 6,
+            child: WDiv(
+              className: aiAnalysisCardDotRecipe(
+                variants: {kAiEvidenceSideAxis: side.name},
+              ),
             ),
           ),
         ),
@@ -270,23 +283,23 @@ class AiAnalysisCard extends StatelessWidget {
   // -- Footer ----------------------------------------------------------------
 
   Widget _buildFooter() {
+    // Disclaimer note on the left (grows), feedback buttons on the right,
+    // matching the design source's `footer: sm:flex-row ... footerNote: flex-1`.
     return WDiv(
       className: 'pt-3 border-t border-ai',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          WText(
-            trans('uptizm.ai.analysis_disclaimer'),
-            className: 'text-xs leading-relaxed text-fg-muted',
+          Expanded(
+            child: WText(
+              trans('uptizm.ai.analysis_disclaimer'),
+              className: 'text-xs leading-relaxed text-fg-muted',
+            ),
           ),
-          const SizedBox(height: 12),
-          WDiv(
-            className: 'flex flex-row gap-2',
-            children: [
-              _feedbackButton(trans('uptizm.ai.helpful'), true),
-              _feedbackButton(trans('uptizm.ai.not_helpful'), false),
-            ],
-          ),
+          const SizedBox(width: 12),
+          _feedbackButton(trans('uptizm.ai.helpful'), true),
+          const SizedBox(width: 4),
+          _feedbackButton(trans('uptizm.ai.not_helpful'), false),
         ],
       ),
     );
