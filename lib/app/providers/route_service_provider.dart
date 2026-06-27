@@ -5,12 +5,14 @@ import 'package:magic_devtools/preview.dart';
 import '../kernel.dart';
 import '../../routes/app.dart';
 import '../../preview/_previews.g.dart';
-import 'package:magic_starter/magic_starter.dart';
 import 'package:magic_starter/previews.dart' as starter_previews;
 
 /// Route Service Provider.
 ///
-/// Registers the HTTP kernel and application routes.
+/// Registers the HTTP kernel and application routes. Magic Starter route
+/// groups (auth, profile, teams, notifications) are intentionally omitted:
+/// the uptizm vertical has no auth gate and no profile/team/notification
+/// screens in scope.
 class RouteServiceProvider extends ServiceProvider {
   RouteServiceProvider(super.app);
 
@@ -23,10 +25,6 @@ class RouteServiceProvider extends ServiceProvider {
   @override
   Future<void> boot() async {
     // Register application route definitions.
-    registerMagicStarterAuthRoutes();
-    registerMagicStarterProfileRoutes();
-    registerMagicStarterTeamRoutes();
-    registerMagicStarterNotificationRoutes();
     registerAppRoutes();
 
     // Dev-only component preview catalog. Registered here, in boot(), so it
