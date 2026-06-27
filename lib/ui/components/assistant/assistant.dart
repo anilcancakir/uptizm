@@ -385,8 +385,11 @@ class _AssistantState extends State<Assistant> {
           child: WInput(
             controller: _input,
             placeholder: 'Message Uptizm AI…',
+            // Symmetric vertical padding (not a fixed h-11) so the text sits
+            // vertically centered; a fixed height left the text pinned to the
+            // top of the field.
             className: '''
-              h-11 px-3 rounded-lg text-sm text-fg
+              px-3 py-3 rounded-lg text-sm text-fg
               bg-surface-container-high border border-color-border
             ''',
             onSubmitted: _send,
