@@ -71,23 +71,35 @@ class AiInboxItem extends StatelessWidget {
     // 1. Resolve the outer card className from the recipe.
     final String rootClass = aiInboxItemRecipe();
 
-    // 2. Assemble the card with stripe, header, summary, and action row.
+    // 2. A Stack: the padded content column defines the card size; a Positioned
+    //    4px bar paints the full-height ai stripe at the left. Content carries
+    //    pl-5 (20px) so the text/buttons clear the 4px stripe. Explicit Flutter
+    //    positioning avoids both Wind's `absolute` (content overlapped) and
+    //    IntrinsicHeight (Wind flex has no intrinsic-size support -> crash).
     return WDiv(
       className: rootClass,
-      children: [
-        // 3. Left accent stripe marking the row as AI-owned. `overflow-hidden`
-        //    on the root clips both ends; no `rounded-l-lg` needed.
-        WDiv(className: 'absolute top-0 bottom-0 left-0 w-1 bg-ai'),
-
-        // 4. Header row: sparkle glyph + monitor name + confidence + time.
-        _buildHeader(),
-
-        // 5. AI summary paragraph (tldr from the IncidentAi payload).
-        _buildSummary(),
-
-        // 6. Action row: open-incident + dismiss (both require explicit tap).
-        _buildActions(),
-      ],
+      child: Stack(
+        children: [
+          WDiv(
+            className: 'w-full flex flex-col gap-2 p-4 pl-5',
+            children: [
+              // Header: sparkle glyph + monitor name + confidence + time.
+              _buildHeader(),
+              // AI summary paragraph (tldr from the IncidentAi payload).
+              _buildSummary(),
+              // Action row: open-incident + dismiss (explicit tap only).
+              _buildActions(),
+            ],
+          ),
+          const Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            child: WDiv(className: 'bg-ai'),
+          ),
+        ],
+      ),
     );
   }
 

@@ -55,22 +55,20 @@ void main() {
       expect(cls, contains('rounded-lg'));
     });
 
-    test('base emits relative and overflow-hidden', () {
+    test('base clips with overflow-hidden so the stripe corners round', () {
       final cls = aiInboxItemRecipe();
-      expect(cls, contains('relative'));
       expect(cls, contains('overflow-hidden'));
     });
 
-    test(
-      'base uses side-specific padding tokens to avoid shorthand conflict',
-      () {
-        final cls = aiInboxItemRecipe();
-        // pt-4/pr-4/pb-4/pl-5 instead of p-4+pl-5 to avoid the wind
-        // shorthand+longhand same-family conflict warning.
-        expect(cls, contains('pt-4'));
-        expect(cls, contains('pl-5'));
-      },
-    );
+    testWidgets('renders the ai stripe as a Positioned bar without overflow', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(AiInboxItem(incident: incidents.first)));
+      await tester.pump();
+      // A Positioned 4px bar paints the stripe; the pl-5 content clears it.
+      expect(find.byType(Positioned), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   // ---------------------------------------------------------------------------

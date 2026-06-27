@@ -28,6 +28,5 @@ import 'package:magic/magic.dart';
 /// - Text: `text-sm text-fg`, `text-xs text-fg-muted`, `font-mono text-xs`
 const WindRecipe aiInboxItemRecipe = WindRecipe(
   base:
-      'relative flex flex-col gap-2 overflow-hidden rounded-lg '
-      'border border-color-border bg-surface-container pt-4 pr-4 pb-4 pl-5',
+      'overflow-hidden rounded-lg border border-color-border bg-surface-container',
 );
