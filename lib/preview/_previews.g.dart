@@ -15,6 +15,7 @@ import '../ui/components/ai_insight/ai_insight.preview.dart';
 import '../ui/components/assistant/assistant.preview.dart';
 import '../ui/components/check_history_table/check_history_table.preview.dart';
 import '../ui/components/empty_state/empty_state.preview.dart';
+import '../ui/components/error_state/error_state.preview.dart';
 import '../ui/components/incident_card/incident_card.preview.dart';
 import '../ui/components/kpi_stat_card/kpi_stat_card.preview.dart';
 import '../ui/components/metric_chart/metric_chart.preview.dart';
@@ -65,6 +66,11 @@ List<PreviewEntry> previewEntries() {
       label: 'EmptyState',
       slug: 'empty_state',
       builder: (_) => const EmptyStatePreview(),
+    ),
+    PreviewEntry(
+      label: 'ErrorState',
+      slug: 'error_state',
+      builder: (_) => const ErrorStatePreview(),
     ),
     PreviewEntry(
       label: 'Foundations',
