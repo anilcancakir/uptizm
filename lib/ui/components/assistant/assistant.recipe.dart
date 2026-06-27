@@ -15,7 +15,7 @@ const String kAssistantRoleAxis = 'role';
 const WindRecipe assistantFabRecipe = WindRecipe(
   base:
       'flex items-center justify-center size-14 rounded-full '
-      'bg-ai text-white border border-ai',
+      'bg-ai text-on-ai border border-ai',
 );
 
 /// Builds the assistant surface (panel) [WindRecipe].

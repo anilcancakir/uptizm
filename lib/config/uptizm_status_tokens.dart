@@ -57,6 +57,9 @@ const Map<String, String> uptizmStatusAliases = <String, String>{
   // ai: AI-generated surfaces (indigo, off both brand and info)
   'bg-ai': 'bg-[#6E59E2] dark:bg-[#9E8AFA]',
   'text-ai': 'text-[#6E59E2] dark:text-[#9E8AFA]',
+  // on-ai: foreground for content sitting on a solid `bg-ai` surface (mirrors
+  // on-primary / on-destructive). White reads on the indigo in both modes.
+  'text-on-ai': 'text-[#FFFFFF] dark:text-[#FFFFFF]',
   'bg-ai-soft': 'bg-[#ECE8FF] dark:bg-[#2B195A]',
   'text-ai-soft-foreground': 'text-[#5F40D5] dark:text-[#D6D0FF]',
 };

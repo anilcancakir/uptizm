@@ -140,7 +140,7 @@ class _AssistantState extends State<Assistant> {
       child: WButton(
         onTap: () => setState(() => _open = true),
         className: assistantFabRecipe(),
-        child: WIcon(Icons.auto_awesome, className: 'text-[24px] text-white'),
+        child: WIcon(Icons.auto_awesome, className: 'text-[24px] text-on-ai'),
       ),
     );
   }

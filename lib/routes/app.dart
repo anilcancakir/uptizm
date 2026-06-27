@@ -1,5 +1,6 @@
 import 'package:magic/magic.dart';
 
+import '../resources/views/coming_soon_view.dart';
 import '../resources/views/dashboard_view.dart';
 import '../resources/views/monitor_detail_view.dart';
 import '../resources/views/monitors_list_view.dart';
@@ -41,4 +42,25 @@ void registerAppRoutes() {
     '/monitors/:id',
     (String id) => AppLayout(child: MonitorDetailView(id: id)),
   ).title('Monitor | Uptizm').transition(RouteTransition.none);
+
+  // 4. Deferred destinations. The shell always shows Incidents / Status /
+  //    Settings (and the dashboard links to incident detail/create), but those
+  //    screens ship in a later milestone. Register them to a "coming soon"
+  //    placeholder inside the shell so every nav target gives feedback rather
+  //    than a silent no-op. The follow-up verticals replace these.
+  for (final r in const [
+    ['/incidents', 'Incidents'],
+    ['/incidents/new', 'Incidents'],
+    ['/status', 'Status pages'],
+    ['/settings', 'Settings'],
+  ]) {
+    MagicRoute.page(
+      r[0],
+      () => AppLayout(child: ComingSoonView(feature: r[1])),
+    ).transition(RouteTransition.none);
+  }
+  MagicRoute.page(
+    '/incidents/:id',
+    (String id) => const AppLayout(child: ComingSoonView(feature: 'Incidents')),
+  ).transition(RouteTransition.none);
 }

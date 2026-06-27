@@ -471,7 +471,8 @@
     "common": {
       "save": "Save",
       "cancel": "Cancel",
-      "retry": "Try again"
+      "retry": "Try again",
+      "coming_soon_title": "Coming soon"
     }
   }
 }
