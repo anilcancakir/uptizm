@@ -285,30 +285,48 @@ class _AssistantState extends State<Assistant> {
 
   /// A single chat-message row, aligned and tinted by role.
   ///
-  /// Mirrors the design lab `row`: an assistant message leads with a small
-  /// `ai`-toned avatar then its bubble, left-aligned; a user message reverses
-  /// (`flex-row-reverse`) so its bubble sits on the trailing edge with no
-  /// avatar. A Flutter [Row] drives the alignment and a [Flexible] caps the
-  /// bubble so a long reply wraps inside the surface instead of overflowing; a
-  /// single-child flex `WDiv` would not bound its child's width here. The bubble
-  /// tone, geometry, and `max-w-[85%]` come from [assistantBubbleRecipe]; the
+  /// Both roles are left-aligned (matching the design render): an assistant
+  /// message leads with a small `ai`-toned avatar then its gray bubble; a user
+  /// message is a teal bubble with no avatar, sitting at the leading edge. A
+  /// Flutter [Row] drives the alignment and a [Flexible] lets the bubble hug
+  /// its content and wrap (capped by the recipe `max-w-[85%]`) instead of
+  /// overflowing; a single-child flex `WDiv` would not bound its child's width
+  /// here. The bubble tone and geometry come from [assistantBubbleRecipe]; the
   /// inner [WText] inherits the bubble's foreground color through the Wind text
   /// cascade.
   Widget _buildBubble(AssistantMessage message) {
     final bool isUser = message.role == AssistantRole.user;
 
     final Widget bubble = Flexible(
-      child: WDiv(
-        className: assistantBubbleRecipe(
-          variants: {kAssistantRoleAxis: message.role.name},
-        ),
-        child: WText(message.text),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Cap the bubble at 85% of the available row width (the design lab's
+          // `max-w-[85%]`). Wind's percentage max-width does not bind inside a
+          // Flutter flex child, so enforce it here; the bubble still hugs its
+          // content below the cap and stays at the leading edge via Align.
+          final double maxWidth = constraints.maxWidth.isFinite
+              ? constraints.maxWidth * 0.85
+              : double.infinity;
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              child: WDiv(
+                className: assistantBubbleRecipe(
+                  variants: {kAssistantRoleAxis: message.role.name},
+                ),
+                child: WText(message.text),
+              ),
+            ),
+          );
+        },
       ),
     );
 
     if (isUser) {
+      // Left-aligned, no avatar: the bubble hugs its content at the leading
+      // edge (Row defaults to MainAxisAlignment.start).
       return Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [bubble],
       );
@@ -377,11 +395,15 @@ class _AssistantState extends State<Assistant> {
         WButton(
           onTap: () => _send(_input.text),
           semanticLabel: 'Send',
+          // Padding-based sizing (like the Button component): a WButton ignores
+          // size-N and shrink-wraps to its icon, which rendered a tiny circle.
+          // px-4 py-3 sizes it to a clear rounded-square ~matching the input
+          // height, the design lab's paper-plane send button.
           className: '''
-            flex items-center justify-center size-11 shrink-0
+            flex items-center justify-center shrink-0 px-4 py-3
             rounded-lg bg-primary text-on-primary
           ''',
-          child: WIcon(Icons.send, className: 'text-[18px] text-on-primary'),
+          child: WIcon(Icons.send, className: 'text-[20px] text-on-primary'),
         ),
       ],
     );
