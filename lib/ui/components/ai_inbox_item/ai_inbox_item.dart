@@ -100,9 +100,9 @@ class AiInboxItem extends StatelessWidget {
     // `ml-auto` on the time span pushes it to the trailing edge within the
     // wrap row, matching the React `ml-auto` on the time slot.
     // A plain Flutter Row would make the Wind-badge a greedy Expanded child
-    // and overflow; WDiv(flex flex-wrap) prevents that.
+    // and overflow; Wind `wrap` reflows on a narrow column instead.
     return WDiv(
-      className: 'flex flex-wrap items-center gap-2',
+      className: 'wrap items-center gap-2',
       children: [
         // Sparkle glyph marking the row as AI-generated.
         WText('✦', className: 'text-sm text-ai'),
@@ -141,7 +141,7 @@ class AiInboxItem extends StatelessWidget {
         WButton(
           onTap: onApprove,
           className:
-              'inline-flex items-center rounded-md bg-primary px-3 py-1.5 '
+              'flex flex-row items-center rounded-md bg-primary px-3 py-1.5 '
               'text-xs font-semibold text-on-primary',
           child: WText(
             trans('uptizm.ai.open_incident'),
@@ -153,7 +153,7 @@ class AiInboxItem extends StatelessWidget {
         WButton(
           onTap: onDismiss,
           className:
-              'inline-flex items-center rounded-md border border-color-border '
+              'flex flex-row items-center rounded-md border border-color-border '
               'bg-surface-container px-3 py-1.5 text-xs font-medium text-fg-muted',
           child: WText(
             trans('uptizm.ai.dismiss'),

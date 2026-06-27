@@ -97,12 +97,10 @@ class IncidentCard extends StatelessWidget {
         // Impact drives the status badge color.
         StatusBadge(incident.impact.statusKey),
 
-        // Lifecycle stage shown as a muted outline pill.
-        WBadge(
-          incident.lifecycle.label,
-          className:
-              'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-surface-container text-fg-muted border border-color-border',
-        ),
+        // Lifecycle stage as an outline Badge (mirrors React's
+        // `<Badge tone="outline">`); composes the magic_starter Badge recipe
+        // rather than hand-rolling the pill className.
+        Badge(incident.lifecycle.label, tone: BadgeTone.outline),
 
         // AI-owned incidents get an ai StatusBadge (mirrors React's
         // `<StatusBadge status="ai" size="sm">AI-detected</StatusBadge>`).
