@@ -1,0 +1,128 @@
+import 'package:flutter/widgets.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
+
+import 'kpi_stat_card.recipe.dart';
+
+/// Arrow glyph per delta trend; neutral shows none.
+const Map<KpiTrend, String> _kDeltaGlyph = {
+  KpiTrend.up: '▲',
+  KpiTrend.down: '▼',
+  KpiTrend.neutral: '',
+};
+
+/// **Dashboard KPI Stat Card**
+///
+/// A metric tile with a short [label], a prominent tabular-nums [value], and
+/// an optional [delta] change vs. the previous period. The [trend] controls
+/// the color of the delta chip: [KpiTrend.up] for operational green,
+/// [KpiTrend.down] for outage red, and [KpiTrend.neutral] for muted gray.
+///
+/// The card shell is the reused magic_starter [Card] (`CardVariant.surface`),
+/// giving consistent background, border, and corner radius without
+/// re-implementing any container logic.
+///
+/// ### Example Usage:
+///
+/// ```dart
+/// // Positive metric (uptime)
+/// KpiStatCard(
+///   label: 'Uptime (24h)',
+///   value: '99.98%',
+///   delta: '0.01%',
+///   hint: 'vs. last 24h',
+///   trend: KpiTrend.up,
+/// )
+///
+/// // Negative metric (latency increase)
+/// KpiStatCard(
+///   label: 'p95 response',
+///   value: '142ms',
+///   delta: '18ms',
+///   hint: 'vs. last 24h',
+///   trend: KpiTrend.down,
+/// )
+///
+/// // No delta
+/// KpiStatCard(label: 'Open incidents', value: '3')
+/// ```
+@immutable
+class KpiStatCard extends StatelessWidget {
+  /// Short descriptive label for the metric (e.g. "Monitors up").
+  final String label;
+
+  /// Pre-formatted metric value (e.g. "99.98%", "48 / 50", "142ms").
+  ///
+  /// Rendered in Geist Mono tabular-nums so digits align across cards.
+  final String value;
+
+  /// Optional change vs. the previous period (e.g. "0.01%", "2 down").
+  ///
+  /// When `null` the delta row is omitted entirely.
+  final String? delta;
+
+  /// Optional small caption rendered below the delta (e.g. "vs. last 24h").
+  ///
+  /// When `null` the hint row is omitted.
+  final String? hint;
+
+  /// Directional tone for the [delta] chip.
+  ///
+  /// Defaults to [KpiTrend.neutral]. The caller picks the tone so the same
+  /// direction (e.g. a metric rising) can mean good or bad depending on context.
+  final KpiTrend trend;
+
+  /// Creates a [KpiStatCard].
+  const KpiStatCard({
+    super.key,
+    required this.label,
+    required this.value,
+    this.delta,
+    this.hint,
+    this.trend = KpiTrend.neutral,
+  });
+
+  /// Resolves the delta-row className from the recipe for the current [trend].
+  String _resolveDeltaClassName() {
+    return kpiStatCardRecipe(variants: {kKpiStatCardTrendAxis: trend.name});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 1. Compose the card body as a flex column.
+    return Card(
+      noPadding: false,
+      child: WDiv(
+        className: 'flex flex-col gap-1',
+        children: [
+          // 2. Muted uppercase label row.
+          WText(
+            label,
+            className:
+                'text-xs font-medium uppercase tracking-wide text-fg-muted',
+          ),
+
+          // 3. Prominent tabular-nums value in Geist Mono.
+          WText(
+            value,
+            className: 'font-mono text-2xl font-semibold tabular-nums text-fg',
+          ),
+
+          // 4. Optional delta chip (omitted when null).
+          if (delta != null)
+            WDiv(
+              className: _resolveDeltaClassName(),
+              children: [
+                if (_kDeltaGlyph[trend]!.isNotEmpty)
+                  WText(_kDeltaGlyph[trend]!, className: 'text-xs'),
+                WText(delta!, className: 'text-xs'),
+              ],
+            ),
+
+          // 5. Optional hint caption (omitted when null).
+          if (hint != null) WText(hint!, className: 'text-xs text-fg-muted'),
+        ],
+      ),
+    );
+  }
+}
