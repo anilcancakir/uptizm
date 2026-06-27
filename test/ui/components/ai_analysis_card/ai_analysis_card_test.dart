@@ -6,13 +6,12 @@ import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.preview.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.recipe.dart';
-import 'package:uptizm/ui/components/ai_insight/index.dart';
+import 'package:uptizm/ui/components/ai_confidence_badge/index.dart';
 
 void main() {
   setUp(() {
     MagicApp.reset();
     Magic.flush();
-    // Bind MagicStarter so any magic_starter widgets used in helpers resolve.
     Magic.singleton('magic_starter', () => MagicStarterManager());
   });
 
@@ -21,12 +20,14 @@ void main() {
     Magic.flush();
   });
 
-  /// Wraps [widget] in a [MaterialApp] with a default [WindTheme].
-  Widget wrap(Widget widget) {
+  Widget wrap(Widget widget, {Size size = const Size(1280, 1600)}) {
     return MaterialApp(
-      home: WindTheme(
-        data: WindThemeData(),
-        child: Scaffold(body: SingleChildScrollView(child: widget)),
+      home: MediaQuery(
+        data: MediaQueryData(size: size),
+        child: WindTheme(
+          data: WindThemeData(),
+          child: Scaffold(body: SingleChildScrollView(child: widget)),
+        ),
       ),
     );
   }
@@ -35,16 +36,25 @@ void main() {
   // Recipe assertions
   // ---------------------------------------------------------------------------
 
-  group('aiAnalysisCardRecipe', () {
-    test('base emits flex flex-col', () {
-      final cls = aiAnalysisCardRecipe();
-      expect(cls, contains('flex'));
-      expect(cls, contains('flex-col'));
+  group('aiAnalysisCard recipe', () {
+    test('evidence dot resolves green for the FOR side', () {
+      final cls = aiAnalysisCardDotRecipe(
+        variants: {kAiEvidenceSideAxis: AiEvidenceSide.forSide.name},
+      );
+      expect(cls, contains('bg-up'));
+      expect(cls, contains('rounded-full'));
     });
 
-    test('base emits gap-6', () {
-      final cls = aiAnalysisCardRecipe();
-      expect(cls, contains('gap-6'));
+    test('evidence dot resolves red for the AGAINST side', () {
+      final cls = aiAnalysisCardDotRecipe(
+        variants: {kAiEvidenceSideAxis: AiEvidenceSide.against.name},
+      );
+      expect(cls, contains('bg-down'));
+    });
+
+    test('panel className carries the ai border + radius', () {
+      expect(aiAnalysisCardPanelClassName, contains('border-ai'));
+      expect(aiAnalysisCardPanelClassName, contains('rounded-xl'));
     });
   });
 
@@ -52,142 +62,99 @@ void main() {
   // Widget tests
   // ---------------------------------------------------------------------------
 
-  // Use the first fixture incident which has a rich IncidentAi payload.
   final IncidentAi sampleAi = incidents.first.ai!;
 
-  testWidgets('AiAnalysisCard renders the tl;dr text', (tester) async {
+  testWidgets('renders the tl;dr text', (tester) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
-
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    expect(
-      texts.any((w) => w.data == sampleAi.tldr),
-      isTrue,
-      reason: 'tl;dr WText not found in tree',
-    );
+    expect(texts.any((w) => w.data == sampleAi.tldr), isTrue);
   });
 
-  testWidgets('AiAnalysisCard composes AiInsight', (tester) async {
+  testWidgets('renders the confidence badge', (tester) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
-
-    expect(
-      find.byType(AiInsight),
-      findsOneWidget,
-      reason: 'AiInsight should be composed inside AiAnalysisCard',
-    );
+    expect(find.byType(AiConfidenceBadge), findsOneWidget);
   });
 
-  testWidgets('AiAnalysisCard passes correct ai data to AiInsight', (
+  testWidgets('renders both evidence-for and evidence-against labels', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
-
-    final insight = tester.widget<AiInsight>(find.byType(AiInsight));
-    expect(insight.ai, equals(sampleAi));
+    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    expect(texts.any((w) => w.data == trans('uptizm.ai.evidence')), isTrue);
+    expect(
+      texts.any((w) => w.data == trans('uptizm.ai.evidence_against')),
+      isTrue,
+    );
   });
 
-  testWidgets('AiAnalysisCard renders suggested-action titles', (tester) async {
+  testWidgets('renders suggested-action titles', (tester) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
-
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
     for (final action in sampleAi.suggestedActions) {
-      expect(
-        texts.any((w) => w.data == action.title),
-        isTrue,
-        reason: 'action title "${action.title}" not found',
-      );
+      expect(texts.any((w) => w.data == action.title), isTrue);
     }
   });
 
-  testWidgets('AiAnalysisCard renders similar-incident titles', (tester) async {
+  testWidgets('renders similar-incident titles', (tester) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
-
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
     for (final incident in sampleAi.similarIncidents) {
-      expect(
-        texts.any((w) => w.data == incident.title),
-        isTrue,
-        reason: 'similar incident title "${incident.title}" not found',
-      );
+      expect(texts.any((w) => w.data == incident.title), isTrue);
     }
   });
 
-  testWidgets('AiAnalysisCard onActionTap fires only on explicit tap', (
-    tester,
-  ) async {
+  testWidgets('does not overflow at a mobile width', (tester) async {
+    await tester.pumpWidget(
+      wrap(AiAnalysisCard(ai: sampleAi), size: const Size(360, 2400)),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('onActionTap fires only on explicit tap', (tester) async {
     final List<AiSuggestedAction> tapped = [];
-
     await tester.pumpWidget(
-      wrap(
-        AiAnalysisCard(
-          ai: sampleAi,
-          onActionTap: (action) => tapped.add(action),
-        ),
-      ),
+      wrap(AiAnalysisCard(ai: sampleAi, onActionTap: tapped.add)),
     );
+    expect(tapped, isEmpty, reason: 'must not auto-execute');
 
-    // Before any interaction the callback must not have fired.
-    expect(tapped, isEmpty, reason: 'onActionTap must not auto-execute');
-
-    // Scroll the action GestureDetector into view and tap it.
-    final Finder actionFinder = find.byType(GestureDetector).first;
-    await tester.ensureVisible(actionFinder);
-    await tester.tap(actionFinder);
+    // The first WButton in tree order is the first action card (actions render
+    // before the footer feedback buttons).
+    final action = find.byType(WButton).first;
+    await tester.ensureVisible(action);
+    await tester.tap(action);
     await tester.pump();
 
-    expect(tapped.length, equals(1), reason: 'onActionTap should fire once');
-    expect(
-      tapped.first,
-      equals(sampleAi.suggestedActions.first),
-      reason: 'tapped action should match the first suggested action',
-    );
+    expect(tapped.length, equals(1));
+    expect(tapped.first, equals(sampleAi.suggestedActions.first));
   });
 
-  testWidgets('AiAnalysisCard onActionTap callback does not fire without tap', (
-    tester,
-  ) async {
-    var callCount = 0;
-    await tester.pumpWidget(
-      wrap(AiAnalysisCard(ai: sampleAi, onActionTap: (_) => callCount++)),
-    );
-
-    // Pump without any interaction.
-    await tester.pump();
-
-    expect(callCount, equals(0), reason: 'no auto-execution on build');
-  });
-
-  testWidgets('AiAnalysisCard renders without onActionTap callback', (
-    tester,
-  ) async {
-    // Null callback renders action rows as non-interactive; must not throw.
+  testWidgets('renders without onActionTap (non-interactive)', (tester) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
     await tester.pump();
-
     expect(find.byType(AiAnalysisCard), findsOneWidget);
   });
 
-  testWidgets('AiAnalysisCard renders for medium-confidence fixture', (
+  testWidgets('onFeedback fires when a feedback button is tapped', (
     tester,
   ) async {
-    final IncidentAi mediumAi = incidents[1].ai!;
+    bool? rated;
     await tester.pumpWidget(
-      wrap(AiAnalysisCard(ai: mediumAi, onActionTap: (_) {})),
+      wrap(AiAnalysisCard(ai: sampleAi, onFeedback: (h) => rated = h)),
     );
-
-    expect(find.byType(AiInsight), findsOneWidget);
+    // Last WButton = "Not helpful" (footer is last).
+    final notHelpful = find.byType(WButton).last;
+    await tester.ensureVisible(notHelpful);
+    await tester.tap(notHelpful);
+    await tester.pump();
+    expect(rated, isFalse);
   });
 
-  testWidgets('AiAnalysisCard omits similar-incidents section when empty', (
-    tester,
-  ) async {
-    // The docs-blip fixture has an empty similarIncidents list.
+  testWidgets('omits similar-incidents section when empty', (tester) async {
     final IncidentAi minimalAi = incidents
         .firstWhere((i) => i.ai != null && i.ai!.similarIncidents.isEmpty)
         .ai!;
-
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: minimalAi)));
-
-    // No similar-incident title from that fixture should appear.
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
     for (final incident in minimalAi.similarIncidents) {
       expect(texts.any((w) => w.data == incident.title), isFalse);
@@ -197,8 +164,6 @@ void main() {
   testWidgets('AiAnalysisCardPreview renders without error', (tester) async {
     await tester.pumpWidget(wrap(const AiAnalysisCardPreview()));
     await tester.pump();
-
-    // All fixture AI incidents should produce an AiAnalysisCard widget.
     final aiIncidentCount = incidents.where((i) => i.ai != null).length;
     expect(find.byType(AiAnalysisCard), findsNWidgets(aiIncidentCount));
   });

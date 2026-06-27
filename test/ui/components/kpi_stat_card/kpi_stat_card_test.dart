@@ -67,8 +67,8 @@ void main() {
         );
         expect(
           cls,
-          contains('inline-flex'),
-          reason: '${trend.name} missing inline-flex',
+          contains('font-mono'),
+          reason: '${trend.name} missing font-mono',
         );
         expect(
           cls,
@@ -82,7 +82,7 @@ void main() {
       final cls = kpiStatCardRecipe(
         variants: {kKpiStatCardTrendAxis: KpiTrend.up.name},
       );
-      final baseIdx = cls.indexOf('inline-flex');
+      final baseIdx = cls.indexOf('font-mono');
       final variantIdx = cls.indexOf('text-up');
       expect(baseIdx, lessThan(variantIdx));
     });
@@ -160,7 +160,8 @@ void main() {
         ),
       ),
     );
-    expect(find.text('+0.01%'), findsOneWidget);
+    // Glyph + delta render as a single text ("▲ +0.01%").
+    expect(find.textContaining('+0.01%'), findsOneWidget);
   });
 
   testWidgets('KpiStatCard renders up-trend glyph for KpiTrend.up', (
@@ -176,7 +177,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('▲'), findsOneWidget);
+    expect(find.textContaining('▲'), findsOneWidget);
   });
 
   testWidgets('KpiStatCard renders down-trend glyph for KpiTrend.down', (
@@ -192,7 +193,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('▼'), findsOneWidget);
+    expect(find.textContaining('▼'), findsOneWidget);
   });
 
   testWidgets('KpiStatCard renders no glyph for KpiTrend.neutral', (

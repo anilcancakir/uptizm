@@ -1,32 +1,42 @@
 import 'package:magic/magic.dart';
 
-/// Builds the AI analysis card [WindRecipe].
+/// Which side of the argument a piece of evidence supports.
 ///
-/// The recipe encodes the outer card shell for the incident AI analysis panel.
-/// The card shell is supplied by the reused magic_starter [Card] widget; this
-/// recipe governs only the inner layout container that holds the sections
-/// (tl;dr, insight block, suggested actions, similar incidents) and the
-/// footer disclaimer row.
+/// Drives the leading dot color in the evidence grid: [forSide] uses the
+/// operational `up` green, [against] uses the outage `down` red.
+enum AiEvidenceSide {
+  /// Evidence supporting the AI's conclusion (green dot).
+  forSide,
+
+  /// Evidence qualifying or contradicting the conclusion (red dot).
+  against,
+}
+
+/// The side axis key for the evidence-dot recipe (`AiEvidenceSide.<value>`).
+const String kAiEvidenceSideAxis = 'side';
+
+/// Panel shell className for [AiAnalysisCard].
 ///
-/// ### Slot structure
+/// A soft-`ai`-tinted card (Uptizm's signature AI surface) with a hairline
+/// `ai` border, large radius, and generous padding. Wind has no gradient/opacity
+/// parity with the design source's `from-ai-soft/50 to-surface`, so a solid
+/// `bg-ai-soft` tint stands in for the gradient (border + tone over a shadow,
+/// per the port discipline).
+const String aiAnalysisCardPanelClassName =
+    'w-full rounded-xl border border-ai bg-surface-container-high p-5';
+
+/// Evidence-dot recipe: a small solid dot whose color marks the side.
+const WindRecipe aiAnalysisCardDotRecipe = WindRecipe(
+  base: 'size-1.5 rounded-full',
+  variants: {
+    kAiEvidenceSideAxis: {'forSide': 'bg-up', 'against': 'bg-down'},
+  },
+  defaultVariants: {kAiEvidenceSideAxis: 'forSide'},
+);
+
+/// Inner card className for a single suggested-action / similar-incident row.
 ///
-/// ```
-/// AiAnalysisCard
-/// └── Card (surface variant, from magic_starter)
-///     └── container (flex-col gap-6)
-///         ├── header row (sparkle glyph + "AI analysis" label + trigger + AiConfidenceBadge)
-///         ├── AiInsight block (evidence for/against, confidence, citations)
-///         ├── suggested-actions section (optional, approval-gated callbacks)
-///         ├── similar-incidents section (optional)
-///         └── footer disclaimer
-/// ```
-///
-/// Emission order: `base`.
-///
-/// Token reference:
-/// - Container: `flex flex-col gap-6`
-/// - Section labels: `text-xs font-semibold text-ai`
-/// - Action rows: `flex flex-row gap-3 items-start`
-/// - Similar incident rows: `flex flex-row items-center justify-between gap-2`
-/// - Footer: `flex flex-row items-center justify-between gap-3 pt-2 border-t border-color-border`
-const WindRecipe aiAnalysisCardRecipe = WindRecipe(base: 'flex flex-col gap-6');
+/// A bordered white-surface card layered on the soft-`ai` panel, matching the
+/// design source's `rounded-md border border-border bg-surface p-3`.
+const String aiAnalysisCardRowClassName =
+    'w-full rounded-md border border-color-border bg-surface-container p-3';

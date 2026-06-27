@@ -1,242 +1,304 @@
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/incidents.dart';
-import '../ai_insight/index.dart';
+import '../ai_confidence_badge/index.dart';
+import 'ai_analysis_card.recipe.dart';
 
-/// **Incident AI Analysis Card**
+/// **Incident AI Analysis Panel**
 ///
-/// The full AI analysis panel for an incident detail view. Composes the
-/// magic_starter [Card] shell, the in-repo [AiInsight] evidence block, a
-/// suggested-actions section (approval-gated, never auto-executed), and a
-/// similar-incidents section.
+/// Uptizm's signature AI surface for the incident / monitor detail view. Ported
+/// from the design source 1:1 in structure: a soft-`ai`-bordered panel with a
+/// glyph-tile header (heading + trigger + confidence badge), a one-paragraph
+/// tl;dr, a two-column evidence grid (FOR with green dots, AGAINST with red
+/// dots), bordered "recommended next steps" cards, bordered "similar incidents"
+/// cards, and a footer disclaimer with Helpful / Not helpful feedback.
 ///
-/// The panel enforces Uptizm's graduated-trust principle: evidence for and
-/// against the AI's hypothesis is always shown together, and no suggested
-/// action fires without an explicit operator tap.
-///
-/// ### Sections (all conditional on non-empty data)
-///
-/// - **Header**: sparkle glyph, "AI analysis" label, trigger string, and the
-///   [AiConfidenceBadge] supplied via [AiInsight].
-/// - **AI Insight block**: composed [AiInsight] widget (evidence for/against,
-///   confidence, citations).
-/// - **Suggested actions**: ordered advisory steps with rationale. Each action
-///   is approval-gated via an [onActionTap] callback; the card never fires a
-///   callback automatically.
-/// - **Similar incidents**: past incidents the AI considers similar, with a
-///   percentage similarity score.
-/// - **Footer**: a disclaimer note reminding the operator that Uptizm reasons
-///   only from external monitoring signals.
-///
-/// ### Example Usage:
-///
-/// ```dart
-/// // Full AI analysis from a fixture incident
-/// final ai = incidents.first.ai!;
-/// AiAnalysisCard(
-///   ai: ai,
-///   onActionTap: (action) {
-///     // Show confirmation dialog before acting.
-///   },
-/// )
-///
-/// // Inside an incident detail page
-/// if (incident.ai != null)
-///   AiAnalysisCard(
-///     ai: incident.ai!,
-///     onActionTap: (action) => _handleAction(context, action),
-///   )
-/// ```
+/// Graduated trust is enforced structurally: evidence for AND against is always
+/// shown together, suggested actions are advisory (the [onActionTap] callback
+/// never fires on its own), and the operator rates the analysis.
 @immutable
 class AiAnalysisCard extends StatelessWidget {
-  /// The AI analysis data to render.
+  /// The AI analysis payload to render.
   final IncidentAi ai;
 
-  /// Called when the operator explicitly taps a suggested action.
+  /// Called when the operator explicitly taps a suggested-action card.
   ///
-  /// The callback receives the tapped [AiSuggestedAction]. It does NOT fire
-  /// automatically; the operator must tap the action row to trigger it.
-  ///
-  /// When `null`, action rows render as non-interactive display items.
+  /// Never fires automatically (graduated trust). When `null`, action cards are
+  /// non-interactive display items.
   final void Function(AiSuggestedAction action)? onActionTap;
 
+  /// Called when the operator rates the analysis (`true` = helpful).
+  final void Function(bool helpful)? onFeedback;
+
   /// Creates an [AiAnalysisCard] for the given [ai] analysis.
-  const AiAnalysisCard({super.key, required this.ai, this.onActionTap});
+  const AiAnalysisCard({
+    super.key,
+    required this.ai,
+    this.onActionTap,
+    this.onFeedback,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // An explicit Flutter Column scaffolds the body so each section (and the
-    // nested Row-based action/similar rows) receives a bounded width from the
-    // Card shell and wraps cleanly on a narrow (mobile) column, rather than the
-    // unbounded-width regime a Wind flex-col would introduce.
-    final List<Widget> sections = [
-      // Header row: sparkle glyph + label + trigger + confidence badge.
-      _buildHeader(),
-      // AI insight block (evidence for/against, confidence, citations).
-      AiInsight(ai: ai),
-      // Suggested actions section (advisory, approval-gated).
-      if (ai.suggestedActions.isNotEmpty) _buildSuggestedActions(),
-      // Similar incidents section.
-      if (ai.similarIncidents.isNotEmpty) _buildSimilarIncidents(),
-      // Footer disclaimer: graduated trust note.
-      _buildFooter(),
-    ];
+    final hasEvidence =
+        ai.evidenceFor.isNotEmpty || ai.evidenceAgainst.isNotEmpty;
 
-    return Card(
+    // Explicit Flutter Column scaffolds the panel so leaf rows get a bounded
+    // width and wrap cleanly on a narrow column (a Wind flex-col would hand
+    // descendants an unbounded-width regime).
+    return WDiv(
+      className: aiAnalysisCardPanelClassName,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (var i = 0; i < sections.length; i++) ...[
-            if (i > 0) const SizedBox(height: 24),
-            sections[i],
+          _buildHeader(),
+          const SizedBox(height: 16),
+          WText(ai.tldr, className: 'text-base leading-relaxed text-fg'),
+          if (hasEvidence) ...[
+            const SizedBox(height: 16),
+            _buildEvidenceGrid(context),
           ],
+          if (ai.suggestedActions.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildSection(trans('uptizm.ai.recommended_next_steps'), [
+              for (final a in ai.suggestedActions) _buildActionCard(a),
+            ]),
+          ],
+          if (ai.similarIncidents.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildSection(trans('uptizm.ai.similar_incidents'), [
+              for (final s in ai.similarIncidents) _buildSimilarCard(s),
+            ]),
+          ],
+          const SizedBox(height: 16),
+          _buildFooter(),
         ],
       ),
     );
   }
 
-  /// Builds the header row: sparkle glyph, "AI analysis" label, trigger
-  /// string, and the AI confidence badge surfaced via [AiInsight].
+  // -- Header ----------------------------------------------------------------
+
   Widget _buildHeader() {
+    // A Wind flex-row lays this out: Wind sizes the badge (a shrink-wrap pill)
+    // and the glyph tile to content, while the `flex-1` trigger grows to push
+    // the badge to the right. A Flutter Row here would treat the Wind-flex
+    // badge as an infinite-width child and overflow.
+    // `wrap` (the design source's `flex-wrap`) reflows instead of overflowing:
+    // on a wide panel everything sits on one line; on a narrow column the badge
+    // drops to the next line. A plain flex-row would overflow because a Wind
+    // badge is a shrink-wrap pill that does not cooperate with flex-shrink.
     return WDiv(
       className: 'wrap items-center gap-2',
       children: [
-        // Sparkle glyph marking the panel as AI-generated.
-        WText('✦', className: 'text-base text-ai'),
-
-        // "AI analysis" heading label.
+        WText('✦', className: 'text-ai text-lg'),
         WText(
-          trans('uptizm.ai.ai_detected'),
-          className: 'text-sm font-semibold text-ai',
+          trans('uptizm.ai.analysis_title'),
+          className: 'text-base font-semibold text-fg',
         ),
-
-        // Trigger string (e.g. "AI anomaly") shown as a muted pill.
-        WBadge(
-          ai.trigger,
-          className:
-              'inline-flex items-center rounded-full px-2 py-0.5 text-xs '
-              'font-medium bg-ai-soft text-ai-soft-foreground',
-        ),
+        WText(ai.trigger, className: 'text-sm text-fg-muted'),
+        AiConfidenceBadge(ai.confidence),
       ],
     );
   }
 
-  /// Builds the suggested-actions section.
-  ///
-  /// Each action is an advisory next step. Tapping an action row fires
-  /// [onActionTap] with the relevant [AiSuggestedAction]; the callback is
-  /// never invoked automatically (graduated-trust principle).
-  Widget _buildSuggestedActions() {
+  // -- Evidence grid ---------------------------------------------------------
+
+  Widget _buildEvidenceGrid(BuildContext context) {
+    final forColumn = ai.evidenceFor.isEmpty
+        ? null
+        : _buildEvidenceColumn(
+            trans('uptizm.ai.evidence'),
+            AiEvidenceSide.forSide,
+            ai.evidenceFor,
+          );
+    final againstColumn = ai.evidenceAgainst.isEmpty
+        ? null
+        : _buildEvidenceColumn(
+            trans('uptizm.ai.evidence_against'),
+            AiEvidenceSide.against,
+            ai.evidenceAgainst,
+          );
+    final columns = [?forColumn, ?againstColumn];
+
+    // Two columns side by side on wide screens, stacked on mobile.
+    if (wScreenIs(context, 'sm') && columns.length == 2) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: columns[0]),
+          const SizedBox(width: 16),
+          Expanded(child: columns[1]),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Section label.
-        WText(
-          trans('uptizm.ai.suggested_actions'),
-          className: 'text-xs font-semibold text-ai',
-        ),
-        // One row per suggested action.
-        for (final action in ai.suggestedActions) ...[
-          const SizedBox(height: 12),
-          _buildActionRow(action),
+        for (var i = 0; i < columns.length; i++) ...[
+          if (i > 0) const SizedBox(height: 16),
+          columns[i],
         ],
       ],
     );
   }
 
-  /// Renders a single suggested-action row: an arrow marker, the action title,
-  /// the rationale, and an optional tap region when [onActionTap] is provided.
-  Widget _buildActionRow(AiSuggestedAction action) {
-    // Use explicit Row + Expanded so the text body can wrap without overflowing.
-    final Widget content = Row(
+  Widget _buildEvidenceColumn(
+    String label,
+    AiEvidenceSide side,
+    List<AiEvidence> items,
+  ) {
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Arrow marker aligned to the text baseline.
-        WText('→', className: 'text-sm font-medium text-ai'),
+        WText(
+          label,
+          className:
+              'text-xs font-medium uppercase tracking-wide text-fg-muted',
+        ),
+        const SizedBox(height: 8),
+        for (final item in items) ...[
+          _buildEvidenceItem(item, side),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
 
-        const SizedBox(width: 12),
-
-        // Action body: title + rationale; expands to fill remaining width.
-        Expanded(
+  Widget _buildEvidenceItem(AiEvidence item, AiEvidenceSide side) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Leading dot (green for-side / red against-side); nudged to the text
+        // baseline.
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
           child: WDiv(
-            className: 'flex flex-col gap-0.5',
+            className: aiAnalysisCardDotRecipe(
+              variants: {kAiEvidenceSideAxis: side.name},
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              WText(action.title, className: 'text-sm font-medium text-fg'),
-              WText(action.rationale, className: 'text-xs text-fg-muted'),
+              WText(item.label, className: 'text-sm text-fg'),
+              if (item.detail.isNotEmpty)
+                WText(item.detail, className: 'text-xs text-fg-muted'),
+              if (item.source case final source?)
+                WText(
+                  source,
+                  className: 'font-mono text-xs text-info-soft-foreground',
+                ),
             ],
           ),
         ),
       ],
     );
-
-    if (onActionTap == null) {
-      return content;
-    }
-
-    // Approval gate: only fire the callback on explicit tap.
-    return GestureDetector(onTap: () => onActionTap!(action), child: content);
   }
 
-  /// Builds the similar-incidents section.
-  ///
-  /// Each row shows the past incident title and a percentage similarity score
-  /// rendered in tabular-nums Geist Mono.
-  Widget _buildSimilarIncidents() {
+  // -- Sections (actions / similar) ------------------------------------------
+
+  Widget _buildSection(String label, List<Widget> cards) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Section label.
         WText(
-          trans('uptizm.ai.similar_incidents'),
-          className: 'text-xs font-semibold text-ai',
+          label,
+          className:
+              'text-xs font-medium uppercase tracking-wide text-fg-muted',
         ),
-        // One row per similar incident.
-        for (final incident in ai.similarIncidents) ...[
-          const SizedBox(height: 12),
-          _buildSimilarIncidentRow(incident),
+        const SizedBox(height: 8),
+        for (var i = 0; i < cards.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          cards[i],
         ],
       ],
     );
   }
 
-  /// Renders a single similar-incident row: title on the left, similarity
-  /// percentage on the right in tabular-nums mono.
-  Widget _buildSimilarIncidentRow(AiSimilarIncident incident) {
-    // Convert similarity score [0, 1] to an integer percentage string.
-    final String percent = '${(incident.similarity * 100).round()}%';
+  Widget _buildActionCard(AiSuggestedAction action) {
+    final card = WDiv(
+      className: aiAnalysisCardRowClassName,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: WIcon(Icons.arrow_forward, className: 'text-ai text-base'),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                WText(action.title, className: 'text-sm text-fg'),
+                if (action.rationale.isNotEmpty)
+                  WText(action.rationale, className: 'text-xs text-fg-muted'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
 
-    return Row(
-      children: [
-        // Title expands to fill available space.
-        Expanded(child: WText(incident.title, className: 'text-sm text-fg')),
+    if (onActionTap == null) return card;
+    return WButton(onTap: () => onActionTap!(action), child: card);
+  }
 
-        const SizedBox(width: 8),
-
-        // Similarity score: ai-toned mono chip.
-        WText(
-          percent,
-          className:
-              'font-mono text-xs tabular-nums font-medium text-ai-soft-foreground',
-        ),
-      ],
+  Widget _buildSimilarCard(AiSimilarIncident incident) {
+    final percent = '${(incident.similarity * 100).round()}%';
+    return WDiv(
+      className: aiAnalysisCardRowClassName,
+      child: Row(
+        children: [
+          Expanded(child: WText(incident.title, className: 'text-sm text-fg')),
+          const SizedBox(width: 12),
+          WText(
+            percent,
+            className: 'font-mono text-xs tabular-nums text-fg-muted',
+          ),
+        ],
+      ),
     );
   }
 
-  /// Builds the footer disclaimer row.
-  ///
-  /// Reminds the operator that Uptizm AI reasons only from external monitoring
-  /// signals and that human verification is required before acting.
+  // -- Footer ----------------------------------------------------------------
+
   Widget _buildFooter() {
     return WDiv(
-      className: 'flex flex-col gap-1 pt-2 border-t border-color-border',
-      children: [
-        WText(
-          trans('uptizm.ai.analysis_disclaimer'),
-          className: 'text-xs text-fg-disabled',
-        ),
-      ],
+      className: 'pt-3 border-t border-ai',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          WText(
+            trans('uptizm.ai.analysis_disclaimer'),
+            className: 'text-xs leading-relaxed text-fg-muted',
+          ),
+          const SizedBox(height: 12),
+          WDiv(
+            className: 'flex flex-row gap-2',
+            children: [
+              _feedbackButton(trans('uptizm.ai.helpful'), true),
+              _feedbackButton(trans('uptizm.ai.not_helpful'), false),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _feedbackButton(String label, bool helpful) {
+    return WButton(
+      onTap: onFeedback == null ? null : () => onFeedback!(helpful),
+      className:
+          'px-3 py-1.5 rounded-md text-sm font-medium text-fg-muted '
+          'hover:bg-surface-container',
+      child: WText(label, className: 'text-sm font-medium text-fg-muted'),
     );
   }
 }

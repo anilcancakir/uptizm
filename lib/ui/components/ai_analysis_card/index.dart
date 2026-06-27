@@ -7,4 +7,10 @@
 // directly, and the preview must stay out of the release barrel.
 
 export 'ai_analysis_card.dart' show AiAnalysisCard;
-export 'ai_analysis_card.recipe.dart' show aiAnalysisCardRecipe;
+export 'ai_analysis_card.recipe.dart'
+    show
+        AiEvidenceSide,
+        kAiEvidenceSideAxis,
+        aiAnalysisCardPanelClassName,
+        aiAnalysisCardDotRecipe,
+        aiAnalysisCardRowClassName;

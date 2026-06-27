@@ -31,11 +31,15 @@ const String kKpiStatCardTrendAxis = 'trend';
 /// - down:    `text-down`     (outage red — increase is bad, or a raw decline)
 /// - neutral: `text-fg-muted` (no directional meaning)
 const WindRecipe kpiStatCardRecipe = WindRecipe(
-  base: 'inline-flex items-center gap-0.5 text-xs font-medium tabular-nums',
+  // Text-only tokens: the glyph + delta are laid out by an explicit Flutter Row
+  // in the widget, so this carries just the type + tone (applied to each WText).
+  base: 'font-mono text-xs font-medium tabular-nums',
   variants: {
     kKpiStatCardTrendAxis: {
-      'up': 'text-up',
-      'down': 'text-down',
+      // Soft-foreground tones (matching the design source) read calmer than the
+      // solid status colors against the card surface.
+      'up': 'text-up-soft-foreground',
+      'down': 'text-down-soft-foreground',
       'neutral': 'text-fg-muted',
     },
   },

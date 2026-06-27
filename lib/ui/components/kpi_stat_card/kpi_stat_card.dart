@@ -89,37 +89,32 @@ class KpiStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Compose the card body as a flex column.
+    // Wind layout throughout so the card sizes correctly inside a Wind grid
+    // cell. The delta is a `flex flex-row` row (NOT `inline-flex`, which Wind
+    // renders as a centered vertical column) with `self-start` so it hugs its
+    // content and stays left-aligned instead of stretching the cell width.
+    final deltaClass = _resolveDeltaClassName();
     return Card(
       noPadding: false,
       child: WDiv(
         className: 'flex flex-col gap-1',
         children: [
-          // 2. Muted uppercase label row.
           WText(
             label,
             className:
                 'text-xs font-medium uppercase tracking-wide text-fg-muted',
           ),
-
-          // 3. Prominent tabular-nums value in Geist Mono.
           WText(
             value,
             className: 'font-mono text-2xl font-semibold tabular-nums text-fg',
           ),
-
-          // 4. Optional delta chip (omitted when null).
           if (delta != null)
-            WDiv(
-              className: _resolveDeltaClassName(),
-              children: [
-                if (_kDeltaGlyph[trend]!.isNotEmpty)
-                  WText(_kDeltaGlyph[trend]!, className: 'text-xs'),
-                WText(delta!, className: 'text-xs'),
-              ],
+            WText(
+              _kDeltaGlyph[trend]!.isEmpty
+                  ? delta!
+                  : '${_kDeltaGlyph[trend]} $delta',
+              className: deltaClass,
             ),
-
-          // 5. Optional hint caption (omitted when null).
           if (hint != null) WText(hint!, className: 'text-xs text-fg-muted'),
         ],
       ),
