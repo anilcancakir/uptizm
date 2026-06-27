@@ -23,10 +23,10 @@ enum IncidentImpact {
 
   /// Maps to the equivalent [StatusKey] for badge rendering.
   StatusKey get statusKey => switch (this) {
-        IncidentImpact.down => StatusKey.down,
-        IncidentImpact.degraded => StatusKey.degraded,
-        IncidentImpact.info => StatusKey.info,
-      };
+    IncidentImpact.down => StatusKey.down,
+    IncidentImpact.degraded => StatusKey.degraded,
+    IncidentImpact.info => StatusKey.info,
+  };
 }
 
 /// Operator-side severity tier, independent of customer-facing [IncidentImpact].
@@ -42,10 +42,10 @@ enum IncidentSeverity {
 
   /// Human-readable display label.
   String get label => switch (this) {
-        IncidentSeverity.critical => 'Critical',
-        IncidentSeverity.warning => 'Warning',
-        IncidentSeverity.info => 'Info',
-      };
+    IncidentSeverity.critical => 'Critical',
+    IncidentSeverity.warning => 'Warning',
+    IncidentSeverity.info => 'Info',
+  };
 }
 
 /// How the incident was first detected.
@@ -61,10 +61,10 @@ enum SignalSource {
 
   /// Human-readable display label for timeline and filter chips.
   String get label => switch (this) {
-        SignalSource.threshold => 'Threshold breach',
-        SignalSource.anomaly => 'AI anomaly',
-        SignalSource.manual => 'Manual',
-      };
+    SignalSource.threshold => 'Threshold breach',
+    SignalSource.anomaly => 'AI anomaly',
+    SignalSource.manual => 'Manual',
+  };
 }
 
 /// Lifecycle stage an incident moves through.
@@ -77,12 +77,12 @@ enum IncidentLifecycle {
 
   /// Display label matching the design source (title-case).
   String get label => switch (this) {
-        IncidentLifecycle.detected => 'Detected',
-        IncidentLifecycle.investigating => 'Investigating',
-        IncidentLifecycle.identified => 'Identified',
-        IncidentLifecycle.monitoring => 'Monitoring',
-        IncidentLifecycle.resolved => 'Resolved',
-      };
+    IncidentLifecycle.detected => 'Detected',
+    IncidentLifecycle.investigating => 'Investigating',
+    IncidentLifecycle.identified => 'Identified',
+    IncidentLifecycle.monitoring => 'Monitoring',
+    IncidentLifecycle.resolved => 'Resolved',
+  };
 }
 
 /// Actor that authored a timeline entry.
@@ -168,11 +168,7 @@ class AiEvidence {
   /// Optional data source citation, e.g. `"regions us-east, eu-west"`.
   final String? source;
 
-  const AiEvidence({
-    required this.label,
-    required this.detail,
-    this.source,
-  });
+  const AiEvidence({required this.label, required this.detail, this.source});
 }
 
 /// A suggested remediation step from Uptizm AI.
@@ -184,10 +180,7 @@ class AiSuggestedAction {
   /// Reasoning that supports the suggestion.
   final String rationale;
 
-  const AiSuggestedAction({
-    required this.title,
-    required this.rationale,
-  });
+  const AiSuggestedAction({required this.title, required this.rationale});
 }
 
 /// A historically similar incident surfaced by the AI.
@@ -199,10 +192,7 @@ class AiSimilarIncident {
   /// Cosine similarity score in the range [0, 1].
   final double similarity;
 
-  const AiSimilarIncident({
-    required this.title,
-    required this.similarity,
-  });
+  const AiSimilarIncident({required this.title, required this.similarity});
 }
 
 /// Full AI analysis attached to an incident.
@@ -241,11 +231,7 @@ class IncidentAi {
 }
 
 /// AI confidence level for an incident analysis.
-enum AiConfidence {
-  high,
-  medium,
-  low,
-}
+enum AiConfidence { high, medium, low }
 
 /// Assignee for an incident: the engineer currently driving it.
 @immutable
@@ -256,10 +242,7 @@ class IncidentAssignee {
   /// Two-letter initials for avatar fallback rendering.
   final String initials;
 
-  const IncidentAssignee({
-    required this.name,
-    required this.initials,
-  });
+  const IncidentAssignee({required this.name, required this.initials});
 }
 
 /// Acknowledgement record: a human confirmed they are on the incident.
@@ -271,10 +254,7 @@ class IncidentAcknowledgement {
   /// Wall-clock time of acknowledgement, e.g. `"14:33"`.
   final String at;
 
-  const IncidentAcknowledgement({
-    required this.by,
-    required this.at,
-  });
+  const IncidentAcknowledgement({required this.by, required this.at});
 }
 
 /// Full incident record as shown in the incident list and detail page.
@@ -431,8 +411,7 @@ const List<IncidentSummary> incidents = [
       evidenceAgainst: [
         AiEvidence(
           label: 'Not regional',
-          detail:
-              'No single region is isolated; the pattern is global.',
+          detail: 'No single region is isolated; the pattern is global.',
         ),
         AiEvidence(
           label: 'Not a timeout',
@@ -539,7 +518,7 @@ const List<IncidentSummary> incidents = [
         AiEvidence(
           label: 'Correlation only',
           detail:
-          "Uptizm sees the metrics line up but can't confirm causation inside your app.",
+              "Uptizm sees the metrics line up but can't confirm causation inside your app.",
         ),
       ],
       suggestedActions: [
@@ -703,8 +682,7 @@ const List<IncidentSummary> incidents = [
       evidenceFor: [
         AiEvidence(
           label: 'Self-recovered',
-          detail:
-              'p95 returned to the expected band and held for 5 checks.',
+          detail: 'p95 returned to the expected band and held for 5 checks.',
           source: 'metric response_time',
         ),
         AiEvidence(

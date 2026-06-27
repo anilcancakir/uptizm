@@ -77,10 +77,7 @@ class UptimeSegment {
   /// Tooltip label, e.g. `"7d ago"`.
   final String label;
 
-  const UptimeSegment({
-    required this.status,
-    required this.label,
-  });
+  const UptimeSegment({required this.status, required this.label});
 }
 
 /// Builds a deterministic 90-day uptime history.

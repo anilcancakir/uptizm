@@ -31,13 +31,13 @@ enum StatusKey {
 
   /// Human-readable label shown in badges and detail headers.
   String get label => switch (this) {
-        StatusKey.up => 'Operational',
-        StatusKey.down => 'Major outage',
-        StatusKey.degraded => 'Degraded',
-        StatusKey.paused => 'Paused',
-        StatusKey.info => 'Maintenance',
-        StatusKey.ai => 'AI',
-      };
+    StatusKey.up => 'Operational',
+    StatusKey.down => 'Major outage',
+    StatusKey.degraded => 'Degraded',
+    StatusKey.paused => 'Paused',
+    StatusKey.info => 'Maintenance',
+    StatusKey.ai => 'AI',
+  };
 }
 
 /// Ordered list of all [StatusKey] values; mirrors the canonical TypeScript

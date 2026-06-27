@@ -25,9 +25,10 @@ import '../ui/layouts/app_layout.dart';
 /// See also: `lib/app/kernel.dart` for middleware registration.
 void registerAppRoutes() {
   // 1. Dashboard: the default landing screen.
-  MagicRoute.page('/', () => const AppLayout(child: DashboardView()))
-      .title('Dashboard | Uptizm')
-      .transition(RouteTransition.none);
+  MagicRoute.page(
+    '/',
+    () => const AppLayout(child: DashboardView()),
+  ).title('Dashboard | Uptizm').transition(RouteTransition.none);
 
   // 2. Monitors list: full monitor inventory with status filter.
   MagicRoute.page(

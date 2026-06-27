@@ -28,12 +28,15 @@ void main() {
 
     test('all four status states are represented', () {
       final statuses = monitors.map((m) => m.status).toSet();
-      expect(statuses, containsAll([
-        StatusKey.up,
-        StatusKey.down,
-        StatusKey.degraded,
-        StatusKey.paused,
-      ]));
+      expect(
+        statuses,
+        containsAll([
+          StatusKey.up,
+          StatusKey.down,
+          StatusKey.degraded,
+          StatusKey.paused,
+        ]),
+      );
     });
 
     test('findMonitor returns the matching fixture', () {
@@ -127,11 +130,7 @@ void main() {
     });
 
     test('MetricSeries fields match the chart contract (key, label, tone)', () {
-      const series = MetricSeries(
-        key: 'p50',
-        label: 'p50',
-        tone: ChartTone.up,
-      );
+      const series = MetricSeries(key: 'p50', label: 'p50', tone: ChartTone.up);
       expect(series.key, equals('p50'));
       expect(series.label, equals('p50'));
       expect(series.tone, equals(ChartTone.up));
