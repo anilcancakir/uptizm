@@ -69,6 +69,11 @@ class StatusBadge extends StatelessWidget {
     );
   }
 
+  /// The dot diameter in logical pixels, matching the recipe's `size-*` token
+  /// (`size-1.5` = 6px for sm, `size-2` = 8px for md). A childless [WDiv]
+  /// collapses to zero size, so the dot is bound to this box explicitly.
+  double get _dotDiameter => size == StatusBadgeSize.sm ? 6 : 8;
+
   @override
   Widget build(BuildContext context) {
     // 1. Resolve slot classNames once.
@@ -82,10 +87,17 @@ class StatusBadge extends StatelessWidget {
     // 3. Build: pill row optionally containing a leading dot + text.
     //    NOTE: `flex flex-row` (NOT `inline-flex`) — Wind renders inline-flex
     //    as a centered vertical column; flex flex-row is correct for a row.
+    //    The dot is a childless WDiv, which collapses to 0px, so it is bound
+    //    to a [SizedBox] at the recipe's dot diameter.
     return WDiv(
       className: rootClass,
       children: [
-        if (showDot) WDiv(className: dotClass),
+        if (showDot)
+          SizedBox(
+            width: _dotDiameter,
+            height: _dotDiameter,
+            child: WDiv(className: dotClass),
+          ),
         WText(displayLabel),
       ],
     );
