@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart';
+import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
 import '../../app/mocks/incidents.dart';
 import '../../app/mocks/metrics.dart';
@@ -8,6 +8,7 @@ import '../../app/mocks/monitors.dart';
 import '../../app/mocks/status.dart';
 import '../../ui/components/ai_analysis_card/index.dart';
 import '../../ui/components/check_history_table/index.dart';
+import '../../ui/components/empty_state/index.dart';
 import '../../ui/components/kpi_stat_card/index.dart';
 import '../../ui/components/metric_chart/index.dart';
 import '../../ui/components/status_badge/index.dart';

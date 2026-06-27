@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart';
 
+import '../../ui/components/empty_state/index.dart';
 import '../../ui/layouts/page_container.dart';
 
 /// Placeholder destination for routes whose full screen ships in a later
