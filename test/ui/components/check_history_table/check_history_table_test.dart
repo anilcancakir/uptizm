@@ -5,7 +5,7 @@ import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/ui/components/check_history_table/index.dart';
 import 'package:uptizm/ui/components/check_history_table/check_history_table.preview.dart';
-import 'package:uptizm/ui/components/status_dot/index.dart';
+import 'package:uptizm/ui/components/status_badge/index.dart';
 
 void main() {
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme] so
@@ -24,58 +24,76 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('checkHistoryTableRecipe', () {
-    test('table slot emits flex and w-full', () {
+    test('table slot emits a full-width flex column', () {
       final classes = checkHistoryTableRecipe();
       expect(classes['table'], contains('flex'));
+      expect(classes['table'], contains('flex-col'));
       expect(classes['table'], contains('w-full'));
     });
 
-    test('row slot emits border-b and border-color-border', () {
+    test('row slot is a flex row with a bottom hairline divider', () {
       final classes = checkHistoryTableRecipe();
+      expect(classes['row'], contains('flex flex-row'));
       expect(classes['row'], contains('border-b'));
       expect(classes['row'], contains('border-color-border'));
     });
 
-    test('header slot emits border-b and border-color-border', () {
+    test('header slot is a flex row with a bottom hairline divider', () {
       final classes = checkHistoryTableRecipe();
+      expect(classes['header'], contains('flex flex-row'));
       expect(classes['header'], contains('border-b'));
       expect(classes['header'], contains('border-color-border'));
     });
 
-    test('th slot emits uppercase tracking-wide text-fg-muted', () {
+    test('th slot grows (flex-1) and is quiet uppercase muted', () {
       final classes = checkHistoryTableRecipe();
+      expect(classes['th'], contains('flex-1'));
       expect(classes['th'], contains('uppercase'));
       expect(classes['th'], contains('tracking-wide'));
       expect(classes['th'], contains('text-fg-muted'));
     });
 
-    test('thRight slot emits text-right and text-fg-muted', () {
+    test('thStatus slot takes the wider flex-2 track', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['thRight'], contains('text-right'));
-      expect(classes['thRight'], contains('text-fg-muted'));
+      expect(classes['thStatus'], contains('flex-2'));
+      expect(classes['thStatus'], contains('uppercase'));
     });
 
-    test('cellMuted slot emits tabular-nums and font-mono', () {
+    test('numeric header slots take a fixed track and align right', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['cellMuted'], contains('tabular-nums'));
-      expect(classes['cellMuted'], contains('font-mono'));
+      expect(classes['thResponse'], contains('w-22'));
+      expect(classes['thResponse'], contains('shrink-0'));
+      expect(classes['thResponse'], contains('text-right'));
+      expect(classes['thCode'], contains('w-14'));
+      expect(classes['thCode'], contains('text-right'));
     });
 
-    test('cellMono slot emits tabular-nums and text-right', () {
+    test('cellId slot grows and emits tabular-nums font-mono', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['cellMono'], contains('tabular-nums'));
-      expect(classes['cellMono'], contains('text-right'));
+      expect(classes['cellId'], contains('flex-1'));
+      expect(classes['cellId'], contains('tabular-nums'));
+      expect(classes['cellId'], contains('font-mono'));
     });
 
-    test('statusCell slot emits flex and items-center', () {
+    test('numeric cell slots take a fixed track and align right', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['statusCell'], contains('flex'));
+      expect(classes['cellResponse'], contains('w-22'));
+      expect(classes['cellResponse'], contains('tabular-nums'));
+      expect(classes['cellResponse'], contains('text-right'));
+      expect(classes['cellCode'], contains('w-14'));
+      expect(classes['cellCode'], contains('text-right'));
+    });
+
+    test('statusCell slot is a flex-2 flex row', () {
+      final classes = checkHistoryTableRecipe();
+      expect(classes['statusCell'], contains('flex-2'));
+      expect(classes['statusCell'], contains('flex flex-row'));
       expect(classes['statusCell'], contains('items-center'));
     });
 
-    test('all variable-width slots carry min-w-0 overflow guard', () {
+    test('all flexible slots carry the min-w-0 overflow guard', () {
       final classes = checkHistoryTableRecipe();
-      for (final slot in ['cell', 'cellMuted', 'cellMono', 'statusCell']) {
+      for (final slot in ['th', 'thStatus', 'cellId', 'statusCell']) {
         expect(
           classes[slot],
           contains('min-w-0'),
@@ -89,14 +107,14 @@ void main() {
   // Widget tests
   // ---------------------------------------------------------------------------
 
-  testWidgets('CheckHistoryTable renders one StatusDot per row', (
+  testWidgets('CheckHistoryTable renders one StatusBadge per row', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(CheckHistoryTable(rows: recentChecks)));
     await tester.pump();
 
-    final dots = tester.widgetList<StatusDot>(find.byType(StatusDot));
-    expect(dots.length, equals(recentChecks.length));
+    final badges = tester.widgetList<StatusBadge>(find.byType(StatusBadge));
+    expect(badges.length, equals(recentChecks.length));
   });
 
   testWidgets('CheckHistoryTable renders N rows from fixture', (tester) async {
@@ -105,15 +123,15 @@ void main() {
     await tester.pumpWidget(wrap(CheckHistoryTable(rows: rows)));
     await tester.pump();
 
-    final dots = tester.widgetList<StatusDot>(find.byType(StatusDot));
-    expect(dots.length, equals(rowCount));
+    final badges = tester.widgetList<StatusBadge>(find.byType(StatusBadge));
+    expect(badges.length, equals(rowCount));
   });
 
   testWidgets('CheckHistoryTable renders 0 rows without error', (tester) async {
     await tester.pumpWidget(wrap(const CheckHistoryTable(rows: [])));
     await tester.pump();
 
-    expect(find.byType(StatusDot), findsNothing);
+    expect(find.byType(StatusBadge), findsNothing);
   });
 
   testWidgets('CheckHistoryTable renders time text for each row', (
@@ -220,7 +238,7 @@ void main() {
     expect(find.text('CODE'), findsOneWidget);
   });
 
-  testWidgets('CheckHistoryTable passes correct status to each StatusDot', (
+  testWidgets('CheckHistoryTable passes correct status to each StatusBadge', (
     tester,
   ) async {
     const rows = [
@@ -249,11 +267,13 @@ void main() {
     await tester.pumpWidget(wrap(const CheckHistoryTable(rows: rows)));
     await tester.pump();
 
-    final dots = tester.widgetList<StatusDot>(find.byType(StatusDot)).toList();
-    expect(dots.length, equals(3));
-    expect(dots[0].status, equals(StatusKey.up));
-    expect(dots[1].status, equals(StatusKey.down));
-    expect(dots[2].status, equals(StatusKey.degraded));
+    final badges = tester
+        .widgetList<StatusBadge>(find.byType(StatusBadge))
+        .toList();
+    expect(badges.length, equals(3));
+    expect(badges[0].status, equals(StatusKey.up));
+    expect(badges[1].status, equals(StatusKey.down));
+    expect(badges[2].status, equals(StatusKey.degraded));
   });
 
   testWidgets('CheckHistoryTablePreview renders without error', (tester) async {
@@ -264,8 +284,8 @@ void main() {
     );
     await tester.pump();
 
-    // Preview renders 2 sections (6 rows + 3 rows), so at least 9 StatusDots.
-    final dots = tester.widgetList<StatusDot>(find.byType(StatusDot));
-    expect(dots.length, greaterThanOrEqualTo(recentChecks.length));
+    // Preview renders 2 sections (6 rows + 3 rows), so at least 9 StatusBadges.
+    final badges = tester.widgetList<StatusBadge>(find.byType(StatusBadge));
+    expect(badges.length, greaterThanOrEqualTo(recentChecks.length));
   });
 }
