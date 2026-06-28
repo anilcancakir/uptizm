@@ -318,11 +318,25 @@
   "uptizm": {
     "nav": {
       "home": "Home",
+      "dashboard": "Dashboard",
       "monitors": "Monitors",
       "incidents": "Incidents",
       "status": "Status",
       "status_page": "Status page",
       "settings": "Settings"
+    },
+    "team_menu": {
+      "heading": "Teams",
+      "settings": "Team settings",
+      "members": "Members",
+      "channels": "Notification channels",
+      "escalation": "Escalation policies",
+      "on_call": "On-call schedule",
+      "billing": "Plan & billing",
+      "create": "Create team"
+    },
+    "account": {
+      "sign_out": "Sign out"
     },
     "dashboard": {
       "title": "Dashboard",
