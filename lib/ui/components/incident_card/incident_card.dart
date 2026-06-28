@@ -111,18 +111,26 @@ class IncidentCard extends StatelessWidget {
   }
 
   Widget _buildMeta() {
+    // Single-monitor incidents read better with the concrete monitor name +
+    // severity; multi-monitor ones collapse to a count (the design-lab shape).
+    final bool single = incident.affectedCount <= 1;
+
     return WDiv(
       className:
           'wrap items-center gap-x-2 gap-y-1 font-mono text-xs tabular-nums text-fg-muted',
       children: [
-        // Affected monitor name.
-        WText(incident.monitorName),
+        if (single) ...[
+          // Affected monitor name.
+          WText(incident.monitorName),
 
-        // Separator dot.
-        WText('·', className: 'text-fg-disabled'),
+          // Separator dot.
+          WText('·', className: 'text-fg-disabled'),
 
-        // Operator severity tier label.
-        WText(incident.severity.label),
+          // Operator severity tier label.
+          WText(incident.severity.label),
+        ] else
+          // Count of affected monitors (mirrors the design lab).
+          WText('${incident.affectedCount} monitors affected'),
 
         // Separator dot.
         WText('·', className: 'text-fg-disabled'),
