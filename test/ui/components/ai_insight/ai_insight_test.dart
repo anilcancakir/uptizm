@@ -42,11 +42,11 @@ void main() {
       expect(classes['root'], contains('items-start'));
     });
 
-    test('banner tone root emits the ai-soft fill framed by the ai border', () {
+    test('banner tone root emits the ai-wash fill framed by the ai border', () {
       final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'banner'});
-      // ai-soft wash (matching the React from-ai-soft tint); the glyph tile is
-      // the same token at full strength so it still reads against the fill.
-      expect(classes['root'], contains('bg-ai-soft'));
+      // Paler ai-wash fill (matching the React from-ai-soft/50 tint) so the
+      // full-strength bg-ai-soft glyph tile still reads against it.
+      expect(classes['root'], contains('bg-ai-wash'));
       expect(classes['root'], contains('border-ai-soft'));
       expect(classes['root'], contains('rounded-xl'));
       expect(classes['root'], contains('p-4'));

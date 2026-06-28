@@ -14,9 +14,10 @@ const String kAiInsightToneAxis = 'tone';
 /// ### Banner fill
 ///
 /// The React original tints the banner with a `from-ai-soft/50 to-surface`
-/// gradient. Wind supports the color-opacity modifier, so the banner uses a
-/// flat `bg-ai-soft/40` wash: subtle enough to read against the page surface
-/// yet lighter than the full `bg-ai-soft` glyph tile, so the tile still pops.
+/// gradient. Wind cannot apply an opacity modifier to an alias token, so the
+/// banner uses the dedicated `bg-ai-wash` token (ai-soft pre-blended at 50%
+/// over the surface): paler than the full `bg-ai-soft` glyph tile, so the tile
+/// still pops, and framed by the `border-ai-soft` border.
 ///
 /// ### Slot structure
 ///
@@ -42,7 +43,7 @@ const WindSlotRecipe aiInsightRecipe = WindSlotRecipe(
   variants: {
     kAiInsightToneAxis: {
       'banner': {
-        'root': 'gap-3 rounded-xl border border-ai-soft bg-ai-soft p-4',
+        'root': 'gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
         'glyphWrap':
             'size-8 flex items-center justify-center rounded-lg bg-ai-soft',
         'glyph': 'text-lg text-ai',
