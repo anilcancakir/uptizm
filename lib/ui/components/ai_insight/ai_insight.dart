@@ -122,19 +122,51 @@ class AiInsight extends StatelessWidget {
   }
 
   /// Builds the text paragraph, optionally prefixed with a bold [label].
+  ///
+  /// When a [label] is present and [child] is a [WText], the label and body are
+  /// rendered as ONE inline paragraph (a bold lead-in span followed by the body
+  /// text), mirroring the React `<p><span>{label}</span>{children}</p>`. This
+  /// keeps wrapped lines flush against the left edge instead of indenting them
+  /// past the label, which a `Row` + `Expanded` layout would do.
   Widget _buildTextParagraph(String textClass) {
     if (label == null) {
       return WDiv(className: textClass, child: child);
     }
 
-    // Label is bold `text-fg` regardless of tone; the insight text then follows.
+    final body = child;
+    if (body is WText) {
+      // textClass publishes the tone text style via DefaultTextStyle; the body
+      // span inherits it, the label span adds the medium weight on top.
+      return WDiv(
+        className: textClass,
+        child: Builder(
+          builder: (context) {
+            final base = DefaultTextStyle.of(context).style;
+            return Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$label ',
+                    style: base.copyWith(fontWeight: FontWeight.w500),
+                  ),
+                  TextSpan(text: body.data, style: base),
+                ],
+              ),
+              textAlign: TextAlign.left,
+            );
+          },
+        ),
+      );
+    }
+
+    // Non-text child: stack the bold label above the arbitrary child.
     return WDiv(
       className: textClass,
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           WText('$label ', className: 'font-medium text-fg'),
-          Expanded(child: child),
+          child,
         ],
       ),
     );

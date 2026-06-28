@@ -42,12 +42,11 @@ void main() {
       expect(classes['root'], contains('items-start'));
     });
 
-    test('banner tone root emits a neutral fill framed by the ai border', () {
+    test('banner tone root emits the ai-soft fill framed by the ai border', () {
       final classes = aiInsightRecipe(variants: {kAiInsightToneAxis: 'banner'});
-      // Neutral fill (not bg-ai-soft) so the ai-soft glyph tile stays visible
-      // against it; the ai signal is the border + tile, not a tinted wash.
-      expect(classes['root'], contains('bg-surface-container'));
-      expect(classes['root'], isNot(contains('bg-ai-soft')));
+      // ai-soft wash (matching the React from-ai-soft tint); the glyph tile is
+      // the same token at full strength so it still reads against the fill.
+      expect(classes['root'], contains('bg-ai-soft'));
       expect(classes['root'], contains('border-ai-soft'));
       expect(classes['root'], contains('rounded-xl'));
       expect(classes['root'], contains('p-4'));
@@ -168,7 +167,9 @@ void main() {
     expect(badge.level, equals(AiConfidence.medium));
   });
 
-  testWidgets('AiInsight renders label before child text', (tester) async {
+  testWidgets('AiInsight renders the label inline before the child text', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       wrap(
         const AiInsight(
@@ -178,16 +179,18 @@ void main() {
       ),
     );
 
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    // When the child is a WText, the label and body render as ONE inline rich
+    // paragraph (a Text with a TextSpan), so wrapped lines stay flush left.
+    final paragraphs = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((t) => t.textSpan?.toPlainText() ?? t.data ?? '')
+        .toList();
     expect(
-      texts.any((w) => w.data == 'Uptizm AI '),
+      paragraphs.any(
+        (s) => s.contains('Uptizm AI') && s.contains('Something interesting.'),
+      ),
       isTrue,
-      reason: 'Label WText not found',
-    );
-    expect(
-      texts.any((w) => w.data == 'Something interesting.'),
-      isTrue,
-      reason: 'Child WText not found',
+      reason: 'label + body should render as one inline paragraph',
     );
   });
 

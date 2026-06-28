@@ -11,14 +11,12 @@ const String kAiInsightToneAxis = 'tone';
 /// - `inline` — quiet sparkle + muted line; no background or border; glyph
 ///   nudged to `mt-0.5` so it aligns to the first line of text.
 ///
-/// ### Banner fill divergence
+/// ### Banner fill
 ///
 /// The React original tints the banner with a `from-ai-soft/50 to-surface`
-/// gradient. Wind has no opacity modifier or gradient-to-surface token, and a
-/// solid `bg-ai-soft` fill both over-saturates the card AND hides the equally
-/// ai-soft glyph tile against it. So the banner fill is the neutral
-/// `bg-surface-container`; the ai signal is carried by the border, the
-/// saturated tile, and the confidence badge instead of a tinted wash.
+/// gradient. Wind supports the color-opacity modifier, so the banner uses a
+/// flat `bg-ai-soft/40` wash: subtle enough to read against the page surface
+/// yet lighter than the full `bg-ai-soft` glyph tile, so the tile still pops.
 ///
 /// ### Slot structure
 ///
@@ -44,12 +42,11 @@ const WindSlotRecipe aiInsightRecipe = WindSlotRecipe(
   variants: {
     kAiInsightToneAxis: {
       'banner': {
-        'root':
-            'gap-3 rounded-xl border border-ai-soft bg-surface-container p-4',
+        'root': 'gap-3 rounded-xl border border-ai-soft bg-ai-soft p-4',
         'glyphWrap':
             'size-8 flex items-center justify-center rounded-lg bg-ai-soft',
         'glyph': 'text-lg text-ai',
-        'text': 'text-sm leading-relaxed text-fg',
+        'text': 'text-sm leading-relaxed text-fg text-left',
       },
       'inline': {
         'glyphWrap': 'mt-0.5',
