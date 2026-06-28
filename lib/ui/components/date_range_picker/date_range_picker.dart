@@ -1,0 +1,108 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart' show Icons;
+import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
+
+import 'date_range_picker.recipe.dart';
+
+/// A preset time range offered by the [DateRangePicker].
+@immutable
+class DateRangePreset {
+  /// Full menu label, e.g. "Last 7 days".
+  final String label;
+
+  /// Compact label, e.g. "7d".
+  final String short;
+
+  /// Stable identifier, e.g. "7d".
+  final String value;
+
+  /// Creates a [DateRangePreset].
+  const DateRangePreset({
+    required this.label,
+    required this.short,
+    required this.value,
+  });
+}
+
+/// The preset ranges the picker offers, matching the design lab `RANGE_PRESETS`.
+const List<DateRangePreset> kDateRangePresets = [
+  DateRangePreset(label: 'Last 24 hours', short: '24h', value: '24h'),
+  DateRangePreset(label: 'Last 7 days', short: '7d', value: '7d'),
+  DateRangePreset(label: 'Last 30 days', short: '30d', value: '30d'),
+  DateRangePreset(label: 'Last 90 days', short: '90d', value: '90d'),
+];
+
+/// **Time-range picker for monitor charts.**
+///
+/// A trigger button shows the active range; tapping opens a dropdown of presets
+/// with a checkmark on the selected one. Controlled via [value] + [onChanged].
+/// Ported from the design lab `DateRangePicker`.
+///
+/// ### Example:
+/// ```dart
+/// DateRangePicker(value: range, onChanged: (v) => setState(() => range = v))
+/// ```
+@immutable
+class DateRangePicker extends StatelessWidget {
+  /// Currently selected preset value, e.g. "7d".
+  final String value;
+
+  /// Called with the next preset value when a menu item is chosen.
+  final ValueChanged<String> onChanged;
+
+  /// Optional extra classNames appended to the trigger slot.
+  final String? className;
+
+  /// Creates a [DateRangePicker].
+  const DateRangePicker({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.className,
+  });
+
+  static const IconData _calendarIcon = Icons.calendar_today_outlined;
+  static const IconData _chevronIcon = Icons.keyboard_arrow_down;
+  static const IconData _checkIcon = Icons.check;
+
+  @override
+  Widget build(BuildContext context) {
+    final slots = dateRangePickerRecipe(variants: const <String, String>{});
+
+    var activeLabel = 'Custom range';
+    for (final preset in kDateRangePresets) {
+      if (preset.value == value) activeLabel = preset.label;
+    }
+
+    final triggerClass = className == null
+        ? slots['trigger']
+        : '${slots['trigger']} $className';
+
+    return DropdownMenu(
+      // bottomLeft so the menu opens on-screen regardless of trigger placement
+      // (the source right-aligns within a right-side toolbar; left-align is the
+      // robust generic default and avoids clipping when the trigger sits left).
+      alignment: PopoverAlignment.bottomLeft,
+      items: [
+        for (final preset in kDateRangePresets)
+          DropdownMenuItem(
+            label: preset.label,
+            leading: preset.value == value
+                ? WIcon(_checkIcon, className: 'size-4 text-primary')
+                : null,
+            onTap: () => onChanged(preset.value),
+          ),
+      ],
+      // Plain styled WDiv trigger so DropdownMenu's WPopover owns the tap.
+      child: WDiv(
+        className: triggerClass,
+        children: [
+          WIcon(_calendarIcon, className: slots['icon']),
+          WText(activeLabel, className: slots['label']),
+          WIcon(_chevronIcon, className: slots['icon']),
+        ],
+      ),
+    );
+  }
+}
