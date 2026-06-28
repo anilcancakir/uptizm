@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Material, MaterialType;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
@@ -54,11 +55,21 @@ class AppLayout extends StatelessWidget {
     // Key the routed child by path so each route unmounts then mounts cleanly.
     final keyedChild = KeyedSubtree(key: ValueKey(currentPath), child: child);
 
-    return WDiv(
-      className: 'w-full h-full bg-surface',
-      child: isDesktop
-          ? _buildDesktop(currentPath, keyedChild)
-          : _buildMobile(context, currentPath, keyedChild),
+    // The shell chrome (sidebar / top bar / bottom nav) is rendered by the
+    // go_router ShellRoute builder, OUTSIDE the per-page Material that
+    // magic_router wraps each routed page in. Without a Material ancestor, every
+    // chrome WText inherits WidgetsApp's "missing Material" error DefaultTextStyle
+    // (the debug yellow double underline). A transparent Material installs the
+    // theme's clean text defaults for the whole shell while letting the WDiv
+    // `bg-surface` paint show through.
+    return Material(
+      type: MaterialType.transparency,
+      child: WDiv(
+        className: 'w-full h-full bg-surface',
+        child: isDesktop
+            ? _buildDesktop(currentPath, keyedChild)
+            : _buildMobile(context, currentPath, keyedChild),
+      ),
     );
   }
 
