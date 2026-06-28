@@ -25,42 +25,53 @@ import '../ui/layouts/app_layout.dart';
 ///
 /// See also: `lib/app/kernel.dart` for middleware registration.
 void registerAppRoutes() {
-  // 1. Dashboard: the default landing screen.
-  MagicRoute.page(
-    '/',
-    () => const AppLayout(child: DashboardView()),
-  ).title('Dashboard | Uptizm').transition(RouteTransition.none);
+  // All in-app routes render inside ONE persistent [AppLayout] shell, wired as
+  // a go_router ShellRoute via MagicRoute.group(layout:). The shell (sidebar /
+  // top bar / bottom nav) is built once and survives navigation; only the
+  // routed content swaps. Wrapping each page in its own AppLayout instead would
+  // rebuild the whole chrome on every navigation (a full-screen flash between,
+  // say, Home and Monitors).
+  MagicRoute.group(
+    layout: (child) => AppLayout(child: child),
+    routes: () {
+      // 1. Dashboard: the default landing screen.
+      MagicRoute.page(
+        '/',
+        () => const DashboardView(),
+      ).title('Dashboard | Uptizm').transition(RouteTransition.none);
 
-  // 2. Monitors list: full monitor inventory with status filter.
-  MagicRoute.page(
-    '/monitors',
-    () => const AppLayout(child: MonitorsListView()),
-  ).title('Monitors | Uptizm').transition(RouteTransition.none);
+      // 2. Monitors list: full monitor inventory with status filter.
+      MagicRoute.page(
+        '/monitors',
+        () => const MonitorsListView(),
+      ).title('Monitors | Uptizm').transition(RouteTransition.none);
 
-  // 3. Monitor detail: resolves :id from the path to the fixture.
-  MagicRoute.page(
-    '/monitors/:id',
-    (String id) => AppLayout(child: MonitorDetailView(id: id)),
-  ).title('Monitor | Uptizm').transition(RouteTransition.none);
+      // 3. Monitor detail: resolves :id from the path to the fixture.
+      MagicRoute.page(
+        '/monitors/:id',
+        (String id) => MonitorDetailView(id: id),
+      ).title('Monitor | Uptizm').transition(RouteTransition.none);
 
-  // 4. Deferred destinations. The shell always shows Incidents / Status /
-  //    Settings (and the dashboard links to incident detail/create), but those
-  //    screens ship in a later milestone. Register them to a "coming soon"
-  //    placeholder inside the shell so every nav target gives feedback rather
-  //    than a silent no-op. The follow-up verticals replace these.
-  for (final r in const [
-    ['/incidents', 'Incidents'],
-    ['/incidents/new', 'Incidents'],
-    ['/status', 'Status pages'],
-    ['/settings', 'Settings'],
-  ]) {
-    MagicRoute.page(
-      r[0],
-      () => AppLayout(child: ComingSoonView(feature: r[1])),
-    ).transition(RouteTransition.none);
-  }
-  MagicRoute.page(
-    '/incidents/:id',
-    (String id) => const AppLayout(child: ComingSoonView(feature: 'Incidents')),
-  ).transition(RouteTransition.none);
+      // 4. Deferred destinations. The shell always shows Incidents / Status /
+      //    Settings (and the dashboard links to incident detail/create), but
+      //    those screens ship in a later milestone. Register them to a "coming
+      //    soon" placeholder so every nav target gives feedback rather than a
+      //    silent no-op. The follow-up verticals replace these.
+      for (final r in const [
+        ['/incidents', 'Incidents'],
+        ['/incidents/new', 'Incidents'],
+        ['/status', 'Status pages'],
+        ['/settings', 'Settings'],
+      ]) {
+        MagicRoute.page(
+          r[0],
+          () => ComingSoonView(feature: r[1]),
+        ).transition(RouteTransition.none);
+      }
+      MagicRoute.page(
+        '/incidents/:id',
+        (String id) => const ComingSoonView(feature: 'Incidents'),
+      ).transition(RouteTransition.none);
+    },
+  );
 }
