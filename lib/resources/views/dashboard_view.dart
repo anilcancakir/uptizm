@@ -117,7 +117,7 @@ class DashboardView extends StatelessWidget {
       label: trans('uptizm.ai.right_now_label'),
       child: WText(
         trans('uptizm.dashboard.ai_fleet_summary'),
-        className: 'text-sm text-fg-muted',
+        className: 'text-sm text-fg',
       ),
     );
   }
