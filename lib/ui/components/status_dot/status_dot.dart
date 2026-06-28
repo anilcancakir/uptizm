@@ -51,8 +51,22 @@ class StatusDot extends StatelessWidget {
     );
   }
 
+  /// The dot diameter in logical pixels, matching the recipe's `size-*` token
+  /// (`size-2` = 8px sm, `size-2.5` = 10px md, `size-3` = 12px lg). A childless
+  /// [WDiv] collapses to zero size in Wind, so the dot is bound to this box
+  /// explicitly (same pattern as [StatusBadge]'s leading dot).
+  double get _diameter => switch (size) {
+        StatusDotSize.sm => 8,
+        StatusDotSize.md => 10,
+        StatusDotSize.lg => 12,
+      };
+
   @override
   Widget build(BuildContext context) {
-    return WDiv(className: _resolveClassName());
+    return SizedBox(
+      width: _diameter,
+      height: _diameter,
+      child: WDiv(className: _resolveClassName()),
+    );
   }
 }
