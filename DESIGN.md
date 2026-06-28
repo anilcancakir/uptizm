@@ -118,6 +118,9 @@ colors:
   ai-soft-foreground:
     light: "#5F40D5"
     dark: "#D6D0FF"
+  ai-wash:
+    light: "#F2F1FD"
+    dark: "#191133"
 typography:
   display:
     fontFamily: Geist

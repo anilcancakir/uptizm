@@ -62,4 +62,14 @@ const Map<String, String> uptizmStatusAliases = <String, String>{
   'text-on-ai': 'text-[#FFFFFF] dark:text-[#FFFFFF]',
   'bg-ai-soft': 'bg-[#ECE8FF] dark:bg-[#2B195A]',
   'text-ai-soft-foreground': 'text-[#5F40D5] dark:text-[#D6D0FF]',
+  // ai-wash: a paler fill than `ai-soft`, used as the AI banner background so
+  // the full-strength `ai-soft` glyph tile still reads against it. Computed as
+  // `ai-soft` at 50% over the page surface (light #F9FAFB / dark #07090C),
+  // matching the React `from-ai-soft/50 to-surface` gradient as a flat tint
+  // (Wind cannot apply an opacity modifier to an alias token).
+  'bg-ai-wash': 'bg-[#F2F1FD] dark:bg-[#191133]',
+  // border-ai-soft: the soft ai border (same hex as `bg-ai-soft`). Without this
+  // key the wind expander leaves `border-ai-soft` unresolved and the border
+  // falls back to the default (white) color.
+  'border-ai-soft': 'border-[#ECE8FF] dark:border-[#2B195A]',
 };
