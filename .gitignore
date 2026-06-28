@@ -54,5 +54,8 @@ pubspec_overrides.yaml
 # ac orchestration artifacts (plan + evidence)
 .ac/
 
+# Personal Claude Code settings (local sibling-dir wiring, not shared)
+.claude/settings.local.json
+
 # Local QA report (not part of the published example)
 /REPORT.md
