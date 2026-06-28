@@ -162,6 +162,7 @@ class _TeamSwitcherState extends State<_TeamSwitcher> {
     return WPopover(
       alignment: PopoverAlignment.bottomLeft,
       offset: const Offset(0, 6),
+      maxHeight: 480,
       className: '''
         w-64 max-w-full overflow-hidden rounded-lg py-1
         bg-surface border border-color-border shadow-xl
@@ -182,7 +183,11 @@ class _TeamSwitcherState extends State<_TeamSwitcher> {
           WIcon(Icons.unfold_more, className: 'text-[16px] text-fg-muted'),
         ],
       ),
-      contentBuilder: (context, close) => WDiv(
+      // WPopover only constrains content to maxHeight (it does not scroll), so
+      // the body is wrapped in a scroll view: it sizes to content when short
+      // and scrolls when the team + management list exceeds the popover height.
+      contentBuilder: (context, close) => SingleChildScrollView(
+        child: WDiv(
         className: 'flex flex-col',
         children: [
           // Section heading.
@@ -225,6 +230,7 @@ class _TeamSwitcherState extends State<_TeamSwitcher> {
           _menuRow(trans('uptizm.team_menu.billing'), close),
           _menuRow(trans('uptizm.team_menu.create'), close),
         ],
+        ),
       ),
     );
   }
@@ -274,6 +280,7 @@ class _NotificationBell extends StatelessWidget {
     return WPopover(
       alignment: PopoverAlignment.bottomRight,
       offset: const Offset(0, 6),
+      maxHeight: 480,
       className: 'w-80 max-w-full rounded-lg shadow-xl',
       triggerBuilder: (context, isOpen, isHovering) => WDiv(
         className: '''
@@ -303,10 +310,15 @@ class _NotificationBell extends StatelessWidget {
           ],
         ),
       ),
-      contentBuilder: (context, close) => NotificationCenter(
-        onClose: close,
-        onItemTap: (item) => MagicRoute.to(item.to),
-        onSettings: () => MagicRoute.to('/settings'),
+      // WPopover constrains height without scrolling, so the panel is wrapped
+      // in a scroll view: the feed scrolls when it exceeds the popover height
+      // instead of overflowing.
+      contentBuilder: (context, close) => SingleChildScrollView(
+        child: NotificationCenter(
+          onClose: close,
+          onItemTap: (item) => MagicRoute.to(item.to),
+          onSettings: () => MagicRoute.to('/settings'),
+        ),
       ),
     );
   }
