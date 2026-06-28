@@ -124,14 +124,20 @@ class SloBudgetCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final budget = computeErrorBudget(target, uptimePct, windowDays: windowDays);
+    final budget = computeErrorBudget(
+      target,
+      uptimePct,
+      windowDays: windowDays,
+    );
     final slots = sloBudgetCardRecipe(
       variants: {kSloBudgetToneAxis: budget.tone.name},
     );
     final fillPct = budget.remainingPct.clamp(0.0, 100.0);
 
     return WDiv(
-      className: className == null ? slots['root'] : '${slots['root']} $className',
+      className: className == null
+          ? slots['root']
+          : '${slots['root']} $className',
       children: [
         // Header: title + SLO/window meta (left) and status badge (right).
         WDiv(
@@ -140,8 +146,10 @@ class SloBudgetCard extends StatelessWidget {
             WDiv(
               className: 'flex flex-col gap-0.5',
               children: [
-                WText('Error budget',
-                    className: 'text-sm font-semibold text-fg'),
+                WText(
+                  'Error budget',
+                  className: 'text-sm font-semibold text-fg',
+                ),
                 WText(
                   'SLO $target% · $windowLabel',
                   className: 'font-mono text-xs tabular-nums text-fg-muted',

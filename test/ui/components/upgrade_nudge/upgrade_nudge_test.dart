@@ -6,11 +6,11 @@ import 'package:uptizm/ui/components/upgrade_nudge/upgrade_nudge.preview.dart';
 
 void main() {
   Widget wrap(Widget widget) => MaterialApp(
-        home: WindTheme(
-          data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      );
+    home: WindTheme(
+      data: WindThemeData(),
+      child: Scaffold(body: SingleChildScrollView(child: widget)),
+    ),
+  );
 
   group('upgradeNudgeRecipe', () {
     test('neutral banner fill + ai-soft lock tile', () {
@@ -22,25 +22,29 @@ void main() {
   });
 
   testWidgets('renders message + plan line + Upgrade button', (tester) async {
-    await tester.pumpWidget(wrap(
-      const UpgradeNudge(
-        message: "You've reached your 3-responder limit.",
-        requiredPlan: 'Business',
+    await tester.pumpWidget(
+      wrap(
+        const UpgradeNudge(
+          message: "You've reached your 3-responder limit.",
+          requiredPlan: 'Business',
+        ),
       ),
-    ));
+    );
     expect(find.text("You've reached your 3-responder limit."), findsOneWidget);
     expect(find.text('Available on Business and up.'), findsOneWidget);
     expect(find.text('Upgrade'), findsOneWidget);
   });
 
   testWidgets('compact hides the Upgrade button', (tester) async {
-    await tester.pumpWidget(wrap(
-      const UpgradeNudge(
-        message: '10-second checks need a faster plan.',
-        requiredPlan: 'Business',
-        compact: true,
+    await tester.pumpWidget(
+      wrap(
+        const UpgradeNudge(
+          message: '10-second checks need a faster plan.',
+          requiredPlan: 'Business',
+          compact: true,
+        ),
       ),
-    ));
+    );
     expect(find.text('Upgrade'), findsNothing);
   });
 

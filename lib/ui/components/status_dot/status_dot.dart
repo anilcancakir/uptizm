@@ -56,10 +56,10 @@ class StatusDot extends StatelessWidget {
   /// [WDiv] collapses to zero size in Wind, so the dot is bound to this box
   /// explicitly (same pattern as [StatusBadge]'s leading dot).
   double get _diameter => switch (size) {
-        StatusDotSize.sm => 8,
-        StatusDotSize.md => 10,
-        StatusDotSize.lg => 12,
-      };
+    StatusDotSize.sm => 8,
+    StatusDotSize.md => 10,
+    StatusDotSize.lg => 12,
+  };
 
   @override
   Widget build(BuildContext context) {

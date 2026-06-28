@@ -72,7 +72,10 @@ class KeyValueEditor extends StatelessWidget {
   void _updateRow(int index, {String? key, String? value}) {
     final next = [
       for (var i = 0; i < this.value.length; i++)
-        if (i == index) this.value[i].copyWith(key: key, value: value) else this.value[i],
+        if (i == index)
+          this.value[i].copyWith(key: key, value: value)
+        else
+          this.value[i],
     ];
     onChanged(next);
   }
@@ -93,7 +96,9 @@ class KeyValueEditor extends StatelessWidget {
     final slots = keyValueEditorRecipe(variants: const <String, String>{});
 
     return WDiv(
-      className: className == null ? slots['root'] : '${slots['root']} $className',
+      className: className == null
+          ? slots['root']
+          : '${slots['root']} $className',
       children: [
         for (var i = 0; i < value.length; i++) _row(i, slots),
         Button(

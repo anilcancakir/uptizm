@@ -6,11 +6,11 @@ import 'package:uptizm/ui/components/key_value_editor/key_value_editor.preview.d
 
 void main() {
   Widget wrap(Widget widget) => MaterialApp(
-        home: WindTheme(
-          data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      );
+    home: WindTheme(
+      data: WindThemeData(),
+      child: Scaffold(body: SingleChildScrollView(child: widget)),
+    ),
+  );
 
   group('keyValueEditorRecipe', () {
     test('root stacks rows; remove is a square ghost', () {
@@ -31,21 +31,23 @@ void main() {
   });
 
   testWidgets('renders the Add button + the supplied rows', (tester) async {
-    await tester.pumpWidget(wrap(
-      KeyValueEditor(
-        value: const [KeyValueRow(key: 'Authorization', value: 'Bearer x')],
-        onChanged: (_) {},
+    await tester.pumpWidget(
+      wrap(
+        KeyValueEditor(
+          value: const [KeyValueRow(key: 'Authorization', value: 'Bearer x')],
+          onChanged: (_) {},
+        ),
       ),
-    ));
+    );
     expect(find.text('Add header'), findsOneWidget);
     expect(find.byType(KeyValueEditor), findsOneWidget);
   });
 
   testWidgets('Add appends an empty row', (tester) async {
     List<KeyValueRow> next = const [];
-    await tester.pumpWidget(wrap(
-      KeyValueEditor(value: const [], onChanged: (v) => next = v),
-    ));
+    await tester.pumpWidget(
+      wrap(KeyValueEditor(value: const [], onChanged: (v) => next = v)),
+    );
     await tester.tap(find.text('Add header'));
     await tester.pump();
     expect(next.length, 1);

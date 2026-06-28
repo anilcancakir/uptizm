@@ -75,24 +75,28 @@ class UsageMeter extends StatelessWidget {
     final tone = unlimited
         ? UsageMeterTone.up
         : ratio >= 1
-            ? UsageMeterTone.down
-            : ratio >= 0.8
-                ? UsageMeterTone.degraded
-                : UsageMeterTone.up;
+        ? UsageMeterTone.down
+        : ratio >= 0.8
+        ? UsageMeterTone.degraded
+        : UsageMeterTone.up;
     final slots = usageMeterRecipe(variants: {kUsageMeterToneAxis: tone.name});
     final widthFactor = unlimited ? 0.04 : math.max(0.02, ratio);
     final suffix = unit != null ? ' $unit' : '';
     final limitText = unlimited ? '∞' : '${_formatCount(lim)}$suffix';
 
     return WDiv(
-      className: className == null ? slots['root'] : '${slots['root']} $className',
+      className: className == null
+          ? slots['root']
+          : '${slots['root']} $className',
       children: [
         WDiv(
           className: slots['head'],
           children: [
             WText(label, className: slots['label']),
-            WText('${_formatCount(used)}$suffix / $limitText',
-                className: slots['readout']),
+            WText(
+              '${_formatCount(used)}$suffix / $limitText',
+              className: slots['readout'],
+            ),
           ],
         ),
         WDiv(

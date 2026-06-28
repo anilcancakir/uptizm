@@ -5,11 +5,11 @@ import 'package:uptizm/ui/components/slo_budget_card/index.dart';
 
 void main() {
   Widget wrap(Widget widget) => MaterialApp(
-        home: WindTheme(
-          data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      );
+    home: WindTheme(
+      data: WindThemeData(),
+      child: Scaffold(body: SingleChildScrollView(child: widget)),
+    ),
+  );
 
   group('computeErrorBudget', () {
     test('full uptime -> healthy (up), 100% left', () {
@@ -50,18 +50,18 @@ void main() {
   });
 
   testWidgets('renders header, status label and footer', (tester) async {
-    await tester.pumpWidget(wrap(
-      const SloBudgetCard(target: 99.9, uptimePct: 100),
-    ));
+    await tester.pumpWidget(
+      wrap(const SloBudgetCard(target: 99.9, uptimePct: 100)),
+    );
     expect(find.text('Error budget'), findsOneWidget);
     expect(find.text('Healthy'), findsOneWidget);
     expect(find.textContaining('budget left'), findsOneWidget);
   });
 
   testWidgets('breached card shows the over-budget note', (tester) async {
-    await tester.pumpWidget(wrap(
-      const SloBudgetCard(target: 99.95, uptimePct: 99.94),
-    ));
+    await tester.pumpWidget(
+      wrap(const SloBudgetCard(target: 99.95, uptimePct: 99.94)),
+    );
     expect(find.text('Budget breached'), findsOneWidget);
     expect(find.textContaining('Over budget by'), findsOneWidget);
   });

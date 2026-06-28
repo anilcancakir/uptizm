@@ -18,6 +18,7 @@ const WindSlotRecipe keyValueEditorRecipe = WindSlotRecipe(
   slots: {
     'root': 'flex flex-col gap-2',
     'remove':
-        'flex flex-row size-10 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-surface-container hover:text-fg',
+        'flex flex-row size-10 shrink-0 items-center justify-center '
+        'rounded-md text-fg-muted hover:bg-surface-container hover:text-fg',
   },
 );

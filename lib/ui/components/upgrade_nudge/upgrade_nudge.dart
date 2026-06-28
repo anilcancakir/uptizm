@@ -54,7 +54,9 @@ class UpgradeNudge extends StatelessWidget {
     final slots = upgradeNudgeRecipe(variants: const <String, String>{});
 
     return WDiv(
-      className: className == null ? slots['root'] : '${slots['root']} $className',
+      className: className == null
+          ? slots['root']
+          : '${slots['root']} $className',
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -71,8 +73,10 @@ class UpgradeNudge extends StatelessWidget {
               className: 'flex flex-col gap-0.5',
               children: [
                 WText(message, className: slots['message']),
-                WText('Available on $requiredPlan and up.',
-                    className: slots['sub']),
+                WText(
+                  'Available on $requiredPlan and up.',
+                  className: slots['sub'],
+                ),
               ],
             ),
           ),

@@ -17,7 +17,9 @@ import 'package:magic/magic.dart';
 const WindSlotRecipe dateRangePickerRecipe = WindSlotRecipe(
   slots: {
     'trigger':
-        'flex flex-row items-center gap-1.5 rounded-md border border-color-border bg-surface-container px-3 py-1.5 text-sm font-medium text-fg',
+        'flex flex-row items-center gap-1.5 rounded-md border '
+        'border-color-border bg-surface-container px-3 py-1.5 text-sm '
+        'font-medium text-fg',
     'icon': 'size-4 text-fg-muted',
     'label': 'text-sm text-fg',
   },

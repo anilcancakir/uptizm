@@ -5,11 +5,11 @@ import 'package:uptizm/ui/components/region_picker/index.dart';
 
 void main() {
   Widget wrap(Widget widget) => MaterialApp(
-        home: WindTheme(
-          data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      );
+    home: WindTheme(
+      data: WindThemeData(),
+      child: Scaffold(body: SingleChildScrollView(child: widget)),
+    ),
+  );
 
   group('regionPickerRecipe', () {
     test('root is a responsive grid', () {
@@ -26,29 +26,33 @@ void main() {
   });
 
   testWidgets('renders a tile per region with flag + label', (tester) async {
-    await tester.pumpWidget(wrap(
-      RegionPicker(
-        regions: const [
-          Region(label: 'US East', value: 'us-east', flag: '🇺🇸'),
-          Region(label: 'EU West', value: 'eu-west', flag: '🇮🇪'),
-        ],
-        value: const ['us-east'],
-        onChanged: (_) {},
+    await tester.pumpWidget(
+      wrap(
+        RegionPicker(
+          regions: const [
+            Region(label: 'US East', value: 'us-east', flag: '🇺🇸'),
+            Region(label: 'EU West', value: 'eu-west', flag: '🇮🇪'),
+          ],
+          value: const ['us-east'],
+          onChanged: (_) {},
+        ),
       ),
-    ));
+    );
     expect(find.text('US East'), findsOneWidget);
     expect(find.text('EU West'), findsOneWidget);
   });
 
   testWidgets('tapping a tile reports the next selection', (tester) async {
     List<String> next = const [];
-    await tester.pumpWidget(wrap(
-      RegionPicker(
-        regions: const [Region(label: 'US East', value: 'us-east')],
-        value: const [],
-        onChanged: (v) => next = v,
+    await tester.pumpWidget(
+      wrap(
+        RegionPicker(
+          regions: const [Region(label: 'US East', value: 'us-east')],
+          value: const [],
+          onChanged: (v) => next = v,
+        ),
       ),
-    ));
+    );
     await tester.tap(find.text('US East'));
     await tester.pump();
     expect(next, ['us-east']);

@@ -63,7 +63,9 @@ class RegionPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final slots = regionPickerRecipe(variants: const <String, String>{});
     return WDiv(
-      className: className == null ? slots['root'] : '${slots['root']} $className',
+      className: className == null
+          ? slots['root']
+          : '${slots['root']} $className',
       children: [for (final region in regions) _tile(region, slots)],
     );
   }
@@ -85,8 +87,7 @@ class RegionPicker extends StatelessWidget {
         children: [
           // Display-only checkbox; the tile tap drives the toggle.
           IgnorePointer(child: Checkbox(value: selected, onChanged: null)),
-          if (region.flag != null)
-            WText(region.flag!, className: 'text-base'),
+          if (region.flag != null) WText(region.flag!, className: 'text-base'),
           WText(region.label, className: 'min-w-0 text-fg'),
         ],
       ),

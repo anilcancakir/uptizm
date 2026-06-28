@@ -26,14 +26,19 @@ const WindSlotRecipe sloBudgetCardRecipe = WindSlotRecipe(
   slots: {
     'root':
         'flex flex-col gap-3 rounded-xl border border-color-border bg-surface p-5',
-    'track': 'h-2 w-full overflow-hidden rounded-full bg-surface-container-high',
+    'track':
+        'h-2 w-full overflow-hidden rounded-full bg-surface-container-high',
     'bar': 'rounded-full',
     'status': 'text-xs font-medium',
     'dot': 'rounded-full',
   },
   variants: {
     kSloBudgetToneAxis: {
-      'up': {'bar': 'bg-up', 'status': 'text-up-soft-foreground', 'dot': 'bg-up'},
+      'up': {
+        'bar': 'bg-up',
+        'status': 'text-up-soft-foreground',
+        'dot': 'bg-up',
+      },
       'degraded': {
         'bar': 'bg-degraded',
         'status': 'text-degraded-soft-foreground',

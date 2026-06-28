@@ -8,11 +8,11 @@ import 'package:uptizm/ui/components/component_status_row/component_status_row.p
 
 void main() {
   Widget wrap(Widget widget) => MaterialApp(
-        home: WindTheme(
-          data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      );
+    home: WindTheme(
+      data: WindThemeData(),
+      child: Scaffold(body: SingleChildScrollView(child: widget)),
+    ),
+  );
 
   group('componentStatusRowRecipe', () {
     test('root carries the row divider + layout tokens', () {
@@ -30,16 +30,19 @@ void main() {
     });
   });
 
-  testWidgets('renders name + bar + footer when segments are supplied',
-      (tester) async {
-    await tester.pumpWidget(wrap(
-      ComponentStatusRow(
-        name: 'Website',
-        status: StatusKey.up,
-        segments: uptime90(),
-        uptimeLabel: '100.0% uptime',
+  testWidgets('renders name + bar + footer when segments are supplied', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        ComponentStatusRow(
+          name: 'Website',
+          status: StatusKey.up,
+          segments: uptime90(),
+          uptimeLabel: '100.0% uptime',
+        ),
       ),
-    ));
+    );
     expect(find.text('Website'), findsOneWidget);
     expect(find.text('100.0% uptime'), findsOneWidget);
     expect(find.text('90 days ago'), findsOneWidget);
@@ -47,9 +50,11 @@ void main() {
   });
 
   testWidgets('omits bar + footer when no segments', (tester) async {
-    await tester.pumpWidget(wrap(
-      const ComponentStatusRow(name: 'Status only', status: StatusKey.paused),
-    ));
+    await tester.pumpWidget(
+      wrap(
+        const ComponentStatusRow(name: 'Status only', status: StatusKey.paused),
+      ),
+    );
     expect(find.text('Status only'), findsOneWidget);
     expect(find.text('Today'), findsNothing);
   });

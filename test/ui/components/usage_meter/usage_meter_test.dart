@@ -6,11 +6,11 @@ import 'package:uptizm/ui/components/usage_meter/usage_meter.preview.dart';
 
 void main() {
   Widget wrap(Widget widget) => MaterialApp(
-        home: WindTheme(
-          data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      );
+    home: WindTheme(
+      data: WindThemeData(),
+      child: Scaffold(body: SingleChildScrollView(child: widget)),
+    ),
+  );
 
   group('usageMeterRecipe', () {
     test('tone maps the bar to the status family', () {
@@ -29,17 +29,17 @@ void main() {
   });
 
   testWidgets('renders label + used/limit readout', (tester) async {
-    await tester.pumpWidget(wrap(
-      const UsageMeter(label: 'Monitors', used: 4, limit: 50),
-    ));
+    await tester.pumpWidget(
+      wrap(const UsageMeter(label: 'Monitors', used: 4, limit: 50)),
+    );
     expect(find.text('Monitors'), findsOneWidget);
     expect(find.text('4 / 50'), findsOneWidget);
   });
 
   testWidgets('null limit renders the infinity glyph', (tester) async {
-    await tester.pumpWidget(wrap(
-      const UsageMeter(label: 'Monitors', used: 420, limit: null),
-    ));
+    await tester.pumpWidget(
+      wrap(const UsageMeter(label: 'Monitors', used: 420, limit: null)),
+    );
     expect(find.text('420 / ∞'), findsOneWidget);
   });
 

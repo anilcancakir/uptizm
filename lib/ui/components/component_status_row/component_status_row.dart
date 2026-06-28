@@ -56,8 +56,9 @@ class ComponentStatusRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final slots = componentStatusRowRecipe(variants: const <String, String>{});
-    final rootClass =
-        className == null ? slots['root'] : '${slots['root']} $className';
+    final rootClass = className == null
+        ? slots['root']
+        : '${slots['root']} $className';
     final history = segments;
 
     return WDiv(
