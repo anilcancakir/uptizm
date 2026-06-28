@@ -34,7 +34,7 @@ class KpiStatCardPreview extends StatelessWidget {
             KpiStatCard(
               label: trans('uptizm.dashboard.kpi_uptime_24h'),
               value: '99.98%',
-              delta: '+0.01%',
+              delta: '0.01%',
               hint: trans('uptizm.dashboard.kpi_hint_vs_24h'),
               trend: KpiTrend.up,
             ),
@@ -43,7 +43,7 @@ class KpiStatCardPreview extends StatelessWidget {
             KpiStatCard(
               label: 'p95 response',
               value: '142ms',
-              delta: '+18ms',
+              delta: '18ms',
               hint: trans('uptizm.dashboard.kpi_hint_vs_24h'),
               trend: KpiTrend.down,
             ),
