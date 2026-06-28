@@ -4,7 +4,7 @@ import 'package:magic_devtools/preview.dart';
 
 import '../kernel.dart';
 import '../../routes/app.dart';
-import '../../preview/_previews.g.dart';
+import '../../_previews.g.dart';
 import 'package:magic_starter/previews.dart' as starter_previews;
 
 /// Route Service Provider.
