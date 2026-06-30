@@ -353,8 +353,15 @@ num fallbackValue(String unit) {
 /// fmt(23,   'count') // '23'
 /// ```
 String fmt(num value, String unit) {
+  // Drop a trailing `.0` on integral values so a chart-derived double like 73.0
+  // prints "73", matching the React `${value}` (JS numbers have no distinct
+  // double type, so 73.0 renders as "73"). Non-integral values keep their
+  // decimals (73.4 -> "73.4").
+  final String number = value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : '$value';
   final String suffix = kUnitSuffix[unit] ?? '';
-  return suffix.isNotEmpty ? '$value $suffix' : '$value';
+  return suffix.isNotEmpty ? '$number $suffix' : number;
 }
 
 /// Classifies [value] against the parsed [warn] and [critical] thresholds,
