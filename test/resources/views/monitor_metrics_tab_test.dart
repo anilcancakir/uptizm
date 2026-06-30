@@ -115,6 +115,24 @@ void main() {
     );
   }
 
+  /// Wraps [widget] with the WindTheme mounted ABOVE the MaterialApp Navigator
+  /// (via the app `builder`), mirroring how MagicApplication wraps
+  /// MaterialApp.router at the app root. Modal routes (bottom sheets) mount on
+  /// the root Overlay, so they only inherit a WindTheme placed above the
+  /// Navigator — a WindTheme inside `home` would not reach them.
+  Widget wrapRootTheme(Widget widget, {Size size = const Size(1280, 2400)}) {
+    return MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQueryData(size: size),
+        child: WindTheme(
+          data: WindThemeData(),
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
+      home: Scaffold(body: SingleChildScrollView(child: widget)),
+    );
+  }
+
   /// Wraps [widget] in a harness sized at 400×3000 (below the `sm` 640px
   /// breakpoint).
   ///
@@ -169,6 +187,61 @@ void main() {
       expect(find.text('Memory usage'), findsOneWidget);
       expect(find.text('CPU load'), findsOneWidget);
       expect(find.text('Request rate'), findsOneWidget);
+    });
+
+    testWidgets('tapping a custom metric row opens its detail sheet', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // WindTheme must sit ABOVE the Navigator so the modal bottom sheet (which
+      // mounts on the root Overlay) inherits it — exactly as MagicApplication
+      // wraps MaterialApp.router at the app root in production.
+      await tester.pumpWidget(wrapRootTheme(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pump();
+
+      // Tapping a custom row must open the historical MonitorMetricDetail sheet
+      // (the "Recent readings" section is unique to the detail body).
+      await tester.tap(find.text('Memory usage'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(MonitorMetricDetail),
+        findsOneWidget,
+        reason: 'Tapping a custom metric row must open its detail sheet',
+      );
+      // The detail body renders the section header uppercased.
+      expect(
+        find.text(trans('uptizm.monitors.metrics_recent_readings').toUpperCase()),
+        findsOneWidget,
+        reason: 'The opened detail sheet must render the Recent readings section',
+      );
+    });
+
+    testWidgets('custom metric rows are WAnchor-backed (cursor + hover)', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pump();
+
+      // Each custom row's tappable shell is a WAnchor carrying the
+      // hover:bg-surface-container token, so it shows the pointer cursor and a
+      // hover surface (a bare GestureDetector gives neither). Assert by the
+      // distinctive row className rather than a raw WAnchor count (Buttons and
+      // other controls are WAnchor-backed too).
+      final hoverRows = find.byWidgetPredicate((w) =>
+          w is WDiv &&
+          (w.className?.contains('hover:bg-surface-container') ?? false) &&
+          (w.className?.contains('border-color-border') ?? false));
+      expect(
+        hoverRows,
+        findsNWidgets(3),
+        reason: 'Each custom metric row must carry the hover-surface token',
+      );
     });
 
     testWidgets('renders "Add metric" button when custom metrics exist', (

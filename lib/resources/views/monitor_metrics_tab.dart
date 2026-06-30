@@ -281,12 +281,19 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       _ => fmt(latest, metric.unit),
     };
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    // WAnchor (the app's proven clickable-row primitive, as in MonitorListRow)
+    // owns the tap and gives the row real button-feel on web: it sets
+    // SystemMouseCursors.click on hover and drives the `hover:` state so
+    // `hover:bg-surface-container` actually expands (a bare GestureDetector
+    // gives neither cursor nor hover affordance, which is why the rows felt
+    // inert). `transition-colors` smooths the hover, mirroring the React
+    // `<button ... hover:bg-muted>` row.
+    return WAnchor(
       onTap: () => _openDetail(index),
       child: WDiv(
         className: 'flex flex-row items-center justify-between gap-3 '
-            'rounded-lg border border-color-border bg-surface p-3',
+            'rounded-lg border border-color-border bg-surface p-3 '
+            'hover:bg-surface-container transition-colors',
         children: [
           Expanded(
             child: WDiv(
