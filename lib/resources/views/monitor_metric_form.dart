@@ -510,28 +510,37 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     );
   }
 
-  /// Builds the footer: Cancel (left) + Save (right, disabled unless savable).
+  /// Builds the footer: Cancel + Save, right-aligned.
+  ///
+  /// A plain Flutter [Row] of auto-width buttons (NOT a Wind `w-full sm:w-auto`
+  /// flex): inside the BottomSheet's [ListView] body, a `w-full` button
+  /// (Wind `width: double.infinity`) placed in a `sm:flex-row` Row gets an
+  /// unbounded width and aborts the whole sheet's layout ("RenderBox was not
+  /// laid out"). Auto-width buttons in a `MainAxisAlignment.end` Row are
+  /// unambiguous and fit the sheet at any width.
   Widget _buildFooter() {
-    return WDiv(
-      className: 'mt-1 flex flex-col gap-3 sm:flex-row sm:justify-end',
-      children: [
-        Button(
-          intent: ButtonIntent.secondary,
-          className: _footerButtonClass(ButtonIntent.secondary),
-          onPressed: widget.onCancel,
-          child: WText(trans('uptizm.common.cancel')),
-        ),
-        Button(
-          className: _footerButtonClass(ButtonIntent.primary),
-          disabled: !_canSave,
-          onPressed: _canSave ? () => widget.onSave(_form) : null,
-          child: WText(
-            widget.isEdit
-                ? trans('uptizm.monitors.metrics_form_save_edit')
-                : trans('uptizm.monitors.metrics_form_save_create'),
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Button(
+            intent: ButtonIntent.secondary,
+            onPressed: widget.onCancel,
+            child: WText(trans('uptizm.common.cancel')),
           ),
-        ),
-      ],
+          const SizedBox(width: 12),
+          Button(
+            disabled: !_canSave,
+            onPressed: _canSave ? () => widget.onSave(_form) : null,
+            child: WText(
+              widget.isEdit
+                  ? trans('uptizm.monitors.metrics_form_save_edit')
+                  : trans('uptizm.monitors.metrics_form_save_create'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -564,12 +573,5 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// caller `className` bypasses the recipe entirely.
   String _monoInputClass(InputState state) {
     return '${inputRecipe(variants: {kInputStateAxis: state.name})} font-mono';
-  }
-
-  /// Resolves the full-width-on-mobile footer button className by appending the
-  /// responsive width tokens to the recipe output for [intent].
-  String _footerButtonClass(ButtonIntent intent) {
-    final String base = buttonRecipe(variants: {kButtonIntentAxis: intent.name, kButtonSizeAxis: ButtonSize.md.name});
-    return '$base w-full sm:w-auto';
   }
 }
