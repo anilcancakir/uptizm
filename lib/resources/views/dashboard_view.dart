@@ -91,18 +91,50 @@ class DashboardView extends StatelessWidget {
           _buildKpiRow(),
           const SizedBox(height: 32),
 
-          // 4. Active incidents.
-          _buildActiveIncidents(),
-          const SizedBox(height: 32),
-
-          // 5. Monitor snippet.
-          _buildMonitorSnippet(),
-          const SizedBox(height: 32),
-
-          // 6. AI inbox.
-          _buildAiInbox(),
+          // 4. Lower region: at lg+ the active incidents + monitor snippet
+          //    span 2/3 beside the AI inbox in a 1/3 right rail (mirroring the
+          //    React `lg:grid-cols-3` + `lg:col-span-2`); below lg they stack.
+          _buildLowerRegion(context),
         ],
       ),
+    );
+  }
+
+  /// Builds the lower dashboard region.
+  ///
+  /// On `lg`+ it is a two-column split: the active incidents and the monitor
+  /// snippet occupy a 2/3 left column beside the AI inbox in a 1/3 right rail,
+  /// matching the design lab's `lg:grid-cols-3` with the content at
+  /// `lg:col-span-2`. Below `lg` the three sections stack full-width with the
+  /// shared 32px section rhythm.
+  Widget _buildLowerRegion(BuildContext context) {
+    final Widget mainColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildActiveIncidents(),
+        const SizedBox(height: 32),
+        _buildMonitorSnippet(),
+      ],
+    );
+
+    if (!wScreenIs(context, 'lg')) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          mainColumn,
+          const SizedBox(height: 32),
+          _buildAiInbox(),
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(flex: 2, child: mainColumn),
+        const SizedBox(width: 32),
+        Expanded(flex: 1, child: _buildAiInbox()),
+      ],
     );
   }
 
