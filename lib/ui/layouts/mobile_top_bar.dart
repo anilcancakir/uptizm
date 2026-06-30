@@ -3,23 +3,24 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart'
-    show DropdownMenu, DropdownMenuItem;
+
+import '../../app/mocks/teams.dart';
+import '../components/notification_center/index.dart';
 
 /// **The Mobile Top Bar**
 ///
 /// A sticky, safe-area-aware glass header shown only below `lg` (the desktop
 /// [Sidebar] takes over above it). Ported from the design lab's `MobileTopBar`:
 ///
-/// - **Left:** a workspace (team) switcher opening a dropdown.
-/// - **Right:** an account menu (reusing the magic_starter [DropdownMenu]) that
-///   carries Settings + Sign out, since Settings is intentionally absent from
-///   the bottom tab bar.
-/// - **Glass surface:** a [BackdropFilter] over a high-opacity `bg-surface/80`
-///   fallback, composed directly because Wind has no backdrop token
-///   (PORTING.md §4).
+/// - **Left:** a team switcher (colored avatar + dynamic team name + a chevron
+///   right next to the name) opening a popover to switch team or jump to the
+///   team-management destinations.
+/// - **Right:** the notification bell (with unread badge) and the account
+///   avatar (initials) opening an account popover (Settings + Sign out).
+/// - **Glass surface:** a [BackdropFilter] over a high-opacity `bg-surface`
+///   fallback, composed directly because Wind has no backdrop token.
 /// - **Safe area:** the notch / status-bar inset is added above the bar via
-///   [MediaQuery] padding instead of CSS `env()` (PORTING.md §5).
+///   [MediaQuery] padding instead of CSS `env()`.
 @immutable
 class MobileTopBar extends StatelessWidget {
   /// Creates a [MobileTopBar].
@@ -36,9 +37,7 @@ class MobileTopBar extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: WDiv(
-          className: '''
-            bg-surface/80 border-b border-color-border
-          ''',
+          className: 'bg-surface/80 border-b border-color-border',
           children: [
             SizedBox(height: topInset),
             WDiv(
@@ -47,9 +46,12 @@ class MobileTopBar extends StatelessWidget {
               ''',
               children: [
                 // The switcher flexes so its truncating label can shrink,
-                // leaving the fixed-size account button its full footprint.
-                Flexible(child: _buildWorkspaceSwitcher()),
-                _buildAccountMenu(),
+                // leaving the right-hand controls their full footprint.
+                const Flexible(child: _MobileTeamSwitcher()),
+                WDiv(
+                  className: 'flex flex-row items-center gap-1 shrink-0',
+                  children: const [_MobileBell(), _MobileAccountMenu()],
+                ),
               ],
             ),
           ],
@@ -57,65 +59,234 @@ class MobileTopBar extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildWorkspaceSwitcher() {
-    // The workspace switcher mirrors the desktop team dropdown; in the mock it
-    // surfaces the app name as the active workspace label.
-    return DropdownMenu(
+/// The team switcher in the mobile top bar (left). Mirrors the sidebar switcher
+/// but with a compact trigger: avatar + name + a chevron directly after the
+/// name (not pushed to the far edge).
+class _MobileTeamSwitcher extends StatefulWidget {
+  const _MobileTeamSwitcher();
+
+  @override
+  State<_MobileTeamSwitcher> createState() => _MobileTeamSwitcherState();
+}
+
+class _MobileTeamSwitcherState extends State<_MobileTeamSwitcher> {
+  /// The active team; seeded to the first fixture, like the React source.
+  Team _team = teams.first;
+
+  @override
+  Widget build(BuildContext context) {
+    return WPopover(
       alignment: PopoverAlignment.bottomLeft,
-      items: [
-        DropdownMenuItem(
-          label: trans('uptizm.nav.settings'),
-          onTap: () => MagicRoute.to('/settings'),
-        ),
-      ],
-      child: WDiv(
-        className: '''
-          h-11 pr-1 flex flex-row items-center gap-2
-          rounded-md hover:bg-surface-container
-        ''',
-        children: [
-          WDiv(
-            className: '''
-              w-7 h-7 rounded-md bg-primary
-              flex items-center justify-center shrink-0
-            ''',
-            child: WText('U', className: 'text-xs font-bold text-on-primary'),
-          ),
-          Expanded(
-            child: WText(
-              trans('app.name'),
-              className: 'text-sm font-semibold text-fg truncate',
+      offset: const Offset(0, 6),
+      maxHeight: 480,
+      className: '''
+        w-64 max-w-full overflow-hidden rounded-lg py-1
+        bg-surface border border-color-border shadow-xl
+      ''',
+      triggerBuilder: (context, isOpen, isHovering) => WDiv(
+        className: 'rounded-md py-1 pr-1 hover:bg-surface-container',
+        // mainAxisSize.min keeps the chevron tight against the (truncating)
+        // name instead of being pushed to the far right of the bar.
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _teamAvatar(_team),
+            const SizedBox(width: 8),
+            Flexible(
+              child: WText(
+                _team.name,
+                className: 'truncate text-sm font-semibold text-fg',
+              ),
             ),
-          ),
-          WIcon(
-            Icons.expand_more,
-            className: 'text-[18px] text-fg-muted shrink-0',
-          ),
-        ],
+            const SizedBox(width: 4),
+            WIcon(Icons.expand_more, className: 'text-[16px] text-fg-muted'),
+          ],
+        ),
+      ),
+      contentBuilder: (context, close) => SingleChildScrollView(
+        child: WDiv(
+          className: 'flex flex-col',
+          children: [
+            WText(
+              trans('uptizm.team_menu.heading'),
+              className: '''
+                px-3 py-1.5 text-xs font-medium uppercase tracking-wide
+                text-fg-muted
+              ''',
+            ),
+            for (final t in teams)
+              WAnchor(
+                onTap: () {
+                  setState(() => _team = t);
+                  close();
+                },
+                child: WDiv(
+                  className: '''
+                    flex items-center gap-2 px-3 py-2 text-sm text-fg
+                    hover:bg-surface-container
+                  ''',
+                  children: [
+                    _teamAvatar(t, small: true),
+                    Expanded(child: WText(t.name, className: 'truncate')),
+                    if (t.id == _team.id)
+                      WIcon(Icons.check, className: 'text-[16px] text-primary'),
+                  ],
+                ),
+              ),
+            WDiv(className: 'my-1 border-t border-color-border-subtle'),
+            _menuRow(trans('uptizm.team_menu.settings'), close),
+            _menuRow(trans('uptizm.team_menu.members'), close),
+            _menuRow(trans('uptizm.team_menu.channels'), close),
+            _menuRow(trans('uptizm.team_menu.create'), close),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildAccountMenu() {
-    // The account menu carries Settings (which is NOT a bottom tab) and the
-    // sign-out action, reusing the shared DropdownMenu.
-    return DropdownMenu(
-      alignment: PopoverAlignment.bottomRight,
-      items: [
-        DropdownMenuItem(
-          label: trans('uptizm.nav.settings'),
-          onTap: () => MagicRoute.to('/settings'),
-        ),
-        DropdownMenuItem(label: trans('auth.logout'), onTap: () {}),
-      ],
+  Widget _menuRow(String label, VoidCallback close) {
+    return WAnchor(
+      onTap: close,
       child: WDiv(
+        className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
+        child: WText(label, className: 'truncate'),
+      ),
+    );
+  }
+
+  /// The colored team avatar square. [Team.color] is content data, applied via
+  /// the inline `backgroundColor` (no semantic token fits an arbitrary tint).
+  Widget _teamAvatar(Team team, {bool small = false}) {
+    return WDiv(
+      backgroundColor: team.color,
+      className: small
+          ? 'w-5 h-5 rounded shrink-0 flex items-center justify-center'
+          : 'w-7 h-7 rounded-md shrink-0 flex items-center justify-center',
+      child: WText(
+        team.initial,
+        className: small
+            ? 'text-[10px] font-bold text-white'
+            : 'text-xs font-bold text-white',
+      ),
+    );
+  }
+}
+
+/// The notification bell in the mobile top bar (right). Opens the
+/// [NotificationCenter] panel; the badge reflects the seed unread count.
+class _MobileBell extends StatelessWidget {
+  const _MobileBell();
+
+  @override
+  Widget build(BuildContext context) {
+    final int unread = kSampleNotifications.where((n) => !n.read).length;
+
+    return WPopover(
+      alignment: PopoverAlignment.bottomRight,
+      offset: const Offset(0, 6),
+      maxHeight: 480,
+      className: 'w-80 max-w-full rounded-lg shadow-xl',
+      triggerBuilder: (context, isOpen, isHovering) => WDiv(
         className: '''
-          w-11 h-11 rounded-full bg-surface-container
-          flex items-center justify-center shrink-0
-          hover:bg-surface-container-high
+          w-9 h-9 shrink-0 rounded-md flex items-center justify-center
+          text-fg-muted hover:bg-surface-container hover:text-fg
         ''',
-        child: WIcon(Icons.person_outline, className: 'text-[20px] text-fg'),
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            WIcon(Icons.notifications_none, className: 'text-[18px]'),
+            if (unread > 0)
+              Positioned(
+                top: -4,
+                right: -4,
+                child: WDiv(
+                  className: '''
+                    min-w-[16px] h-4 px-1 rounded-full bg-down
+                    flex items-center justify-center
+                  ''',
+                  child: WText(
+                    '$unread',
+                    className: 'text-[10px] font-semibold text-white',
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      contentBuilder: (context, close) => SingleChildScrollView(
+        child: NotificationCenter(
+          onClose: close,
+          onItemTap: (item) => MagicRoute.to(item.to),
+          onSettings: () => MagicRoute.to('/settings'),
+        ),
+      ),
+    );
+  }
+}
+
+/// The account menu in the mobile top bar (right): the user initials avatar
+/// opening a popover with the name / email header, Settings, and Sign out.
+class _MobileAccountMenu extends StatelessWidget {
+  const _MobileAccountMenu();
+
+  @override
+  Widget build(BuildContext context) {
+    return WPopover(
+      alignment: PopoverAlignment.bottomRight,
+      offset: const Offset(0, 6),
+      className: '''
+        w-56 max-w-full overflow-hidden rounded-lg py-1
+        bg-surface border border-color-border shadow-xl
+      ''',
+      triggerBuilder: (context, isOpen, isHovering) => WDiv(
+        className: '''
+          w-9 h-9 shrink-0 rounded-full bg-surface-container
+          flex items-center justify-center hover:bg-surface-container-high
+        ''',
+        child: WText(
+          currentUser.initials,
+          className: 'text-xs font-semibold text-fg',
+        ),
+      ),
+      contentBuilder: (context, close) => WDiv(
+        className: 'flex flex-col',
+        children: [
+          WDiv(
+            className: 'px-3 py-2 flex flex-col',
+            children: [
+              WText(
+                currentUser.name,
+                className: 'truncate text-sm font-medium text-fg',
+              ),
+              WText(
+                currentUser.email,
+                className: 'truncate text-xs text-fg-muted',
+              ),
+            ],
+          ),
+          WDiv(className: 'my-1 border-t border-color-border-subtle'),
+          WAnchor(
+            onTap: () {
+              close();
+              MagicRoute.to('/settings');
+            },
+            child: WDiv(
+              className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
+              child: WText(trans('uptizm.nav.settings')),
+            ),
+          ),
+          WDiv(className: 'my-1 border-t border-color-border-subtle'),
+          WAnchor(
+            onTap: close,
+            child: WDiv(
+              className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
+              child: WText(trans('uptizm.account.sign_out')),
+            ),
+          ),
+        ],
       ),
     );
   }
