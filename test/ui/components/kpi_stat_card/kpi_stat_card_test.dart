@@ -133,16 +133,21 @@ void main() {
     );
   });
 
-  testWidgets('KpiStatCard omits delta row when delta is null', (tester) async {
+  testWidgets('KpiStatCard shows no delta glyph when delta is null', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       wrap(const KpiStatCard(label: 'Uptime', value: '99.98%')),
     );
-    // No glyph text should appear.
+    // The footer rows are always reserved for equal-height layout (a blank
+    // placeholder holds the line), but no delta glyph or value text appears.
     expect(find.text('▲'), findsNothing);
     expect(find.text('▼'), findsNothing);
   });
 
-  testWidgets('KpiStatCard omits hint when hint is null', (tester) async {
+  testWidgets('KpiStatCard shows no hint text when hint is null', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       wrap(const KpiStatCard(label: 'Uptime', value: '99.98%')),
     );
