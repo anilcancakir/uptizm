@@ -202,8 +202,16 @@ class _MonitorCreateViewState extends State<MonitorCreateView> {
   }
 
   /// Builds the manual-mode bare form (React `mode === "manual"`).
+  ///
+  /// The distinct [ValueKey] forces Flutter to mount a FRESH form state when
+  /// switching here from the AI review form (which is a different `MonitorForm`
+  /// instance at the same tree position). Without it, Flutter reuses the review
+  /// form's [State] and the AI-prefilled values bleed into the bare manual form;
+  /// React unmounts/remounts across its separate `mode === "manual"` /
+  /// `step === "review"` branches, so the manual form is always blank.
   Widget _buildManualForm() {
     return MonitorForm(
+      key: const ValueKey('monitor-form-manual'),
       submitLabel: trans('uptizm.monitors.form_submit_create'),
       onSubmit: _done,
       onCancel: _done,
@@ -315,6 +323,7 @@ class _MonitorCreateViewState extends State<MonitorCreateView> {
   /// choices, behind the AI summary banner. React lines 152-204.
   Widget _buildAiReview() {
     return MonitorForm(
+      key: const ValueKey('monitor-form-ai-review'),
       initialName: _aiName,
       initialUrl: _url,
       initialType: 'http',
