@@ -118,19 +118,21 @@ class Sidebar extends StatelessWidget {
   Widget _buildNavItem(_SidebarNavItem item) {
     final active = _isActive(item.path);
 
-    // Active item picks up the muted surface + strong foreground; inactive
-    // stays muted with a hover surface. py-2 matches the design lab's compact
-    // row height (no fixed h-11).
+    // The active fill is applied as a plain, conditional class computed here,
+    // NOT via an `active:` variant: Wind's alias expander only expands a WHOLE
+    // unprefixed token, so a state-prefixed alias like `active:bg-surface-container`
+    // never resolves to a color. py-2 matches the design lab's compact row.
+    final String className = active
+        ? 'px-3 py-2 rounded-md flex items-center gap-3 '
+              'text-sm font-medium bg-surface-container text-fg'
+        : 'px-3 py-2 rounded-md flex items-center gap-3 '
+              'text-sm font-medium text-fg-muted '
+              'hover:bg-surface-container hover:text-fg';
+
     return WAnchor(
       onTap: () => MagicRoute.to(item.path),
       child: WDiv(
-        states: {if (active) 'active'},
-        className: '''
-          px-3 py-2 rounded-md flex items-center gap-3
-          text-sm font-medium
-          text-fg-muted hover:bg-surface-container hover:text-fg
-          active:bg-surface-container active:text-fg
-        ''',
+        className: className,
         children: [
           WIcon(item.icon, className: 'text-[18px]'),
           Expanded(child: WText(trans(item.labelKey), className: 'truncate')),
