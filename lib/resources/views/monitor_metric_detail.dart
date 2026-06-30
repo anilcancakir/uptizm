@@ -4,6 +4,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../app/mocks/metrics.dart';
 import '../../app/mocks/status.dart';
+import '../../ui/components/ai_insight/index.dart';
 import '../../ui/components/metric_chart/index.dart';
 import '../../ui/components/status_dot/index.dart';
 import 'monitor_metrics_support.dart';
@@ -144,9 +145,13 @@ class MonitorMetricDetail extends StatelessWidget {
         _buildLatestValue(latest, latestBand, isNumeric),
         const SizedBox(height: 16),
 
-        // 6. Numeric-only: AI-band time-series chart.
+        // 6. Numeric-only: AI-band time-series chart + the band-explanation
+        //    insight (mirrors React DetailBody: the chart sits above an AiInsight
+        //    that narrates the learned expected range and the one anomaly).
         if (isNumeric) ...[
           _buildChart(data, anomalies),
+          const SizedBox(height: 12),
+          _buildBandInsight(anomalies),
           const SizedBox(height: 16),
         ],
 
@@ -248,6 +253,27 @@ class MonitorMetricDetail extends StatelessWidget {
   // ---------------------------------------------------------------------------
   // Chart
   // ---------------------------------------------------------------------------
+
+  /// Builds the band-explanation [AiInsight] shown under the chart.
+  ///
+  /// Mirrors React `DetailBody`: narrates the learned expected range and the
+  /// single injected anomaly, with the direction-specific phrase
+  /// (`'low'` → "dropping below", else "spiking above").
+  Widget _buildBandInsight(List<MetricAnomaly> anomalies) {
+    final String time = anomalies.isNotEmpty ? anomalies.first.x : '';
+    final String phrase = metric.direction == 'low'
+        ? trans('uptizm.monitors.metrics_detail_band_drop')
+        : trans('uptizm.monitors.metrics_detail_band_spike');
+    return AiInsight(
+      child: WText(
+        trans('uptizm.monitors.metrics_detail_band_insight', {
+          'label': metric.label,
+          'time': time,
+          'phrase': phrase,
+        }),
+      ),
+    );
+  }
 
   /// Builds the [MetricChart] with the AI-learned band and anomaly overlay.
   Widget _buildChart(List<MetricDatum> data, List<MetricAnomaly> anomalies) {
