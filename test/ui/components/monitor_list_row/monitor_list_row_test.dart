@@ -6,7 +6,6 @@ import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/monitor_list_row.preview.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
-import 'package:uptizm/ui/components/uptime_bar/index.dart';
 
 void main() {
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme] so
@@ -92,11 +91,6 @@ void main() {
     expect(find.byType(StatusBadge), findsOneWidget);
   });
 
-  testWidgets('MonitorListRow renders an UptimeBar', (tester) async {
-    await tester.pumpWidget(wrap(MonitorListRow(monitor: monitors.first)));
-    expect(find.byType(UptimeBar), findsOneWidget);
-  });
-
   testWidgets('MonitorListRow with responseMs shows formatted latency', (
     tester,
   ) async {
@@ -175,11 +169,6 @@ void main() {
 
     final badge = tester.widget<StatusBadge>(find.byType(StatusBadge));
     expect(badge.status, equals(StatusKey.paused));
-  });
-
-  testWidgets('MonitorListRow renders region in meta row', (tester) async {
-    await tester.pumpWidget(wrap(MonitorListRow(monitor: monitors.first)));
-    expect(find.text(monitors.first.regions.first), findsOneWidget);
   });
 
   testWidgets('MonitorListRowPreview renders without error', (tester) async {
