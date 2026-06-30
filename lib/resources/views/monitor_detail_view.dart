@@ -231,9 +231,7 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
   /// - **Pause/Resume**: a secondary [Button]. A paused monitor shows "Resume"
   ///   and surfaces a resumed toast immediately; an active monitor shows
   ///   "Pause" and opens a pause [MagicStarterConfirmDialog].
-  /// - **Edit**: a secondary [Button]. The `/monitors/:id/edit` route is not
-  ///   registered in this milestone, so it surfaces a coming-soon toast rather
-  ///   than navigating into a dead route.
+  /// - **Edit**: a secondary [Button] that navigates to `/monitors/:id/edit`.
   /// - **Delete**: a destructive [Button] that opens a delete confirm dialog,
   ///   then surfaces a deleted toast and returns to the monitors list.
   List<Widget> _buildHeaderActions(MonitorSummary monitor, bool paused) {
@@ -259,7 +257,7 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
           Button(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
-            onPressed: _onEdit,
+            onPressed: () => _onEdit(monitor),
             child: WText(trans('uptizm.monitors.action_edit')),
           ),
           Button(
@@ -303,11 +301,10 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     );
   }
 
-  /// Handles the Edit action. The edit route is not registered in this
-  /// milestone, so this surfaces a coming-soon toast rather than navigating
-  /// into a dead `/monitors/:id/edit` path.
-  void _onEdit() {
-    Magic.toast(trans('uptizm.monitors.action_edit_coming_soon'));
+  /// Handles the Edit action by navigating to the edit route for the current
+  /// monitor. Requires the monitor to be resolved before calling.
+  void _onEdit(MonitorSummary monitor) {
+    MagicRoute.to('/monitors/${monitor.id}/edit');
   }
 
   /// Opens the delete confirm dialog; on confirm, surfaces a deleted toast and
