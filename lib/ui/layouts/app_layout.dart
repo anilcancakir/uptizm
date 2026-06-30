@@ -98,15 +98,17 @@ class AppLayout extends StatelessWidget {
     String currentPath,
     Widget keyedChild,
   ) {
-    // Sticky top bar, scrollable content, fixed bottom tab bar. The bottom
-    // padding clears the fixed BottomNav so a page's last row stays visible.
+    // Sticky top bar, scrollable content, bottom tab bar. The BottomNav is a
+    // flow child (not a fixed overlay), so the scroll area already ends above
+    // it; no extra bottom padding is needed (an earlier `pb-24` left a black
+    // gap between the last content row and the nav).
     return WDiv(
       className: 'flex flex-col w-full h-full',
       children: [
         const MobileTopBar(),
         Expanded(
           child: WDiv(
-            className: 'overflow-y-auto pb-24',
+            className: 'overflow-y-auto',
             scrollPrimary: true,
             child: keyedChild,
           ),
