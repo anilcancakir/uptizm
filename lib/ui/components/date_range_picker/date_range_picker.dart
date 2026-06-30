@@ -84,6 +84,15 @@ class DateRangePicker extends StatelessWidget {
       // (the source right-aligns within a right-side toolbar; left-align is the
       // robust generic default and avoids clipping when the trigger sits left).
       alignment: PopoverAlignment.bottomLeft,
+      // Bound the panel width. magic_starter's DropdownMenu default panel only
+      // sets `min-w-40` (a minimum) and WPopover's overlay applies no maxWidth,
+      // so the panel stretches to fill the full content-column width (the
+      // observed full-width overlay bug). WSelect's overlay does NOT exhibit
+      // this: it sizes its menu to a FIXED `width` (trigger width by default).
+      // Mirror that here by giving the panel an explicit compact width so the
+      // menu reads as a trigger-anchored dropdown like Select's, matching the
+      // React DateRangePicker menu (content-sized, not full width).
+      className: slots['panel'],
       items: [
         for (final preset in kDateRangePresets)
           DropdownMenuItem(
