@@ -168,30 +168,28 @@ class MonitorMetricDetail extends StatelessWidget {
   /// Builds the title row: label + key/path on the left, Edit/Delete on the
   /// right.
   Widget _buildHeader(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return WDiv(
+      className: 'flex flex-row items-start gap-3',
       children: [
-        // Label + key·path
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              WText(
-                metric.label,
-                className: 'text-fg text-base font-semibold',
-              ),
-              WText(
-                _keyPath(metric),
-                className: 'text-fg-muted text-xs font-mono',
-              ),
-            ],
-          ),
+        // Label + key·path (flex-1 takes the remaining width; min-w-0 lets the
+        // mono key·path truncate instead of overflowing the row).
+        WDiv(
+          className: 'flex flex-col min-w-0 flex-1',
+          children: [
+            WText(
+              metric.label,
+              className: 'text-fg text-base font-semibold truncate',
+            ),
+            WText(
+              _keyPath(metric),
+              className: 'text-fg-muted text-xs font-mono truncate',
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
 
         // Action buttons: Edit (secondary) + Delete (ghost → ConfirmDialog).
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        WDiv(
+          className: 'flex flex-row gap-2 shrink-0',
           children: [
             Button(
               intent: ButtonIntent.secondary,
@@ -199,7 +197,6 @@ class MonitorMetricDetail extends StatelessWidget {
               onPressed: onEdit,
               child: WText(trans('uptizm.monitors.action_edit')),
             ),
-            const SizedBox(width: 8),
             Button(
               intent: ButtonIntent.ghost,
               size: ButtonSize.sm,
@@ -224,27 +221,19 @@ class MonitorMetricDetail extends StatelessWidget {
       false => metric.type == 'status' ? 'operational' : 'ok',
     };
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    return WDiv(
+      // items-end bottom-aligns the dot + meta label against the large value's
+      // baseline (replacing the old per-child bottom-padding nudges).
+      className: 'flex flex-row items-end gap-2',
       children: [
-        if (isNumeric) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: StatusDot(band, size: StatusDotSize.lg),
-          ),
-          const SizedBox(width: 8),
-        ],
+        if (isNumeric) StatusDot(band, size: StatusDotSize.lg),
         WText(
           valueText,
           className: 'text-fg font-mono text-3xl font-semibold tabular-nums',
         ),
-        const SizedBox(width: 8),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: WText(
-            trans('uptizm.monitors.metrics_detail_latest'),
-            className: 'text-fg-muted text-xs',
-          ),
+        WText(
+          trans('uptizm.monitors.metrics_detail_latest'),
+          className: 'text-fg-muted text-xs',
         ),
       ],
     );

@@ -512,35 +512,30 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
   /// Builds the footer: Cancel + Save, right-aligned.
   ///
-  /// A plain Flutter [Row] of auto-width buttons (NOT a Wind `w-full sm:w-auto`
-  /// flex): inside the BottomSheet's [ListView] body, a `w-full` button
-  /// (Wind `width: double.infinity`) placed in a `sm:flex-row` Row gets an
-  /// unbounded width and aborts the whole sheet's layout ("RenderBox was not
-  /// laid out"). Auto-width buttons in a `MainAxisAlignment.end` Row are
-  /// unambiguous and fit the sheet at any width.
+  /// A Wind `flex flex-row justify-end gap-3` row of AUTO-width buttons. The
+  /// buttons carry no `w-full` (Wind `width: double.infinity`): a full-width
+  /// button inside this sheet's [ListView] body forces an unbounded width and
+  /// aborts the whole sheet's layout ("RenderBox was not laid out"). Auto-width
+  /// buttons fit the sheet at any width without that hazard.
   Widget _buildFooter() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Button(
-            intent: ButtonIntent.secondary,
-            onPressed: widget.onCancel,
-            child: WText(trans('uptizm.common.cancel')),
+    return WDiv(
+      className: 'mt-1 flex flex-row justify-end gap-3',
+      children: [
+        Button(
+          intent: ButtonIntent.secondary,
+          onPressed: widget.onCancel,
+          child: WText(trans('uptizm.common.cancel')),
+        ),
+        Button(
+          disabled: !_canSave,
+          onPressed: _canSave ? () => widget.onSave(_form) : null,
+          child: WText(
+            widget.isEdit
+                ? trans('uptizm.monitors.metrics_form_save_edit')
+                : trans('uptizm.monitors.metrics_form_save_create'),
           ),
-          const SizedBox(width: 12),
-          Button(
-            disabled: !_canSave,
-            onPressed: _canSave ? () => widget.onSave(_form) : null,
-            child: WText(
-              widget.isEdit
-                  ? trans('uptizm.monitors.metrics_form_save_edit')
-                  : trans('uptizm.monitors.metrics_form_save_create'),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
