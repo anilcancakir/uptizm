@@ -18,7 +18,11 @@ import 'package:magic_devtools/dusk.dart';
 import 'package:fluttersdk_telescope/telescope.dart';
 import 'package:magic_devtools/telescope.dart';
 import 'package:magic_starter/magic_starter.dart'
-    show MagicStarter, MagicStarterTheme, MagicStarterCardTheme;
+    show
+        MagicStarter,
+        MagicStarterTheme,
+        MagicStarterCardTheme,
+        MagicStarterModalTheme;
 import 'config/magic_starter.dart';
 
 void main() async {
@@ -65,6 +69,26 @@ void main() async {
         insetClassName:
             'bg-surface-container-high border border-color-border-subtle',
       ),
+    ),
+  );
+  // Point magic_starter's modal/bottom-sheet surfaces at uptizm tokens too. The
+  // default modal theme is `dark:bg-gray-800` (a lighter, bluer slate than the
+  // uptizm surface hierarchy), which made the metric create/edit + detail sheets
+  // read as off-palette. Re-skin container/header/footer/title/description with
+  // the same semantic Wind tokens the rest of the app uses.
+  MagicStarter.useModalTheme(
+    const MagicStarterModalTheme(
+      containerClassName: 'bg-surface-container border border-color-border',
+      headerClassName: 'px-6 pt-6 pb-4',
+      bodyClassName: 'px-6 pb-4',
+      footerClassName: 'px-6 py-4 border-t border-color-border',
+      titleClassName: 'text-xl font-semibold text-fg mb-2',
+      descriptionClassName: 'text-sm text-fg-muted',
+      primaryButtonClassName:
+          'px-4 py-2 rounded-lg bg-primary text-on-primary text-sm font-medium',
+      secondaryButtonClassName:
+          'px-4 py-2 rounded-lg bg-surface-container border '
+          'border-color-border text-fg text-sm font-medium',
     ),
   );
   // Theme generated from DESIGN.md via `design:sync` (the 17 standard semantic
