@@ -29,6 +29,7 @@ import 'ui/components/region_picker/region_picker.preview.dart';
 import 'ui/components/slo_budget_card/slo_budget_card.preview.dart';
 import 'ui/components/status_badge/status_badge.preview.dart';
 import 'ui/components/status_dot/status_dot.preview.dart';
+import 'ui/components/status_page_preview/status_page_preview.preview.dart';
 import 'ui/components/upgrade_nudge/upgrade_nudge.preview.dart';
 import 'ui/components/uptime_bar/uptime_bar.preview.dart';
 import 'ui/components/usage_meter/usage_meter.preview.dart';
@@ -159,6 +160,11 @@ List<PreviewEntry> previewEntries() {
       label: 'StatusDot',
       slug: 'status_dot',
       builder: (_) => const StatusDotPreview(),
+    ),
+    PreviewEntry(
+      label: 'StatusPagePreview',
+      slug: 'status_page_preview',
+      builder: (_) => const StatusPagePreviewPreview(),
     ),
     PreviewEntry(
       label: 'UpgradeNudge',
