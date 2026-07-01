@@ -169,15 +169,21 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 3. Header: chip row + title + meta, with Resolve / Reopen action.
+          // 3. Header: title + meta + Resolve/Reopen, then a full-width chip
+          //    row below it. The chips are NOT a PageHeader titleSuffix: that
+          //    slot is wrapped in a `flex-shrink-0` WDiv (page_header.dart),
+          //    which Wind excludes from Flexible-wrapping, so a 4-pill row there
+          //    overflows the half-width title slot. As a standalone `wrap` row
+          //    below the header it flows freely onto a second line.
           PageHeader(
             title: incident.title,
             subtitle: '${incident.monitorName} · ${incident.startedAt}',
-            titleSuffix: _buildChipRow(incident),
             backLabel: trans('uptizm.incidents.detail_back'),
             backFallback: '/incidents',
             actions: [_buildResolveButton(incident, resolved)],
           ),
+          const SizedBox(height: 16),
+          _buildChipRow(incident),
           const SizedBox(height: 24),
 
           // 4. Responder strip (open incidents only).
