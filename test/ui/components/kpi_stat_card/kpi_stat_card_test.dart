@@ -139,8 +139,9 @@ void main() {
     await tester.pumpWidget(
       wrap(const KpiStatCard(label: 'Uptime', value: '99.98%')),
     );
-    // The footer rows are always reserved for equal-height layout (a blank
-    // placeholder holds the line), but no delta glyph or value text appears.
+    // Equal height comes from the caller's `grid ... items-stretch` (wind
+    // #139), so the card renders only the rows it has: no delta row (and thus
+    // no glyph) when delta is null.
     expect(find.text('▲'), findsNothing);
     expect(find.text('▼'), findsNothing);
   });
@@ -152,6 +153,17 @@ void main() {
       wrap(const KpiStatCard(label: 'Uptime', value: '99.98%')),
     );
     expect(find.text('vs. last 24h'), findsNothing);
+  });
+
+  testWidgets('KpiStatCard without delta or hint renders no placeholder row', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(const KpiStatCard(label: 'Open incidents', value: '3')),
+    );
+    // With neither delta nor hint, only the label + value rows render; the
+    // delta/hint rows are omitted entirely (no reserved placeholder line).
+    expect(tester.widgetList<WText>(find.byType(WText)).length, 2);
   });
 
   testWidgets('KpiStatCard renders delta text when provided', (tester) async {

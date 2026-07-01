@@ -11,11 +11,6 @@ const Map<KpiTrend, String> _kDeltaGlyph = {
   KpiTrend.neutral: '',
 };
 
-/// A non-breaking space used to reserve a footer line's vertical space when a
-/// delta or hint is absent, so every KPI card keeps an identical four-row
-/// intrinsic height (a plain empty string collapses to zero height in Wind).
-const String _kReservedLine = ' ';
-
 /// **Dashboard KPI Stat Card**
 ///
 /// A metric tile with a short [label], a prominent tabular-nums [value], and
@@ -99,18 +94,10 @@ class KpiStatCard extends StatelessWidget {
     // renders as a centered vertical column) with `self-start` so it hugs its
     // content and stays left-aligned instead of stretching the cell width.
     //
-    // Equal-height across a KPI row: Wind's `grid` lays cells out through a
-    // `Wrap`, which sizes each cell to its own content and (unlike CSS grid's
-    // `align-items: stretch`) does NOT stretch shorter cells to the run height.
-    // Flex-based stretch is unavailable too: Wind content embeds a LayoutBuilder
-    // internally, and `IntrinsicHeight` (which `Row`/`Column` stretch needs for
-    // an unbounded cross-axis) cannot measure through a LayoutBuilder. So the
-    // card equalizes itself: the delta and hint footer rows are ALWAYS reserved
-    // (a non-breaking-space placeholder at the same type token holds the line
-    // when a field is absent), giving every card an identical four-row intrinsic
-    // height regardless of which optional fields the caller supplies. No
-    // hardcoded pixels: the reserved height is the token line-height of the
-    // placeholder text.
+    // Equal-height across a KPI row comes from the caller's `grid ...
+    // items-stretch` (wind #126/#139), which stretches every cell in a row to
+    // the tallest. So the card renders only the rows it has: the delta and hint
+    // appear ONLY when supplied, with no reserved placeholder line.
     final deltaClass = _resolveDeltaClassName();
     return Card(
       noPadding: false,
@@ -126,18 +113,14 @@ class KpiStatCard extends StatelessWidget {
             value,
             className: 'font-mono text-2xl font-semibold tabular-nums text-fg',
           ),
-          WText(
-            delta != null
-                ? (_kDeltaGlyph[trend]!.isEmpty
-                    ? delta!
-                    : '${_kDeltaGlyph[trend]} $delta')
-                : _kReservedLine,
-            className: deltaClass,
-          ),
-          WText(
-            hint ?? _kReservedLine,
-            className: 'text-xs text-fg-muted',
-          ),
+          if (delta != null)
+            WText(
+              _kDeltaGlyph[trend]!.isEmpty
+                  ? delta!
+                  : '${_kDeltaGlyph[trend]} $delta',
+              className: deltaClass,
+            ),
+          if (hint != null) WText(hint!, className: 'text-xs text-fg-muted'),
         ],
       ),
     );
