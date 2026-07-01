@@ -1,0 +1,177 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart' show Icons;
+import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+
+import '../../app/mocks/status_pages.dart';
+import '../../ui/components/empty_state/index.dart';
+import '../../ui/components/status_page_preview/index.dart';
+import '../../ui/layouts/page_container.dart';
+
+/// **The full-screen status-page preview screen.**
+///
+/// A faithful Flutter port of the React `PublicStatusPage`, embedded inside the
+/// app shell rather than served standalone: it resolves a status page [id] via
+/// [findStatusPage] and renders the [StatusPagePreview] mockup inside a
+/// browser-framed [Card] (three chrome dots + a mono URL bar showing
+/// [pageUrl]), so it reads as an in-app simulation of the backend-rendered
+/// public page rather than a live route.
+///
+/// When [findStatusPage] returns `null` it renders a graceful not-found
+/// [EmptyState] (mirroring the React `StatusPageNotFound` copy) instead of
+/// crashing on an unknown route id.
+///
+/// This is a mock screen: nothing here calls the network, and no `/s/:slug`
+/// route is registered anywhere in the app (the real public page is
+/// backend-rendered; this view is the editor-adjacent, in-app simulation of
+/// it).
+///
+/// ### Example
+/// ```dart
+/// // Registered as the routed `/status/:id/preview` content (wrapped by the
+/// // shell):
+/// MagicStarter.view.makeLayout(
+///   'layout.app',
+///   child: const StatusPagePreviewView(id: 'acme'),
+/// )
+/// ```
+@immutable
+class StatusPagePreviewView extends StatelessWidget {
+  /// The status-page identifier resolved against the fixtures via
+  /// [findStatusPage].
+  ///
+  /// `null` or an unknown id renders a graceful not-found [EmptyState].
+  final String? id;
+
+  /// Creates the [StatusPagePreviewView] for the given status page [id].
+  const StatusPagePreviewView({super.key, this.id});
+
+  @override
+  Widget build(BuildContext context) {
+    // 1. Resolve the status page; a null / unknown id falls back to a
+    //    graceful not-found state so the screen never crashes on an unknown
+    //    route id.
+    final StatusPageConfig? page = findStatusPage(id);
+    if (page == null) {
+      return _buildNotFound();
+    }
+
+    // 2. Header: breadcrumb back to the page's editor, then a centered
+    //    browser-framed mockup of the public page inside a scroll area.
+    return PageContainer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PageHeader(
+            title: page.name,
+            backLabel: page.name,
+            backFallback: '/status/${page.id}',
+          ),
+          const SizedBox(height: 24),
+          _buildBrowserFrame(page),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Browser frame
+  // ---------------------------------------------------------------------------
+
+  /// Builds the centered browser-frame [Card]: a chrome top bar (three dots +
+  /// the mono [pageUrl]) wrapping the [StatusPagePreview] inside a bounded
+  /// scroll area, so the mockup reads as a simulated browser window rather
+  /// than a bare page section.
+  Widget _buildBrowserFrame(StatusPageConfig page) {
+    return WDiv(
+      className: 'w-full max-w-2xl mx-auto',
+      child: Card(
+        noPadding: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildChromeBar(page),
+            SingleChildScrollView(
+              child: WDiv(
+                className: 'p-6',
+                child: StatusPagePreview(config: page),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Builds the chrome bar: three decorative dots on the leading edge and a
+  /// centered mono URL pill showing [pageUrl].
+  Widget _buildChromeBar(StatusPageConfig page) {
+    return WDiv(
+      className: 'flex flex-row items-center gap-3 border-b '
+          'border-color-border bg-surface-container-high px-4 py-3 '
+          'rounded-t-lg',
+      children: [
+        WDiv(
+          className: 'flex flex-row items-center gap-1.5',
+          children: [
+            _buildChromeDot(),
+            _buildChromeDot(),
+            _buildChromeDot(),
+          ],
+        ),
+        Expanded(
+          child: WDiv(
+            className: 'rounded-full bg-surface px-3 py-1',
+            child: WText(
+              pageUrl(page),
+              className: 'text-center font-mono text-xs text-fg-muted',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Builds a single decorative browser-chrome dot.
+  Widget _buildChromeDot() {
+    return SizedBox(
+      width: 8,
+      height: 8,
+      child: WDiv(className: 'size-2 rounded-full bg-fg-disabled'),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Not-found
+  // ---------------------------------------------------------------------------
+
+  /// Builds the graceful not-found state shown when [findStatusPage] returns
+  /// null.
+  ///
+  /// Mirrors the React `StatusPageNotFound` copy: no i18n key exists for this
+  /// screen's chrome, so the title and description stay literal English (the
+  /// same fallback the sibling `IncidentDetailView._buildNotFound` uses when
+  /// no key is shipped).
+  Widget _buildNotFound() {
+    return PageContainer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PageHeader(
+            title: 'Status page not found',
+            backLabel: 'Status pages',
+            backFallback: '/status',
+          ),
+          const SizedBox(height: 24),
+          const EmptyState(
+            icon: Icons.error_outline,
+            title: 'Status page not found',
+            description:
+                "There's no status page at this address. Double-check the "
+                'link, or ask whoever shared it for the current address.',
+          ),
+        ],
+      ),
+    );
+  }
+}
