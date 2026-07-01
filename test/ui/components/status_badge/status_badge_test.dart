@@ -226,28 +226,34 @@ void main() {
     expect(root.className, contains('bg-ai-soft'));
   });
 
-  testWidgets('StatusBadge showDot=true renders a dot WDiv', (tester) async {
-    await tester.pumpWidget(wrap(StatusBadge(StatusKey.up)));
-    final divs = tester.widgetList<WDiv>(find.byType(WDiv));
-    // The dot carries rounded-full and bg-up.
-    final dot = divs.firstWhere(
-      (w) =>
-          (w.className?.contains('bg-up') ?? false) &&
-          (w.className?.contains('rounded-full') ?? false),
-    );
-    expect(dot, isNotNull);
-  });
+  testWidgets(
+    'StatusBadge showDot=true renders a childless dot WDiv sized from its recipe',
+    (tester) async {
+      await tester.pumpWidget(wrap(StatusBadge(StatusKey.up)));
+      final divs = tester.widgetList<WDiv>(find.byType(WDiv));
+      // The dot is a childless WDiv (no SizedBox wrapper): it carries
+      // rounded-full, bg-up, and the recipe's size-* token (sm default:
+      // size-1.5) directly, per status_badge.dart's dotClass usage.
+      final dot = divs.firstWhere(
+        (w) =>
+            (w.className?.contains('bg-up') ?? false) &&
+            (w.className?.contains('rounded-full') ?? false) &&
+            (w.className?.contains('size-1.5') ?? false),
+      );
+      expect(dot.child, isNull);
+      expect(dot.children, isNull);
+    },
+  );
 
   testWidgets('StatusBadge showDot=false omits the dot WDiv', (tester) async {
     await tester.pumpWidget(wrap(StatusBadge(StatusKey.up, showDot: false)));
     final divs = tester.widgetList<WDiv>(find.byType(WDiv));
-    // No WDiv should carry the solid bg-up dot token.
+    // No WDiv should carry the solid bg-up dot token (root uses bg-up-soft,
+    // not bg-up, so this is unambiguous).
     final dots = divs.where(
       (w) =>
-          (w.className?.contains('size-1.5') ?? false) ||
-          (w.className?.contains('size-2') ?? false) &&
-              (w.className?.contains('rounded-full') ?? false) &&
-              (w.className?.contains('bg-up') ?? false),
+          (w.className?.contains('bg-up') ?? false) &&
+          !(w.className?.contains('bg-up-soft') ?? false),
     );
     expect(dots.length, 0);
   });
