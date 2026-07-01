@@ -312,6 +312,9 @@ class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
       variant: ConfirmDialogVariant.danger,
     );
     if (!confirmed) return;
+    // Guard against the async dialog gap: the view may have been popped while
+    // the confirm dialog was open (mirrors monitor_detail_view's precedent).
+    if (!mounted) return;
 
     setState(() => _subscribers.remove(subscriber));
     Magic.success(
