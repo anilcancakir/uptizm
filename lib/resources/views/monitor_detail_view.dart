@@ -593,12 +593,9 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
   /// to content under loose constraints). With the production labels this stays
   /// a single row; the wrap only engages defensively.
   ///
-  /// `w-full` makes the list span the full content-column width so the baseline
-  /// `border-b` rule runs edge-to-edge (matching the React full-width `border-b`
-  /// under the tab row). Without it the WDiv sizes to its tab content and the
-  /// underline stops short at the last tab. The list receives a bounded width
-  /// from the parent `Column(stretch)`, so `w-full` here is safe (this is a flex
-  /// CONTAINER, not a `w-full` Button inside a flex-row).
+  /// The list spans the full content-column width via [WTabs]'s default
+  /// `fullWidthList: true` (wind #128), so the `border-b` underline runs
+  /// edge-to-edge without a manual `w-full` override.
   Widget _buildTabs(MonitorSummary monitor, bool paused) {
     return Tabs(
       tabs: [
@@ -608,7 +605,7 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
       ],
       selectedIndex: _tabIndex,
       onChanged: (i) => setState(() => _tabIndex = i),
-      classNames: const {'list': 'w-full wrap border-b border-color-border'},
+      classNames: const {'list': 'wrap border-b border-color-border'},
       panelBuilder: (index) => switch (_DetailTab.values[index]) {
         _DetailTab.overview => _buildOverviewTab(monitor, paused),
         _DetailTab.metrics => MonitorMetricsTab(monitorId: monitor.id),
