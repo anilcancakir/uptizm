@@ -595,7 +595,7 @@
       "editor_form_view_public_page": "View public page",
       "editor_form_create_page": "Create page",
       "editor_form_save": "Save",
-      "editor_ai_draft_gated": "AI drafting is available on the {plan} plan.",
+      "editor_ai_draft_gated": "AI drafting is available on the :plan plan.",
       "editor_form_no_monitors_hint": "Assign monitors above, then their metrics show up here to publish.",
       "editor_form_no_system_metrics": "No assigned monitor reports a response time yet.",
       "editor_form_no_custom_metrics": "No custom metrics on the assigned monitors.",
@@ -622,11 +622,11 @@
       "subscribers_empty_subs_disabled_title": "No subscribers yet",
       "subscribers_empty_subs_disabled_description": "Subscriptions are turned off for this page. Enable them in the editor to let visitors subscribe.",
       "subscribers_search_placeholder": "Search subscribers",
-      "subscribers_subscribed_at": "Subscribed {date}",
+      "subscribers_subscribed_at": "Subscribed :date",
       "subscribers_remove_button": "Remove",
       "subscribers_remove_confirm_title": "Remove subscriber?",
-      "subscribers_remove_confirm_description": "{email} will stop receiving status updates for {page}.",
-      "subscribers_no_matches_text": "No subscribers match \"{query}\".",
+      "subscribers_remove_confirm_description": ":email will stop receiving status updates for :page.",
+      "subscribers_no_matches_text": "No subscribers match \":query\".",
       "subscribers_open_editor_button": "Open editor"
     },
     "ai": {
