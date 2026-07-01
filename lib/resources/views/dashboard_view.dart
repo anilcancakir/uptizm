@@ -306,7 +306,7 @@ class DashboardView extends StatelessWidget {
           for (final suggestion in suggestions) ...[
             AiInboxItem(
               incident: suggestion,
-              onApprove: () => MagicRoute.to('/incidents/new'),
+              onApprove: () => MagicRoute.to('/incidents/new', query: {'from': suggestion.id}),
               onDismiss: () {},
             ),
             if (suggestion != suggestions.last) const SizedBox(height: 12),

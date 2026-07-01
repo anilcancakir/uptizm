@@ -2,6 +2,9 @@ import 'package:magic/magic.dart';
 
 import '../resources/views/coming_soon_view.dart';
 import '../resources/views/dashboard_view.dart';
+import '../resources/views/incident_create_view.dart';
+import '../resources/views/incident_detail_view.dart';
+import '../resources/views/incidents_list_view.dart';
 import '../resources/views/monitor_create_view.dart';
 import '../resources/views/monitor_detail_view.dart';
 import '../resources/views/monitor_edit_view.dart';
@@ -20,6 +23,13 @@ import '../ui/layouts/app_layout.dart';
 /// - `/monitors/:id` — [MonitorDetailView] inside [AppLayout]; the `:id`
 ///   path parameter is passed positionally to the builder.
 /// - `/monitors/:id/edit` — [MonitorEditView] inside [AppLayout].
+/// - `/incidents` — [IncidentsListView] inside [AppLayout].
+/// - `/incidents/new` — [IncidentCreateView] inside [AppLayout]. Registered
+///   BEFORE `/incidents/:id` for the same first-match reason as
+///   `/monitors/new`. The view reads an optional `?from=<id>` suggestion
+///   prefill itself via `MagicRouter.instance.queryParameters`.
+/// - `/incidents/:id` — [IncidentDetailView] inside [AppLayout]; the `:id`
+///   path parameter is passed positionally to the builder.
 ///
 /// All in-app routes use [RouteTransition.none] for an instant,
 /// design-lab-faithful navigation feel. `/preview` is registered separately
@@ -75,14 +85,33 @@ void registerAppRoutes() {
         (String id) => MonitorEditView(id: id),
       ).title('Edit monitor | Uptizm').transition(RouteTransition.none);
 
-      // 6. Deferred destinations. The shell always shows Incidents / Status /
-      //    Settings (and the dashboard links to incident detail/create), but
-      //    those screens ship in a later milestone. Register them to a "coming
-      //    soon" placeholder so every nav target gives feedback rather than a
-      //    silent no-op. The follow-up verticals replace these.
+      // 6. Incidents list: full incident inventory with filter + search.
+      MagicRoute.page(
+        '/incidents',
+        () => const IncidentsListView(),
+      ).title('Incidents | Uptizm').transition(RouteTransition.none);
+
+      // 7. New incident: static segment registered BEFORE /incidents/:id so
+      //    the literal path /incidents/new is never consumed as a dynamic
+      //    :id param, mirroring the /monitors/new ordering above. The view
+      //    reads an optional `?from=<id>` suggestion prefill itself via
+      //    MagicRouter.instance.queryParameters, so no builder arg is needed.
+      MagicRoute.page(
+        '/incidents/new',
+        () => const IncidentCreateView(),
+      ).title('New incident | Uptizm').transition(RouteTransition.none);
+
+      // 8. Incident detail: resolves :id from the path to the fixture.
+      MagicRoute.page(
+        '/incidents/:id',
+        (String id) => IncidentDetailView(id: id),
+      ).title('Incident | Uptizm').transition(RouteTransition.none);
+
+      // 9. Deferred destinations. The shell always shows Status / Settings,
+      //    but those screens ship in a later milestone. Register them to a
+      //    "coming soon" placeholder so every nav target gives feedback
+      //    rather than a silent no-op. The follow-up verticals replace these.
       for (final r in const [
-        ['/incidents', 'Incidents'],
-        ['/incidents/new', 'Incidents'],
         ['/status', 'Status pages'],
         ['/settings', 'Settings'],
       ]) {
@@ -91,10 +120,6 @@ void registerAppRoutes() {
           () => ComingSoonView(feature: r[1]),
         ).transition(RouteTransition.none);
       }
-      MagicRoute.page(
-        '/incidents/:id',
-        (String id) => const ComingSoonView(feature: 'Incidents'),
-      ).transition(RouteTransition.none);
     },
   );
 }
