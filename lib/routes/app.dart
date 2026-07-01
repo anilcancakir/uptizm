@@ -9,6 +9,10 @@ import '../resources/views/monitor_create_view.dart';
 import '../resources/views/monitor_detail_view.dart';
 import '../resources/views/monitor_edit_view.dart';
 import '../resources/views/monitors_list_view.dart';
+import '../resources/views/status_page_editor_view.dart';
+import '../resources/views/status_page_preview_view.dart';
+import '../resources/views/status_page_subscribers_view.dart';
+import '../resources/views/status_pages_list_view.dart';
 import '../ui/layouts/app_layout.dart';
 
 /// Application Route Definitions.
@@ -30,6 +34,17 @@ import '../ui/layouts/app_layout.dart';
 ///   prefill itself via `MagicRouter.instance.queryParameters`.
 /// - `/incidents/:id` — [IncidentDetailView] inside [AppLayout]; the `:id`
 ///   path parameter is passed positionally to the builder.
+/// - `/status` — [StatusPagesListView] inside [AppLayout].
+/// - `/status/new` — [StatusPageEditorView] inside [AppLayout], zero-arg
+///   (creates a new draft). Registered BEFORE `/status/:id` for the same
+///   first-match reason as `/monitors/new` and `/incidents/new`.
+/// - `/status/:id` — [StatusPageEditorView] inside [AppLayout]; the `:id`
+///   path parameter is passed positionally to the builder (edits an
+///   existing status page).
+/// - `/status/:id/preview` — [StatusPagePreviewView] inside [AppLayout]; the
+///   in-app full-screen mockup of the public status page.
+/// - `/status/:id/subscribers` — [StatusPageSubscribersView] inside
+///   [AppLayout]; subscriber management for a status page.
 ///
 /// All in-app routes use [RouteTransition.none] for an instant,
 /// design-lab-faithful navigation feel. `/preview` is registered separately
@@ -107,19 +122,51 @@ void registerAppRoutes() {
         (String id) => IncidentDetailView(id: id),
       ).title('Incident | Uptizm').transition(RouteTransition.none);
 
-      // 9. Deferred destinations. The shell always shows Status / Settings,
-      //    but those screens ship in a later milestone. Register them to a
-      //    "coming soon" placeholder so every nav target gives feedback
-      //    rather than a silent no-op. The follow-up verticals replace these.
-      for (final r in const [
-        ['/status', 'Status pages'],
-        ['/settings', 'Settings'],
-      ]) {
-        MagicRoute.page(
-          r[0],
-          () => ComingSoonView(feature: r[1]),
-        ).transition(RouteTransition.none);
-      }
+      // 9. Status pages list: full status page inventory.
+      MagicRoute.page(
+        '/status',
+        () => const StatusPagesListView(),
+      ).title('Status pages | Uptizm').transition(RouteTransition.none);
+
+      // 10. New status page: static segment registered BEFORE /status/:id so
+      //     the literal path /status/new is never consumed as a dynamic :id
+      //     param, mirroring the /monitors/new and /incidents/new ordering
+      //     above. Zero-arg: the editor reads nothing from the path for a
+      //     new draft.
+      MagicRoute.page(
+        '/status/new',
+        () => const StatusPageEditorView(),
+      ).title('New status page | Uptizm').transition(RouteTransition.none);
+
+      // 11. Status page editor: resolves :id from the path to the fixture.
+      MagicRoute.page(
+        '/status/:id',
+        (String id) => StatusPageEditorView(id: id),
+      ).title('Edit status page | Uptizm').transition(RouteTransition.none);
+
+      // 12. Status page preview: /status/:id/preview is distinct from
+      //     /status/:id so ordering relative to the editor route does not
+      //     matter, but it is placed immediately after for readability.
+      MagicRoute.page(
+        '/status/:id/preview',
+        (String id) => StatusPagePreviewView(id: id),
+      ).title('Status page preview | Uptizm').transition(RouteTransition.none);
+
+      // 13. Status page subscribers: /status/:id/subscribers is distinct
+      //     from /status/:id, same ordering note as the preview route above.
+      MagicRoute.page(
+        '/status/:id/subscribers',
+        (String id) => StatusPageSubscribersView(id: id),
+      ).title('Status page subscribers | Uptizm').transition(RouteTransition.none);
+
+      // 14. Deferred destinations. The shell always shows Settings, but that
+      //     screen ships in a later milestone. Register it to a "coming
+      //     soon" placeholder so the nav target gives feedback rather than
+      //     a silent no-op. A follow-up vertical replaces this.
+      MagicRoute.page(
+        '/settings',
+        () => const ComingSoonView(feature: 'Settings'),
+      ).transition(RouteTransition.none);
     },
   );
 }
