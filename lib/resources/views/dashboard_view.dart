@@ -178,7 +178,8 @@ class DashboardView extends StatelessWidget {
 
     // 2. Single-column base; widen to two then four columns at breakpoints.
     return WDiv(
-      className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4',
+      className:
+          'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_monitors_up'),

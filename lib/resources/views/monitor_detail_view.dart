@@ -394,7 +394,8 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
 
     // 2. Single-column base; widen to two then four columns at breakpoints.
     return WDiv(
-      className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4',
+      className:
+          'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_uptime_24h'),
