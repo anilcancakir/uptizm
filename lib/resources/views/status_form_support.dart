@@ -1,0 +1,141 @@
+import 'package:flutter/widgets.dart' show Color;
+
+import 'package:uptizm/app/mocks/billing.dart';
+import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/mocks/status_pages.dart';
+import 'package:uptizm/resources/views/monitor_metrics_support.dart' show MetricOption;
+import 'package:uptizm/ui/components/region_picker/region_picker.dart';
+
+// ---------------------------------------------------------------------------
+// Brand palette.
+//
+// Preset brand colors offered in the status-page editor's color picker. These
+// are content data (the per-page brand tint the operator chooses), the direct
+// analogue of the React source's `BRAND_COLORS` hex array, so they live here
+// as raw [Color]s (the `Team.color` / `StatusPageConfig.brandColor`
+// precedent), NOT semantic Wind tokens.
+// ---------------------------------------------------------------------------
+
+/// The eight preset brand-color swatches offered in the editor.
+///
+/// Mirrors `BRAND_COLORS` in the React `StatusPageEditor` source.
+const List<Color> kBrandColors = [
+  Color(0xFF16A34A),
+  Color(0xFF2563EB),
+  Color(0xFF6366F1),
+  Color(0xFF7C3AED),
+  Color(0xFFDB2777),
+  Color(0xFFE11D48),
+  Color(0xFFEA580C),
+  Color(0xFF0D9488),
+];
+
+// ---------------------------------------------------------------------------
+// Region option lists (label / value pairs for the editor's RegionPicker
+// components: assigned monitors and the System/Custom metric pickers).
+// ---------------------------------------------------------------------------
+
+/// Maps the [monitors] fixture to [Region] instances for the assigned-monitors
+/// picker. Mirrors `MONITOR_OPTIONS` in the React `StatusPageEditor` source.
+///
+/// ```dart
+/// RegionPicker(regions: monitorRegions(), value: monitorIds, onChanged: ...);
+/// ```
+List<Region> monitorRegions() {
+  return [
+    for (final MonitorSummary m in monitors) Region(label: m.name, value: m.id),
+  ];
+}
+
+/// System metric options for the given monitor [ids] as [Region] instances.
+///
+/// The value is the composite `monitorId.key` metric id. Feeds the editor's
+/// System metric picker. Mirrors `systemOptions` in `StatusPageEditor`.
+List<Region> systemMetricRegions(List<String> ids) {
+  return [
+    for (final MetricOption o in systemMetricOptions(ids))
+      Region(label: o.label, value: o.value),
+  ];
+}
+
+/// Custom metric options for the given monitor [ids] as [Region] instances.
+///
+/// The value is the composite `monitorId.key` metric id. Feeds the editor's
+/// Custom metric picker. Mirrors `customOptions` in `StatusPageEditor`.
+List<Region> customMetricRegions(List<String> ids) {
+  return [
+    for (final MetricOption o in customMetricOptions(ids))
+      Region(label: o.label, value: o.value),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers.
+// ---------------------------------------------------------------------------
+
+/// The "Draft with AI" mock: compose a starter [StatusPageConfig] from the
+/// given [monitorIds].
+///
+/// Groups every provided monitor into public components and writes a starter
+/// name, slug, and description, plus a preset metric selection filtered to the
+/// metrics that actually resolve for the chosen monitors. Mirrors
+/// `generateWithAi` in the React `StatusPageEditor` source: the description is
+/// composed from the monitors themselves, nothing external.
+///
+/// ```dart
+/// final draft = aiDraftFor(monitors.map((m) => m.id).toList());
+/// ```
+StatusPageConfig aiDraftFor(List<String> monitorIds) {
+  // 1. Preset metric ids the React source seeds, kept only when they resolve
+  //    for the selected monitors (an unassigned monitor drops its metrics).
+  const List<String> presetMetricKeys = [
+    'api.response_time',
+    'api.req_rate',
+    'marketing.dom_load',
+  ];
+  final Set<String> available = {
+    for (final Region r in systemMetricRegions(monitorIds)) r.value,
+    for (final Region r in customMetricRegions(monitorIds)) r.value,
+  };
+  final List<String> metricKeys = [
+    for (final String key in presetMetricKeys)
+      if (available.contains(key)) key,
+  ];
+
+  // 2. Assemble the draft config. The brand color defaults to the first preset
+  //    swatch, matching the editor's initial state.
+  return StatusPageConfig(
+    id: 'draft',
+    name: 'Acme Status',
+    slug: 'acme',
+    domainMode: DomainMode.path,
+    brandColor: kBrandColors.first,
+    logoText: '',
+    description:
+        'Real-time status of our services. Subscribe to get notified about '
+        'incidents and maintenance.',
+    monitorIds: monitorIds,
+    metricKeys: metricKeys,
+    subscriptionsEnabled: true,
+  );
+}
+
+/// Whether the config satisfies the editor's Save-enabled rule.
+///
+/// Requires a non-empty [StatusPageConfig.name], [StatusPageConfig.slug], and
+/// at least one assigned monitor. Mirrors the `canSave` guard in the React
+/// `StatusPageEditor` source.
+bool isConfigValid(StatusPageConfig c) {
+  return c.name.trim().isNotEmpty &&
+      c.slug.trim().isNotEmpty &&
+      c.monitorIds.isNotEmpty;
+}
+
+/// The cheapest plan whose AI capability covers full incident analysis.
+///
+/// Feeds the editor's "Draft with AI" upgrade nudge when the current tier does
+/// not unlock [AiLevel.analysis]. Mirrors `planForAiAnalysis` in
+/// `incident_form_support.dart`.
+Plan planForAiDraft() {
+  return smallestPlanWhere((l) => l.ai.index >= AiLevel.analysis.index);
+}
