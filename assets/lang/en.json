@@ -599,6 +599,7 @@
       "editor_form_no_monitors_hint": "Assign monitors above, then their metrics show up here to publish.",
       "editor_form_no_system_metrics": "No assigned monitor reports a response time yet.",
       "editor_form_no_custom_metrics": "No custom metrics on the assigned monitors.",
+      "editor_preview_live_heading": "Live preview",
       "preview_live_metrics_heading": "Live metrics",
       "preview_components_heading": "Components",
       "preview_components_empty": "No components yet. Assign monitors to show their status here.",
