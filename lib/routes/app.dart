@@ -9,6 +9,19 @@ import '../resources/views/monitor_create_view.dart';
 import '../resources/views/monitor_detail_view.dart';
 import '../resources/views/monitor_edit_view.dart';
 import '../resources/views/monitors_list_view.dart';
+import '../resources/views/settings/appearance_settings_view.dart';
+import '../resources/views/settings/changelog_settings_view.dart';
+import '../resources/views/settings/help_settings_view.dart';
+import '../resources/views/settings/language_settings_view.dart';
+import '../resources/views/settings/notifications_settings_view.dart';
+import '../resources/views/settings/password_settings_view.dart';
+import '../resources/views/settings/privacy_settings_view.dart';
+import '../resources/views/settings/profile_settings_view.dart';
+import '../resources/views/settings/sessions_settings_view.dart';
+import '../resources/views/settings/settings_hub_view.dart';
+import '../resources/views/settings/terms_settings_view.dart';
+import '../resources/views/settings/timezone_settings_view.dart';
+import '../resources/views/settings/two_factor_settings_view.dart';
 import '../resources/views/status_page_editor_view.dart';
 import '../resources/views/status_page_preview_view.dart';
 import '../resources/views/status_page_subscribers_view.dart';
@@ -45,6 +58,27 @@ import '../ui/layouts/app_layout.dart';
 ///   in-app full-screen mockup of the public status page.
 /// - `/status/:id/subscribers` — [StatusPageSubscribersView] inside
 ///   [AppLayout]; subscriber management for a status page.
+/// - `/settings` — [SettingsHubView] inside [AppLayout]; the grouped-list
+///   settings index (Account / Security / Preferences / Team / About).
+/// - `/settings/profile` — [ProfileSettingsView] inside [AppLayout].
+/// - `/settings/appearance` — [AppearanceSettingsView] inside [AppLayout].
+/// - `/settings/language` — [LanguageSettingsView] inside [AppLayout].
+/// - `/settings/timezone` — [TimezoneSettingsView] inside [AppLayout].
+/// - `/settings/notifications` — [NotificationsSettingsView] inside
+///   [AppLayout].
+/// - `/settings/help` — [HelpSettingsView] inside [AppLayout].
+/// - `/settings/changelog` — [ChangelogSettingsView] inside [AppLayout].
+/// - `/settings/privacy` — [PrivacySettingsView] inside [AppLayout].
+/// - `/settings/terms` — [TermsSettingsView] inside [AppLayout].
+/// - `/settings/security/2fa` — [TwoFactorSettingsView] inside [AppLayout].
+/// - `/settings/security/password` — [PasswordSettingsView] inside
+///   [AppLayout].
+/// - `/settings/security/sessions` — [SessionsSettingsView] inside
+///   [AppLayout].
+/// - `/teams/settings`, `/teams/members`, `/teams/notifications`,
+///   `/teams/escalation`, `/teams/on-call`, `/teams/billing` — [ComingSoonView]
+///   stubs inside [AppLayout]; the Team group in [SettingsHubView] links here
+///   until a dedicated teams vertical ships.
 ///
 /// All in-app routes use [RouteTransition.none] for an instant,
 /// design-lab-faithful navigation feel. `/preview` is registered separately
@@ -159,13 +193,109 @@ void registerAppRoutes() {
         (String id) => StatusPageSubscribersView(id: id),
       ).title('Status page subscribers | Uptizm').transition(RouteTransition.none);
 
-      // 14. Deferred destinations. The shell always shows Settings, but that
-      //     screen ships in a later milestone. Register it to a "coming
-      //     soon" placeholder so the nav target gives feedback rather than
-      //     a silent no-op. A follow-up vertical replaces this.
+      // 14. Settings hub: the grouped-list index (Account / Security /
+      //     Preferences / Team / About & support).
       MagicRoute.page(
         '/settings',
-        () => const ComingSoonView(feature: 'Settings'),
+        () => const SettingsHubView(),
+      ).title('Settings | Uptizm').transition(RouteTransition.none);
+
+      // 15. Settings sub-pages. All static paths (no :id), so registration
+      //     order among them carries no first-match concern; grouped here
+      //     for readability, mirroring the hub's section order.
+      MagicRoute.page(
+        '/settings/profile',
+        () => const ProfileSettingsView(),
+      ).title('Profile | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/security/2fa',
+        () => const TwoFactorSettingsView(),
+      ).title('Two-factor authentication | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/security/password',
+        () => const PasswordSettingsView(),
+      ).title('Password | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/security/sessions',
+        () => const SessionsSettingsView(),
+      ).title('Active sessions | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/appearance',
+        () => const AppearanceSettingsView(),
+      ).title('Appearance | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/language',
+        () => const LanguageSettingsView(),
+      ).title('Language | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/timezone',
+        () => const TimezoneSettingsView(),
+      ).title('Time zone | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/notifications',
+        () => const NotificationsSettingsView(),
+      ).title('Notifications | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/help',
+        () => const HelpSettingsView(),
+      ).title('Help | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/changelog',
+        () => const ChangelogSettingsView(),
+      ).title('Changelog | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/privacy',
+        () => const PrivacySettingsView(),
+      ).title('Privacy policy | Uptizm').transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/settings/terms',
+        () => const TermsSettingsView(),
+      ).title('Terms of service | Uptizm').transition(RouteTransition.none);
+
+      // 16. Team destinations. The Settings hub's Team group always shows
+      //     these rows, but the teams vertical ships in a later milestone.
+      //     Register them to "coming soon" placeholders so the nav targets
+      //     give feedback rather than a silent no-op. A follow-up vertical
+      //     replaces these.
+      MagicRoute.page(
+        '/teams/settings',
+        () => const ComingSoonView(feature: 'Team settings'),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/teams/members',
+        () => const ComingSoonView(feature: 'Members'),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/teams/notifications',
+        () => const ComingSoonView(feature: 'Notification channels'),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/teams/escalation',
+        () => const ComingSoonView(feature: 'Escalation policies'),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/teams/on-call',
+        () => const ComingSoonView(feature: 'On-call'),
+      ).transition(RouteTransition.none);
+
+      MagicRoute.page(
+        '/teams/billing',
+        () => const ComingSoonView(feature: 'Plan & billing'),
       ).transition(RouteTransition.none);
     },
   );
