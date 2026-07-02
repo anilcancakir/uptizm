@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: "Flutter/Wind/Magic-native UI design skill: design systems, visual hierarchy, bold aesthetics, and semantic token usage for this project. Covers component authoring, DESIGN.md-driven theming, and dark/light parity. Use for any UI, component, or screen work in magic_example."
+description: "Flutter/Wind/Magic-native UI design skill: design systems, visual hierarchy, bold aesthetics, and semantic token usage for this project. Covers component authoring, DESIGN.md-driven theming, and dark/light parity. Use for any UI, component, or screen work in uptizm."
 when_to_use: "TRIGGER when: UI, pages, components, screens, design. DO NOT TRIGGER when: backend, auth logic, or non-visual."
 ---
 
@@ -17,7 +17,7 @@ This skill is **MOBILE/Flutter only.** There is no web/CSS mode for this project
 Platform: Flutter (mobile-first, responsive via Wind breakpoint prefixes).
 Styling: Wind className strings only. No raw `Colors.*`, no hardcoded hex in component code.
 Theme: `DESIGN.md` is the single source of truth for all tokens. See the `colors`, `typography`, `rounded`, and `spacing` sections.
-Components: use the project component library (`magic_starter` generic component set). Never build inline one-offs when a library component covers the case.
+Components: use the project component library under `lib/ui/components/`. Never build inline one-offs when a library component covers the case.
 
 ---
 
@@ -60,11 +60,11 @@ Defer to `DESIGN.md`'s `spacing` section and the Wind utility scale. The project
 | gutter | 16px | `px-4` | Horizontal content margin (narrow screens) |
 | section | 32px | `py-8` | Stacked section separation |
 
-Do not use arbitrary pixel values (`p-[13px]`); stay on the 4px scale. For semantic spacing tokens, use the alias keys from `magic_example/DESIGN.md`.
+Do not use arbitrary pixel values (`p-[13px]`); stay on the 4px scale. For semantic spacing tokens, use the alias keys from `DESIGN.md`.
 
 ### Type Scale
 
-Typography is **Inter** (the authoritative font from `DESIGN.md`). Use the `Typography` component or Wind text utilities matching the DESIGN.md scale. All sizes are logical pixels.
+Typography is **Geist** (the authoritative font from `DESIGN.md`), with **Geist Mono** for every metric, latency, percentage, and timestamp (use `tabular-nums` on those). Use the `Typography` component or Wind text utilities matching the DESIGN.md scale. All sizes are logical pixels.
 
 | DESIGN.md token | Wind approx | Role |
 |----------------|-------------|------|
@@ -78,7 +78,7 @@ Typography is **Inter** (the authoritative font from `DESIGN.md`). Use the `Typo
 
 Line-height and letter-spacing from DESIGN.md apply; they are already encoded in the `Typography` component recipe.
 
-**Font selection for this project**: Inter is the authoritative app font per `DESIGN.md`. The generic fork's "never Inter/Roboto/system-ui" rule does NOT apply here. DESIGN.md typography is always authoritative over general font guidance.
+**Font selection for this project**: Geist (Geist Mono for numeric/metric columns) is the authoritative app font per `DESIGN.md`; both are self-hosted variable woff2 files in `assets/fonts/`, not the Google Fonts build. DESIGN.md typography is always authoritative over general font guidance.
 
 ### Shadow and Elevation
 
@@ -167,7 +167,7 @@ Never rely on color alone for meaning. Add icons, text, or patterns alongside co
 
 ## TYPOGRAPHY
 
-Inter is the project font (see `DESIGN.md` typography section). Use the `Typography` component for all text rendering rather than raw `WText` with ad-hoc sizes.
+Geist is the project font, with Geist Mono for metrics (see `DESIGN.md` typography section). Use the `Typography` component for all text rendering rather than raw `WText` with ad-hoc sizes.
 
 ### Line-Height and Spacing
 
@@ -283,7 +283,7 @@ Use the `EmptyState` component:
 |-------------|-----|
 | Raw `Color(0xFF...)` or `Colors.*` in component code | Use Wind semantic token alias |
 | Hardcoded pixel values (`SizedBox(height: 13)`) | Use Wind spacing utilities on the 4px scale |
-| Font family chosen outside DESIGN.md | DESIGN.md typography is authoritative; Inter is the font |
+| Font family chosen outside DESIGN.md | DESIGN.md typography is authoritative; Geist (Geist Mono for metrics) is the font |
 | Purple gradients on white without dark counterpart | Every color token needs its `dark:` pair |
 | Filling the whole screen when content needs less | Add `max-w-*` or `mx-auto`; let content breathe |
 | Ambiguous spacing between groups | More space between groups than within |
@@ -294,7 +294,7 @@ Use the `EmptyState` component:
 | CSS-only utilities (`box-shadow`, `filter`, `transform`, `group-*`) | These are unsupported by Wind; use Flutter APIs instead |
 | `Icons.*` inline in component bodies | Extract as `static const IconData _icon = Icons.x;` |
 | Skipping dark/light parity | Every semantic token alias is a light+dark pair; no exceptions |
-| Building one-off widgets when a library component exists | Always check `magic_starter` component library first |
+| Building one-off widgets when a library component exists | Always check the `lib/ui/components/` library (and `docs/component-registry.md`) first |
 
 ---
 
@@ -303,7 +303,7 @@ Use the `EmptyState` component:
 When building a new component, follow the atomic folder convention:
 
 ```
-magic_starter/lib/src/ui/components/<name>/
+lib/ui/components/<name>/
   <name>.dart           # class <Name> extends StatelessWidget
   <name>.recipe.dart    # WindRecipe / WindSlotRecipe
   <name>.preview.dart   # single preview widget (ONE per file)
@@ -344,7 +344,7 @@ Lead with code, not explanation.
 
 | Topic | File |
 |-------|------|
-| DESIGN.md (token source) | `magic_example/DESIGN.md` |
+| DESIGN.md (token source) | `DESIGN.md` |
 | Visual hierarchy | `docs/design-culture/refactoring-ui.md` |
 | Color system + contrast | `docs/design-culture/accessibility-wcag.md` |
 | Mobile patterns + safe areas | `docs/design-culture/wind-responsive.md` |

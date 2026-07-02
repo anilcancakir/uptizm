@@ -27,7 +27,7 @@ maximum 3 rounds; stop if no improvement across a full round
 
 ## PHASE 1: DESIGN
 
-Read `magic_example/DESIGN.md` before touching any code.
+Read `DESIGN.md` before touching any code.
 
 Decide:
 1. Which semantic tokens govern this screen (background, text, interactive elements).
@@ -47,7 +47,7 @@ For a new standalone screen, create the view file:
 dart run bin/dispatcher.dart make:component <ScreenName>Preview [--slots]
 ```
 
-Or author the view file directly if it follows an existing auth/profile/settings pattern. Views live under `magic_starter/lib/src/ui/views/<feature>/`. Components live under `magic_starter/lib/src/ui/components/<name>/`.
+Or author the view file directly if it follows an existing dashboard/monitors/incidents pattern. Views live under `lib/resources/views/<domain>/`. Components live under `lib/ui/components/<name>/`.
 
 For a new component within the screen, follow the `make-component` skill.
 
@@ -82,7 +82,7 @@ Dark and light screenshots MUST be visually distinct. If they look identical, a 
 
 Compose the screen from library components. Rules:
 
-- Use `magic_starter` components from `docs/component-registry.md`. Do not write one-off inline widgets when a library component fits.
+- Use components from the `lib/ui/components/` library (see `docs/component-registry.md`). Do not write one-off inline widgets when a library component fits.
 - Token discipline: `bg-surface`, `text-fg`, `border-color-border`, etc. Never `Colors.grey.shade200`.
 - Layout: `WDiv` with `flex-col` or `flex-row`; Wind breakpoint prefixes for responsive behavior.
 - Interactive elements: `Button`, `Input`, `Checkbox`, `Switch` from the component library; not raw `WButton`/`WInput` unless the component library explicitly wraps them.
@@ -132,10 +132,10 @@ Capture screenshots for both modes:
 Invoke the `component-visual-reviewer` subagent:
 
 ```
-Agent({subagent_type: "ac:component-visual-reviewer"}) with:
+Agent({subagent_type: "component-visual-reviewer"}) with:
   - screenshot_light: /tmp/<screen>-light.jpg
   - screenshot_dark: /tmp/<screen>-dark.jpg
-  - design_md: magic_example/DESIGN.md
+  - design_md: DESIGN.md
   - component: <ScreenName>
 ```
 
@@ -198,7 +198,7 @@ Re-screenshot and re-analyze. Repeat the cycle.
 
 ## REFERENCES
 
-- `magic_example/DESIGN.md` token source
+- `DESIGN.md` token source
 - `docs/component-registry.md` component inventory
 - `.claude/skills/frontend-design/SKILL.md` token/color/type/spacing guidance
 - `.claude/skills/make-component/SKILL.md` component scaffold detail
