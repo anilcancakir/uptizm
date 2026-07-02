@@ -1,4 +1,4 @@
-# magic_example
+# uptizm
 
 A new Flutter project.
 

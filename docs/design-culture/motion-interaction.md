@@ -120,7 +120,7 @@ tooltip/dropdown entrances 100-150ms.
 
 ## Route transitions
 
-In magic_example the router is `go_router`. Route transitions use `CustomTransitionPage`:
+In uptizm the router is `go_router`. Route transitions use `CustomTransitionPage`:
 
 ```dart
 CustomTransitionPage(

@@ -44,7 +44,7 @@ compact-to-regular reflow. See [wind-responsive.md](wind-responsive.md) for the 
 ## Typography
 
 - Let type carry hierarchy: bolder, left-aligned section headings. Keep one font family; the
-  DESIGN.md typography font is authoritative (Inter by default in magic_example).
+  DESIGN.md typography font is authoritative (Geist, with Geist Mono for metrics, in uptizm).
 - Use the Typography component variants rather than arbitrary sizes:
   `headline-lg` for page titles, `title-lg` for section heads, `body-lg`/`body-md` for content,
   `label-md`/`label-sm` for interactive labels and captions.
