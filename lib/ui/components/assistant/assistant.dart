@@ -177,14 +177,29 @@ class _AssistantState extends State<Assistant> {
   /// Material elevation (PORTING.md §6 / §7). The sparkle glyph reads at 24px,
   /// matching the design lab `size-6` icon.
   Widget _buildFab() {
-    return Material(
-      type: MaterialType.transparency,
-      elevation: 6,
-      child: WButton(
-        onTap: () => setState(() => _open = true),
-        semanticLabel: 'Open Uptizm AI',
-        className: assistantFabRecipe(),
-        child: WIcon(Icons.auto_awesome, className: 'text-[24px] text-on-ai'),
+    // Bottom-right within the fill-sized overlay, mirroring the open surface's
+    // Align so the FAB and the panel it opens share the same anchor. SafeArea
+    // keeps it clear of system insets; the shell mounts this over the content
+    // region, so on mobile the FAB already sits above the bottom nav.
+    return Align(
+      alignment: Alignment.bottomRight,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: SafeArea(
+          child: Material(
+            type: MaterialType.transparency,
+            elevation: 6,
+            child: WButton(
+              onTap: () => setState(() => _open = true),
+              semanticLabel: 'Open Uptizm AI',
+              className: assistantFabRecipe(),
+              child: WIcon(
+                Icons.auto_awesome,
+                className: 'text-[24px] text-on-ai',
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

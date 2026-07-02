@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' show Material, MaterialType;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
+import '../components/assistant/index.dart';
 import 'bottom_nav.dart';
 import 'mobile_top_bar.dart';
 import 'sidebar.dart';
@@ -80,14 +81,22 @@ class AppLayout extends StatelessWidget {
       children: [
         Sidebar(currentPath: currentPath),
         WDiv(
-          className: 'flex-1 flex flex-col h-full overflow-hidden',
-          children: [
-            WDiv(
-              className: 'flex-1 overflow-y-auto',
-              scrollPrimary: true,
-              child: keyedChild,
-            ),
-          ],
+          className: 'flex-1 h-full overflow-hidden',
+          // Content scroll region with the floating AI assistant mounted on
+          // top (StackFit.expand fills both). Overlaying the content region
+          // (not the whole shell) keeps the FAB anchored bottom-right of the
+          // viewport on desktop.
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              WDiv(
+                className: 'overflow-y-auto',
+                scrollPrimary: true,
+                child: keyedChild,
+              ),
+              const Assistant(),
+            ],
+          ),
         ),
       ],
     );
@@ -107,10 +116,19 @@ class AppLayout extends StatelessWidget {
       children: [
         const MobileTopBar(),
         Expanded(
-          child: WDiv(
-            className: 'overflow-y-auto',
-            scrollPrimary: true,
-            child: keyedChild,
+          // Content scroll region with the floating AI assistant on top. The
+          // Stack spans only the content (between top bar and bottom nav), so
+          // the FAB anchors bottom-right ABOVE the bottom nav, never over it.
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              WDiv(
+                className: 'overflow-y-auto',
+                scrollPrimary: true,
+                child: keyedChild,
+              ),
+              const Assistant(),
+            ],
           ),
         ),
         BottomNav(currentPath: currentPath),

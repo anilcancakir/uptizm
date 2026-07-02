@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:uptizm/ui/components/assistant/index.dart';
 import 'package:uptizm/ui/layouts/app_layout.dart';
 import 'package:uptizm/ui/layouts/bottom_nav.dart';
 import 'package:uptizm/ui/layouts/mobile_top_bar.dart';
@@ -111,6 +112,47 @@ void main() {
       // Settings IS a sidebar item on desktop (it appears in the nav and the
       // account menu, hence at least one match).
       expect(find.text('uptizm.nav.settings'), findsWidgets);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Floating AI assistant: mounted once by the shell (the "Step 9" wire-up)
+  // ---------------------------------------------------------------------------
+
+  group('AppLayout floating AI assistant', () {
+    const layout = AppLayout(child: PageContainer(child: WText('content')));
+
+    testWidgets('mounts exactly one Assistant at desktop and mobile widths', (
+      tester,
+    ) async {
+      await pumpAtWidth(tester, 1200, layout);
+      expect(find.byType(Assistant), findsOneWidget);
+
+      await pumpAtWidth(tester, 390, layout);
+      expect(find.byType(Assistant), findsOneWidget);
+    });
+
+    testWidgets('the collapsed FAB opens the chat surface on tap', (
+      tester,
+    ) async {
+      await pumpAtWidth(tester, 1200, layout);
+
+      // Collapsed: the FAB glyph is present, the conversation is not.
+      expect(find.byIcon(Icons.auto_awesome), findsOneWidget);
+      expect(
+        find.textContaining('I reason from your own checks'),
+        findsNothing,
+      );
+
+      await tester.tap(find.byIcon(Icons.auto_awesome));
+      await tester.pumpAndSettle();
+
+      // Open: the greeting and the close affordance are shown.
+      expect(
+        find.textContaining('I reason from your own checks'),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.close), findsOneWidget);
     });
   });
 }
