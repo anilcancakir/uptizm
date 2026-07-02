@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../app/mocks/status.dart';
@@ -32,7 +33,7 @@ import '../../../ui/layouts/page_container.dart';
 /// MagicStarter.view.makeLayout('layout.app', child: const MonitorsListView())
 /// ```
 @immutable
-class MonitorsListView extends StatefulWidget {
+class MonitorsListView extends MagicStatefulView<MonitorController> {
   /// Creates the [MonitorsListView].
   const MonitorsListView({super.key});
 
@@ -58,7 +59,8 @@ class _Filter {
   final StatusKey? status;
 }
 
-class _MonitorsListViewState extends State<MonitorsListView> {
+class _MonitorsListViewState
+    extends MagicStatefulViewState<MonitorController, MonitorsListView> {
   /// The four filter tabs: All, Operational, Degraded, Down.
   static const List<_Filter> _filters = [
     _Filter(label: 'All'),
@@ -67,48 +69,63 @@ class _MonitorsListViewState extends State<MonitorsListView> {
     _Filter(label: 'Down', status: StatusKey.down),
   ];
 
-  /// The index of the currently active filter tab.
+  /// The index of the currently active filter tab (ephemeral, per-screen input).
   int _filterIndex = 0;
+
+  @override
+  void initState() {
+    // Register the controller before the base state resolves it via
+    // Magic.find<T>() (which throws when unregistered). Idempotent.
+    Magic.findOrPut(MonitorController.new);
+    super.initState();
+  }
 
   /// Monitors that satisfy the active filter.
   List<MonitorSummary> get _visible {
     final selected = _filters[_filterIndex].status;
-    if (selected == null) return monitors;
-    return monitors.where((m) => m.status == selected).toList();
+    if (selected == null) return controller.monitors;
+    return controller.monitors.where((m) => m.status == selected).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    // A plain Flutter Column scaffolds the page body so each descendant gets a
-    // proper bounded width from PageContainer (same discipline as DashboardView).
+    // The page body is a Wind flex column: section rhythm is carried by `gap-*`,
+    // not SizedBox spacers. The outer gap-8 (32px) separates the header+KPI
+    // group from the filter+list group; each inner group nests its own rhythm
+    // (gap-6 = 24px header->KPI, gap-4 = 16px filter->list).
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-8',
         children: [
-          // 1. Page header with a "New monitor" action button.
-          PageHeader(
-            title: trans('uptizm.monitors.title'),
-            subtitle: trans('uptizm.monitors.description'),
-            actions: [
-              Button(
-                onPressed: () => MagicRoute.to('/monitors/new'),
-                child: WText(trans('uptizm.monitors.new_monitor')),
+          // 1. Header + KPI summary row (24px apart).
+          WDiv(
+            className: 'flex flex-col gap-6',
+            children: [
+              // Page header with a "New monitor" action button.
+              PageHeader(
+                title: trans('uptizm.monitors.title'),
+                subtitle: trans('uptizm.monitors.description'),
+                actions: [
+                  Button(
+                    onPressed: () => MagicRoute.to('/monitors/new'),
+                    child: WText(trans('uptizm.monitors.new_monitor')),
+                  ),
+                ],
               ),
+              // KPI summary row: monitors used, operational, open incidents,
+              // average response time. Mirrors the React grid above the filter.
+              _buildKpiRow(),
             ],
           ),
-          const SizedBox(height: 24),
 
-          // 2. KPI summary row: monitors used, operational, open incidents,
-          //    average response time. Mirrors the React grid above the filter.
-          _buildKpiRow(),
-          const SizedBox(height: 32),
-
-          // 3. Status filter + visible count.
-          _buildFilterRow(),
-          const SizedBox(height: 16),
-
-          // 4. Monitor list, or an empty state when zero rows match.
-          _buildList(),
+          // 2. Status filter + list (16px apart).
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: [
+              _buildFilterRow(),
+              _buildList(),
+            ],
+          ),
         ],
       ),
     );
@@ -123,15 +140,18 @@ class _MonitorsListViewState extends State<MonitorsListView> {
   /// and average response time.
   Widget _buildKpiRow() {
     // 1. Derive headline metrics from the mock fixtures.
-    final int upCount = monitors.where((m) => m.status == StatusKey.up).length;
-    final int downCount = monitors
+    final List<MonitorSummary> allMonitors = controller.monitors;
+    final int upCount = allMonitors
+        .where((m) => m.status == StatusKey.up)
+        .length;
+    final int downCount = allMonitors
         .where((m) => m.status == StatusKey.down)
         .length;
     final List<IncidentSummary> openIncidents = incidents
         .where((i) => i.lifecycle != IncidentLifecycle.resolved)
         .toList();
     final int aiActive = openIncidents.where((i) => i.aiOwned).length;
-    final List<MonitorSummary> responders = monitors
+    final List<MonitorSummary> responders = allMonitors
         .where((m) => m.responseMs != null)
         .toList();
     final int avgResponse = responders.isEmpty
@@ -146,12 +166,12 @@ class _MonitorsListViewState extends State<MonitorsListView> {
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_monitors_used'),
-          value: '${monitors.length} / 50',
+          value: '${allMonitors.length} / 50',
           hint: 'Pro plan',
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_operational'),
-          value: '$upCount / ${monitors.length}',
+          value: '$upCount / ${allMonitors.length}',
           delta: '$downCount down',
           trend: KpiTrend.down,
         ),
@@ -183,10 +203,12 @@ class _MonitorsListViewState extends State<MonitorsListView> {
   /// A Flutter [Row] with the SegmentedControl in a [Flexible] (loose) slot
   /// lets the pill shrink-wrap naturally without forcing the Row to overflow.
   Widget _buildFilterRow() {
-    return Row(
+    return WDiv(
+      className: 'flex flex-row items-center gap-3',
       children: [
         // The Flexible shrink-wraps the pill and lets it yield width on very
-        // narrow screens rather than forcing the Row to overflow.
+        // narrow screens rather than forcing the row to overflow (FlexFit.loose
+        // has no Wind className equivalent, so the wrapper stays structural).
         Flexible(
           child: SegmentedControl(
             options: _filters.map((f) => f.label).toList(),
@@ -194,9 +216,8 @@ class _MonitorsListViewState extends State<MonitorsListView> {
             onChanged: (i) => setState(() => _filterIndex = i),
           ),
         ),
-        const SizedBox(width: 12),
         WText(
-          '${_visible.length} of ${monitors.length}',
+          '${_visible.length} of ${controller.monitors.length}',
           className: 'font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
@@ -216,16 +237,14 @@ class _MonitorsListViewState extends State<MonitorsListView> {
       return _buildEmptyState();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col gap-2',
       children: [
-        for (final monitor in visible) ...[
+        for (final monitor in visible)
           MonitorListRow(
             monitor: monitor,
             onTap: () => MagicRoute.to('/monitors/${monitor.id}'),
           ),
-          if (monitor != visible.last) const SizedBox(height: 8),
-        ],
       ],
     );
   }
@@ -241,7 +260,7 @@ class _MonitorsListViewState extends State<MonitorsListView> {
   /// The dashed-border container mirrors `rounded-xl border-dashed border-border`
   /// from the React source.
   Widget _buildEmptyState() {
-    final bool noMonitorsAtAll = monitors.isEmpty;
+    final bool noMonitorsAtAll = controller.monitors.isEmpty;
 
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',

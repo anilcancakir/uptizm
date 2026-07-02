@@ -2,9 +2,9 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/monitors.dart';
-import '../../../app/mocks/status.dart';
 import '../../../ui/components/ai_inbox_item/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/empty_state/index.dart';
@@ -16,8 +16,9 @@ import '../../../ui/layouts/page_container.dart';
 /// **The Dashboard home screen.**
 ///
 /// Composes the whole product at a glance from the design-lab mock fixtures
-/// (no controller, no network): a KPI summary row, the active incidents, a
-/// monitor snippet, and the AI inbox (anomalies awaiting the operator's call).
+/// via [DashboardController] (no network): a KPI summary row, the active
+/// incidents, a monitor snippet, and the AI inbox (anomalies awaiting the
+/// operator's call).
 ///
 /// Section order mirrors the React `DashboardPage.tsx` source (header → AI
 /// fleet-summary banner → KPI row → active incidents → monitor snippet → AI
@@ -38,10 +39,11 @@ import '../../../ui/layouts/page_container.dart';
 ///   incidents therefore keep the full content width; the active incidents
 ///   still widen to two columns at `sm:` (single-column base).
 ///
-/// It reads the fixtures DIRECTLY: this is a mock screen, so a plain
-/// [StatelessWidget] is intentional. The routed app shell wraps this content
-/// (sidebar / bottom nav) at the routing layer; this widget only renders the
-/// page body inside the shared [PageContainer].
+/// Reads all fixture-derived data through [DashboardController]; this is a
+/// mock screen with no mutable state and no actions, so the controller is
+/// data-only (accepted thin controller). The routed app shell wraps this
+/// content (sidebar / bottom nav) at the routing layer; this widget only
+/// renders the page body inside the shared [PageContainer].
 ///
 /// ### Example
 /// ```dart
@@ -49,21 +51,21 @@ import '../../../ui/layouts/page_container.dart';
 /// MagicStarter.view.makeLayout('layout.app', child: const DashboardView())
 /// ```
 @immutable
-class DashboardView extends StatelessWidget {
+class DashboardView extends MagicStatefulView<DashboardController> {
   /// Creates the [DashboardView].
   const DashboardView({super.key});
 
-  /// Active incidents are everything not yet resolved, newest-first as fixtured.
-  List<IncidentSummary> get _activeIncidents => incidents
-      .where((i) => i.lifecycle != IncidentLifecycle.resolved)
-      .toList();
+  @override
+  State<DashboardView> createState() => _DashboardViewState();
+}
 
-  /// AI inbox entries: active incidents that carry an AI analysis payload.
-  ///
-  /// [AiInboxItem] renders the analysis tl;dr and confidence, so only incidents
-  /// with a non-null `ai` payload qualify; the rest stay in the incident list.
-  List<IncidentSummary> get _aiSuggestions =>
-      _activeIncidents.where((i) => i.ai != null).toList();
+class _DashboardViewState
+    extends MagicStatefulViewState<DashboardController, DashboardView> {
+  @override
+  void initState() {
+    Magic.findOrPut(DashboardController.new);
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -116,15 +118,9 @@ class DashboardView extends StatelessWidget {
       children: [
         WDiv(
           className: 'lg:flex-2 min-w-0 w-full flex flex-col gap-8',
-          children: [
-            _buildActiveIncidents(),
-            _buildMonitorSnippet(),
-          ],
+          children: [_buildActiveIncidents(), _buildMonitorSnippet()],
         ),
-        WDiv(
-          className: 'lg:flex-1 min-w-0 w-full',
-          child: _buildAiInbox(),
-        ),
+        WDiv(className: 'lg:flex-1 min-w-0 w-full', child: _buildAiInbox()),
       ],
     );
   }
@@ -149,34 +145,18 @@ class DashboardView extends StatelessWidget {
   // KPI row
   // ---------------------------------------------------------------------------
 
-  /// Builds the KPI stat-card grid from the monitor + incident fixtures.
+  /// Builds the KPI stat-card grid from [DashboardController]'s derivations.
   Widget _buildKpiRow() {
-    // 1. Derive the headline metrics directly from the fixtures.
-    final int upCount = monitors.where((m) => m.status == StatusKey.up).length;
-    final int downCount = monitors
-        .where((m) => m.status == StatusKey.down)
-        .length;
-    final List<IncidentSummary> open = _activeIncidents;
-    final int aiActive = open.where((i) => i.aiOwned).length;
-    final List<MonitorSummary> responders = monitors
-        .where((m) => m.responseMs != null)
-        .toList();
-    final int avgResponse = responders.isEmpty
-        ? 0
-        : (responders.fold<int>(0, (sum, m) => sum + m.responseMs!) /
-                  responders.length)
-              .round();
-
-    // 2. Single-column base; widen to two then four columns at breakpoints.
+    // 1. Single-column base; widen to two then four columns at breakpoints.
     return WDiv(
       className:
           'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_monitors_up'),
-          value: '$upCount / ${monitors.length}',
+          value: '${controller.upCount} / ${controller.monitorCount}',
           delta: trans('uptizm.dashboard.kpi_delta_down', {
-            'count': '$downCount',
+            'count': '${controller.downCount}',
           }),
           trend: KpiTrend.down,
         ),
@@ -189,16 +169,16 @@ class DashboardView extends StatelessWidget {
         ),
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_open_incidents'),
-          value: '${open.length}',
+          value: '${controller.activeIncidents.length}',
           delta: trans('uptizm.dashboard.kpi_delta_new', {'count': '1'}),
           hint: trans('uptizm.dashboard.kpi_hint_ai_detected', {
-            'count': '$aiActive',
+            'count': '${controller.aiActiveCount}',
           }),
           trend: KpiTrend.down,
         ),
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_avg_response'),
-          value: '${avgResponse}ms',
+          value: '${controller.avgResponseMs}ms',
           delta: '12ms',
           hint: trans('uptizm.dashboard.kpi_hint_vs_24h'),
           trend: KpiTrend.down,
@@ -217,7 +197,7 @@ class DashboardView extends StatelessWidget {
         WDiv(
           className: 'grid grid-cols-1 sm:grid-cols-2 gap-3',
           children: [
-            for (final incident in _activeIncidents)
+            for (final incident in controller.activeIncidents)
               IncidentCard(
                 incident: incident,
                 onTap: () => MagicRoute.to('/incidents/${incident.id}'),
@@ -251,7 +231,7 @@ class DashboardView extends StatelessWidget {
   /// Builds the AI inbox section: heading + pending count, a subtitle, then the
   /// suggestion list (or an [EmptyState] when the inbox is clear).
   Widget _buildAiInbox() {
-    final List<IncidentSummary> suggestions = _aiSuggestions;
+    final List<IncidentSummary> suggestions = controller.aiSuggestions;
 
     return WDiv(
       className: 'flex flex-col gap-3',
@@ -304,7 +284,10 @@ class DashboardView extends StatelessWidget {
               for (final suggestion in suggestions)
                 AiInboxItem(
                   incident: suggestion,
-                  onApprove: () => MagicRoute.to('/incidents/new', query: {'from': suggestion.id}),
+                  onApprove: () => MagicRoute.to(
+                    '/incidents/new',
+                    query: {'from': suggestion.id},
+                  ),
                   onDismiss: () {},
                 ),
             ],

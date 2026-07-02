@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/metrics.dart';
 import '../../../app/mocks/monitors.dart';
@@ -69,8 +70,9 @@ import 'monitor_metrics_tab.dart';
 /// )
 /// ```
 @immutable
-class MonitorDetailView extends StatefulWidget {
-  /// The monitor identifier resolved against the fixtures via [findMonitor].
+class MonitorDetailView extends MagicStatefulView<MonitorController> {
+  /// The monitor identifier resolved against the fixtures via
+  /// [MonitorController.monitorById].
   ///
   /// `null` or an unknown id renders a graceful not-found [EmptyState].
   final String? id;
@@ -98,7 +100,8 @@ enum _DetailTab {
   incidents,
 }
 
-class _MonitorDetailViewState extends State<MonitorDetailView> {
+class _MonitorDetailViewState
+    extends MagicStatefulViewState<MonitorController, MonitorDetailView> {
   /// The series descriptors for the response-time chart (p50 / p95 / p99).
   static const List<MetricSeries> _responseSeriesDescriptors =
       apiResponseSeries_;
@@ -121,6 +124,9 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
 
   @override
   void initState() {
+    // Register the controller before the base state resolves it via
+    // Magic.find<T>() (which throws when unregistered). Idempotent.
+    Magic.findOrPut(MonitorController.new);
     super.initState();
     _startLoading();
   }
@@ -137,9 +143,10 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
   }
 
   @override
-  void dispose() {
+  void onClose() {
+    // MagicStatefulViewState.dispose() calls onClose() before tearing down the
+    // controller listener, so the loading timer is cancelled here.
     _loadingTimer?.cancel();
-    super.dispose();
   }
 
   /// (Re)starts the brief loading state: shows the skeleton, then flips to the
@@ -163,20 +170,20 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     // 1. Resolve the monitor; a null / unknown id falls back to a graceful
     //    not-found state so the screen never crashes when the route passes an
     //    id with no fixture behind it.
-    final MonitorSummary? monitor = findMonitor(widget.id);
+    final MonitorSummary? monitor = controller.monitorById(widget.id);
     if (monitor == null) {
       return _buildNotFound();
     }
 
     final bool paused = monitor.status == StatusKey.paused;
 
-    // 2. A plain Flutter Column scaffolds the page body so each descendant
-    //    receives a bounded width from PageContainer (same discipline as the
-    //    sibling views), keeping the dense leaves from overflowing on mobile.
-    //    The header always shows; only the body below it gates on _loading.
+    // 2. A Wind flex column scaffolds the page body (24px header->body rhythm
+    //    via gap-6); each leaf receives a bounded width from PageContainer,
+    //    keeping the dense leaves from overflowing on mobile. The header always
+    //    shows; only the body below it gates on _loading.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           // 3. Header: name + StatusBadge as a title suffix, URL as subtitle,
           //    Pause-Resume / Edit / Delete actions on the trailing edge.
@@ -188,7 +195,6 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
             backFallback: '/monitors',
             actions: _buildHeaderActions(monitor, paused),
           ),
-          const SizedBox(height: 24),
 
           // 4. Body: skeleton while loading, otherwise the full content.
           if (_loading) _buildLoadingSkeleton() else _buildContent(monitor, paused),
@@ -199,22 +205,20 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
 
   /// Builds the full monitor body (KPI row, uptime, reliability, tabs).
   Widget _buildContent(MonitorSummary monitor, bool paused) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Uniform 32px (gap-8) between every section; the reliability block drops
+    // in conditionally without a manual spacer.
+    return WDiv(
+      className: 'flex flex-col gap-8',
       children: [
         // 1. KPI summary row.
         _buildKpiRow(monitor, paused),
-        const SizedBox(height: 32),
 
         // 2. 90-day uptime timeline.
         _buildUptimeSection(monitor),
 
         // 3. Reliability section: only for active monitors with an SLO target.
-        if (!paused && monitor.sloTarget != null) ...[
-          const SizedBox(height: 32),
+        if (!paused && monitor.sloTarget != null)
           _buildReliabilitySection(monitor, monitor.sloTarget!),
-        ],
-        const SizedBox(height: 32),
 
         // 4. Overview / Metrics / Incidents tabs.
         _buildTabs(monitor, paused),
@@ -271,15 +275,13 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     ];
   }
 
-  /// Resumes a paused monitor with a toast, or opens the pause confirm dialog.
+  /// Resumes a paused monitor, or opens the pause confirm dialog before pausing.
+  ///
+  /// The confirm dialog needs a [BuildContext], so it stays view-side; the
+  /// toast (and, for delete, the navigation) live in [MonitorController].
   Future<void> _onPauseResume(MonitorSummary monitor, bool paused) async {
     if (paused) {
-      Magic.success(
-        trans('uptizm.monitors.toast_resumed_title'),
-        trans('uptizm.monitors.toast_resumed_description', {
-          'name': monitor.name,
-        }),
-      );
+      controller.resume(monitor.id);
       return;
     }
 
@@ -293,12 +295,7 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     );
     if (!confirmed) return;
 
-    Magic.success(
-      trans('uptizm.monitors.toast_paused_title'),
-      trans('uptizm.monitors.toast_paused_description', {
-        'name': monitor.name,
-      }),
-    );
+    controller.pause(monitor.id);
   }
 
   /// Handles the Edit action by navigating to the edit route for the current
@@ -307,8 +304,8 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     MagicRoute.to('/monitors/${monitor.id}/edit');
   }
 
-  /// Opens the delete confirm dialog; on confirm, surfaces a deleted toast and
-  /// returns to the monitors list.
+  /// Opens the delete confirm dialog; on confirm, delegates to the controller
+  /// which surfaces the deleted toast and returns to the monitors list.
   Future<void> _onDelete(MonitorSummary monitor) async {
     final bool confirmed = await MagicStarterConfirmDialog.show(
       context,
@@ -321,13 +318,7 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     );
     if (!confirmed) return;
 
-    Magic.success(
-      trans('uptizm.monitors.toast_deleted_title'),
-      trans('uptizm.monitors.toast_deleted_description', {
-        'name': monitor.name,
-      }),
-    );
-    MagicRoute.to('/monitors');
+    controller.delete(monitor.id);
   }
 
   // ---------------------------------------------------------------------------
@@ -338,8 +329,10 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
   /// grid, the uptime block, and a tall response block. Matches the React
   /// `DetailSkeleton`.
   Widget _buildLoadingSkeleton() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Uniform 32px (gap-8) between the KPI grid, the uptime block, and the
+    // response block.
+    return WDiv(
+      className: 'flex flex-col gap-8',
       children: [
         // 1. KPI grid: four equal-height cards.
         WDiv(
@@ -351,7 +344,6 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
             Skeleton(height: 88),
           ],
         ),
-        const SizedBox(height: 32),
 
         // 2. Uptime block: a short text line + a thin bar.
         WDiv(
@@ -361,7 +353,6 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
             Skeleton(height: 40),
           ],
         ),
-        const SizedBox(height: 32),
 
         // 3. Response block: a wider text line + a tall chart placeholder.
         WDiv(
@@ -445,8 +436,9 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
       down: const [58, 73, 74],
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Uniform 8px (gap-2) between the heading, the bar, and the axis labels.
+    return WDiv(
+      className: 'flex flex-col gap-2',
       children: [
         // 1. Heading row: section title + trailing uptime figure.
         WDiv(
@@ -462,11 +454,9 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
 
         // 2. The 90-day bar (prominent height for the detail header).
         UptimeBar(segments: segments, size: UptimeBarSize.lg),
-        const SizedBox(height: 8),
 
         // 3. Axis labels: 90 days ago (left) and today (right).
         WDiv(
@@ -514,15 +504,16 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
       windowDays: 30,
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Uniform 12px (gap-3) between the heading, the gauge grid, and the
+    // conditional budget-burn insight.
+    return WDiv(
+      className: 'flex flex-col gap-3',
       children: [
         // 3. Section heading.
         WText(
           trans('uptizm.monitors.section_reliability'),
           className: 'text-sm font-medium text-fg',
         ),
-        const SizedBox(height: 12),
 
         // 4. Responsive 2-col grid of the 7-day + 30-day budget gauges.
         WDiv(
@@ -545,14 +536,12 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
 
         // 5. Budget-burn insight, shown only when the 30-day budget is at risk
         //    or breached (tone != up).
-        if (budget30.tone != SloBudgetTone.up) ...[
-          const SizedBox(height: 12),
+        if (budget30.tone != SloBudgetTone.up)
           AiInsight(
             child: WText(
               _budgetBurnCopy(monitor, sloTarget, budget7, budget30),
             ),
           ),
-        ],
       ],
     );
   }
@@ -621,44 +610,52 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
   Widget _buildOverviewTab(MonitorSummary monitor, bool paused) {
     final List<MetricDatum>? series = _responseSeriesFor(monitor);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // The panel opens with a 16px top gap (pt-4) and separates its two groups
+    // by 32px (gap-8); each group nests a 12px rhythm (gap-3).
+    return WDiv(
+      className: 'flex flex-col gap-8 pt-4',
       children: [
-        const SizedBox(height: 16),
-
-        // 1. Response-time section heading row: title + range picker (only when
-        //    there is a series to scope). Uses `wrap` so the picker stays beside
-        //    the heading on a wide surface but flows onto its own line on a
-        //    narrow phone instead of overflowing the row.
+        // 1. Response-time group: heading row + chart/insight surface.
         WDiv(
-          className: 'wrap items-center gap-3',
+          className: 'flex flex-col gap-3',
           children: [
-            WText(
-              trans('uptizm.monitors.section_response_time', {
-                'range': _rangeShort(),
-              }),
-              className: 'text-sm font-medium text-fg',
+            // Heading row: title + range picker (only when there is a series to
+            // scope). Uses `wrap` so the picker stays beside the heading on a
+            // wide surface but flows onto its own line on a narrow phone instead
+            // of overflowing the row.
+            WDiv(
+              className: 'wrap items-center gap-3',
+              children: [
+                WText(
+                  trans('uptizm.monitors.section_response_time', {
+                    'range': _rangeShort(),
+                  }),
+                  className: 'text-sm font-medium text-fg',
+                ),
+                if (series != null)
+                  DateRangePicker(
+                    value: _range,
+                    onChanged: (next) => setState(() => _range = next),
+                  ),
+              ],
             ),
-            if (series != null)
-              DateRangePicker(
-                value: _range,
-                onChanged: (next) => setState(() => _range = next),
-              ),
+
+            // The chart + response insight, or a calm bordered state.
+            _buildResponseSurface(monitor, paused, series),
           ],
         ),
-        const SizedBox(height: 12),
 
-        // 2. The chart + response insight, or a calm bordered state.
-        _buildResponseSurface(monitor, paused, series),
-        const SizedBox(height: 32),
-
-        // 3. Recent checks heading + table.
-        WText(
-          trans('uptizm.monitors.section_recent_checks'),
-          className: 'text-sm font-medium text-fg',
+        // 2. Recent checks group: heading + table.
+        WDiv(
+          className: 'flex flex-col gap-3',
+          children: [
+            WText(
+              trans('uptizm.monitors.section_recent_checks'),
+              className: 'text-sm font-medium text-fg',
+            ),
+            const CheckHistoryTable(rows: recentChecks),
+          ],
         ),
-        const SizedBox(height: 12),
-        const CheckHistoryTable(rows: recentChecks),
       ],
     );
   }
@@ -680,8 +677,8 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
       // The Overview response chart mirrors the React source: series + unit +
       // anomalies, but no AI expected-range band. The band belongs to the
       // deeper per-metric history view on the Metrics tab.
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return WDiv(
+        className: 'flex flex-col gap-3',
         children: [
           MetricChart(
             data: series,
@@ -689,7 +686,6 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
             unit: 'ms',
             anomalies: anomalies,
           ),
-          const SizedBox(height: 12),
           AiInsight(
             child: WText(
               anomalies.isNotEmpty
@@ -726,8 +722,8 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
     );
 
     if (monitorIncidents.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 16),
+      return WDiv(
+        className: 'pt-4',
         child: EmptyState(
           icon: Icons.check_circle_outline,
           title: trans('uptizm.monitors.no_incidents_title'),
@@ -758,15 +754,14 @@ class _MonitorDetailViewState extends State<MonitorDetailView> {
   /// monitor" message rather than crashing on an unknown route id.
   Widget _buildNotFound() {
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           PageHeader(
             title: trans('uptizm.monitors.error_load_title'),
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: '/monitors',
           ),
-          const SizedBox(height: 24),
           EmptyState(
             title: trans('uptizm.monitors.error_load_title'),
             description: trans('uptizm.monitors.error_load_description'),

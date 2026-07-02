@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
 import 'status_form_support.dart';
+import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/billing.dart';
 import '../../../app/mocks/status_pages.dart';
 import '../../../ui/components/ai_insight/index.dart';
@@ -17,7 +18,8 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// A faithful Flutter port of the React `StatusPageEditor.tsx`: one screen that
 /// serves both create and edit. In edit mode it resolves [id] to a fixture via
-/// [findStatusPage] (an unknown id falls back to a graceful [EmptyState]); in
+/// [StatusPageController.configById] (an unknown id falls back to a graceful
+/// [EmptyState]); in
 /// create mode ([id] `null` or unknown) it starts from the React defaults.
 ///
 /// The body is a two-column responsive split (stacking to one column below the
@@ -54,9 +56,10 @@ import '../../../ui/layouts/page_container.dart';
 /// MagicRoute.page('/status/:id', () => StatusPageEditorView(id: id));
 /// ```
 @immutable
-class StatusPageEditorView extends StatefulWidget {
+class StatusPageEditorView extends MagicStatefulView<StatusPageController> {
   /// The status-page identifier resolved against the fixtures via
-  /// [findStatusPage]. `null` (or an unknown id) puts the editor in create mode.
+  /// [StatusPageController.configById]. `null` (or an unknown id) puts the
+  /// editor in create mode.
   final String? id;
 
   /// Creates the [StatusPageEditorView] for the given status-page [id].
@@ -66,7 +69,8 @@ class StatusPageEditorView extends StatefulWidget {
   State<StatusPageEditorView> createState() => _StatusPageEditorViewState();
 }
 
-class _StatusPageEditorViewState extends State<StatusPageEditorView> {
+class _StatusPageEditorViewState
+    extends MagicStatefulViewState<StatusPageController, StatusPageEditorView> {
   /// The route both Save/Create and the breadcrumb return to.
   static const String _listRoute = '/status';
 
@@ -99,8 +103,9 @@ class _StatusPageEditorViewState extends State<StatusPageEditorView> {
 
   @override
   void initState() {
+    Magic.findOrPut(StatusPageController.new);
     super.initState();
-    _seedFrom(findStatusPage(widget.id));
+    _seedFrom(controller.configById(widget.id));
   }
 
   @override
@@ -110,7 +115,7 @@ class _StatusPageEditorViewState extends State<StatusPageEditorView> {
     // status pages does not carry a stale draft across (mirrors
     // incident_detail_view's didUpdateWidget reseed).
     if (oldWidget.id != widget.id) {
-      _seedFrom(findStatusPage(widget.id));
+      _seedFrom(controller.configById(widget.id));
     }
   }
 
@@ -172,29 +177,28 @@ class _StatusPageEditorViewState extends State<StatusPageEditorView> {
     });
   }
 
-  /// Runs the "Draft with AI" mock: replaces the draft with [aiDraftFor] over
-  /// the currently-assigned monitors and shows the post-generate note. The AI
-  /// draft owns the slug, so it is treated as already-edited afterwards (React
-  /// `generateWithAi`).
+  /// Runs the "Draft with AI" mock: replaces the draft with the controller's
+  /// AI fill over the currently-assigned monitors and shows the post-generate
+  /// note. The draft and its slug latch stay ephemeral here; only the fill
+  /// itself is a controller action. The AI draft owns the slug, so it is
+  /// treated as already-edited afterwards (React `generateWithAi`).
   void _generateWithAi() {
     setState(() {
-      _draft = aiDraftFor(_draft.monitorIds);
+      _draft = controller.generateWithAi(_draft.monitorIds);
       _slugEdited = true;
       _aiApplied = true;
     });
   }
 
-  /// Saves the draft and returns to the list (mock: nothing persists).
+  /// Commits the draft via the controller and returns to the list (mock:
+  /// nothing persists). Create vs. edit picks the matching toast copy in the
+  /// controller.
   void _save() {
-    Magic.success(
-      trans(
-        _isEdit
-            ? 'uptizm.status.editor_form_save'
-            : 'uptizm.status.editor_form_create_page',
-      ),
-      _draft.name,
-    );
-    MagicRoute.to(_listRoute);
+    if (_isEdit) {
+      controller.save(_draft);
+    } else {
+      controller.create(_draft);
+    }
   }
 
   /// Navigates to the public preview of the saved page (edit mode only).
@@ -218,19 +222,17 @@ class _StatusPageEditorViewState extends State<StatusPageEditorView> {
   Widget build(BuildContext context) {
     // 1. Resolve the fixture. A supplied-but-unknown id is a broken link, so it
     //    renders a graceful not-found state (mirrors incident_detail_view).
-    if (widget.id != null && findStatusPage(widget.id) == null) {
+    if (widget.id != null && controller.configById(widget.id) == null) {
       return _buildNotFound();
     }
 
-    // 2. A plain Flutter Column scaffolds the page body so each leaf receives a
-    //    bounded width from PageContainer; Wind utilities appear only on leaf
-    //    containers below.
+    // 2. Compose the page body as a Wind flex column: the 24px header rhythm is
+    //    carried by gap-6, not a SizedBox spacer.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           _buildHeader(),
-          const SizedBox(height: 24),
           _buildBody(),
         ],
       ),
@@ -264,8 +266,8 @@ class _StatusPageEditorViewState extends State<StatusPageEditorView> {
   /// so it renders as a separate leaf line beneath the header, the way
   /// incident_detail_view renders its chip row below the PageHeader.
   Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col gap-2',
       children: [
         PageHeader(
           title: _isEdit
@@ -277,7 +279,6 @@ class _StatusPageEditorViewState extends State<StatusPageEditorView> {
           backFallback: _listRoute,
           actions: _buildHeaderActions(),
         ),
-        const SizedBox(height: 8),
         WText(
           pageUrl(_draft),
           className: 'font-mono text-xs text-fg-muted',
@@ -665,7 +666,7 @@ class _StatusPageEditorViewState extends State<StatusPageEditorView> {
   /// Builds the edit-mode subscriber summary: the count line and a "View
   /// subscribers" secondary button routing to the subscribers screen.
   Widget _buildSubscriberSummary() {
-    final int count = subscribersFor(_draft.id).length;
+    final int count = controller.subscribersFor(_draft.id).length;
     final String unit = count == 1
         ? trans('uptizm.status.editor_form_subscribers_count_singular')
         : trans('uptizm.status.editor_form_subscribers_count');

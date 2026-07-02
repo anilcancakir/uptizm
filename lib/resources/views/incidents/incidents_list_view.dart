@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/incident_controller.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/incident_card/incident_card.dart';
@@ -16,10 +17,10 @@ import '../../../ui/layouts/page_container.dart';
 /// [IncidentCard] rows. An [EmptyState] placeholder is shown when the active
 /// filter + search query yields zero matches.
 ///
-/// Layout follows the same discipline as [MonitorsListView]: a plain Flutter
-/// [Column] scaffolds the page so leaf components receive a bounded
-/// full-width constraint from the shared [PageContainer]; Wind utilities only
-/// appear on leaf containers, never as the outermost flex-scroll context.
+/// Reads the incident fixtures through [IncidentController]; this is a mock
+/// screen with no mutations, so the binding is read-only. The page body is a
+/// Wind flex column (`gap-*` carries the section rhythm, not `SizedBox`
+/// spacers); the shared [PageContainer] bounds the width.
 ///
 /// Composition mirrors `IncidentsListPage.tsx`:
 ///   header → counts row → search + filter row → incident list or empty state.
@@ -30,7 +31,7 @@ import '../../../ui/layouts/page_container.dart';
 /// MagicStarter.view.makeLayout('layout.app', child: const IncidentsListView())
 /// ```
 @immutable
-class IncidentsListView extends StatefulWidget {
+class IncidentsListView extends MagicStatefulView<IncidentController> {
   /// Creates the [IncidentsListView].
   const IncidentsListView({super.key});
 
@@ -53,16 +54,23 @@ enum _IncidentFilter {
   resolved,
 }
 
-class _IncidentsListViewState extends State<IncidentsListView> {
+class _IncidentsListViewState
+    extends MagicStatefulViewState<IncidentController, IncidentsListView> {
   /// The active filter tab; defaults to "All".
   _IncidentFilter _filter = _IncidentFilter.all;
 
   /// The current search query, matched against title and monitor name.
   String _query = '';
 
+  @override
+  void initState() {
+    Magic.findOrPut(IncidentController.new);
+    super.initState();
+  }
+
   /// Incidents that satisfy the active filter and search query.
   List<IncidentSummary> get _visible {
-    return incidents.where((i) {
+    return controller.incidents.where((i) {
       // 1. Filter tab first.
       final bool matchesFilter = switch (_filter) {
         _IncidentFilter.all => true,
@@ -82,37 +90,43 @@ class _IncidentsListViewState extends State<IncidentsListView> {
 
   @override
   Widget build(BuildContext context) {
-    // A plain Flutter Column scaffolds the page body so each descendant gets a
-    // proper bounded width from PageContainer (same discipline as MonitorsListView).
+    // The page body is a Wind flex column: section rhythm is carried by `gap-*`,
+    // not `SizedBox` spacers. The outer `gap-8` (32px) separates the header
+    // block from the search block; the header block nests its own `gap-6` (24px)
+    // between header and counts, and the search block a `gap-4` (16px) between
+    // its search input, filter row, and list.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-8',
         children: [
-          // 1. Page header with a "New incident" action button.
-          PageHeader(
-            title: trans('uptizm.incidents.list_title'),
-            subtitle: trans('uptizm.incidents.list_description'),
-            actions: [
-              Button(
-                onPressed: () => MagicRoute.to('/incidents/new'),
-                child: WText(trans('uptizm.incidents.new_incident')),
+          // 1. Header block: page header + counts row (24px rhythm).
+          WDiv(
+            className: 'flex flex-col gap-6',
+            children: [
+              PageHeader(
+                title: trans('uptizm.incidents.list_title'),
+                subtitle: trans('uptizm.incidents.list_description'),
+                actions: [
+                  Button(
+                    onPressed: () => MagicRoute.to('/incidents/new'),
+                    child: WText(trans('uptizm.incidents.new_incident')),
+                  ),
+                ],
               ),
+              _buildCountsRow(),
             ],
           ),
-          const SizedBox(height: 24),
 
-          // 2. Counts row: active / critical-open / ai-owned / resolved.
-          _buildCountsRow(),
-          const SizedBox(height: 32),
-
-          // 3. Search input + filter row.
-          _buildSearchRow(),
-          const SizedBox(height: 16),
-          _buildFilterRow(),
-          const SizedBox(height: 16),
-
-          // 4. Incident list, or an empty state when zero rows match.
-          _buildList(),
+          // 2. Search block: search input, filter row, and the list (16px
+          //    rhythm), or an empty state when zero rows match.
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: [
+              _buildSearchRow(),
+              _buildFilterRow(),
+              _buildList(),
+            ],
+          ),
         ],
       ),
     );
@@ -125,20 +139,19 @@ class _IncidentsListViewState extends State<IncidentsListView> {
   /// Builds the four count cards that mirror the React `grid grid-cols-2
   /// lg:grid-cols-4 gap-4` row: active, critical-open, ai-detected, resolved.
   Widget _buildCountsRow() {
-    // 1. Derive headline counts from the mock fixtures (mirrors
-    //    IncidentsListPage.tsx:28-31).
-    final int activeCount = incidents
-        .where((i) => i.lifecycle != IncidentLifecycle.resolved)
-        .length;
-    final int criticalCount = incidents
+    // 1. Derive headline counts from the controller fixtures (mirrors
+    //    IncidentsListPage.tsx:28-31). The active count reuses the controller's
+    //    shared `activeIncidents` derivation rather than re-filtering here.
+    final int activeCount = controller.activeIncidents.length;
+    final int criticalCount = controller.incidents
         .where(
           (i) =>
               i.severity == IncidentSeverity.critical &&
               i.lifecycle != IncidentLifecycle.resolved,
         )
         .length;
-    final int aiCount = incidents.where((i) => i.aiOwned).length;
-    final int resolvedCount = incidents
+    final int aiCount = controller.incidents.where((i) => i.aiOwned).length;
+    final int resolvedCount = controller.incidents
         .where((i) => i.lifecycle == IncidentLifecycle.resolved)
         .length;
 
@@ -186,15 +199,16 @@ class _IncidentsListViewState extends State<IncidentsListView> {
   }
 
   /// Builds the filter row: [SegmentedControl] on the left, a tabular
-  /// visible/total count on the right.
+  /// visible/total count on the right, with a 12px `gap-3`.
   ///
-  /// A Flutter [Row] with the SegmentedControl in a [Flexible] (loose) slot
-  /// lets the pill shrink-wrap naturally without forcing the Row to overflow.
+  /// The SegmentedControl stays in a [Flexible] (loose) slot so the pill
+  /// shrink-wraps naturally and yields width on very narrow screens rather than
+  /// forcing the row to overflow; that overflow guard is structural, so the
+  /// [Flexible] remains inside the Wind flex row.
   Widget _buildFilterRow() {
-    return Row(
+    return WDiv(
+      className: 'flex flex-row items-center gap-3',
       children: [
-        // The Flexible shrink-wraps the pill and lets it yield width on very
-        // narrow screens rather than forcing the Row to overflow.
         Flexible(
           child: SegmentedControl(
             options: [
@@ -208,9 +222,8 @@ class _IncidentsListViewState extends State<IncidentsListView> {
                 setState(() => _filter = _IncidentFilter.values[i]),
           ),
         ),
-        const SizedBox(width: 12),
         WText(
-          '${_visible.length} of ${incidents.length}',
+          '${_visible.length} of ${controller.incidents.length}',
           className: 'font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
@@ -253,7 +266,7 @@ class _IncidentsListViewState extends State<IncidentsListView> {
   /// The dashed-border container mirrors `rounded-xl border-dashed border-border`
   /// from the React source.
   Widget _buildEmptyState() {
-    final bool neverHadIncidents = incidents.isEmpty;
+    final bool neverHadIncidents = controller.incidents.isEmpty;
 
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',

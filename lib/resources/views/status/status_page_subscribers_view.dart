@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
@@ -12,7 +13,8 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// A faithful Flutter port of the React `StatusPageSubscribersPage`: the
 /// subscriber roster for a single status page. It resolves a page [id] to a
-/// fixture via [findStatusPage] and renders, in the React section order:
+/// fixture via [StatusPageController.configById] and renders, in the React
+/// section order:
 ///
 /// 1. A "← {page.name}" breadcrumb back to the status-page editor, built with
 ///    [PageHeader.backLabel] / [PageHeader.backFallback] (the app's unified
@@ -28,14 +30,15 @@ import '../../../ui/layouts/page_container.dart';
 ///    [Card] of subscriber rows, each with a Remove [Button] that opens a
 ///    [MagicStarterConfirmDialog] before mutating local state.
 ///
-/// When [findStatusPage] returns `null` it renders a graceful not-found
-/// [EmptyState] rather than crashing on an unknown route id.
+/// When [StatusPageController.configById] returns `null` it renders a graceful
+/// not-found [EmptyState] rather than crashing on an unknown route id.
 ///
-/// This is a mock screen: [_subscribers] is seeded once from
-/// [subscribersFor] into a local mutable list; Remove mutates that list via
-/// [setState] plus a `Magic.success` toast. Nothing persists. A plain Flutter
-/// [Column] scaffolds the body so each leaf receives a bounded width from
-/// [PageContainer]; Wind utilities appear only on leaf containers.
+/// This is a mock screen: the subscriber roster lives in
+/// [StatusPageController], seeded once from the fixtures per page id; Remove
+/// delegates to [StatusPageController.removeSubscriber] (list mutation +
+/// `Magic.success` toast + rebuild). Nothing persists. Only the search
+/// [_query] stays local. The page body is a Wind flex column; Wind utilities
+/// carry both spacing and leaf styling.
 ///
 /// ### Example
 /// ```dart
@@ -46,9 +49,9 @@ import '../../../ui/layouts/page_container.dart';
 /// )
 /// ```
 @immutable
-class StatusPageSubscribersView extends StatefulWidget {
+class StatusPageSubscribersView extends MagicStatefulView<StatusPageController> {
   /// The status-page identifier resolved against the fixtures via
-  /// [findStatusPage].
+  /// [StatusPageController.configById].
   ///
   /// `null` or an unknown id renders a graceful not-found [EmptyState].
   final String? id;
@@ -61,28 +64,27 @@ class StatusPageSubscribersView extends StatefulWidget {
       _StatusPageSubscribersViewState();
 }
 
-class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
-  /// The mutable working copy of the page's subscribers.
-  ///
-  /// Seeded once in [initState] from [subscribersFor]; the fixture map is
-  /// never mutated in place. Remove mutates this list via [setState].
-  late List<Subscriber> _subscribers;
-
+class _StatusPageSubscribersViewState extends MagicStatefulViewState<
+    StatusPageController, StatusPageSubscribersView> {
   /// The current search query, matched against the subscriber email.
+  ///
+  /// The only local (ephemeral) state; the subscriber roster lives in
+  /// [StatusPageController].
   String _query = '';
 
   @override
   void initState() {
+    Magic.findOrPut(StatusPageController.new);
     super.initState();
-    _subscribers = subscribersFor(widget.id).toList();
   }
 
   /// Subscribers whose email contains the current (trimmed,
   /// case-insensitive) [_query].
   List<Subscriber> get _visible {
+    final List<Subscriber> roster = controller.subscribersFor(widget.id);
     final String trimmed = _query.trim().toLowerCase();
-    if (trimmed.isEmpty) return _subscribers;
-    return _subscribers
+    if (trimmed.isEmpty) return roster;
+    return roster
         .where((s) => s.email.toLowerCase().contains(trimmed))
         .toList();
   }
@@ -92,17 +94,17 @@ class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
     // 1. Resolve the status page; a null / unknown id falls back to a
     //    graceful not-found state so the screen never crashes on an unknown
     //    route id.
-    final StatusPageConfig? page = findStatusPage(widget.id);
+    final StatusPageConfig? page = controller.configById(widget.id);
     if (page == null) {
       return _buildNotFound();
     }
 
-    // 2. A plain Flutter Column scaffolds the page body so each leaf receives
-    //    a bounded width from PageContainer (same discipline as the sibling
-    //    views).
+    // 2. Compose the page body as a Wind flex column: the 24px section rhythm
+    //    is carried by gap-6, not SizedBox spacers.
+    final bool hasSubscribers = controller.subscribersFor(page.id).isNotEmpty;
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           PageHeader(
             title: trans('uptizm.status.subscribers_title'),
@@ -112,24 +114,22 @@ class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
             actions: [
               Button(
                 intent: ButtonIntent.secondary,
-                onPressed: _subscribers.isEmpty
-                    ? null
-                    : () {
+                onPressed: hasSubscribers
+                    ? () {
                         // Export is a mock action: no CSV is generated, only
                         // the disabled-state contract from the plan applies.
-                      },
+                      }
+                    : null,
                 child: WText(trans('uptizm.status.subscribers_export_csv')),
               ),
             ],
           ),
-          const SizedBox(height: 24),
 
           // 3. KPI row: total subscribers + subscriptions on/off.
           _buildKpiRow(page),
-          const SizedBox(height: 24),
 
           // 4. Body: empty state, or search + subscriber list.
-          if (!page.subscriptionsEnabled || _subscribers.isEmpty)
+          if (!page.subscriptionsEnabled || !hasSubscribers)
             _buildEmptyState(page)
           else
             _buildSubscriberBody(page),
@@ -150,7 +150,7 @@ class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
       children: [
         KpiStatCard(
           label: trans('uptizm.status.subscribers_total_label'),
-          value: '${_subscribers.length}',
+          value: '${controller.subscribersFor(page.id).length}',
         ),
         KpiStatCard(
           label: trans('uptizm.status.subscribers_subscriptions_label'),
@@ -264,22 +264,20 @@ class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
             className: 'text-[16px] text-fg-muted',
           ),
         ),
-        Expanded(
-          child: WDiv(
-            className: 'flex flex-col min-w-0',
-            children: [
-              WText(
-                subscriber.email,
-                className: 'truncate text-sm font-medium text-fg',
-              ),
-              WText(
-                trans('uptizm.status.subscribers_subscribed_at', {
-                  'date': subscriber.subscribedAt,
-                }),
-                className: 'truncate text-xs text-fg-muted',
-              ),
-            ],
-          ),
+        WDiv(
+          className: 'flex-1 flex flex-col min-w-0',
+          children: [
+            WText(
+              subscriber.email,
+              className: 'truncate text-sm font-medium text-fg',
+            ),
+            WText(
+              trans('uptizm.status.subscribers_subscribed_at', {
+                'date': subscriber.subscribedAt,
+              }),
+              className: 'truncate text-xs text-fg-muted',
+            ),
+          ],
         ),
         Button(
           intent: ButtonIntent.ghost,
@@ -296,7 +294,8 @@ class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
   // ---------------------------------------------------------------------------
 
   /// Opens the remove [MagicStarterConfirmDialog] imperatively; on confirm,
-  /// removes [subscriber] from the local list and surfaces a success toast.
+  /// delegates the roster mutation (plus its success toast) to
+  /// [StatusPageController.removeSubscriber].
   Future<void> _confirmRemove(
     StatusPageConfig page,
     Subscriber subscriber,
@@ -316,30 +315,25 @@ class _StatusPageSubscribersViewState extends State<StatusPageSubscribersView> {
     // the confirm dialog was open (mirrors monitor_detail_view's precedent).
     if (!mounted) return;
 
-    setState(() => _subscribers.remove(subscriber));
-    Magic.success(
-      trans('uptizm.status.subscribers_remove_confirm_title'),
-      subscriber.email,
-    );
+    controller.removeSubscriber(page.id, subscriber);
   }
 
   // ---------------------------------------------------------------------------
   // Not-found
   // ---------------------------------------------------------------------------
 
-  /// Builds the graceful not-found state shown when [findStatusPage] returns
-  /// null.
+  /// Builds the graceful not-found state shown when
+  /// [StatusPageController.configById] returns null.
   Widget _buildNotFound() {
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           PageHeader(
             title: trans('uptizm.status.subscribers_title'),
             backLabel: trans('uptizm.status.subscribers_open_editor_button'),
             backFallback: '/status',
           ),
-          const SizedBox(height: 24),
           EmptyState(
             title: trans('uptizm.status.subscribers_empty_subs_enabled_title'),
             description: trans(

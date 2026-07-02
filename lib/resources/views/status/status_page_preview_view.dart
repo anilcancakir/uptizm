@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_page_preview/index.dart';
@@ -12,14 +13,15 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// A faithful Flutter port of the React `PublicStatusPage`, embedded inside the
 /// app shell rather than served standalone: it resolves a status page [id] via
-/// [findStatusPage] and renders the [StatusPagePreview] mockup inside a
+/// [StatusPageController.configById] and renders the [StatusPagePreview] mockup
+/// inside a
 /// browser-framed [Card] (three chrome dots + a mono URL bar showing
 /// [pageUrl]), so it reads as an in-app simulation of the backend-rendered
 /// public page rather than a live route.
 ///
-/// When [findStatusPage] returns `null` it renders a graceful not-found
-/// [EmptyState] (mirroring the React `StatusPageNotFound` copy) instead of
-/// crashing on an unknown route id.
+/// When [StatusPageController.configById] returns `null` it renders a graceful
+/// not-found [EmptyState] (mirroring the React `StatusPageNotFound` copy)
+/// instead of crashing on an unknown route id.
 ///
 /// This is a mock screen: nothing here calls the network, and no `/s/:slug`
 /// route is registered anywhere in the app (the real public page is
@@ -36,9 +38,9 @@ import '../../../ui/layouts/page_container.dart';
 /// )
 /// ```
 @immutable
-class StatusPagePreviewView extends StatelessWidget {
+class StatusPagePreviewView extends MagicStatefulView<StatusPageController> {
   /// The status-page identifier resolved against the fixtures via
-  /// [findStatusPage].
+  /// [StatusPageController.configById].
   ///
   /// `null` or an unknown id renders a graceful not-found [EmptyState].
   final String? id;
@@ -47,27 +49,39 @@ class StatusPagePreviewView extends StatelessWidget {
   const StatusPagePreviewView({super.key, this.id});
 
   @override
+  State<StatusPagePreviewView> createState() => _StatusPagePreviewViewState();
+}
+
+class _StatusPagePreviewViewState
+    extends MagicStatefulViewState<StatusPageController, StatusPagePreviewView> {
+  @override
+  void initState() {
+    Magic.findOrPut(StatusPageController.new);
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     // 1. Resolve the status page; a null / unknown id falls back to a
     //    graceful not-found state so the screen never crashes on an unknown
     //    route id.
-    final StatusPageConfig? page = findStatusPage(id);
+    final StatusPageConfig? page = controller.configById(widget.id);
     if (page == null) {
       return _buildNotFound();
     }
 
     // 2. Header: breadcrumb back to the page's editor, then a centered
-    //    browser-framed mockup of the public page inside a scroll area.
+    //    browser-framed mockup of the public page inside a scroll area. The
+    //    24px header rhythm is carried by gap-6, not a SizedBox spacer.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           PageHeader(
             title: page.name,
             backLabel: page.name,
             backFallback: '/status/${page.id}',
           ),
-          const SizedBox(height: 24),
           _buildBrowserFrame(page),
         ],
       ),
@@ -87,8 +101,8 @@ class StatusPagePreviewView extends StatelessWidget {
       className: 'w-full max-w-2xl mx-auto',
       child: Card(
         noPadding: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: WDiv(
+          className: 'flex flex-col',
           children: [
             _buildChromeBar(page),
             SingleChildScrollView(
@@ -119,13 +133,11 @@ class StatusPagePreviewView extends StatelessWidget {
             _buildChromeDot(),
           ],
         ),
-        Expanded(
-          child: WDiv(
-            className: 'rounded-full bg-surface px-3 py-1',
-            child: WText(
-              pageUrl(page),
-              className: 'text-center font-mono text-xs text-fg-muted',
-            ),
+        WDiv(
+          className: 'flex-1 rounded-full bg-surface px-3 py-1',
+          child: WText(
+            pageUrl(page),
+            className: 'text-center font-mono text-xs text-fg-muted',
           ),
         ),
       ],
@@ -134,19 +146,15 @@ class StatusPagePreviewView extends StatelessWidget {
 
   /// Builds a single decorative browser-chrome dot.
   Widget _buildChromeDot() {
-    return SizedBox(
-      width: 8,
-      height: 8,
-      child: WDiv(className: 'size-2 rounded-full bg-fg-disabled'),
-    );
+    return WDiv(className: 'size-2 rounded-full bg-fg-disabled');
   }
 
   // ---------------------------------------------------------------------------
   // Not-found
   // ---------------------------------------------------------------------------
 
-  /// Builds the graceful not-found state shown when [findStatusPage] returns
-  /// null.
+  /// Builds the graceful not-found state shown when
+  /// [StatusPageController.configById] returns null.
   ///
   /// Mirrors the React `StatusPageNotFound` copy: no i18n key exists for this
   /// screen's chrome, so the title and description stay literal English (the
@@ -154,15 +162,14 @@ class StatusPagePreviewView extends StatelessWidget {
   /// no key is shipped).
   Widget _buildNotFound() {
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           PageHeader(
             title: 'Status page not found',
             backLabel: 'Status pages',
             backFallback: '/status',
           ),
-          const SizedBox(height: 24),
           const EmptyState(
             icon: Icons.error_outline,
             title: 'Status page not found',

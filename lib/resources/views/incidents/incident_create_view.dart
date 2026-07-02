@@ -4,6 +4,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'incident_form_support.dart';
 import '../monitors/monitor_metrics_support.dart';
+import '../../../app/controllers/incident_controller.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
@@ -69,7 +70,7 @@ enum _IncidentKind {
 /// MagicRoute.page('/incidents/new', () => const IncidentCreateView())
 /// ```
 @immutable
-class IncidentCreateView extends StatefulWidget {
+class IncidentCreateView extends MagicStatefulView<IncidentController> {
   /// Creates the [IncidentCreateView]. Zero-arg: the `?from` suggestion id is
   /// read from the router singleton in [State.initState], not passed in.
   const IncidentCreateView({super.key});
@@ -78,7 +79,8 @@ class IncidentCreateView extends StatefulWidget {
   State<IncidentCreateView> createState() => _IncidentCreateViewState();
 }
 
-class _IncidentCreateViewState extends State<IncidentCreateView> {
+class _IncidentCreateViewState
+    extends MagicStatefulViewState<IncidentController, IncidentCreateView> {
   /// The route both submit and cancel return to (mock: nothing persists).
   static const String _doneRoute = '/incidents';
 
@@ -119,12 +121,15 @@ class _IncidentCreateViewState extends State<IncidentCreateView> {
 
   @override
   void initState() {
+    // Register the controller before the base resolves it via `Magic.find<T>()`
+    // (which throws if unregistered); see Conventions -> Controller binding.
+    Magic.findOrPut(IncidentController.new);
     super.initState();
 
     // 1. Read the AI-promotion suggestion id from the router query itself; the
     //    page builder gets no query params, so the view resolves them here.
     final String? fromId = MagicRouter.instance.queryParameters['from'];
-    final IncidentSummary? suggestion = findIncident(fromId);
+    final IncidentSummary? suggestion = controller.incidentById(fromId);
     _suggestion = suggestion;
 
     // 2. Seed the form. With a resolved suggestion, prefill title/affected/
@@ -175,12 +180,12 @@ class _IncidentCreateViewState extends State<IncidentCreateView> {
 
   @override
   Widget build(BuildContext context) {
-    // A plain Flutter Column scaffolds the page body so each descendant receives
-    // a bounded width from PageContainer (same discipline as the sibling views);
-    // Wind utilities appear only on the leaf containers below.
+    // The page body is a Wind flex column: the outer `gap-6` (24px) separates
+    // the header from the body block, and the body block nests its own `gap-6`
+    // between the optional AI banner, the form card, and the footer.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           // 1. Header: title switches on kind, plus the back affordance.
           PageHeader(
@@ -191,7 +196,6 @@ class _IncidentCreateViewState extends State<IncidentCreateView> {
             backLabel: trans('uptizm.incidents.back'),
             backFallback: _doneRoute,
           ),
-          const SizedBox(height: 24),
 
           // 2. Body: optional AI banner (null-aware element, dropped when no
           //    banner applies), the form card, the footer.
@@ -469,7 +473,7 @@ class _IncidentCreateViewState extends State<IncidentCreateView> {
         ),
         Button(
           disabled: !_canSubmit,
-          onPressed: _canSubmit ? _done : null,
+          onPressed: _canSubmit ? controller.create : null,
           child: WText(
             _isMaintenance
                 ? trans('uptizm.incidents.submit_schedule')

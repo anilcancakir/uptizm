@@ -7,6 +7,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'monitor_form.dart';
 import 'monitor_form_support.dart';
+import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
@@ -74,7 +75,7 @@ enum _AiStep {
 /// MagicStarter.view.makeLayout('layout.app', child: const MonitorCreateView())
 /// ```
 @immutable
-class MonitorCreateView extends StatefulWidget {
+class MonitorCreateView extends MagicStatefulView<MonitorController> {
   /// Creates the [MonitorCreateView].
   const MonitorCreateView({super.key});
 
@@ -82,7 +83,8 @@ class MonitorCreateView extends StatefulWidget {
   State<MonitorCreateView> createState() => _MonitorCreateViewState();
 }
 
-class _MonitorCreateViewState extends State<MonitorCreateView> {
+class _MonitorCreateViewState
+    extends MagicStatefulViewState<MonitorController, MonitorCreateView> {
   /// How long the simulated AI probe runs before flipping to the review step.
   /// Mirrors the React `setTimeout(..., 2200)` in `MonitorCreatePage.analyze`.
   static const Duration _analyzeDelay = Duration(milliseconds: 2200);
@@ -107,9 +109,18 @@ class _MonitorCreateViewState extends State<MonitorCreateView> {
   Timer? _analyzeTimer;
 
   @override
-  void dispose() {
+  void initState() {
+    // Register the controller before the base state resolves it via
+    // Magic.find<T>() (which throws when unregistered). Idempotent.
+    Magic.findOrPut(MonitorController.new);
+    super.initState();
+  }
+
+  @override
+  void onClose() {
+    // MagicStatefulViewState.dispose() calls onClose() before tearing down the
+    // controller listener, so the analyze timer is cancelled here.
     _analyzeTimer?.cancel();
-    super.dispose();
   }
 
   /// The AI-derived display name for the current [_url] (React `aiName`).
@@ -138,19 +149,20 @@ class _MonitorCreateViewState extends State<MonitorCreateView> {
     });
   }
 
-  /// Leaves the create flow for the monitors list (React `done`).
+  /// Leaves the create flow for the monitors list (React `done`), delegating to
+  /// the controller's [MonitorController.create] mock action.
   void _done() {
-    MagicRoute.to(_doneRoute);
+    controller.create();
   }
 
   @override
   Widget build(BuildContext context) {
-    // A plain Flutter Column scaffolds the page body so each descendant
-    // receives a bounded width from PageContainer (same discipline as the
-    // sibling views); Wind utilities appear only on the leaf containers below.
+    // The page body is a Wind flex column with a uniform 24px (gap-6) rhythm
+    // between the header, the mode picker, and the mode/step body; each leaf
+    // still receives a bounded width from PageContainer.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           // 1. Header: title + description, with the back affordance.
           PageHeader(
@@ -159,11 +171,9 @@ class _MonitorCreateViewState extends State<MonitorCreateView> {
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: _doneRoute,
           ),
-          const SizedBox(height: 24),
 
           // 2. Mode picker: AI setup vs Manual.
           _buildModePicker(),
-          const SizedBox(height: 24),
 
           // 3. The mode/step body.
           _buildBody(),

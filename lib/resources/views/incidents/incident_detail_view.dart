@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/incident_controller.dart';
 import '../../../app/mocks/billing.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/status.dart';
@@ -44,10 +45,12 @@ import 'incident_form_support.dart';
 /// the route passes an id with no fixture behind it.
 ///
 /// This is a mock screen: every mutation (Resolve / Reopen, Acknowledge, Assign,
-/// AI draft, Post update) is local state plus a `Magic.success` toast; nothing
-/// persists (the React source is the same navigate / local-state mock). A plain
-/// Flutter [Column] scaffolds the body so each leaf receives a bounded width
-/// from [PageContainer]; Wind utilities appear only on leaf containers.
+/// AI draft, Post update) is local state; the resolve / reopen / acknowledge /
+/// post-update / postmortem-edit toasts are the [IncidentController] business
+/// actions, while the transient compose state (lifecycle, assignee, composer
+/// body) stays local. Nothing persists (the React source is the same navigate /
+/// local-state mock). The body is a Wind flex column (`gap-*` carries the
+/// section rhythm); the shared [PageContainer] bounds the width.
 ///
 /// ### Example
 /// ```dart
@@ -58,8 +61,9 @@ import 'incident_form_support.dart';
 /// )
 /// ```
 @immutable
-class IncidentDetailView extends StatefulWidget {
-  /// The incident identifier resolved against the fixtures via [findIncident].
+class IncidentDetailView extends MagicStatefulView<IncidentController> {
+  /// The incident identifier resolved against the fixtures via
+  /// [IncidentController.incidentById].
   ///
   /// `null` or an unknown id renders a graceful not-found [EmptyState].
   final String? id;
@@ -71,7 +75,8 @@ class IncidentDetailView extends StatefulWidget {
   State<IncidentDetailView> createState() => _IncidentDetailViewState();
 }
 
-class _IncidentDetailViewState extends State<IncidentDetailView> {
+class _IncidentDetailViewState
+    extends MagicStatefulViewState<IncidentController, IncidentDetailView> {
   /// The timeline view: `'public'` (subscriber-visible entries only) or `'all'`
   /// (the full activity log). Defaults to public, matching the React source.
   String _view = _viewPublic;
@@ -111,8 +116,18 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
 
   @override
   void initState() {
+    // Register the controller before the base resolves it via `Magic.find<T>()`
+    // (which throws if unregistered); see Conventions -> Controller binding.
+    Magic.findOrPut(IncidentController.new);
     super.initState();
-    _seedFrom(findIncident(widget.id));
+  }
+
+  @override
+  void onInit() {
+    // Seed the local compose state once the controller is resolved. `onInit`
+    // runs inside the base `initState`, before the first build, so the fields
+    // are assigned directly rather than through `setState`.
+    _seedFrom(controller.incidentById(widget.id));
   }
 
   @override
@@ -122,7 +137,7 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
     // navigating between incidents does not carry stale composer / lifecycle
     // state across.
     if (oldWidget.id != widget.id) {
-      _seedFrom(findIncident(widget.id));
+      _seedFrom(controller.incidentById(widget.id));
     }
   }
 
@@ -155,65 +170,55 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
   Widget build(BuildContext context) {
     // 1. Resolve the incident; a null / unknown id falls back to a graceful
     //    not-found state so the screen never crashes on an unknown route id.
-    final IncidentSummary? incident = findIncident(widget.id);
+    final IncidentSummary? incident = controller.incidentById(widget.id);
     if (incident == null) {
       return _buildNotFound();
     }
 
     final bool resolved = _lifecycle == IncidentLifecycle.resolved;
 
-    // 2. A plain Flutter Column scaffolds the page body so each leaf receives a
-    //    bounded width from PageContainer (same discipline as the sibling
-    //    views), keeping the dense sections from overflowing on mobile.
+    // 2. The page body is a Wind flex column: the outer `gap-6` (24px) sits
+    //    between the header block and the body sections; the header block nests
+    //    a `gap-4` (16px) between the header and its chip row, and the body
+    //    block a `gap-8` (32px) between each section.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
-          // 3. Header: title + meta + Resolve/Reopen, then a full-width chip
-          //    row below it. The chips are NOT a PageHeader titleSuffix: that
-          //    slot is wrapped in a `flex-shrink-0` WDiv (page_header.dart),
-          //    which Wind excludes from Flexible-wrapping, so a 4-pill row there
-          //    overflows the half-width title slot. As a standalone `wrap` row
-          //    below the header it flows freely onto a second line.
-          PageHeader(
-            title: incident.title,
-            subtitle: '${incident.monitorName} · ${incident.startedAt}',
-            backLabel: trans('uptizm.incidents.detail_back'),
-            backFallback: '/incidents',
-            actions: [_buildResolveButton(incident, resolved)],
+          // 3. Header block: title + meta + Resolve/Reopen, then a full-width
+          //    chip row below it (16px rhythm). The chips are NOT a PageHeader
+          //    titleSuffix: that slot is wrapped in a `flex-shrink-0` WDiv
+          //    (page_header.dart), which Wind excludes from Flexible-wrapping,
+          //    so a 4-pill row there overflows the half-width title slot. As a
+          //    standalone `wrap` row below the header it flows onto a 2nd line.
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: [
+              PageHeader(
+                title: incident.title,
+                subtitle: '${incident.monitorName} · ${incident.startedAt}',
+                backLabel: trans('uptizm.incidents.detail_back'),
+                backFallback: '/incidents',
+                actions: [_buildResolveButton(incident, resolved)],
+              ),
+              _buildChipRow(incident),
+            ],
           ),
-          const SizedBox(height: 16),
-          _buildChipRow(incident),
-          const SizedBox(height: 24),
 
-          // 4. Responder strip (open incidents only).
-          if (!resolved) ...[
-            _buildResponderStrip(incident),
-            const SizedBox(height: 32),
-          ],
-
-          // 5. Affected monitors summary.
-          _buildAffectedMonitors(incident),
-          const SizedBox(height: 32),
-
-          // 6. AI analysis (billing-gated), only when the incident carries one.
-          if (incident.ai != null) ...[
-            _buildAiAnalysis(incident.ai!),
-            const SizedBox(height: 32),
-          ],
-
-          // 7. Postmortem (resolved incidents only).
-          if (resolved) ...[
-            _buildPostmortem(incident),
-            const SizedBox(height: 32),
-          ],
-
-          // 8. Timeline (public / all toggle).
-          _buildTimeline(incident),
-          const SizedBox(height: 32),
-
-          // 9. Update composer.
-          _buildComposer(incident),
+          // 4. Body sections, each separated by the 32px `gap-8` rhythm:
+          //    responder strip (open only), affected monitors, AI analysis
+          //    (when present), postmortem (resolved only), timeline, composer.
+          WDiv(
+            className: 'flex flex-col gap-8',
+            children: [
+              if (!resolved) _buildResponderStrip(incident),
+              _buildAffectedMonitors(incident),
+              if (incident.ai != null) _buildAiAnalysis(incident.ai!),
+              if (resolved) _buildPostmortem(incident),
+              _buildTimeline(incident),
+              _buildComposer(incident),
+            ],
+          ),
         ],
       ),
     );
@@ -281,15 +286,14 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
         _lifecycle = IncidentLifecycle.resolved;
       }
     });
-    // The React source flips lifecycle silently; the plan mandates a toast for
-    // Resolve / Reopen, so the action label is the toast title and the incident
-    // title is the body (no dedicated toast i18n keys exist for this action).
-    Magic.success(
-      resolved
-          ? trans('uptizm.incidents.detail_reopen')
-          : trans('uptizm.incidents.detail_resolve'),
-      incident.title,
-    );
+    // The lifecycle flip above is ephemeral compose state owned by this view;
+    // the toast is the controller business action (the action label is the
+    // toast title and the incident title the body, matching the React mock).
+    if (resolved) {
+      controller.reopen(incident);
+    } else {
+      controller.resolve(incident);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -384,12 +388,7 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
         at: 'just now',
       );
     });
-    Magic.success(
-      trans('uptizm.incidents.detail_acknowledged_toast_title'),
-      trans('uptizm.incidents.detail_acknowledged_toast_description', {
-        'name': by,
-      }),
-    );
+    controller.acknowledge(by);
   }
 
   /// The current mock responder who acknowledges an incident. The React source
@@ -405,14 +404,13 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
   /// a bordered list of each affected monitor with its `statusAtStart →
   /// statusCurrent` transition (the arrow only appears when the two differ).
   Widget _buildAffectedMonitors(IncidentSummary incident) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col gap-3',
       children: [
         WText(
           trans('uptizm.incidents.detail_affected_monitors_label'),
           className: 'text-sm font-semibold text-fg',
         ),
-        const SizedBox(height: 12),
         WDiv(
           className: 'flex flex-col rounded-lg border border-color-border',
           children: [
@@ -506,10 +504,7 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
 
   /// Surfaces the postmortem-edit toast. Local mock: the draft is not persisted.
   void _onEditPostmortem() {
-    Magic.success(
-      trans('uptizm.incidents.detail_postmortem_heading'),
-      trans('uptizm.incidents.detail_postmortem_edit'),
-    );
+    controller.editPostmortem();
   }
 
   // ---------------------------------------------------------------------------
@@ -528,8 +523,8 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
         ? incident.timeline.where((e) => e.isPublic).toList()
         : incident.timeline;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col gap-3',
       children: [
         // The React `h2` "Timeline" heading has no i18n key (only the two
         // segment labels and the empty note ship), so the self-describing
@@ -551,7 +546,6 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
             ),
           ],
         ),
-        const SizedBox(height: 12),
         if (filtered.isNotEmpty)
           IncidentTimeline(entries: toComponentTimeline(filtered))
         else
@@ -693,10 +687,7 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
       _message = '';
       _aiDrafted = false;
     });
-    Magic.success(
-      trans('uptizm.incidents.detail_composer_post'),
-      incident.title,
-    );
+    controller.postUpdate(incident);
   }
 
   /// Maps a title-case status [label] (e.g. `"Investigating"`) back to its
@@ -718,15 +709,14 @@ class _IncidentDetailViewState extends State<IncidentDetailView> {
   /// incident" message rather than crashing on an unknown route id.
   Widget _buildNotFound() {
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           PageHeader(
             title: trans('uptizm.incidents.error_load_title'),
             backLabel: trans('uptizm.incidents.detail_back'),
             backFallback: '/incidents',
           ),
-          const SizedBox(height: 24),
           EmptyState(
             title: trans('uptizm.incidents.error_load_title'),
             description: trans('uptizm.incidents.error_load_description'),

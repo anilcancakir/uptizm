@@ -180,17 +180,15 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       className: 'flex flex-row items-center justify-between gap-3 '
           'rounded-lg border border-color-border bg-surface p-3',
       children: [
-        Expanded(
-          child: WDiv(
-            className: 'flex flex-col',
-            children: [
-              WText(metric.label, className: 'text-sm font-medium text-fg'),
-              WText(
-                trans('uptizm.monitors.metrics_system_collected_by_default'),
-                className: 'font-mono text-xs text-fg-muted',
-              ),
-            ],
-          ),
+        WDiv(
+          className: 'flex-1 flex flex-col',
+          children: [
+            WText(metric.label, className: 'text-sm font-medium text-fg'),
+            WText(
+              trans('uptizm.monitors.metrics_system_collected_by_default'),
+              className: 'font-mono text-xs text-fg-muted',
+            ),
+          ],
         ),
         WDiv(
           className: 'flex flex-row items-center gap-2',
@@ -295,17 +293,15 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
             'rounded-lg border border-color-border bg-surface p-3 '
             'hover:bg-surface-container transition-colors',
         children: [
-          Expanded(
-            child: WDiv(
-              className: 'flex flex-col',
-              children: [
-                WText(metric.label, className: 'text-sm font-medium text-fg'),
-                WText(
-                  _keyPath(metric),
-                  className: 'font-mono text-xs text-fg-muted',
-                ),
-              ],
-            ),
+          WDiv(
+            className: 'flex-1 flex flex-col',
+            children: [
+              WText(metric.label, className: 'text-sm font-medium text-fg'),
+              WText(
+                _keyPath(metric),
+                className: 'font-mono text-xs text-fg-muted',
+              ),
+            ],
           ),
           WDiv(
             className: 'flex flex-row items-center gap-2',

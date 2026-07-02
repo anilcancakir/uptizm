@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_badge/index.dart';
@@ -28,7 +29,7 @@ import '../../../ui/layouts/page_container.dart';
 /// MagicStarter.view.makeLayout('layout.app', child: const StatusPagesListView())
 /// ```
 @immutable
-class StatusPagesListView extends StatefulWidget {
+class StatusPagesListView extends MagicStatefulView<StatusPageController> {
   /// Creates the [StatusPagesListView].
   const StatusPagesListView({super.key});
 
@@ -36,14 +37,21 @@ class StatusPagesListView extends StatefulWidget {
   State<StatusPagesListView> createState() => _StatusPagesListViewState();
 }
 
-class _StatusPagesListViewState extends State<StatusPagesListView> {
+class _StatusPagesListViewState
+    extends MagicStatefulViewState<StatusPageController, StatusPagesListView> {
+  @override
+  void initState() {
+    Magic.findOrPut(StatusPageController.new);
+    super.initState();
+  }
+
   @override
   Widget build(BuildContext context) {
-    // A plain Flutter Column scaffolds the page body so each descendant gets a
-    // proper bounded width from PageContainer (same discipline as IncidentsListView).
+    // Compose the page body as a Wind flex column: the 24px header rhythm is
+    // carried by gap-6, not a SizedBox spacer.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           // 1. Page header with a "New status page" action button.
           PageHeader(
@@ -56,7 +64,6 @@ class _StatusPagesListViewState extends State<StatusPagesListView> {
               ),
             ],
           ),
-          const SizedBox(height: 24),
 
           // 2. Card grid, or an empty state when no page has ever been created.
           _buildBody(),
@@ -72,14 +79,15 @@ class _StatusPagesListViewState extends State<StatusPagesListView> {
   /// Builds the responsive card grid, or an [EmptyState] when [statusPages]
   /// is empty.
   Widget _buildBody() {
-    if (statusPages.isEmpty) {
+    if (controller.statusPages.isEmpty) {
       return _buildEmptyState();
     }
 
     return WDiv(
       className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
       children: [
-        for (final StatusPageConfig page in statusPages) _buildCard(page),
+        for (final StatusPageConfig page in controller.statusPages)
+          _buildCard(page),
       ],
     );
   }
@@ -91,7 +99,7 @@ class _StatusPagesListViewState extends State<StatusPagesListView> {
   /// target wrapper used by [MonitorListRow]) and routes to the page's editor.
   Widget _buildCard(StatusPageConfig page) {
     final List<PublicComponent> components = componentsFor(page);
-    final int subscriberCount = subscribersFor(page.id).length;
+    final int subscriberCount = controller.subscribersFor(page.id).length;
 
     return WAnchor(
       onTap: () => MagicRoute.to('/status/${page.id}'),
