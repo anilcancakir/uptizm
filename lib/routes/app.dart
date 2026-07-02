@@ -1,6 +1,5 @@
 import 'package:magic/magic.dart';
 
-import '../resources/views/coming_soon_view.dart';
 import '../resources/views/dashboard_view.dart';
 import '../resources/views/incident_create_view.dart';
 import '../resources/views/incident_detail_view.dart';
@@ -26,6 +25,15 @@ import '../resources/views/status_page_editor_view.dart';
 import '../resources/views/status_page_preview_view.dart';
 import '../resources/views/status_page_subscribers_view.dart';
 import '../resources/views/status_pages_list_view.dart';
+import '../resources/views/teams/escalation_policies_view.dart';
+import '../resources/views/teams/escalation_policy_editor_view.dart';
+import '../resources/views/teams/invite_accept_view.dart';
+import '../resources/views/teams/notification_channels_view.dart';
+import '../resources/views/teams/on_call_schedule_view.dart';
+import '../resources/views/teams/plan_billing_view.dart';
+import '../resources/views/teams/team_create_view.dart';
+import '../resources/views/teams/team_members_view.dart';
+import '../resources/views/teams/team_settings_view.dart';
 import '../ui/layouts/app_layout.dart';
 
 /// Application Route Definitions.
@@ -75,10 +83,24 @@ import '../ui/layouts/app_layout.dart';
 ///   [AppLayout].
 /// - `/settings/security/sessions` — [SessionsSettingsView] inside
 ///   [AppLayout].
-/// - `/teams/settings`, `/teams/members`, `/teams/notifications`,
-///   `/teams/escalation`, `/teams/on-call`, `/teams/billing` — [ComingSoonView]
-///   stubs inside [AppLayout]; the Team group in [SettingsHubView] links here
-///   until a dedicated teams vertical ships.
+/// - `/teams/new` — [TeamCreateView] inside [AppLayout].
+/// - `/teams/settings` — [TeamSettingsView] inside [AppLayout].
+/// - `/teams/members` — [TeamMembersView] inside [AppLayout].
+/// - `/teams/notifications` — [NotificationChannelsView] inside [AppLayout].
+/// - `/teams/escalation` — [EscalationPoliciesView] inside [AppLayout].
+/// - `/teams/escalation/new` — [EscalationPolicyEditorView] inside
+///   [AppLayout], zero-arg (creates a new draft). Registered BEFORE
+///   `/teams/escalation/:id` for the same first-match reason as
+///   `/monitors/new`.
+/// - `/teams/escalation/:id` — [EscalationPolicyEditorView] inside
+///   [AppLayout]; the `:id` path parameter is passed positionally to the
+///   builder (edits an existing policy).
+/// - `/teams/on-call` — [OnCallScheduleView] inside [AppLayout].
+/// - `/teams/billing` — [PlanBillingView] inside [AppLayout].
+/// - `/invite/:token` — [InviteAcceptView] registered OUTSIDE [AppLayout] (no
+///   sidebar/top bar shell), matching how the React router keeps the invite
+///   acceptance screen standalone; the `:token` path parameter is passed
+///   positionally to the builder.
 ///
 /// All in-app routes use [RouteTransition.none] for an instant,
 /// design-lab-faithful navigation feel. `/preview` is registered separately
@@ -263,40 +285,67 @@ void registerAppRoutes() {
         () => const TermsSettingsView(),
       ).title('Terms of service | Uptizm').transition(RouteTransition.none);
 
-      // 16. Team destinations. The Settings hub's Team group always shows
-      //     these rows, but the teams vertical ships in a later milestone.
-      //     Register them to "coming soon" placeholders so the nav targets
-      //     give feedback rather than a silent no-op. A follow-up vertical
-      //     replaces these.
+      // 16. Team destinations. The Settings hub's Team group links here.
+      MagicRoute.page(
+        '/teams/new',
+        () => const TeamCreateView(),
+      ).title('New team | Uptizm').transition(RouteTransition.none);
+
       MagicRoute.page(
         '/teams/settings',
-        () => const ComingSoonView(feature: 'Team settings'),
-      ).transition(RouteTransition.none);
+        () => const TeamSettingsView(),
+      ).title('Team settings | Uptizm').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/members',
-        () => const ComingSoonView(feature: 'Members'),
-      ).transition(RouteTransition.none);
+        () => const TeamMembersView(),
+      ).title('Members | Uptizm').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/notifications',
-        () => const ComingSoonView(feature: 'Notification channels'),
-      ).transition(RouteTransition.none);
+        () => const NotificationChannelsView(),
+      ).title('Notification channels | Uptizm').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/escalation',
-        () => const ComingSoonView(feature: 'Escalation policies'),
-      ).transition(RouteTransition.none);
+        () => const EscalationPoliciesView(),
+      ).title('Escalation policies | Uptizm').transition(RouteTransition.none);
+
+      // 17. New escalation policy: static segment registered BEFORE
+      //     /teams/escalation/:id so the literal path /teams/escalation/new
+      //     is never consumed as a dynamic :id param, mirroring the
+      //     /monitors/new ordering above. Zero-arg: the editor reads nothing
+      //     from the path for a new draft.
+      MagicRoute.page(
+        '/teams/escalation/new',
+        () => const EscalationPolicyEditorView(),
+      ).title('New escalation policy | Uptizm').transition(RouteTransition.none);
+
+      // 18. Escalation policy editor: resolves :id from the path to the
+      //     fixture (edits an existing policy).
+      MagicRoute.page(
+        '/teams/escalation/:id',
+        (String id) => EscalationPolicyEditorView(id: id),
+      ).title('Edit escalation policy | Uptizm').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/on-call',
-        () => const ComingSoonView(feature: 'On-call'),
-      ).transition(RouteTransition.none);
+        () => const OnCallScheduleView(),
+      ).title('On-call | Uptizm').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/billing',
-        () => const ComingSoonView(feature: 'Plan & billing'),
-      ).transition(RouteTransition.none);
+        () => const PlanBillingView(),
+      ).title('Plan & billing | Uptizm').transition(RouteTransition.none);
     },
   );
+
+  // 19. Invite acceptance: registered OUTSIDE the AppLayout group above, so
+  //     it renders standalone (no sidebar/top bar), mirroring how the React
+  //     router keeps /invite/:token outside the app shell. The :token path
+  //     parameter is passed positionally to the builder.
+  MagicRoute.page(
+    '/invite/:token',
+    (String token) => InviteAcceptView(token: token),
+  ).transition(RouteTransition.none);
 }
