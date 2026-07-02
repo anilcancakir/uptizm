@@ -2,10 +2,10 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import '../../app/mocks/status_pages.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/components/status_badge/index.dart';
-import '../../ui/layouts/page_container.dart';
+import '../../../app/mocks/status_pages.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/components/status_badge/index.dart';
+import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Pages list screen.**
 ///

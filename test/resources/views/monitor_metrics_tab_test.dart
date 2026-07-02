@@ -4,10 +4,10 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
 import 'package:uptizm/app/mocks/metrics.dart';
-import 'package:uptizm/resources/views/monitor_metric_detail.dart';
-import 'package:uptizm/resources/views/monitor_metric_form.dart';
-import 'package:uptizm/resources/views/monitor_metrics_support.dart';
-import 'package:uptizm/resources/views/monitor_metrics_tab.dart';
+import 'package:uptizm/resources/views/monitors/monitor_metric_detail.dart';
+import 'package:uptizm/resources/views/monitors/monitor_metric_form.dart';
+import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
+import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/metric_chart/index.dart';
 
 /// Language loader for all trans() keys exercised by the metrics widgets.

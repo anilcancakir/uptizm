@@ -4,11 +4,11 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'monitor_form_support.dart';
 import 'monitor_metrics_support.dart';
-import '../../app/mocks/billing.dart';
-import '../../app/mocks/monitors.dart';
-import '../../app/mocks/oncall.dart';
-import '../../ui/components/key_value_editor/key_value_editor.dart';
-import '../../ui/components/region_picker/region_picker.dart';
+import '../../../app/mocks/billing.dart';
+import '../../../app/mocks/monitors.dart';
+import '../../../app/mocks/oncall.dart';
+import '../../../ui/components/key_value_editor/key_value_editor.dart';
+import '../../../ui/components/region_picker/region_picker.dart';
 
 /// **The monitor configuration form (fields + submit row).**
 ///

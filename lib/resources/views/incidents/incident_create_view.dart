@@ -3,12 +3,12 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'incident_form_support.dart';
-import 'monitor_metrics_support.dart';
-import '../../app/mocks/incidents.dart';
-import '../../app/mocks/monitors.dart';
-import '../../ui/components/ai_confidence_badge/index.dart';
-import '../../ui/components/region_picker/region_picker.dart';
-import '../../ui/layouts/page_container.dart';
+import '../monitors/monitor_metrics_support.dart';
+import '../../../app/mocks/incidents.dart';
+import '../../../app/mocks/monitors.dart';
+import '../../../ui/components/ai_confidence_badge/index.dart';
+import '../../../ui/components/region_picker/region_picker.dart';
+import '../../../ui/layouts/page_container.dart';
 
 /// The incident kind: a real incident, or a scheduled maintenance window.
 ///

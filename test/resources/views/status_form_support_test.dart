@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
-import 'package:uptizm/resources/views/status_form_support.dart';
+import 'package:uptizm/resources/views/status/status_form_support.dart';
 
 void main() {
   // ---------------------------------------------------------------------------

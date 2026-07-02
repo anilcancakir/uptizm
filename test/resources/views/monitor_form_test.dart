@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import 'package:uptizm/resources/views/monitor_create_view.dart';
-import 'package:uptizm/resources/views/monitor_edit_view.dart';
-import 'package:uptizm/resources/views/monitor_form.dart';
+import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
+import 'package:uptizm/resources/views/monitors/monitor_edit_view.dart';
+import 'package:uptizm/resources/views/monitors/monitor_form.dart';
 import 'package:uptizm/ui/components/empty_state/index.dart';
 
 /// In-memory language loader supplying all [trans] keys exercised by the

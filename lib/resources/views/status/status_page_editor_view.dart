@@ -4,14 +4,14 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
 import 'status_form_support.dart';
-import '../../app/mocks/billing.dart';
-import '../../app/mocks/status_pages.dart';
-import '../../ui/components/ai_insight/index.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/components/region_picker/region_picker.dart';
-import '../../ui/components/status_page_preview/index.dart';
-import '../../ui/components/upgrade_nudge/index.dart';
-import '../../ui/layouts/page_container.dart';
+import '../../../app/mocks/billing.dart';
+import '../../../app/mocks/status_pages.dart';
+import '../../../ui/components/ai_insight/index.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/components/region_picker/region_picker.dart';
+import '../../../ui/components/status_page_preview/index.dart';
+import '../../../ui/components/upgrade_nudge/index.dart';
+import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Page editor screen (`/status/new` + `/status/:id`).**
 ///

@@ -4,9 +4,9 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
 import 'package:uptizm/app/mocks/incidents.dart';
-import 'package:uptizm/resources/views/incident_create_view.dart';
-import 'package:uptizm/resources/views/incident_detail_view.dart';
-import 'package:uptizm/resources/views/incidents_list_view.dart';
+import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
+import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
+import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
 import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';

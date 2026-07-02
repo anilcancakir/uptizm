@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import '../resources/views/monitor_detail_view.dart';
+import '../resources/views/monitors/monitor_detail_view.dart';
 import 'preview_mock_harness.dart';
 import 'screen_preview_scaffold.dart';
 

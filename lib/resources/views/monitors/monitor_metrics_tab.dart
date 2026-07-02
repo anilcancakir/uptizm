@@ -3,10 +3,10 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import '../../app/mocks/metrics.dart';
-import '../../app/mocks/status.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/components/status_dot/index.dart';
+import '../../../app/mocks/metrics.dart';
+import '../../../app/mocks/status.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/components/status_dot/index.dart';
 import 'monitor_metric_detail.dart';
 import 'monitor_metric_form.dart';
 import 'monitor_metrics_support.dart';

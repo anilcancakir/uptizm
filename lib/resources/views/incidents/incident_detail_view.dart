@@ -3,16 +3,16 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import '../../app/mocks/billing.dart';
-import '../../app/mocks/incidents.dart';
-import '../../app/mocks/status.dart';
-import '../../ui/components/ai_analysis_card/index.dart';
-import '../../ui/components/ai_insight/index.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/components/incident_timeline/index.dart' show IncidentTimeline;
-import '../../ui/components/status_badge/index.dart';
-import '../../ui/components/upgrade_nudge/index.dart';
-import '../../ui/layouts/page_container.dart';
+import '../../../app/mocks/billing.dart';
+import '../../../app/mocks/incidents.dart';
+import '../../../app/mocks/status.dart';
+import '../../../ui/components/ai_analysis_card/index.dart';
+import '../../../ui/components/ai_insight/index.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/components/incident_timeline/index.dart' show IncidentTimeline;
+import '../../../ui/components/status_badge/index.dart';
+import '../../../ui/components/upgrade_nudge/index.dart';
+import '../../../ui/layouts/page_container.dart';
 import 'incident_form_support.dart';
 
 /// **The Incident Detail screen.**

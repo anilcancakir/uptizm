@@ -1,7 +1,7 @@
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/incidents.dart' as mocks;
 import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/resources/views/monitor_metrics_support.dart';
+import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 import 'package:uptizm/ui/components/incident_timeline/incident_timeline.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 

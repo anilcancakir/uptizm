@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart' show Color, immutable;
 import 'metrics.dart';
 import 'monitors.dart' show MonitorSummary, UptimeSegment, monitors, uptime90, findMonitor;
 import 'status.dart';
-import '../../resources/views/monitor_metrics_support.dart' show MetricOption;
+import '../../resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
 
 // ---------------------------------------------------------------------------
 // Domain types

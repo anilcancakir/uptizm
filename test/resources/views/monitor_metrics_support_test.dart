@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/app/mocks/status.dart';
-import 'package:uptizm/resources/views/monitor_metrics_support.dart';
+import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 
 void main() {
   // ---------------------------------------------------------------------------

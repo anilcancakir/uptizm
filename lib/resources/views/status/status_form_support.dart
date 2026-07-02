@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart' show Color;
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
-import 'package:uptizm/resources/views/monitor_metrics_support.dart' show MetricOption;
+import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
 // ---------------------------------------------------------------------------

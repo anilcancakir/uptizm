@@ -730,3 +730,21 @@ List<IncidentSummary> incidentsForMonitor(String monitorName) {
     return i.affectedMonitors.any((m) => m.name == monitorName);
   }).toList();
 }
+
+// ---------------------------------------------------------------------------
+// Shared derivations
+// ---------------------------------------------------------------------------
+
+/// Active incidents: everything not yet resolved, newest-first as fixtured.
+///
+/// Single source for both `DashboardController` and `IncidentController` so the
+/// not-resolved filter is never duplicated across the two controllers.
+List<IncidentSummary> get activeIncidents =>
+    incidents.where((i) => i.lifecycle != IncidentLifecycle.resolved).toList();
+
+/// AI inbox entries: active incidents that carry an AI analysis payload.
+///
+/// Only incidents with a non-null `ai` payload qualify; the rest stay in the
+/// plain incident list.
+List<IncidentSummary> get aiSuggestions =>
+    activeIncidents.where((i) => i.ai != null).toList();

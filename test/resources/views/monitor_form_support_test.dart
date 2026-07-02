@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/oncall.dart';
-import 'package:uptizm/resources/views/monitor_form_support.dart';
+import 'package:uptizm/resources/views/monitors/monitor_form_support.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
 void main() {

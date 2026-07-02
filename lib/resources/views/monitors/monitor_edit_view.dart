@@ -3,9 +3,9 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import '../../app/mocks/monitors.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/layouts/page_container.dart';
+import '../../../app/mocks/monitors.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/layouts/page_container.dart';
 import 'monitor_form.dart';
 
 /// **The monitor edit screen.**

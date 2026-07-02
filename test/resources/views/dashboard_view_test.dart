@@ -4,7 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/resources/views/dashboard_view.dart';
+import 'package:uptizm/resources/views/dashboard/dashboard_view.dart';
 import 'package:uptizm/ui/components/ai_insight/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';

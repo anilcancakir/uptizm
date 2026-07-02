@@ -3,10 +3,10 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import '../../app/mocks/status_pages.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/components/kpi_stat_card/index.dart';
-import '../../ui/layouts/page_container.dart';
+import '../../../app/mocks/status_pages.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/components/kpi_stat_card/index.dart';
+import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Page Subscribers screen.**
 ///

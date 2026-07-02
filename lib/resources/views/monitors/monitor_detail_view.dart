@@ -5,21 +5,21 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import '../../app/mocks/incidents.dart';
-import '../../app/mocks/metrics.dart';
-import '../../app/mocks/monitors.dart';
-import '../../app/mocks/status.dart';
-import '../../ui/components/ai_insight/index.dart';
-import '../../ui/components/check_history_table/index.dart';
-import '../../ui/components/date_range_picker/index.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/components/incident_card/index.dart';
-import '../../ui/components/kpi_stat_card/index.dart';
-import '../../ui/components/metric_chart/index.dart';
-import '../../ui/components/slo_budget_card/index.dart';
-import '../../ui/components/status_badge/index.dart';
-import '../../ui/components/uptime_bar/index.dart';
-import '../../ui/layouts/page_container.dart';
+import '../../../app/mocks/incidents.dart';
+import '../../../app/mocks/metrics.dart';
+import '../../../app/mocks/monitors.dart';
+import '../../../app/mocks/status.dart';
+import '../../../ui/components/ai_insight/index.dart';
+import '../../../ui/components/check_history_table/index.dart';
+import '../../../ui/components/date_range_picker/index.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/components/incident_card/index.dart';
+import '../../../ui/components/kpi_stat_card/index.dart';
+import '../../../ui/components/metric_chart/index.dart';
+import '../../../ui/components/slo_budget_card/index.dart';
+import '../../../ui/components/status_badge/index.dart';
+import '../../../ui/components/uptime_bar/index.dart';
+import '../../../ui/layouts/page_container.dart';
 import 'monitor_metrics_tab.dart';
 
 /// **The Monitor Detail screen.**

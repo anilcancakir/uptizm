@@ -2,11 +2,11 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import '../../app/mocks/metrics.dart';
-import '../../app/mocks/status.dart';
-import '../../ui/components/ai_insight/index.dart';
-import '../../ui/components/metric_chart/index.dart';
-import '../../ui/components/status_dot/index.dart';
+import '../../../app/mocks/metrics.dart';
+import '../../../app/mocks/status.dart';
+import '../../../ui/components/ai_insight/index.dart';
+import '../../../ui/components/metric_chart/index.dart';
+import '../../../ui/components/status_dot/index.dart';
 import 'monitor_metrics_support.dart';
 
 /// **The Metric Detail BottomSheet body.**

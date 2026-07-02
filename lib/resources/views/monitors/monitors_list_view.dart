@@ -2,13 +2,13 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
-import '../../app/mocks/incidents.dart';
-import '../../app/mocks/monitors.dart';
-import '../../app/mocks/status.dart';
-import '../../ui/components/empty_state/index.dart';
-import '../../ui/components/kpi_stat_card/index.dart';
-import '../../ui/components/monitor_list_row/index.dart';
-import '../../ui/layouts/page_container.dart';
+import '../../../app/mocks/incidents.dart';
+import '../../../app/mocks/monitors.dart';
+import '../../../app/mocks/status.dart';
+import '../../../ui/components/empty_state/index.dart';
+import '../../../ui/components/kpi_stat_card/index.dart';
+import '../../../ui/components/monitor_list_row/index.dart';
+import '../../../ui/layouts/page_container.dart';
 
 /// **The Monitors list screen.**
 ///

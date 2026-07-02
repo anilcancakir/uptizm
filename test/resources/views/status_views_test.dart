@@ -4,10 +4,10 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
 import 'package:uptizm/app/mocks/status_pages.dart';
-import 'package:uptizm/resources/views/status_page_editor_view.dart';
-import 'package:uptizm/resources/views/status_page_preview_view.dart';
-import 'package:uptizm/resources/views/status_page_subscribers_view.dart';
-import 'package:uptizm/resources/views/status_pages_list_view.dart';
+import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
+import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
+import 'package:uptizm/resources/views/status/status_page_subscribers_view.dart';
+import 'package:uptizm/resources/views/status/status_pages_list_view.dart';
 import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
