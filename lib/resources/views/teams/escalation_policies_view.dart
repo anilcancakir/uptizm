@@ -200,51 +200,65 @@ class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
     );
   }
 
-  /// Builds one rung row: a leading dot-and-line column, followed by the
-  /// uppercase delay label and the rung's target pills.
+  /// Builds one rung row: a leading dot, followed by the uppercase delay label
+  /// and the rung's target pills.
+  ///
+  /// The connecting line is an explicit [Positioned] bar painted behind the
+  /// row (not an `Expanded` inside a Column), mirroring `incident_timeline`'s
+  /// rail: `Expanded` needs a bounded main-axis the page scroll view cannot
+  /// give, and `IntrinsicHeight` cannot measure through the target pills'
+  /// `flex-wrap` LayoutBuilder. A Positioned bar sidesteps both.
   Widget _buildRung(EscalationStep step, {required bool isLast}) {
-    return WDiv(
-      className: 'flex flex-row gap-3',
+    return Stack(
       children: [
-        _buildRungRail(isLast: isLast),
-        WDiv(
-          className: isLast
-              ? 'flex flex-col min-w-0 flex-1'
-              : 'flex flex-col min-w-0 flex-1 pb-5',
-          children: [
-            WText(
-              escalationDelayLabel(step.afterMinutes).toUpperCase(),
-              className: 'text-xs font-medium text-fg-muted',
-            ),
-            WDiv(
-              className: 'mt-1.5 flex flex-row flex-wrap gap-1.5',
-              children: [
-                for (final String target in step.targets)
-                  _buildTargetPill(target),
-              ],
-            ),
-          ],
+        // Rail: a 1px line from just below this dot to the bottom of the row,
+        // threading the bottom gap to reach the next rung's dot.
+        if (!isLast)
+          const Positioned(
+            left: 7,
+            top: 18,
+            bottom: 0,
+            width: 1,
+            child: WDiv(className: 'border-l border-color-border'),
+          ),
+        Padding(
+          padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
+          child: WDiv(
+            className: 'flex flex-row gap-3',
+            children: [
+              // Leading dot (fixed-width rail slot; the line is the Positioned
+              // bar above, so no Expanded is needed here).
+              const SizedBox(
+                width: 16,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(height: 4),
+                    StatusDot(StatusKey.up, size: StatusDotSize.md),
+                  ],
+                ),
+              ),
+              WDiv(
+                className: 'flex flex-col min-w-0 flex-1',
+                children: [
+                  WText(
+                    escalationDelayLabel(step.afterMinutes).toUpperCase(),
+                    className: 'text-xs font-medium text-fg-muted',
+                  ),
+                  WDiv(
+                    className: 'mt-1.5 flex flex-row flex-wrap gap-1.5',
+                    children: [
+                      for (final String target in step.targets)
+                        _buildTargetPill(target),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ],
-    );
-  }
-
-  /// Builds the leading rail: a [StatusDot] followed by a connecting line for
-  /// every rung except the last.
-  Widget _buildRungRail({required bool isLast}) {
-    return SizedBox(
-      width: 16,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const SizedBox(height: 4),
-          const StatusDot(StatusKey.up, size: StatusDotSize.md),
-          if (!isLast)
-            Expanded(
-              child: WDiv(className: 'w-px border-r border-color-border'),
-            ),
-        ],
-      ),
     );
   }
 
