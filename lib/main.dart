@@ -13,10 +13,7 @@ import 'config/deeplink.dart';
 import 'config/wind_theme.g.dart';
 import 'config/uptizm_status_tokens.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
-import 'package:fluttersdk_dusk/dusk.dart';
-import 'package:magic_devtools/dusk.dart';
-import 'package:fluttersdk_telescope/telescope.dart';
-import 'package:magic_devtools/telescope.dart';
+import 'package:magic_devtools/magic_devtools.dart';
 import 'package:magic_starter/magic_starter.dart'
     show
         MagicStarter,
@@ -28,14 +25,12 @@ import 'config/magic_starter.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (kDebugMode) {
-    DuskPlugin.install();
-  }
-  if (kDebugMode) {
-    TelescopePlugin.install();
-    TelescopePlugin.registerWatcher(ExceptionWatcher());
-    TelescopePlugin.registerWatcher(DumpWatcher());
-  }
+  // Dev-tooling (dusk + telescope) plugins boot BEFORE Magic.init so the
+  // snapshot pipeline and exception watcher are live during Magic boot. The
+  // kDebugMode guard stays at the call site so release builds tree-shake the
+  // whole branch. See MagicDevtools.installPre.
+  if (kDebugMode) MagicDevtools.installPre();
+
   await Magic.init(
     configFactories: [
       () => appConfig,
@@ -51,12 +46,12 @@ void main() async {
       () => magicStarterConfig,
     ],
   );
-  if (kDebugMode) {
-    MagicTelescopeIntegration.install();
-  }
-  if (kDebugMode) {
-    MagicDuskIntegration.install();
-  }
+
+  // Magic integrations wire magic's runtime into dusk + telescope AFTER
+  // Magic.init, since their watchers/adapter/enrichers resolve through the IoC
+  // container. See MagicDevtools.installPost.
+  if (kDebugMode) MagicDevtools.installPost();
+
   // Point magic_starter's Card surfaces at uptizm's semantic tokens. Without
   // this the reused Card (KPI / stat cards) keeps magic_starter's default
   // `dark:bg-gray-800` fill, a lighter, bluer slate than the uptizm surface
@@ -71,6 +66,7 @@ void main() async {
       ),
     ),
   );
+
   // Point magic_starter's modal/bottom-sheet surfaces at uptizm tokens too. The
   // default modal theme is `dark:bg-gray-800` (a lighter, bluer slate than the
   // uptizm surface hierarchy), which made the metric create/edit + detail sheets
@@ -91,6 +87,7 @@ void main() async {
           'border-color-border text-fg text-sm font-medium',
     ),
   );
+  
   // Theme generated from DESIGN.md via `design:sync` (the 17 standard semantic
   // roles), merged with the hand-authored monitoring status families
   // (up/down/degraded/paused/info/ai) that design:sync never emits. Regenerate
