@@ -1,0 +1,51 @@
+import 'package:flutter/widgets.dart';
+import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
+
+import '../../../app/mocks/settings.dart';
+
+/// Terms of Service (`/settings/terms`): a titled legal document.
+///
+/// Mirrors the React `TermsSettingsPage.tsx`, which renders the shared
+/// `LegalDoc` part over its own `SECTIONS` fixture. This view inlines the
+/// same layout directly (a single [Card] of heading+body sections over
+/// [termsSections]) rather than extracting a shared widget, since Privacy is
+/// the only other caller of this exact shape.
+@immutable
+class TermsSettingsView extends StatelessWidget {
+  /// Creates the [TermsSettingsView].
+  const TermsSettingsView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsScaffold(
+      title: trans('uptizm.settings.terms_title'),
+      subtitle: 'Last updated ${trans('uptizm.settings.terms_updated')}.',
+      backLabel: trans('uptizm.settings.hub_title'),
+      backFallback: '/settings',
+      children: [
+        Card(
+          child: WDiv(
+            className: 'flex flex-col gap-5',
+            children: [
+              for (final LegalSection section in termsSections)
+                WDiv(
+                  className: 'flex flex-col gap-1.5',
+                  children: [
+                    WText(
+                      section.heading,
+                      className: 'text-sm font-semibold text-fg',
+                    ),
+                    WText(
+                      section.body,
+                      className: 'text-sm leading-relaxed text-fg-muted',
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
