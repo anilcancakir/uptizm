@@ -1076,6 +1076,7 @@
       "billing_plan_current_badge": "Current",
       "billing_plan_recommended_badge": "Recommended",
       "billing_plan_price_monthly": "/mo",
+      "billing_plan_price_custom": "Custom",
       "billing_plan_billing_monthly": "billed monthly",
       "billing_plan_billing_annual": "billed annually",
       "billing_plan_billing_free": "free forever",
@@ -1089,11 +1090,17 @@
       "billing_payment_update_button": "Update",
       "billing_invoices_header": "Billing history",
       "billing_invoice_receipt_button": "Receipt",
+      "billing_toast_contact_title": "We'll be in touch",
+      "billing_toast_contact_description": "Our team will reach out about Enterprise.",
+      "billing_toast_upgrade_title": "Upgrading to :name",
+      "billing_toast_switch_title": "Switching to :name",
+      "billing_toast_change_description": "Billed :cycle. Change takes effect at your next renewal.",
       "invite_accept_heading": "Join :name on Uptizm",
       "invite_accept_body": "You've been invited to collaborate as a Member. You'll get access to this team's monitors, incidents, and status pages.",
       "invite_accept_button": "Accept invite",
       "invite_accept_button_joining": "Joining...",
-      "invite_accept_decline_button": "Decline"
+      "invite_accept_decline_button": "Decline",
+      "invite_accepted": "You have joined the team."
     }
   }
 }
