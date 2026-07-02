@@ -24,7 +24,7 @@ colors:
     light: "#D1D5DA"
     dark: "#3A4147"
   primary:
-    light: "#009A6F"
+    light: "#008560"
     dark: "#00C292"
   on-primary:
     light: "#FFFFFF"
@@ -249,7 +249,7 @@ Light mode background hierarchy: `surface` (page canvas) -> `surface-container`
 (cards, white) -> `surface-container-high` (input backgrounds, nested panels).
 Dark mode inverts toward near-black cool-gray steps.
 
-Primary green (#009A6F light, #00C292 dark) carries every interactive surface.
+Primary green (#008560 light, #00C292 dark) carries every interactive surface.
 On the light canvas it sits on white text (`on-primary`); on the dark canvas it
 brightens and pairs with a near-black foreground for contrast. Destructive red
 (#DF202E) equals the `down` status so outages and danger actions share a single

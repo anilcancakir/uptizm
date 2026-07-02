@@ -16,7 +16,7 @@ const Map<String, String> designAliases = <String, String>{
   'text-fg': 'text-[#040608] dark:text-[#F1F3F6]',
   'text-fg-muted': 'text-[#555D65] dark:text-[#AAB1B7]',
   'text-fg-disabled': 'text-[#D1D5DA] dark:text-[#3A4147]',
-  'bg-primary': 'bg-[#009A6F] dark:bg-[#00C292]',
+  'bg-primary': 'bg-[#008560] dark:bg-[#00C292]',
   'text-on-primary': 'text-[#FFFFFF] dark:text-[#07090C]',
   'bg-primary-container': 'bg-[#E0F9EE] dark:bg-[#003223]',
   'bg-accent': 'bg-[#007A54] dark:bg-[#98E8C9]',
@@ -34,16 +34,16 @@ const Map<String, String> designAliases = <String, String>{
 /// Seeded from the DESIGN.md `primary` light hex; consumed by
 /// `WindThemeData.toThemeData()` Material interop.
 final Map<String, MaterialColor> designColors = <String, MaterialColor>{
-  'primary': MaterialColor(0xFF009A6F, <int, Color>{
-    50: Color(0xFFEBF7F3),
-    100: Color(0xFFD6EFE8),
-    200: Color(0xFFA8DDCE),
-    300: Color(0xFF7ACAB4),
-    400: Color(0xFF42B494),
-    500: Color(0xFF009A6F),
-    600: Color(0xFF008862),
-    700: Color(0xFF007554),
-    800: Color(0xFF006347),
-    900: Color(0xFF00503A),
+  'primary': MaterialColor(0xFF008560, <int, Color>{
+    50: Color(0xFFEBF5F2),
+    100: Color(0xFFD6EBE6),
+    200: Color(0xFFA8D6C9),
+    300: Color(0xFF7AC0AC),
+    400: Color(0xFF42A589),
+    500: Color(0xFF008560),
+    600: Color(0xFF007554),
+    700: Color(0xFF006549),
+    800: Color(0xFF00553D),
+    900: Color(0xFF004532),
   }),
 };
