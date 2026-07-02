@@ -67,73 +67,64 @@ class DashboardView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Compose the page body, stacking the regions with section rhythm. A plain
-    // Flutter Column scaffolds the page (not a Wind flex Column) so the leaf
-    // components receive a bounded, well-formed width constraint from the
-    // shared PageContainer rather than an unbounded flex-overflow context.
+    // Compose the page body as a Wind flex column: section rhythm is carried by
+    // `gap-*`, not SizedBox spacers. The outer 32px rhythm (`gap-8`) separates
+    // the intro block, the KPI row, and the lower region; the intro block nests
+    // its own `gap-6` so the header sits 24px above the fleet-summary banner.
     return PageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-8',
         children: [
-          // 1. Page header (reused magic_starter PageHeader).
-          PageHeader(
-            title: trans('uptizm.dashboard.title'),
-            subtitle: trans('uptizm.dashboard.description'),
+          // 1. Intro block: page header + the "Right now" AI fleet-summary
+          //    banner, matching the React source placement (header -> banner
+          //    -> KPI row). The inner gap-6 keeps the 24px header rhythm.
+          WDiv(
+            className: 'flex flex-col gap-6',
+            children: [
+              PageHeader(
+                title: trans('uptizm.dashboard.title'),
+                subtitle: trans('uptizm.dashboard.description'),
+              ),
+              _buildFleetSummary(),
+            ],
           ),
-          const SizedBox(height: 24),
 
-          // 2. AI fleet-summary banner ("Right now"), matching the React source
-          //    placement between the header and the KPI row.
-          _buildFleetSummary(),
-          const SizedBox(height: 32),
-
-          // 3. KPI summary row.
+          // 2. KPI summary row.
           _buildKpiRow(),
-          const SizedBox(height: 32),
 
-          // 4. Lower region: at lg+ the active incidents + monitor snippet
+          // 3. Lower region: at lg+ the active incidents + monitor snippet
           //    span 2/3 beside the AI inbox in a 1/3 right rail (mirroring the
           //    React `lg:grid-cols-3` + `lg:col-span-2`); below lg they stack.
-          _buildLowerRegion(context),
+          _buildLowerRegion(),
         ],
       ),
     );
   }
 
-  /// Builds the lower dashboard region.
+  /// Builds the lower dashboard region as a single responsive Wind flex.
   ///
   /// On `lg`+ it is a two-column split: the active incidents and the monitor
-  /// snippet occupy a 2/3 left column beside the AI inbox in a 1/3 right rail,
-  /// matching the design lab's `lg:grid-cols-3` with the content at
-  /// `lg:col-span-2`. Below `lg` the three sections stack full-width with the
-  /// shared 32px section rhythm.
-  Widget _buildLowerRegion(BuildContext context) {
-    final Widget mainColumn = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  /// snippet occupy a 2/3 left column (`lg:flex-2`) beside the AI inbox in a
+  /// 1/3 right rail (`lg:flex-1`), matching the design lab's `lg:grid-cols-3`
+  /// with the content at `lg:col-span-2`. Below `lg` the direction collapses to
+  /// a column (`flex-col`) and the sections stack full-width. The 32px rhythm
+  /// (both the vertical stack gap and the horizontal column gap) is `gap-8`, so
+  /// no breakpoint branch or SizedBox spacer is needed.
+  Widget _buildLowerRegion() {
+    return WDiv(
+      className: 'flex flex-col lg:flex-row gap-8 items-stretch lg:items-start',
       children: [
-        _buildActiveIncidents(),
-        const SizedBox(height: 32),
-        _buildMonitorSnippet(),
-      ],
-    );
-
-    if (!wScreenIs(context, 'lg')) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          mainColumn,
-          const SizedBox(height: 32),
-          _buildAiInbox(),
-        ],
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(flex: 2, child: mainColumn),
-        const SizedBox(width: 32),
-        Expanded(flex: 1, child: _buildAiInbox()),
+        WDiv(
+          className: 'lg:flex-2 min-w-0 w-full flex flex-col gap-8',
+          children: [
+            _buildActiveIncidents(),
+            _buildMonitorSnippet(),
+          ],
+        ),
+        WDiv(
+          className: 'lg:flex-1 min-w-0 w-full',
+          child: _buildAiInbox(),
+        ),
       ],
     );
   }
@@ -219,11 +210,10 @@ class DashboardView extends StatelessWidget {
   /// Builds the active-incidents section: a heading and a single-column base
   /// grid that widens to two columns at `sm:`.
   Widget _buildActiveIncidents() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col gap-3',
       children: [
         _sectionHeading(trans('uptizm.dashboard.section_active_incidents')),
-        const SizedBox(height: 12),
         WDiv(
           className: 'grid grid-cols-1 sm:grid-cols-2 gap-3',
           children: [
@@ -240,18 +230,20 @@ class DashboardView extends StatelessWidget {
 
   /// Builds the monitor snippet: a heading and a vertical list of monitor rows.
   Widget _buildMonitorSnippet() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col gap-3',
       children: [
         _sectionHeading(trans('uptizm.dashboard.section_monitors')),
-        const SizedBox(height: 12),
-        for (final monitor in monitors) ...[
-          MonitorListRow(
-            monitor: monitor,
-            onTap: () => MagicRoute.to('/monitors/${monitor.id}'),
-          ),
-          if (monitor != monitors.last) const SizedBox(height: 8),
-        ],
+        WDiv(
+          className: 'flex flex-col gap-2',
+          children: [
+            for (final monitor in monitors)
+              MonitorListRow(
+                monitor: monitor,
+                onTap: () => MagicRoute.to('/monitors/${monitor.id}'),
+              ),
+          ],
+        ),
       ],
     );
   }
@@ -261,56 +253,62 @@ class DashboardView extends StatelessWidget {
   Widget _buildAiInbox() {
     final List<IncidentSummary> suggestions = _aiSuggestions;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WDiv(
+      className: 'flex flex-col gap-3',
       children: [
-        // 1. Heading row: section title on the left; pending count + the
-        //    "Weekly digest" link on the right (React `justify-between`).
+        // 1. Heading group: the title row (title left; pending count + "Weekly
+        //    digest" link right, React `justify-between`) sitting 4px above the
+        //    inbox subtitle (inner gap-1).
         WDiv(
-          className: 'flex flex-row items-center justify-between gap-3',
+          className: 'flex flex-col gap-1',
           children: [
-            _sectionHeading(trans('uptizm.dashboard.section_ai_inbox')),
             WDiv(
-              className: 'flex flex-row items-center gap-3',
+              className: 'flex flex-row items-center justify-between gap-3',
               children: [
-                WText(
-                  trans('uptizm.dashboard.ai_inbox_pending', {
-                    'count': '${suggestions.length}',
-                  }),
-                  className: 'font-mono text-xs tabular-nums text-fg-muted',
-                ),
-                WButton(
-                  onTap: () => MagicRoute.to('/incidents/digest'),
-                  child: WText(
-                    trans('uptizm.dashboard.ai_inbox_weekly_digest'),
-                    className: 'text-xs text-primary',
-                  ),
+                _sectionHeading(trans('uptizm.dashboard.section_ai_inbox')),
+                WDiv(
+                  className: 'flex flex-row items-center gap-3',
+                  children: [
+                    WText(
+                      trans('uptizm.dashboard.ai_inbox_pending', {
+                        'count': '${suggestions.length}',
+                      }),
+                      className: 'font-mono text-xs tabular-nums text-fg-muted',
+                    ),
+                    WButton(
+                      onTap: () => MagicRoute.to('/incidents/digest'),
+                      child: WText(
+                        trans('uptizm.dashboard.ai_inbox_weekly_digest'),
+                        className: 'text-xs text-primary',
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
+            WText(
+              trans('uptizm.dashboard.ai_inbox_subtitle'),
+              className: 'text-xs text-fg-muted',
+            ),
           ],
         ),
-        const SizedBox(height: 4),
 
-        // 2. Inbox subtitle.
-        WText(
-          trans('uptizm.dashboard.ai_inbox_subtitle'),
-          className: 'text-xs text-fg-muted',
-        ),
-        const SizedBox(height: 12),
-
-        // 3. Suggestions list, or the empty state when inbox-zero.
+        // 2. Suggestions list, or the empty state when inbox-zero. The list
+        //    carries its own 12px item rhythm (gap-3).
         if (suggestions.isEmpty)
           EmptyState(title: trans('uptizm.dashboard.ai_inbox_empty'))
         else
-          for (final suggestion in suggestions) ...[
-            AiInboxItem(
-              incident: suggestion,
-              onApprove: () => MagicRoute.to('/incidents/new', query: {'from': suggestion.id}),
-              onDismiss: () {},
-            ),
-            if (suggestion != suggestions.last) const SizedBox(height: 12),
-          ],
+          WDiv(
+            className: 'flex flex-col gap-3',
+            children: [
+              for (final suggestion in suggestions)
+                AiInboxItem(
+                  incident: suggestion,
+                  onApprove: () => MagicRoute.to('/incidents/new', query: {'from': suggestion.id}),
+                  onDismiss: () {},
+                ),
+            ],
+          ),
       ],
     );
   }
