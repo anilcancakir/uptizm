@@ -352,8 +352,9 @@ void main() {
       );
       await tester.pump();
 
-      // The rung rail's Expanded connecting line is now bounded by an
-      // IntrinsicHeight wrapper, so no RenderFlex overflow fires.
+      // The rung rail's connecting line is a Stack+Positioned bar (the
+      // incident_timeline pattern), not an Expanded-in-Column, so no
+      // RenderFlex overflow fires under the unbounded-height scroll view.
       expect(tester.takeException(), isNull);
       expect(
         find.text(trans('uptizm.teams.escalation_title')),
