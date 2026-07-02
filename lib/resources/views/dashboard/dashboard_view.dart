@@ -243,9 +243,18 @@ class _DashboardViewState
           className: 'flex flex-col gap-1',
           children: [
             WDiv(
-              className: 'flex flex-row items-center justify-between gap-3',
+              // Title absorbs the slack (flex-1) so the count + digest link sit
+              // flush-right; `justify-between` here splits the row into equal
+              // Flexible halves and overflows the right group in the narrow
+              // lg 1/3 rail (~380px), so grow-the-title is the robust idiom.
+              className: 'flex flex-row items-center gap-3',
               children: [
-                _sectionHeading(trans('uptizm.dashboard.section_ai_inbox')),
+                WDiv(
+                  className: 'flex-1 min-w-0',
+                  child: _sectionHeading(
+                    trans('uptizm.dashboard.section_ai_inbox'),
+                  ),
+                ),
                 WDiv(
                   className: 'flex flex-row items-center gap-3',
                   children: [

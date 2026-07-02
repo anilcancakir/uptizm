@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
+import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/resources/views/monitors/monitors_list_view.dart';
@@ -46,6 +47,11 @@ void main() {
     // Bind the MagicStarter manager so PageHeader / SegmentedControl / EmptyState
     // resolve their themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Register the controller MonitorsListView binds to. The view's own
+    // initState calls Magic.findOrPut(MonitorController.new) too, but the
+    // explicit registration here documents the dependency and is harmless
+    // (findOrPut is idempotent).
+    Magic.findOrPut(MonitorController.new);
 
     // Load the real monitors prose so trans() returns wrappable text.
     // Without this, long key tokens (e.g. 'uptizm.monitors.kpi_monitors_used')

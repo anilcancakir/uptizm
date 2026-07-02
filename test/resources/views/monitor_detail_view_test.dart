@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/index.dart';
@@ -80,6 +81,11 @@ void main() {
     // Bind the MagicStarter manager so Card / PageHeader / Tabs resolve their
     // themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Register the controller MonitorDetailView binds to. The view's own
+    // initState calls Magic.findOrPut(MonitorController.new) too, but the
+    // explicit registration here documents the dependency and is harmless
+    // (findOrPut is idempotent).
+    Magic.findOrPut(MonitorController.new);
 
     // Load short prose so trans() returns wrappable labels; without it the raw
     // 'uptizm.status.*' keys render as long unbreakable strings and overflow

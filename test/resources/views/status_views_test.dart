@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import 'package:uptizm/app/controllers/status_page_controller.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
 import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
@@ -19,6 +20,16 @@ class _StatusViewsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
     return {
+      // Status badge labels (StatusBadge trans('uptizm.status.<key>')). Missing
+      // these renders the raw ~30-char key token, which overflows the badge's
+      // fixed-width pill (mirrors the guard in monitor_detail_view_test.dart).
+      'uptizm.status.up': 'Operational',
+      'uptizm.status.down': 'Major outage',
+      'uptizm.status.degraded': 'Degraded',
+      'uptizm.status.paused': 'Paused',
+      'uptizm.status.info': 'Maintenance',
+      'uptizm.status.ai': 'AI',
+
       // List.
       'uptizm.status.list_title': 'Status pages',
       'uptizm.status.list_description': 'Public status pages for customers.',
@@ -115,6 +126,10 @@ void main() {
     // MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
 
+    // Register the controller up front (idempotent alongside each view's own
+    // initState registration), matching the plan's canonical harness.
+    Magic.findOrPut(StatusPageController.new);
+
     Translator.instance.setLoader(_StatusViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
   });
@@ -177,13 +192,7 @@ void main() {
       );
       await tester.pump();
 
-      // A pre-existing layout overflow (the domain-mode SegmentedControl and
-      // header action row do not shrink cleanly at every viewport width, the
-      // same class of issue as the incident-detail header chip-row overflow
-      // documented in incident_views_test.dart) fires here independent of the
-      // behavioral contract under test; it is drained rather than asserted
-      // away, and the finder assertions below still verify the real contract.
-      tester.takeException();
+      expect(tester.takeException(), isNull);
       expect(find.byType(PageContainer), findsOneWidget);
       expect(find.text(trans('uptizm.status.editor_title_new')), findsOneWidget);
       expect(
@@ -212,9 +221,7 @@ void main() {
       );
       await tester.pump();
 
-      // See the create-mode overflow note above; drained rather than asserted
-      // away.
-      tester.takeException();
+      expect(tester.takeException(), isNull);
       expect(find.text(page.name), findsWidgets);
       expect(
         find.text(trans('uptizm.status.editor_form_save')),
@@ -315,9 +322,7 @@ void main() {
       );
       await tester.pump();
 
-      // See the editor create-mode overflow note above; drained rather than
-      // asserted away.
-      tester.takeException();
+      expect(tester.takeException(), isNull);
       expect(find.text(page.name), findsWidgets);
       expect(find.byType(StatusPagePreview), findsOneWidget);
     });

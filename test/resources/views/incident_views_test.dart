@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart' hide EmptyState;
 
+import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
 import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
@@ -123,6 +124,12 @@ void main() {
 
     Translator.instance.setLoader(_IncidentViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
+
+    // Register the controller the views resolve in initState. Each view
+    // registers itself too, but registering here mirrors the canonical
+    // harness (Conventions -> Test mount discipline) and makes the
+    // dependency explicit for readers of this file.
+    Magic.findOrPut(IncidentController.new);
   });
 
   tearDown(() {
