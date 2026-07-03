@@ -125,13 +125,13 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/',
         () => const DashboardView(),
-      ).title('Dashboard | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.dashboard').transition(RouteTransition.none);
 
       // 2. Monitors list: full monitor inventory with status filter.
       MagicRoute.page(
         '/monitors',
         () => const MonitorsListView(),
-      ).title('Monitors | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.monitors').transition(RouteTransition.none);
 
       // 3. New monitor: static segment registered BEFORE /monitors/:id so the
       //    literal path /monitors/new is never consumed as a dynamic :id param.
@@ -140,13 +140,13 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/monitors/new',
         () => const MonitorCreateView(),
-      ).title('New monitor | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.monitor_new').transition(RouteTransition.none);
 
       // 4. Monitor detail: resolves :id from the path to the fixture.
       MagicRoute.page(
         '/monitors/:id',
         (String id) => MonitorDetailView(id: id),
-      ).title('Monitor | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.monitor').transition(RouteTransition.none);
 
       // 5. Edit monitor: /monitors/:id/edit is distinct from /monitors/:id so
       //    ordering relative to the detail route does not matter, but it is
@@ -154,13 +154,13 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/monitors/:id/edit',
         (String id) => MonitorEditView(id: id),
-      ).title('Edit monitor | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.monitor_edit').transition(RouteTransition.none);
 
       // 6. Incidents list: full incident inventory with filter + search.
       MagicRoute.page(
         '/incidents',
         () => const IncidentsListView(),
-      ).title('Incidents | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.incidents').transition(RouteTransition.none);
 
       // 7. New incident: static segment registered BEFORE /incidents/:id so
       //    the literal path /incidents/new is never consumed as a dynamic
@@ -170,19 +170,19 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/incidents/new',
         () => const IncidentCreateView(),
-      ).title('New incident | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.incident_new').transition(RouteTransition.none);
 
       // 8. Incident detail: resolves :id from the path to the fixture.
       MagicRoute.page(
         '/incidents/:id',
         (String id) => IncidentDetailView(id: id),
-      ).title('Incident | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.incident').transition(RouteTransition.none);
 
       // 9. Status pages list: full status page inventory.
       MagicRoute.page(
         '/status',
         () => const StatusPagesListView(),
-      ).title('Status pages | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.status_pages').transition(RouteTransition.none);
 
       // 10. New status page: static segment registered BEFORE /status/:id so
       //     the literal path /status/new is never consumed as a dynamic :id
@@ -192,13 +192,13 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/status/new',
         () => const StatusPageEditorView(),
-      ).title('New status page | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.status_page_new').transition(RouteTransition.none);
 
       // 11. Status page editor: resolves :id from the path to the fixture.
       MagicRoute.page(
         '/status/:id',
         (String id) => StatusPageEditorView(id: id),
-      ).title('Edit status page | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.status_page_edit').transition(RouteTransition.none);
 
       // 12. Status page preview: /status/:id/preview is distinct from
       //     /status/:id so ordering relative to the editor route does not
@@ -206,21 +206,21 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/status/:id/preview',
         (String id) => StatusPagePreviewView(id: id),
-      ).title('Status page preview | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.status_page_preview').transition(RouteTransition.none);
 
       // 13. Status page subscribers: /status/:id/subscribers is distinct
       //     from /status/:id, same ordering note as the preview route above.
       MagicRoute.page(
         '/status/:id/subscribers',
         (String id) => StatusPageSubscribersView(id: id),
-      ).title('Status page subscribers | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.status_page_subscribers').transition(RouteTransition.none);
 
       // 14. Settings hub: the grouped-list index (Account / Security /
       //     Preferences / Team / About & support).
       MagicRoute.page(
         '/settings',
         () => const SettingsHubView(),
-      ).title('Settings | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.settings').transition(RouteTransition.none);
 
       // 15. Settings sub-pages. All static paths (no :id), so registration
       //     order among them carries no first-match concern; grouped here
@@ -228,88 +228,88 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/settings/profile',
         () => const ProfileSettingsView(),
-      ).title('Profile | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.profile').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/security/2fa',
         () => const TwoFactorSettingsView(),
-      ).title('Two-factor authentication | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.two_factor').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/security/password',
         () => const PasswordSettingsView(),
-      ).title('Password | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.password').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/security/sessions',
         () => const SessionsSettingsView(),
-      ).title('Active sessions | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.sessions').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/appearance',
         () => const AppearanceSettingsView(),
-      ).title('Appearance | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.appearance').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/language',
         () => const LanguageSettingsView(),
-      ).title('Language | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.language').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/timezone',
         () => const TimezoneSettingsView(),
-      ).title('Time zone | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.timezone').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/notifications',
         () => const NotificationsSettingsView(),
-      ).title('Notifications | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.notifications').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/help',
         () => const HelpSettingsView(),
-      ).title('Help | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.help').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/changelog',
         () => const ChangelogSettingsView(),
-      ).title('Changelog | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.changelog').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/privacy',
         () => const PrivacySettingsView(),
-      ).title('Privacy policy | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.privacy').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/settings/terms',
         () => const TermsSettingsView(),
-      ).title('Terms of service | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.terms').transition(RouteTransition.none);
 
       // 16. Team destinations. The Settings hub's Team group links here.
       MagicRoute.page(
         '/teams/new',
         () => const TeamCreateView(),
-      ).title('New team | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.team_new').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/settings',
         () => const TeamSettingsView(),
-      ).title('Team settings | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.team_settings').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/members',
         () => const TeamMembersView(),
-      ).title('Members | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.members').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/notifications',
         () => const NotificationChannelsView(),
-      ).title('Notification channels | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.notification_channels').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/escalation',
         () => const EscalationPoliciesView(),
-      ).title('Escalation policies | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.escalation_policies').transition(RouteTransition.none);
 
       // 17. New escalation policy: static segment registered BEFORE
       //     /teams/escalation/:id so the literal path /teams/escalation/new
@@ -319,24 +319,24 @@ void registerAppRoutes() {
       MagicRoute.page(
         '/teams/escalation/new',
         () => const EscalationPolicyEditorView(),
-      ).title('New escalation policy | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.escalation_policy_new').transition(RouteTransition.none);
 
       // 18. Escalation policy editor: resolves :id from the path to the
       //     fixture (edits an existing policy).
       MagicRoute.page(
         '/teams/escalation/:id',
         (String id) => EscalationPolicyEditorView(id: id),
-      ).title('Edit escalation policy | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.escalation_policy_edit').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/on-call',
         () => const OnCallScheduleView(),
-      ).title('On-call | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.on_call').transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/billing',
         () => const PlanBillingView(),
-      ).title('Plan & billing | Uptizm').transition(RouteTransition.none);
+      ).title('uptizm.titles.billing').transition(RouteTransition.none);
     },
   );
 
