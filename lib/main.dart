@@ -97,5 +97,10 @@ void main() async {
     aliases: {...designAliases, ...uptizmStatusAliases},
   );
 
-  runApp(MagicApplication(title: 'Uptizm', windTheme: windTheme));
+  runApp(
+    MagicApplication(
+      title: Config.get<String>('app.name', 'Uptizm')!,
+      windTheme: windTheme,
+    ),
+  );
 }

@@ -9,10 +9,11 @@ import 'package:magic_starter/magic_starter.dart';
 /// Application Configuration.
 Map<String, dynamic> get appConfig => {
   'app': {
-    'name': env('APP_NAME', 'My App'),
+    'name': env('APP_NAME', 'Uptizm'),
     'env': env('APP_ENV', 'production'),
     'debug': env('APP_DEBUG', false),
     'key': env('APP_KEY'),
+    'title_separator': ' | ',
     'providers': [
       (app) => RouteServiceProvider(app),
       (app) => CacheServiceProvider(app),
