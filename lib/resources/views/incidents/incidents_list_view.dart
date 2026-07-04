@@ -201,10 +201,11 @@ class _IncidentsListViewState
   /// Builds the filter row: [SegmentedControl] on the left, a tabular
   /// visible/total count on the right, with a 12px `gap-3`.
   ///
-  /// The SegmentedControl stays in a [Flexible] (loose) slot so the pill
-  /// shrink-wraps naturally and yields width on very narrow screens rather than
-  /// forcing the row to overflow; that overflow guard is structural, so the
-  /// [Flexible] remains inside the Wind flex row.
+  /// The SegmentedControl stays in a [Flexible] (loose) slot that bounds its
+  /// width so its `overflow-x-auto` root scrolls the segments horizontally on
+  /// narrow phones rather than forcing the row to overflow; that overflow guard
+  /// is structural, so the [Flexible] remains inside the Wind flex row. The
+  /// count is hidden below the md breakpoint (mobile) to free width for the tabs.
   Widget _buildFilterRow() {
     return WDiv(
       className: 'flex flex-row items-center gap-3',
@@ -220,11 +221,14 @@ class _IncidentsListViewState
             selectedIndex: _filter.index,
             onChanged: (i) =>
                 setState(() => _filter = _IncidentFilter.values[i]),
+            classNames: const {'root': 'overflow-x-auto'},
           ),
         ),
+        // The count is desktop-only: on mobile it eats width the tabs need, so
+        // hide it below the md breakpoint and let the tabs use the full row.
         WText(
           '${_visible.length} of ${controller.incidents.length}',
-          className: 'font-mono text-xs tabular-nums text-fg-muted',
+          className: 'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
     );

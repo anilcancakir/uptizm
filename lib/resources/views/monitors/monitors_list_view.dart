@@ -206,19 +206,23 @@ class _MonitorsListViewState
     return WDiv(
       className: 'flex flex-row items-center gap-3',
       children: [
-        // The Flexible shrink-wraps the pill and lets it yield width on very
-        // narrow screens rather than forcing the row to overflow (FlexFit.loose
-        // has no Wind className equivalent, so the wrapper stays structural).
+        // The Flexible bounds the pill's width so its `overflow-x-auto` root can
+        // scroll the segments horizontally on narrow phones instead of forcing
+        // the row to overflow (FlexFit.loose has no Wind className equivalent, so
+        // the wrapper stays structural).
         Flexible(
           child: SegmentedControl(
             options: _filters.map((f) => f.label).toList(),
             selectedIndex: _filterIndex,
             onChanged: (i) => setState(() => _filterIndex = i),
+            classNames: const {'root': 'overflow-x-auto'},
           ),
         ),
+        // The count is desktop-only: on mobile it eats width the tabs need, so
+        // hide it below the md breakpoint and let the tabs use the full row.
         WText(
           '${_visible.length} of ${controller.monitors.length}',
-          className: 'font-mono text-xs tabular-nums text-fg-muted',
+          className: 'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
     );
