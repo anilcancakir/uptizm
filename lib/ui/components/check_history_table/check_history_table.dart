@@ -19,14 +19,17 @@ import 'check_history_table.recipe.dart';
 /// soft pill with a leading dot, matching the React original), left-aligned so
 /// the pill hugs its content.
 ///
-/// The layout is pure Wind: the table is a `flex flex-col w-full` [WDiv], each
-/// header / data row is a `flex flex-row items-center` [WDiv], and the columns
-/// size themselves through the className track tokens (`flex-1` / `flex-2` for
-/// the text columns, fixed `w-*` + `shrink-0` for the numeric columns). A child
-/// carrying `flex-1`/`flex-2` is wrapped in an `Expanded` by the parent flex
-/// row, so no raw Flutter `Row`/`Expanded`/`SizedBox` is needed.
+/// The layout is pure Wind: the table is a `flex flex-col` [WDiv], each header /
+/// data row is a `flex flex-row items-center` [WDiv], and every column takes a
+/// fixed `w-*` + `shrink-0` track. Fixed tracks give the row a definite intrinsic
+/// width (~560px) and keep the columns vertically aligned.
 ///
-/// All flexible cells carry `min-w-0` to prevent overflow on narrow viewports.
+/// The table is wrapped in a Wind `overflow-x-auto` [WDiv], so on viewports
+/// narrower than that intrinsic width the whole grid scrolls horizontally as one
+/// unit (no cell-text wrapping, no status-pill overflow); wider surfaces show the
+/// full table with no scrollbar. A `LayoutBuilder` stretch-to-fill wrapper is
+/// avoided on purpose: the detail page measures intrinsic heights
+/// (`items-stretch`) and `LayoutBuilder` throws under intrinsic measurement.
 ///
 /// Uses [checkHistoryTableRecipe] for all styling; no raw hex, `Color(0xFF...)`,
 /// or `Colors.*` anywhere. Composes [StatusBadge] instead of duplicating the
@@ -68,15 +71,23 @@ class CheckHistoryTable extends StatelessWidget {
     // Resolve all slot classNames once; no per-row overhead.
     final classes = checkHistoryTableRecipe();
 
-    // The table is a full-width Wind flex column: a header row followed by one
-    // flex row per check. No raw Flutter layout widgets.
-    return WDiv(
+    // The table is a Wind flex column of fixed-width rows: a header row followed
+    // by one flex row per check. Fixed columns give it a definite intrinsic
+    // width (~560px).
+    final Widget table = WDiv(
       className: classes['table'],
       children: [
         _buildHeader(classes),
         for (final row in rows) _buildRow(row, classes),
       ],
     );
+
+    // Wrap in Wind's `overflow-x-auto` so the whole grid scrolls sideways as one
+    // unit on a narrow phone (viewport < ~560px) instead of squeezing the cells
+    // until their text wraps or the status pill overflows; wider surfaces show
+    // the full table with no scrollbar. This is the idiomatic Wind horizontal
+    // scroll (a WDiv-level SingleChildScrollView), no raw Flutter layout needed.
+    return WDiv(className: 'overflow-x-auto', child: table);
   }
 
   // ---------------------------------------------------------------------------
@@ -84,8 +95,8 @@ class CheckHistoryTable extends StatelessWidget {
   // ---------------------------------------------------------------------------
 
   Widget _buildHeader(Map<String, String> classes) {
-    // A Wind flex row; each cell carries its own track sizing (flex-1 / flex-2
-    // / fixed w-*) so the parent flex row distributes the columns.
+    // A Wind flex row; each cell carries its own fixed `w-*` track so the
+    // columns line up with the data rows below.
     return WDiv(
       className: classes['header'],
       children: [
@@ -99,9 +110,9 @@ class CheckHistoryTable extends StatelessWidget {
   }
 
   Widget _buildRow(CheckRow row, Map<String, String> classes) {
-    // A Wind flex row mirroring the header tracks. The Status cell is its own
-    // flex row holding a left-aligned [StatusBadge]; the numeric cells take a
-    // fixed, right-aligned track.
+    // A Wind flex row mirroring the header's fixed tracks. The Status cell is
+    // its own flex row holding a left-aligned [StatusBadge]; the numeric cells
+    // are right-aligned.
     return WDiv(
       className: classes['row'],
       children: [

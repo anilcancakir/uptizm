@@ -7,7 +7,31 @@ import 'package:uptizm/ui/components/check_history_table/index.dart';
 import 'package:uptizm/ui/components/check_history_table/check_history_table.preview.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
 
+/// In-memory loader feeding the short `uptizm.status.*` labels so [StatusBadge]
+/// renders real prose ("Major outage") instead of the raw ~18-char i18n key
+/// ("uptizm.status.down"). Without it the key string is far wider than the real
+/// label and overflows the fixed status column at the test viewport, mirroring
+/// the pattern the monitor-detail view test uses.
+class _StatusLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    return {
+      'uptizm.status.up': 'Operational',
+      'uptizm.status.down': 'Major outage',
+      'uptizm.status.degraded': 'Degraded',
+      'uptizm.status.paused': 'Paused',
+      'uptizm.status.info': 'Maintenance',
+      'uptizm.status.ai': 'AI',
+    };
+  }
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_StatusLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme] so
   /// W-widgets can resolve Wind styles without a running Magic app.
   Widget wrap(Widget widget) {
@@ -24,11 +48,13 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('checkHistoryTableRecipe', () {
-    test('table slot emits a full-width flex column', () {
+    test('table slot emits a flex column with no w-full (sizes to widest row)', () {
       final classes = checkHistoryTableRecipe();
       expect(classes['table'], contains('flex'));
       expect(classes['table'], contains('flex-col'));
-      expect(classes['table'], contains('w-full'));
+      // No w-full: the table sizes to its widest row so the overflow-x-auto
+      // wrapper can scroll it as one unit on a narrow phone.
+      expect(classes['table'], isNot(contains('w-full')));
     });
 
     test('row slot is a flex row with a bottom hairline divider', () {
@@ -45,17 +71,19 @@ void main() {
       expect(classes['header'], contains('border-color-border'));
     });
 
-    test('th slot grows (flex-1) and is quiet uppercase muted', () {
+    test('th slot takes a fixed w-28 track and is quiet uppercase muted', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['th'], contains('flex-1'));
+      expect(classes['th'], contains('w-28'));
+      expect(classes['th'], contains('shrink-0'));
       expect(classes['th'], contains('uppercase'));
       expect(classes['th'], contains('tracking-wide'));
       expect(classes['th'], contains('text-fg-muted'));
     });
 
-    test('thStatus slot takes the wider flex-2 track', () {
+    test('thStatus slot takes the wider fixed w-48 track', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['thStatus'], contains('flex-2'));
+      expect(classes['thStatus'], contains('w-48'));
+      expect(classes['thStatus'], contains('shrink-0'));
       expect(classes['thStatus'], contains('uppercase'));
     });
 
@@ -68,9 +96,10 @@ void main() {
       expect(classes['thCode'], contains('text-right'));
     });
 
-    test('cellId slot grows and emits tabular-nums font-mono', () {
+    test('cellId slot takes a fixed w-28 track and emits tabular-nums font-mono', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['cellId'], contains('flex-1'));
+      expect(classes['cellId'], contains('w-28'));
+      expect(classes['cellId'], contains('shrink-0'));
       expect(classes['cellId'], contains('tabular-nums'));
       expect(classes['cellId'], contains('font-mono'));
     });
@@ -84,20 +113,30 @@ void main() {
       expect(classes['cellCode'], contains('text-right'));
     });
 
-    test('statusCell slot is a flex-2 flex row', () {
+    test('statusCell slot is a fixed w-48 flex row', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['statusCell'], contains('flex-2'));
+      expect(classes['statusCell'], contains('w-48'));
+      expect(classes['statusCell'], contains('shrink-0'));
       expect(classes['statusCell'], contains('flex flex-row'));
       expect(classes['statusCell'], contains('items-center'));
     });
 
-    test('all flexible slots carry the min-w-0 overflow guard', () {
+    test('every column slot takes a fixed shrink-0 track (scrollable as one unit)', () {
       final classes = checkHistoryTableRecipe();
-      for (final slot in ['th', 'thStatus', 'cellId', 'statusCell']) {
+      for (final slot in [
+        'th',
+        'thStatus',
+        'thResponse',
+        'thCode',
+        'cellId',
+        'statusCell',
+        'cellResponse',
+        'cellCode',
+      ]) {
         expect(
           classes[slot],
-          contains('min-w-0'),
-          reason: '$slot is missing min-w-0',
+          contains('shrink-0'),
+          reason: '$slot must be shrink-0 so the row keeps a definite width',
         );
       }
     });
@@ -106,6 +145,29 @@ void main() {
   // ---------------------------------------------------------------------------
   // Widget tests
   // ---------------------------------------------------------------------------
+
+  testWidgets('CheckHistoryTable scrolls (no overflow) at a 375px mobile width', (
+    tester,
+  ) async {
+    // Regression: the fixed-width grid (~560px) exceeds a phone viewport, so the
+    // `overflow-x-auto` wrapper must scroll it as one unit rather than let a row
+    // or the status pill overflow. Guards the mobile detail page from the earlier
+    // RenderFlex-overflow / crash regression.
+    tester.view.physicalSize = const Size(375, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(wrap(CheckHistoryTable(rows: recentChecks)));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(Scrollable), findsWidgets);
+    final badges = tester.widgetList<StatusBadge>(find.byType(StatusBadge));
+    expect(badges.length, equals(recentChecks.length));
+  });
 
   testWidgets('CheckHistoryTable renders one StatusBadge per row', (
     tester,
