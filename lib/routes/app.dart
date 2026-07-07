@@ -4,6 +4,8 @@ import '../resources/views/dashboard/dashboard_view.dart';
 import '../resources/views/incidents/incident_create_view.dart';
 import '../resources/views/incidents/incident_detail_view.dart';
 import '../resources/views/incidents/incidents_list_view.dart';
+import '../resources/views/auth/welcome_view.dart';
+import '../resources/views/incidents/weekly_digest_view.dart';
 import '../resources/views/monitors/monitor_create_view.dart';
 import '../resources/views/monitors/monitor_detail_view.dart';
 import '../resources/views/monitors/monitor_edit_view.dart';
@@ -172,7 +174,16 @@ void registerAppRoutes() {
         () => const IncidentCreateView(),
       ).title('uptizm.titles.incident_new').transition(RouteTransition.none);
 
-      // 8. Incident detail: resolves :id from the path to the fixture.
+      // 8. Weekly AI digest: static segment registered BEFORE /incidents/:id so
+      //    the literal path /incidents/digest is never consumed as a dynamic
+      //    :id param (same ordering rule as /incidents/new). Linked from the
+      //    dashboard AI inbox's "Weekly digest" affordance.
+      MagicRoute.page(
+        '/incidents/digest',
+        () => const WeeklyDigestView(),
+      ).title('uptizm.titles.digest').transition(RouteTransition.none);
+
+      // 9. Incident detail: resolves :id from the path to the fixture.
       MagicRoute.page(
         '/incidents/:id',
         (String id) => IncidentDetailView(id: id),
@@ -347,5 +358,14 @@ void registerAppRoutes() {
   MagicRoute.page(
     '/invite/:token',
     (String token) => InviteAcceptView(token: token),
+  ).transition(RouteTransition.none);
+
+  // 20. Onboarding: the first-launch welcome carousel, also OUTSIDE the
+  //     AppLayout group so it renders full-screen with no shell chrome
+  //     (mirrors the React router keeping /welcome outside the app shell).
+  //     Standalone routes carry no `.title(...)`, matching /invite above.
+  MagicRoute.page(
+    '/welcome',
+    () => const WelcomeView(),
   ).transition(RouteTransition.none);
 }
