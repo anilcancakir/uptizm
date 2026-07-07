@@ -424,7 +424,7 @@ packages:
       path: "../wind"
       relative: true
     source: path
-    version: "1.1.2"
+    version: "1.2.0"
   fluttersdk_wind_diagnostics_contracts:
     dependency: "direct overridden"
     description:
@@ -702,7 +702,7 @@ packages:
       path: "../magic"
       relative: true
     source: path
-    version: "0.0.3"
+    version: "0.0.4"
   magic_deeplink:
     dependency: "direct main"
     description:
