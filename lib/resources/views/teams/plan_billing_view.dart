@@ -90,7 +90,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.teams.billing_title'),
             subtitle: trans('uptizm.teams.billing_description'),
             backLabel: trans('uptizm.nav.dashboard'),
@@ -116,7 +116,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// Builds the current-plan [Card]: name + "Current" badge, the renewal line,
   /// and a responsive two-column grid of [UsageMeter]s over [billingUsage].
   Widget _buildCurrentPlanCard() {
-    return Card(
+    return MSCard(
       child: WDiv(
         className: 'flex flex-col gap-5',
         children: [
@@ -130,7 +130,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                     _current.name,
                     className: 'text-sm font-semibold text-fg',
                   ),
-                  Badge(
+                  MSBadge(
                     trans('uptizm.teams.billing_plan_current_badge'),
                     tone: BadgeTone.primary,
                   ),
@@ -180,7 +180,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
               trans('uptizm.teams.billing_plans_heading'),
               className: 'text-lg font-semibold text-fg',
             ),
-            SegmentedControl<BillingCycle>(
+            MSSegmentedControl<BillingCycle>(
               size: SegmentedControlSize.sm,
               options: [
                 trans('uptizm.teams.billing_plans_monthly'),
@@ -193,9 +193,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         ),
         WDiv(
           className: 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4',
-          children: [
-            for (final Plan plan in plans) _buildPlanCard(plan),
-          ],
+          children: [for (final Plan plan in plans) _buildPlanCard(plan)],
         ),
       ],
     );
@@ -218,7 +216,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         if (plan.recommended)
           WDiv(
             className: 'absolute -top-2.5 left-5',
-            child: Badge(
+            child: MSBadge(
               trans('uptizm.teams.billing_plan_recommended_badge'),
               tone: BadgeTone.primary,
             ),
@@ -249,15 +247,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                   ),
               ],
             ),
-            WText(
-              _billingNote(plan),
-              className: 'text-xs text-fg-muted',
-            ),
+            WText(_billingNote(plan), className: 'text-xs text-fg-muted'),
           ],
         ),
         // 3. AI hero tile: the value each upgrade buys.
         WDiv(
-          className: 'flex flex-row items-start gap-2 rounded-md '
+          className:
+              'flex flex-row items-start gap-2 rounded-md '
               'bg-ai-soft p-2.5',
           children: [
             WIcon(_sparkleIcon, className: 'text-[16px] text-ai'),
@@ -275,30 +271,21 @@ class _PlanBillingViewState extends State<PlanBillingView> {
               WDiv(
                 className: 'flex flex-row items-start gap-2',
                 children: [
-                  WIcon(
-                    _checkIcon,
-                    className: 'text-[16px] text-primary',
-                  ),
-                  WText(
-                    feature,
-                    className: 'flex-1 text-sm text-fg',
-                  ),
+                  WIcon(_checkIcon, className: 'text-[16px] text-primary'),
+                  WText(feature, className: 'flex-1 text-sm text-fg'),
                 ],
               ),
           ],
         ),
         // 5. Optional responder add-on line.
         if (plan.responderAddOn != null)
-          WText(
-            plan.responderAddOn!,
-            className: 'text-xs text-fg-muted',
-          ),
+          WText(plan.responderAddOn!, className: 'text-xs text-fg-muted'),
         // 6. CTA. A block column stretches the button full-width without a
         //    flex-row w-full (MUST NOT). Current plan is disabled.
         WDiv(
           className: 'flex flex-col pt-1',
           children: [
-            Button(
+            MSButton(
               intent: (isCurrent || !plan.recommended)
                   ? ButtonIntent.secondary
                   : ButtonIntent.primary,
@@ -326,12 +313,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           trans('uptizm.teams.billing_payment_header'),
           className: 'text-sm font-semibold text-fg',
         ),
-        Card(
+        MSCard(
           child: WDiv(
             className: 'flex flex-row items-center gap-4',
             children: [
               WDiv(
-                className: 'grid h-9 w-12 shrink-0 place-items-center '
+                className:
+                    'grid h-9 w-12 shrink-0 place-items-center '
                     'rounded-md border border-color-border '
                     'bg-surface-container-high',
                 child: WText(
@@ -357,7 +345,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                   ],
                 ),
               ),
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 size: ButtonSize.sm,
                 onPressed: () {},
@@ -386,16 +374,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           trans('uptizm.teams.billing_invoices_header'),
           className: 'text-sm font-semibold text-fg',
         ),
-        Card(
+        MSCard(
           noPadding: true,
           child: WDiv(
             className: 'flex flex-col',
             children: [
               for (final (int index, Invoice invoice) in invoices.indexed)
-                _buildInvoiceRow(
-                  invoice,
-                  isLast: index == invoices.length - 1,
-                ),
+                _buildInvoiceRow(invoice, isLast: index == invoices.length - 1),
             ],
           ),
         ),
@@ -432,7 +417,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           invoice.amount,
           className: 'font-mono text-sm tabular-nums text-fg',
         ),
-        Button(
+        MSButton(
           intent: ButtonIntent.ghost,
           size: ButtonSize.sm,
           onPressed: () {},
@@ -455,15 +440,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
     final String tone = switch (status) {
       InvoiceStatus.paid => 'bg-up-soft text-up-soft-foreground',
-      InvoiceStatus.pending =>
-        'bg-degraded-soft text-degraded-soft-foreground',
+      InvoiceStatus.pending => 'bg-degraded-soft text-degraded-soft-foreground',
       InvoiceStatus.failed => 'bg-down-soft text-down-soft-foreground',
     };
 
-    return WDiv(
-      className: '$base $tone',
-      child: WText(status.label),
-    );
+    return WDiv(className: '$base $tone', child: WText(status.label));
   }
 
   // ---------------------------------------------------------------------------
@@ -531,7 +512,9 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// The big price label for [plan] at [cycle]: `"$<n>"`, or the "Custom" label
   /// when the plan carries no numeric price. Mirrors the React `priceLabel`.
   String _priceLabel(Plan plan, BillingCycle cycle) {
-    final int? price = cycle == BillingCycle.annual ? plan.annual : plan.monthly;
+    final int? price = cycle == BillingCycle.annual
+        ? plan.annual
+        : plan.monthly;
     if (price == null) {
       return trans('uptizm.teams.billing_plan_price_custom');
     }
@@ -557,7 +540,9 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// The renewal/description cycle word for [cycle].
   String _cycleLabel(BillingCycle cycle) {
     return switch (cycle) {
-      BillingCycle.monthly => trans('uptizm.teams.billing_renewal_cycle_monthly'),
+      BillingCycle.monthly => trans(
+        'uptizm.teams.billing_renewal_cycle_monthly',
+      ),
       BillingCycle.annual => trans('uptizm.teams.billing_renewal_cycle_annual'),
     };
   }

@@ -101,7 +101,7 @@ class KeyValueEditor extends StatelessWidget {
           : '${slots['root']} $className',
       children: [
         for (var i = 0; i < value.length; i++) _row(i, slots),
-        Button(
+        MSButton(
           intent: ButtonIntent.secondary,
           size: ButtonSize.sm,
           onPressed: _addRow,
@@ -116,7 +116,7 @@ class KeyValueEditor extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Input(
+          child: MSInput(
             value: entry.key,
             placeholder: keyPlaceholder,
             onChanged: (v) => _updateRow(index, key: v),
@@ -124,7 +124,7 @@ class KeyValueEditor extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: Input(
+          child: MSInput(
             value: entry.value,
             placeholder: valuePlaceholder,
             onChanged: (v) => _updateRow(index, value: v),

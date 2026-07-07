@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/resources/views/incidents/weekly_digest_view.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
@@ -25,7 +25,8 @@ class _DigestLangLoader implements TranslationLoader {
       'uptizm.digest.description': 'What Uptizm did this week.',
       'uptizm.digest.back': 'Dashboard',
       'uptizm.digest.insight_label': 'This week',
-      'uptizm.digest.insight_body': 'Caught :caught, resolved :resolved, dismissed :dismissed.',
+      'uptizm.digest.insight_body':
+          'Caught :caught, resolved :resolved, dismissed :dismissed.',
       'uptizm.digest.kpi_detected_label': 'Incidents detected',
       'uptizm.digest.kpi_detected_hint': 'by AI',
       'uptizm.digest.kpi_resolved_label': 'Auto-resolved',
@@ -71,8 +72,9 @@ void main() {
   }
 
   // The AI-owned incidents the digest surfaces in "Caught by AI".
-  final List<IncidentSummary> aiIncidents =
-      incidents.where((i) => i.aiOwned).toList();
+  final List<IncidentSummary> aiIncidents = incidents
+      .where((i) => i.aiOwned)
+      .toList();
 
   testWidgets('WeeklyDigestView renders the back-aware page header', (
     tester,
@@ -80,7 +82,7 @@ void main() {
     await tester.pumpWidget(wrap(const WeeklyDigestView()));
     await tester.pump();
 
-    expect(find.byType(PageHeader), findsOneWidget);
+    expect(find.byType(MSPageHeader), findsOneWidget);
     expect(find.text('Weekly AI digest'), findsOneWidget);
   });
 
@@ -105,15 +107,16 @@ void main() {
     expect(find.text('Dismissed anomalies'), findsOneWidget);
   });
 
-  testWidgets('WeeklyDigestView renders one StatusBadge per AI-caught incident', (
-    tester,
-  ) async {
-    await tester.pumpWidget(wrap(const WeeklyDigestView()));
-    await tester.pump();
+  testWidgets(
+    'WeeklyDigestView renders one StatusBadge per AI-caught incident',
+    (tester) async {
+      await tester.pumpWidget(wrap(const WeeklyDigestView()));
+      await tester.pump();
 
-    expect(find.byType(StatusBadge), findsNWidgets(aiIncidents.length));
-    expect(aiIncidents, isNotEmpty);
-  });
+      expect(find.byType(StatusBadge), findsNWidgets(aiIncidents.length));
+      expect(aiIncidents, isNotEmpty);
+    },
+  );
 
   testWidgets('WeeklyDigestView renders the two dismissed-anomaly reasons', (
     tester,

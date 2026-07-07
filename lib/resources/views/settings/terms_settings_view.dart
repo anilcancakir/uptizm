@@ -18,13 +18,13 @@ class TermsSettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.terms_title'),
       subtitle: 'Last updated ${trans('uptizm.settings.terms_updated')}.',
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
-        Card(
+        MSCard(
           child: WDiv(
             className: 'flex flex-col gap-5',
             children: [

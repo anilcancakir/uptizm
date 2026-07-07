@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/oncall.dart';
 import '../../../app/mocks/teams_data.dart';
@@ -238,7 +238,7 @@ class _EscalationPolicyEditorViewState
         icon: Icons.route_outlined,
         title: trans('uptizm.teams.escalation_editor_title_edit'),
         description: trans('uptizm.teams.escalation_editor_description'),
-        action: Button(
+        action: MSButton(
           intent: ButtonIntent.primary,
           onPressed: () => MagicRoute.to(_listRoute),
           child: WText(trans('uptizm.team_menu.escalation')),
@@ -254,7 +254,7 @@ class _EscalationPolicyEditorViewState
   /// Builds the header: a "← Escalation policies" breadcrumb, the page title
   /// and description, and the Save/Create action.
   Widget _buildHeader() {
-    return PageHeader(
+    return MSPageHeader(
       title: _isEdit
           ? trans('uptizm.teams.escalation_editor_title_edit')
           : trans('uptizm.teams.escalation_editor_title_new'),
@@ -262,7 +262,7 @@ class _EscalationPolicyEditorViewState
       backLabel: trans('uptizm.team_menu.escalation'),
       backFallback: _listRoute,
       actions: <Widget>[
-        Button(
+        MSButton(
           disabled: !_canSave,
           onPressed: _canSave ? _save : null,
           child: WText(
@@ -294,14 +294,14 @@ class _EscalationPolicyEditorViewState
 
   /// Builds the name + description card.
   Widget _buildDetailsCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-5',
         children: <Widget>[
-          MagicFormField(
+          MSFormField(
             label: trans('uptizm.teams.escalation_editor_name_label'),
-            child: Input(
+            child: MSInput(
               controller: _nameController,
               placeholder: trans(
                 'uptizm.teams.escalation_editor_name_placeholder',
@@ -311,9 +311,9 @@ class _EscalationPolicyEditorViewState
               onChanged: (String _) => setState(() {}),
             ),
           ),
-          MagicFormField(
+          MSFormField(
             label: trans('uptizm.teams.escalation_editor_desc_label'),
-            child: Input(
+            child: MSInput(
               controller: _descriptionController,
               placeholder: trans(
                 'uptizm.teams.escalation_editor_desc_placeholder',
@@ -344,11 +344,13 @@ class _EscalationPolicyEditorViewState
         ),
         WDiv(
           className: 'flex flex-row',
-          child: Button(
+          child: MSButton(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
             onPressed: _addRung,
-            child: WText(trans('uptizm.teams.escalation_editor_add_rung_button')),
+            child: WText(
+              trans('uptizm.teams.escalation_editor_add_rung_button'),
+            ),
           ),
         ),
       ],
@@ -360,7 +362,7 @@ class _EscalationPolicyEditorViewState
   Widget _buildRungCard(int index) {
     final _RungDraft rung = _rungs[index];
     final bool canRemove = _rungs.length > 1;
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-4',
@@ -374,7 +376,7 @@ class _EscalationPolicyEditorViewState
                 }),
                 className: 'text-sm font-semibold text-fg',
               ),
-              Button(
+              MSButton(
                 intent: ButtonIntent.ghost,
                 size: ButtonSize.sm,
                 disabled: !canRemove,
@@ -387,9 +389,9 @@ class _EscalationPolicyEditorViewState
               ),
             ],
           ),
-          MagicFormField(
+          MSFormField(
             label: trans('uptizm.teams.escalation_editor_delay_label'),
-            child: Select<int>(
+            child: MSSelect<int>(
               value: rung.afterMinutes,
               options: <SelectOption<int>>[
                 for (final int minutes in _delayOptions)
@@ -403,7 +405,7 @@ class _EscalationPolicyEditorViewState
               },
             ),
           ),
-          MagicFormField(
+          MSFormField(
             label: trans('uptizm.teams.escalation_editor_targets_label'),
             hint: trans('uptizm.teams.escalation_editor_targets_hint'),
             child: RegionPicker(
@@ -419,7 +421,7 @@ class _EscalationPolicyEditorViewState
 
   /// Builds the repeat/default settings card.
   Widget _buildSettingsCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-3',
@@ -450,7 +452,7 @@ class _EscalationPolicyEditorViewState
     return WDiv(
       className: 'flex flex-row items-center gap-3',
       children: <Widget>[
-        Switch(value: value, onChanged: onChanged, semanticLabel: label),
+        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
         WText(label, className: 'min-w-0 text-sm text-fg'),
       ],
     );

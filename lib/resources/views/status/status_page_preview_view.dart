@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
@@ -53,7 +53,8 @@ class StatusPagePreviewView extends MagicStatefulView<StatusPageController> {
 }
 
 class _StatusPagePreviewViewState
-    extends MagicStatefulViewState<StatusPageController, StatusPagePreviewView> {
+    extends
+        MagicStatefulViewState<StatusPageController, StatusPagePreviewView> {
   @override
   void initState() {
     Magic.findOrPut(StatusPageController.new);
@@ -77,7 +78,7 @@ class _StatusPagePreviewViewState
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
-          PageHeader(
+          MSPageHeader(
             title: page.name,
             backLabel: page.name,
             backFallback: '/status/${page.id}',
@@ -99,7 +100,7 @@ class _StatusPagePreviewViewState
   Widget _buildBrowserFrame(StatusPageConfig page) {
     return WDiv(
       className: 'w-full max-w-2xl mx-auto',
-      child: Card(
+      child: MSCard(
         noPadding: true,
         child: WDiv(
           className: 'flex flex-col',
@@ -121,17 +122,14 @@ class _StatusPagePreviewViewState
   /// centered mono URL pill showing [pageUrl].
   Widget _buildChromeBar(StatusPageConfig page) {
     return WDiv(
-      className: 'flex flex-row items-center gap-3 border-b '
+      className:
+          'flex flex-row items-center gap-3 border-b '
           'border-color-border bg-surface-container-high px-4 py-3 '
           'rounded-t-lg',
       children: [
         WDiv(
           className: 'flex flex-row items-center gap-1.5',
-          children: [
-            _buildChromeDot(),
-            _buildChromeDot(),
-            _buildChromeDot(),
-          ],
+          children: [_buildChromeDot(), _buildChromeDot(), _buildChromeDot()],
         ),
         WDiv(
           className: 'flex-1 rounded-full bg-surface px-3 py-1',
@@ -165,7 +163,7 @@ class _StatusPagePreviewViewState
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
-          PageHeader(
+          MSPageHeader(
             title: 'Status page not found',
             backLabel: 'Status pages',
             backFallback: '/status',

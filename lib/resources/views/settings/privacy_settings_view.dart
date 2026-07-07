@@ -18,13 +18,13 @@ class PrivacySettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.privacy_title'),
       subtitle: 'Last updated ${trans('uptizm.settings.privacy_updated')}.',
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
-        Card(
+        MSCard(
           child: WDiv(
             className: 'flex flex-col gap-5',
             children: [

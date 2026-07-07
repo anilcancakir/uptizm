@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/mocks/oncall.dart';
 import 'package:uptizm/app/mocks/teams.dart';
@@ -80,11 +80,13 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.members_pending_header': 'Pending invites · :count',
       'uptizm.teams.members_remove_button': 'Remove',
       'uptizm.teams.members_remove_confirm_title': 'Remove :name?',
-      'uptizm.teams.members_remove_confirm_description': ':name loses access to :team.',
+      'uptizm.teams.members_remove_confirm_description':
+          ':name loses access to :team.',
       'uptizm.teams.members_remove_confirm_label': 'Remove',
       'uptizm.teams.members_revoke_button': 'Revoke',
       'uptizm.teams.members_revoke_confirm_title': 'Revoke this invite?',
-      'uptizm.teams.members_revoke_confirm_description': 'The invite to :email stops.',
+      'uptizm.teams.members_revoke_confirm_description':
+          'The invite to :email stops.',
       'uptizm.teams.members_revoke_confirm_label': 'Revoke invite',
 
       // Notification channels.
@@ -109,7 +111,8 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.channels_slack_channel_placeholder': '#incidents',
       'uptizm.teams.channels_teams_webhook_label': 'Incoming webhook URL',
       'uptizm.teams.channels_teams_webhook_hint': 'Create one in connectors.',
-      'uptizm.teams.channels_teams_webhook_placeholder': 'https://outlook.office.com/webhook',
+      'uptizm.teams.channels_teams_webhook_placeholder':
+          'https://outlook.office.com/webhook',
       'uptizm.teams.channels_webhook_url_label': 'Endpoint URL',
       'uptizm.teams.channels_webhook_secret_label': 'Signing secret',
       'uptizm.teams.channels_webhook_secret_hint': 'Sent as a header.',
@@ -118,17 +121,21 @@ class _TeamsViewsLangLoader implements TranslationLoader {
 
       // Escalation policies list.
       'uptizm.teams.escalation_title': 'Escalation policies',
-      'uptizm.teams.escalation_description': 'When an alert goes unacknowledged.',
+      'uptizm.teams.escalation_description':
+          'When an alert goes unacknowledged.',
       'uptizm.teams.escalation_new_button': 'New policy',
-      'uptizm.teams.escalation_oncall_reference': 'Who answers comes from on-call.',
+      'uptizm.teams.escalation_oncall_reference':
+          'Who answers comes from on-call.',
       'uptizm.teams.escalation_policy_edit_button': 'Edit',
       'uptizm.teams.escalation_policy_delete_button': 'Delete',
       'uptizm.teams.escalation_policy_count_word_singular': 'monitor',
       'uptizm.teams.escalation_policy_count_word_plural': 'monitors',
       'uptizm.teams.escalation_policy_default_badge': 'Default',
-      'uptizm.teams.escalation_policy_repeats_last': 'Repeats until acknowledged.',
+      'uptizm.teams.escalation_policy_repeats_last':
+          'Repeats until acknowledged.',
       'uptizm.teams.escalation_policy_delete_confirm_title': 'Delete :name?',
-      'uptizm.teams.escalation_policy_delete_confirm_description': "Can't be undone.",
+      'uptizm.teams.escalation_policy_delete_confirm_description':
+          "Can't be undone.",
       'uptizm.teams.escalation_policy_delete_confirm_label': 'Delete policy',
 
       // Escalation policy editor.
@@ -159,7 +166,8 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.oncall_rotation_header': 'Rotation',
       'uptizm.teams.oncall_remove_button': 'Remove',
       'uptizm.teams.oncall_add_button': '+ Add to rotation',
-      'uptizm.teams.oncall_escalation_reference': 'Configure escalation policies.',
+      'uptizm.teams.oncall_escalation_reference':
+          'Configure escalation policies.',
       'uptizm.teams.oncall_remove_confirm_title': 'Remove :name?',
       'uptizm.teams.oncall_remove_confirm_description': "They'll stop shifts.",
       'uptizm.teams.oncall_remove_confirm_label': 'Remove',
@@ -168,7 +176,8 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.billing_title': 'Plan & billing',
       'uptizm.teams.billing_description': 'Your plan and usage.',
       'uptizm.teams.billing_plan_current_badge': 'Current',
-      'uptizm.teams.billing_renewal_text': ':price/mo billed :cycle · renews :date',
+      'uptizm.teams.billing_renewal_text':
+          ':price/mo billed :cycle · renews :date',
       'uptizm.teams.billing_renewal_cycle_annual': 'annually',
       'uptizm.teams.billing_renewal_cycle_monthly': 'monthly',
       'uptizm.teams.billing_plans_heading': 'Plans',
@@ -356,10 +365,7 @@ void main() {
       // incident_timeline pattern), not an Expanded-in-Column, so no
       // RenderFlex overflow fires under the unbounded-height scroll view.
       expect(tester.takeException(), isNull);
-      expect(
-        find.text(trans('uptizm.teams.escalation_title')),
-        findsOneWidget,
-      );
+      expect(find.text(trans('uptizm.teams.escalation_title')), findsOneWidget);
       for (final EscalationPolicy policy in escalationPolicies) {
         expect(find.text(policy.name), findsOneWidget);
       }
@@ -376,10 +382,7 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
       await tester.pumpWidget(
-        wrap(
-          const EscalationPolicyEditorView(),
-          size: const Size(1280, 6000),
-        ),
+        wrap(const EscalationPolicyEditorView(), size: const Size(1280, 6000)),
       );
       await tester.pump();
 
@@ -399,10 +402,7 @@ void main() {
       final String id = escalationPolicies.first.id;
 
       await tester.pumpWidget(
-        wrap(
-          EscalationPolicyEditorView(id: id),
-          size: const Size(1280, 6000),
-        ),
+        wrap(EscalationPolicyEditorView(id: id), size: const Size(1280, 6000)),
       );
       await tester.pump();
 

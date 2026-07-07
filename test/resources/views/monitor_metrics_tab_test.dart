@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metric_detail.dart';
@@ -35,7 +35,8 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_form_name_label': 'Name',
       'uptizm.monitors.metrics_form_name_placeholder': 'e.g. Memory usage',
       'uptizm.monitors.metrics_form_key_label': 'Key',
-      'uptizm.monitors.metrics_form_key_hint': 'Lowercase letters, digits, underscores.',
+      'uptizm.monitors.metrics_form_key_hint':
+          'Lowercase letters, digits, underscores.',
       'uptizm.monitors.metrics_form_key_error': 'Invalid key.',
       'uptizm.monitors.metrics_form_key_placeholder': 'memory_usage',
       'uptizm.monitors.metrics_form_type_label': 'Type',
@@ -64,7 +65,8 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_detail_latest': 'latest · last 24h',
       'uptizm.monitors.metrics_recent_readings': 'Recent readings',
       'uptizm.monitors.metrics_confirm_delete_title': 'Delete metric',
-      'uptizm.monitors.metrics_confirm_delete_description': 'This cannot be undone.',
+      'uptizm.monitors.metrics_confirm_delete_description':
+          'This cannot be undone.',
       'uptizm.monitors.metrics_confirm_delete_label': 'Delete',
 
       // Common.
@@ -107,9 +109,7 @@ void main() {
         data: MediaQueryData(size: size),
         child: WindTheme(
           data: WindThemeData(),
-          child: Scaffold(
-            body: SingleChildScrollView(child: widget),
-          ),
+          child: Scaffold(body: SingleChildScrollView(child: widget)),
         ),
       ),
     );
@@ -149,9 +149,7 @@ void main() {
         data: MediaQueryData(size: size),
         child: WindTheme(
           data: WindThemeData(),
-          child: Scaffold(
-            body: SingleChildScrollView(child: widget),
-          ),
+          child: Scaffold(body: SingleChildScrollView(child: widget)),
         ),
       ),
     );
@@ -198,7 +196,9 @@ void main() {
       // WindTheme must sit ABOVE the Navigator so the modal bottom sheet (which
       // mounts on the root Overlay) inherits it — exactly as MagicApplication
       // wraps MaterialApp.router at the app root in production.
-      await tester.pumpWidget(wrapRootTheme(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pumpWidget(
+        wrapRootTheme(const MonitorMetricsTab(monitorId: 'api')),
+      );
       await tester.pump();
 
       // Tapping a custom row must open the historical MonitorMetricDetail sheet
@@ -213,9 +213,12 @@ void main() {
       );
       // The detail body renders the section header uppercased.
       expect(
-        find.text(trans('uptizm.monitors.metrics_recent_readings').toUpperCase()),
+        find.text(
+          trans('uptizm.monitors.metrics_recent_readings').toUpperCase(),
+        ),
         findsOneWidget,
-        reason: 'The opened detail sheet must render the Recent readings section',
+        reason:
+            'The opened detail sheet must render the Recent readings section',
       );
     });
 
@@ -233,10 +236,12 @@ void main() {
       // hover surface (a bare GestureDetector gives neither). Assert by the
       // distinctive row className rather than a raw WAnchor count (Buttons and
       // other controls are WAnchor-backed too).
-      final hoverRows = find.byWidgetPredicate((w) =>
-          w is WDiv &&
-          (w.className?.contains('hover:bg-surface-container') ?? false) &&
-          (w.className?.contains('border-color-border') ?? false));
+      final hoverRows = find.byWidgetPredicate(
+        (w) =>
+            w is WDiv &&
+            (w.className?.contains('hover:bg-surface-container') ?? false) &&
+            (w.className?.contains('border-color-border') ?? false),
+      );
       expect(
         hoverRows,
         findsNWidgets(3),
@@ -256,7 +261,8 @@ void main() {
       expect(
         find.text(trans('uptizm.monitors.metrics_add')),
         findsOneWidget,
-        reason: 'Add metric button must appear when custom metrics list is non-empty',
+        reason:
+            'Add metric button must appear when custom metrics list is non-empty',
       );
     });
 
@@ -270,7 +276,8 @@ void main() {
       expect(
         find.text(trans('uptizm.monitors.metrics_empty_title')),
         findsNothing,
-        reason: 'Empty state must not appear when the monitor has custom metrics',
+        reason:
+            'Empty state must not appear when the monitor has custom metrics',
       );
     });
   });
@@ -287,7 +294,8 @@ void main() {
       expect(
         find.text(trans('uptizm.monitors.metrics_empty_title')),
         findsOneWidget,
-        reason: 'Empty state title must appear for a monitor with no custom metrics',
+        reason:
+            'Empty state title must appear for a monitor with no custom metrics',
       );
     });
 
@@ -298,7 +306,8 @@ void main() {
       expect(
         find.text(trans('uptizm.monitors.metrics_add')),
         findsNothing,
-        reason: 'Add metric button must be absent when the custom metrics list is empty',
+        reason:
+            'Add metric button must be absent when the custom metrics list is empty',
       );
     });
   });
@@ -326,7 +335,7 @@ void main() {
 
       // Find the Name field by its label text; tap it and type.
       final Finder nameField = find.widgetWithText(
-        Input,
+        MSInput,
         trans('uptizm.monitors.metrics_form_name_placeholder'),
       );
       await tester.tap(nameField);
@@ -336,10 +345,10 @@ void main() {
 
       // The Key TextField should now contain the slugified value.
       final Finder keyField = find.widgetWithText(
-        Input,
+        MSInput,
         trans('uptizm.monitors.metrics_form_key_placeholder'),
       );
-      final Input keyInput = tester.widget<Input>(keyField);
+      final MSInput keyInput = tester.widget<MSInput>(keyField);
       expect(
         keyInput.controller?.text ?? keyInput.value,
         equals(slugify('Memory Usage')),
@@ -366,11 +375,11 @@ void main() {
       await tester.pump();
 
       final Finder saveButton = find.widgetWithText(
-        Button,
+        MSButton,
         trans('uptizm.monitors.metrics_form_save_create'),
       );
       expect(saveButton, findsOneWidget);
-      final Button btn = tester.widget<Button>(saveButton);
+      final MSButton btn = tester.widget<MSButton>(saveButton);
       expect(
         btn.disabled,
         isTrue,
@@ -378,42 +387,43 @@ void main() {
       );
     });
 
-    testWidgets('Save button is enabled when label and key are both non-empty', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(600, 3000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets(
+      'Save button is enabled when label and key are both non-empty',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(600, 3000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final MetricForm seeded = kEmptyMetricForm.copyWith(
-        label: 'Memory usage',
-        key: 'memory_usage',
-        path: r'$.system.memory.used_pct',
-      );
+        final MetricForm seeded = kEmptyMetricForm.copyWith(
+          label: 'Memory usage',
+          key: 'memory_usage',
+          path: r'$.system.memory.used_pct',
+        );
 
-      await tester.pumpWidget(
-        wrapForm(
-          MonitorMetricForm(
-            initial: seeded,
-            isEdit: false,
-            onSave: (_) {},
-            onCancel: () {},
+        await tester.pumpWidget(
+          wrapForm(
+            MonitorMetricForm(
+              initial: seeded,
+              isEdit: false,
+              onSave: (_) {},
+              onCancel: () {},
+            ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      final Finder saveButton = find.widgetWithText(
-        Button,
-        trans('uptizm.monitors.metrics_form_save_create'),
-      );
-      expect(saveButton, findsOneWidget);
-      final Button btn = tester.widget<Button>(saveButton);
-      expect(
-        btn.disabled,
-        isFalse,
-        reason: 'Save must be enabled when label and key are both non-empty',
-      );
-    });
+        final Finder saveButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.metrics_form_save_create'),
+        );
+        expect(saveButton, findsOneWidget);
+        final MSButton btn = tester.widget<MSButton>(saveButton);
+        expect(
+          btn.disabled,
+          isFalse,
+          reason: 'Save must be enabled when label and key are both non-empty',
+        );
+      },
+    );
 
     testWidgets(
       'for type=status the Unit select and Direction control are absent',
@@ -497,19 +507,15 @@ void main() {
       final MetricForm form = memoryUsageForm();
 
       await tester.pumpWidget(
-        wrap(
-          MonitorMetricDetail(
-            metric: form,
-            onEdit: () {},
-            onDelete: () {},
-          ),
-        ),
+        wrap(MonitorMetricDetail(metric: form, onEdit: () {}, onDelete: () {})),
       );
       await tester.pump();
 
       // The detail computes latest from the augmented series; we just confirm
       // a fmt'd WText with the unit suffix is present.
-      final Iterable<WText> texts = tester.widgetList<WText>(find.byType(WText));
+      final Iterable<WText> texts = tester.widgetList<WText>(
+        find.byType(WText),
+      );
       final bool hasValueText = texts.any(
         (w) => w.data.contains(kUnitSuffix[form.unit] ?? form.unit),
       );

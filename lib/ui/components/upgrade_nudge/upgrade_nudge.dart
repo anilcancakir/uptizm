@@ -84,7 +84,7 @@ class UpgradeNudge extends StatelessWidget {
           // Upgrade action (omitted in compact mode).
           if (!compact) ...[
             const SizedBox(width: 12),
-            Button(
+            MSButton(
               intent: ButtonIntent.primary,
               size: ButtonSize.sm,
               onPressed: onUpgrade,

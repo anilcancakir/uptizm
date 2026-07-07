@@ -43,7 +43,7 @@ class ChangelogSettingsView extends StatelessWidget {
     return WDiv(
       className: 'flex flex-row items-start gap-2.5',
       children: [
-        Badge(change.kind.label, className: _badgeClassName(change.kind)),
+        MSBadge(change.kind.label, className: _badgeClassName(change.kind)),
         WText(change.text, className: 'flex-1 text-sm text-fg'),
       ],
     );
@@ -51,7 +51,7 @@ class ChangelogSettingsView extends StatelessWidget {
 
   /// Builds a single release card: version + date header, then its changes.
   Widget _buildRelease(ChangelogRelease release) {
-    return Card(
+    return MSCard(
       noPadding: true,
       child: WDiv(
         className: 'flex flex-col',
@@ -83,7 +83,7 @@ class ChangelogSettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.changelog_title'),
       subtitle: trans('uptizm.settings.changelog_description'),
       backLabel: trans('uptizm.settings.hub_title'),

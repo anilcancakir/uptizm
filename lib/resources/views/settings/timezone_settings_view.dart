@@ -81,21 +81,21 @@ class _TimezoneSettingsViewState extends State<TimezoneSettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.timezone_title'),
       subtitle: trans('uptizm.settings.timezone_description'),
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
-        SettingsSection(
+        MSSettingsSection(
           children: [
-            SettingsRow(
+            MSSettingsRow(
               icon: Icons.access_time_outlined,
               title: trans('uptizm.settings.timezone_auto_label'),
               subtitle: _auto
                   ? trans('uptizm.settings.timezone_auto_on')
                   : trans('uptizm.settings.timezone_auto_off'),
-              trailing: Switch(
+              trailing: MSSwitch(
                 value: _auto,
                 onChanged: _toggleAuto,
                 semanticLabel: trans('uptizm.settings.timezone_auto_label'),
@@ -126,13 +126,13 @@ class _TimezoneSettingsViewState extends State<TimezoneSettingsView> {
           trans('uptizm.settings.timezone_field_label'),
           className: 'text-sm font-medium text-fg',
         ),
-        Input(
+        MSInput(
           value: _query,
           onChanged: _auto ? null : (value) => setState(() => _query = value),
           enabled: !_auto,
           placeholder: trans('uptizm.settings.timezone_search_placeholder'),
         ),
-        SettingsSection(
+        MSSettingsSection(
           footer: trans('uptizm.settings.timezone_field_hint'),
           children: visible.isEmpty
               ? [_buildNoMatchRow()]
@@ -144,7 +144,7 @@ class _TimezoneSettingsViewState extends State<TimezoneSettingsView> {
 
   /// Builds the "no zones match" placeholder row.
   Widget _buildNoMatchRow() {
-    return SettingsRow(title: trans('uptizm.settings.timezone_no_match'));
+    return MSSettingsRow(title: trans('uptizm.settings.timezone_no_match'));
   }
 
   /// Builds one tappable zone row: city title, "region · offset" subtitle,
@@ -153,7 +153,7 @@ class _TimezoneSettingsViewState extends State<TimezoneSettingsView> {
   Widget _buildZoneRow(AppTimezone zone) {
     final bool selected = zone.value == _effectiveZone;
 
-    return SettingsRow(
+    return MSSettingsRow(
       title: zone.city,
       subtitle: '${zone.region} · ${zone.offset}',
       onTap: _auto ? null : () => _select(zone),

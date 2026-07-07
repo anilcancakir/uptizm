@@ -139,7 +139,10 @@ class _IncidentCreateViewState
       _title = 'Investigating anomaly on ${suggestion.monitorName}';
       final String? monitorId = _resolveMonitorId(suggestion.monitorName);
       _affected = monitorId == null ? <String>[] : <String>[monitorId];
-      _severity = severityFromConfidence[suggestion.ai?.confidence ?? AiConfidence.high] ?? 'critical';
+      _severity =
+          severityFromConfidence[suggestion.ai?.confidence ??
+              AiConfidence.high] ??
+          'critical';
     } else {
       _title = '';
       _affected = <String>[];
@@ -188,7 +191,7 @@ class _IncidentCreateViewState
         className: 'flex flex-col gap-6',
         children: [
           // 1. Header: title switches on kind, plus the back affordance.
-          PageHeader(
+          MSPageHeader(
             title: _isMaintenance
                 ? trans('uptizm.incidents.form_title_maintenance')
                 : trans('uptizm.incidents.form_title_new'),
@@ -201,11 +204,7 @@ class _IncidentCreateViewState
           //    banner applies), the form card, the footer.
           WDiv(
             className: 'flex flex-col gap-6',
-            children: [
-              ?_buildBanner(),
-              _buildFormCard(),
-              _buildFooter(),
-            ],
+            children: [?_buildBanner(), _buildFormCard(), _buildFooter()],
           ),
         ],
       ),
@@ -236,7 +235,8 @@ class _IncidentCreateViewState
   Widget _buildPromotedBanner(IncidentSummary suggestion) {
     final String summary = suggestion.ai?.tldr ?? '';
     return WDiv(
-      className: 'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
+      className:
+          'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
       children: [
         _buildGlyphTile(),
         WDiv(
@@ -250,7 +250,9 @@ class _IncidentCreateViewState
                   trans('uptizm.incidents.ai_promoted_title'),
                   className: 'text-sm font-semibold text-fg',
                 ),
-                AiConfidenceBadge(suggestion.ai?.confidence ?? AiConfidence.high),
+                AiConfidenceBadge(
+                  suggestion.ai?.confidence ?? AiConfidence.high,
+                ),
                 WText(
                   suggestion.startedAt,
                   className: 'font-mono text-xs tabular-nums text-fg-muted',
@@ -277,7 +279,8 @@ class _IncidentCreateViewState
   /// lines 134-145): the glyph tile beside the explanatory copy.
   Widget _buildGenericBanner() {
     return WDiv(
-      className: 'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
+      className:
+          'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
       children: [
         _buildGlyphTile(),
         WText(
@@ -292,7 +295,8 @@ class _IncidentCreateViewState
   /// the codebase's AI-surface glyph idiom (monitor create + AiInsight banner).
   Widget _buildGlyphTile() {
     return WDiv(
-      className: 'size-8 shrink-0 flex items-center justify-center rounded-lg bg-ai-soft',
+      className:
+          'size-8 shrink-0 flex items-center justify-center rounded-lg bg-ai-soft',
       child: WText('✦', className: 'text-ai text-lg'),
     );
   }
@@ -305,7 +309,7 @@ class _IncidentCreateViewState
   /// Title, Affected monitors, then (maintenance) Starts+Ends or (incident)
   /// Severity, Status page impact, First update, and the Notify section.
   Widget _buildFormCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-5',
@@ -325,9 +329,9 @@ class _IncidentCreateViewState
   /// Builds the Type segmented control (incident / maintenance). Maps the tapped
   /// index back to the [_IncidentKind] via [kIncidentKinds].
   Widget _buildTypeField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.incidents.form_type_label'),
-      child: SegmentedControl<String>(
+      child: MSSegmentedControl<String>(
         options: kIncidentKinds.map((o) => o.label).toList(),
         selectedIndex: _kind.index,
         onChanged: (index) => _handleKind(_IncidentKind.values[index]),
@@ -337,9 +341,9 @@ class _IncidentCreateViewState
 
   /// Builds the required Title field, with the placeholder switching on kind.
   Widget _buildTitleField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.incidents.form_title_label'),
-      child: Input(
+      child: MSInput(
         value: _title,
         onChanged: (value) => setState(() => _title = value),
         placeholder: _isMaintenance
@@ -352,7 +356,7 @@ class _IncidentCreateViewState
   /// Builds the required Affected-monitors multi-select (React `RegionPicker`
   /// fed the monitor options).
   Widget _buildAffectedField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.incidents.form_affected_label'),
       hint: trans('uptizm.incidents.form_affected_hint'),
       child: RegionPicker(
@@ -368,16 +372,16 @@ class _IncidentCreateViewState
     return WDiv(
       className: 'grid grid-cols-1 sm:grid-cols-2 gap-5',
       children: [
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.incidents.form_starts_label'),
-          child: Input(
+          child: MSInput(
             value: _startsAt,
             onChanged: (value) => setState(() => _startsAt = value),
           ),
         ),
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.incidents.form_ends_label'),
-          child: Input(
+          child: MSInput(
             value: _endsAt,
             onChanged: (value) => setState(() => _endsAt = value),
           ),
@@ -389,23 +393,24 @@ class _IncidentCreateViewState
   /// Builds the incident-only Severity segmented control. Maps the tapped index
   /// back to the severity token via [kIncidentSeverities].
   Widget _buildSeverityField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.incidents.form_severity_label'),
       hint: trans('uptizm.incidents.form_severity_hint'),
-      child: SegmentedControl<String>(
+      child: MSSegmentedControl<String>(
         options: kIncidentSeverities.map((o) => o.label).toList(),
         selectedIndex: _indexOfValue(kIncidentSeverities, _severity),
-        onChanged: (index) => setState(() => _severity = kIncidentSeverities[index].value),
+        onChanged: (index) =>
+            setState(() => _severity = kIncidentSeverities[index].value),
       ),
     );
   }
 
   /// Builds the Status-page impact select ([kIncidentImpacts]).
   Widget _buildImpactField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.incidents.form_impact_label'),
       hint: trans('uptizm.incidents.form_impact_hint'),
-      child: Select<String>(
+      child: MSSelect<String>(
         value: _impact,
         options: kIncidentImpacts
             .map((o) => SelectOption<String>(value: o.value, label: o.label))
@@ -419,14 +424,16 @@ class _IncidentCreateViewState
 
   /// Builds the First-update textarea, with the placeholder switching on kind.
   Widget _buildFirstUpdateField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.incidents.form_first_update_label'),
       hint: trans('uptizm.incidents.form_first_update_hint'),
-      child: Textarea(
+      child: MSTextarea(
         value: _message,
         onChanged: (value) => setState(() => _message = value),
         placeholder: _isMaintenance
-            ? trans('uptizm.incidents.form_first_update_placeholder_maintenance')
+            ? trans(
+                'uptizm.incidents.form_first_update_placeholder_maintenance',
+              )
             : trans('uptizm.incidents.form_first_update_placeholder_incident'),
       ),
     );
@@ -466,12 +473,12 @@ class _IncidentCreateViewState
     return WDiv(
       className: 'flex flex-row justify-end gap-3',
       children: [
-        Button(
+        MSButton(
           intent: ButtonIntent.secondary,
           onPressed: _done,
           child: WText(trans('uptizm.incidents.cancel')),
         ),
-        Button(
+        MSButton(
           disabled: !_canSubmit,
           onPressed: _canSubmit ? controller.create : null,
           child: WText(
@@ -495,7 +502,7 @@ class _IncidentCreateViewState
     return WDiv(
       className: 'flex flex-row items-center gap-3',
       children: [
-        Switch(value: value, onChanged: onChanged, semanticLabel: label),
+        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
         WText(label, className: 'min-w-0 text-sm text-fg'),
       ],
     );

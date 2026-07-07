@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/incidents.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
@@ -88,8 +88,9 @@ class WeeklyDigestView extends StatelessWidget {
     // Design-lab derivations from the incident fixtures: what the AI caught from
     // its own checks, and how many recovered on their own (an autonomous
     // timeline entry).
-    final List<IncidentSummary> aiIncidents =
-        incidents.where((i) => i.aiOwned).toList();
+    final List<IncidentSummary> aiIncidents = incidents
+        .where((i) => i.aiOwned)
+        .toList();
     final List<IncidentSummary> autoResolved = incidents
         .where((i) => i.timeline.any((entry) => entry.autonomous))
         .toList();
@@ -103,7 +104,7 @@ class WeeklyDigestView extends StatelessWidget {
           WDiv(
             className: 'flex flex-col gap-6',
             children: [
-              PageHeader(
+              MSPageHeader(
                 title: trans('uptizm.digest.title'),
                 subtitle: trans('uptizm.digest.description'),
                 backLabel: trans('uptizm.digest.back'),
@@ -184,13 +185,16 @@ class WeeklyDigestView extends StatelessWidget {
           trans('uptizm.digest.section_caught'),
           className: 'text-sm font-semibold text-fg',
         ),
-        Card(
+        MSCard(
           noPadding: true,
           child: WDiv(
             className: 'flex flex-col',
             children: [
               for (int i = 0; i < aiIncidents.length; i++)
-                _buildCaughtRow(aiIncidents[i], isLast: i == aiIncidents.length - 1),
+                _buildCaughtRow(
+                  aiIncidents[i],
+                  isLast: i == aiIncidents.length - 1,
+                ),
             ],
           ),
         ),
@@ -218,7 +222,8 @@ class WeeklyDigestView extends StatelessWidget {
               ),
               WText(
                 '${incident.monitorName} · ${incident.startedAt}',
-                className: 'truncate font-mono text-xs tabular-nums text-fg-muted',
+                className:
+                    'truncate font-mono text-xs tabular-nums text-fg-muted',
               ),
             ],
           ),
@@ -242,13 +247,16 @@ class WeeklyDigestView extends StatelessWidget {
           trans('uptizm.digest.section_dismissed'),
           className: 'text-sm font-semibold text-fg',
         ),
-        Card(
+        MSCard(
           noPadding: true,
           child: WDiv(
             className: 'flex flex-col',
             children: [
               for (int i = 0; i < _dismissed.length; i++)
-                _buildDismissedRow(_dismissed[i], isLast: i == _dismissed.length - 1),
+                _buildDismissedRow(
+                  _dismissed[i],
+                  isLast: i == _dismissed.length - 1,
+                ),
             ],
           ),
         ),
@@ -271,21 +279,15 @@ class WeeklyDigestView extends StatelessWidget {
         WDiv(
           className: 'flex-1 min-w-0 flex flex-col',
           children: [
-            WText(
-              anomaly.monitor,
-              className: 'text-sm font-medium text-fg',
-            ),
-            WText(
-              anomaly.summary,
-              className: 'text-sm text-fg-muted',
-            ),
+            WText(anomaly.monitor, className: 'text-sm font-medium text-fg'),
+            WText(anomaly.summary, className: 'text-sm text-fg-muted'),
             WText(
               anomaly.time,
               className: 'mt-0.5 font-mono text-xs tabular-nums text-fg-muted',
             ),
           ],
         ),
-        Badge(anomaly.reason, tone: BadgeTone.outline),
+        MSBadge(anomaly.reason, tone: BadgeTone.outline),
       ],
     );
   }

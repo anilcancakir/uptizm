@@ -58,13 +58,13 @@ class _ProfileSettingsViewState extends State<ProfileSettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.profile_title'),
       subtitle: trans('uptizm.settings.profile_description'),
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
-        Card(
+        MSCard(
           child: WDiv(
             className: 'flex flex-col gap-5',
             children: [
@@ -81,7 +81,7 @@ class _ProfileSettingsViewState extends State<ProfileSettingsView> {
                       className: 'text-base font-semibold text-fg',
                     ),
                   ),
-                  Button(
+                  MSButton(
                     intent: ButtonIntent.secondary,
                     size: ButtonSize.sm,
                     onPressed: () {},
@@ -100,7 +100,7 @@ class _ProfileSettingsViewState extends State<ProfileSettingsView> {
                     trans('uptizm.settings.profile_name_label'),
                     className: 'text-sm font-medium text-fg',
                   ),
-                  Input(controller: _nameController),
+                  MSInput(controller: _nameController),
                 ],
               ),
 
@@ -112,7 +112,7 @@ class _ProfileSettingsViewState extends State<ProfileSettingsView> {
                     trans('uptizm.settings.profile_email_label'),
                     className: 'text-sm font-medium text-fg',
                   ),
-                  Input(controller: _emailController, type: InputType.email),
+                  MSInput(controller: _emailController, type: InputType.email),
                 ],
               ),
 
@@ -120,7 +120,7 @@ class _ProfileSettingsViewState extends State<ProfileSettingsView> {
               //    flex-row footer).
               WDiv(
                 className: 'flex flex-row justify-end',
-                child: Button(
+                child: MSButton(
                   onPressed: _save,
                   child: WText(trans('uptizm.settings.profile_save_button')),
                 ),

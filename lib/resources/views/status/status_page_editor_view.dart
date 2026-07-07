@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'status_form_support.dart';
 import '../../../app/controllers/status_page_controller.dart';
@@ -231,10 +231,7 @@ class _StatusPageEditorViewState
     return PageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
-        children: [
-          _buildHeader(),
-          _buildBody(),
-        ],
+        children: [_buildHeader(), _buildBody()],
       ),
     );
   }
@@ -246,7 +243,7 @@ class _StatusPageEditorViewState
         icon: Icons.public_off_outlined,
         title: trans('uptizm.status.list_empty_title'),
         description: trans('uptizm.status.list_empty_description'),
-        action: Button(
+        action: MSButton(
           intent: ButtonIntent.primary,
           onPressed: () => MagicRoute.to(_listRoute),
           child: WText(trans('uptizm.status.editor_breadcrumb_back')),
@@ -269,7 +266,7 @@ class _StatusPageEditorViewState
     return WDiv(
       className: 'flex flex-col gap-2',
       children: [
-        PageHeader(
+        MSPageHeader(
           title: _isEdit
               ? (_draft.name.isNotEmpty
                     ? _draft.name
@@ -279,10 +276,7 @@ class _StatusPageEditorViewState
           backFallback: _listRoute,
           actions: _buildHeaderActions(),
         ),
-        WText(
-          pageUrl(_draft),
-          className: 'font-mono text-xs text-fg-muted',
-        ),
+        WText(pageUrl(_draft), className: 'font-mono text-xs text-fg-muted'),
       ],
     );
   }
@@ -292,13 +286,13 @@ class _StatusPageEditorViewState
   /// button (disabled until [_canSave]). Auto-width: never `w-full` in the row.
   List<Widget> _buildHeaderActions() {
     return <Widget>[
-      Button(
+      MSButton(
         intent: ButtonIntent.secondary,
         disabled: !_isEdit,
         onPressed: _isEdit ? _viewPublicPage : null,
         child: WText(trans('uptizm.status.editor_form_view_public_page')),
       ),
-      Button(
+      MSButton(
         disabled: !_canSave,
         onPressed: _canSave ? _save : null,
         child: WText(
@@ -359,10 +353,9 @@ class _StatusPageEditorViewState
     final bool unlocked = currentLimits.ai.index >= AiLevel.analysis.index;
     if (!unlocked) {
       return UpgradeNudge(
-        message: trans(
-          'uptizm.status.editor_ai_draft_gated',
-          {'plan': planForAiDraft().name},
-        ),
+        message: trans('uptizm.status.editor_ai_draft_gated', {
+          'plan': planForAiDraft().name,
+        }),
         requiredPlan: planForAiDraft().name,
         onUpgrade: () => MagicRoute.to('/settings'),
       );
@@ -370,7 +363,7 @@ class _StatusPageEditorViewState
     return AiInsight(
       tone: 'banner',
       label: trans('uptizm.status.editor_ai_draft_banner_label'),
-      action: Button(
+      action: MSButton(
         intent: ButtonIntent.secondary,
         size: ButtonSize.sm,
         onPressed: _generateWithAi,
@@ -396,7 +389,7 @@ class _StatusPageEditorViewState
   /// Builds the Branding card: name, domain mode, slug, brand-color grid,
   /// fallback initials (with the mocked upload affordance), and description.
   Widget _buildBrandingCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-5',
@@ -416,9 +409,9 @@ class _StatusPageEditorViewState
   /// Builds the Name input, which auto-slugs into the slug until the slug is
   /// edited.
   Widget _buildNameField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.status.editor_form_name_label'),
-      child: Input(
+      child: MSInput(
         value: _draft.name,
         onChanged: _onNameChanged,
         placeholder: trans('uptizm.status.editor_form_name_placeholder'),
@@ -429,9 +422,9 @@ class _StatusPageEditorViewState
   /// Builds the domain-mode segmented control (Subdomain / Path). Maps the
   /// tapped index back to the [DomainMode] via [_domainModes].
   Widget _buildDomainModeField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.status.editor_form_how_served_label'),
-      child: SegmentedControl<String>(
+      child: MSSegmentedControl<String>(
         options: _domainModes.map((DomainMode m) => m.label).toList(),
         selectedIndex: _domainModes.indexOf(_draft.domainMode),
         onChanged: (int index) =>
@@ -443,10 +436,10 @@ class _StatusPageEditorViewState
   /// Builds the mono slug input, hinting the full public URL. Editing it latches
   /// [_slugEdited] and stops the name auto-fill.
   Widget _buildSlugField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.status.editor_form_slug_label'),
       hint: pageUrl(_draft),
-      child: Input(
+      child: MSInput(
         value: _draft.slug,
         onChanged: _onSlugChanged,
         placeholder: trans('uptizm.status.editor_form_slug_placeholder'),
@@ -462,7 +455,7 @@ class _StatusPageEditorViewState
   /// gets a ring. [StatusPageConfig.brandColor] + [kBrandColors] are the ONLY
   /// raw colors on this screen (content data, the sanctioned exception).
   Widget _buildBrandColorField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.status.editor_form_brand_color_label'),
       child: WDiv(
         className: 'flex flex-row wrap gap-2',
@@ -488,10 +481,7 @@ class _StatusPageEditorViewState
         className: selected
             ? 'rounded-full border-2 border-primary p-0.5'
             : 'rounded-full border-2 border-transparent p-0.5',
-        child: WDiv(
-          backgroundColor: swatch,
-          className: 'size-7 rounded-full',
-        ),
+        child: WDiv(backgroundColor: swatch, className: 'size-7 rounded-full'),
       ),
     );
   }
@@ -504,7 +494,7 @@ class _StatusPageEditorViewState
     final String initials = _draft.logoText.isNotEmpty
         ? _draft.logoText
         : (_draft.name.isNotEmpty ? _draft.name.substring(0, 1) : 'A');
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.status.editor_form_logo_text_label'),
       hint: trans('uptizm.status.editor_form_logo_text_hint'),
       child: WDiv(
@@ -522,7 +512,7 @@ class _StatusPageEditorViewState
                   className: 'text-base font-bold text-white',
                 ),
               ),
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 size: ButtonSize.sm,
                 disabled: true,
@@ -537,7 +527,7 @@ class _StatusPageEditorViewState
               ),
             ],
           ),
-          Input(
+          MSInput(
             value: _draft.logoText,
             onChanged: (String value) => _update(
               _draft.copyWith(
@@ -553,9 +543,9 @@ class _StatusPageEditorViewState
 
   /// Builds the description textarea.
   Widget _buildDescriptionField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.status.editor_form_description_label'),
-      child: Textarea(
+      child: MSTextarea(
         value: _draft.description,
         onChanged: (String value) =>
             _update(_draft.copyWith(description: value)),
@@ -567,7 +557,7 @@ class _StatusPageEditorViewState
   /// Builds the Components card: a [RegionPicker] over every monitor, bound to
   /// the draft's [StatusPageConfig.monitorIds].
   Widget _buildComponentsCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-3',
@@ -597,7 +587,7 @@ class _StatusPageEditorViewState
   Widget _buildMetricsCard() {
     final List<Region> systemOptions = systemMetricRegions(_draft.monitorIds);
     final List<Region> customOptions = customMetricRegions(_draft.monitorIds);
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-5',
@@ -606,7 +596,7 @@ class _StatusPageEditorViewState
             trans('uptizm.status.editor_section_metrics'),
             hint: trans('uptizm.status.editor_section_metrics_hint'),
           ),
-          MagicFormField(
+          MSFormField(
             label: 'System',
             child: systemOptions.isNotEmpty
                 ? RegionPicker(
@@ -620,7 +610,7 @@ class _StatusPageEditorViewState
                     className: 'text-sm text-fg-muted',
                   ),
           ),
-          MagicFormField(
+          MSFormField(
             label: 'Custom',
             child: customOptions.isNotEmpty
                 ? RegionPicker(
@@ -642,7 +632,7 @@ class _StatusPageEditorViewState
   /// Builds the Subscriptions card: the allow-subscriptions [Switch] and, in
   /// edit mode, the subscriber count plus a "View subscribers" link.
   Widget _buildSubscriptionsCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-4',
@@ -678,17 +668,14 @@ class _StatusPageEditorViewState
         WDiv(
           className: 'min-w-0 flex flex-col gap-0.5',
           children: <Widget>[
-            WText(
-              '$count $unit',
-              className: 'text-sm font-medium text-fg',
-            ),
+            WText('$count $unit', className: 'text-sm font-medium text-fg'),
             WText(
               trans('uptizm.status.editor_form_subscribers_hint'),
               className: 'text-xs text-fg-muted',
             ),
           ],
         ),
-        Button(
+        MSButton(
           intent: ButtonIntent.secondary,
           size: ButtonSize.sm,
           onPressed: () => MagicRoute.to('/status/${_draft.id}/subscribers'),
@@ -789,7 +776,7 @@ class _StatusPageEditorViewState
     return WDiv(
       className: 'flex flex-row items-center gap-3',
       children: <Widget>[
-        Switch(value: value, onChanged: onChanged, semanticLabel: label),
+        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
         WText(label, className: 'min-w-0 text-sm text-fg'),
       ],
     );

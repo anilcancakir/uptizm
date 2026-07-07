@@ -87,7 +87,7 @@ class MonitorMetricForm extends StatefulWidget {
     required bool isEdit,
     required void Function(MetricForm form) onSave,
   }) {
-    return BottomSheet.show<void>(
+    return MSBottomSheet.show<void>(
       context,
       title: isEdit
           ? trans('uptizm.monitors.metrics_form_edit_title')
@@ -217,13 +217,19 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
   bool get _ruleReady => !_needsPath || _form.path.trim().isNotEmpty;
 
-  bool get _canSave => _form.label.trim().isNotEmpty && _form.key.trim().isNotEmpty && _keyValid && _ruleReady;
+  bool get _canSave =>
+      _form.label.trim().isNotEmpty &&
+      _form.key.trim().isNotEmpty &&
+      _keyValid &&
+      _ruleReady;
 
   num? get _resolved => _form.source == 'json' ? resolveJson(_form.path) : null;
 
   bool get _found => _form.source == 'json' ? _resolved != null : true;
 
-  num get _numValue => _form.source == 'http_status' ? 200 : _resolved ?? fallbackValue(_form.unit);
+  num get _numValue => _form.source == 'http_status'
+      ? 200
+      : _resolved ?? fallbackValue(_form.unit);
 
   String get _valueText => switch (_form.type) {
     'status' => 'operational',
@@ -231,11 +237,17 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     _ => fmt(_numValue, _form.unit),
   };
 
-  StatusKey get _band => _isNumeric ? bandOf(_numValue, _form.warn, _form.critical, _form.direction) : StatusKey.up;
+  StatusKey get _band => _isNumeric
+      ? bandOf(_numValue, _form.warn, _form.critical, _form.direction)
+      : StatusKey.up;
 
-  int get _suggWarn => _form.direction == 'low' ? (_numValue * 0.75).round() : (_numValue * 1.15).round();
+  int get _suggWarn => _form.direction == 'low'
+      ? (_numValue * 0.75).round()
+      : (_numValue * 1.15).round();
 
-  int get _suggCrit => _form.direction == 'low' ? (_numValue * 0.5).round() : (_numValue * 1.3).round();
+  int get _suggCrit => _form.direction == 'low'
+      ? (_numValue * 0.5).round()
+      : (_numValue * 1.3).round();
 
   // ---------------------------------------------------------------------------
   // Build.
@@ -251,7 +263,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
         _buildKeyField(),
 
         // 2. Type segmented control.
-        MagicFormField(label: trans('uptizm.monitors.metrics_form_type_label'), child: _buildTypeControl()),
+        MSFormField(
+          label: trans('uptizm.monitors.metrics_form_type_label'),
+          child: _buildTypeControl(),
+        ),
 
         // 3. Source + Unit selects (Unit numeric-only, 2-col responsive).
         _buildSourceUnitRow(),
@@ -261,7 +276,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
         // 5. Numeric-only block: direction, thresholds, AI suggestion.
         if (_isNumeric) ...[
-          MagicFormField(label: trans('uptizm.monitors.metrics_form_direction_label'), child: _buildDirectionControl()),
+          MSFormField(
+            label: trans('uptizm.monitors.metrics_form_direction_label'),
+            child: _buildDirectionControl(),
+          ),
           _buildThresholdRow(),
           _buildAiInsight(),
         ],
@@ -277,9 +295,9 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
   /// Builds the Name field.
   Widget _buildNameField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.metrics_form_name_label'),
-      child: Input(
+      child: MSInput(
         value: _form.label,
         onChanged: _onLabel,
         placeholder: trans('uptizm.monitors.metrics_form_name_placeholder'),
@@ -290,16 +308,18 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// Builds the Key field: monospace, with the slugify validation error shown
   /// inline when the key is malformed.
   Widget _buildKeyField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.metrics_form_key_label'),
       hint: trans('uptizm.monitors.metrics_form_key_hint'),
       error: _keyValid ? null : trans('uptizm.monitors.metrics_form_key_error'),
-      child: Input(
+      child: MSInput(
         controller: _keyController,
         onChanged: _onKey,
         state: _keyValid ? InputState.normal : InputState.error,
         placeholder: trans('uptizm.monitors.metrics_form_key_placeholder'),
-        className: _monoInputClass(_keyValid ? InputState.normal : InputState.error),
+        className: _monoInputClass(
+          _keyValid ? InputState.normal : InputState.error,
+        ),
       ),
     );
   }
@@ -310,11 +330,12 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// labels are projected from [kMetricTypes] and the change handler maps the
   /// tapped index back to the option's machine value.
   Widget _buildTypeControl() {
-    return SegmentedControl<String>(
+    return MSSegmentedControl<String>(
       options: kMetricTypes.map((o) => o.label).toList(),
       selectedIndex: _indexOfValue(kMetricTypes, _form.type),
       size: SegmentedControlSize.sm,
-      onChanged: (index) => _set(_form.copyWith(type: kMetricTypes[index].value)),
+      onChanged: (index) =>
+          _set(_form.copyWith(type: kMetricTypes[index].value)),
     );
   }
 
@@ -323,9 +344,9 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     return WDiv(
       className: 'grid gap-4 sm:grid-cols-2',
       children: [
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.monitors.metrics_form_source_label'),
-          child: Select<String>(
+          child: MSSelect<String>(
             value: _form.source,
             options: _selectOptions(kMetricSources),
             onChange: (value) {
@@ -334,9 +355,9 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
           ),
         ),
         if (_isNumeric)
-          MagicFormField(
+          MSFormField(
             label: trans('uptizm.monitors.metrics_form_unit_label'),
-            child: Select<String>(
+            child: MSSelect<String>(
               value: _form.unit,
               options: _selectOptions(kMetricUnits),
               onChange: (value) {
@@ -351,10 +372,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// Builds the extraction-path field, with the per-source placeholder and
   /// hint.
   Widget _buildPathField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.metrics_form_extraction_label'),
       hint: kPathHint[_form.source],
-      child: Input(
+      child: MSInput(
         value: _form.path,
         onChanged: (value) => _set(_form.copyWith(path: value)),
         placeholder: kPathPlaceholder[_form.source] ?? '',
@@ -365,11 +386,12 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
   /// Builds the Threshold direction segmented control.
   Widget _buildDirectionControl() {
-    return SegmentedControl<String>(
+    return MSSegmentedControl<String>(
       options: kMetricDirections.map((o) => o.label).toList(),
       selectedIndex: _indexOfValue(kMetricDirections, _form.direction),
       size: SegmentedControlSize.sm,
-      onChanged: (index) => _set(_form.copyWith(direction: kMetricDirections[index].value)),
+      onChanged: (index) =>
+          _set(_form.copyWith(direction: kMetricDirections[index].value)),
     );
   }
 
@@ -378,18 +400,18 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     return WDiv(
       className: 'grid grid-cols-2 gap-4',
       children: [
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.monitors.metrics_form_warn_label'),
-          child: Input(
+          child: MSInput(
             controller: _warnController,
             onChanged: (value) => _set(_form.copyWith(warn: value)),
             placeholder: '80',
             className: _monoInputClass(InputState.normal),
           ),
         ),
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.monitors.metrics_form_critical_label'),
-          child: Input(
+          child: MSInput(
             controller: _criticalController,
             onChanged: (value) => _set(_form.copyWith(critical: value)),
             placeholder: '95',
@@ -406,7 +428,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     final int suggWarn = _suggWarn;
     final int suggCrit = _suggCrit;
     return AiInsight(
-      action: Button(
+      action: MSButton(
         intent: ButtonIntent.secondary,
         size: ButtonSize.sm,
         onPressed: () => _applySuggestion(suggWarn, suggCrit),
@@ -431,8 +453,11 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
         WDiv(
           className: 'flex items-center justify-between gap-3',
           children: [
-            WText(trans('uptizm.monitors.metrics_form_test_title'), className: 'text-sm font-medium text-fg'),
-            Button(
+            WText(
+              trans('uptizm.monitors.metrics_form_test_title'),
+              className: 'text-sm font-medium text-fg',
+            ),
+            MSButton(
               intent: ButtonIntent.secondary,
               size: ButtonSize.sm,
               disabled: _testStatus == MetricTestStatus.fetching,
@@ -451,12 +476,19 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   List<Widget> _buildTestBody() {
     return switch (_testStatus) {
       MetricTestStatus.idle => [
-        WText(trans('uptizm.monitors.metrics_form_test_hint'), className: 'text-xs text-fg-muted'),
+        WText(
+          trans('uptizm.monitors.metrics_form_test_hint'),
+          className: 'text-xs text-fg-muted',
+        ),
       ],
       MetricTestStatus.fetching => [
-        WText(trans('uptizm.monitors.metrics_form_fetching_sample'), className: 'text-sm text-fg-muted'),
+        WText(
+          trans('uptizm.monitors.metrics_form_fetching_sample'),
+          className: 'text-sm text-fg-muted',
+        ),
       ],
-      MetricTestStatus.done => _found ? [_buildResolvedPanel()] : [_buildNotFoundPanel()],
+      MetricTestStatus.done =>
+        _found ? [_buildResolvedPanel()] : [_buildNotFoundPanel()],
     };
   }
 
@@ -464,25 +496,32 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// [StatusDot] for numeric metrics), and the sample JSON block.
   Widget _buildResolvedPanel() {
     return WDiv(
-      className: 'flex flex-col gap-2 rounded-lg border border-color-border bg-up-soft p-3',
+      className:
+          'flex flex-col gap-2 rounded-lg border border-color-border bg-up-soft p-3',
       children: [
         WDiv(
           className: 'flex items-center justify-between gap-3',
           children: [
             WText(
               trans('uptizm.monitors.metrics_form_resolved'),
-              className: 'text-xs font-medium uppercase tracking-wide text-up-soft-foreground',
+              className:
+                  'text-xs font-medium uppercase tracking-wide text-up-soft-foreground',
             ),
             WDiv(
               className: 'flex items-center gap-2',
               children: [
                 if (_isNumeric) StatusDot(_band),
-                WText(_valueText, className: 'font-mono text-lg tabular-nums text-fg'),
+                WText(
+                  _valueText,
+                  className: 'font-mono text-lg tabular-nums text-fg',
+                ),
               ],
             ),
           ],
         ),
-        _buildSampleBlock(_form.source == 'http_status' ? 'HTTP/1.1 200 OK' : kMetricSampleJson),
+        _buildSampleBlock(
+          _form.source == 'http_status' ? 'HTTP/1.1 200 OK' : kMetricSampleJson,
+        ),
       ],
     );
   }
@@ -491,10 +530,13 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// JSON block.
   Widget _buildNotFoundPanel() {
     return WDiv(
-      className: 'flex flex-col gap-2 rounded-lg border border-color-border bg-down-soft p-3',
+      className:
+          'flex flex-col gap-2 rounded-lg border border-color-border bg-down-soft p-3',
       children: [
         WText(
-          trans('uptizm.monitors.metrics_test_not_found_body', {'path': _form.path}),
+          trans('uptizm.monitors.metrics_test_not_found_body', {
+            'path': _form.path,
+          }),
           className: 'text-sm text-down-soft-foreground',
         ),
         _buildSampleBlock(kMetricSampleJson),
@@ -506,7 +548,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   Widget _buildSampleBlock(String content) {
     return WDiv(
       className: 'max-h-28 overflow-auto rounded-md bg-surface p-2',
-      child: WText(content, className: 'font-mono text-xs leading-relaxed text-fg-muted'),
+      child: WText(
+        content,
+        className: 'font-mono text-xs leading-relaxed text-fg-muted',
+      ),
     );
   }
 
@@ -521,12 +566,12 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     return WDiv(
       className: 'mt-1 flex flex-row justify-end gap-3',
       children: [
-        Button(
+        MSButton(
           intent: ButtonIntent.secondary,
           onPressed: widget.onCancel,
           child: WText(trans('uptizm.common.cancel')),
         ),
-        Button(
+        MSButton(
           disabled: !_canSave,
           onPressed: _canSave ? () => widget.onSave(_form) : null,
           child: WText(
@@ -546,7 +591,9 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// Resolves the fetch button label for the current [_testStatus].
   String _fetchButtonLabel() {
     return switch (_testStatus) {
-      MetricTestStatus.fetching => trans('uptizm.monitors.metrics_form_fetching'),
+      MetricTestStatus.fetching => trans(
+        'uptizm.monitors.metrics_form_fetching',
+      ),
       MetricTestStatus.done => trans('uptizm.monitors.metrics_form_test_again'),
       MetricTestStatus.idle => trans('uptizm.monitors.metrics_form_fetch_test'),
     };
@@ -560,7 +607,9 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
   /// Projects a [MetricOption] list into [SelectOption]s (label -> value).
   List<SelectOption<String>> _selectOptions(List<MetricOption> options) {
-    return options.map((o) => SelectOption<String>(value: o.value, label: o.label)).toList();
+    return options
+        .map((o) => SelectOption<String>(value: o.value, label: o.label))
+        .toList();
   }
 
   /// Resolves the monospace Input className by appending `font-mono` to the

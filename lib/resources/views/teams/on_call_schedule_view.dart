@@ -102,7 +102,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.teams.oncall_title'),
             subtitle: trans('uptizm.teams.oncall_description'),
             backLabel: trans('uptizm.status.editor_breadcrumb_back'),
@@ -131,13 +131,14 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
   /// the current responder carries a trailing checkmark. Tapping an entry
   /// hands the pager to that member.
   Widget _buildOverrideControl() {
-    return DropdownMenu(
+    return MSDropdownMenu(
       items: [
         for (final TeamMember member in teamMembers)
-          DropdownMenuItem(
+          MSDropdownMenuItem(
             label: member.name,
             leading: WDiv(
-              className: 'grid size-5 shrink-0 place-items-center '
+              className:
+                  'grid size-5 shrink-0 place-items-center '
                   'rounded-full bg-surface-container-high',
               child: WText(
                 member.initials,
@@ -147,7 +148,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
             onTap: () => _override(member),
           ),
       ],
-      child: Button(
+      child: MSButton(
         intent: ButtonIntent.secondary,
         child: WText(trans('uptizm.teams.oncall_override_button')),
       ),
@@ -158,10 +159,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
   /// toast. Does not touch [_rotation]'s membership or spans.
   void _override(TeamMember member) {
     setState(() => _currentId = member.id);
-    Magic.success(
-      trans('uptizm.teams.oncall_override_label'),
-      member.name,
-    );
+    Magic.success(trans('uptizm.teams.oncall_override_label'), member.name);
   }
 
   // ---------------------------------------------------------------------------
@@ -183,12 +181,13 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     final String span =
         _currentShift?.span ?? trans('uptizm.teams.oncall_override_button');
 
-    return Card(
+    return MSCard(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           WDiv(
-            className: 'grid size-14 shrink-0 place-items-center '
+            className:
+                'grid size-14 shrink-0 place-items-center '
                 'rounded-full bg-primary',
             child: WText(
               current.initials,
@@ -206,7 +205,8 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
                     const StatusDot(StatusKey.up),
                     WText(
                       trans('uptizm.teams.oncall_current_header'),
-                      className: 'text-xs font-medium uppercase '
+                      className:
+                          'text-xs font-medium uppercase '
                           'tracking-wide text-up-soft-foreground',
                     ),
                   ],
@@ -223,7 +223,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
               ],
             ),
           ),
-          Badge(current.role.label, tone: BadgeTone.outline),
+          MSBadge(current.role.label, tone: BadgeTone.outline),
         ],
       ),
     );
@@ -245,7 +245,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
           className:
               'px-1 text-xs font-medium uppercase tracking-wide text-fg-muted',
         ),
-        Card(
+        MSCard(
           noPadding: true,
           child: WDiv(
             className: 'flex flex-col',
@@ -256,10 +256,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
           ),
         ),
         _buildAddOrUpgrade(),
-        WText(
-          '$onCallCadence.',
-          className: 'px-1 text-xs text-fg-muted',
-        ),
+        WText('$onCallCadence.', className: 'px-1 text-xs text-fg-muted'),
       ],
     );
   }
@@ -276,7 +273,8 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
           : 'flex flex-row items-center gap-3 px-5 py-3.5 border-b border-color-border',
       children: [
         WDiv(
-          className: 'grid size-9 shrink-0 place-items-center '
+          className:
+              'grid size-9 shrink-0 place-items-center '
               'rounded-full bg-surface-container-high',
           child: WText(
             shift.initials,
@@ -300,12 +298,17 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
           ),
         ),
         if (isCurrent)
-          Badge(trans('uptizm.teams.oncall_current_header'), tone: BadgeTone.primary)
+          MSBadge(
+            trans('uptizm.teams.oncall_current_header'),
+            tone: BadgeTone.primary,
+          )
         else
-          Button(
+          MSButton(
             intent: ButtonIntent.ghost,
             size: ButtonSize.sm,
-            onPressed: _rotation.length == 1 ? null : () => _confirmRemove(shift),
+            onPressed: _rotation.length == 1
+                ? null
+                : () => _confirmRemove(shift),
             child: WText(trans('uptizm.teams.oncall_remove_button')),
           ),
       ],
@@ -335,13 +338,14 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     final List<TeamMember> available = _availableMembers;
     if (available.isEmpty) return const SizedBox.shrink();
 
-    return DropdownMenu(
+    return MSDropdownMenu(
       items: [
         for (final TeamMember member in available)
-          DropdownMenuItem(
+          MSDropdownMenuItem(
             label: member.name,
             leading: WDiv(
-              className: 'grid size-5 shrink-0 place-items-center '
+              className:
+                  'grid size-5 shrink-0 place-items-center '
                   'rounded-full bg-surface-container-high',
               child: WText(
                 member.initials,
@@ -353,7 +357,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
       ],
       child: WDiv(
         className: 'self-start',
-        child: Button(
+        child: MSButton(
           intent: ButtonIntent.ghost,
           size: ButtonSize.sm,
           child: WText(trans('uptizm.teams.oncall_add_button')),
@@ -377,10 +381,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     );
 
     setState(() => _rotation = [..._rotation, shift]);
-    Magic.success(
-      trans('uptizm.teams.oncall_add_button'),
-      member.name,
-    );
+    Magic.success(trans('uptizm.teams.oncall_add_button'), member.name);
   }
 
   // ---------------------------------------------------------------------------
@@ -406,9 +407,6 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     if (!mounted) return;
 
     setState(() => _rotation.remove(shift));
-    Magic.success(
-      trans('uptizm.teams.oncall_remove_button'),
-      shift.memberName,
-    );
+    Magic.success(trans('uptizm.teams.oncall_remove_button'), shift.memberName);
   }
 }

@@ -18,15 +18,15 @@ class SettingsHubView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.hub_title'),
       subtitle: trans('uptizm.settings.hub_description'),
       children: [
         // 1. Account.
-        SettingsSection(
+        MSSettingsSection(
           header: trans('uptizm.settings.hub_group_account'),
           children: [
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_profile_title'),
               subtitle: trans('uptizm.settings.hub_profile_subtitle'),
               icon: Icons.person_outline,
@@ -36,22 +36,22 @@ class SettingsHubView extends StatelessWidget {
         ),
 
         // 2. Security.
-        SettingsSection(
+        MSSettingsSection(
           header: trans('uptizm.settings.hub_group_security'),
           children: [
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_2fa_title'),
               subtitle: trans('uptizm.settings.hub_2fa_subtitle'),
               icon: Icons.shield_outlined,
               to: '/settings/security/2fa',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_password_title'),
               subtitle: trans('uptizm.settings.hub_password_subtitle'),
               icon: Icons.lock_outline,
               to: '/settings/security/password',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_sessions_title'),
               subtitle: trans('uptizm.settings.hub_sessions_subtitle'),
               icon: Icons.devices_outlined,
@@ -61,28 +61,28 @@ class SettingsHubView extends StatelessWidget {
         ),
 
         // 3. Preferences.
-        SettingsSection(
+        MSSettingsSection(
           header: trans('uptizm.settings.hub_group_preferences'),
           children: [
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_appearance_title'),
               subtitle: trans('uptizm.settings.hub_appearance_subtitle'),
               icon: Icons.palette_outlined,
               to: '/settings/appearance',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_language_title'),
               subtitle: trans('uptizm.settings.hub_language_subtitle'),
               icon: Icons.language_outlined,
               to: '/settings/language',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_timezone_title'),
               subtitle: trans('uptizm.settings.hub_timezone_subtitle'),
               icon: Icons.schedule_outlined,
               to: '/settings/timezone',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_notifications_title'),
               subtitle: trans('uptizm.settings.hub_notifications_subtitle'),
               icon: Icons.notifications_outlined,
@@ -92,40 +92,40 @@ class SettingsHubView extends StatelessWidget {
         ),
 
         // 4. Team. All rows route to `/teams/*` ComingSoon stubs (Step 10).
-        SettingsSection(
+        MSSettingsSection(
           header: trans('uptizm.settings.hub_group_team'),
           children: [
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_team_settings_title'),
               subtitle: trans('uptizm.settings.hub_team_settings_subtitle'),
               icon: Icons.groups_outlined,
               to: '/teams/settings',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_team_members_title'),
               subtitle: trans('uptizm.settings.hub_team_members_subtitle'),
               icon: Icons.people_outline,
               to: '/teams/members',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_team_channels_title'),
               subtitle: trans('uptizm.settings.hub_team_channels_subtitle'),
               icon: Icons.notifications_outlined,
               to: '/teams/notifications',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_team_escalation_title'),
               subtitle: trans('uptizm.settings.hub_team_escalation_subtitle'),
               icon: Icons.trending_up_outlined,
               to: '/teams/escalation',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_team_oncall_title'),
               subtitle: trans('uptizm.settings.hub_team_oncall_subtitle'),
               icon: Icons.phone_in_talk_outlined,
               to: '/teams/on-call',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_team_billing_title'),
               subtitle: trans('uptizm.settings.hub_team_billing_subtitle'),
               icon: Icons.credit_card_outlined,
@@ -135,28 +135,28 @@ class SettingsHubView extends StatelessWidget {
         ),
 
         // 5. About & support.
-        SettingsSection(
+        MSSettingsSection(
           header: trans('uptizm.settings.hub_group_about'),
           children: [
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_help_title'),
               subtitle: trans('uptizm.settings.hub_help_subtitle'),
               icon: Icons.help_outline,
               to: '/settings/help',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_changelog_title'),
               subtitle: trans('uptizm.settings.hub_changelog_subtitle'),
               icon: Icons.article_outlined,
               to: '/settings/changelog',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_privacy_title'),
               subtitle: trans('uptizm.settings.hub_privacy_subtitle'),
               icon: Icons.privacy_tip_outlined,
               to: '/settings/privacy',
             ),
-            SettingsNavRow(
+            MSSettingsNavRow(
               title: trans('uptizm.settings.hub_terms_title'),
               subtitle: trans('uptizm.settings.hub_terms_subtitle'),
               icon: Icons.description_outlined,

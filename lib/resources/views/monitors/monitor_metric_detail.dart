@@ -191,13 +191,13 @@ class MonitorMetricDetail extends StatelessWidget {
         WDiv(
           className: 'flex flex-row gap-2 shrink-0',
           children: [
-            Button(
+            MSButton(
               intent: ButtonIntent.secondary,
               size: ButtonSize.sm,
               onPressed: onEdit,
               child: WText(trans('uptizm.monitors.action_edit')),
             ),
-            Button(
+            MSButton(
               intent: ButtonIntent.ghost,
               size: ButtonSize.sm,
               onPressed: () => _confirmDelete(context),
@@ -345,10 +345,9 @@ class MonitorMetricDetail extends StatelessWidget {
   Future<void> _confirmDelete(BuildContext context) async {
     final bool confirmed = await MagicStarterConfirmDialog.show(
       context,
-      title: trans(
-        'uptizm.monitors.metrics_confirm_delete_title',
-        {'name': metric.label},
-      ),
+      title: trans('uptizm.monitors.metrics_confirm_delete_title', {
+        'name': metric.label,
+      }),
       description: trans('uptizm.monitors.metrics_confirm_delete_description'),
       confirmLabel: trans('uptizm.monitors.metrics_confirm_delete_label'),
       variant: ConfirmDialogVariant.danger,

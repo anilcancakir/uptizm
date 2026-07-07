@@ -54,13 +54,13 @@ class _SessionsSettingsViewState extends State<SessionsSettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.sessions_title'),
       subtitle: trans('uptizm.settings.sessions_description'),
       backLabel: trans('uptizm.settings.sessions_back_label'),
       backFallback: trans('uptizm.settings.sessions_back_to'),
       children: [
-        SettingsSection(
+        MSSettingsSection(
           children: [
             for (final DeviceSession session in _sessions)
               _buildSessionRow(session),
@@ -68,7 +68,7 @@ class _SessionsSettingsViewState extends State<SessionsSettingsView> {
         ),
         WDiv(
           className: 'flex flex-row justify-end',
-          child: Button(
+          child: MSButton(
             intent: ButtonIntent.secondary,
             onPressed: _sessions.where((s) => !s.current).isEmpty
                 ? null
@@ -87,7 +87,7 @@ class _SessionsSettingsViewState extends State<SessionsSettingsView> {
   /// Builds one device row: icon, device name, location/recency subtitle, and
   /// a trailing "This device" [StatusBadge] or ghost "Sign out" [Button].
   Widget _buildSessionRow(DeviceSession session) {
-    return SettingsRow(
+    return MSSettingsRow(
       icon: Icons.laptop_outlined,
       title: session.device,
       subtitle: '${session.location} · ${session.lastActive}',
@@ -96,7 +96,7 @@ class _SessionsSettingsViewState extends State<SessionsSettingsView> {
               StatusKey.up,
               label: trans('uptizm.settings.sessions_current_badge'),
             )
-          : Button(
+          : MSButton(
               intent: ButtonIntent.ghost,
               size: ButtonSize.sm,
               onPressed: () => _confirmSignOut(session),

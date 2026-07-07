@@ -165,7 +165,7 @@ class _MonitorCreateViewState
         className: 'flex flex-col gap-6',
         children: [
           // 1. Header: title + description, with the back affordance.
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.monitors.create_header_title'),
             subtitle: trans('uptizm.monitors.create_header_description'),
             backLabel: trans('uptizm.monitors.back_to_monitors'),
@@ -185,7 +185,7 @@ class _MonitorCreateViewState
   /// Builds the AI/Manual segmented control. Maps the tapped index back to the
   /// [_CreateMode] (React `MODES` + `onValueChange`).
   Widget _buildModePicker() {
-    return SegmentedControl<String>(
+    return MSSegmentedControl<String>(
       options: [
         trans('uptizm.monitors.create_mode_ai'),
         trans('uptizm.monitors.create_mode_manual'),
@@ -245,9 +245,9 @@ class _MonitorCreateViewState
         ),
         WDiv(
           className: 'mt-5',
-          child: MagicFormField(
+          child: MSFormField(
             label: trans('uptizm.monitors.create_ai_url_label'),
-            child: Input(
+            child: MSInput(
               value: _url,
               onChanged: (value) => setState(() => _url = value),
               placeholder: trans('uptizm.monitors.create_ai_url_placeholder'),
@@ -259,7 +259,7 @@ class _MonitorCreateViewState
         // and left-aligned within the card column.
         WDiv(
           className: 'mt-5 flex flex-row',
-          child: Button(
+          child: MSButton(
             disabled: _url.isEmpty,
             onPressed: _url.isEmpty ? null : _analyze,
             child: WDiv(
@@ -359,7 +359,8 @@ class _MonitorCreateViewState
   /// ([kAiMetrics]), and the help text. React lines 164-202.
   Widget _buildReviewBanner() {
     return WDiv(
-      className: 'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
+      className:
+          'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
       children: [
         _buildAiGlyphTile(),
         WDiv(
@@ -416,7 +417,8 @@ class _MonitorCreateViewState
   /// (when present). React lines 184-194.
   Widget _buildMetricPill(AiMetricSeed metric) {
     return WDiv(
-      className: 'flex flex-row items-center gap-1 rounded-md border border-color-border bg-surface px-2 py-0.5',
+      className:
+          'flex flex-row items-center gap-1 rounded-md border border-color-border bg-surface px-2 py-0.5',
       children: [
         WText(metric.label, className: 'text-xs text-fg'),
         if (metric.unit.isNotEmpty)
@@ -435,7 +437,8 @@ class _MonitorCreateViewState
   /// tone) so the surface reads as an AI affordance in both light and dark.
   Widget _buildAiCard({required List<Widget> children}) {
     return WDiv(
-      className: 'flex flex-col rounded-xl border border-ai-soft bg-ai-wash p-6',
+      className:
+          'flex flex-col rounded-xl border border-ai-soft bg-ai-wash p-6',
       children: children,
     );
   }
@@ -457,7 +460,8 @@ class _MonitorCreateViewState
   /// with a `text-ai` sparkle), the codebase's AI-surface glyph idiom.
   Widget _buildAiGlyphTile() {
     return WDiv(
-      className: 'size-8 shrink-0 flex items-center justify-center rounded-lg bg-ai-soft',
+      className:
+          'size-8 shrink-0 flex items-center justify-center rounded-lg bg-ai-soft',
       child: WText('✦', className: 'text-ai text-lg'),
     );
   }

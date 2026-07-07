@@ -274,7 +274,7 @@ class StatusPagePreview extends StatelessWidget {
           className: 'flex flex-row items-center gap-2',
           children: [
             const Expanded(
-              child: Input(
+              child: MSInput(
                 type: InputType.email,
                 placeholder: 'you@example.com',
                 className: 'max-w-xs',

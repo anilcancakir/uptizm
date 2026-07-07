@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
@@ -54,11 +54,11 @@ class _StatusPagesListViewState
         className: 'flex flex-col gap-6',
         children: [
           // 1. Page header with a "New status page" action button.
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.status.list_title'),
             subtitle: trans('uptizm.status.list_description'),
             actions: [
-              Button(
+              MSButton(
                 onPressed: () => MagicRoute.to('/status/new'),
                 child: WText(trans('uptizm.status.list_new_page_action')),
               ),
@@ -186,7 +186,7 @@ class _StatusPagesListViewState
       child: EmptyState(
         title: trans('uptizm.status.list_empty_title'),
         description: trans('uptizm.status.list_empty_description'),
-        action: Button(
+        action: MSButton(
           onPressed: () => MagicRoute.to('/status/new'),
           child: WText(trans('uptizm.status.list_new_page_action')),
         ),

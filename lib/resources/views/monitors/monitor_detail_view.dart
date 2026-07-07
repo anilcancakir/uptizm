@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/incidents.dart';
@@ -187,7 +187,7 @@ class _MonitorDetailViewState
         children: [
           // 3. Header: name + StatusBadge as a title suffix, URL as subtitle,
           //    Pause-Resume / Edit / Delete actions on the trailing edge.
-          PageHeader(
+          MSPageHeader(
             title: monitor.name,
             subtitle: monitor.url,
             titleSuffix: StatusBadge(monitor.status),
@@ -197,7 +197,10 @@ class _MonitorDetailViewState
           ),
 
           // 4. Body: skeleton while loading, otherwise the full content.
-          if (_loading) _buildLoadingSkeleton() else _buildContent(monitor, paused),
+          if (_loading)
+            _buildLoadingSkeleton()
+          else
+            _buildContent(monitor, paused),
         ],
       ),
     );
@@ -248,7 +251,7 @@ class _MonitorDetailViewState
       WDiv(
         className: 'wrap items-center gap-2',
         children: [
-          Button(
+          MSButton(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
             onPressed: () => _onPauseResume(monitor, paused),
@@ -258,13 +261,13 @@ class _MonitorDetailViewState
                   : trans('uptizm.monitors.action_pause'),
             ),
           ),
-          Button(
+          MSButton(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
             onPressed: () => _onEdit(monitor),
             child: WText(trans('uptizm.monitors.action_edit')),
           ),
-          Button(
+          MSButton(
             intent: ButtonIntent.destructive,
             size: ButtonSize.sm,
             onPressed: () => _onDelete(monitor),
@@ -338,10 +341,10 @@ class _MonitorDetailViewState
         WDiv(
           className: 'grid grid-cols-2 lg:grid-cols-4 gap-4',
           children: const [
-            Skeleton(height: 88),
-            Skeleton(height: 88),
-            Skeleton(height: 88),
-            Skeleton(height: 88),
+            MSSkeleton(height: 88),
+            MSSkeleton(height: 88),
+            MSSkeleton(height: 88),
+            MSSkeleton(height: 88),
           ],
         ),
 
@@ -349,8 +352,8 @@ class _MonitorDetailViewState
         WDiv(
           className: 'flex flex-col gap-3',
           children: const [
-            Skeleton(shape: SkeletonShape.text, width: 160),
-            Skeleton(height: 40),
+            MSSkeleton(shape: SkeletonShape.text, width: 160),
+            MSSkeleton(height: 40),
           ],
         ),
 
@@ -358,8 +361,8 @@ class _MonitorDetailViewState
         WDiv(
           className: 'flex flex-col gap-3',
           children: const [
-            Skeleton(shape: SkeletonShape.text, width: 192),
-            Skeleton(height: 240),
+            MSSkeleton(shape: SkeletonShape.text, width: 192),
+            MSSkeleton(height: 240),
           ],
         ),
       ],
@@ -587,7 +590,7 @@ class _MonitorDetailViewState
   /// `fullWidthList: true` (wind #128), so the `border-b` underline runs
   /// edge-to-edge without a manual `w-full` override.
   Widget _buildTabs(MonitorSummary monitor, bool paused) {
-    return Tabs(
+    return MSTabs(
       tabs: [
         trans('uptizm.monitors.tab_overview'),
         trans('uptizm.monitors.tab_metrics'),
@@ -757,7 +760,7 @@ class _MonitorDetailViewState
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.monitors.error_load_title'),
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: '/monitors',

@@ -191,7 +191,7 @@ class _MonitorFormState extends State<MonitorForm> {
         if (widget.banner != null) widget.banner!,
 
         // 2. The form card (surface variant) with the field stack.
-        Card(
+        MSCard(
           variant: CardVariant.surface,
           child: WDiv(
             className: 'flex flex-col gap-5',
@@ -217,9 +217,9 @@ class _MonitorFormState extends State<MonitorForm> {
 
   /// Builds the Name field.
   Widget _buildNameField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.form_field_name_label'),
-      child: Input(
+      child: MSInput(
         value: _name,
         onChanged: (value) => setState(() => _name = value),
         placeholder: trans('uptizm.monitors.form_field_name_placeholder'),
@@ -233,24 +233,25 @@ class _MonitorFormState extends State<MonitorForm> {
   /// labels are projected from [kMonitorTypes] and the change handler maps the
   /// tapped index back to the option's machine value.
   Widget _buildTypeField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.form_type_label'),
-      child: SegmentedControl<String>(
+      child: MSSegmentedControl<String>(
         options: kMonitorTypes.map((o) => o.label).toList(),
         selectedIndex: _indexOfValue(kMonitorTypes, _type),
-        onChanged: (index) => setState(() => _type = kMonitorTypes[index].value),
+        onChanged: (index) =>
+            setState(() => _type = kMonitorTypes[index].value),
       ),
     );
   }
 
   /// Builds the URL field, with the hint switching on the HTTP/non-HTTP type.
   Widget _buildUrlField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.form_url_label'),
       hint: _isHttp
           ? trans('uptizm.monitors.form_url_hint_http')
           : trans('uptizm.monitors.form_url_hint_other'),
-      child: Input(
+      child: MSInput(
         value: _url,
         onChanged: (value) => setState(() => _url = value),
         placeholder: trans('uptizm.monitors.form_url_placeholder'),
@@ -264,9 +265,9 @@ class _MonitorFormState extends State<MonitorForm> {
   /// fastest allowed interval is [SelectOption.disabled] and its label is
   /// suffixed with the cheapest plan that unlocks it (React lines 148-157).
   Widget _buildIntervalField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.form_interval_label'),
-      child: Select<String>(
+      child: MSSelect<String>(
         value: _intervalValue,
         options: kCheckIntervals.map(_intervalOption).toList(),
         onChange: (value) {
@@ -286,7 +287,9 @@ class _MonitorFormState extends State<MonitorForm> {
     }
 
     // The cheapest plan whose fastest interval reaches this option unlocks it.
-    final String requiredPlan = smallestPlanWhere((limits) => limits.checkIntervalSec <= seconds).name;
+    final String requiredPlan = smallestPlanWhere(
+      (limits) => limits.checkIntervalSec <= seconds,
+    ).name;
     return SelectOption<String>(
       value: option.value,
       label: '${option.label} · $requiredPlan',
@@ -296,7 +299,7 @@ class _MonitorFormState extends State<MonitorForm> {
 
   /// Builds the Regions multi-select grid.
   Widget _buildRegionsField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.form_regions_label'),
       hint: trans('uptizm.monitors.form_regions_hint'),
       child: RegionPicker(
@@ -309,12 +312,14 @@ class _MonitorFormState extends State<MonitorForm> {
 
   /// Builds the Uptime SLO target select.
   Widget _buildSloField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.monitors.form_slo_label'),
       hint: trans('uptizm.monitors.form_slo_hint'),
-      child: Select<String>(
+      child: MSSelect<String>(
         value: _slo,
-        options: kSloTargets.map((o) => SelectOption<String>(value: o.value, label: o.label)).toList(),
+        options: kSloTargets
+            .map((o) => SelectOption<String>(value: o.value, label: o.label))
+            .toList(),
         onChange: (value) {
           if (value != null) setState(() => _slo = value);
         },
@@ -351,10 +356,10 @@ class _MonitorFormState extends State<MonitorForm> {
           value: _notifyRecover,
           onChanged: (value) => setState(() => _notifyRecover = value),
         ),
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.monitors.form_escalation_label'),
           hint: trans('uptizm.monitors.form_escalation_hint'),
-          child: Select<String>(
+          child: MSSelect<String>(
             value: _policy,
             options: escalationPolicies
                 .map((p) => SelectOption<String>(value: p.id, label: p.name))
@@ -395,16 +400,17 @@ class _MonitorFormState extends State<MonitorForm> {
     final bool showBody = _isHttp && (_method == 'POST' || _method == 'PUT');
     return [
       if (_isHttp)
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.monitors.form_method_label'),
-          child: SegmentedControl<String>(
+          child: MSSegmentedControl<String>(
             options: kHttpMethods.map((o) => o.label).toList(),
             selectedIndex: _indexOfValue(kHttpMethods, _method),
-            onChanged: (index) => setState(() => _method = kHttpMethods[index].value),
+            onChanged: (index) =>
+                setState(() => _method = kHttpMethods[index].value),
           ),
         ),
       if (_isHttp)
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.monitors.form_headers_label'),
           hint: trans('uptizm.monitors.form_headers_hint'),
           child: KeyValueEditor(
@@ -413,18 +419,18 @@ class _MonitorFormState extends State<MonitorForm> {
           ),
         ),
       if (showBody)
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.monitors.form_body_label'),
-          child: Textarea(
+          child: MSTextarea(
             value: _body,
             onChanged: (value) => setState(() => _body = value),
             placeholder: trans('uptizm.monitors.form_body_placeholder'),
           ),
         ),
-      MagicFormField(
+      MSFormField(
         label: trans('uptizm.monitors.form_timeout_label'),
         hint: trans('uptizm.monitors.form_timeout_hint'),
-        child: Input(
+        child: MSInput(
           value: _timeoutMs,
           onChanged: (value) => setState(() => _timeoutMs = value),
           type: InputType.number,
@@ -445,15 +451,12 @@ class _MonitorFormState extends State<MonitorForm> {
     return WDiv(
       className: 'flex flex-row justify-end gap-3',
       children: [
-        Button(
+        MSButton(
           intent: ButtonIntent.secondary,
           onPressed: widget.onCancel,
           child: WText(trans('uptizm.monitors.form_cancel')),
         ),
-        Button(
-          onPressed: widget.onSubmit,
-          child: WText(widget.submitLabel),
-        ),
+        MSButton(onPressed: widget.onSubmit, child: WText(widget.submitLabel)),
       ],
     );
   }
@@ -473,7 +476,7 @@ class _MonitorFormState extends State<MonitorForm> {
     return WDiv(
       className: 'flex flex-row items-center gap-3',
       children: [
-        Switch(value: value, onChanged: onChanged, semanticLabel: label),
+        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
         WText(label, className: 'min-w-0 text-sm text-fg'),
       ],
     );

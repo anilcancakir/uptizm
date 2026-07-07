@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
@@ -49,7 +49,8 @@ import '../../../ui/layouts/page_container.dart';
 /// )
 /// ```
 @immutable
-class StatusPageSubscribersView extends MagicStatefulView<StatusPageController> {
+class StatusPageSubscribersView
+    extends MagicStatefulView<StatusPageController> {
   /// The status-page identifier resolved against the fixtures via
   /// [StatusPageController.configById].
   ///
@@ -64,8 +65,12 @@ class StatusPageSubscribersView extends MagicStatefulView<StatusPageController> 
       _StatusPageSubscribersViewState();
 }
 
-class _StatusPageSubscribersViewState extends MagicStatefulViewState<
-    StatusPageController, StatusPageSubscribersView> {
+class _StatusPageSubscribersViewState
+    extends
+        MagicStatefulViewState<
+          StatusPageController,
+          StatusPageSubscribersView
+        > {
   /// The current search query, matched against the subscriber email.
   ///
   /// The only local (ephemeral) state; the subscriber roster lives in
@@ -106,13 +111,13 @@ class _StatusPageSubscribersViewState extends MagicStatefulViewState<
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.status.subscribers_title'),
             subtitle: 'People subscribed to ${page.name} updates.',
             backLabel: page.name,
             backFallback: '/status/${page.id}',
             actions: [
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 onPressed: hasSubscribers
                     ? () {
@@ -184,7 +189,7 @@ class _StatusPageSubscribersViewState extends MagicStatefulViewState<
             : trans(
                 'uptizm.status.subscribers_empty_subs_disabled_description',
               ),
-        action: Button(
+        action: MSButton(
           intent: ButtonIntent.secondary,
           onPressed: () => MagicRoute.to('/status/${page.id}'),
           child: WText(trans('uptizm.status.subscribers_open_editor_button')),
@@ -204,12 +209,12 @@ class _StatusPageSubscribersViewState extends MagicStatefulViewState<
     return WDiv(
       className: 'flex flex-col gap-4',
       children: [
-        Input(
+        MSInput(
           value: _query,
           onChanged: (value) => setState(() => _query = value),
           placeholder: trans('uptizm.status.subscribers_search_placeholder'),
         ),
-        Card(
+        MSCard(
           noPadding: true,
           child: visible.isEmpty
               ? _buildNoMatches()
@@ -279,7 +284,7 @@ class _StatusPageSubscribersViewState extends MagicStatefulViewState<
             ),
           ],
         ),
-        Button(
+        MSButton(
           intent: ButtonIntent.ghost,
           size: ButtonSize.sm,
           onPressed: () => _confirmRemove(page, subscriber),
@@ -329,7 +334,7 @@ class _StatusPageSubscribersViewState extends MagicStatefulViewState<
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.status.subscribers_title'),
             backLabel: trans('uptizm.status.subscribers_open_editor_button'),
             backFallback: '/status',

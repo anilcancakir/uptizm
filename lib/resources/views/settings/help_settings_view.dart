@@ -99,14 +99,14 @@ class _HelpSettingsViewState extends State<HelpSettingsView> {
   Widget build(BuildContext context) {
     final List<FaqItem> filtered = _filteredFaq;
 
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.help_title'),
       subtitle: trans('uptizm.settings.help_description'),
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
         // 1. Search input, filters the FAQ accordion below.
-        Input(
+        MSInput(
           value: _query,
           onChanged: (String value) => setState(() => _query = value),
           placeholder: trans('uptizm.settings.help_search_placeholder'),
@@ -114,7 +114,7 @@ class _HelpSettingsViewState extends State<HelpSettingsView> {
         ),
 
         // 2. FAQ accordion.
-        Card(
+        MSCard(
           title: trans('uptizm.settings.help_faq_heading'),
           child: WDiv(
             className: 'flex flex-col gap-1',
@@ -126,7 +126,7 @@ class _HelpSettingsViewState extends State<HelpSettingsView> {
         ),
 
         // 3. Contact support card.
-        Card(
+        MSCard(
           title: trans('uptizm.settings.help_contact_heading'),
           child: WDiv(
             className: 'flex flex-col gap-3',
@@ -138,13 +138,13 @@ class _HelpSettingsViewState extends State<HelpSettingsView> {
               WDiv(
                 className: 'flex flex-row flex-wrap gap-2',
                 children: [
-                  Button(
+                  MSButton(
                     onPressed: () {},
                     child: WText(
                       trans('uptizm.settings.help_contact_email_button'),
                     ),
                   ),
-                  Button(
+                  MSButton(
                     intent: ButtonIntent.secondary,
                     onPressed: () {},
                     child: WText(
@@ -158,10 +158,10 @@ class _HelpSettingsViewState extends State<HelpSettingsView> {
         ),
 
         // 4. External-links card.
-        SettingsSection(
+        MSSettingsSection(
           children: [
             for (final _HelpLink link in _buildLinks())
-              SettingsRow(
+              MSSettingsRow(
                 title: link.label,
                 subtitle: link.url,
                 icon: Icons.open_in_new,

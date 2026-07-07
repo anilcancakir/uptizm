@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/monitors.dart';
@@ -74,7 +74,7 @@ class _MonitorEditViewState
           // 3. Page header: back link to the monitors list, "Edit monitor"
           //    title, and "Editing <name>." as the subtitle — mirroring the
           //    React PageHeader props.
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.monitors.form_title_edit'),
             subtitle: trans('uptizm.monitors.form_editing', {
               'name': monitor.name,
@@ -113,7 +113,7 @@ class _MonitorEditViewState
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.monitors.error_load_title'),
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: '/monitors',

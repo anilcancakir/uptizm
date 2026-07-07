@@ -250,7 +250,7 @@ void main() {
       wrap(const KpiStatCard(label: 'Test', value: '42')),
     );
     // The magic_starter Card is the container.
-    expect(find.byType(Card), findsOneWidget);
+    expect(find.byType(MSCard), findsOneWidget);
   });
 
   testWidgets('KpiStatCard default trend is neutral (no glyph)', (

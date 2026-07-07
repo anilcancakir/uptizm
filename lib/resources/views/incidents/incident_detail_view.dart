@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/mocks/billing.dart';
@@ -10,7 +10,8 @@ import '../../../app/mocks/status.dart';
 import '../../../ui/components/ai_analysis_card/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/empty_state/index.dart';
-import '../../../ui/components/incident_timeline/index.dart' show IncidentTimeline;
+import '../../../ui/components/incident_timeline/index.dart'
+    show IncidentTimeline;
 import '../../../ui/components/status_badge/index.dart';
 import '../../../ui/components/upgrade_nudge/index.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -194,7 +195,7 @@ class _IncidentDetailViewState
           WDiv(
             className: 'flex flex-col gap-4',
             children: [
-              PageHeader(
+              MSPageHeader(
                 title: incident.title,
                 subtitle: '${incident.monitorName} · ${incident.startedAt}',
                 backLabel: trans('uptizm.incidents.detail_back'),
@@ -251,7 +252,8 @@ class _IncidentDetailViewState
   /// token-only rounded chip carrying [text].
   Widget _buildPill(String text) {
     return WDiv(
-      className: 'flex flex-row items-center rounded-full border '
+      className:
+          'flex flex-row items-center rounded-full border '
           'border-color-border px-2.5 py-0.5',
       child: WText(text, className: 'text-xs font-medium text-fg-muted'),
     );
@@ -263,7 +265,7 @@ class _IncidentDetailViewState
   /// incident shows "Resolve" and moves to [IncidentLifecycle.resolved]. Either
   /// way the toggle is local state plus a `Magic.success` toast.
   Widget _buildResolveButton(IncidentSummary incident, bool resolved) {
-    return Button(
+    return MSButton(
       size: ButtonSize.sm,
       onPressed: () => _onResolveReopen(incident, resolved),
       child: WText(
@@ -308,7 +310,8 @@ class _IncidentDetailViewState
   /// once resolved, ownership lives in the timeline and postmortem.
   Widget _buildResponderStrip(IncidentSummary incident) {
     return WDiv(
-      className: 'flex flex-col gap-3 rounded-lg border border-color-border '
+      className:
+          'flex flex-col gap-3 rounded-lg border border-color-border '
           'bg-surface-container p-4 sm:flex-row sm:items-center '
           'sm:justify-between',
       children: [
@@ -333,7 +336,7 @@ class _IncidentDetailViewState
   /// [Select] carries a controlled non-null value, so the empty-string sentinel
   /// stands in for "no assignee"; it maps to `null` on change.
   Widget _buildAssigneeSelect() {
-    return Select<String>(
+    return MSSelect<String>(
       value: _assigneeName ?? '',
       options: [
         SelectOption<String>(
@@ -344,7 +347,9 @@ class _IncidentDetailViewState
           SelectOption<String>(value: r.name, label: r.name),
       ],
       onChange: (value) {
-        setState(() => _assigneeName = (value == null || value.isEmpty) ? null : value);
+        setState(
+          () => _assigneeName = (value == null || value.isEmpty) ? null : value,
+        );
       },
     );
   }
@@ -369,7 +374,7 @@ class _IncidentDetailViewState
   /// Builds the Acknowledge [Button]: records the current user as on the
   /// incident and surfaces the acknowledgement toast.
   Widget _buildAcknowledgeButton() {
-    return Button(
+    return MSButton(
       intent: ButtonIntent.secondary,
       size: ButtonSize.sm,
       onPressed: _onAcknowledge,
@@ -383,10 +388,7 @@ class _IncidentDetailViewState
   void _onAcknowledge() {
     const String by = _currentUserName;
     setState(() {
-      _ack = const IncidentAcknowledgement(
-        by: by,
-        at: 'just now',
-      );
+      _ack = const IncidentAcknowledgement(by: by, at: 'just now');
     });
     controller.acknowledge(by);
   }
@@ -415,10 +417,7 @@ class _IncidentDetailViewState
           className: 'flex flex-col rounded-lg border border-color-border',
           children: [
             for (var i = 0; i < incident.affectedMonitors.length; i++)
-              _buildAffectedRow(
-                incident.affectedMonitors[i],
-                isFirst: i == 0,
-              ),
+              _buildAffectedRow(incident.affectedMonitors[i], isFirst: i == 0),
           ],
         ),
       ],
@@ -436,10 +435,7 @@ class _IncidentDetailViewState
                 'border-t border-color-border',
       children: [
         Expanded(
-          child: WText(
-            monitor.name,
-            className: 'text-sm font-medium text-fg',
-          ),
+          child: WText(monitor.name, className: 'text-sm font-medium text-fg'),
         ),
         WDiv(
           className: 'flex flex-row items-center gap-1.5',
@@ -469,11 +465,7 @@ class _IncidentDetailViewState
   Widget _buildAiAnalysis(IncidentAi ai) {
     final bool unlocked = currentLimits.ai.index >= AiLevel.analysis.index;
     if (unlocked) {
-      return AiAnalysisCard(
-        ai: ai,
-        onActionTap: (_) {},
-        onFeedback: (_) {},
-      );
+      return AiAnalysisCard(ai: ai, onActionTap: (_) {}, onFeedback: (_) {});
     }
     return UpgradeNudge(
       message: trans('uptizm.incidents.ai_analysis_gated'),
@@ -492,7 +484,7 @@ class _IncidentDetailViewState
     return AiInsight(
       tone: 'banner',
       label: trans('uptizm.incidents.detail_postmortem_heading'),
-      action: Button(
+      action: MSButton(
         intent: ButtonIntent.secondary,
         size: ButtonSize.sm,
         onPressed: _onEditPostmortem,
@@ -533,16 +525,15 @@ class _IncidentDetailViewState
         WDiv(
           className: 'wrap items-center gap-3',
           children: [
-            SegmentedControl<String>(
+            MSSegmentedControl<String>(
               size: SegmentedControlSize.sm,
               options: [
                 trans('uptizm.incidents.detail_timeline_public'),
                 trans('uptizm.incidents.detail_timeline_all'),
               ],
               selectedIndex: _view == _viewPublic ? 0 : 1,
-              onChanged: (index) => setState(
-                () => _view = index == 0 ? _viewPublic : _viewAll,
-              ),
+              onChanged: (index) =>
+                  setState(() => _view = index == 0 ? _viewPublic : _viewAll),
             ),
           ],
         ),
@@ -558,7 +549,8 @@ class _IncidentDetailViewState
   /// entries (typically the public view before any public update is posted).
   Widget _buildTimelineEmpty() {
     return WDiv(
-      className: 'rounded-lg border border-dashed border-color-border '
+      className:
+          'rounded-lg border border-dashed border-color-border '
           'px-4 py-6',
       child: WText(
         trans('uptizm.incidents.detail_timeline_empty'),
@@ -576,7 +568,7 @@ class _IncidentDetailViewState
   /// [AiInsight] hint, and a footer with the publish [Switch] and the "Post
   /// update" [Button].
   Widget _buildComposer(IncidentSummary incident) {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-3',
@@ -589,11 +581,13 @@ class _IncidentDetailViewState
                 trans('uptizm.incidents.detail_composer_heading'),
                 className: 'text-sm font-semibold text-fg',
               ),
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 size: ButtonSize.sm,
                 onPressed: () => _onAiDraft(incident),
-                child: WText(trans('uptizm.incidents.detail_composer_ai_draft')),
+                child: WText(
+                  trans('uptizm.incidents.detail_composer_ai_draft'),
+                ),
               ),
             ],
           ),
@@ -602,7 +596,7 @@ class _IncidentDetailViewState
           _buildStatusSelect(),
 
           // 3. The update body.
-          Textarea(
+          MSTextarea(
             value: _message,
             minLines: 3,
             maxLines: 6,
@@ -616,7 +610,9 @@ class _IncidentDetailViewState
           // 4. AI-drafted hint (only right after an AI draft).
           if (_aiDrafted)
             AiInsight(
-              child: WText(trans('uptizm.incidents.detail_composer_ai_insight')),
+              child: WText(
+                trans('uptizm.incidents.detail_composer_ai_insight'),
+              ),
             ),
 
           // 5. Footer: publish switch (left) + Post update (right).
@@ -624,7 +620,7 @@ class _IncidentDetailViewState
             className: 'wrap items-center justify-between gap-3',
             children: [
               _buildPublishSwitch(),
-              Button(
+              MSButton(
                 onPressed: _message.trim().isEmpty
                     ? null
                     : () => _onPostUpdate(incident),
@@ -643,7 +639,7 @@ class _IncidentDetailViewState
   /// [IncidentLifecycle.label]; the Select rides on the current lifecycle's
   /// label and maps the chosen label back to the enum via [_lifecycleForLabel].
   Widget _buildStatusSelect() {
-    return Select<String>(
+    return MSSelect<String>(
       value: _lifecycle.label,
       options: kIncidentStatuses
           .map((o) => SelectOption<String>(value: o.value, label: o.label))
@@ -658,11 +654,13 @@ class _IncidentDetailViewState
 
   /// Builds the publish [Switch] row: the toggle followed by its label.
   Widget _buildPublishSwitch() {
-    final String label = trans('uptizm.incidents.detail_composer_publish_label');
+    final String label = trans(
+      'uptizm.incidents.detail_composer_publish_label',
+    );
     return WDiv(
       className: 'flex flex-row items-center gap-3 min-w-0',
       children: [
-        Switch(
+        MSSwitch(
           value: _publish,
           onChanged: (value) => setState(() => _publish = value),
           semanticLabel: label,
@@ -712,7 +710,7 @@ class _IncidentDetailViewState
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.incidents.error_load_title'),
             backLabel: trans('uptizm.incidents.detail_back'),
             backFallback: '/incidents',

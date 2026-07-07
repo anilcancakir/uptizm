@@ -35,14 +35,15 @@ class AppearanceSettingsView extends StatelessWidget {
     final WindThemeController theme = WindTheme.of(context);
     final Brightness current = theme.brightness;
 
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.appearance_title'),
       subtitle: trans('uptizm.settings.appearance_description'),
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
         WDiv(
-          className: 'flex flex-col gap-3 rounded-lg border '
+          className:
+              'flex flex-col gap-3 rounded-lg border '
               'border-color-border bg-surface-container p-4 '
               'dark:border-color-border dark:bg-surface-container',
           children: [
@@ -88,13 +89,13 @@ class AppearanceSettingsView extends StatelessWidget {
     //    unselected keeps the neutral surface with a hover affordance.
     final String cardClassName = selected
         ? 'flex flex-row items-center gap-3 rounded-lg border '
-            'border-primary bg-primary-container p-4 transition-colors '
-            'dark:border-primary dark:bg-primary-container'
+              'border-primary bg-primary-container p-4 transition-colors '
+              'dark:border-primary dark:bg-primary-container'
         : 'flex flex-row items-center gap-3 rounded-lg border '
-            'border-color-border bg-surface p-4 transition-colors '
-            'hover:bg-surface-container '
-            'dark:border-color-border dark:bg-surface '
-            'dark:hover:bg-surface-container';
+              'border-color-border bg-surface p-4 transition-colors '
+              'hover:bg-surface-container '
+              'dark:border-color-border dark:bg-surface '
+              'dark:hover:bg-surface-container';
 
     return WAnchor(
       onTap: () => _select(controller, target),
@@ -129,17 +130,14 @@ class AppearanceSettingsView extends StatelessWidget {
   }
 
   /// Builds the leading glyph tile.
-  Widget _buildGlyphTile({
-    required IconData icon,
-    required bool selected,
-  }) {
+  Widget _buildGlyphTile({required IconData icon, required bool selected}) {
     final String tileClassName = selected
         ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg '
-            'bg-primary-container text-primary '
-            'dark:bg-primary-container dark:text-primary'
+              'bg-primary-container text-primary '
+              'dark:bg-primary-container dark:text-primary'
         : 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg '
-            'bg-surface-container-high text-fg-muted '
-            'dark:bg-surface-container-high dark:text-fg-muted';
+              'bg-surface-container-high text-fg-muted '
+              'dark:bg-surface-container-high dark:text-fg-muted';
 
     return WDiv(
       className: tileClassName,
@@ -151,9 +149,9 @@ class AppearanceSettingsView extends StatelessWidget {
   Widget _buildRadioIndicator({required bool selected}) {
     final String ringClassName = selected
         ? 'flex h-5 w-5 shrink-0 items-center justify-center rounded-full '
-            'border-2 border-primary dark:border-primary'
+              'border-2 border-primary dark:border-primary'
         : 'flex h-5 w-5 shrink-0 items-center justify-center rounded-full '
-            'border-2 border-color-border dark:border-color-border';
+              'border-2 border-color-border dark:border-color-border';
 
     return WDiv(
       className: ringClassName,
@@ -173,10 +171,7 @@ class AppearanceSettingsView extends StatelessWidget {
   /// when the target already matches, so a tap on the active card is inert.
   void _select(WindThemeController controller, Brightness target) {
     controller.setTheme(
-      controller.data.copyWith(
-        brightness: target,
-        syncWithSystem: false,
-      ),
+      controller.data.copyWith(brightness: target, syncWithSystem: false),
     );
   }
 }

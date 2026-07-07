@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 // Hide magic_starter's EmptyState so the local uptizm EmptyState wins; only the
 // Button is needed from the starter here.
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'empty_state.dart';
 
@@ -28,7 +28,7 @@ class EmptyStatePreview extends StatelessWidget {
           description:
               'Create your first monitor to start tracking uptime, latency, '
               'and incidents across regions.',
-          action: Button(
+          action: MSButton(
             intent: ButtonIntent.primary,
             onPressed: () {},
             child: const WText('Create your first monitor'),

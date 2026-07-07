@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
@@ -99,7 +99,8 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.detail_composer_post': 'Post update',
       'uptizm.incidents.detail_postmortem_heading': 'Postmortem draft',
       'uptizm.incidents.detail_postmortem_edit': 'Edit & publish',
-      'uptizm.incidents.ai_analysis_gated': 'AI incident analysis pinpoints '
+      'uptizm.incidents.ai_analysis_gated':
+          'AI incident analysis pinpoints '
           'the likely cause.',
 
       // Shared status labels (StatusBadge / chip row).
@@ -184,17 +185,16 @@ void main() {
           .where((i) => i.lifecycle == IncidentLifecycle.resolved)
           .length;
 
-      // Scope the tap to the filter SegmentedControl: "Resolved" also matches
+      // Scope the tap to the filter MSSegmentedControl: "Resolved" also matches
       // the counts-row label and each card's lifecycle pill. IncidentsListView
-      // constructs a bare `SegmentedControl(...)` (no explicit type argument),
-      // which resolves to `SegmentedControl<dynamic>` at runtime, so the
+      // constructs a bare `MSSegmentedControl(...)` (no explicit type argument),
+      // which resolves to `MSSegmentedControl<dynamic>` at runtime, so the
       // generic argument is left off the finder.
       await tester.tap(
         find.descendant(
           of: find.byWidgetPredicate(
-            (widget) => widget.runtimeType.toString().startsWith(
-              'SegmentedControl',
-            ),
+            (widget) =>
+                widget.runtimeType.toString().startsWith('MSSegmentedControl'),
           ),
           matching: find.text(trans('uptizm.incidents.filter_resolved')),
         ),
@@ -215,7 +215,7 @@ void main() {
       await tester.pump();
 
       final Finder searchInput = find.widgetWithText(
-        Input,
+        MSInput,
         trans('uptizm.incidents.search_placeholder'),
       );
       await tester.tap(searchInput);
@@ -250,7 +250,7 @@ void main() {
       // default kind, blank suggestion).
       expect(
         find.widgetWithText(
-          Input,
+          MSInput,
           trans('uptizm.incidents.form_title_placeholder_incident'),
         ),
         findsOneWidget,
@@ -354,7 +354,7 @@ void main() {
       // behavioral contract.
       tester.takeException();
 
-      expect(find.byType(PageHeader), findsOneWidget);
+      expect(find.byType(MSPageHeader), findsOneWidget);
       expect(find.text(incident.title), findsOneWidget);
 
       // The public timeline entry's message is on the page (default view is
@@ -400,7 +400,7 @@ void main() {
       await tester.pump();
 
       final Finder aiDraftButton = find.widgetWithText(
-        Button,
+        MSButton,
         trans('uptizm.incidents.detail_composer_ai_draft'),
       );
       await tester.ensureVisible(aiDraftButton);
@@ -412,8 +412,8 @@ void main() {
       // asserted away.
       tester.takeException();
 
-      final Textarea composer = tester.widget<Textarea>(
-        find.byType(Textarea),
+      final MSTextarea composer = tester.widget<MSTextarea>(
+        find.byType(MSTextarea),
       );
       expect(composer.value, isNotEmpty);
       expect(composer.value, contains(incident.monitorName));
@@ -444,7 +444,9 @@ void main() {
       // the body (Text.rich), not a standalone Text widget, so the heading is
       // matched via textContaining rather than find.text.
       expect(
-        find.textContaining(trans('uptizm.incidents.detail_postmortem_heading')),
+        find.textContaining(
+          trans('uptizm.incidents.detail_postmortem_heading'),
+        ),
         findsOneWidget,
         reason: 'The postmortem heading must render for a resolved incident',
       );

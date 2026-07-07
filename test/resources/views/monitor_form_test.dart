@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_edit_view.dart';
@@ -60,15 +60,19 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.create_mode_ai': 'AI setup',
       'uptizm.monitors.create_mode_manual': 'Manual',
       'uptizm.monitors.create_ai_card_title': 'AI setup',
-      'uptizm.monitors.create_ai_card_description': 'Paste a URL and AI configures the monitor.',
+      'uptizm.monitors.create_ai_card_description':
+          'Paste a URL and AI configures the monitor.',
       'uptizm.monitors.create_ai_url_label': 'Endpoint URL',
-      'uptizm.monitors.create_ai_url_placeholder': 'https://api.example.com/health',
+      'uptizm.monitors.create_ai_url_placeholder':
+          'https://api.example.com/health',
       'uptizm.monitors.create_ai_analyze_button': 'Analyze with AI',
       'uptizm.monitors.create_ai_analyzing_title': 'Analyzing endpoint…',
-      'uptizm.monitors.create_ai_review_banner_title': 'AI configured this monitor',
+      'uptizm.monitors.create_ai_review_banner_title':
+          'AI configured this monitor',
       'uptizm.monitors.create_ai_review_summary': 'Ready: :name.',
       'uptizm.monitors.create_ai_suggested_metrics': 'Suggested metrics',
-      'uptizm.monitors.create_ai_suggested_metrics_help': 'These will be tracked after creation.',
+      'uptizm.monitors.create_ai_suggested_metrics_help':
+          'These will be tracked after creation.',
 
       // Not-found state.
       'uptizm.monitors.error_load_title': 'Monitor not found',
@@ -197,7 +201,7 @@ void main() {
 
       // Find all Switch widgets; the advanced toggle is the last one (after the
       // two notification switches). Tap it to enable advanced mode.
-      final Finder switches = find.byType(Switch);
+      final Finder switches = find.byType(MSSwitch);
       expect(switches, findsWidgets);
       // The advanced switch is the third Switch in reading order.
       await tester.tap(switches.last);
@@ -321,12 +325,15 @@ void main() {
       await tester.pump();
 
       expect(
-        find.widgetWithText(Button, trans('uptizm.monitors.form_cancel')),
+        find.widgetWithText(MSButton, trans('uptizm.monitors.form_cancel')),
         findsOneWidget,
         reason: 'Cancel button must be in the footer',
       );
       expect(
-        find.widgetWithText(Button, trans('uptizm.monitors.form_submit_create')),
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        ),
         findsOneWidget,
         reason: 'Submit button must be in the footer',
       );
@@ -352,7 +359,7 @@ void main() {
       // The URL Input is identified by its placeholder text.
       expect(
         find.widgetWithText(
-          Input,
+          MSInput,
           trans('uptizm.monitors.create_ai_url_placeholder'),
         ),
         findsOneWidget,
@@ -361,7 +368,10 @@ void main() {
 
       // The "Analyze with AI" button is present (disabled while URL is empty).
       expect(
-        find.widgetWithText(Button, trans('uptizm.monitors.create_ai_analyze_button')),
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.create_ai_analyze_button'),
+        ),
         findsOneWidget,
         reason: 'Analyze button must be present in the AI input step',
       );
@@ -376,8 +386,11 @@ void main() {
       await tester.pumpWidget(wrap(const MonitorCreateView()));
       await tester.pump();
 
-      final Button analyzeBtn = tester.widget<Button>(
-        find.widgetWithText(Button, trans('uptizm.monitors.create_ai_analyze_button')),
+      final MSButton analyzeBtn = tester.widget<MSButton>(
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.create_ai_analyze_button'),
+        ),
       );
       expect(
         analyzeBtn.disabled,
@@ -396,9 +409,7 @@ void main() {
       await tester.pump();
 
       // Tap the "Manual" segment.
-      await tester.tap(
-        find.text(trans('uptizm.monitors.create_mode_manual')),
-      );
+      await tester.tap(find.text(trans('uptizm.monitors.create_mode_manual')));
       await tester.pump();
 
       // After switching to manual the bare MonitorForm is in the tree and the
@@ -410,7 +421,7 @@ void main() {
       );
       expect(
         find.widgetWithText(
-          Input,
+          MSInput,
           trans('uptizm.monitors.create_ai_url_placeholder'),
         ),
         findsNothing,
@@ -418,57 +429,60 @@ void main() {
       );
     });
 
-    testWidgets(
-      'entering a URL enables the Analyze button then the analyze timer '
-      'advances to the review step',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1200, 5000));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets('entering a URL enables the Analyze button then the analyze timer '
+        'advances to the review step', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        await tester.pumpWidget(
-          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
-        );
-        await tester.pump();
+      await tester.pumpWidget(
+        wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+      );
+      await tester.pump();
 
-        // Type a URL into the AI input.
-        final Finder urlInput = find.widgetWithText(
-          Input,
-          trans('uptizm.monitors.create_ai_url_placeholder'),
-        );
-        await tester.tap(urlInput);
-        await tester.pump();
-        await tester.enterText(urlInput, 'https://api.example.com/health');
-        await tester.pump();
+      // Type a URL into the AI input.
+      final Finder urlInput = find.widgetWithText(
+        MSInput,
+        trans('uptizm.monitors.create_ai_url_placeholder'),
+      );
+      await tester.tap(urlInput);
+      await tester.pump();
+      await tester.enterText(urlInput, 'https://api.example.com/health');
+      await tester.pump();
 
-        // Now the Analyze button must be enabled.
-        final Button analyzeBtn = tester.widget<Button>(
-          find.widgetWithText(Button, trans('uptizm.monitors.create_ai_analyze_button')),
-        );
-        expect(
-          analyzeBtn.disabled,
-          isFalse,
-          reason: 'Analyze button must be enabled once a URL is entered',
-        );
+      // Now the Analyze button must be enabled.
+      final MSButton analyzeBtn = tester.widget<MSButton>(
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.create_ai_analyze_button'),
+        ),
+      );
+      expect(
+        analyzeBtn.disabled,
+        isFalse,
+        reason: 'Analyze button must be enabled once a URL is entered',
+      );
 
-        // Tap Analyze to start the simulated probe (2200ms timer).
-        await tester.tap(
-          find.widgetWithText(Button, trans('uptizm.monitors.create_ai_analyze_button')),
-        );
-        await tester.pump();
+      // Tap Analyze to start the simulated probe (2200ms timer).
+      await tester.tap(
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.create_ai_analyze_button'),
+        ),
+      );
+      await tester.pump();
 
-        // Advance the analyze timer to completion and let the review step settle.
-        await tester.pump(const Duration(milliseconds: 2200));
-        await tester.pump();
+      // Advance the analyze timer to completion and let the review step settle.
+      await tester.pump(const Duration(milliseconds: 2200));
+      await tester.pump();
 
-        // After the timer fires the view flips to the review step: a MonitorForm
-        // pre-filled with the AI settings is now in the tree.
-        expect(
-          find.byType(MonitorForm),
-          findsOneWidget,
-          reason: 'MonitorForm must be present in the AI review step',
-        );
-      },
-    );
+      // After the timer fires the view flips to the review step: a MonitorForm
+      // pre-filled with the AI settings is now in the tree.
+      expect(
+        find.byType(MonitorForm),
+        findsOneWidget,
+        reason: 'MonitorForm must be present in the AI review step',
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -488,9 +502,10 @@ void main() {
       // The fixture name for the 'api' monitor is 'API gateway'. The MonitorForm
       // renders it in the Name field (Input with value 'API gateway').
       expect(
-        find.widgetWithText(Input, 'API gateway'),
+        find.widgetWithText(MSInput, 'API gateway'),
         findsOneWidget,
-        reason: "The Name input must be prefilled with the fixture monitor's name",
+        reason:
+            "The Name input must be prefilled with the fixture monitor's name",
       );
     });
 
@@ -502,7 +517,10 @@ void main() {
       await tester.pump();
 
       expect(
-        find.widgetWithText(Button, trans('uptizm.monitors.form_submit_save')),
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_save'),
+        ),
         findsOneWidget,
         reason: 'Save changes button must be present for a known monitor id',
       );

@@ -42,16 +42,16 @@ class _LanguageSettingsViewState extends State<LanguageSettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.language_title'),
       subtitle: trans('uptizm.settings.language_description'),
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
-        SettingsSection(
+        MSSettingsSection(
           children: [
             for (final AppLanguage language in appLanguages)
-              SettingsRow(
+              MSSettingsRow(
                 title: language.native,
                 subtitle: language.label,
                 onTap: () => _select(language),

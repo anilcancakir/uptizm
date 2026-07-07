@@ -68,17 +68,17 @@ class _TwoFactorSettingsViewState extends State<TwoFactorSettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.twofa_title'),
       subtitle: trans('uptizm.settings.twofa_description'),
       backLabel: trans('uptizm.settings.twofa_back_label'),
       backFallback: trans('uptizm.settings.twofa_back_to'),
       children: [
-        Card(
-          child: SettingsRow(
+        MSCard(
+          child: MSSettingsRow(
             title: trans('uptizm.settings.twofa_authenticator_title'),
             subtitle: trans('uptizm.settings.twofa_authenticator_subtitle'),
-            trailing: Switch(value: _enabled, onChanged: _toggle),
+            trailing: MSSwitch(value: _enabled, onChanged: _toggle),
           ),
         ),
         if (_enabled) _buildRecoveryCodesCard(),
@@ -88,7 +88,7 @@ class _TwoFactorSettingsViewState extends State<TwoFactorSettingsView> {
 
   /// Builds the conditional recovery-codes card shown when 2FA is enabled.
   Widget _buildRecoveryCodesCard() {
-    return Card(
+    return MSCard(
       child: WDiv(
         className: 'flex flex-col gap-4',
         children: [
@@ -109,14 +109,16 @@ class _TwoFactorSettingsViewState extends State<TwoFactorSettingsView> {
 
           // 2. The 6 mock codes in a responsive mono grid.
           WDiv(
-            className: 'grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg '
+            className:
+                'grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg '
                 'border border-color-border dark:border-color-border '
                 'bg-surface dark:bg-surface p-3',
             children: [
               for (final code in _recoveryCodes)
                 WText(
                   code,
-                  className: 'font-mono text-sm tabular-nums text-fg dark:text-fg',
+                  className:
+                      'font-mono text-sm tabular-nums text-fg dark:text-fg',
                 ),
             ],
           ),
@@ -125,17 +127,21 @@ class _TwoFactorSettingsViewState extends State<TwoFactorSettingsView> {
           WDiv(
             className: 'flex flex-row gap-2',
             children: [
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 size: ButtonSize.sm,
                 onPressed: _copyCodes,
-                child: WText(trans('uptizm.settings.twofa_recovery_copy_button')),
+                child: WText(
+                  trans('uptizm.settings.twofa_recovery_copy_button'),
+                ),
               ),
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 size: ButtonSize.sm,
                 onPressed: _regenerate,
-                child: WText(trans('uptizm.settings.twofa_recovery_regenerate_button')),
+                child: WText(
+                  trans('uptizm.settings.twofa_recovery_regenerate_button'),
+                ),
               ),
             ],
           ),

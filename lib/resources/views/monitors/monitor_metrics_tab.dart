@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/metrics.dart';
 import '../../../app/mocks/status.dart';
@@ -77,7 +77,9 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     _systemMetrics = systemMetricsForMonitors([widget.monitorId]);
     // Copy the fixture output into a fresh growable list so create/edit/delete
     // never touch the shared fixture (MUST NOT: mutate the fixture in place).
-    _metrics = customMetricsForMonitors([widget.monitorId]).map(fromCatalog).toList();
+    _metrics = customMetricsForMonitors([
+      widget.monitorId,
+    ]).map(fromCatalog).toList();
   }
 
   // ---------------------------------------------------------------------------
@@ -111,7 +113,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   /// Delete removes the metric from local state and closes the sheet.
   void _openDetail(int index) {
     final MetricForm metric = _metrics[index];
-    BottomSheet.show<void>(
+    MSBottomSheet.show<void>(
       context,
       title: metric.label,
       body: Builder(
@@ -177,7 +179,8 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     );
 
     return WDiv(
-      className: 'flex flex-row items-center justify-between gap-3 '
+      className:
+          'flex flex-row items-center justify-between gap-3 '
           'rounded-lg border border-color-border bg-surface p-3',
       children: [
         WDiv(
@@ -222,7 +225,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
               className: 'text-sm font-medium text-fg',
             ),
             if (_metrics.isNotEmpty)
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 size: ButtonSize.sm,
                 onPressed: _openCreate,
@@ -243,7 +246,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
         icon: Icons.show_chart,
         title: trans('uptizm.monitors.metrics_empty_title'),
         description: trans('uptizm.monitors.metrics_empty_description'),
-        action: Button(
+        action: MSButton(
           onPressed: _openCreate,
           child: WText(trans('uptizm.monitors.metrics_create')),
         ),
@@ -289,7 +292,8 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     return WAnchor(
       onTap: () => _openDetail(index),
       child: WDiv(
-        className: 'flex flex-row items-center justify-between gap-3 '
+        className:
+            'flex flex-row items-center justify-between gap-3 '
             'rounded-lg border border-color-border bg-surface p-3 '
             'hover:bg-surface-container transition-colors',
         children: [

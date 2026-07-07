@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/mocks/incidents.dart';
@@ -103,11 +103,11 @@ class _IncidentsListViewState
           WDiv(
             className: 'flex flex-col gap-6',
             children: [
-              PageHeader(
+              MSPageHeader(
                 title: trans('uptizm.incidents.list_title'),
                 subtitle: trans('uptizm.incidents.list_description'),
                 actions: [
-                  Button(
+                  MSButton(
                     onPressed: () => MagicRoute.to('/incidents/new'),
                     child: WText(trans('uptizm.incidents.new_incident')),
                   ),
@@ -121,11 +121,7 @@ class _IncidentsListViewState
           //    rhythm), or an empty state when zero rows match.
           WDiv(
             className: 'flex flex-col gap-4',
-            children: [
-              _buildSearchRow(),
-              _buildFilterRow(),
-              _buildList(),
-            ],
+            children: [_buildSearchRow(), _buildFilterRow(), _buildList()],
           ),
         ],
       ),
@@ -191,7 +187,7 @@ class _IncidentsListViewState
   /// Builds the search input that narrows the visible list by title or
   /// monitor name.
   Widget _buildSearchRow() {
-    return Input(
+    return MSInput(
       value: _query,
       onChanged: (value) => setState(() => _query = value),
       placeholder: trans('uptizm.incidents.search_placeholder'),
@@ -211,7 +207,7 @@ class _IncidentsListViewState
       className: 'flex flex-row items-center gap-3',
       children: [
         Flexible(
-          child: SegmentedControl(
+          child: MSSegmentedControl(
             options: [
               trans('uptizm.incidents.filter_all'),
               trans('uptizm.incidents.filter_open'),
@@ -228,7 +224,8 @@ class _IncidentsListViewState
         // hide it below the md breakpoint and let the tabs use the full row.
         WText(
           '${_visible.length} of ${controller.incidents.length}',
-          className: 'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
+          className:
+              'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
     );
@@ -282,11 +279,11 @@ class _IncidentsListViewState
             ? trans('uptizm.incidents.empty_never_had_description')
             : trans('uptizm.incidents.empty_filtered_description'),
         action: neverHadIncidents
-            ? Button(
+            ? MSButton(
                 onPressed: () => MagicRoute.to('/incidents/new'),
                 child: WText(trans('uptizm.incidents.new_incident')),
               )
-            : Button(
+            : MSButton(
                 intent: ButtonIntent.secondary,
                 onPressed: () => setState(() {
                   _filter = _IncidentFilter.all;

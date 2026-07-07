@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/status_page_controller.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
@@ -50,7 +50,8 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.editor_form_view_public_page': 'View public page',
       'uptizm.status.editor_form_save': 'Save',
       'uptizm.status.editor_form_create_page': 'Create page',
-      'uptizm.status.editor_ai_draft_gated': 'Upgrade to :plan to draft with AI.',
+      'uptizm.status.editor_ai_draft_gated':
+          'Upgrade to :plan to draft with AI.',
       'uptizm.status.editor_ai_draft_banner_label': 'Draft with AI',
       'uptizm.status.editor_ai_draft_button': 'Generate',
       'uptizm.status.editor_ai_draft_banner_text':
@@ -97,8 +98,10 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.subscribers_subscriptions_label': 'Subscriptions',
       'uptizm.status.subscribers_subscriptions_on': 'On',
       'uptizm.status.subscribers_subscriptions_off': 'Off',
-      'uptizm.status.subscribers_subscriptions_hint': 'Whether visitors can subscribe.',
-      'uptizm.status.subscribers_empty_subs_enabled_title': 'No subscribers yet',
+      'uptizm.status.subscribers_subscriptions_hint':
+          'Whether visitors can subscribe.',
+      'uptizm.status.subscribers_empty_subs_enabled_title':
+          'No subscribers yet',
       'uptizm.status.subscribers_empty_subs_enabled_description':
           'Nobody has subscribed yet.',
       'uptizm.status.subscribers_empty_subs_disabled_title':
@@ -159,9 +162,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('StatusPagesListView', () {
-    testWidgets('renders a card for every fixture status page', (
-      tester,
-    ) async {
+    testWidgets('renders a card for every fixture status page', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 3200));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -194,7 +195,10 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(PageContainer), findsOneWidget);
-      expect(find.text(trans('uptizm.status.editor_title_new')), findsOneWidget);
+      expect(
+        find.text(trans('uptizm.status.editor_title_new')),
+        findsOneWidget,
+      );
       expect(
         find.text(trans('uptizm.status.editor_section_branding')),
         findsOneWidget,
@@ -245,10 +249,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(EmptyState), findsOneWidget);
-      expect(
-        find.text(trans('uptizm.status.list_empty_title')),
-        findsWidgets,
-      );
+      expect(find.text(trans('uptizm.status.list_empty_title')), findsWidgets);
     });
   });
 
@@ -280,25 +281,30 @@ void main() {
       }
     });
 
-    testWidgets('a page with subscriptions off renders the disabled empty state', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 3200));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets(
+      'a page with subscriptions off renders the disabled empty state',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 3200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final StatusPageConfig page = findStatusPage('internal')!;
-      expect(page.subscriptionsEnabled, isFalse);
+        final StatusPageConfig page = findStatusPage('internal')!;
+        expect(page.subscriptionsEnabled, isFalse);
 
-      await tester.pumpWidget(wrap(const StatusPageSubscribersView(id: 'internal')));
-      await tester.pump();
+        await tester.pumpWidget(
+          wrap(const StatusPageSubscribersView(id: 'internal')),
+        );
+        await tester.pump();
 
-      expect(tester.takeException(), isNull);
-      expect(find.byType(EmptyState), findsOneWidget);
-      expect(
-        find.text(trans('uptizm.status.subscribers_empty_subs_disabled_title')),
-        findsOneWidget,
-      );
-    });
+        expect(tester.takeException(), isNull);
+        expect(find.byType(EmptyState), findsOneWidget);
+        expect(
+          find.text(
+            trans('uptizm.status.subscribers_empty_subs_disabled_title'),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -306,26 +312,27 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('StatusPagePreviewView', () {
-    testWidgets('a known id renders the header title and the embedded preview', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 4000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets(
+      'a known id renders the header title and the embedded preview',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final StatusPageConfig page = findStatusPage('acme')!;
+        final StatusPageConfig page = findStatusPage('acme')!;
 
-      await tester.pumpWidget(
-        wrap(
-          const StatusPagePreviewView(id: 'acme'),
-          size: const Size(1280, 4000),
-        ),
-      );
-      await tester.pump();
+        await tester.pumpWidget(
+          wrap(
+            const StatusPagePreviewView(id: 'acme'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
 
-      expect(tester.takeException(), isNull);
-      expect(find.text(page.name), findsWidgets);
-      expect(find.byType(StatusPagePreview), findsOneWidget);
-    });
+        expect(tester.takeException(), isNull);
+        expect(find.text(page.name), findsWidgets);
+        expect(find.byType(StatusPagePreview), findsOneWidget);
+      },
+    );
 
     testWidgets('an unknown id renders the not-found state', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 3200));

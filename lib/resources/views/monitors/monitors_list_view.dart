@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/incidents.dart';
@@ -102,11 +102,11 @@ class _MonitorsListViewState
             className: 'flex flex-col gap-6',
             children: [
               // Page header with a "New monitor" action button.
-              PageHeader(
+              MSPageHeader(
                 title: trans('uptizm.monitors.title'),
                 subtitle: trans('uptizm.monitors.description'),
                 actions: [
-                  Button(
+                  MSButton(
                     onPressed: () => MagicRoute.to('/monitors/new'),
                     child: WText(trans('uptizm.monitors.new_monitor')),
                   ),
@@ -121,10 +121,7 @@ class _MonitorsListViewState
           // 2. Status filter + list (16px apart).
           WDiv(
             className: 'flex flex-col gap-4',
-            children: [
-              _buildFilterRow(),
-              _buildList(),
-            ],
+            children: [_buildFilterRow(), _buildList()],
           ),
         ],
       ),
@@ -211,7 +208,7 @@ class _MonitorsListViewState
         // the row to overflow (FlexFit.loose has no Wind className equivalent, so
         // the wrapper stays structural).
         Flexible(
-          child: SegmentedControl(
+          child: MSSegmentedControl(
             options: _filters.map((f) => f.label).toList(),
             selectedIndex: _filterIndex,
             onChanged: (i) => setState(() => _filterIndex = i),
@@ -222,7 +219,8 @@ class _MonitorsListViewState
         // hide it below the md breakpoint and let the tabs use the full row.
         WText(
           '${_visible.length} of ${controller.monitors.length}',
-          className: 'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
+          className:
+              'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
     );
@@ -276,11 +274,11 @@ class _MonitorsListViewState
             ? trans('uptizm.monitors.empty_no_monitors_description')
             : trans('uptizm.monitors.empty_no_match_description'),
         action: noMonitorsAtAll
-            ? Button(
+            ? MSButton(
                 onPressed: () => MagicRoute.to('/monitors/new'),
                 child: WText(trans('uptizm.monitors.new_monitor')),
               )
-            : Button(
+            : MSButton(
                 intent: ButtonIntent.secondary,
                 onPressed: () => setState(() => _filterIndex = 0),
                 child: WText(trans('uptizm.monitors.empty_no_match_clear')),

@@ -89,7 +89,7 @@ class _TeamMembersViewState extends State<TeamMembersView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.teams.members_title'),
             subtitle: trans('uptizm.teams.members_description', {
               'name': currentTeam.name,
@@ -118,7 +118,7 @@ class _TeamMembersViewState extends State<TeamMembersView> {
   /// [SegmentedControl], and the "Send invite" [Button] (disabled until the
   /// email is non-empty).
   Widget _buildInviteCard(Team currentTeam) {
-    return Card(
+    return MSCard(
       title: trans('uptizm.teams.members_invite_header'),
       child: WDiv(
         className: 'flex flex-col gap-4',
@@ -133,19 +133,19 @@ class _TeamMembersViewState extends State<TeamMembersView> {
             className: 'flex flex-col gap-3 sm:flex-row sm:items-center',
             children: [
               Expanded(
-                child: Input(
+                child: MSInput(
                   type: InputType.email,
                   value: _inviteEmail,
                   onChanged: (value) => setState(() => _inviteEmail = value),
                   placeholder: trans('uptizm.teams.members_invite_placeholder'),
                 ),
               ),
-              SegmentedControl<String>(
+              MSSegmentedControl<String>(
                 options: [for (final TeamRole role in _inviteRoles) role.label],
                 selectedIndex: _inviteRoleIndex,
                 onChanged: (index) => setState(() => _inviteRoleIndex = index),
               ),
-              Button(
+              MSButton(
                 disabled: _inviteEmail.trim().isEmpty,
                 onPressed: _sendInvite,
                 child: WText(trans('uptizm.teams.members_send_button')),
@@ -194,7 +194,7 @@ class _TeamMembersViewState extends State<TeamMembersView> {
   /// Builds the "Members · :count" [Card] holding one row per [_members]
   /// entry.
   Widget _buildMembersCard() {
-    return Card(
+    return MSCard(
       title: trans('uptizm.teams.members_list_header', {
         'count': '${_members.length}',
       }),
@@ -241,7 +241,7 @@ class _TeamMembersViewState extends State<TeamMembersView> {
         ),
         _buildRolePill(member.role),
         if (!member.isSelf && member.role != TeamRole.owner)
-          Button(
+          MSButton(
             intent: ButtonIntent.ghost,
             size: ButtonSize.sm,
             onPressed: () => _confirmRemove(member),
@@ -258,7 +258,7 @@ class _TeamMembersViewState extends State<TeamMembersView> {
   /// Builds the "Pending invites · :count" [Card], only rendered when
   /// [_pendingInvites] is non-empty.
   Widget _buildPendingInvitesCard() {
-    return Card(
+    return MSCard(
       title: trans('uptizm.teams.members_pending_header', {
         'count': '${_pendingInvites.length}',
       }),
@@ -315,7 +315,7 @@ class _TeamMembersViewState extends State<TeamMembersView> {
           ),
         ),
         _buildRolePill(invite.role),
-        Button(
+        MSButton(
           intent: ButtonIntent.ghost,
           size: ButtonSize.sm,
           onPressed: () => _confirmRevoke(invite),

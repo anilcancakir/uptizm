@@ -73,10 +73,7 @@ class _ChannelState {
 class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// The two severity options, in [SegmentedControl] display order. Index 0 is
   /// `'all'`, index 1 is `'critical'`.
-  static const List<String> _severityValues = [
-    'all',
-    'critical',
-  ];
+  static const List<String> _severityValues = ['all', 'critical'];
 
   /// Per-channel local state, keyed by [ChannelType] and seeded once from
   /// [notificationChannels] in [initState].
@@ -173,7 +170,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // 1. Page header.
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.teams.channels_title'),
             subtitle: trans('uptizm.teams.channels_description'),
           ),
@@ -191,7 +188,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   Widget _buildChannelsCard() {
     final int lastIndex = notificationChannels.length - 1;
 
-    return Card(
+    return MSCard(
       noPadding: true,
       child: WDiv(
         className: 'flex flex-col',
@@ -267,8 +264,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
               channel.name,
               className: 'text-sm font-medium text-fg dark:text-fg',
             ),
-            if (state.connected)
-              Badge(_severityLabel(state.severity)),
+            if (state.connected) MSBadge(_severityLabel(state.severity)),
           ],
         ),
         WText(
@@ -289,7 +285,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// [Button] while the integration is not yet set up.
   Widget _buildTrailing(ChannelType type, _ChannelState state) {
     if (!state.connected) {
-      return Button(
+      return MSButton(
         intent: ButtonIntent.secondary,
         size: ButtonSize.sm,
         onPressed: () => _connect(type),
@@ -297,7 +293,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       );
     }
 
-    return Switch(
+    return MSSwitch(
       value: state.enabled,
       onChanged: (bool value) => _toggle(type, value),
     );
@@ -307,7 +303,8 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// [SegmentedControl], and the Save + Send-test actions.
   Widget _buildConfig(NotificationChannelConfig channel, _ChannelState state) {
     return WDiv(
-      className: 'flex flex-col gap-4 border-t border-color-border '
+      className:
+          'flex flex-col gap-4 border-t border-color-border '
           'dark:border-color-border px-5 py-4',
       children: [
         ..._buildTypeFields(channel),
@@ -322,10 +319,10 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   List<Widget> _buildTypeFields(NotificationChannelConfig channel) {
     return switch (channel.type) {
       ChannelType.email => [
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.teams.channels_email_recipients_label'),
           hint: trans('uptizm.teams.channels_email_recipients_hint'),
-          child: Input(
+          child: MSInput(
             placeholder: trans(
               'uptizm.teams.channels_email_recipients_placeholder',
             ),
@@ -333,28 +330,22 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         ),
       ],
       ChannelType.sms => [
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.teams.channels_sms_phone_label'),
-          child: Input(
-            value: channel.detail,
-            className: 'font-mono',
-          ),
+          child: MSInput(value: channel.detail, className: 'font-mono'),
         ),
       ],
       ChannelType.slack => [
         WDiv(
           className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
           children: [
-            MagicFormField(
+            MSFormField(
               label: trans('uptizm.teams.channels_slack_workspace_label'),
-              child: const Input(
-                value: 'Acme',
-                enabled: false,
-              ),
+              child: const MSInput(value: 'Acme', enabled: false),
             ),
-            MagicFormField(
+            MSFormField(
               label: trans('uptizm.teams.channels_slack_channel_label'),
-              child: Input(
+              child: MSInput(
                 value: trans('uptizm.teams.channels_slack_channel_placeholder'),
                 className: 'font-mono',
               ),
@@ -363,10 +354,10 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         ),
       ],
       ChannelType.teams => [
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.teams.channels_teams_webhook_label'),
           hint: trans('uptizm.teams.channels_teams_webhook_hint'),
-          child: Input(
+          child: MSInput(
             placeholder: trans(
               'uptizm.teams.channels_teams_webhook_placeholder',
             ),
@@ -375,17 +366,14 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         ),
       ],
       ChannelType.webhook => [
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.teams.channels_webhook_url_label'),
-          child: Input(
-            value: channel.detail,
-            className: 'font-mono',
-          ),
+          child: MSInput(value: channel.detail, className: 'font-mono'),
         ),
-        MagicFormField(
+        MSFormField(
           label: trans('uptizm.teams.channels_webhook_secret_label'),
           hint: trans('uptizm.teams.channels_webhook_secret_hint'),
-          child: const Input(
+          child: const MSInput(
             value: 'whsec_********',
             type: InputType.password,
             className: 'font-mono',
@@ -398,10 +386,10 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// Builds the severity delivery field: a [SegmentedControl] over the All /
   /// Critical options, wrapped in a labeled [MagicFormField].
   Widget _buildSeverityField(ChannelType type, String severity) {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.channels_severity_label'),
       hint: trans('uptizm.teams.channels_severity_hint'),
-      child: SegmentedControl(
+      child: MSSegmentedControl(
         size: SegmentedControlSize.sm,
         options: [
           trans('uptizm.teams.channels_severity_all'),
@@ -418,12 +406,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     return WDiv(
       className: 'flex flex-row flex-wrap gap-2',
       children: [
-        Button(
+        MSButton(
           size: ButtonSize.sm,
           onPressed: () => _save(type),
           child: WText(trans('uptizm.teams.channels_save_button')),
         ),
-        Button(
+        MSButton(
           intent: ButtonIntent.secondary,
           size: ButtonSize.sm,
           onPressed: () => _sendTest(type),

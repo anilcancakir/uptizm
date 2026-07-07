@@ -25,7 +25,7 @@ class AiInsightPreview extends StatelessWidget {
           tone: 'banner',
           label: 'This week',
           confidence: AiConfidence.medium,
-          action: Button(
+          action: MSButton(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
             onPressed: () {},
@@ -41,7 +41,7 @@ class AiInsightPreview extends StatelessWidget {
 
         // 2. Inline tone: no label, with a secondary-button action control.
         AiInsight(
-          action: Button(
+          action: MSButton(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
             onPressed: () {},

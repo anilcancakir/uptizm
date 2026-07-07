@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 // Hide magic_starter's ErrorState so the local uptizm ErrorState wins; only the
 // Button is needed from the starter here.
-import 'package:magic_starter/magic_starter.dart' hide ErrorState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'error_state.dart';
 
@@ -26,7 +26,7 @@ class ErrorStatePreview extends StatelessWidget {
           description:
               'We hit a snag reaching the monitoring data. Check your '
               'connection and try again.',
-          action: Button(
+          action: MSButton(
             intent: ButtonIntent.secondary,
             onPressed: () {},
             child: const WText('Try again'),

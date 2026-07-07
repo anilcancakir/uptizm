@@ -64,13 +64,13 @@ class _PasswordSettingsViewState extends State<PasswordSettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.password_title'),
       subtitle: trans('uptizm.settings.password_description'),
       backLabel: trans('uptizm.settings.password_back_label'),
       backFallback: trans('uptizm.settings.password_back_to'),
       children: [
-        Card(
+        MSCard(
           child: WDiv(
             className: 'flex flex-col gap-5',
             children: [
@@ -100,7 +100,7 @@ class _PasswordSettingsViewState extends State<PasswordSettingsView> {
               //    a flex-row footer).
               WDiv(
                 className: 'flex flex-row justify-end',
-                child: Button(
+                child: MSButton(
                   onPressed: _update,
                   child: WText(trans('uptizm.settings.password_update_button')),
                 ),
@@ -115,16 +115,19 @@ class _PasswordSettingsViewState extends State<PasswordSettingsView> {
   /// Builds the up-soft success alert shown after a successful update.
   Widget _buildSuccessAlert() {
     return WDiv(
-      className: 'flex flex-row items-center gap-2 rounded-lg bg-up-soft '
+      className:
+          'flex flex-row items-center gap-2 rounded-lg bg-up-soft '
           'dark:bg-up-soft px-4 py-3',
       children: [
         WIcon(
           Icons.check_circle_outline,
-          className: 'text-lg text-up-soft-foreground dark:text-up-soft-foreground',
+          className:
+              'text-lg text-up-soft-foreground dark:text-up-soft-foreground',
         ),
         WText(
           trans('uptizm.settings.password_success_message'),
-          className: 'text-sm text-up-soft-foreground dark:text-up-soft-foreground',
+          className:
+              'text-sm text-up-soft-foreground dark:text-up-soft-foreground',
         ),
       ],
     );
@@ -140,16 +143,13 @@ class _PasswordSettingsViewState extends State<PasswordSettingsView> {
       className: 'flex flex-col gap-1.5',
       children: [
         WText(label, className: 'text-sm font-medium text-fg dark:text-fg'),
-        Input(
+        MSInput(
           controller: controller,
           type: InputType.password,
           placeholder: trans('uptizm.settings.password_placeholder'),
         ),
         if (hint != null)
-          WText(
-            hint,
-            className: 'text-xs text-fg-muted dark:text-fg-muted',
-          ),
+          WText(hint, className: 'text-xs text-fg-muted dark:text-fg-muted'),
       ],
     );
   }

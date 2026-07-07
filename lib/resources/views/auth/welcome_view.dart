@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons, IconData;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 /// A single onboarding slide: a soft-toned glyph tile over a title and body.
 ///
@@ -194,9 +194,7 @@ class _WelcomeViewState extends State<WelcomeView> {
     return PageView(
       controller: _controller,
       onPageChanged: (int page) => setState(() => _index = page),
-      children: [
-        for (final slide in _slides) _buildSlide(slide),
-      ],
+      children: [for (final slide in _slides) _buildSlide(slide)],
     );
   }
 
@@ -241,7 +239,7 @@ class _WelcomeViewState extends State<WelcomeView> {
           // content-width button convention in [InviteAcceptView].
           className: 'w-full max-w-xs flex flex-col items-center gap-3',
           children: [
-            Button(
+            MSButton(
               onPressed: _onPrimaryPressed,
               child: WText(
                 _isLast

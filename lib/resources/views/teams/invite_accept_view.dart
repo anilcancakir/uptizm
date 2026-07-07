@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/teams.dart';
 
@@ -118,11 +118,11 @@ class InviteAcceptView extends StatelessWidget {
     return WDiv(
       className: 'flex flex-col gap-2 w-full',
       children: [
-        Button(
+        MSButton(
           onPressed: _accept,
           child: WText(trans('uptizm.teams.invite_accept_button')),
         ),
-        Button(
+        MSButton(
           intent: ButtonIntent.ghost,
           onPressed: _decline,
           child: WText(trans('uptizm.teams.invite_accept_decline_button')),

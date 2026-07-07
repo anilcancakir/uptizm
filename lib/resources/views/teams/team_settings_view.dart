@@ -151,7 +151,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
 
   /// Builds the header: breadcrumb + title + subtitle naming the team.
   Widget _buildHeader() {
-    return PageHeader(
+    return MSPageHeader(
       title: trans('uptizm.teams.settings_title'),
       subtitle: trans('uptizm.teams.settings_description', {
         'name': _team.name,
@@ -167,7 +167,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
 
   /// Builds the Team card: name, slug, avatar color.
   Widget _buildTeamCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       title: trans('uptizm.teams.settings_team_header'),
       child: WDiv(
@@ -183,9 +183,9 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
 
   /// Builds the Name input.
   Widget _buildNameField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.settings_name_label'),
-      child: Input(
+      child: MSInput(
         value: _name,
         onChanged: (String value) => setState(() => _name = value),
       ),
@@ -194,10 +194,10 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
 
   /// Builds the mono slug input, hinting the public URL.
   Widget _buildSlugField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.settings_url_label'),
       hint: 'uptizm.com/$_slug',
-      child: Input(
+      child: MSInput(
         value: _slug,
         onChanged: (String value) => setState(() => _slug = value),
         className: 'font-mono',
@@ -213,7 +213,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
   /// [kTeamColors] is the ONLY raw color on this screen (content, the
   /// sanctioned exception).
   Widget _buildColorField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.settings_color_label'),
       child: WDiv(
         className: 'flex flex-row wrap gap-2',
@@ -245,7 +245,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
   /// Builds the AI-mode card: the three radio cards, the Auto-locked
   /// [UpgradeNudge], and the weekly-digest switch.
   Widget _buildAiModeCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-5',
@@ -324,7 +324,8 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
                       mode.title,
                       className: 'text-sm font-semibold text-fg dark:text-fg',
                     ),
-                    if (locked) Badge(_autoPlan.name, tone: BadgeTone.neutral),
+                    if (locked)
+                      MSBadge(_autoPlan.name, tone: BadgeTone.neutral),
                   ],
                 ),
                 WText(
@@ -365,7 +366,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
           'flex flex-row items-center gap-3 border-t border-color-border '
           'dark:border-color-border pt-4',
       children: <Widget>[
-        Switch(
+        MSSwitch(
           value: _weeklyDigest,
           onChanged: (bool value) => setState(() => _weeklyDigest = value),
           semanticLabel: trans('uptizm.teams.settings_ai_digest_label'),
@@ -382,7 +383,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
   Widget _buildSaveRow() {
     return WDiv(
       className: 'flex flex-row justify-end',
-      child: Button(
+      child: MSButton(
         onPressed: _save,
         child: WText(trans('uptizm.teams.settings_save_button')),
       ),
@@ -395,7 +396,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
 
   /// Builds the danger-zone card: description + destructive Delete button.
   Widget _buildDangerZoneCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       title: trans('uptizm.teams.settings_danger_header'),
       child: WDiv(
@@ -407,7 +408,7 @@ class _TeamSettingsViewState extends State<TeamSettingsView> {
           ),
           WDiv(
             className: 'flex flex-row',
-            child: Button(
+            child: MSButton(
               intent: ButtonIntent.destructive,
               onPressed: _confirmDelete,
               child: WText(trans('uptizm.teams.settings_delete_button')),

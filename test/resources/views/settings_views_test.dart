@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/mocks/settings.dart';
 import 'package:uptizm/app/mocks/teams.dart';
@@ -136,7 +136,8 @@ class _SettingsViewsLangLoader implements TranslationLoader {
       'uptizm.settings.twofa_back_label': 'Settings',
       'uptizm.settings.twofa_back_to': '/settings',
       'uptizm.settings.twofa_authenticator_title': 'Authenticator app',
-      'uptizm.settings.twofa_authenticator_subtitle': 'Require a one-time code.',
+      'uptizm.settings.twofa_authenticator_subtitle':
+          'Require a one-time code.',
       'uptizm.settings.twofa_recovery_heading': 'Recovery codes',
       'uptizm.settings.twofa_recovery_description': 'Save these codes.',
       'uptizm.settings.twofa_recovery_copy_button': 'Copy codes',
@@ -226,13 +227,13 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('SettingsHubView', () {
-    testWidgets('renders the hub title and every group header', (
-      tester,
-    ) async {
+    testWidgets('renders the hub title and every group header', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(wrap(const SettingsHubView(), size: const Size(1280, 4000)));
+      await tester.pumpWidget(
+        wrap(const SettingsHubView(), size: const Size(1280, 4000)),
+      );
       await tester.pump();
 
       expect(tester.takeException(), isNull);
@@ -274,9 +275,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('AppearanceSettingsView', () {
-    testWidgets('renders both the Light and Dark radio labels', (
-      tester,
-    ) async {
+    testWidgets('renders both the Light and Dark radio labels', (tester) async {
       await tester.pumpWidget(wrap(const AppearanceSettingsView()));
       await tester.pump();
 
@@ -351,9 +350,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('NotificationsSettingsView', () {
-    testWidgets('renders a row for every notification channel', (
-      tester,
-    ) async {
+    testWidgets('renders a row for every notification channel', (tester) async {
       await tester.pumpWidget(wrap(const NotificationsSettingsView()));
       await tester.pump();
 
@@ -396,22 +393,23 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('TwoFactorSettingsView', () {
-    testWidgets('renders the authenticator row, recovery codes hidden by default', (
-      tester,
-    ) async {
-      await tester.pumpWidget(wrap(const TwoFactorSettingsView()));
-      await tester.pump();
+    testWidgets(
+      'renders the authenticator row, recovery codes hidden by default',
+      (tester) async {
+        await tester.pumpWidget(wrap(const TwoFactorSettingsView()));
+        await tester.pump();
 
-      expect(tester.takeException(), isNull);
-      expect(
-        find.text(trans('uptizm.settings.twofa_authenticator_title')),
-        findsOneWidget,
-      );
-      expect(
-        find.text(trans('uptizm.settings.twofa_recovery_heading')),
-        findsNothing,
-      );
-    });
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.settings.twofa_authenticator_title')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.settings.twofa_recovery_heading')),
+          findsNothing,
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

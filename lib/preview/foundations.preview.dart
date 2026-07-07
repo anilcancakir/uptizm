@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart'
-    show Typography, TypographyVariant;
+    show MSTypography, TypographyVariant;
 
 /// Foundations preview: the design-token vocabulary the whole system is built
 /// on, rendered as live swatches so the catalog shows colors and type next to
@@ -126,11 +126,11 @@ class FoundationsPreview extends StatelessWidget {
     return const WDiv(
       className: 'flex flex-col gap-2',
       children: [
-        Typography('Heading 1', variant: TypographyVariant.h1),
-        Typography('Heading 2', variant: TypographyVariant.h2),
-        Typography('Heading 3', variant: TypographyVariant.h3),
-        Typography('Body text renders the default paragraph style.'),
-        Typography('Caption text', variant: TypographyVariant.caption),
+        MSTypography('Heading 1', variant: TypographyVariant.h1),
+        MSTypography('Heading 2', variant: TypographyVariant.h2),
+        MSTypography('Heading 3', variant: TypographyVariant.h3),
+        MSTypography('Body text renders the default paragraph style.'),
+        MSTypography('Caption text', variant: TypographyVariant.caption),
       ],
     );
   }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
@@ -128,12 +128,12 @@ void main() {
     await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
     await tester.pump();
 
-    expect(find.byType(PageHeader), findsOneWidget);
+    expect(find.byType(MSPageHeader), findsOneWidget);
     // The header carries one StatusBadge; the Overview's CheckHistoryTable adds
     // one per row, so scope the assertion to the header.
     expect(
       find.descendant(
-        of: find.byType(PageHeader),
+        of: find.byType(MSPageHeader),
         matching: find.byType(StatusBadge),
       ),
       findsOneWidget,

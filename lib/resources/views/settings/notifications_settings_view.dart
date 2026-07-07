@@ -110,7 +110,7 @@ class _NotificationsSettingsViewState extends State<NotificationsSettingsView> {
     final bool enabled = _isEnabled(channel);
 
     if (channel == NotificationChannel.webPush && !enabled) {
-      return Button(
+      return MSButton(
         intent: ButtonIntent.secondary,
         size: ButtonSize.sm,
         onPressed: () => _toggle(channel, true),
@@ -120,7 +120,7 @@ class _NotificationsSettingsViewState extends State<NotificationsSettingsView> {
       );
     }
 
-    return Switch(
+    return MSSwitch(
       value: enabled,
       onChanged: (bool value) => _toggle(channel, value),
     );
@@ -128,16 +128,16 @@ class _NotificationsSettingsViewState extends State<NotificationsSettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsScaffold(
+    return MSSettingsScaffold(
       title: trans('uptizm.settings.notifications_title'),
       subtitle: trans('uptizm.settings.notifications_description'),
       backLabel: trans('uptizm.settings.hub_title'),
       backFallback: '/settings',
       children: [
-        SettingsSection(
+        MSSettingsSection(
           children: [
             for (final NotificationPref pref in _prefs)
-              SettingsRow(
+              MSSettingsRow(
                 icon: _iconFor(pref.channel),
                 title: _titleFor(pref.channel),
                 subtitle: _subtitleFor(pref.channel),

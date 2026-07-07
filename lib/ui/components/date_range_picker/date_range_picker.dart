@@ -79,7 +79,7 @@ class DateRangePicker extends StatelessWidget {
         ? slots['trigger']
         : '${slots['trigger']} $className';
 
-    return DropdownMenu(
+    return MSDropdownMenu(
       // bottomLeft so the menu opens on-screen regardless of trigger placement
       // (the source right-aligns within a right-side toolbar; left-align is the
       // robust generic default and avoids clipping when the trigger sits left).
@@ -95,7 +95,7 @@ class DateRangePicker extends StatelessWidget {
       className: slots['panel'],
       items: [
         for (final preset in kDateRangePresets)
-          DropdownMenuItem(
+          MSDropdownMenuItem(
             label: preset.label,
             leading: preset.value == value
                 ? WIcon(_checkIcon, className: 'size-4 text-primary')

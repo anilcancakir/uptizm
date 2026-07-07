@@ -86,7 +86,7 @@ class RegionPicker extends StatelessWidget {
         className: optionClass,
         children: [
           // Display-only checkbox; the tile tap drives the toggle.
-          IgnorePointer(child: Checkbox(value: selected, onChanged: null)),
+          IgnorePointer(child: MSCheckbox(value: selected, onChanged: null)),
           if (region.flag != null) WText(region.flag!, className: 'text-base'),
           // flex-1 + truncate so a long label (e.g. a monitor name or metric
           // label) shrinks and ellipsizes within the tile instead of forcing a

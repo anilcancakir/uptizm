@@ -63,7 +63,7 @@ class IncidentCard extends StatelessWidget {
   }
 
   Widget _buildCardContent() {
-    return Card(
+    return MSCard(
       noPadding: true,
       child: WDiv(
         className: 'relative overflow-hidden',
@@ -100,7 +100,7 @@ class IncidentCard extends StatelessWidget {
         // Lifecycle stage as an outline Badge (mirrors React's
         // `<Badge tone="outline">`); composes the magic_starter Badge recipe
         // rather than hand-rolling the pill className.
-        Badge(incident.lifecycle.label, tone: BadgeTone.outline),
+        MSBadge(incident.lifecycle.label, tone: BadgeTone.outline),
 
         // AI-owned incidents get an ai StatusBadge (mirrors React's
         // `<StatusBadge status="ai" size="sm">AI-detected</StatusBadge>`).

@@ -99,7 +99,7 @@ class KpiStatCard extends StatelessWidget {
     // the tallest. So the card renders only the rows it has: the delta and hint
     // appear ONLY when supplied, with no reserved placeholder line.
     final deltaClass = _resolveDeltaClassName();
-    return Card(
+    return MSCard(
       noPadding: false,
       child: WDiv(
         className: 'flex flex-col gap-1',

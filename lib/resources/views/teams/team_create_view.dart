@@ -109,7 +109,7 @@ class _TeamCreateViewState extends State<TeamCreateView> {
 
   /// Builds the header: breadcrumb + title + subtitle.
   Widget _buildHeader() {
-    return PageHeader(
+    return MSPageHeader(
       title: trans('uptizm.teams.create_title'),
       subtitle: trans('uptizm.teams.create_subtitle'),
       backLabel: trans('uptizm.settings.hub_title'),
@@ -119,7 +119,7 @@ class _TeamCreateViewState extends State<TeamCreateView> {
 
   /// Builds the form card: name, slug, avatar color, bulk invites.
   Widget _buildFormCard() {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-5',
@@ -136,9 +136,9 @@ class _TeamCreateViewState extends State<TeamCreateView> {
   /// Builds the Name input, which auto-slugs into the slug until the slug is
   /// edited directly.
   Widget _buildNameField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.create_name_label'),
-      child: Input(
+      child: MSInput(
         value: _name,
         onChanged: _onNameChanged,
         placeholder: trans('uptizm.teams.create_name_placeholder'),
@@ -149,11 +149,11 @@ class _TeamCreateViewState extends State<TeamCreateView> {
   /// Builds the mono slug input, hinting the full public URL. Editing it
   /// latches [_slugEdited] and stops the name auto-fill.
   Widget _buildSlugField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.create_url_label'),
       hint:
           'uptizm.com/${_slug.isEmpty ? trans('uptizm.teams.create_url_placeholder') : _slug}',
-      child: Input(
+      child: MSInput(
         value: _slug,
         onChanged: _onSlugChanged,
         placeholder: trans('uptizm.teams.create_url_placeholder'),
@@ -170,7 +170,7 @@ class _TeamCreateViewState extends State<TeamCreateView> {
   /// [kTeamColors] is the ONLY raw color on this screen (content, the
   /// sanctioned exception).
   Widget _buildColorField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.create_color_label'),
       child: WDiv(
         className: 'flex flex-row wrap gap-2',
@@ -197,10 +197,10 @@ class _TeamCreateViewState extends State<TeamCreateView> {
 
   /// Builds the optional bulk-invite textarea.
   Widget _buildInvitesField() {
-    return MagicFormField(
+    return MSFormField(
       label: trans('uptizm.teams.create_invites_label'),
       hint: trans('uptizm.teams.create_invites_hint'),
-      child: Textarea(
+      child: MSTextarea(
         value: _invites,
         onChanged: (String value) => setState(() => _invites = value),
         placeholder: trans('uptizm.teams.create_invites_placeholder'),
@@ -215,12 +215,12 @@ class _TeamCreateViewState extends State<TeamCreateView> {
     return WDiv(
       className: 'flex flex-row justify-end gap-3',
       children: <Widget>[
-        Button(
+        MSButton(
           intent: ButtonIntent.secondary,
           onPressed: () => MagicRoute.to(_homeRoute),
           child: WText(trans('common.cancel')),
         ),
-        Button(
+        MSButton(
           disabled: !_canCreate,
           onPressed: _canCreate ? _create : null,
           child: WText(trans('uptizm.teams.create_button')),

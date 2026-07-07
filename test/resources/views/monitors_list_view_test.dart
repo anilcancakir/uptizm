@@ -98,7 +98,7 @@ void main() {
     await tester.pumpWidget(wrap(const MonitorsListView()));
     await tester.pump();
 
-    expect(find.byType(SegmentedControl), findsOneWidget);
+    expect(find.byType(MSSegmentedControl), findsOneWidget);
   });
 
   testWidgets('renders the four KPI stat cards', (tester) async {
@@ -114,7 +114,7 @@ void main() {
     await tester.pumpWidget(wrap(const MonitorsListView()));
     await tester.pump();
 
-    expect(find.byType(PageHeader), findsOneWidget);
+    expect(find.byType(MSPageHeader), findsOneWidget);
     // The "New monitor" button label must be visible in the header actions.
     expect(find.text('New monitor'), findsAtLeastNWidgets(1));
   });

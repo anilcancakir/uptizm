@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/mocks/incidents.dart';
@@ -83,7 +83,7 @@ class _DashboardViewState
           WDiv(
             className: 'flex flex-col gap-6',
             children: [
-              PageHeader(
+              MSPageHeader(
                 title: trans('uptizm.dashboard.title'),
                 subtitle: trans('uptizm.dashboard.description'),
               ),

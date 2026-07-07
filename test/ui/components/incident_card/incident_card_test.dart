@@ -139,7 +139,7 @@ void main() {
 
   testWidgets('IncidentCard composes magic_starter Card shell', (tester) async {
     await tester.pumpWidget(wrap(IncidentCard(incident: incidents[0])));
-    expect(find.byType(Card), findsOneWidget);
+    expect(find.byType(MSCard), findsOneWidget);
   });
 
   testWidgets('IncidentCard composes StatusBadge for impact', (tester) async {

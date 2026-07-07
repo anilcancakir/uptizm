@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
-import 'package:magic_starter/magic_starter.dart' hide EmptyState;
+import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/oncall.dart';
 import '../../../app/mocks/status.dart';
@@ -63,13 +63,13 @@ class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          PageHeader(
+          MSPageHeader(
             title: trans('uptizm.teams.escalation_title'),
             subtitle: trans('uptizm.teams.escalation_description'),
             backLabel: trans('uptizm.status.editor_breadcrumb_back'),
             backFallback: '/',
             actions: [
-              Button(
+              MSButton(
                 intent: ButtonIntent.secondary,
                 onPressed: () => MagicRoute.to('/teams/escalation/new'),
                 child: WText(trans('uptizm.teams.escalation_new_button')),
@@ -102,7 +102,7 @@ class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
   /// Edit/Delete actions), the escalation ladder, and the repeat-last-rung
   /// footer. Mirrors the React `PolicyCard`.
   Widget _buildPolicyCard(EscalationPolicy policy) {
-    return Card(
+    return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
         className: 'flex flex-col gap-4',
@@ -141,14 +141,14 @@ class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
         WDiv(
           className: 'flex flex-row shrink-0 items-center gap-2',
           children: [
-            Button(
+            MSButton(
               intent: ButtonIntent.secondary,
               size: ButtonSize.sm,
               onPressed: () => MagicRoute.to('/teams/escalation/${policy.id}'),
               child: WText(trans('uptizm.teams.escalation_policy_edit_button')),
             ),
             if (!policy.isDefault)
-              Button(
+              MSButton(
                 intent: ButtonIntent.ghost,
                 size: ButtonSize.sm,
                 onPressed: () => _confirmDelete(policy),
