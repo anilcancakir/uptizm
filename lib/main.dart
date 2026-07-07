@@ -15,11 +15,7 @@ import 'config/uptizm_status_tokens.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:magic_devtools/magic_devtools.dart';
 import 'package:magic_starter/magic_starter.dart'
-    show
-        MagicStarter,
-        MagicStarterTheme,
-        MagicStarterCardTheme,
-        MagicStarterModalTheme;
+    show MagicStarter, MagicStarterCardTheme, MagicStarterModalTheme;
 import 'config/magic_starter.dart';
 
 void main() async {
@@ -52,26 +48,37 @@ void main() async {
   // container. See MagicDevtools.installPost.
   if (kDebugMode) MagicDevtools.installPost();
 
-  // Point magic_starter's Card surfaces at uptizm's semantic tokens. Without
-  // this the reused Card (KPI / stat cards) keeps magic_starter's default
-  // `dark:bg-gray-800` fill, a lighter, bluer slate than the uptizm surface
-  // hierarchy. Tonal hierarchy only (no drop shadows), per DESIGN.md.
-  MagicStarter.useTheme(
-    const MagicStarterTheme(
-      card: MagicStarterCardTheme(
-        surfaceClassName: 'bg-surface-container border border-color-border',
-        elevatedClassName: 'bg-surface-container border border-color-border',
-        insetClassName:
-            'bg-surface-container-high border border-color-border-subtle',
-      ),
+  // Theme generated from DESIGN.md via `design:sync` (the 17 standard semantic
+  // roles), merged with the hand-authored monitoring status families
+  // (up/down/degraded/paused/info/ai) that design:sync never emits. Regenerate
+  // the generated half with: dart run bin/dispatcher.dart design:sync
+  final windTheme = WindThemeData(
+    colors: designColors,
+    aliases: {...designAliases, ...uptizmStatusAliases},
+  );
+
+  // Adopt the whole uptizm palette across all 7 magic_starter sub-themes in one
+  // call (MS-7a). This derives navigation, form, auth, page-header, and layout
+  // surfaces from uptizm's semantic tokens instead of magic_starter's default
+  // `dark:bg-gray-800` gray palette. The two overrides below layer uptizm's
+  // deliberate refinements on top (useWindTheme is additive; later setters win).
+  MagicStarter.useWindTheme(windTheme);
+
+  // Cards sit on `surface-container` (not the base `surface`) so the reused
+  // Card (KPI / stat cards) reads as a raised panel over the page. Tonal
+  // hierarchy only (no drop shadows), per DESIGN.md.
+  MagicStarter.useCardTheme(
+    const MagicStarterCardTheme(
+      surfaceClassName: 'bg-surface-container border border-color-border',
+      elevatedClassName: 'bg-surface-container border border-color-border',
+      insetClassName:
+          'bg-surface-container-high border border-color-border-subtle',
+      titleClassName: 'text-lg font-semibold text-fg',
     ),
   );
 
-  // Point magic_starter's modal/bottom-sheet surfaces at uptizm tokens too. The
-  // default modal theme is `dark:bg-gray-800` (a lighter, bluer slate than the
-  // uptizm surface hierarchy), which made the metric create/edit + detail sheets
-  // read as off-palette. Re-skin container/header/footer/title/description with
-  // the same semantic Wind tokens the rest of the app uses.
+  // Modal/bottom-sheet surfaces: uptizm uses a hairline top-border footer (no
+  // tonal footer fill) and its own primary/secondary button tokens.
   MagicStarter.useModalTheme(
     const MagicStarterModalTheme(
       containerClassName: 'bg-surface-container border border-color-border',
@@ -86,15 +93,6 @@ void main() async {
           'px-4 py-2 rounded-lg bg-surface-container border '
           'border-color-border text-fg text-sm font-medium',
     ),
-  );
-  
-  // Theme generated from DESIGN.md via `design:sync` (the 17 standard semantic
-  // roles), merged with the hand-authored monitoring status families
-  // (up/down/degraded/paused/info/ai) that design:sync never emits. Regenerate
-  // the generated half with: dart run bin/dispatcher.dart design:sync
-  final windTheme = WindThemeData(
-    colors: designColors,
-    aliases: {...designAliases, ...uptizmStatusAliases},
   );
 
   runApp(
