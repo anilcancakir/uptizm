@@ -296,17 +296,17 @@ class _TeamSwitcher extends StatelessWidget {
                     ),
                   ),
                 WDiv(className: 'my-1 border-t border-color-border-subtle'),
-                // Team-management destinations. These screens are not built in
-                // this vertical, so the rows close the popover without
-                // navigating (the design lab routes to /teams/* pages that do
-                // not exist here yet).
-                _menuRow(trans('uptizm.team_menu.settings'), close),
-                _menuRow(trans('uptizm.team_menu.members'), close),
-                _menuRow(trans('uptizm.team_menu.channels'), close),
-                _menuRow(trans('uptizm.team_menu.escalation'), close),
-                _menuRow(trans('uptizm.team_menu.on_call'), close),
-                _menuRow(trans('uptizm.team_menu.billing'), close),
-                _menuRow(trans('uptizm.team_menu.create'), close),
+                // Team-management destinations. Settings, members (folded into
+                // settings) and create are owned by the magic_starter team
+                // routes; channels/escalation/on-call/billing are uptizm-domain
+                // routes. Each row closes the popover and navigates.
+                _menuRow(trans('uptizm.team_menu.settings'), '/teams/settings', close),
+                _menuRow(trans('uptizm.team_menu.members'), '/teams/settings', close),
+                _menuRow(trans('uptizm.team_menu.channels'), '/teams/notifications', close),
+                _menuRow(trans('uptizm.team_menu.escalation'), '/teams/escalation', close),
+                _menuRow(trans('uptizm.team_menu.on_call'), '/teams/on-call', close),
+                _menuRow(trans('uptizm.team_menu.billing'), '/teams/billing', close),
+                _menuRow(trans('uptizm.team_menu.create'), '/teams/create', close),
               ],
             ),
           ),
@@ -315,10 +315,14 @@ class _TeamSwitcher extends StatelessWidget {
     );
   }
 
-  /// A plain text row inside the team popover that just closes it (mock).
-  Widget _menuRow(String label, VoidCallback close) {
+  /// A text row inside the team popover that closes it and navigates to
+  /// [route].
+  Widget _menuRow(String label, String route, VoidCallback close) {
     return WAnchor(
-      onTap: close,
+      onTap: () {
+        close();
+        MagicRoute.to(route);
+      },
       child: WDiv(
         className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
         child: WText(label, className: 'truncate'),

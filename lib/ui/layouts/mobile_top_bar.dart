@@ -203,10 +203,10 @@ class _MobileTeamSwitcher extends StatelessWidget {
                     ),
                   ),
                 WDiv(className: 'my-1 border-t border-color-border-subtle'),
-                _menuRow(trans('uptizm.team_menu.settings'), close),
-                _menuRow(trans('uptizm.team_menu.members'), close),
-                _menuRow(trans('uptizm.team_menu.channels'), close),
-                _menuRow(trans('uptizm.team_menu.create'), close),
+                _menuRow(trans('uptizm.team_menu.settings'), '/teams/settings', close),
+                _menuRow(trans('uptizm.team_menu.members'), '/teams/settings', close),
+                _menuRow(trans('uptizm.team_menu.channels'), '/teams/notifications', close),
+                _menuRow(trans('uptizm.team_menu.create'), '/teams/create', close),
               ],
             ),
           ),
@@ -215,9 +215,12 @@ class _MobileTeamSwitcher extends StatelessWidget {
     );
   }
 
-  Widget _menuRow(String label, VoidCallback close) {
+  Widget _menuRow(String label, String route, VoidCallback close) {
     return WAnchor(
-      onTap: close,
+      onTap: () {
+        close();
+        MagicRoute.to(route);
+      },
       child: WDiv(
         className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
         child: WText(label, className: 'truncate'),
