@@ -1,9 +1,73 @@
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart'
+    show MagicStarter, MagicStarterAuthController, MagicStarterTeamController;
 
-import '../../app/mocks/teams.dart';
+import '../../app/models/team.dart';
+import '../../app/models/user.dart';
 import '../components/notification_center/index.dart';
+
+/// Computes uppercase avatar initials from a display [name].
+///
+/// Takes the first letter of up to the first two words, falling back to `?`
+/// when [name] is null or blank. Shared by the sidebar's account menu (two
+/// letters, e.g. `AÇ`) and team avatars (single letter via [_teamInitial]).
+String _userInitials(String? name) {
+  final String trimmed = name?.trim() ?? '';
+  if (trimmed.isEmpty) return '?';
+
+  final List<String> words = trimmed.split(RegExp(r'\s+'));
+  final String first = words[0][0];
+  final String second = words.length > 1 && words[1].isNotEmpty
+      ? words[1][0]
+      : '';
+  return (first + second).toUpperCase();
+}
+
+/// The leading initial rendered inside a team's colored avatar square.
+String _teamInitial(String? name) {
+  final String trimmed = name?.trim() ?? '';
+  return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
+}
+
+/// A never-mutated fallback used when the auth guard is unavailable (e.g. a
+/// widget test that renders the shell without booting a Magic app / binding
+/// the `auth` service). Keeps [AnimatedBuilder] satisfied without reacting to
+/// anything.
+final ValueNotifier<int> _fallbackAuthNotifier = ValueNotifier<int>(0);
+
+/// Resolves the auth guard's `stateNotifier`, tolerating an unconfigured
+/// container. Mirrors `MagicRouter._resolveAuthRefreshListenable`'s
+/// try/catch tolerance (magic/lib/src/routing/magic_router.dart:239) so the
+/// shell degrades to a static (non-reactive) display instead of crashing.
+Listenable _authStateNotifier() {
+  try {
+    return Auth.stateNotifier;
+  } catch (e) {
+    debugPrint(
+      'Sidebar: auth state notifier unavailable; the shell will not react '
+      'to auth-state changes ($e).',
+    );
+    return _fallbackAuthNotifier;
+  }
+}
+
+/// Resolves the authenticated [User], tolerating an unconfigured auth
+/// container the same way [_authStateNotifier] does (e.g. a widget test that
+/// renders the shell without booting a Magic app). Falls back to an empty,
+/// unauthenticated [User] so name/email/team reads degrade to blanks instead
+/// of crashing.
+User _currentUserSafe() {
+  try {
+    return User.current;
+  } catch (e) {
+    debugPrint(
+      'Sidebar: authenticated user unavailable; showing an empty user ($e).',
+    );
+    return User();
+  }
+}
 
 /// A single primary-navigation destination in the desktop [Sidebar].
 @immutable
@@ -68,9 +132,6 @@ const List<_SidebarNavItem> _navItems = [
 ///   popover with Settings + Sign out.
 ///
 /// All colors are semantic Wind tokens; every color carries its `dark:` pair.
-/// The one exception is the per-team avatar tint ([Team.color]), which is
-/// content data passed inline to `WDiv.backgroundColor`, the direct analogue of
-/// the React source's `style={{ background: team.color }}`.
 @immutable
 class Sidebar extends StatelessWidget {
   /// The active route path used to highlight the matching nav item.
@@ -144,96 +205,113 @@ class Sidebar extends StatelessWidget {
 
 /// **The team switcher** in the sidebar top row.
 ///
-/// A popover trigger showing the active team (colored avatar + name + an
-/// unfold chevron); the popover lists every team with a checkmark on the
-/// active one, then the team-management destinations. Selecting a team updates
-/// the local active team (mirrors the design lab's `useState(teams[0])`).
-class _TeamSwitcher extends StatefulWidget {
+/// A popover trigger showing the active team ([User.current.currentTeam]:
+/// avatar + name + an unfold chevron); the popover lists every team from
+/// [User.current.allTeams] with a checkmark on the active one, then the
+/// team-management destinations. Selecting a team calls
+/// [MagicStarterTeamController.switchTeam], which persists the switch on the
+/// backend and calls `Auth.restore()`; the switcher rebuilds via
+/// `Auth.stateNotifier` to reflect the new active team.
+class _TeamSwitcher extends StatelessWidget {
   const _TeamSwitcher();
 
   @override
-  State<_TeamSwitcher> createState() => _TeamSwitcherState();
-}
-
-class _TeamSwitcherState extends State<_TeamSwitcher> {
-  /// The active team; seeded to the first fixture, like the React source.
-  Team _team = teams.first;
-
-  @override
   Widget build(BuildContext context) {
-    return WPopover(
-      alignment: PopoverAlignment.bottomLeft,
-      offset: const Offset(0, 6),
-      maxHeight: 480,
-      className: '''
-        w-64 max-w-full overflow-hidden rounded-lg py-1
-        bg-surface border border-color-border shadow-xl
-      ''',
-      triggerBuilder: (context, isOpen, isHovering) => WDiv(
-        className: '''
-          flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2
-          hover:bg-surface-container
-        ''',
-        children: [
-          _teamAvatar(_team, sizeClass: 'w-7 h-7 rounded-md', text: 'text-xs'),
-          Expanded(
-            child: WText(
-              _team.name,
-              className: 'truncate text-sm font-semibold text-fg',
-            ),
-          ),
-          WIcon(Icons.unfold_more, className: 'text-[16px] text-fg-muted'),
-        ],
-      ),
-      // WPopover only constrains content to maxHeight (it does not scroll), so
-      // the body is wrapped in a scroll view: it sizes to content when short
-      // and scrolls when the team + management list exceeds the popover height.
-      contentBuilder: (context, close) => SingleChildScrollView(
-        child: WDiv(
-        className: 'flex flex-col',
-        children: [
-          // Section heading.
-          WText(
-            trans('uptizm.team_menu.heading'),
+    // Rebuilds on login/logout/restore/switch: `switchTeam` calls
+    // `Auth.restore()`, which bumps `Auth.stateNotifier`, so the active team
+    // + team list here reflect a switch without a manual reload.
+    return AnimatedBuilder(
+      animation: _authStateNotifier(),
+      builder: (context, _) {
+        final User user = _currentUserSafe();
+        final Team? activeTeam = user.currentTeam;
+        final List<Team> allTeams = user.allTeams;
+
+        return WPopover(
+          alignment: PopoverAlignment.bottomLeft,
+          offset: const Offset(0, 6),
+          maxHeight: 480,
+          className: '''
+            w-64 max-w-full overflow-hidden rounded-lg py-1
+            bg-surface border border-color-border shadow-xl
+          ''',
+          triggerBuilder: (context, isOpen, isHovering) => WDiv(
             className: '''
-              px-3 py-1.5 text-xs font-medium uppercase tracking-wide
-              text-fg-muted
+              flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2
+              hover:bg-surface-container
             ''',
-          ),
-          // Team list with a checkmark on the active team.
-          for (final t in teams)
-            WAnchor(
-              onTap: () {
-                setState(() => _team = t);
-                close();
-              },
-              child: WDiv(
-                className: '''
-                  flex items-center gap-2 px-3 py-2 text-sm text-fg
-                  hover:bg-surface-container
-                ''',
-                children: [
-                  _teamAvatar(t, sizeClass: 'w-5 h-5 rounded', text: 'text-[10px]'),
-                  Expanded(child: WText(t.name, className: 'truncate')),
-                  if (t.id == _team.id)
-                    WIcon(Icons.check, className: 'text-[16px] text-primary'),
-                ],
+            children: [
+              _teamAvatar(
+                activeTeam,
+                sizeClass: 'w-7 h-7 rounded-md',
+                text: 'text-xs',
               ),
+              Expanded(
+                child: WText(
+                  activeTeam?.name ?? '',
+                  className: 'truncate text-sm font-semibold text-fg',
+                ),
+              ),
+              WIcon(Icons.unfold_more, className: 'text-[16px] text-fg-muted'),
+            ],
+          ),
+          // WPopover only constrains content to maxHeight (it does not scroll),
+          // so the body is wrapped in a scroll view: it sizes to content when
+          // short and scrolls when the team + management list exceeds the
+          // popover height.
+          contentBuilder: (context, close) => SingleChildScrollView(
+            child: WDiv(
+              className: 'flex flex-col',
+              children: [
+                // Section heading.
+                WText(
+                  trans('uptizm.team_menu.heading'),
+                  className: '''
+                    px-3 py-1.5 text-xs font-medium uppercase tracking-wide
+                    text-fg-muted
+                  ''',
+                ),
+                // Team list with a checkmark on the active team.
+                for (final t in allTeams)
+                  WAnchor(
+                    onTap: () {
+                      MagicStarterTeamController.instance.switchTeam(t.id);
+                      close();
+                    },
+                    child: WDiv(
+                      className: '''
+                        flex items-center gap-2 px-3 py-2 text-sm text-fg
+                        hover:bg-surface-container
+                      ''',
+                      children: [
+                        _teamAvatar(
+                          t,
+                          sizeClass: 'w-5 h-5 rounded',
+                          text: 'text-[10px]',
+                        ),
+                        Expanded(child: WText(t.name ?? '', className: 'truncate')),
+                        if (t.id == activeTeam?.id)
+                          WIcon(Icons.check, className: 'text-[16px] text-primary'),
+                      ],
+                    ),
+                  ),
+                WDiv(className: 'my-1 border-t border-color-border-subtle'),
+                // Team-management destinations. These screens are not built in
+                // this vertical, so the rows close the popover without
+                // navigating (the design lab routes to /teams/* pages that do
+                // not exist here yet).
+                _menuRow(trans('uptizm.team_menu.settings'), close),
+                _menuRow(trans('uptizm.team_menu.members'), close),
+                _menuRow(trans('uptizm.team_menu.channels'), close),
+                _menuRow(trans('uptizm.team_menu.escalation'), close),
+                _menuRow(trans('uptizm.team_menu.on_call'), close),
+                _menuRow(trans('uptizm.team_menu.billing'), close),
+                _menuRow(trans('uptizm.team_menu.create'), close),
+              ],
             ),
-          WDiv(className: 'my-1 border-t border-color-border-subtle'),
-          // Team-management destinations. These screens are not built in this
-          // vertical, so the rows close the popover without navigating (the
-          // design lab routes to /teams/* pages that do not exist here yet).
-          _menuRow(trans('uptizm.team_menu.settings'), close),
-          _menuRow(trans('uptizm.team_menu.members'), close),
-          _menuRow(trans('uptizm.team_menu.channels'), close),
-          _menuRow(trans('uptizm.team_menu.escalation'), close),
-          _menuRow(trans('uptizm.team_menu.on_call'), close),
-          _menuRow(trans('uptizm.team_menu.billing'), close),
-          _menuRow(trans('uptizm.team_menu.create'), close),
-        ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -248,19 +326,23 @@ class _TeamSwitcherState extends State<_TeamSwitcher> {
     );
   }
 
-  /// The colored team avatar square. [Team.color] is content data, applied via
-  /// the inline `backgroundColor` (no semantic token fits an arbitrary tint).
+  /// The team avatar square: brand-tinted background carrying the team's
+  /// leading initial. Real teams have no per-tenant brand color, so this uses
+  /// a semantic token (`bg-primary-container`/`text-fg`) instead of the design
+  /// lab's arbitrary inline tint.
   Widget _teamAvatar(
-    Team team, {
+    Team? team, {
     required String sizeClass,
     required String text,
   }) {
     return WDiv(
-      backgroundColor: team.color,
-      className: '$sizeClass shrink-0 flex items-center justify-center',
+      className: '''
+        $sizeClass shrink-0 flex items-center justify-center
+        bg-primary-container
+      ''',
       child: WText(
-        team.initial,
-        className: '$text font-bold text-white',
+        _teamInitial(team?.name),
+        className: '$text font-bold text-fg',
       ),
     );
   }
@@ -335,76 +417,100 @@ class _AccountMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return WDiv(
-      className: 'p-3 border-t border-color-border',
-      child: WPopover(
-        alignment: PopoverAlignment.topLeft,
-        offset: const Offset(0, 6),
-        className: '''
-          w-56 max-w-full overflow-hidden rounded-lg py-1
-          bg-surface border border-color-border shadow-xl
-        ''',
-        triggerBuilder: (context, isOpen, isHovering) => WDiv(
-          className: '''
-            flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2
-            hover:bg-surface-container
-          ''',
-          children: [
-            WDiv(
+    // Rebuilds on login/logout/restore: a profile-update also calls
+    // `Auth.restore()`, so a name/email change reflects here without reload.
+    return AnimatedBuilder(
+      animation: _authStateNotifier(),
+      builder: (context, _) {
+        final User user = _currentUserSafe();
+
+        return WDiv(
+          className: 'p-3 border-t border-color-border',
+          child: WPopover(
+            alignment: PopoverAlignment.topLeft,
+            offset: const Offset(0, 6),
+            className: '''
+              w-56 max-w-full overflow-hidden rounded-lg py-1
+              bg-surface border border-color-border shadow-xl
+            ''',
+            triggerBuilder: (context, isOpen, isHovering) => WDiv(
               className: '''
-                w-8 h-8 rounded-full bg-surface-container shrink-0
-                flex items-center justify-center
+                flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2
+                hover:bg-surface-container
               ''',
-              child: WText(
-                currentUser.initials,
-                className: 'text-xs font-semibold text-fg',
-              ),
-            ),
-            Expanded(
-              child: WDiv(
-                className: 'flex flex-col min-w-0',
-                children: [
-                  WText(
-                    currentUser.name,
-                    className: 'truncate text-sm font-medium text-fg',
+              children: [
+                WDiv(
+                  className: '''
+                    w-8 h-8 rounded-full bg-surface-container shrink-0
+                    flex items-center justify-center
+                  ''',
+                  child: WText(
+                    _userInitials(user.name),
+                    className: 'text-xs font-semibold text-fg',
                   ),
-                  WText(
-                    currentUser.email,
-                    className: 'truncate text-xs text-fg-muted',
+                ),
+                Expanded(
+                  child: WDiv(
+                    className: 'flex flex-col min-w-0',
+                    children: [
+                      WText(
+                        user.name ?? '',
+                        className: 'truncate text-sm font-medium text-fg',
+                      ),
+                      WText(
+                        user.email ?? '',
+                        className: 'truncate text-xs text-fg-muted',
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                WIcon(
+                  Icons.expand_more,
+                  className: 'text-[16px] text-fg-muted shrink-0',
+                ),
+              ],
             ),
-            WIcon(
-              Icons.expand_more,
-              className: 'text-[16px] text-fg-muted shrink-0',
+            contentBuilder: (context, close) => WDiv(
+              className: 'flex flex-col',
+              children: [
+                WAnchor(
+                  onTap: () {
+                    close();
+                    MagicRoute.to('/settings');
+                  },
+                  child: WDiv(
+                    className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
+                    child: WText(trans('uptizm.nav.settings')),
+                  ),
+                ),
+                WDiv(className: 'my-1 border-t border-color-border-subtle'),
+                WAnchor(
+                  onTap: () {
+                    close();
+                    _handleLogout();
+                  },
+                  child: WDiv(
+                    className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
+                    child: WText(trans('uptizm.account.sign_out')),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        contentBuilder: (context, close) => WDiv(
-          className: 'flex flex-col',
-          children: [
-            WAnchor(
-              onTap: () {
-                close();
-                MagicRoute.to('/settings');
-              },
-              child: WDiv(
-                className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
-                child: WText(trans('uptizm.nav.settings')),
-              ),
-            ),
-            WDiv(className: 'my-1 border-t border-color-border-subtle'),
-            WAnchor(
-              onTap: close,
-              child: WDiv(
-                className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
-                child: WText(trans('uptizm.account.sign_out')),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
+  }
+
+  /// Signs the user out via the app's registered [MagicStarter.useLogout]
+  /// callback, falling back to the starter's default auth controller logout.
+  Future<void> _handleLogout() async {
+    final customLogout = MagicStarter.manager.onLogout;
+    if (customLogout != null) {
+      await customLogout();
+      return;
+    }
+
+    await MagicStarterAuthController.instance.logout();
   }
 }
