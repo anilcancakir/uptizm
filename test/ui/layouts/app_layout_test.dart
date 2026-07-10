@@ -105,10 +105,14 @@ void main() {
       await pumpAtWidth(tester, 1200, const Sidebar(currentPath: '/monitors'));
 
       // trans() returns the raw key when no lang file is loaded (test env).
-      expect(find.text('uptizm.nav.home'), findsOneWidget);
+      // The sidebar's dashboard destination uses `uptizm.nav.dashboard` (not
+      // `uptizm.nav.home`, which only the mobile BottomNav uses).
+      expect(find.text('uptizm.nav.dashboard'), findsOneWidget);
       expect(find.text('uptizm.nav.monitors'), findsOneWidget);
       expect(find.text('uptizm.nav.incidents'), findsOneWidget);
-      expect(find.text('uptizm.nav.status'), findsOneWidget);
+      // The sidebar's status-page destination uses `uptizm.nav.status_page`
+      // (not the mobile BottomNav's shorter `uptizm.nav.status`).
+      expect(find.text('uptizm.nav.status_page'), findsOneWidget);
       // Settings IS a sidebar item on desktop (it appears in the nav and the
       // account menu, hence at least one match).
       expect(find.text('uptizm.nav.settings'), findsWidgets);

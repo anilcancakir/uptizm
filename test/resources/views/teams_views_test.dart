@@ -4,22 +4,19 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/mocks/oncall.dart';
-import 'package:uptizm/app/mocks/teams.dart';
 import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
-import 'package:uptizm/resources/views/teams/invite_accept_view.dart';
 import 'package:uptizm/resources/views/teams/notification_channels_view.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
 import 'package:uptizm/resources/views/teams/plan_billing_view.dart';
-import 'package:uptizm/resources/views/teams/team_create_view.dart';
-import 'package:uptizm/resources/views/teams/team_members_view.dart';
-import 'package:uptizm/resources/views/teams/team_settings_view.dart';
 
-/// In-memory language loader supplying every [trans] key exercised by the 9
-/// teams views' smoke tests, mirroring the pattern established in
-/// `settings_views_test.dart`. Short, wrappable strings avoid RenderFlex
-/// overflow at the test viewport.
+/// In-memory language loader supplying every [trans] key exercised by the
+/// uptizm team-operations views' smoke tests (notification channels,
+/// escalation policies + editor, on-call schedule, plan & billing). Team
+/// create/settings/members and invitation acceptance moved to magic_starter,
+/// so their keys are gone. Short, wrappable strings avoid RenderFlex overflow
+/// at the test viewport.
 class _TeamsViewsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
@@ -31,63 +28,6 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.settings.hub_title': 'Settings',
       'uptizm.status.editor_breadcrumb_back': 'Status pages',
       'uptizm.team_menu.escalation': 'Escalation policies',
-
-      // Team create.
-      'uptizm.teams.create_title': 'Create a team',
-      'uptizm.teams.create_subtitle': 'A team owns its own monitors.',
-      'uptizm.teams.create_name_label': 'Team name',
-      'uptizm.teams.create_name_placeholder': 'Acme Inc.',
-      'uptizm.teams.create_url_label': 'Team URL',
-      'uptizm.teams.create_url_placeholder': 'acme',
-      'uptizm.teams.create_color_label': 'Avatar color',
-      'uptizm.teams.create_invites_label': 'Invite teammates',
-      'uptizm.teams.create_invites_hint': 'Optional.',
-      'uptizm.teams.create_invites_placeholder': 'mara@acme.com',
-      'uptizm.teams.create_button': 'Create team',
-
-      // Team settings.
-      'uptizm.teams.settings_title': 'Team settings',
-      'uptizm.teams.settings_description': 'Configuration for :name.',
-      'uptizm.teams.settings_team_header': 'Team',
-      'uptizm.teams.settings_name_label': 'Team name',
-      'uptizm.teams.settings_url_label': 'Team URL',
-      'uptizm.teams.settings_color_label': 'Avatar color',
-      'uptizm.teams.settings_ai_header': 'AI mode',
-      'uptizm.teams.settings_ai_description': 'How much AI does on its own.',
-      'uptizm.teams.settings_ai_off_title': 'Off',
-      'uptizm.teams.settings_ai_off_desc': 'No AI. Threshold rules only.',
-      'uptizm.teams.settings_ai_suggest_title': 'Suggest',
-      'uptizm.teams.settings_ai_suggest_desc': 'AI proposes incidents.',
-      'uptizm.teams.settings_ai_auto_title': 'Auto',
-      'uptizm.teams.settings_ai_auto_desc': 'AI resolves incidents.',
-      'uptizm.teams.settings_ai_digest_label': 'Weekly AI digest email',
-      'uptizm.teams.settings_save_button': 'Save changes',
-      'uptizm.teams.settings_danger_header': 'Danger zone',
-      'uptizm.teams.settings_danger_description': "Can't be undone.",
-      'uptizm.teams.settings_delete_button': 'Delete this team',
-      'uptizm.teams.settings_delete_confirm_title': 'Delete :name?',
-      'uptizm.teams.settings_delete_confirm_description': "Can't be undone.",
-      'uptizm.teams.settings_delete_confirm_label': 'Delete team',
-
-      // Team members.
-      'uptizm.teams.members_title': 'Members',
-      'uptizm.teams.members_description': 'People with access to :name.',
-      'uptizm.teams.members_invite_header': 'Invite a teammate',
-      'uptizm.teams.members_invite_hint': "They'll get an invite to :name.",
-      'uptizm.teams.members_invite_placeholder': 'teammate@company.com',
-      'uptizm.teams.members_send_button': 'Send invite',
-      'uptizm.teams.members_list_header': 'Members · :count',
-      'uptizm.teams.members_pending_header': 'Pending invites · :count',
-      'uptizm.teams.members_remove_button': 'Remove',
-      'uptizm.teams.members_remove_confirm_title': 'Remove :name?',
-      'uptizm.teams.members_remove_confirm_description':
-          ':name loses access to :team.',
-      'uptizm.teams.members_remove_confirm_label': 'Remove',
-      'uptizm.teams.members_revoke_button': 'Revoke',
-      'uptizm.teams.members_revoke_confirm_title': 'Revoke this invite?',
-      'uptizm.teams.members_revoke_confirm_description':
-          'The invite to :email stops.',
-      'uptizm.teams.members_revoke_confirm_label': 'Revoke invite',
 
       // Notification channels.
       'uptizm.teams.channels_title': 'Notification channels',
@@ -204,13 +144,6 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.billing_toast_upgrade_title': 'Upgrading to :name',
       'uptizm.teams.billing_toast_switch_title': 'Switching to :name',
       'uptizm.teams.billing_toast_change_description': 'Billed :cycle.',
-
-      // Invite accept.
-      'uptizm.teams.invite_accept_heading': 'Join :name on Uptizm',
-      'uptizm.teams.invite_accept_body': "You've been invited to collaborate.",
-      'uptizm.teams.invite_accept_button': 'Accept invite',
-      'uptizm.teams.invite_accept_decline_button': 'Decline',
-      'uptizm.teams.invite_accepted': 'You have joined the team.',
     };
   }
 }
@@ -247,79 +180,6 @@ void main() {
       ),
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // TeamCreateView
-  // ---------------------------------------------------------------------------
-
-  group('TeamCreateView', () {
-    testWidgets('renders the title and the Create button', (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 4000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const TeamCreateView(), size: const Size(1280, 4000)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.teams.create_title')), findsOneWidget);
-      expect(find.text(trans('uptizm.teams.create_button')), findsOneWidget);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // TeamSettingsView
-  // ---------------------------------------------------------------------------
-
-  group('TeamSettingsView', () {
-    testWidgets('renders the title and every AI-mode option title', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 6000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const TeamSettingsView(), size: const Size(1280, 6000)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.teams.settings_title')), findsOneWidget);
-      expect(
-        find.text(trans('uptizm.teams.settings_ai_off_title')),
-        findsOneWidget,
-      );
-      expect(
-        find.text(trans('uptizm.teams.settings_ai_suggest_title')),
-        findsOneWidget,
-      );
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // TeamMembersView
-  // ---------------------------------------------------------------------------
-
-  group('TeamMembersView', () {
-    testWidgets('renders the title and a row for every fixture member', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 6000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const TeamMembersView(), size: const Size(1280, 6000)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.teams.members_title')), findsOneWidget);
-      for (final TeamMember member in teamMembers) {
-        expect(find.text(member.name), findsOneWidget);
-      }
-    });
-  });
 
   // ---------------------------------------------------------------------------
   // NotificationChannelsView
@@ -459,37 +319,6 @@ void main() {
       expect(find.text(trans('uptizm.teams.billing_title')), findsOneWidget);
       expect(
         find.text(trans('uptizm.teams.billing_invoices_header')),
-        findsOneWidget,
-      );
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // InviteAcceptView
-  // ---------------------------------------------------------------------------
-
-  group('InviteAcceptView', () {
-    testWidgets('renders the join heading and the Accept/Decline actions', (
-      tester,
-    ) async {
-      await tester.pumpWidget(wrap(const InviteAcceptView(token: 'x')));
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(
-        find.text(
-          trans('uptizm.teams.invite_accept_heading', {
-            'name': teams.first.name,
-          }),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.text(trans('uptizm.teams.invite_accept_button')),
-        findsOneWidget,
-      );
-      expect(
-        find.text(trans('uptizm.teams.invite_accept_decline_button')),
         findsOneWidget,
       );
     });
