@@ -27,9 +27,9 @@ type ProbeRequest = {
     probe_run_id: string;
     region: string;
     type: "http" | "tcp";
-    method: string;
+    method: string | null;
     url: string;
-    request_headers: Record<string, string>;
+    request_headers: Record<string, string> | null;
     request_body: string | null;
     timeout_seconds: number;
     expected_status_code: number;
@@ -91,8 +91,10 @@ async function executeProbe(
         // 1. Fire the region-pinned probe and resolve the colo in parallel.
         const [response, colo] = await Promise.all([
             fetch(probe.url, {
-                method: probe.method.toUpperCase(),
-                headers: probe.request_headers,
+                method: (probe.method ?? "GET").toUpperCase(),
+                // Headers/method may be null when a monitor sets none; fetch()
+                // rejects a null `headers`, so default to an empty object.
+                headers: probe.request_headers ?? {},
                 body: probe.request_body ?? undefined,
                 redirect: "manual",
                 signal: AbortSignal.timeout(probe.timeout_seconds * 1000),
