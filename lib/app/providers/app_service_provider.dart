@@ -2,6 +2,7 @@ import 'package:magic/magic.dart';
 import 'package:flutter/material.dart';
 import 'package:magic_starter/magic_starter.dart';
 import '../models/user.dart';
+import '../../ui/layouts/uptizm_hub_extras.dart';
 
 /// Application Service Provider.
 ///
@@ -71,6 +72,15 @@ class AppServiceProvider extends ServiceProvider {
           User.current.allTeams.map((t) => t.toMagicStarterTeam()).toList(),
       onSwitch: (teamId) =>
           MagicStarterTeamController.instance.switchTeam(teamId),
+    );
+
+    // Magic Starter: Inject uptizm's Team + About groups into the settings hub
+    // via its footer slot. The starter owns Account/Security/Preferences; these
+    // two groups link only the kept uptizm-domain team-ops + static routes.
+    MagicStarter.view.slot(
+      'settings.hub',
+      'footer',
+      (context) => const UptizmHubExtras(),
     );
   }
 }
