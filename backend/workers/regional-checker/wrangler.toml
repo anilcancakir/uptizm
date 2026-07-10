@@ -1,0 +1,21 @@
+name = "uptizm-regional-checker"
+main = "src/index.ts"
+compatibility_date = "2026-07-10"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# RELAY_SECRET is never declared here. In `wrangler dev` it is read from
+# `.dev.vars` (git-ignored, provisioned out of band); in production it is
+# uploaded with `wrangler secret put RELAY_SECRET`. Source reads it via
+# `env.RELAY_SECRET`.
+
+# One region-pinned Durable Object class runs the outbound probe. SQLite
+# DOs run on the Free plan and in `wrangler dev`, so the migration uses
+# `new_sqlite_classes`.
+[[durable_objects.bindings]]
+name = "RegionalProbe"
+class_name = "RegionalProbe"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RegionalProbe"]
