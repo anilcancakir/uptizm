@@ -10,37 +10,33 @@ import '../resources/views/monitors/monitor_create_view.dart';
 import '../resources/views/monitors/monitor_detail_view.dart';
 import '../resources/views/monitors/monitor_edit_view.dart';
 import '../resources/views/monitors/monitors_list_view.dart';
-import '../resources/views/settings/appearance_settings_view.dart';
 import '../resources/views/settings/changelog_settings_view.dart';
 import '../resources/views/settings/help_settings_view.dart';
-import '../resources/views/settings/language_settings_view.dart';
-import '../resources/views/settings/notifications_settings_view.dart';
-import '../resources/views/settings/password_settings_view.dart';
 import '../resources/views/settings/privacy_settings_view.dart';
-import '../resources/views/settings/profile_settings_view.dart';
-import '../resources/views/settings/sessions_settings_view.dart';
-import '../resources/views/settings/settings_hub_view.dart';
 import '../resources/views/settings/terms_settings_view.dart';
-import '../resources/views/settings/timezone_settings_view.dart';
-import '../resources/views/settings/two_factor_settings_view.dart';
 import '../resources/views/status/status_page_editor_view.dart';
 import '../resources/views/status/status_page_preview_view.dart';
 import '../resources/views/status/status_page_subscribers_view.dart';
 import '../resources/views/status/status_pages_list_view.dart';
 import '../resources/views/teams/escalation_policies_view.dart';
 import '../resources/views/teams/escalation_policy_editor_view.dart';
-import '../resources/views/teams/invite_accept_view.dart';
 import '../resources/views/teams/notification_channels_view.dart';
 import '../resources/views/teams/on_call_schedule_view.dart';
 import '../resources/views/teams/plan_billing_view.dart';
-import '../resources/views/teams/team_create_view.dart';
-import '../resources/views/teams/team_members_view.dart';
-import '../resources/views/teams/team_settings_view.dart';
 import '../ui/layouts/app_layout.dart';
 
 /// Application Route Definitions.
 ///
-/// Registers the in-scope routes for the uptizm vertical:
+/// Registers the in-scope routes for the uptizm vertical. The whole in-app
+/// shell group carries the `'auth'` middleware, so an unauthenticated boot is
+/// redirected to the magic_starter login route (the `EnsureAuthenticated`
+/// guard); only the standalone `/welcome` onboarding route stays ungated. The
+/// account
+/// surface (login/register, the Settings hub and its Account / Security /
+/// Preferences sub-pages, team create/settings/invitations, notification
+/// preferences) is owned by magic_starter and registered in
+/// [RouteServiceProvider.boot()]; uptizm keeps only the monitoring-domain
+/// routes and the About & support static pages the starter does not provide:
 ///
 /// - `/` — [DashboardView] inside [AppLayout] (the persistent shell).
 /// - `/monitors` — [MonitorsListView] inside [AppLayout].
@@ -68,26 +64,10 @@ import '../ui/layouts/app_layout.dart';
 ///   in-app full-screen mockup of the public status page.
 /// - `/status/:id/subscribers` — [StatusPageSubscribersView] inside
 ///   [AppLayout]; subscriber management for a status page.
-/// - `/settings` — [SettingsHubView] inside [AppLayout]; the grouped-list
-///   settings index (Account / Security / Preferences / Team / About).
-/// - `/settings/profile` — [ProfileSettingsView] inside [AppLayout].
-/// - `/settings/appearance` — [AppearanceSettingsView] inside [AppLayout].
-/// - `/settings/language` — [LanguageSettingsView] inside [AppLayout].
-/// - `/settings/timezone` — [TimezoneSettingsView] inside [AppLayout].
-/// - `/settings/notifications` — [NotificationsSettingsView] inside
-///   [AppLayout].
 /// - `/settings/help` — [HelpSettingsView] inside [AppLayout].
 /// - `/settings/changelog` — [ChangelogSettingsView] inside [AppLayout].
 /// - `/settings/privacy` — [PrivacySettingsView] inside [AppLayout].
 /// - `/settings/terms` — [TermsSettingsView] inside [AppLayout].
-/// - `/settings/security/2fa` — [TwoFactorSettingsView] inside [AppLayout].
-/// - `/settings/security/password` — [PasswordSettingsView] inside
-///   [AppLayout].
-/// - `/settings/security/sessions` — [SessionsSettingsView] inside
-///   [AppLayout].
-/// - `/teams/new` — [TeamCreateView] inside [AppLayout].
-/// - `/teams/settings` — [TeamSettingsView] inside [AppLayout].
-/// - `/teams/members` — [TeamMembersView] inside [AppLayout].
 /// - `/teams/notifications` — [NotificationChannelsView] inside [AppLayout].
 /// - `/teams/escalation` — [EscalationPoliciesView] inside [AppLayout].
 /// - `/teams/escalation/new` — [EscalationPolicyEditorView] inside
@@ -99,10 +79,9 @@ import '../ui/layouts/app_layout.dart';
 ///   builder (edits an existing policy).
 /// - `/teams/on-call` — [OnCallScheduleView] inside [AppLayout].
 /// - `/teams/billing` — [PlanBillingView] inside [AppLayout].
-/// - `/invite/:token` — [InviteAcceptView] registered OUTSIDE [AppLayout] (no
-///   sidebar/top bar shell), matching how the React router keeps the invite
-///   acceptance screen standalone; the `:token` path parameter is passed
-///   positionally to the builder.
+/// - `/welcome` — [WelcomeView] registered OUTSIDE [AppLayout] (no sidebar/top
+///   bar shell) and UNGATED, so a fresh unauthenticated launch can reach the
+///   onboarding carousel.
 ///
 /// All in-app routes use [RouteTransition.none] for an instant,
 /// design-lab-faithful navigation feel. `/preview` is registered separately
@@ -121,6 +100,7 @@ void registerAppRoutes() {
   // rebuild the whole chrome on every navigation (a full-screen flash between,
   // say, Home and Monitors).
   MagicRoute.group(
+    middleware: ['auth'],
     layout: (child) => AppLayout(child: child),
     routes: () {
       // 1. Dashboard: the default landing screen.
@@ -226,56 +206,15 @@ void registerAppRoutes() {
         (String id) => StatusPageSubscribersView(id: id),
       ).title('uptizm.titles.status_page_subscribers').transition(RouteTransition.none);
 
-      // 14. Settings hub: the grouped-list index (Account / Security /
-      //     Preferences / Team / About & support).
-      MagicRoute.page(
-        '/settings',
-        () => const SettingsHubView(),
-      ).title('uptizm.titles.settings').transition(RouteTransition.none);
-
-      // 15. Settings sub-pages. All static paths (no :id), so registration
-      //     order among them carries no first-match concern; grouped here
-      //     for readability, mirroring the hub's section order.
-      MagicRoute.page(
-        '/settings/profile',
-        () => const ProfileSettingsView(),
-      ).title('uptizm.titles.profile').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/settings/security/2fa',
-        () => const TwoFactorSettingsView(),
-      ).title('uptizm.titles.two_factor').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/settings/security/password',
-        () => const PasswordSettingsView(),
-      ).title('uptizm.titles.password').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/settings/security/sessions',
-        () => const SessionsSettingsView(),
-      ).title('uptizm.titles.sessions').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/settings/appearance',
-        () => const AppearanceSettingsView(),
-      ).title('uptizm.titles.appearance').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/settings/language',
-        () => const LanguageSettingsView(),
-      ).title('uptizm.titles.language').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/settings/timezone',
-        () => const TimezoneSettingsView(),
-      ).title('uptizm.titles.timezone').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/settings/notifications',
-        () => const NotificationsSettingsView(),
-      ).title('uptizm.titles.notifications').transition(RouteTransition.none);
-
+      // 14. Settings — About & support sub-pages only. The Settings hub index
+      //     and its Account / Security / Preferences sub-pages are now owned by
+      //     magic_starter (registerMagicStarterProfileRoutes), which serves
+      //     `/settings`, `/settings/profile`, `/settings/appearance`,
+      //     `/settings/language`, `/settings/timezone`, `/settings/notifications`,
+      //     `/settings/security/{password,sessions,two-factor}`. Uptizm keeps
+      //     only the domain-specific static pages the starter does not provide.
+      //     All static paths (no :id), so registration order carries no
+      //     first-match concern.
       MagicRoute.page(
         '/settings/help',
         () => const HelpSettingsView(),
@@ -296,22 +235,11 @@ void registerAppRoutes() {
         () => const TermsSettingsView(),
       ).title('uptizm.titles.terms').transition(RouteTransition.none);
 
-      // 16. Team destinations. The Settings hub's Team group links here.
-      MagicRoute.page(
-        '/teams/new',
-        () => const TeamCreateView(),
-      ).title('uptizm.titles.team_new').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/teams/settings',
-        () => const TeamSettingsView(),
-      ).title('uptizm.titles.team_settings').transition(RouteTransition.none);
-
-      MagicRoute.page(
-        '/teams/members',
-        () => const TeamMembersView(),
-      ).title('uptizm.titles.members').transition(RouteTransition.none);
-
+      // 16. Team destinations — uptizm monitoring-ops pages only. Team
+      //     creation (`/teams/create`), team settings (`/teams/settings`) and
+      //     member management (folded into `/teams/settings`) are now owned by
+      //     magic_starter (registerMagicStarterTeamRoutes); uptizm keeps the
+      //     domain-specific team-operations pages the starter does not provide.
       MagicRoute.page(
         '/teams/notifications',
         () => const NotificationChannelsView(),
@@ -351,19 +279,13 @@ void registerAppRoutes() {
     },
   );
 
-  // 19. Invite acceptance: registered OUTSIDE the AppLayout group above, so
-  //     it renders standalone (no sidebar/top bar), mirroring how the React
-  //     router keeps /invite/:token outside the app shell. The :token path
-  //     parameter is passed positionally to the builder.
-  MagicRoute.page(
-    '/invite/:token',
-    (String token) => InviteAcceptView(token: token),
-  ).transition(RouteTransition.none);
-
-  // 20. Onboarding: the first-launch welcome carousel, also OUTSIDE the
-  //     AppLayout group so it renders full-screen with no shell chrome
-  //     (mirrors the React router keeping /welcome outside the app shell).
-  //     Standalone routes carry no `.title(...)`, matching /invite above.
+  // 19. Onboarding: the first-launch welcome carousel, registered OUTSIDE the
+  //     AppLayout group so it renders full-screen with no shell chrome (mirrors
+  //     the React router keeping /welcome outside the app shell). It stays
+  //     UNGATED (no 'auth' middleware) so a fresh, unauthenticated launch can
+  //     reach onboarding. Invitation acceptance is now owned by magic_starter
+  //     (`/invitations/:token/accept`), so uptizm no longer registers
+  //     `/invite/:token`. Standalone routes carry no `.title(...)`.
   MagicRoute.page(
     '/welcome',
     () => const WelcomeView(),

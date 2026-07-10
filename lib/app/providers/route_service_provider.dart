@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:magic/magic.dart';
 import 'package:magic_devtools/preview.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../kernel.dart';
 import '../../routes/app.dart';
@@ -9,10 +10,12 @@ import 'package:magic_starter/previews.dart' as starter_previews;
 
 /// Route Service Provider.
 ///
-/// Registers the HTTP kernel and application routes. Magic Starter route
-/// groups (auth, profile, teams, notifications) are intentionally omitted:
-/// the uptizm vertical has no auth gate and no profile/team/notification
-/// screens in scope.
+/// Registers the HTTP kernel, the Magic Starter route groups (auth, profile,
+/// teams, notifications) and the uptizm application routes. The starter groups
+/// own the account surface (login/register, settings hub + sub-pages, team
+/// create/settings/invitations, notification preferences); the uptizm shell
+/// carries the `'auth'` gate, so an unauthenticated boot redirects to the
+/// starter login route.
 class RouteServiceProvider extends ServiceProvider {
   RouteServiceProvider(super.app);
 
@@ -24,6 +27,17 @@ class RouteServiceProvider extends ServiceProvider {
 
   @override
   Future<void> boot() async {
+    // Register the Magic Starter account surface FIRST: auth pages (carrying
+    // the 'guest' gate), the settings hub + sub-pages, team management and
+    // notification preferences. These own the paths uptizm previously served
+    // itself; registering them here hands that surface to the starter and lets
+    // the uptizm shell gate ('auth') redirect an unauthenticated boot to the
+    // starter login route.
+    registerMagicStarterAuthRoutes();
+    registerMagicStarterProfileRoutes();
+    registerMagicStarterTeamRoutes();
+    registerMagicStarterNotificationRoutes();
+
     // Register application route definitions.
     registerAppRoutes();
 
