@@ -10,6 +10,7 @@ use App\Models\MonitorCheck;
 use App\Models\MonitorMetricValue;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use App\Services\StatusPages\StatusPageCache;
 use App\Support\Monitoring\CheckResult;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +57,7 @@ class CheckPersistenceService
     public function __construct(
         protected ThresholdEvaluator $evaluator,
         protected MetricExtractor $extractor,
+        protected StatusPageCache $statusPageCache,
     ) {}
 
     /**
@@ -150,6 +152,16 @@ class CheckPersistenceService
         // 2. A recovery clears the page, gated on the recover-alert flag.
         if ($outcome['resolved'] !== null && $monitor->alert_on_recover) {
             Notification::send($outcome['resolved']->team->users, new IncidentResolved($outcome['resolved']));
+        }
+
+        // 3. Bust the public status-page cache off-lock whenever the lifecycle
+        //    changed. An open/resolve mutates the affected monitor's component
+        //    status, so every containing page's cached read model is now stale
+        //    and must be forgotten immediately, not after the 60s TTL. This is
+        //    wired at the pivot boundary (not an Incident observer), which fires
+        //    before monitors()->attach() and so cannot see the containing pages.
+        if ($outcome['opened'] !== null || $outcome['resolved'] !== null) {
+            $this->statusPageCache->invalidateForMonitors([$monitor->id]);
         }
     }
 

@@ -9,6 +9,7 @@ use App\Enums\SignalSource;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Services\Monitoring\ThresholdEvaluator;
+use App\Services\StatusPages\StatusPageCache;
 use App\Support\Monitoring\HostGuard;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -80,8 +81,9 @@ class PerformSslCheck implements ShouldQueue
      * Resolve the monitor, re-validate its host, and evaluate its certificate.
      *
      * @param  HostGuard  $hostGuard  SSRF denylist, re-checked before connecting.
+     * @param  StatusPageCache  $statusPageCache  Busts the public page cache when an SSL incident opens.
      */
-    public function handle(HostGuard $hostGuard): void
+    public function handle(HostGuard $hostGuard, StatusPageCache $statusPageCache = new StatusPageCache): void
     {
         // 1. Resolve the monitor; deletion between schedule and run is a no-op.
         $monitor = Monitor::query()->find($this->monitorId);
@@ -122,7 +124,7 @@ class PerformSslCheck implements ShouldQueue
             return;
         }
 
-        $this->recordCertificate($monitor, $certificate);
+        $this->recordCertificate($monitor, $certificate, $statusPageCache);
     }
 
     /**
@@ -157,8 +159,11 @@ class PerformSslCheck implements ShouldQueue
      * Persist the freshly-read expiry and open an incident when the certificate
      * is inside the monitor's alert window.
      */
-    protected function recordCertificate(Monitor $monitor, SslCertificate $certificate): void
-    {
+    protected function recordCertificate(
+        Monitor $monitor,
+        SslCertificate $certificate,
+        StatusPageCache $statusPageCache,
+    ): void {
         // 1. Store the expiry + checked timestamp and clear any stale error;
         //    a successful read means the prior failure no longer holds.
         $monitor->forceFill([
@@ -179,7 +184,7 @@ class PerformSslCheck implements ShouldQueue
             return;
         }
 
-        $this->openSslIncident($monitor, $daysRemaining);
+        $this->openSslIncident($monitor, $daysRemaining, $statusPageCache);
     }
 
     /**
@@ -206,8 +211,11 @@ class PerformSslCheck implements ShouldQueue
      * is protected and requires a `MonitorCheck` an SSL check never produces.
      * The create shape and pivot attach mirror that method.
      */
-    protected function openSslIncident(Monitor $monitor, int $daysRemaining): void
-    {
+    protected function openSslIncident(
+        Monitor $monitor,
+        int $daysRemaining,
+        StatusPageCache $statusPageCache,
+    ): void {
         // 1. Persist the incident with the denormalized primary-monitor hint and
         //    the SSL trigger marker. A near-expiry cert is a warning, not a live
         //    outage, so it opens at warn severity.
@@ -233,6 +241,12 @@ class PerformSslCheck implements ShouldQueue
             'component_status_at_start' => $componentStatus,
             'component_status_current' => $componentStatus,
         ]);
+
+        // 3. Forget the cached read model of every status page showing this
+        //    monitor now that the pivot is attached, so the page reflects the
+        //    SSL incident immediately. Placed after attach() (the pivot boundary)
+        //    because an Incident observer would fire before it and miss the pages.
+        $statusPageCache->invalidateForMonitors([$monitor->id]);
     }
 
     /**
