@@ -4,6 +4,8 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
+use App\Events\IncidentBroadcast;
+use App\Events\MonitorStatusChanged;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
@@ -100,12 +102,15 @@ class CheckPersistenceService
             $outcome = [
                 'opened' => null,
                 'resolved' => null,
+                'status_change' => null,
             ];
             $this->withMonitorLock($monitor, function () use ($monitor, $result, &$outcome): void {
                 // 3a. Write the check, refresh the denorm columns, and freeze
                 //     metric samples in a single transaction so a partial batch
-                //     never lands.
-                [$check, $samples] = $this->persistWithinTransaction($monitor, $result);
+                //     never lands. The status transition is captured INSIDE the
+                //     transaction (fresh in-lock DB read) so a concurrent region
+                //     of the same monitor cannot double-detect the same flip.
+                [$check, $samples, $statusChange] = $this->persistWithinTransaction($monitor, $result);
 
                 // 3b. Threshold/signal routing runs only after the check is
                 //     durable so a failure here cannot corrupt committed
@@ -118,6 +123,11 @@ class CheckPersistenceService
                     check: $check,
                     metricSamples: $samples,
                 );
+
+                // 3c. Thread the in-lock status transition onto the evaluator's
+                //     opened/resolved outcome; the assignment above replaces the
+                //     whole array, so the transition is merged in afterwards.
+                $outcome['status_change'] = $statusChange;
             });
 
             // 4. Dispatch incident notifications OFF-LOCK: the monitor lock is
@@ -131,16 +141,23 @@ class CheckPersistenceService
     }
 
     /**
-     * Dispatch the incident lifecycle notifications for a completed evaluation,
-     * each gated on the monitor's matching alert flag.
+     * Dispatch the off-lock side effects of a completed evaluation: the incident
+     * lifecycle notifications (each gated on the monitor's matching alert flag),
+     * the live-dashboard broadcasts (UNCONDITIONAL on the alert flags), and the
+     * status-page cache bust.
      *
      * Both notifications are `ShouldQueue`, so a send enqueues rather than
      * blocks; the alert flag is the gate, so a monitor opted out of down or
-     * recovery alerts stays silent. Recipients are the incident's owning team
-     * users. Called only AFTER {@see self::withMonitorLock()} returns so no
-     * send ever runs inside the per-monitor lock.
+     * recovery alerts stays silent. The broadcasts are a live UI refresh, not a
+     * page, so they ignore the `alert_on_*` gate entirely. Called only AFTER
+     * {@see self::withMonitorLock()} returns so nothing dispatches inside the
+     * per-monitor lock. Both events are `ShouldDispatchAfterCommit`.
      *
-     * @param  array{opened: ?Incident, resolved: ?Incident}  $outcome
+     * @param  array{
+     *     opened: ?Incident,
+     *     resolved: ?Incident,
+     *     status_change: array{from: MonitorStatus, to: MonitorStatus}|null
+     * }  $outcome
      */
     protected function dispatchIncidentNotifications(Monitor $monitor, array $outcome): void
     {
@@ -154,7 +171,33 @@ class CheckPersistenceService
             Notification::send($outcome['resolved']->team->users, new IncidentResolved($outcome['resolved']));
         }
 
-        // 3. Bust the public status-page cache off-lock whenever the lifecycle
+        // 3. Broadcast the incident lifecycle to the team's live dashboard.
+        //    Unlike the notifications above, these are UNCONDITIONAL on the alert
+        //    flags: a broadcast is a passive UI refresh, not a page, so the
+        //    alert_on_* gate applies only to the notifications.
+        if ($outcome['opened'] !== null) {
+            event(new IncidentBroadcast($outcome['opened'], 'opened'));
+        }
+
+        if ($outcome['resolved'] !== null) {
+            event(new IncidentBroadcast($outcome['resolved'], 'resolved'));
+        }
+
+        // 4. Broadcast the monitor health flip to the same live dashboard, only
+        //    when the in-lock read recorded a real transition. The guard (prior
+        //    non-null, changed, not paused) already ran inside the transaction,
+        //    so a set `status_change` is always a broadcastable flip. `$monitor`
+        //    was refreshed in place post-UPDATE, so the payload reads fresh
+        //    last_checked_at / last_response_ms.
+        if ($outcome['status_change'] !== null) {
+            event(new MonitorStatusChanged(
+                $monitor,
+                $outcome['status_change']['from'],
+                $outcome['status_change']['to'],
+            ));
+        }
+
+        // 5. Bust the public status-page cache off-lock whenever the lifecycle
         //    changed. An open/resolve mutates the affected monitor's component
         //    status, so every containing page's cached read model is now stale
         //    and must be forgotten immediately, not after the 60s TTL. This is
@@ -199,19 +242,31 @@ class CheckPersistenceService
     }
 
     /**
-     * Insert the check row, update the monitor denorm columns, and persist
-     * extracted metric samples atomically.
+     * Insert the check row, update the monitor denorm columns, persist extracted
+     * metric samples, and detect the health transition atomically.
      *
-     * @return array{0: MonitorCheck, 1: array<string, float>} The persisted
-     *                                                         check and the
-     *                                                         numeric samples
-     *                                                         keyed by metric
-     *                                                         key.
+     * @return array{
+     *     0: MonitorCheck,
+     *     1: array<string, float>,
+     *     2: array{from: MonitorStatus, to: MonitorStatus}|null
+     * } The persisted check, the numeric samples keyed by metric key, and the
+     *   status transition when the monitor flipped health (null otherwise).
      */
     protected function persistWithinTransaction(Monitor $monitor, CheckResult $result): array
     {
         return DB::transaction(function () use ($monitor, $result): array {
-            // 1. Persist the raw check row first so telemetry is durable
+            // 1. Read the committed prior status INSIDE the lock/transaction,
+            //    BEFORE the denorm UPDATE overwrites it. A concurrent region of
+            //    the same monitor serializes through the monitor lock, so this
+            //    read observes the previous region's committed status and the
+            //    same flip is never detected twice. The fresh-model read applies
+            //    the MonitorStatus cast, yielding the enum (or null on a brand
+            //    new monitor whose first status is being recorded now).
+            $priorStatus = Monitor::query()
+                ->whereKey($monitor->id)
+                ->first(['last_status'])?->last_status;
+
+            // 2. Persist the raw check row first so telemetry is durable
             //    before any follow-up write in the same transaction.
             $check = MonitorCheck::query()->create([
                 'id' => (string) Str::orderedUuid(),
@@ -233,7 +288,7 @@ class CheckPersistenceService
                 'probe_run_id' => $result->probeRunId,
             ]);
 
-            // 2. Refresh the denormalized last-state columns and the failure
+            // 3. Refresh the denormalized last-state columns and the failure
             //    counter with a single atomic UPDATE. A `down` result advances
             //    the streak with a DB-side `consecutive_fails + 1` so two
             //    concurrent regions cannot lose an increment to a stale
@@ -250,15 +305,47 @@ class CheckPersistenceService
                         : 0,
                 ]);
 
-            // 3. Freeze configured metric samples against this check; the
+            // 4. Freeze configured metric samples against this check; the
             //    numeric samples flow out to the threshold evaluator.
             $samples = $this->extractAndPersistMetrics($monitor, $check, $result);
 
             return [
                 $check,
                 $samples,
+                $this->detectStatusChange($priorStatus, $result->status),
             ];
         });
+    }
+
+    /**
+     * Decide whether a health flip should reach the live dashboard.
+     *
+     * Three guards, all load-bearing:
+     *  1. A `paused` result is a config action, not a check outcome, and never
+     *     broadcasts.
+     *  2. A null prior is the first-ever status of a brand-new monitor;
+     *     reconcile-on-nav / the reconnect refetch picks it up, not a live badge
+     *     flip, so it is suppressed to avoid a storm on initial seeding.
+     *  3. An unchanged status is not a transition.
+     *
+     * @return array{from: MonitorStatus, to: MonitorStatus}|null The transition
+     *                                                            or null when no
+     *                                                            broadcast is due.
+     */
+    protected function detectStatusChange(?MonitorStatus $prior, MonitorStatus $current): ?array
+    {
+        if ($current === MonitorStatus::Paused) {
+            return null;
+        }
+
+        if ($prior === null || $prior === $current) {
+            return null;
+        }
+
+        return [
+            'from' => $prior,
+            'to' => $current,
+        ];
     }
 
     /**

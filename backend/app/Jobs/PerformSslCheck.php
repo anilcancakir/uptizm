@@ -6,6 +6,7 @@ use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\SignalSource;
+use App\Events\IncidentBroadcast;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Services\Monitoring\ThresholdEvaluator;
@@ -242,7 +243,13 @@ class PerformSslCheck implements ShouldQueue
             'component_status_current' => $componentStatus,
         ]);
 
-        // 3. Forget the cached read model of every status page showing this
+        // 3. Broadcast the newly opened incident to the team's live dashboard so
+        //    the Flutter Echo client refreshes without polling. Dispatched after
+        //    the pivot attach so the payload's affected-set is already durable;
+        //    the event is ShouldDispatchAfterCommit.
+        event(new IncidentBroadcast($incident, 'opened'));
+
+        // 4. Forget the cached read model of every status page showing this
         //    monitor now that the pivot is attached, so the page reflects the
         //    SSL incident immediately. Placed after attach() (the pivot boundary)
         //    because an Incident observer would fire before it and miss the pages.
