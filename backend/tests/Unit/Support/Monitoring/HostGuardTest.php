@@ -57,6 +57,32 @@ class HostGuardTest extends TestCase
         $this->assertTrue($this->guard->isBlockedHost('api.internal'));
     }
 
+    /** An IPv4-mapped IPv6 literal cannot smuggle an internal target past the guard. */
+    public function test_blocks_ipv4_mapped_ipv6_internal_address(): void
+    {
+        $this->assertTrue($this->guard->isBlockedHost('::ffff:169.254.169.254'));
+        $this->assertTrue($this->guard->isBlockedHost('::ffff:10.0.0.5'));
+        $this->assertTrue($this->guard->isBlockedHost('[::ffff:127.0.0.1]'));
+
+        // A mapped PUBLIC address must still pass: the unwrap must not over-block.
+        $this->assertFalse($this->guard->isBlockedHost('::ffff:8.8.8.8'));
+    }
+
+    /** 0.0.0.0 reaches localhost on Linux and is blocked (0.0.0.0/8). */
+    public function test_blocks_this_host_address(): void
+    {
+        $this->assertTrue($this->guard->isBlockedHost('0.0.0.0'));
+    }
+
+    /** Native IPv6 loopback, unspecified, ULA, and link-local are blocked. */
+    public function test_blocks_internal_ipv6_addresses(): void
+    {
+        $this->assertTrue($this->guard->isBlockedHost('::1'));
+        $this->assertTrue($this->guard->isBlockedHost('::'));
+        $this->assertTrue($this->guard->isBlockedHost('fd00::1'));
+        $this->assertTrue($this->guard->isBlockedHost('fe80::1'));
+    }
+
     /** A public host resolves outside every blocked range and passes. */
     public function test_allows_public_host(): void
     {

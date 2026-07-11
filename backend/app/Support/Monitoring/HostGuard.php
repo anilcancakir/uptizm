@@ -22,13 +22,14 @@ class HostGuard
     /**
      * IPv4 CIDR ranges a monitor host is never allowed to resolve into.
      *
-     * Covers loopback, the three RFC1918 private blocks, and the
-     * link-local range that fronts cloud metadata endpoints
-     * (169.254.169.254).
+     * Covers the "this host" block (0.0.0.0/8, where 0.0.0.0 reaches localhost
+     * on Linux), loopback, the three RFC1918 private blocks, and the link-local
+     * range that fronts cloud metadata endpoints (169.254.169.254).
      *
      * @var list<string>
      */
     protected const array BLOCKED_IPV4_CIDRS = [
+        '0.0.0.0/8',
         '127.0.0.0/8',
         '10.0.0.0/8',
         '172.16.0.0/12',
@@ -200,20 +201,60 @@ class HostGuard
     protected function isBlockedIp(string $ip): bool
     {
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
-            foreach (self::BLOCKED_IPV4_CIDRS as $cidr) {
-                if ($this->ipv4InCidr($ip, $cidr)) {
-                    return true;
-                }
-            }
-
-            return false;
+            return $this->ipv4IsBlocked($ip);
         }
 
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            // An IPv4-mapped IPv6 literal (::ffff:169.254.169.254) reaches the
+            // same IPv4 host, so unwrap it and run the embedded address through
+            // the IPv4 ranges; without this the mapping bypasses the denylist.
+            $mapped = $this->mappedIpv4($ip);
+            if ($mapped !== null) {
+                return $this->ipv4IsBlocked($mapped);
+            }
+
             return $this->ipv6IsBlocked($ip);
         }
 
         return false;
+    }
+
+    /**
+     * Determine whether an IPv4 address falls inside any blocked range.
+     */
+    protected function ipv4IsBlocked(string $ip): bool
+    {
+        foreach (self::BLOCKED_IPV4_CIDRS as $cidr) {
+            if ($this->ipv4InCidr($ip, $cidr)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Return the embedded dotted IPv4 of an IPv4-mapped IPv6 address
+     * (`::ffff:a.b.c.d`), or null when the address is a native IPv6.
+     *
+     * The mapping is 10 zero bytes followed by `0xFFFF`, then the 4-byte IPv4
+     * address, so a blocked internal target cannot slip through by being
+     * expressed in its IPv6-mapped form.
+     */
+    protected function mappedIpv4(string $ip): ?string
+    {
+        $packed = inet_pton($ip);
+        if ($packed === false || strlen($packed) !== 16) {
+            return null;
+        }
+
+        if (substr($packed, 0, 12) !== "\0\0\0\0\0\0\0\0\0\0\xFF\xFF") {
+            return null;
+        }
+
+        $dotted = inet_ntop(substr($packed, 12, 4));
+
+        return $dotted === false ? null : $dotted;
     }
 
     /**
@@ -232,7 +273,8 @@ class HostGuard
     }
 
     /**
-     * Test whether an IPv6 address is loopback (`::1`) or ULA (`fc00::/7`).
+     * Test whether an IPv6 address is loopback (`::1`), unspecified (`::`),
+     * ULA (`fc00::/7`), or link-local (`fe80::/10`).
      */
     protected function ipv6IsBlocked(string $ip): bool
     {
@@ -242,13 +284,19 @@ class HostGuard
             return false;
         }
 
-        // Loopback ::1.
-        if ($packed === inet_pton('::1')) {
+        // Loopback ::1 and the unspecified :: (binds every local interface).
+        if ($packed === inet_pton('::1') || $packed === inet_pton('::')) {
             return true;
         }
 
         // Unique local addresses fc00::/7: the top 7 bits are 1111110,
         // so the first byte masked with 0xFE equals 0xFC (covers fc/fd).
-        return (ord($packed[0]) & 0xFE) === 0xFC;
+        if ((ord($packed[0]) & 0xFE) === 0xFC) {
+            return true;
+        }
+
+        // Link-local fe80::/10: first byte 0xFE and the top two bits of the
+        // second byte are 10 (fronts IPv6 auto-config / metadata addresses).
+        return ord($packed[0]) === 0xFE && (ord($packed[1]) & 0xC0) === 0x80;
     }
 }
