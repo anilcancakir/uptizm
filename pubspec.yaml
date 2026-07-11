@@ -101,6 +101,13 @@ flutter:
 
   assets:
     - assets/lang/en.json
+    # Runtime env (API_URL, BROADCAST_CONNECTION, REVERB_*). Must be bundled as
+    # an asset so flutter_dotenv can load it on web; without this the app falls
+    # back to Env defaults (BROADCAST_CONNECTION=null) and realtime never
+    # connects. `.env` is gitignored, so CI/release builds must provision it
+    # (it carries only public client config: the Reverb app key is public by
+    # design, the app secret lives only in the backend .env).
+    - .env
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
