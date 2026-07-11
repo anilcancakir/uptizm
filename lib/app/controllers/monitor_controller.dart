@@ -231,13 +231,25 @@ class MonitorController extends MagicController {
     if (fields != null) {
       try {
         final response = await Http.post('/monitors', data: fields);
-        if (response.successful) {
-          await reload();
-        } else {
+        if (!response.successful) {
           Log.error('[MonitorController.create] ${response.errorMessage}');
+          Magic.error(
+            trans('uptizm.monitors.toast_save_failed_title'),
+            response.errorMessage ??
+                trans('uptizm.monitors.toast_save_failed_description'),
+          );
+          // Stay on the form so the user can correct + retry instead of being
+          // bounced to the list with no monitor created and no feedback.
+          return;
         }
+        await reload();
       } catch (error) {
         Log.error('[MonitorController.create] failed: $error');
+        Magic.error(
+          trans('uptizm.monitors.toast_save_failed_title'),
+          trans('uptizm.monitors.toast_save_failed_description'),
+        );
+        return;
       }
     }
     MagicRoute.to('/monitors');
@@ -253,13 +265,23 @@ class MonitorController extends MagicController {
     if (fields != null) {
       try {
         final response = await Http.put('/monitors/$id', data: fields);
-        if (response.successful) {
-          await reload();
-        } else {
+        if (!response.successful) {
           Log.error('[MonitorController.save] $id: ${response.errorMessage}');
+          Magic.error(
+            trans('uptizm.monitors.toast_save_failed_title'),
+            response.errorMessage ??
+                trans('uptizm.monitors.toast_save_failed_description'),
+          );
+          return;
         }
+        await reload();
       } catch (error) {
         Log.error('[MonitorController.save] $id failed: $error');
+        Magic.error(
+          trans('uptizm.monitors.toast_save_failed_title'),
+          trans('uptizm.monitors.toast_save_failed_description'),
+        );
+        return;
       }
     }
     MagicRoute.to('/monitors/$id');

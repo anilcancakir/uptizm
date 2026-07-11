@@ -481,6 +481,8 @@
       "toast_resumed_description": ":name is being checked again.",
       "toast_deleted_title": "Monitor deleted",
       "toast_deleted_description": ":name has been removed.",
+      "toast_save_failed_title": "Couldn't save monitor",
+      "toast_save_failed_description": "Please check the form fields and try again.",
       "metrics_system_title": "System metrics",
       "metrics_system_collected_by_default": "collected by default",
       "metrics_response_time": "Response time",
