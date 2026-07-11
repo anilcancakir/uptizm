@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AiSuggestionController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
@@ -127,4 +128,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.dashboard.monitors-snapshot');
     Route::get('dashboard/ai-inbox', [DashboardController::class, 'aiInbox'])
         ->name('api.v1.dashboard.ai-inbox');
+
+    Route::post('ai-suggestions/{suggestion}/accept', [AiSuggestionController::class, 'accept'])
+        ->name('api.v1.ai-suggestions.accept');
+    Route::post('ai-suggestions/{suggestion}/dismiss', [AiSuggestionController::class, 'dismiss'])
+        ->name('api.v1.ai-suggestions.dismiss');
 });

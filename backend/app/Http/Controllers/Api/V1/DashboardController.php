@@ -4,11 +4,15 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
+use App\Enums\SignalSource;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\IncidentResource;
 use App\Http\Resources\MonitorResource;
+use App\Models\AiSuggestion;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Services\Ai\LaravelAiTriageGateway;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -18,8 +22,8 @@ use Illuminate\Support\Collection;
  * Read-only aggregate endpoints that power the Flutter dashboard view. Each
  * method is a single team-scoped query, intentionally thin so the Flutter
  * polling layer can call them in parallel without pulling a heavier
- * controller in as a dependency. `aiInbox` returns an empty envelope: AI
- * suggestion triage is deferred, this endpoint only reserves the contract.
+ * controller in as a dependency. `aiInbox` shapes the team's pending AI
+ * suggestions into the same incident-summary contract the dashboard decodes.
  */
 class DashboardController extends Controller
 {
@@ -93,14 +97,71 @@ class DashboardController extends Controller
     }
 
     /**
-     * AI suggestion inbox. AI triage is deferred, so this always returns an
-     * empty list rather than 404ing the client's polling loop.
+     * AI suggestion inbox: the team's pending, non-expired suggestions, each
+     * shaped into the Flutter {@see Incident} summary contract so
+     * the dashboard can render them through its existing incident decoder.
      */
     public function aiInbox(Request $request): JsonResponse
     {
+        $suggestions = AiSuggestion::query()
+            ->forTeam($request->user()->current_team_id)
+            ->pending()
+            ->where(function (Builder $query): void {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            })
+            ->with('monitor')
+            ->latest()
+            ->get();
+
         return response()->json([
-            'data' => [],
+            'data' => $suggestions
+                ->map(fn (AiSuggestion $suggestion): array => $this->shapeSuggestion($suggestion))
+                ->all(),
         ]);
+    }
+
+    /**
+     * Shape one suggestion into the incident-summary map the Flutter
+     * `IncidentSummary.fromMap` decodes.
+     *
+     * The monitor name resolves from the `monitors[]` list keyed by
+     * `primary_monitor_id` (not a top-level field), matching the incident
+     * wire shape. The `ai` sub-object carries the confidence + narration.
+     *
+     * Defence in depth on the untrusted narration: the `recommendation` is
+     * already allowlist-cleaned upstream (see
+     * {@see LaravelAiTriageGateway::sanitizeRecommendation()}),
+     * so it is emitted as plain text, and the raw `evidence` jsonb is
+     * deliberately never serialized into the client payload.
+     *
+     * @return array<string, mixed>
+     */
+    protected function shapeSuggestion(AiSuggestion $suggestion): array
+    {
+        $monitor = $suggestion->monitor;
+        $componentStatus = $monitor->last_status?->value ?? MonitorStatus::Paused->value;
+
+        return [
+            'id' => $suggestion->id,
+            'started_at' => $suggestion->created_at?->toIso8601String(),
+            'ai_owned' => true,
+            'signal_source' => SignalSource::AiAnomaly->value,
+            'primary_monitor_id' => $monitor->id,
+            'monitors' => [
+                [
+                    'monitor_id' => $monitor->id,
+                    'name' => $monitor->name,
+                    'component_status_at_start' => $componentStatus,
+                    'component_status_current' => $componentStatus,
+                ],
+            ],
+            'ai' => [
+                'confidence' => $suggestion->confidence->value,
+                'tldr' => $suggestion->recommendation,
+                'trigger' => 'anomaly',
+            ],
+        ];
     }
 
     /**
