@@ -125,7 +125,7 @@ void main() {
       expect(captured!['name'], equals('API gateway (edited)'));
       expect(captured!['url'], equals('https://api.example.com/health'));
       expect(captured!['type'], equals('http'));
-      expect(captured!['method'], equals('GET'));
+      expect(captured!['method'], equals('get'));
       expect(
         captured!['check_interval_sec'],
         equals(60),

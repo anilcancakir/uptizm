@@ -23,10 +23,9 @@ const List<MetricOption> kMonitorTypes = [
 /// HTTP request methods for the advanced section. Matches `METHODS` in
 /// MonitorForm.tsx.
 const List<MetricOption> kHttpMethods = [
-  MetricOption(label: 'GET', value: 'GET'),
-  MetricOption(label: 'POST', value: 'POST'),
-  MetricOption(label: 'PUT', value: 'PUT'),
-  MetricOption(label: 'HEAD', value: 'HEAD'),
+  MetricOption(label: 'GET', value: 'get'),
+  MetricOption(label: 'POST', value: 'post'),
+  MetricOption(label: 'HEAD', value: 'head'),
 ];
 
 /// Check interval options shown in the interval select. Matches `INTERVALS` in

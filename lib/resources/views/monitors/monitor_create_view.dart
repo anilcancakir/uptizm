@@ -349,7 +349,7 @@ class _MonitorCreateViewState
       initialUrl: _url,
       initialType: 'http',
       initialInterval: '30s',
-      initialRegions: const ['us-east', 'eu-west', 'ap-southeast'],
+      initialRegions: const ['us-east', 'eu-west', 'ap'],
       initialHeaders: const [
         KeyValueRow(key: 'Accept', value: 'application/json'),
       ],

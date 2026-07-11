@@ -50,9 +50,9 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('probeRegionsToRegions', () {
-    test('maps all 6 allRegions entries', () {
+    test('maps all 5 allRegions entries', () {
       final List<Region> result = probeRegionsToRegions(allRegions);
-      expect(result.length, equals(6));
+      expect(result.length, equals(5));
     });
 
     test('preserves label, value, and flag for each region', () {
@@ -102,9 +102,12 @@ void main() {
       expect(kHttpMethods, isNotEmpty);
     });
 
-    test('contains GET, POST, PUT, HEAD', () {
+    test('contains the backend HttpMethod enum values get, post, head', () {
       final List<String> values = kHttpMethods.map((o) => o.value).toList();
-      expect(values, containsAll(['GET', 'POST', 'PUT', 'HEAD']));
+      expect(values, containsAll(['get', 'post', 'head']));
+      // PUT is not a backend App\Enums\HttpMethod case, so the form must not
+      // offer it (posting it 422s the create/save).
+      expect(values, isNot(contains('put')));
     });
   });
 

@@ -135,7 +135,7 @@ class _MonitorFormState extends State<MonitorForm> {
   late bool _advanced;
 
   /// HTTP method token for the advanced section (React `method`).
-  String _method = 'GET';
+  String _method = 'get';
 
   /// Request headers for the advanced section (React `headers`).
   late List<KeyValueRow> _headers;
@@ -422,7 +422,7 @@ class _MonitorFormState extends State<MonitorForm> {
   /// Method and headers render for HTTP monitors only; the body renders only
   /// for HTTP POST/PUT (React lines 257-273). Timeout always renders.
   List<Widget> _buildAdvancedSection() {
-    final bool showBody = _isHttp && (_method == 'POST' || _method == 'PUT');
+    final bool showBody = _isHttp && _method == 'post';
     return [
       if (_isHttp)
         MSFormField(

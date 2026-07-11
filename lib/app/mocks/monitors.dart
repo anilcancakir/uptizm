@@ -351,16 +351,7 @@ const List<ProbeRegion> allRegions = [
     label: 'EU Central',
     flag: '\u{1F1E9}\u{1F1EA}',
   ),
-  ProbeRegion(
-    value: 'ap-southeast',
-    label: 'AP Southeast',
-    flag: '\u{1F1F8}\u{1F1EC}',
-  ),
-  ProbeRegion(
-    value: 'ap-northeast',
-    label: 'AP Northeast',
-    flag: '\u{1F1EF}\u{1F1F5}',
-  ),
+  ProbeRegion(value: 'ap', label: 'Asia Pacific', flag: '\u{1F30F}'),
 ];
 
 /// Find a monitor fixture by [id]. Returns `null` when none matches.
