@@ -174,6 +174,28 @@ void main() {
     echo.assertNotSubscribed('private-teams.t1');
   });
 
+  test('overlapping syncs serialize and settle on the latest team', () async {
+    Auth.fake(user: userWithTeam('t1'));
+    final RealtimeService service = RealtimeService(debounce: Duration.zero);
+
+    // Start the first sync (team t1) without awaiting; it suspends at
+    // `await Echo.connect()` with the subscription marker cleared.
+    final Future<void> first = service.syncWithAuthState();
+    // A team switch arrives before the first sync completes. Without the
+    // in-flight latch this would run concurrently and leave the app subscribed
+    // to BOTH channels; the latch defers it and re-runs once afterwards.
+    Auth.fake(user: userWithTeam('t2'));
+    final Future<void> second = service.syncWithAuthState();
+
+    await Future.wait(<Future<void>>[first, second]);
+
+    // The serialized sync settles on the latest team with exactly one active
+    // channel: the interim t1 subscription was left, never double-subscribed.
+    expect(service.subscribedTeamId, 't2');
+    echo.assertSubscribed('private-teams.t2');
+    echo.assertNotSubscribed('private-teams.t1');
+  });
+
   test('syncWithAuthState is idempotent for the same team', () async {
     Auth.fake(user: userWithTeam('t1'));
     final RealtimeService service = RealtimeService(debounce: Duration.zero);

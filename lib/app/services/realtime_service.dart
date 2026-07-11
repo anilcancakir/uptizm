@@ -74,6 +74,15 @@ class RealtimeService {
   /// The active debounce timer, or `null` when no reload is scheduled.
   Timer? _reloadTimer;
 
+  /// Whether a [syncWithAuthState] reconcile is currently running. The latch
+  /// serializes overlapping syncs so the subscription markers are never mutated
+  /// across two interleaved await points.
+  bool _syncing = false;
+
+  /// Set when a sync is requested while another is in flight, so the running
+  /// sync re-runs once more afterwards and picks up the latest team.
+  bool _resyncRequested = false;
+
   /// The `Echo.onReconnect` subscription, or `null` when not subscribed.
   StreamSubscription<void>? _reconnectSubscription;
 
@@ -87,6 +96,12 @@ class RealtimeService {
   /// wired here and drives the refetch dispatch directly via [refetchAll].
   @visibleForTesting
   bool get isListeningToReconnect => _reconnectSubscription != null;
+
+  /// The team id currently subscribed to, or `null` when not subscribed.
+  /// Exposed so a test can assert the serialized sync settled on the latest
+  /// team after overlapping calls.
+  @visibleForTesting
+  String? get subscribedTeamId => _subscribedTeamId;
 
   // ---------------------------------------------------------------------------
   // Auth-lifecycle sync
@@ -102,6 +117,31 @@ class RealtimeService {
   /// 4. Logged in on a new team: leaves the previous channel, connects, and
   ///    subscribes to the new team's private channel.
   Future<void> syncWithAuthState() async {
+    // Serialize overlapping syncs. `Auth.stateNotifier` fires synchronously and
+    // the provider dispatches each sync unawaited, so a login-then-quick-team
+    // -switch can start a second sync before the first's `Echo.connect()`
+    // resolves. Running them concurrently would mutate the shared subscription
+    // markers across await points and could leave the app subscribed to two
+    // channels at once. The latch runs one reconcile at a time and re-runs once
+    // if a sync arrived mid-flight, so the final state reflects the latest team.
+    if (_syncing) {
+      _resyncRequested = true;
+      return;
+    }
+    _syncing = true;
+    try {
+      do {
+        _resyncRequested = false;
+        await _reconcileSubscription();
+      } while (_resyncRequested);
+    } finally {
+      _syncing = false;
+    }
+  }
+
+  /// The single-flight body of [syncWithAuthState]; assumes the [syncWithAuthState]
+  /// latch serializes it, so it never runs concurrently with itself.
+  Future<void> _reconcileSubscription() async {
     // 1. Logged out: drop any live subscription and connection.
     if (!Auth.check()) {
       await _teardown();
@@ -119,8 +159,12 @@ class RealtimeService {
       return;
     }
 
-    // 4. Team changed (or first subscribe): move the subscription over.
+    // 4. Team changed (or first subscribe): leave the old channel and clear the
+    //    marker BEFORE the first await, so a failed `Echo.connect()` leaves a
+    //    clean unsubscribed state the next sync retries, never a stale marker
+    //    pointing at a team the app is not actually subscribed to.
     _leaveCurrentChannel();
+    _subscribedTeamId = null;
     await Echo.connect();
     final BroadcastChannel channel = Echo.private('teams.$teamId');
     channel
