@@ -26,16 +26,23 @@ class ThresholdEvaluator
 {
     /**
      * Evaluate a completed check against the monitor's thresholds and metric
-     * bounds; open an incident if a new breach is detected.
+     * bounds; open an incident on a new breach and auto-resolve the monitor's
+     * active down incident once it recovers.
+     *
+     * Returns the opened and/or resolved incident references WITHOUT
+     * dispatching any notification: this runs under the caller's per-monitor
+     * lock, so notification sends must happen off-lock in
+     * {@see CheckPersistenceService}. Either slot is null when nothing changed.
      *
      * @param  array<string, float|int|null>  $metricSamples
+     * @return array{opened: ?Incident, resolved: ?Incident}
      */
-    public function evaluate(Monitor $monitor, MonitorCheck $check, array $metricSamples): void
+    public function evaluate(Monitor $monitor, MonitorCheck $check, array $metricSamples): array
     {
         // 1. Metric bound breaches fire first so incidents carry metric context.
         $metricBreach = $this->firstMetricBreach($monitor, $metricSamples);
         if ($metricBreach !== null && ! $this->hasActiveIncidentForMetric($monitor, $metricBreach['metric']->key)) {
-            $this->openIncident(
+            $opened = $this->openIncident(
                 monitor: $monitor,
                 check: $check,
                 severity: $metricBreach['severity'],
@@ -43,13 +50,17 @@ class ThresholdEvaluator
                 metricKey: $metricBreach['metric']->key,
             );
 
-            return;
+            return [
+                'opened' => $opened,
+                'resolved' => null,
+            ];
         }
 
         // 2. Fall back to consecutive-fail threshold for bare up/down signals.
+        $opened = null;
         if ($this->shouldOpenForConsecutiveFails($monitor)
             && ! $this->hasActiveIncidentForMonitor($monitor)) {
-            $this->openIncident(
+            $opened = $this->openIncident(
                 monitor: $monitor,
                 check: $check,
                 severity: IncidentSeverity::Critical,
@@ -57,6 +68,71 @@ class ThresholdEvaluator
                 metricKey: null,
             );
         }
+
+        // 3. A healthy check auto-resolves the monitor's active down incident;
+        //    the recovery slot stays null when nothing is open to resolve.
+        $resolved = $check->status === MonitorStatus::Up
+            ? $this->resolveIfRecovered($monitor)
+            : null;
+
+        return [
+            'opened' => $opened,
+            'resolved' => $resolved,
+        ];
+    }
+
+    /**
+     * Auto-resolve the monitor's active DOWN incident once it has recovered.
+     *
+     * Recovery requires a fully healthy monitor (up last status and a cleared
+     * consecutive-fail streak). The resolve is scoped strictly to the down
+     * incident (`trigger_metric_key IS NULL`): a recovered site must NOT clear
+     * an SSL-expiry or metric-breach incident, since an up probe does not fix
+     * an expiring certificate or a slow endpoint. Idempotent: a repeated up
+     * check finds no active down incident and returns null.
+     *
+     * @return Incident|null The resolved incident, or null when nothing recovered.
+     */
+    public function resolveIfRecovered(Monitor $monitor): ?Incident
+    {
+        // 1. Only a fully healthy monitor recovers; a monitor mid-flap keeps
+        //    its incident open until the streak clears.
+        if ($monitor->last_status !== MonitorStatus::Up || ($monitor->consecutive_fails ?? 0) !== 0) {
+            return null;
+        }
+
+        // 2. Scope to the active down incident only (trigger_metric_key NULL).
+        //    Active-ness is the lifecycle enum's own predicate; there is no
+        //    query scope for it, so filter the loaded rows.
+        $incident = Incident::query()
+            ->where('primary_monitor_id', $monitor->id)
+            ->whereNull('trigger_metric_key')
+            ->get()
+            ->first(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+
+        if ($incident === null) {
+            return null;
+        }
+
+        // 3. Transition to resolved and stamp a system note on the timeline,
+        //    leaving the affected-component pivot intact so the incident still
+        //    narrates which monitor it covered.
+        $incident->update([
+            'lifecycle' => IncidentStatus::Resolved,
+            'resolved_at' => now(),
+        ]);
+
+        $incident->updates()->create([
+            'actor' => 'system',
+            'author' => 'System',
+            'status' => IncidentStatus::Resolved,
+            'message' => "{$monitor->name} recovered; incident auto-resolved.",
+            'is_public' => true,
+            'autonomous' => false,
+            'display_at' => now(),
+        ]);
+
+        return $incident;
     }
 
     /**

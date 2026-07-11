@@ -4,12 +4,16 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
+use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetricValue;
+use App\Notifications\IncidentOpened;
+use App\Notifications\IncidentResolved;
 use App\Support\Monitoring\CheckResult;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
 /**
@@ -91,7 +95,11 @@ class CheckPersistenceService
             //    consecutive_fails would race and the incident-existence guard
             //    could double-open. Both regions must still be processed, so we
             //    BLOCK-wait for the hold rather than bow out.
-            $this->withMonitorLock($monitor, function () use ($monitor, $result): void {
+            $outcome = [
+                'opened' => null,
+                'resolved' => null,
+            ];
+            $this->withMonitorLock($monitor, function () use ($monitor, $result, &$outcome): void {
                 // 3a. Write the check, refresh the denorm columns, and freeze
                 //     metric samples in a single transaction so a partial batch
                 //     never lands.
@@ -101,14 +109,47 @@ class CheckPersistenceService
                 //     durable so a failure here cannot corrupt committed
                 //     telemetry. The monitor is refreshed so the evaluator reads
                 //     the persisted consecutive-fail counter, not a stale value.
-                $this->evaluator->evaluate(
+                //     The evaluator returns the opened/resolved refs but must
+                //     NOT dispatch: it runs under this monitor lock.
+                $outcome = $this->evaluator->evaluate(
                     monitor: $monitor->refresh(),
                     check: $check,
                     metricSamples: $samples,
                 );
             });
+
+            // 4. Dispatch incident notifications OFF-LOCK: the monitor lock is
+            //    already released by the time the closure returns, so a queued
+            //    send never happens while the per-monitor critical section is
+            //    held.
+            $this->dispatchIncidentNotifications($monitor, $outcome);
         } finally {
             $payloadLock->release();
+        }
+    }
+
+    /**
+     * Dispatch the incident lifecycle notifications for a completed evaluation,
+     * each gated on the monitor's matching alert flag.
+     *
+     * Both notifications are `ShouldQueue`, so a send enqueues rather than
+     * blocks; the alert flag is the gate, so a monitor opted out of down or
+     * recovery alerts stays silent. Recipients are the incident's owning team
+     * users. Called only AFTER {@see self::withMonitorLock()} returns so no
+     * send ever runs inside the per-monitor lock.
+     *
+     * @param  array{opened: ?Incident, resolved: ?Incident}  $outcome
+     */
+    protected function dispatchIncidentNotifications(Monitor $monitor, array $outcome): void
+    {
+        // 1. A threshold open pages the team, gated on the down-alert flag.
+        if ($outcome['opened'] !== null && $monitor->alert_on_down) {
+            Notification::send($outcome['opened']->team->users, new IncidentOpened($outcome['opened']));
+        }
+
+        // 2. A recovery clears the page, gated on the recover-alert flag.
+        if ($outcome['resolved'] !== null && $monitor->alert_on_recover) {
+            Notification::send($outcome['resolved']->team->users, new IncidentResolved($outcome['resolved']));
         }
     }
 
