@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_starter/magic_starter.dart';
 import '../models/user.dart';
+import '../services/realtime_service.dart';
 import '../../ui/layouts/app_layout.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
 
@@ -11,6 +14,9 @@ import '../../ui/layouts/uptizm_hub_extras.dart';
 /// to perform any bootstrap logic that requires other services to be ready.
 class AppServiceProvider extends ServiceProvider {
   AppServiceProvider(super.app);
+
+  /// The realtime channel subscription service, held for the app's lifetime.
+  final RealtimeService _realtime = RealtimeService();
 
   @override
   void register() {
@@ -33,6 +39,22 @@ class AppServiceProvider extends ServiceProvider {
     } else {
       Notify.stopPolling();
     }
+  }
+
+  /// Re-syncs the realtime channel subscription to track [Auth]'s current
+  /// state.
+  ///
+  /// `Auth.stateNotifier` listeners are synchronous, but
+  /// `RealtimeService.syncWithAuthState()` is async (it awaits the Echo
+  /// connect/subscribe), so this wraps the call: `unawaited` fires it without
+  /// blocking the listener, and the `catchError` guard logs a connect-time
+  /// throw instead of letting it escape as an unhandled async error.
+  void _syncRealtime() {
+    unawaited(
+      _realtime.syncWithAuthState().catchError((Object error) {
+        Log.error('[AppServiceProvider] realtime sync failed: $error');
+      }),
+    );
   }
 
   @override
@@ -88,5 +110,12 @@ class AppServiceProvider extends ServiceProvider {
     // `Auth.stateNotifier`.
     _syncPollingWithAuthState();
     Auth.stateNotifier.addListener(_syncPollingWithAuthState);
+
+    // Realtime: subscribe to the team's private channel immediately if a
+    // session was restored on boot, then keep the subscription in lockstep
+    // with every future login/logout/restore/team-switch via
+    // `Auth.stateNotifier`.
+    _syncRealtime();
+    Auth.stateNotifier.addListener(_syncRealtime);
   }
 }
