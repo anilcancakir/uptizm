@@ -7,6 +7,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -15,6 +16,14 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api/v1',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        // Public status pages register OUTSIDE the `web` group (no session /
+        // CSRF) under the lean `static` group, so the page stays CDN-cacheable
+        // and the public subscribe POST is not CSRF-gated (a web.php route would
+        // inherit the `web` group and 419 the POST). Throttle + double opt-in +
+        // dedupe are the real mitigations.
+        then: function (): void {
+            Route::middleware('static')->group(base_path('routes/status.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Lean group for the public status pages: bind route params but skip
