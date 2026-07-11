@@ -3,6 +3,7 @@
 use App\Jobs\AggregateMonitorDailyUptime;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Jobs\ScheduleSslChecks;
+use App\Jobs\SweepAiSuggestions;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -33,3 +34,12 @@ Schedule::job(new ScheduleSslChecks)
     ->dailyAt('03:00')
     ->onOneServer()
     ->name('monitoring:schedule-ssl-checks');
+
+// Sweep the ai_mode=suggest fleet for response-time anomalies every 2 minutes
+// (supervisor `ai` queue, single-server, unique lock prevents overlap with a
+// still-running sweep so a still-open episode is not re-enqueued mid-fan-out).
+Schedule::job(new SweepAiSuggestions)
+    ->everyTwoMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('monitoring:sweep-ai-suggestions');
