@@ -125,7 +125,7 @@ void main() {
         'resolved_at': null,
         'monitors': [
           {
-            'id': 'checkout',
+            'monitor_id': 'checkout',
             'name': 'Checkout service',
             'component_status_at_start': 'down',
             'component_status_current': 'down',
@@ -152,6 +152,39 @@ void main() {
       expect(incident.timeline.single.message,
           'Rolling back the latest release now.');
       expect(incident.timeline.single.isPublic, isTrue);
+    });
+
+    test('resolves the primary monitor by monitor_id, not by list order', () {
+      final IncidentSummary incident = IncidentSummary.fromMap({
+        'id': 'multi-affected',
+        'title': 'Two components affected',
+        'lifecycle': 'investigating',
+        'severity': 'critical',
+        'impact': 'critical',
+        'signal_source': 'user_threshold',
+        'primary_monitor_id': 'checkout',
+        'started_at': '2026-07-09T14:20:00.000Z',
+        'monitors': [
+          {
+            'monitor_id': 'marketing',
+            'name': 'Marketing site',
+            'component_status_at_start': 'degraded',
+            'component_status_current': 'up',
+          },
+          {
+            'monitor_id': 'checkout',
+            'name': 'Checkout service',
+            'component_status_at_start': 'down',
+            'component_status_current': 'down',
+          },
+        ],
+      });
+
+      // The primary is the SECOND entry: matching on monitor_id (not falling
+      // back to the first) is what makes the header name correct.
+      expect(incident.monitorName, 'Checkout service');
+      expect(incident.affectedCount, 2);
+      expect(incident.affectedMonitors.first.name, 'Marketing site');
     });
 
     test('unknown lifecycle/severity/impact wire values fall back safely', () {

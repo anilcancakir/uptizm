@@ -462,9 +462,10 @@ class IncidentSummary {
   /// Builds an [IncidentSummary] from an `IncidentResource` payload (backend
   /// `api/v1` snake_case keys).
   ///
-  /// [monitorName] is resolved from the `monitors[]` pivot list (matching
-  /// `primary_monitor_id`, falling back to the first affected monitor)
-  /// because the resource only sends the id, not a display name.
+  /// [monitorName] is resolved from the `monitors[]` pivot list by matching
+  /// each entry's `monitor_id` against `primary_monitor_id` (the key the
+  /// backend `IncidentResource` emits), falling back to the first affected
+  /// monitor, and reads that entry's `name` for the header meta line.
   /// [assignee], [acknowledged], and [ai] have no counterpart in the
   /// resource shape above and stay `null` on a backend-decoded instance;
   /// they are wired in separately (assignment/AI-analysis endpoints).
@@ -489,7 +490,7 @@ class IncidentSummary {
     final Map<String, dynamic>? primaryMonitorMap = monitorMaps.isEmpty
         ? null
         : monitorMaps.firstWhere(
-            (m) => m['id']?.toString() == primaryMonitorId,
+            (m) => m['monitor_id']?.toString() == primaryMonitorId,
             orElse: () => monitorMaps.first,
           );
 
