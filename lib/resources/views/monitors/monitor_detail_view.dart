@@ -102,13 +102,6 @@ enum _DetailTab {
 
 class _MonitorDetailViewState
     extends MagicStatefulViewState<MonitorController, MonitorDetailView> {
-  /// The series descriptors for the response-time chart (p50 / p95 / p99).
-  static const List<MetricSeries> _responseSeriesDescriptors =
-      apiResponseSeries_;
-
-  /// How long the loading skeleton is shown before the content swaps in. Mirrors
-  /// the React `setTimeout(..., 600)` in `MonitorDetailPage`.
-  static const Duration _loadingDelay = Duration(milliseconds: 600);
 
   /// The currently selected tab index.
   int _tabIndex = _DetailTab.overview.index;
@@ -119,8 +112,18 @@ class _MonitorDetailViewState
   /// Whether the loading skeleton is currently shown.
   bool _loading = true;
 
-  /// The pending loading timer; cancelled on dispose or when [id] changes.
-  Timer? _loadingTimer;
+  /// Live recent-check rows from `GET /monitors/:id/checks`.
+  List<CheckRow> _recentChecks = const [];
+
+  /// Live response-time points from `GET /monitors/:id/response-times`. The
+  /// endpoint aggregates one `response_ms` per time bucket, so the chart plots a
+  /// single line (not the design-lab p50/p95/p99 trio).
+  List<MetricDatum> _responseData = const [];
+
+  /// Single-series descriptor for the live response-time chart.
+  static const List<MetricSeries> _liveResponseSeries = [
+    MetricSeries(key: 'response', label: 'Response', tone: ChartTone.up),
+  ];
 
   @override
   void initState() {
@@ -142,27 +145,98 @@ class _MonitorDetailViewState
     }
   }
 
-  @override
-  void onClose() {
-    // MagicStatefulViewState.dispose() calls onClose() before tearing down the
-    // controller listener, so the loading timer is cancelled here.
-    _loadingTimer?.cancel();
-  }
-
-  /// (Re)starts the brief loading state: shows the skeleton, then flips to the
-  /// content after [_loadingDelay]. Cancels any in-flight timer first.
+  /// (Re)starts the data load: shows the skeleton, clears any prior data, then
+  /// fetches this monitor's recent checks + response-time series from the live
+  /// `api/v1` endpoints and swaps the content in once both settle.
   ///
   /// [_loading] is set directly (no [setState]): this runs from [initState] and
-  /// [didUpdateWidget], both of which schedule a build of their own, so calling
-  /// `setState` here would be illegal in initState. Only the deferred timer
-  /// callback (which fires outside a build) needs [setState].
+  /// [didUpdateWidget], both of which schedule a build of their own; only the
+  /// deferred [_fetchData] completion (outside a build) calls [setState].
   void _startLoading() {
-    _loadingTimer?.cancel();
     _loading = true;
-    _loadingTimer = Timer(_loadingDelay, () {
-      if (!mounted) return;
-      setState(() => _loading = false);
+    _recentChecks = const [];
+    _responseData = const [];
+    unawaited(_fetchData());
+  }
+
+  /// Fetches the recent checks + response-time series for the current [id] and
+  /// publishes them, flipping [_loading] off once both settle.
+  Future<void> _fetchData() async {
+    final String? id = widget.id;
+    if (id == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+
+    final List<CheckRow> checks = await _loadChecks(id);
+    final List<MetricDatum> series = await _loadResponseSeries(id);
+
+    if (!mounted) return;
+    setState(() {
+      _recentChecks = checks;
+      _responseData = series;
+      _loading = false;
     });
+  }
+
+  /// Loads `GET /monitors/:id/checks` into [CheckRow]s. A failure degrades to an
+  /// empty list (logged) so the table renders its empty state, never a mock.
+  Future<List<CheckRow>> _loadChecks(String id) async {
+    try {
+      final response = await Http.get('/monitors/$id/checks');
+      if (!response.successful) return const [];
+      final Object? raw = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(CheckRow.fromMap)
+          .toList();
+    } catch (error) {
+      Log.error('[MonitorDetailView] checks load failed: $error');
+      return const [];
+    }
+  }
+
+  /// Loads `GET /monitors/:id/response-times` (one bucketed `response_ms` per
+  /// point) into a single-series [MetricDatum] list. Degrades to empty on error.
+  Future<List<MetricDatum>> _loadResponseSeries(String id) async {
+    try {
+      final response = await Http.get(
+        '/monitors/$id/response-times?range=$_range',
+      );
+      if (!response.successful) return const [];
+      final Object? raw = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (raw is! List) return const [];
+      final List<MetricDatum> out = [];
+      for (final Map<String, dynamic> row
+          in raw.whereType<Map<String, dynamic>>()) {
+        final num? ms = row['response_ms'] as num?;
+        if (ms == null) continue;
+        out.add(
+          MetricDatum(
+            label: _formatHourMinute(row['checked_at'] as String?),
+            values: {'response': ms},
+          ),
+        );
+      }
+      return out;
+    } catch (error) {
+      Log.error('[MonitorDetailView] response-times load failed: $error');
+      return const [];
+    }
+  }
+
+  /// Reduces an ISO-8601 timestamp to a local `HH:mm` chart-axis label.
+  String _formatHourMinute(String? iso) {
+    if (iso == null) return '';
+    final DateTime? dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return '';
+    return '${dt.hour.toString().padLeft(2, '0')}:'
+        '${dt.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -638,7 +712,10 @@ class _MonitorDetailViewState
                 if (series != null)
                   DateRangePicker(
                     value: _range,
-                    onChanged: (next) => setState(() => _range = next),
+                    onChanged: (next) {
+                      setState(() => _range = next);
+                      unawaited(_fetchData());
+                    },
                   ),
               ],
             ),
@@ -656,7 +733,7 @@ class _MonitorDetailViewState
               trans('uptizm.monitors.section_recent_checks'),
               className: 'text-sm font-medium text-fg',
             ),
-            const CheckHistoryTable(rows: recentChecks),
+            CheckHistoryTable(rows: _recentChecks),
           ],
         ),
       ],
@@ -685,7 +762,7 @@ class _MonitorDetailViewState
         children: [
           MetricChart(
             data: series,
-            series: _responseSeriesDescriptors,
+            series: _liveResponseSeries,
             unit: 'ms',
             anomalies: anomalies,
           ),
@@ -784,12 +861,7 @@ class _MonitorDetailViewState
   /// Only the fixtured monitors carry a series; everything else has none, which
   /// drives the no-data / paused surface.
   List<MetricDatum>? _responseSeriesFor(MonitorSummary monitor) {
-    if (monitor.responseMs == null) return null;
-    return switch (monitor.id) {
-      'marketing' => marketingResponseSeries,
-      'api' => apiResponseSeries,
-      _ => apiResponseSeries,
-    };
+    return _responseData.isEmpty ? null : _responseData;
   }
 
   /// The anomaly markers for [monitor]'s response chart.
@@ -798,7 +870,9 @@ class _MonitorDetailViewState
   /// p99 spike), matching the React `responseAnomaliesFor` (`m.id !== "api"`
   /// returns none). Every other monitor charts a clean band.
   List<MetricAnomaly> _anomaliesFor(MonitorSummary monitor) {
-    return monitor.id == 'api' ? apiResponseAnomalies : const [];
+    // No live anomaly-detection source is wired into the detail chart yet, so
+    // no markers are drawn (the AI suggestion inbox is the anomaly surface).
+    return const [];
   }
 
   /// The compact label for the active range, e.g. "24h", resolved from

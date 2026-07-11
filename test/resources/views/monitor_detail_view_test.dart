@@ -82,12 +82,52 @@ void main() {
     // Bind the MagicStarter manager so Card / PageHeader / Tabs resolve their
     // themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
-    // Bind an empty fake network so the wired controller resolves the `network`
-    // service. The view's onInit `reload()` and per-id `_refreshOne` fetch
-    // `GET /monitors[/:id]`; an empty fake returns `{}` (no `data`), which the
-    // controller's decode treats as a no-op, leaving the seeded inventory below
-    // untouched instead of clobbering it or throwing.
-    Http.fake();
+    // Stub the two live endpoints the detail now fetches: recent checks +
+    // bucketed response-times. `GET /monitors[/:id]` (reload / _refreshOne) is
+    // left unstubbed and degrades to a no-op in the controller, leaving the
+    // seeded inventory below as the `monitorById` source; the `checks` /
+    // `response-times` stubs populate the Overview chart + recent-checks table.
+    Http.fake({
+      '*response-times*': Http.response({
+        'data': [
+          {
+            'response_ms': 180,
+            'checked_at': '2026-07-11T19:00:00.000000Z',
+            'status': 'up',
+          },
+          {
+            'response_ms': 210,
+            'checked_at': '2026-07-11T19:10:00.000000Z',
+            'status': 'up',
+          },
+          {
+            'response_ms': 195,
+            'checked_at': '2026-07-11T19:20:00.000000Z',
+            'status': 'up',
+          },
+        ],
+      }),
+      '*checks': Http.response({
+        'data': [
+          {
+            'id': 'c1',
+            'region': 'us-east',
+            'status': 'up',
+            'status_code': 200,
+            'response_ms': 180,
+            'checked_at': '2026-07-11T19:20:00.000000Z',
+          },
+          {
+            'id': 'c2',
+            'region': 'eu-west',
+            'status': 'up',
+            'status_code': 200,
+            'response_ms': 198,
+            'checked_at': '2026-07-11T19:19:00.000000Z',
+          },
+        ],
+      }),
+    });
     // Register the controller MonitorDetailView binds to, then seed its cache
     // with the fixture inventory. The view reads `controller.monitorById(id)`
     // synchronously in build(); onInit's async `reload()` degrades to a no-op
@@ -120,20 +160,24 @@ void main() {
     );
   }
 
-  /// Advances past the 600ms loading skeleton so the content swaps in.
+  /// Flushes the async initState data load (recent checks + response-times) so
+  /// the content swaps in from the stubbed live endpoints.
   ///
-  /// The view shows a [DetailSkeleton] for the first 600ms (a Timer set in
-  /// initState), so content assertions must pump past that window before the
-  /// KPI row, chart, and tabs exist in the tree.
+  /// The view fetches on initState and flips `_loading` off once both requests
+  /// settle, so content assertions must pump the fetch microtasks + the content
+  /// frame before the KPI row, chart, and tabs exist in the tree.
   Future<void> settleSkeleton(WidgetTester tester) async {
-    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('MonitorDetailView renders the header with a StatusBadge', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
-    await tester.pump();
+    await settleSkeleton(tester);
 
     expect(find.byType(MSPageHeader), findsOneWidget);
     // The header carries one StatusBadge; the Overview's CheckHistoryTable adds
@@ -191,8 +235,11 @@ void main() {
   testWidgets('MonitorDetailView wraps its content in a PageContainer', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
-    await tester.pump();
+    await settleSkeleton(tester);
 
     expect(find.byType(PageContainer), findsOneWidget);
   });
