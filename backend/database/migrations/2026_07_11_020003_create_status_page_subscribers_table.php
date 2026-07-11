@@ -25,7 +25,11 @@ return new class extends Migration
                 ->cascadeOnDelete();
 
             $table->string('email');
-            $table->string('confirmed_token', 64);
+            // Nullable so confirmation can BURN the token (single-use): once a
+            // subscriber confirms, `confirmed_token` is set to null, and the
+            // by-token lookup never matches a null row, so a link-prefetch or
+            // scanner replay of the confirm URL is a no-op 404.
+            $table->string('confirmed_token', 64)->nullable();
             $table->string('unsubscribe_token', 64);
             $table->timestampTz('subscribed_at')->nullable();
             $table->timestampTz('confirmed_at')->nullable();

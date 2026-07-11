@@ -39,5 +39,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'resource-not-found',
             fn (Request $request) => Limit::perMinute(30)->by($request->ip()),
         );
+
+        // Throttle the public subscribe write per IP AND per submitted email, so
+        // neither a single host nor a single targeted address can be used to
+        // spray confirm mail or brute the endpoint. Both limits must pass.
+        RateLimiter::for(
+            'status-subscribe',
+            fn (Request $request) => [
+                Limit::perMinute(5)->by($request->ip()),
+                Limit::perMinute(5)->by((string) $request->input('email')),
+            ],
+        );
     })
     ->create();

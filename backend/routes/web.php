@@ -28,6 +28,7 @@ Route::middleware('static')->group(function (): void {
         ->name('status.show');
 
     Route::post('/s/{slug}/subscribe', [SubscribeController::class, 'store'])
+        ->middleware('throttle:status-subscribe')
         ->name('status.subscribe');
 
     Route::get('/s/{slug}/subscribe/confirm/{token}', [SubscribeController::class, 'confirm'])
