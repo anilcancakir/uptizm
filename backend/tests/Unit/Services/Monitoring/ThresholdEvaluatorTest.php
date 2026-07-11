@@ -2,8 +2,10 @@
 
 namespace Tests\Unit\Services\Monitoring;
 
+use App\Enums\IncidentSeverity;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Enums\SignalSource;
 use App\Enums\ThresholdDirection;
 use App\Models\Incident;
 use App\Models\Monitor;
@@ -90,6 +92,39 @@ class ThresholdEvaluatorTest extends TestCase
         $this->assertSame('detected', $incident->lifecycle->value);
         $this->assertFalse($incident->ai_owned);
         $this->assertNull($incident->trigger_metric_key);
+    }
+
+    public function test_create_incident_opens_a_manual_incident_without_a_check(): void
+    {
+        $monitor = $this->makeMonitor();
+        $evaluator = new ThresholdEvaluator;
+
+        // 1. A human files an incident directly: no check row, Manual source.
+        $incident = $evaluator->createIncident(
+            monitor: $monitor,
+            source: SignalSource::Manual,
+            check: null,
+            severity: IncidentSeverity::Critical,
+            title: 'Manual outage report',
+            triggerMetricKey: null,
+        );
+
+        // 2. The incident carries the manual provenance and is not AI-owned.
+        $this->assertSame('manual', $incident->signal_source->value);
+        $this->assertFalse($incident->ai_owned);
+        $this->assertSame('detected', $incident->lifecycle->value);
+        $this->assertNull($incident->trigger_metric_key);
+        $this->assertSame($monitor->id, $incident->primary_monitor_id);
+        $this->assertSame($monitor->team_id, $incident->team_id);
+
+        // 3. With no check, the incident stamps started_at at creation time.
+        $this->assertNotNull($incident->started_at);
+
+        // 4. The affected-component pivot is attached so the incident narrates
+        //    which monitor it covers, exactly as the automated path does.
+        $this->assertTrue(
+            $incident->monitors()->where('monitor_id', $monitor->id)->exists(),
+        );
     }
 
     /**

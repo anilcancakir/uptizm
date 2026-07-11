@@ -245,8 +245,14 @@ class ThresholdEvaluator
     }
 
     /**
-     * Persist the new incident, tagged {@see SignalSource::UserThreshold} and
-     * never AI-owned (AI signal detection is gated off in this port).
+     * Open the automated threshold-driven incident, tagged
+     * {@see SignalSource::UserThreshold} and never AI-owned (AI signal
+     * detection is gated off in this port).
+     *
+     * Thin adapter over {@see self::createIncident()}: the automated path
+     * always has a {@see MonitorCheck} to source `started_at` from, so the
+     * generalized creator's nullable-check and provenance parameters are
+     * pinned to the values this evaluator has always used.
      */
     protected function openIncident(
         Monitor $monitor,
@@ -255,18 +261,57 @@ class ThresholdEvaluator
         string $title,
         ?string $metricKey,
     ): Incident {
+        return $this->createIncident(
+            monitor: $monitor,
+            source: SignalSource::UserThreshold,
+            check: $check,
+            severity: $severity,
+            title: $title,
+            triggerMetricKey: $metricKey,
+            aiOwned: false,
+        );
+    }
+
+    /**
+     * Persist an incident for the monitor and attach it to the
+     * affected-component pivot, generalized over its detection provenance.
+     *
+     * This is the single creation seam shared by the automated evaluator
+     * (via {@see self::openIncident()}, passing {@see SignalSource::UserThreshold}
+     * plus the triggering check) and by operator-initiated writes (passing
+     * {@see SignalSource::Manual} plus a null check). When no check is given
+     * the incident stamps `started_at` at creation time.
+     *
+     * @param  Monitor  $monitor  The monitor the incident is primarily about.
+     * @param  SignalSource  $source  Who noticed first (threshold, AI, or human).
+     * @param  MonitorCheck|null  $check  The triggering check, or null for a manual open.
+     * @param  IncidentSeverity  $severity  Severity, projected to the public impact tier.
+     * @param  string  $title  Human-facing incident title.
+     * @param  string|null  $triggerMetricKey  Metric key when a bound breach triggered it.
+     * @param  bool  $aiOwned  True when an AI detector owns the incident lifecycle.
+     */
+    public function createIncident(
+        Monitor $monitor,
+        SignalSource $source,
+        ?MonitorCheck $check,
+        IncidentSeverity $severity,
+        string $title,
+        ?string $triggerMetricKey = null,
+        bool $aiOwned = false,
+    ): Incident {
         // 1. Persist the incident with the denormalized primary-monitor hint.
+        //    A manual open has no check, so start-time falls back to now.
         $incident = Incident::query()->create([
             'team_id' => $monitor->team_id,
             'primary_monitor_id' => $monitor->id,
             'title' => $title,
             'impact' => $severity->toImpact(),
             'severity' => $severity,
-            'signal_source' => SignalSource::UserThreshold,
+            'signal_source' => $source,
             'lifecycle' => IncidentStatus::Detected,
-            'ai_owned' => false,
-            'trigger_metric_key' => $metricKey,
-            'started_at' => $check->checked_at,
+            'ai_owned' => $aiOwned,
+            'trigger_metric_key' => $triggerMetricKey,
+            'started_at' => $check?->checked_at ?? now(),
         ]);
 
         // 2. Attach the primary monitor to the affected-component pivot so the
