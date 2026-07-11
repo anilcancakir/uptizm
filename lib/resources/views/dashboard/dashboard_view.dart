@@ -134,7 +134,7 @@ class _DashboardViewState
       tone: 'banner',
       label: trans('uptizm.ai.right_now_label'),
       child: WText(
-        trans('uptizm.dashboard.ai_fleet_summary'),
+        controller.fleetSummary,
         className: 'text-sm text-fg',
       ),
     );

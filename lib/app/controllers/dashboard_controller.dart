@@ -2,6 +2,7 @@ import 'package:magic/magic.dart';
 
 import '../mocks/incidents.dart';
 import '../mocks/monitors.dart';
+import '../mocks/status.dart';
 
 /// Controller backing [DashboardView].
 ///
@@ -263,4 +264,46 @@ class DashboardController extends MagicController {
   // whole team; `active-incidents` is capped at 20).
   /// Count of open incidents per `dashboard/stats`.
   int get openIncidentsCount => _openIncidents;
+
+  /// A factual, live-derived one-line fleet summary for the dashboard banner.
+  ///
+  /// Replaces the previous static marketing copy (which described a fictional
+  /// fleet and contradicted the real monitors) with a grounded statement
+  /// composed only from the fetched dashboard data: monitor health plus the
+  /// open-incident count. This honors the honest-AI boundary: it never asserts
+  /// a state the backend has not reported.
+  String get fleetSummary {
+    final int total = monitorCount;
+    if (total == 0) {
+      return 'No monitors yet. Add your first monitor to start tracking uptime.';
+    }
+
+    final List<String> down = _monitorsSnapshot
+        .where((MonitorSummary m) => m.status == StatusKey.down)
+        .map((MonitorSummary m) => m.name)
+        .toList();
+    final List<String> degraded = _monitorsSnapshot
+        .where((MonitorSummary m) => m.status == StatusKey.degraded)
+        .map((MonitorSummary m) => m.name)
+        .toList();
+
+    if (down.isEmpty && degraded.isEmpty && _openIncidents == 0) {
+      return 'All $total monitors are operational. No open incidents.';
+    }
+
+    final List<String> parts = <String>['$upCount of $total monitors operational'];
+    if (down.isNotEmpty) parts.add('${_joinNames(down)} down');
+    if (degraded.isNotEmpty) parts.add('${_joinNames(degraded)} degraded');
+    final String incidentSentence = _openIncidents == 0
+        ? 'No open incidents.'
+        : '$_openIncidents open incident${_openIncidents == 1 ? '' : 's'}.';
+    return '${parts.join(', ')}. $incidentSentence';
+  }
+
+  /// Joins names as `A`, `A and B`, or `A, B and C`.
+  String _joinNames(List<String> names) {
+    if (names.length == 1) return names.first;
+    if (names.length == 2) return '${names[0]} and ${names[1]}';
+    return '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+  }
 }
