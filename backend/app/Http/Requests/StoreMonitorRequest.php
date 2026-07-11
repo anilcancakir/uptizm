@@ -2,10 +2,12 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\HttpAuthType;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
 use App\Models\Monitor;
+use App\Support\Monitoring\HostGuard;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -16,27 +18,17 @@ use Illuminate\Validation\Rule;
  * Beyond the standard field validation, this request carries the SSRF
  * guard: the target URL is rejected when its host resolves to a loopback,
  * RFC1918, link-local, IPv6 ULA, or reserved `.internal` address, so a
- * tenant can never point a probe at the platform's own internal network
- * (see {@see self::noInternalHost()}).
+ * tenant can never point a probe at the platform's own internal network.
+ * The host-resolution logic lives in the shared {@see HostGuard} service;
+ * this request only wires it onto the `url` field (see
+ * {@see self::noInternalHost()}).
  */
 class StoreMonitorRequest extends FormRequest
 {
     /**
-     * IPv4 CIDR ranges a monitor host is never allowed to resolve into.
-     *
-     * Covers loopback, the three RFC1918 private blocks, and the
-     * link-local range that fronts cloud metadata endpoints
-     * (169.254.169.254).
-     *
-     * @var list<string>
+     * Shared, stateless SSRF host guard, memoized per request instance.
      */
-    protected const array BLOCKED_IPV4_CIDRS = [
-        '127.0.0.0/8',
-        '10.0.0.0/8',
-        '172.16.0.0/12',
-        '192.168.0.0/16',
-        '169.254.0.0/16',
-    ];
+    protected ?HostGuard $hostGuard = null;
 
     /**
      * Determine if the user is authorized to make this request.
@@ -113,9 +105,97 @@ class StoreMonitorRequest extends FormRequest
                 'min:100',
                 'max:599',
             ],
-            'auth_config' => [
+            'request_headers' => [
                 'nullable',
                 'array',
+            ],
+            'request_body' => [
+                'nullable',
+                'string',
+            ],
+            'slo_target' => [
+                'nullable',
+                'numeric',
+                'min:0',
+                'max:100',
+            ],
+            'tags' => [
+                'nullable',
+                'array',
+            ],
+            'show_on_status_page' => [
+                'boolean',
+            ],
+            'only_show_if_degraded' => [
+                'boolean',
+            ],
+            'alert_on_down' => [
+                'boolean',
+            ],
+            'alert_on_recover' => [
+                'boolean',
+            ],
+            'ssl_tracking' => [
+                'boolean',
+            ],
+            'ssl_alert_threshold_days' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:365',
+            ],
+            ...$this->authConfigRules(partial: false),
+        ];
+    }
+
+    /**
+     * Inner-shape rules for the `auth_config` credential map.
+     *
+     * The `type` selects the auth flow and each flow requires its own
+     * secret fields: `basic` needs username + password, `bearer` a token,
+     * `api_key` a key + header, and `none` nothing. These conditional rules
+     * are identical on create and edit, so both requests share them; only
+     * the top-level `auth_config` presence rule differs (create requires it
+     * to be present-or-null, an edit may omit it entirely).
+     *
+     * @param  bool  $partial  True for a partial (update) request.
+     *
+     * @return array<string, mixed>
+     */
+    protected function authConfigRules(bool $partial): array
+    {
+        return [
+            'auth_config' => $partial
+                ? ['sometimes', 'nullable', 'array']
+                : ['nullable', 'array'],
+            'auth_config.type' => [
+                'required_with:auth_config',
+                Rule::enum(HttpAuthType::class),
+            ],
+            'auth_config.username' => [
+                'nullable',
+                'string',
+                'required_if:auth_config.type,basic',
+            ],
+            'auth_config.password' => [
+                'nullable',
+                'string',
+                'required_if:auth_config.type,basic',
+            ],
+            'auth_config.token' => [
+                'nullable',
+                'string',
+                'required_if:auth_config.type,bearer',
+            ],
+            'auth_config.key' => [
+                'nullable',
+                'string',
+                'required_if:auth_config.type,api_key',
+            ],
+            'auth_config.header' => [
+                'nullable',
+                'string',
+                'required_if:auth_config.type,api_key',
             ],
         ];
     }
@@ -123,11 +203,9 @@ class StoreMonitorRequest extends FormRequest
     /**
      * Build the SSRF guard closure for the `url` field.
      *
-     * Extracts the host from the URL, rejects the reserved `localhost` /
-     * `*.internal` names outright, then resolves the host to its candidate
-     * IPs and fails validation when any of them falls inside a blocked
-     * range. Hosts that cannot be resolved are allowed through: an
-     * unresolvable host cannot be probed and carries no SSRF risk.
+     * Extracts the host from the URL, then delegates to {@see HostGuard} to
+     * reject reserved names and hosts that resolve into a blocked range. A
+     * URL with no parseable host fails outright.
      *
      * @return Closure(string, mixed, Closure): void
      */
@@ -142,173 +220,17 @@ class StoreMonitorRequest extends FormRequest
                 return;
             }
 
-            // 1. Normalize: lowercase and strip IPv6 literal brackets.
-            $host = strtolower(trim($host, '[]'));
-
-            // 2. Reject reserved names that never resolve to a public host.
-            if ($host === 'localhost' || str_ends_with($host, '.internal')) {
+            if ($this->hostGuard()->isBlockedHost($host)) {
                 $fail('The :attribute host is not allowed.');
-
-                return;
-            }
-
-            // 3. Reject when any resolved address falls in a blocked range.
-            foreach ($this->resolveHostIps($host) as $ip) {
-                if ($this->isBlockedIp($ip)) {
-                    $fail('The :attribute host resolves to a disallowed address.');
-
-                    return;
-                }
             }
         };
     }
 
     /**
-     * Resolve a host to its candidate IP addresses.
-     *
-     * A dotted IPv4 / bracket-stripped IPv6 literal resolves to itself; an
-     * integer, hex, or octal IPv4 literal (e.g. `2130706433`, `0x7f000001`)
-     * normalizes to dotted-quad first so the range check sees the real
-     * address; a hostname resolves via DNS to both its A and AAAA records.
-     * A resolution failure yields an empty list (the host is treated as
-     * unreachable, not blocked).
-     *
-     * @return list<string>
+     * Resolve the shared SSRF host guard, memoized for this request.
      */
-    protected function resolveHostIps(string $host): array
+    protected function hostGuard(): HostGuard
     {
-        // 1. A canonical dotted IPv4 or IPv6 literal resolves to itself.
-        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
-            return [$host];
-        }
-
-        // 2. A bare numeric literal can masquerade as an IPv4 address
-        //    (`http://2130706433` is 127.0.0.1); normalize before checking.
-        $numeric = $this->normalizeNumericIpv4($host);
-        if ($numeric !== null) {
-            return [$numeric];
-        }
-
-        // 3. A hostname resolves via DNS to its A and AAAA records so an
-        //    internal-only IPv6 target (::1, ULA) is caught as well as IPv4.
-        return [
-            ...$this->resolveIpv4($host),
-            ...$this->resolveIpv6($host),
-        ];
-    }
-
-    /**
-     * Normalize an integer, hex, or octal IPv4 literal to dotted-quad.
-     *
-     * Mirrors `inet_aton`'s numeric forms: decimal (`2130706433`), hex
-     * (`0x7f000001`), and octal (`017700000001`). Returns null when the host
-     * is not a bare numeric literal or falls outside the 32-bit range, so a
-     * real hostname flows on to DNS resolution untouched.
-     */
-    protected function normalizeNumericIpv4(string $host): ?string
-    {
-        if (preg_match('/^(0x[0-9a-f]+|0[0-7]*|[1-9][0-9]*)$/i', $host) !== 1) {
-            return null;
-        }
-
-        // Base 0 auto-detects the 0x (hex) and 0 (octal) prefixes.
-        $long = intval($host, 0);
-        if ($long < 0 || $long > 0xFFFFFFFF) {
-            return null;
-        }
-
-        return long2ip($long);
-    }
-
-    /**
-     * Resolve a hostname's IPv4 (A record) addresses.
-     *
-     * @return list<string>
-     */
-    protected function resolveIpv4(string $host): array
-    {
-        $resolved = gethostbynamel($host);
-
-        return $resolved === false ? [] : array_values($resolved);
-    }
-
-    /**
-     * Resolve a hostname's IPv6 (AAAA record) addresses.
-     *
-     * @return list<string>
-     */
-    protected function resolveIpv6(string $host): array
-    {
-        if (! checkdnsrr($host, 'AAAA')) {
-            return [];
-        }
-
-        $records = dns_get_record($host, DNS_AAAA);
-        if ($records === false) {
-            return [];
-        }
-
-        return array_values(array_filter(array_map(
-            static fn (array $record): ?string => $record['ipv6'] ?? null,
-            $records,
-        )));
-    }
-
-    /**
-     * Determine whether an IP address falls inside a blocked range.
-     */
-    protected function isBlockedIp(string $ip): bool
-    {
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
-            foreach (self::BLOCKED_IPV4_CIDRS as $cidr) {
-                if ($this->ipv4InCidr($ip, $cidr)) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
-            return $this->ipv6IsBlocked($ip);
-        }
-
-        return false;
-    }
-
-    /**
-     * Test whether an IPv4 address sits inside the given CIDR block.
-     */
-    protected function ipv4InCidr(string $ip, string $cidr): bool
-    {
-        [$subnet, $bits] = explode('/', $cidr);
-        $prefix = (int) $bits;
-
-        $mask = $prefix === 0 ? 0 : (0xFFFFFFFF << (32 - $prefix)) & 0xFFFFFFFF;
-        $ipLong = ip2long($ip) & 0xFFFFFFFF;
-        $subnetLong = ip2long($subnet) & 0xFFFFFFFF;
-
-        return ($ipLong & $mask) === ($subnetLong & $mask);
-    }
-
-    /**
-     * Test whether an IPv6 address is loopback (`::1`) or ULA (`fc00::/7`).
-     */
-    protected function ipv6IsBlocked(string $ip): bool
-    {
-        $packed = inet_pton($ip);
-
-        if ($packed === false) {
-            return false;
-        }
-
-        // Loopback ::1.
-        if ($packed === inet_pton('::1')) {
-            return true;
-        }
-
-        // Unique local addresses fc00::/7: the top 7 bits are 1111110,
-        // so the first byte masked with 0xFE equals 0xFC (covers fc/fd).
-        return (ord($packed[0]) & 0xFE) === 0xFC;
+        return $this->hostGuard ??= new HostGuard();
     }
 }
