@@ -8,6 +8,7 @@ use App\Models\MonitorCheck;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use FlutterSdk\MagicStarter\Support\MigrationHelper;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -25,6 +26,20 @@ use Illuminate\Support\Str;
  */
 class ComponentDailyUptimeService
 {
+    /**
+     * Public severity ladder, weakest first. Shared by the daily rollup and
+     * the status-page roll-up so both order outages identically:
+     * operational < degraded < partial_outage < major_outage.
+     *
+     * @var array<int, string>
+     */
+    public const array STATUS_LADDER = [
+        'operational',
+        'degraded',
+        'partial_outage',
+        'major_outage',
+    ];
+
     /**
      * Aggregate a single UTC day of check outcomes for a monitor and
      * persist the worst observed status + counts.
@@ -112,8 +127,7 @@ class ComponentDailyUptimeService
      */
     public function last90Days(Monitor $monitor): array
     {
-        $today = CarbonImmutable::now('UTC')->startOfDay();
-        $oldest = $today->subDays(89);
+        [$oldest, $today] = $this->windowBounds();
 
         $rows = DB::table('monitor_daily_uptime')
             ->where('monitor_id', $monitor->id)
@@ -124,11 +138,106 @@ class ComponentDailyUptimeService
             ->get()
             ->keyBy(static fn (object $row): string => (string) $row->date);
 
+        return $this->fillWindow($rows, $oldest);
+    }
+
+    /**
+     * Batch variant of {@see self::last90Days()} for the status page: given N
+     * monitor ids, return a map `[monitorId => 90-entry strip]`, each strip
+     * gap-filled exactly as the single-monitor path. This is the N+1 kill:
+     * the rollup is read in ONE `whereIn` query, then grouped in PHP so every
+     * id maps to its own window without a query per component.
+     *
+     * @param  array<int, int|string>  $monitorIds
+     * @return array<int|string, array<int, array<string, mixed>>>
+     */
+    public function last90DaysForMonitors(array $monitorIds): array
+    {
+        if ($monitorIds === []) {
+            return [];
+        }
+
+        [$oldest, $today] = $this->windowBounds();
+
+        // 1. Single read across every requested monitor, grouped by id so the
+        //    per-monitor fill never re-touches the database.
+        $grouped = DB::table('monitor_daily_uptime')
+            ->whereIn('monitor_id', $monitorIds)
+            ->whereBetween('date', [
+                $oldest->format('Y-m-d'),
+                $today->format('Y-m-d'),
+            ])
+            ->get()
+            ->groupBy(static fn (object $row): string => (string) $row->monitor_id);
+
+        // 2. Fill every requested id, defaulting absent monitors to a fully
+        //    gap-filled (all-operational) strip so the caller always gets N strips.
+        $strips = [];
+        foreach ($monitorIds as $monitorId) {
+            $rows = ($grouped->get((string) $monitorId) ?? new Collection)
+                ->keyBy(static fn (object $row): string => (string) $row->date);
+
+            $strips[$monitorId] = $this->fillWindow($rows, $oldest);
+        }
+
+        return $strips;
+    }
+
+    /**
+     * Worst (highest-ranked) status across the given labels on the
+     * {@see self::STATUS_LADDER}, defaulting to `operational` for an empty or
+     * fully-healthy set. Unknown labels are ignored (fail-safe toward healthy).
+     *
+     * @param  array<int, string>  $statuses
+     */
+    public function worstOf(array $statuses): string
+    {
+        $worst = self::STATUS_LADDER[0];
+        $worstRank = 0;
+
+        foreach ($statuses as $status) {
+            $rank = array_search($status, self::STATUS_LADDER, true);
+
+            if ($rank !== false && $rank > $worstRank) {
+                $worst = $status;
+                $worstRank = $rank;
+            }
+        }
+
+        return $worst;
+    }
+
+    /**
+     * The trailing 90-day UTC window bounds as `[oldest, today]`, both at the
+     * start of their calendar day.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    protected function windowBounds(): array
+    {
+        $today = CarbonImmutable::now('UTC')->startOfDay();
+
+        return [
+            $today->subDays(89),
+            $today,
+        ];
+    }
+
+    /**
+     * Gap-fill the 90-day window from a date-keyed collection of rollup rows,
+     * oldest-first. Days without a row default to `operational` (no news is
+     * good news), matching {@see self::last90Days()}'s contract.
+     *
+     * @param  Collection<string, object>  $rowsByDate
+     * @return array<int, array<string, mixed>>
+     */
+    protected function fillWindow(Collection $rowsByDate, CarbonImmutable $oldest): array
+    {
         $days = [];
         for ($i = 0; $i < 90; $i++) {
             $date = $oldest->addDays($i);
             $key = $date->format('Y-m-d');
-            $row = $rows->get($key);
+            $row = $rowsByDate->get($key);
 
             $days[] = [
                 'date' => $key,
