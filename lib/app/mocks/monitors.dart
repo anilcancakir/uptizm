@@ -63,6 +63,63 @@ class MonitorSummary {
     this.sloUptime7d,
     this.sloUptime30d,
   });
+
+  /// Builds a [MonitorSummary] from a `MonitorResource` payload (backend
+  /// `api/v1` snake_case keys).
+  ///
+  /// The backend exposes two status fields: `last_status` (probe health:
+  /// up/down/degraded/paused) and `status` (admin state: active/paused).
+  /// When `status` is `'paused'` the monitor is administratively paused and
+  /// [StatusKey.paused] wins regardless of `last_status`, matching how the
+  /// fixture data already represents a paused monitor.
+  ///
+  /// `uptime`, `sloUptime7d`, and `sloUptime30d` are rollup fields the
+  /// current `MonitorResource` does not emit; they default to `'—'`/`null`
+  /// until a backend uptime-rollup endpoint exists.
+  factory MonitorSummary.fromMap(Map<String, dynamic> map) {
+    final bool isAdminPaused = map['status'] == 'paused';
+    final int? checkIntervalSec = (map['check_interval_sec'] as num?)?.toInt();
+    return MonitorSummary(
+      id: map['id']?.toString() ?? '',
+      name: (map['name'] as String?) ?? '',
+      url: (map['url'] as String?) ?? '',
+      status: isAdminPaused
+          ? StatusKey.paused
+          : statusKeyFromWire(map['last_status'] as String?),
+      responseMs: (map['last_response_ms'] as num?)?.toInt(),
+      uptime: (map['uptime'] as String?) ?? '—',
+      intervalLabel: checkIntervalSec != null ? '${checkIntervalSec}s' : '—',
+      regions: switch (map['regions']) {
+        List<dynamic> raw => raw.map((e) => e.toString()).toList(),
+        _ => const [],
+      },
+      sloTarget: (map['slo_target'] as num?)?.toDouble(),
+      sloUptime7d: (map['slo_uptime_7d'] as num?)?.toDouble(),
+      sloUptime30d: (map['slo_uptime_30d'] as num?)?.toDouble(),
+    );
+  }
+
+  /// Serializes the editable subset of this monitor for `POST`/`PUT`
+  /// create/edit requests.
+  ///
+  /// Only fields present on [MonitorSummary] are emitted; the backend's
+  /// wider write surface (`type`, `method`, `timeout_sec`,
+  /// `expected_status_code`, `show_on_status_page`, `only_show_if_degraded`,
+  /// ...) has no corresponding property on this mock shape yet, so those
+  /// keys are intentionally absent from the payload.
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'url': url,
+      'regions': regions,
+      if (sloTarget != null) 'slo_target': sloTarget,
+      if (intervalLabel.endsWith('s'))
+        'check_interval_sec': int.tryParse(
+          intervalLabel.substring(0, intervalLabel.length - 1),
+        ),
+    };
+  }
 }
 
 /// A single segment of the 90-day uptime history bar.
@@ -133,6 +190,33 @@ class CheckRow {
     this.responseMs,
     this.statusCode,
   });
+
+  /// Builds a [CheckRow] from a `MonitorCheckResource` payload (backend
+  /// `api/v1` snake_case keys).
+  ///
+  /// `checked_at` is an ISO-8601 timestamp; it is reduced to the wall-clock
+  /// `HH:mm:ss` string the table renders. An unparsable or missing timestamp
+  /// falls back to `'—'` rather than throwing.
+  factory CheckRow.fromMap(Map<String, dynamic> map) {
+    return CheckRow(
+      time: _formatTimeOfDay(map['checked_at'] as String?),
+      region: (map['region'] as String?) ?? '',
+      status: statusKeyFromWire(map['status'] as String?),
+      responseMs: (map['response_ms'] as num?)?.toInt(),
+      statusCode: (map['status_code'] as num?)?.toInt(),
+    );
+  }
+}
+
+/// Formats an ISO-8601 timestamp string as a local `HH:mm:ss` wall-clock
+/// string. Returns `'—'` when [raw] is `null` or fails to parse.
+String _formatTimeOfDay(String? raw) {
+  if (raw == null) return '—';
+  final DateTime? parsed = DateTime.tryParse(raw);
+  if (parsed == null) return '—';
+  final DateTime local = parsed.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
 }
 
 /// A selectable probe region shown in the monitor form.

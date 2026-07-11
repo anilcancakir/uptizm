@@ -50,3 +50,17 @@ const List<StatusKey> statusKeys = [
   StatusKey.info,
   StatusKey.ai,
 ];
+
+/// Decodes a backend status wire value (`"up"`, `"down"`, `"degraded"`,
+/// `"paused"`, `"info"`, `"ai"`) into a [StatusKey], falling back to
+/// [fallback] when [raw] is `null` or does not match a known value.
+///
+/// A stale client must never crash on a status value it does not yet know
+/// about, so every enum decode in the model layer goes through this helper.
+StatusKey statusKeyFromWire(String? raw, {StatusKey fallback = StatusKey.info}) {
+  if (raw == null) return fallback;
+  return StatusKey.values.firstWhere(
+    (key) => key.name == raw,
+    orElse: () => fallback,
+  );
+}

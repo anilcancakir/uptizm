@@ -161,6 +161,48 @@ class MonitorMetric {
     this.source,
     this.path,
   });
+
+  /// Builds a [MonitorMetric] from a `MonitorMetricResource` payload
+  /// (backend `api/v1` snake_case keys).
+  ///
+  /// The optional nested `latest` object (`{value, band}`) carries the most
+  /// recent extracted reading; when absent (metric never extracted yet) the
+  /// current value defaults to `0`.
+  ///
+  /// The backend resource does not expose a `system`/`custom` discriminator
+  /// field yet ([MetricKind] has no wire key in the payload above), so every
+  /// decoded metric is treated as [MetricKind.custom]; system metrics (e.g.
+  /// `response_time`) are still synthesized client-side by
+  /// [systemMetricsForMonitors].
+  factory MonitorMetric.fromMap(Map<String, dynamic> map) {
+    final Object? latest = map['latest'];
+    final num latestValue = latest is Map ? (latest['value'] as num?) ?? 0 : 0;
+    return MonitorMetric(
+      monitorId: map['monitor_id']?.toString() ?? '',
+      label: (map['label'] as String?) ?? '',
+      key: (map['key'] as String?) ?? '',
+      unit: (map['unit'] as String?) ?? '',
+      value: latestValue,
+      direction: _directionFromWire(map['threshold_direction'] as String?),
+      warn: (map['warn_bound'] as num?) ?? 0,
+      critical: (map['critical_bound'] as num?) ?? 0,
+      kind: MetricKind.custom,
+      type: map['type'] as String?,
+      source: map['source'] as String?,
+      path: map['extraction_path'] as String?,
+    );
+  }
+}
+
+/// Decodes the backend `threshold_direction` wire value
+/// (`"high_bad"`/`"low_bad"`) into a [MetricDirection], falling back to
+/// [MetricDirection.high] on an unknown or missing value.
+MetricDirection _directionFromWire(String? raw) {
+  return switch (raw) {
+    'high_bad' => MetricDirection.high,
+    'low_bad' => MetricDirection.low,
+    _ => MetricDirection.high,
+  };
 }
 
 /// Whether a higher or lower metric reading constitutes a worse state.

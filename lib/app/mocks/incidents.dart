@@ -3,6 +3,104 @@ import 'package:flutter/foundation.dart';
 import 'status.dart';
 
 // ---------------------------------------------------------------------------
+// Wire decoders (safe enum fallback)
+// ---------------------------------------------------------------------------
+
+/// Decodes the backend `lifecycle` wire value into an [IncidentLifecycle],
+/// falling back to [IncidentLifecycle.detected] on an unknown value so a
+/// stale client never crashes on a lifecycle stage it does not yet know.
+IncidentLifecycle _lifecycleFromWire(String? raw) {
+  if (raw == null) return IncidentLifecycle.detected;
+  return IncidentLifecycle.values.firstWhere(
+    (v) => v.name == raw,
+    orElse: () => IncidentLifecycle.detected,
+  );
+}
+
+/// Decodes the backend `severity` wire value into an [IncidentSeverity].
+///
+/// The backend uses `'warn'` where the mock enum spells out `warning`;
+/// everything else falls back to [IncidentSeverity.info].
+IncidentSeverity _severityFromWire(String? raw) {
+  return switch (raw) {
+    'critical' => IncidentSeverity.critical,
+    'warn' => IncidentSeverity.warning,
+    'info' => IncidentSeverity.info,
+    _ => IncidentSeverity.info,
+  };
+}
+
+/// Decodes the backend `signal_source` wire value into a [SignalSource],
+/// falling back to [SignalSource.manual] on an unknown value.
+SignalSource _signalSourceFromWire(String? raw) {
+  return switch (raw) {
+    'user_threshold' => SignalSource.threshold,
+    'ai_anomaly' => SignalSource.anomaly,
+    'manual' => SignalSource.manual,
+    _ => SignalSource.manual,
+  };
+}
+
+/// Derives the customer-facing [IncidentImpact] badge from the backend
+/// `impact` wire value (`none`/`minor`/`major`/`critical`), the vocabulary
+/// the mock's three-value [IncidentImpact] does not share 1:1: `critical`
+/// and `major` both read as a full [IncidentImpact.down], `minor` reads as
+/// [IncidentImpact.degraded], and `none` (or anything unrecognized) reads
+/// as [IncidentImpact.info].
+IncidentImpact _impactFromWire(String? raw) {
+  return switch (raw) {
+    'critical' || 'major' => IncidentImpact.down,
+    'minor' => IncidentImpact.degraded,
+    'none' => IncidentImpact.info,
+    _ => IncidentImpact.info,
+  };
+}
+
+/// Decodes the backend `actor` wire value into a [TimelineActor], falling
+/// back to [TimelineActor.system] on an unknown value.
+TimelineActor _timelineActorFromWire(String? raw) {
+  if (raw == null) return TimelineActor.system;
+  return TimelineActor.values.firstWhere(
+    (v) => v.name == raw,
+    orElse: () => TimelineActor.system,
+  );
+}
+
+/// Formats an ISO-8601 timestamp string as a local `HH:mm` wall-clock
+/// string. Returns `'—'` when [raw] is `null` or fails to parse.
+String _formatHourMinute(String? raw) {
+  if (raw == null) return '—';
+  final DateTime? parsed = DateTime.tryParse(raw);
+  if (parsed == null) return '—';
+  final DateTime local = parsed.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.hour)}:${two(local.minute)}';
+}
+
+/// Formats the elapsed time between [startedAt] and [until] (`resolvedAt` or
+/// now) as `"Xm"` when under an hour, or `"Xh YYm"` otherwise. Matches the
+/// fixture duration convention (e.g. `'14m'`, `'1h 06m'`).
+String _formatDuration(DateTime startedAt, DateTime until) {
+  final Duration elapsed = until.difference(startedAt);
+  final int totalMinutes = elapsed.inMinutes.abs();
+  if (totalMinutes < 60) return '${totalMinutes}m';
+  final int hours = totalMinutes ~/ 60;
+  final int minutes = totalMinutes % 60;
+  return '${hours}h ${minutes.toString().padLeft(2, '0')}m';
+}
+
+/// Formats the relative-time meta line (e.g. `"started 14m ago"` or
+/// `"resolved 2h ago"`) from [startedAt]/[resolvedAt].
+String _formatRelativeMeta(DateTime startedAt, DateTime? resolvedAt) {
+  final bool isResolved = resolvedAt != null;
+  final DateTime reference = resolvedAt ?? startedAt;
+  final Duration elapsed = DateTime.now().difference(reference);
+  final int minutes = elapsed.inMinutes.abs();
+  final String magnitude = minutes < 60 ? '${minutes}m' : '${elapsed.inHours}h';
+  return '${isResolved ? 'resolved' : 'started'} $magnitude ago';
+}
+
+// ---------------------------------------------------------------------------
 // Domain types
 // ---------------------------------------------------------------------------
 
@@ -118,6 +216,21 @@ class AffectedMonitor {
     required this.statusAtStart,
     required this.statusCurrent,
   });
+
+  /// Builds an [AffectedMonitor] from a backend `monitors[]` pivot entry
+  /// (`component_status_at_start`/`component_status_current` snake_case
+  /// keys), with a safe fallback for unknown status values.
+  factory AffectedMonitor.fromMap(Map<String, dynamic> map) {
+    return AffectedMonitor(
+      name: (map['name'] as String?) ?? '',
+      statusAtStart: statusKeyFromWire(
+        map['component_status_at_start'] as String?,
+      ),
+      statusCurrent: statusKeyFromWire(
+        map['component_status_current'] as String?,
+      ),
+    );
+  }
 }
 
 /// One entry in an incident's activity timeline.
@@ -154,6 +267,25 @@ class TimelineEntry {
     this.isPublic = false,
     this.autonomous = false,
   });
+
+  /// Builds a [TimelineEntry] from a backend `updates[]` payload
+  /// (`message`/`is_public`/`autonomous`/`actor`/`status` snake_case keys).
+  ///
+  /// The resource does not carry a named author field, so [author] stays
+  /// `null` for a backend-decoded entry (the UI already renders a `null`
+  /// author for system entries).
+  factory TimelineEntry.fromMap(Map<String, dynamic> map) {
+    return TimelineEntry(
+      actor: _timelineActorFromWire(map['actor'] as String?),
+      status: (map['status'] as String?) ?? '',
+      message: (map['message'] as String?) ?? '',
+      time: _formatHourMinute(
+        (map['display_at'] ?? map['created_at']) as String?,
+      ),
+      isPublic: map['is_public'] == true,
+      autonomous: map['autonomous'] == true,
+    );
+  }
 }
 
 /// A single piece of evidence in the AI analysis (for or against a hypothesis).
@@ -326,6 +458,64 @@ class IncidentSummary {
     this.acknowledged,
     this.ai,
   });
+
+  /// Builds an [IncidentSummary] from an `IncidentResource` payload (backend
+  /// `api/v1` snake_case keys).
+  ///
+  /// [monitorName] is resolved from the `monitors[]` pivot list (matching
+  /// `primary_monitor_id`, falling back to the first affected monitor)
+  /// because the resource only sends the id, not a display name.
+  /// [assignee], [acknowledged], and [ai] have no counterpart in the
+  /// resource shape above and stay `null` on a backend-decoded instance;
+  /// they are wired in separately (assignment/AI-analysis endpoints).
+  factory IncidentSummary.fromMap(Map<String, dynamic> map) {
+    final Object? rawMonitors = map['monitors'];
+    final List<Map<String, dynamic>> monitorMaps = rawMonitors is List
+        ? rawMonitors.whereType<Map<String, dynamic>>().toList()
+        : const [];
+    final List<AffectedMonitor> affectedMonitors = monitorMaps
+        .map(AffectedMonitor.fromMap)
+        .toList();
+
+    final Object? rawUpdates = map['updates'];
+    final List<TimelineEntry> timeline = rawUpdates is List
+        ? rawUpdates
+              .whereType<Map<String, dynamic>>()
+              .map(TimelineEntry.fromMap)
+              .toList()
+        : const [];
+
+    final String? primaryMonitorId = map['primary_monitor_id']?.toString();
+    final Map<String, dynamic>? primaryMonitorMap = monitorMaps.isEmpty
+        ? null
+        : monitorMaps.firstWhere(
+            (m) => m['id']?.toString() == primaryMonitorId,
+            orElse: () => monitorMaps.first,
+          );
+
+    final DateTime startedAt =
+        DateTime.tryParse(map['started_at'] as String? ?? '') ??
+        DateTime.now();
+    final DateTime? resolvedAt = map['resolved_at'] is String
+        ? DateTime.tryParse(map['resolved_at'] as String)
+        : null;
+
+    return IncidentSummary(
+      id: map['id']?.toString() ?? '',
+      title: (map['title'] as String?) ?? '',
+      impact: _impactFromWire(map['impact'] as String?),
+      severity: _severityFromWire(map['severity'] as String?),
+      signalSource: _signalSourceFromWire(map['signal_source'] as String?),
+      lifecycle: _lifecycleFromWire(map['lifecycle'] as String?),
+      startedAt: _formatRelativeMeta(startedAt, resolvedAt),
+      duration: _formatDuration(startedAt, resolvedAt ?? DateTime.now()),
+      affectedCount: monitorMaps.length,
+      aiOwned: map['ai_owned'] == true,
+      monitorName: (primaryMonitorMap?['name'] as String?) ?? '',
+      affectedMonitors: affectedMonitors,
+      timeline: timeline,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
