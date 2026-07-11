@@ -5,13 +5,14 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\IncidentResource;
 use App\Models\Incident;
+use App\Services\Monitoring\ThresholdEvaluator;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Read-only, team-scoped incident API: list and show. Incidents are opened
- * by {@see \App\Services\Monitoring\ThresholdEvaluator}, never by this
+ * by {@see ThresholdEvaluator}, never by this
  * controller, so there is deliberately no store/update action here.
  */
 class IncidentController extends Controller
@@ -20,7 +21,7 @@ class IncidentController extends Controller
     {
         $query = Incident::query()
             ->where('team_id', $request->user()->current_team_id)
-            ->with(['monitors']);
+            ->with(['monitors', 'updates']);
 
         // Filter by the affected monitor, matching either the denormalized
         // primary hint or the full affected-component pivot.

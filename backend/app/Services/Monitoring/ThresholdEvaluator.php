@@ -2,9 +2,10 @@
 
 namespace App\Services\Monitoring;
 
-use App\Enums\IncidentStatus;
 use App\Enums\IncidentSeverity;
+use App\Enums\IncidentStatus;
 use App\Enums\MetricBand;
+use App\Enums\MonitorStatus;
 use App\Enums\SignalSource;
 use App\Enums\ThresholdDirection;
 use App\Models\Incident;
@@ -27,7 +28,7 @@ class ThresholdEvaluator
      * Evaluate a completed check against the monitor's thresholds and metric
      * bounds; open an incident if a new breach is detected.
      *
-     * @param array<string, float|int|null> $metricSamples
+     * @param  array<string, float|int|null>  $metricSamples
      */
     public function evaluate(Monitor $monitor, MonitorCheck $check, array $metricSamples): void
     {
@@ -61,8 +62,7 @@ class ThresholdEvaluator
     /**
      * Find the first metric whose sample lands in warn or critical.
      *
-     * @param array<string, float|int|null> $samples
-     *
+     * @param  array<string, float|int|null>  $samples
      * @return array{metric: MonitorMetric, severity: IncidentSeverity}|null
      */
     protected function firstMetricBreach(Monitor $monitor, array $samples): ?array
@@ -179,7 +179,8 @@ class ThresholdEvaluator
         string $title,
         ?string $metricKey,
     ): Incident {
-        return Incident::query()->create([
+        // 1. Persist the incident with the denormalized primary-monitor hint.
+        $incident = Incident::query()->create([
             'team_id' => $monitor->team_id,
             'primary_monitor_id' => $monitor->id,
             'title' => $title,
@@ -191,5 +192,19 @@ class ThresholdEvaluator
             'trigger_metric_key' => $metricKey,
             'started_at' => $check->checked_at,
         ]);
+
+        // 2. Attach the primary monitor to the affected-component pivot so the
+        //    incident serializes its affected set (name + component status) to
+        //    the client. Without this the pivot is empty and the Flutter view
+        //    reads affectedCount=0 with a blank monitor name. The component
+        //    status freezes the monitor's current health at open time and
+        //    mirrors it as the live status.
+        $componentStatus = $monitor->last_status?->value ?? MonitorStatus::Down->value;
+        $incident->monitors()->attach($monitor->id, [
+            'component_status_at_start' => $componentStatus,
+            'component_status_current' => $componentStatus,
+        ]);
+
+        return $incident;
     }
 }

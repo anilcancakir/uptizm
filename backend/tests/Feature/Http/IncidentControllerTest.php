@@ -102,6 +102,31 @@ class IncidentControllerTest extends TestCase
         $this->assertTrue($payload['updates'][0]['is_public']);
     }
 
+    public function test_index_serializes_the_affected_monitor_id_and_name(): void
+    {
+        [$monitor, $user] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor);
+        $incident->monitors()->attach($monitor->id, [
+            'component_status_at_start' => 'down',
+            'component_status_current' => 'down',
+        ]);
+
+        $request = Request::create('/incidents', 'GET');
+        $request->setUserResolver(fn () => $user);
+
+        $controller = $this->app->make(IncidentController::class);
+        $payload = $controller->index($request)->response($request)->getData(true)['data'];
+
+        // The list serializes the affected-component pivot so the Flutter view
+        // renders a non-zero affected count and the primary monitor's name.
+        $this->assertCount(1, $payload);
+        $affected = $payload[0]['monitors'];
+        $this->assertCount(1, $affected);
+        $this->assertSame($monitor->id, $affected[0]['monitor_id']);
+        $this->assertSame($monitor->name, $affected[0]['name']);
+        $this->assertSame('down', $affected[0]['component_status_current']);
+    }
+
     public function test_show_404s_a_team_that_does_not_own_the_incident(): void
     {
         [$monitor] = $this->makeMonitor();

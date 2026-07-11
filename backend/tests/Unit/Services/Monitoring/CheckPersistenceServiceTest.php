@@ -74,6 +74,56 @@ class CheckPersistenceServiceTest extends TestCase
         $this->assertSame(1, Incident::query()->count());
     }
 
+    public function test_a_multi_region_down_flow_opens_exactly_one_incident_with_the_pivot_populated(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $service = $this->service();
+
+        // 1. us-east down: the streak reaches 1, still below the threshold.
+        $service->persist($monitor, $this->makeResult(
+            $monitor,
+            probeRunId: 'us-1',
+            status: MonitorStatus::Down,
+            region: 'us-east',
+        ));
+        $this->assertSame(0, Incident::query()->count());
+
+        // 2. eu-west down (distinct probe run + region) crosses the threshold
+        //    with an atomic increment: streak 2 opens exactly one incident.
+        $service->persist($monitor, $this->makeResult(
+            $monitor,
+            probeRunId: 'eu-1',
+            status: MonitorStatus::Down,
+            region: 'eu-west',
+        ));
+
+        // 3. Further downs from either region must not double-open while the
+        //    incident is unresolved (the monitor-lock-serialized guard holds).
+        $service->persist($monitor, $this->makeResult(
+            $monitor,
+            probeRunId: 'us-2',
+            status: MonitorStatus::Down,
+            region: 'us-east',
+        ));
+        $service->persist($monitor, $this->makeResult(
+            $monitor,
+            probeRunId: 'eu-2',
+            status: MonitorStatus::Down,
+            region: 'eu-west',
+        ));
+
+        $incident = Incident::query()->sole();
+        $this->assertSame($monitor->id, $incident->primary_monitor_id);
+
+        // The affected-component pivot carries the primary monitor with its
+        // current health (`down`) frozen as the component status.
+        $affected = $incident->monitors()->get();
+        $this->assertCount(1, $affected);
+        $this->assertSame($monitor->id, $affected->first()->id);
+        $this->assertSame('down', $affected->first()->pivot->component_status_at_start);
+        $this->assertSame('down', $affected->first()->pivot->component_status_current);
+    }
+
     public function test_an_up_result_resets_the_consecutive_fail_streak(): void
     {
         $monitor = $this->makeMonitor(incidentThreshold: 2);
@@ -138,11 +188,15 @@ class CheckPersistenceServiceTest extends TestCase
     /**
      * Builds a CheckResult carrying a JSON body the monitor's metric can read.
      */
-    protected function makeResult(Monitor $monitor, string $probeRunId, MonitorStatus $status): CheckResult
-    {
+    protected function makeResult(
+        Monitor $monitor,
+        string $probeRunId,
+        MonitorStatus $status,
+        string $region = 'us-east-1',
+    ): CheckResult {
         return new CheckResult(
             monitorId: (string) $monitor->id,
-            region: 'us-east-1',
+            region: $region,
             checkedAt: new DateTimeImmutable,
             status: $status,
             statusCode: $status === MonitorStatus::Up ? 200 : 503,

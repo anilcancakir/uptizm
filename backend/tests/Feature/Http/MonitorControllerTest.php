@@ -72,6 +72,41 @@ class MonitorControllerTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_store_rejects_integer_ip_literal_for_loopback(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // 2130706433 is the 32-bit integer form of 127.0.0.1; without literal
+        // normalization it slips past the dotted-quad denylist.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'url' => 'http://2130706433/',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('url');
+        Queue::assertNothingPushed();
+    }
+
+    public function test_store_drops_null_expected_status_code_and_applies_db_default(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+
+        // A payload carrying an explicit null must not 500 on the NOT NULL
+        // column; the key is dropped so the DB default (200) applies.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'expected_status_code' => null,
+        ]);
+
+        $response->assertStatus(201);
+
+        $monitor = Monitor::query()->where('team_id', $team->id)->sole();
+        $this->assertSame(200, $monitor->expected_status_code);
+    }
+
     public function test_store_rejects_rfc1918_private_url(): void
     {
         Queue::fake();

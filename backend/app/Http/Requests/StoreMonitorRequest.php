@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
+use App\Models\Monitor;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -43,6 +44,21 @@ class StoreMonitorRequest extends FormRequest
     public function authorize(): bool
     {
         return $this->user() !== null && $this->user()->current_team_id !== null;
+    }
+
+    /**
+     * Normalize the payload before validation.
+     *
+     * Drops an explicit `expected_status_code: null` so the request never
+     * carries it into {@see Monitor::create()}: the column is
+     * NOT NULL DEFAULT 200, so persisting a literal null would 500. Removing
+     * the key lets the database default apply.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->input('expected_status_code') === null) {
+            $this->getInputSource()->remove('expected_status_code');
+        }
     }
 
     /**
@@ -150,7 +166,10 @@ class StoreMonitorRequest extends FormRequest
     /**
      * Resolve a host to its candidate IP addresses.
      *
-     * A literal IP is returned as-is; a hostname is resolved via DNS.
+     * A dotted IPv4 / bracket-stripped IPv6 literal resolves to itself; an
+     * integer, hex, or octal IPv4 literal (e.g. `2130706433`, `0x7f000001`)
+     * normalizes to dotted-quad first so the range check sees the real
+     * address; a hostname resolves via DNS to both its A and AAAA records.
      * A resolution failure yields an empty list (the host is treated as
      * unreachable, not blocked).
      *
@@ -158,13 +177,81 @@ class StoreMonitorRequest extends FormRequest
      */
     protected function resolveHostIps(string $host): array
     {
+        // 1. A canonical dotted IPv4 or IPv6 literal resolves to itself.
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             return [$host];
         }
 
+        // 2. A bare numeric literal can masquerade as an IPv4 address
+        //    (`http://2130706433` is 127.0.0.1); normalize before checking.
+        $numeric = $this->normalizeNumericIpv4($host);
+        if ($numeric !== null) {
+            return [$numeric];
+        }
+
+        // 3. A hostname resolves via DNS to its A and AAAA records so an
+        //    internal-only IPv6 target (::1, ULA) is caught as well as IPv4.
+        return [
+            ...$this->resolveIpv4($host),
+            ...$this->resolveIpv6($host),
+        ];
+    }
+
+    /**
+     * Normalize an integer, hex, or octal IPv4 literal to dotted-quad.
+     *
+     * Mirrors `inet_aton`'s numeric forms: decimal (`2130706433`), hex
+     * (`0x7f000001`), and octal (`017700000001`). Returns null when the host
+     * is not a bare numeric literal or falls outside the 32-bit range, so a
+     * real hostname flows on to DNS resolution untouched.
+     */
+    protected function normalizeNumericIpv4(string $host): ?string
+    {
+        if (preg_match('/^(0x[0-9a-f]+|0[0-7]*|[1-9][0-9]*)$/i', $host) !== 1) {
+            return null;
+        }
+
+        // Base 0 auto-detects the 0x (hex) and 0 (octal) prefixes.
+        $long = intval($host, 0);
+        if ($long < 0 || $long > 0xFFFFFFFF) {
+            return null;
+        }
+
+        return long2ip($long);
+    }
+
+    /**
+     * Resolve a hostname's IPv4 (A record) addresses.
+     *
+     * @return list<string>
+     */
+    protected function resolveIpv4(string $host): array
+    {
         $resolved = gethostbynamel($host);
 
         return $resolved === false ? [] : array_values($resolved);
+    }
+
+    /**
+     * Resolve a hostname's IPv6 (AAAA record) addresses.
+     *
+     * @return list<string>
+     */
+    protected function resolveIpv6(string $host): array
+    {
+        if (! checkdnsrr($host, 'AAAA')) {
+            return [];
+        }
+
+        $records = dns_get_record($host, DNS_AAAA);
+        if ($records === false) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            static fn (array $record): ?string => $record['ipv6'] ?? null,
+            $records,
+        )));
     }
 
     /**

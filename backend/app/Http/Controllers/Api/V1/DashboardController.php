@@ -69,6 +69,7 @@ class DashboardController extends Controller
         $incidents = Incident::query()
             ->where('team_id', $request->user()->current_team_id)
             ->whereIn('lifecycle', $this->activeLifecycleValues())
+            ->with(['monitors', 'updates'])
             ->orderByDesc('started_at')
             ->limit(20)
             ->get();
