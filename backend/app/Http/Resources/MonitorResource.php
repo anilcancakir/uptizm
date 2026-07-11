@@ -39,10 +39,18 @@ class MonitorResource extends JsonResource
             'timeout_sec' => $this->resource->timeout_sec,
             'regions' => $this->resource->regions ?? [],
             'expected_status_code' => $this->resource->expected_status_code,
+            'request_headers' => $this->resource->request_headers ?? [],
             'auth_config' => $this->redactAuthConfig($this->resource->auth_config),
             'slo_target' => $this->resource->slo_target,
+            'tags' => $this->resource->tags ?? [],
             'show_on_status_page' => (bool) $this->resource->show_on_status_page,
             'only_show_if_degraded' => (bool) $this->resource->only_show_if_degraded,
+            'alert_on_down' => (bool) $this->resource->alert_on_down,
+            'alert_on_recover' => (bool) $this->resource->alert_on_recover,
+            'ssl_tracking' => (bool) $this->resource->ssl_tracking,
+            'ssl_expires_at' => $this->resource->ssl_expires_at?->toIso8601String(),
+            'ssl_last_checked_at' => $this->resource->ssl_last_checked_at?->toIso8601String(),
+            'ssl_alert_threshold_days' => $this->resource->ssl_alert_threshold_days,
             'is_group' => (bool) $this->resource->is_group,
             'parent_id' => $this->resource->parent_id,
             'last_checked_at' => $this->resource->last_checked_at?->toIso8601String(),
@@ -56,13 +64,15 @@ class MonitorResource extends JsonResource
     }
 
     /**
-     * Strip credential secrets from the auth_config before it leaves the
-     * server.
+     * Reduce the auth_config to its non-secret descriptors before it leaves
+     * the server.
      *
-     * The secret-bearing fields (password, bearer/api token, header value)
-     * are removed; non-secret descriptors (type, username, header name)
-     * survive so the edit form can render the current configuration
-     * without ever receiving the secret itself.
+     * Fail-closed allowlist: only the three known non-secret keys survive
+     * (`type` = auth flow, `username` = basic-auth user, `header` = the
+     * api_key HEADER NAME, never its value). Every other key is dropped, so an
+     * unforeseen secret field (password, token, key, ...) defaults to hidden
+     * rather than leaking. Enough for the edit form to render the current
+     * configuration without ever receiving a credential.
      *
      * @param  array<string, mixed>|null  $config
      * @return array<string, mixed>|null
@@ -73,10 +83,13 @@ class MonitorResource extends JsonResource
             return null;
         }
 
-        foreach (['password', 'token', 'value'] as $secret) {
-            unset($config[$secret]);
-        }
-
-        return $config;
+        return array_intersect_key(
+            $config,
+            array_flip([
+                'type',
+                'username',
+                'header',
+            ]),
+        );
     }
 }

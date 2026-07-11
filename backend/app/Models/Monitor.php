@@ -59,10 +59,18 @@ class Monitor extends Model
         'check_interval_sec' => 'integer',
         'timeout_sec' => 'integer',
         'regions' => 'array',
-        'auth_config' => 'array',
+        // Credentials are encrypted at rest (column is `text`); the cast reads
+        // back the decrypted array transparently for RelayClient + the resource.
+        'auth_config' => 'encrypted:array',
         'assertion_rules' => 'array',
         'tags' => 'array',
         'ai_mode' => AiMode::class,
+        'alert_on_down' => 'boolean',
+        'alert_on_recover' => 'boolean',
+        'ssl_tracking' => 'boolean',
+        'ssl_expires_at' => 'datetime',
+        'ssl_last_checked_at' => 'datetime',
+        'ssl_alert_threshold_days' => 'integer',
         // `status` is the administrative state (active/paused), a plain string;
         // MonitorStatus (up/down/degraded/paused) is the health cast for `last_status`.
         'last_status' => MonitorStatus::class,
