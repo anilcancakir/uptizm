@@ -3,6 +3,8 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart'
+    show DatabaseNotification, Notify;
 import 'package:magic_starter/magic_starter.dart'
     show MagicStarter, MagicStarterAuthController, MagicStarterTeamController;
 
@@ -247,55 +249,85 @@ class _MobileTeamSwitcher extends StatelessWidget {
   }
 }
 
+/// Resolves the live notification feed, tolerating an unconfigured container
+/// the same way [_authStateNotifier] does (e.g. a widget test that renders
+/// the shell without booting a Magic app / binding the `notifications`
+/// service). Falls back to a stream that never emits so the bell renders
+/// [NotificationCenter]'s own empty state instead of crashing.
+Stream<List<DatabaseNotification>> _notificationsStream() {
+  try {
+    return Notify.notifications();
+  } catch (e) {
+    debugPrint(
+      'MobileTopBar: notification stream unavailable; showing an empty feed '
+      '($e).',
+    );
+    return const Stream.empty();
+  }
+}
+
 /// The notification bell in the mobile top bar (right). Opens the
-/// [NotificationCenter] panel; the badge reflects the seed unread count.
+/// [NotificationCenter] panel; both the badge count and the panel content
+/// subscribe to the live feed fed by `Notify`'s polling (started/stopped on
+/// login/logout in `AppServiceProvider`).
 class _MobileBell extends StatelessWidget {
   const _MobileBell();
 
   @override
   Widget build(BuildContext context) {
-    final int unread = kSampleNotifications.where((n) => !n.read).length;
+    return StreamBuilder<List<DatabaseNotification>>(
+      stream: _notificationsStream(),
+      initialData: const [],
+      builder: (context, snapshot) {
+        final List<NotificationItem> items =
+            notificationItemsFromDatabaseNotifications(
+              snapshot.data ?? const [],
+            );
+        final int unread = items.where((n) => !n.read).length;
 
-    return WPopover(
-      alignment: PopoverAlignment.bottomRight,
-      offset: const Offset(0, 6),
-      maxHeight: 480,
-      className: 'w-80 max-w-full rounded-lg shadow-xl',
-      triggerBuilder: (context, isOpen, isHovering) => WDiv(
-        className: '''
-          w-9 h-9 shrink-0 rounded-md flex items-center justify-center
-          text-fg-muted hover:bg-surface-container hover:text-fg
-        ''',
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            WIcon(Icons.notifications_none, className: 'text-[18px]'),
-            if (unread > 0)
-              Positioned(
-                top: -4,
-                right: -4,
-                child: WDiv(
-                  className: '''
-                    min-w-[16px] h-4 px-1 rounded-full bg-down
-                    flex items-center justify-center
-                  ''',
-                  child: WText(
-                    '$unread',
-                    className: 'text-[10px] font-semibold text-white',
+        return WPopover(
+          alignment: PopoverAlignment.bottomRight,
+          offset: const Offset(0, 6),
+          maxHeight: 480,
+          className: 'w-80 max-w-full rounded-lg shadow-xl',
+          triggerBuilder: (context, isOpen, isHovering) => WDiv(
+            className: '''
+              w-9 h-9 shrink-0 rounded-md flex items-center justify-center
+              text-fg-muted hover:bg-surface-container hover:text-fg
+            ''',
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                WIcon(Icons.notifications_none, className: 'text-[18px]'),
+                if (unread > 0)
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: WDiv(
+                      className: '''
+                        min-w-[16px] h-4 px-1 rounded-full bg-down
+                        flex items-center justify-center
+                      ''',
+                      child: WText(
+                        '$unread',
+                        className: 'text-[10px] font-semibold text-white',
+                      ),
+                    ),
                   ),
-                ),
-              ),
-          ],
-        ),
-      ),
-      contentBuilder: (context, close) => SingleChildScrollView(
-        child: NotificationCenter(
-          onClose: close,
-          onItemTap: (item) => MagicRoute.to(item.to),
-          onSettings: () => MagicRoute.to('/settings'),
-        ),
-      ),
+              ],
+            ),
+          ),
+          contentBuilder: (context, close) => SingleChildScrollView(
+            child: NotificationCenter(
+              items: items,
+              onClose: close,
+              onItemTap: (item) => MagicRoute.to(item.to),
+              onSettings: () => MagicRoute.to('/settings'),
+            ),
+          ),
+        );
+      },
     );
   }
 }

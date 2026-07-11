@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
 
 import '../../../app/mocks/status.dart';
 import '../status_dot/index.dart';
@@ -131,6 +132,68 @@ const List<NotificationItem> kSampleNotifications = [
     read: true,
   ),
 ];
+
+/// The `data.type` value the backend emits when an incident opens.
+const String _kIncidentOpenedType = 'incident_opened';
+
+/// The `data.type` value the backend emits when an incident resolves.
+const String _kIncidentResolvedType = 'incident_resolved';
+
+/// Maps a polled [DatabaseNotification] to a [NotificationItem].
+///
+/// Reads the monitoring event kind from `data.type`
+/// (`incident_opened`/`incident_resolved`, emitted by the backend
+/// notifications wired in earlier plan steps), not the notification's
+/// top-level `type` (a backend class name). An unrecognized `type` falls
+/// back to [AppNotificationKind.incident] instead of throwing: the feed must
+/// never crash on a payload shape it does not yet know about.
+NotificationItem notificationItemFromDatabaseNotification(
+  DatabaseNotification notification,
+) {
+  final String? eventType = notification.data['type'] as String?;
+  final AppNotificationKind kind = switch (eventType) {
+    _kIncidentOpenedType => AppNotificationKind.incident,
+    _kIncidentResolvedType => AppNotificationKind.resolved,
+    _ => AppNotificationKind.incident,
+  };
+
+  final String? incidentId = notification.data['incident_id']?.toString();
+  final String? monitorId = notification.data['monitor_id']?.toString();
+  final String to = incidentId != null
+      ? '/incidents/$incidentId'
+      : monitorId != null
+      ? '/monitors/$monitorId'
+      : '/settings/notifications';
+
+  return NotificationItem(
+    id: notification.id,
+    kind: kind,
+    title: notification.title,
+    detail: notification.body,
+    time: _relativeTime(notification.createdAt),
+    to: to,
+    read: notification.isRead,
+  );
+}
+
+/// Maps a polled notification list to feed items, preserving order.
+List<NotificationItem> notificationItemsFromDatabaseNotifications(
+  List<DatabaseNotification> notifications,
+) {
+  return notifications.map(notificationItemFromDatabaseNotification).toList();
+}
+
+/// Formats [time] as a short relative string (e.g. "14m ago", "2h ago"),
+/// mirroring the sample feed's format so the bells read the same whether
+/// they render mock or live data.
+String _relativeTime(DateTime time) {
+  final Duration elapsed = DateTime.now().difference(time);
+
+  if (elapsed.inMinutes < 1) return 'just now';
+  if (elapsed.inHours < 1) return '${elapsed.inMinutes}m ago';
+  if (elapsed.inDays < 1) return '${elapsed.inHours}h ago';
+  return '${elapsed.inDays}d ago';
+}
 
 /// **The In-App Notification Center**
 ///

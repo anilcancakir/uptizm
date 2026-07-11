@@ -1,4 +1,5 @@
 import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_starter/magic_starter.dart';
 import '../models/user.dart';
 import '../../ui/layouts/app_layout.dart';
@@ -16,6 +17,22 @@ class AppServiceProvider extends ServiceProvider {
     // Bind your services here (sync only — do not resolve other services).
     // Example:
     //   app.singleton('my_service', () => MyService());
+  }
+
+  /// Starts or stops notification polling to track [Auth]'s current state.
+  ///
+  /// Mirrors `MagicStarterAppLayout`'s lifecycle
+  /// (magic_starter/lib/src/ui/layouts/magic_starter_app_layout.dart:40-50):
+  /// `Auth.stateNotifier` bumps on login, logout, and restore, so this single
+  /// listener keeps polling in sync with auth state for the whole app
+  /// lifetime instead of being tied to a widget's mount/unmount. Both calls
+  /// are idempotent (see `Notify.startPolling`/`stopPolling` docs).
+  static void _syncPollingWithAuthState() {
+    if (Auth.check()) {
+      Notify.startPolling();
+    } else {
+      Notify.stopPolling();
+    }
   }
 
   @override
@@ -65,5 +82,11 @@ class AppServiceProvider extends ServiceProvider {
       'footer',
       (context) => const UptizmHubExtras(),
     );
+
+    // Notifications: start polling immediately if a session was restored on
+    // boot, then keep polling in lockstep with every future login/logout via
+    // `Auth.stateNotifier`.
+    _syncPollingWithAuthState();
+    Auth.stateNotifier.addListener(_syncPollingWithAuthState);
   }
 }

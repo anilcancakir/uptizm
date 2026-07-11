@@ -12,5 +12,7 @@ export 'notification_center.dart'
         NotificationCenter,
         NotificationItem,
         AppNotificationKind,
-        kSampleNotifications;
+        kSampleNotifications,
+        notificationItemFromDatabaseNotification,
+        notificationItemsFromDatabaseNotifications;
 export 'notification_center.recipe.dart';
