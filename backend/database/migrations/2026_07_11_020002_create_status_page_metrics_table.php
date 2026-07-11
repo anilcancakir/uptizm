@@ -17,7 +17,6 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('status_page_metrics', function (Blueprint $table): void {
-            MigrationHelper::primaryKey($table);
             MigrationHelper::foreignKey($table, 'status_page_id')
                 ->constrained('status_pages')
                 ->cascadeOnDelete();
@@ -29,7 +28,9 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->unique([
+            // Composite PK (no separate id column), matching status_page_monitors +
+            // incident_monitors: pivot rows attach via the query builder.
+            $table->primary([
                 'status_page_id',
                 'monitor_id',
                 'metric_key',
