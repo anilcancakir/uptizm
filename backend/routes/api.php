@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
+use App\Http\Controllers\Api\V1\StatusPageController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -133,4 +134,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.ai-suggestions.accept');
     Route::post('ai-suggestions/{suggestion}/dismiss', [AiSuggestionController::class, 'dismiss'])
         ->name('api.v1.ai-suggestions.dismiss');
+
+    // `StatusPage` binds its route key to `slug` for the public `/s/{slug}`
+    // surface, so the team-scoped admin routes below bind `{statusPage}` back
+    // to `id` explicitly.
+    Route::apiResource('status-pages', StatusPageController::class)
+        ->parameters(['status-pages' => 'statusPage:id']);
+    Route::match(['patch', 'put'], 'status-pages/{statusPage:id}/monitors/reorder', [
+        StatusPageController::class,
+        'reorderMonitors',
+    ])->name('api.v1.status-pages.monitors.reorder');
+    Route::post('status-pages/{statusPage:id}/monitors', [StatusPageController::class, 'attachMonitor'])
+        ->name('api.v1.status-pages.monitors.attach');
+    Route::delete('status-pages/{statusPage:id}/monitors/{monitor}', [StatusPageController::class, 'detachMonitor'])
+        ->name('api.v1.status-pages.monitors.detach');
 });
