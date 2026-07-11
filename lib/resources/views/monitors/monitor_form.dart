@@ -32,7 +32,7 @@ import '../../../ui/components/region_picker/region_picker.dart';
 /// ```dart
 /// MonitorForm(
 ///   submitLabel: trans('uptizm.monitors.form_submit_create'),
-///   onSubmit: () => _create(),
+///   onSubmit: (fields) => _create(fields),
 ///   onCancel: () => Navigator.of(context).pop(),
 /// )
 /// ```
@@ -78,8 +78,10 @@ class MonitorForm extends StatefulWidget {
   /// Label for the primary submit button (e.g. "Create monitor").
   final String submitLabel;
 
-  /// Called when the user taps the primary submit button.
-  final VoidCallback onSubmit;
+  /// Called when the user taps the primary submit button, with the field map
+  /// assembled by [_MonitorFormState.buildFields] (the backend request
+  /// shape). The caller decides whether that fires a create or a save.
+  final void Function(Map<String, dynamic> fields) onSubmit;
 
   /// Called when the user taps Cancel.
   final VoidCallback onCancel;
@@ -456,9 +458,63 @@ class _MonitorFormState extends State<MonitorForm> {
           onPressed: widget.onCancel,
           child: WText(trans('uptizm.monitors.form_cancel')),
         ),
-        MSButton(onPressed: widget.onSubmit, child: WText(widget.submitLabel)),
+        MSButton(
+          onPressed: () => widget.onSubmit(buildFields()),
+          child: WText(widget.submitLabel),
+        ),
       ],
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Field collector.
+  // ---------------------------------------------------------------------------
+
+  /// Assembles the backend request field map from this state's fields.
+  ///
+  /// The keys match the snake_case wire shape `StoreMonitorRequest` /
+  /// `UpdateMonitorRequest` validate on the backend: `check_interval_sec` is
+  /// converted from the interval token via [kIntervalSeconds] and
+  /// `timeout_sec` is parsed straight from [_timeoutMs] (the field is
+  /// labelled "Timeout (seconds)"; despite its variable name it already holds
+  /// seconds, not milliseconds). Fields with no dedicated UI control yet
+  /// (`auth_config`, `expected_status_code`, `tags`, the status-page and SSL
+  /// toggles) fall back to sensible request-shape defaults rather than being
+  /// omitted, so a create/save always posts a complete, valid payload.
+  Map<String, dynamic> buildFields() {
+    return {
+      'name': _name,
+      'url': _url,
+      'type': _type,
+      'method': _method,
+      'request_headers': _headersToMap(_headers),
+      'request_body': _body,
+      'auth_config': null,
+      'expected_status_code': null,
+      'check_interval_sec': kIntervalSeconds[_intervalValue] ?? 30,
+      'timeout_sec': int.tryParse(_timeoutMs) ?? 30,
+      'regions': _regions,
+      'tags': const <String>[],
+      'slo_target': _slo.isEmpty ? null : double.tryParse(_slo),
+      'show_on_status_page': true,
+      'only_show_if_degraded': false,
+      'alert_on_down': _notifyDown,
+      'alert_on_recover': _notifyRecover,
+      'ssl_tracking': _url.startsWith('https://'),
+      'ssl_alert_threshold_days': 14,
+    };
+  }
+
+  /// Converts the ordered [KeyValueRow] list into a plain map, matching the
+  /// `request_headers` wire shape. A row with a blank key (a trailing empty
+  /// row left by the editor) is skipped rather than sent as `"": "value"`.
+  Map<String, String> _headersToMap(List<KeyValueRow> rows) {
+    final Map<String, String> map = {};
+    for (final KeyValueRow row in rows) {
+      if (row.key.isEmpty) continue;
+      map[row.key] = row.value;
+    }
+    return map;
   }
 
   // ---------------------------------------------------------------------------

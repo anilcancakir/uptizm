@@ -65,9 +65,11 @@ enum _AiStep {
 /// utilities appear only on leaf containers. The footer buttons inside the
 /// embedded form are auto-width (never `w-full` inside a `flex-row`).
 ///
-/// This is a mock screen: nothing persists. Both submit and cancel navigate to
-/// the monitors list (the React `done()` lands on a mock detail, but this app's
-/// create flow returns to the list — both modes route to `/monitors`).
+/// Submit fires the real `POST /monitors` with the form's full field map
+/// (via [MonitorController.create]) and then returns to the monitors list;
+/// Cancel returns to the monitors list WITHOUT creating anything (the React
+/// `done()` lands on a mock detail, but this app's create flow returns to the
+/// list — both modes route to `/monitors`).
 ///
 /// ### Example
 /// ```dart
@@ -149,10 +151,19 @@ class _MonitorCreateViewState
     });
   }
 
-  /// Leaves the create flow for the monitors list (React `done`), delegating to
-  /// the controller's [MonitorController.create] mock action.
+  /// Leaves the create flow for the monitors list WITHOUT creating anything
+  /// (Cancel). Delegates to [MonitorController.create] with no fields, which
+  /// stays navigation-only (see the controller's class docblock).
   void _done() {
     controller.create();
+  }
+
+  /// Creates the monitor with the form's [fields] map (React `done` on
+  /// submit, but wired to the real `POST /monitors` instead of a mock).
+  /// [MonitorController.create] navigates to the monitors list once the
+  /// request settles.
+  void _submit(Map<String, dynamic> fields) {
+    controller.create(fields);
   }
 
   @override
@@ -223,7 +234,7 @@ class _MonitorCreateViewState
     return MonitorForm(
       key: const ValueKey('monitor-form-manual'),
       submitLabel: trans('uptizm.monitors.form_submit_create'),
-      onSubmit: _done,
+      onSubmit: _submit,
       onCancel: _done,
     );
   }
@@ -344,7 +355,7 @@ class _MonitorCreateViewState
       ],
       startAdvanced: true,
       submitLabel: trans('uptizm.monitors.form_submit_create'),
-      onSubmit: _done,
+      onSubmit: _submit,
       onCancel: _done,
       banner: _buildReviewBanner(),
     );

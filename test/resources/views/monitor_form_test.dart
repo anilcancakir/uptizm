@@ -149,7 +149,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: () {},
+            onSubmit: (_) {},
             onCancel: () {},
           ),
         ),
@@ -168,7 +168,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: () {},
+            onSubmit: (_) {},
             onCancel: () {},
           ),
         ),
@@ -198,7 +198,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: () {},
+            onSubmit: (_) {},
             onCancel: () {},
           ),
           size: const Size(1200, 5000),
@@ -253,7 +253,7 @@ void main() {
             MonitorForm(
               startAdvanced: true,
               submitLabel: trans('uptizm.monitors.form_submit_create'),
-              onSubmit: () {},
+              onSubmit: (_) {},
               onCancel: () {},
             ),
             size: const Size(1200, 5000),
@@ -286,7 +286,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: () {},
+            onSubmit: (_) {},
             onCancel: () {},
           ),
         ),
@@ -309,7 +309,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: () {},
+            onSubmit: (_) {},
             onCancel: () {},
           ),
         ),
@@ -331,7 +331,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: () {},
+            onSubmit: (_) {},
             onCancel: () {},
           ),
         ),

@@ -19,8 +19,10 @@ import 'monitor_form.dart';
 /// the monitor's [MonitorSummary.name], [MonitorSummary.url], and
 /// [MonitorSummary.regions]. All other fields use [MonitorForm]'s defaults
 /// (matching the React `MonitorFormPage.tsx` lines 33-40, which passes only
-/// `initialName`, `initialUrl`, and `initialRegions`). Both "Save changes" and
-/// "Cancel" navigate to the monitor detail route (`/monitors/<id>`), falling
+/// `initialName`, `initialUrl`, and `initialRegions`). "Save changes" fires
+/// [MonitorController.save] with the form's full field map (a `PUT` to the
+/// monitor's resource route); "Cancel" navigates to the monitor detail route
+/// WITHOUT writing anything. Both land on the monitor detail route, falling
 /// back to `/monitors` when [id] is null.
 ///
 /// Layout discipline mirrors [MonitorDetailView]: a plain Flutter [Column]
@@ -87,15 +89,18 @@ class _MonitorEditViewState
           //    fixture (React lines 33-40). Interval and SLO are NOT passed
           //    (intervalLabel like '60s' has no 1:1 option value; React does
           //    not pass them either). Everything else uses MonitorForm's
-          //    defaults. Both submit and cancel return to the detail route via
-          //    the controller's save action.
+          //    defaults. Submit fires the real PUT with the form's field map
+          //    (controller.save already navigates to the detail route on
+          //    completion); Cancel navigates there directly WITHOUT writing —
+          //    it must never fire the same save call as Submit, or a stale
+          //    field would silently persist on cancel.
           MonitorForm(
             initialName: monitor.name,
             initialUrl: monitor.url,
             initialRegions: monitor.regions,
             submitLabel: trans('uptizm.monitors.form_submit_save'),
-            onSubmit: () => controller.save(monitor.id),
-            onCancel: () => controller.save(monitor.id),
+            onSubmit: (fields) => controller.save(monitor.id, fields),
+            onCancel: () => MagicRoute.to('/monitors/${monitor.id}'),
           ),
         ],
       ),

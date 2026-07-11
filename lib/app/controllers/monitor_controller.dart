@@ -14,16 +14,11 @@ import '../mocks/monitors.dart';
 /// need to await a request; [reload] and the background per-monitor refresh
 /// inside [monitorById] keep that cache warm.
 ///
-/// [create] and [save] stay call-compatible with the current views: neither
-/// `MonitorCreateView` nor `MonitorEditView` yet threads its local
-/// [MonitorForm] field state back through `onSubmit`/`onCancel` (both
-/// callbacks are still bare `VoidCallback`s, and `MonitorEditView` wires the
-/// SAME `save(monitor.id)` call to both Submit and Cancel). Firing a `PUT`
-/// unconditionally from that callback would silently persist stale field
-/// values on Cancel, so both methods accept an OPTIONAL `fields` map: called
-/// with no arguments (today's call sites) they stay navigation-only exactly
-/// as before; once a future step threads real form values through, passing
-/// `fields` fires the real `POST`/`PUT`.
+/// [create] and [save] both accept an OPTIONAL `fields` map: `MonitorForm`'s
+/// `onSubmit` threads its `buildFields()` result through so Submit fires the
+/// real `POST`/`PUT`, while Cancel calls `create()`/`save(id)` with no
+/// arguments and stays navigation-only — firing the same write on Cancel as
+/// on Submit would silently persist stale field values.
 class MonitorController extends MagicController {
   /// Singleton accessor, registering the controller on first access.
   static MonitorController get instance =>
