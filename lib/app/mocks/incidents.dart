@@ -56,6 +56,18 @@ IncidentImpact _impactFromWire(String? raw) {
   };
 }
 
+/// Decodes the backend `ai.confidence` wire value into an [AiConfidence],
+/// falling back to [AiConfidence.low] on an unknown value so an unrecognized
+/// confidence string never crashes the inbox and instead reads as the most
+/// conservative tier.
+AiConfidence _aiConfidenceFromWire(String? raw) {
+  if (raw == null) return AiConfidence.low;
+  return AiConfidence.values.firstWhere(
+    (v) => v.name == raw,
+    orElse: () => AiConfidence.low,
+  );
+}
+
 /// Decodes the backend `actor` wire value into a [TimelineActor], falling
 /// back to [TimelineActor.system] on an unknown value.
 TimelineActor _timelineActorFromWire(String? raw) {
@@ -466,9 +478,12 @@ class IncidentSummary {
   /// each entry's `monitor_id` against `primary_monitor_id` (the key the
   /// backend `IncidentResource` emits), falling back to the first affected
   /// monitor, and reads that entry's `name` for the header meta line.
-  /// [assignee], [acknowledged], and [ai] have no counterpart in the
-  /// resource shape above and stay `null` on a backend-decoded instance;
-  /// they are wired in separately (assignment/AI-analysis endpoints).
+  /// [assignee] and [acknowledged] have no counterpart in the resource shape
+  /// above and stay `null` on a backend-decoded instance; they are wired in
+  /// separately (an assignment endpoint). [ai] decodes when the map carries
+  /// an `ai` sub-object (the `GET /dashboard/ai-inbox` shape); the evidence,
+  /// suggested-action, and similar-incident lists have no counterpart there
+  /// yet and stay empty.
   factory IncidentSummary.fromMap(Map<String, dynamic> map) {
     final Object? rawMonitors = map['monitors'];
     final List<Map<String, dynamic>> monitorMaps = rawMonitors is List
@@ -501,6 +516,19 @@ class IncidentSummary {
         ? DateTime.tryParse(map['resolved_at'] as String)
         : null;
 
+    final Object? rawAi = map['ai'];
+    final IncidentAi? ai = rawAi is Map
+        ? IncidentAi(
+            trigger: (rawAi['trigger'] as String?) ?? '',
+            confidence: _aiConfidenceFromWire(rawAi['confidence'] as String?),
+            tldr: (rawAi['tldr'] as String?) ?? '',
+            evidenceFor: const [],
+            evidenceAgainst: const [],
+            suggestedActions: const [],
+            similarIncidents: const [],
+          )
+        : null;
+
     return IncidentSummary(
       id: map['id']?.toString() ?? '',
       title: (map['title'] as String?) ?? '',
@@ -515,6 +543,7 @@ class IncidentSummary {
       monitorName: (primaryMonitorMap?['name'] as String?) ?? '',
       affectedMonitors: affectedMonitors,
       timeline: timeline,
+      ai: ai,
     );
   }
 }

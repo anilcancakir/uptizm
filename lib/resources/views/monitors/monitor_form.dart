@@ -158,6 +158,10 @@ class _MonitorFormState extends State<MonitorForm> {
   /// Selected SLO target string (React `slo`).
   late String _slo;
 
+  /// AI-assist mode token (`off` / `suggest`). Defaults to `off`; there is no
+  /// React source counterpart, this is a new uptizm-only control.
+  String _aiMode = 'off';
+
   /// The probe regions projected into the [RegionPicker]'s [Region] shape,
   /// computed once from the static [allRegions] fixture.
   late final List<Region> _regionOptions = probeRegionsToRegions(allRegions);
@@ -204,6 +208,7 @@ class _MonitorFormState extends State<MonitorForm> {
               _buildIntervalField(),
               _buildRegionsField(),
               _buildSloField(),
+              _buildAiModeField(),
               _buildNotificationsSection(),
               _buildAdvancedToggle(),
               if (_advanced) ..._buildAdvancedSection(),
@@ -325,6 +330,24 @@ class _MonitorFormState extends State<MonitorForm> {
         onChange: (value) {
           if (value != null) setState(() => _slo = value);
         },
+      ),
+    );
+  }
+
+  /// Builds the AI-assist mode segmented control.
+  ///
+  /// `Off` keeps the monitor fully manual; `Suggest` lets Uptizm AI post
+  /// suggested incidents to the dashboard inbox for an operator to approve or
+  /// dismiss (graduated trust: nothing is ever auto-created). Fully
+  /// autonomous `Auto` mode is deliberately not offered here.
+  Widget _buildAiModeField() {
+    return MSFormField(
+      label: trans('uptizm.monitors.form_ai_mode_label'),
+      hint: trans('uptizm.monitors.form_ai_mode_hint'),
+      child: MSSegmentedControl<String>(
+        options: kAiModes.map((o) => o.label).toList(),
+        selectedIndex: _indexOfValue(kAiModes, _aiMode),
+        onChanged: (index) => setState(() => _aiMode = kAiModes[index].value),
       ),
     );
   }
@@ -496,6 +519,7 @@ class _MonitorFormState extends State<MonitorForm> {
       'regions': _regions,
       'tags': const <String>[],
       'slo_target': _slo.isEmpty ? null : double.tryParse(_slo),
+      'ai_mode': _aiMode,
       'show_on_status_page': true,
       'only_show_if_degraded': false,
       'alert_on_down': _notifyDown,

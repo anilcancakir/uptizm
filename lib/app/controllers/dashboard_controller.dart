@@ -192,6 +192,71 @@ class DashboardController extends MagicController {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Business actions
+  // ---------------------------------------------------------------------------
+
+  /// Accepts the AI-suggested incident [suggestionId] via
+  /// `POST /ai-suggestions/:id/accept`, then navigates to the created
+  /// incident's detail page. No-op when the request fails (surfaces an error
+  /// log and leaves the inbox untouched instead of throwing out of the tap
+  /// handler).
+  Future<void> acceptSuggestion(String suggestionId) async {
+    try {
+      final response = await Http.post(
+        '/ai-suggestions/$suggestionId/accept',
+      );
+      if (!response.successful) {
+        Log.error(
+          '[DashboardController.acceptSuggestion] $suggestionId: '
+          '${response.errorMessage}',
+        );
+        return;
+      }
+
+      final Object? data = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      final String? incidentId = data is Map<String, dynamic>
+          ? data['id']?.toString()
+          : null;
+
+      await _reloadAiInbox();
+      if (incidentId != null) {
+        MagicRoute.to('/incidents/$incidentId');
+      }
+    } catch (error) {
+      Log.error(
+        '[DashboardController.acceptSuggestion] $suggestionId failed: $error',
+      );
+    }
+  }
+
+  /// Dismisses the AI-suggested incident [suggestionId] via
+  /// `POST /ai-suggestions/:id/dismiss`, then refreshes the inbox so the
+  /// dismissed suggestion drops out of [aiSuggestions]. No-op when the
+  /// request fails.
+  Future<void> dismissSuggestion(String suggestionId) async {
+    try {
+      final response = await Http.post(
+        '/ai-suggestions/$suggestionId/dismiss',
+      );
+      if (!response.successful) {
+        Log.error(
+          '[DashboardController.dismissSuggestion] $suggestionId: '
+          '${response.errorMessage}',
+        );
+        return;
+      }
+
+      await _reloadAiInbox();
+    } catch (error) {
+      Log.error(
+        '[DashboardController.dismissSuggestion] $suggestionId failed: $error',
+      );
+    }
+  }
+
   // Exposed for the KPI row's open-incidents count, sourced from
   // `dashboard/stats` (`open_incidents`) rather than re-deriving it from
   // `activeIncidents.length`, since the two can diverge (stats counts the

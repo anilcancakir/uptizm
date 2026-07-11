@@ -292,11 +292,8 @@ class _DashboardViewState
               for (final suggestion in suggestions)
                 AiInboxItem(
                   incident: suggestion,
-                  onApprove: () => MagicRoute.to(
-                    '/incidents/new',
-                    query: {'from': suggestion.id},
-                  ),
-                  onDismiss: () {},
+                  onApprove: () => controller.acceptSuggestion(suggestion.id),
+                  onDismiss: () => controller.dismissSuggestion(suggestion.id),
                 ),
             ],
           ),

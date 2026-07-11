@@ -205,5 +205,72 @@ void main() {
       expect(incident.impact, IncidentImpact.info);
       expect(incident.signalSource, SignalSource.manual);
     });
+
+    test('decodes a backend ai map into a non-null IncidentAi', () {
+      final IncidentSummary incident = IncidentSummary.fromMap({
+        'id': 'ai-1',
+        'title': 'Anomaly on payments',
+        'lifecycle': 'detected',
+        'ai_owned': true,
+        'primary_monitor_id': 'payments',
+        'started_at': '2026-07-11T12:00:00Z',
+        'monitors': [
+          {
+            'monitor_id': 'payments',
+            'name': 'Payments API',
+            'component_status_at_start': 'degraded',
+            'component_status_current': 'degraded',
+          },
+        ],
+        'ai': {
+          'trigger': 'AI anomaly',
+          'confidence': 'high',
+          'tldr': 'Latency spike correlates with a deploy 6 minutes ago.',
+        },
+      });
+
+      expect(incident.monitorName, 'Payments API');
+      expect(incident.ai, isNotNull);
+      expect(incident.ai!.trigger, 'AI anomaly');
+      expect(incident.ai!.confidence, AiConfidence.high);
+      expect(
+        incident.ai!.tldr,
+        'Latency spike correlates with a deploy 6 minutes ago.',
+      );
+      expect(incident.ai!.evidenceFor, isEmpty);
+      expect(incident.ai!.evidenceAgainst, isEmpty);
+      expect(incident.ai!.suggestedActions, isEmpty);
+      expect(incident.ai!.similarIncidents, isEmpty);
+    });
+
+    test('unknown ai confidence wire value falls back to low', () {
+      final IncidentSummary incident = IncidentSummary.fromMap({
+        'id': 'ai-2',
+        'title': 'Anomaly with unrecognized confidence',
+        'lifecycle': 'detected',
+        'started_at': '2026-07-11T12:00:00Z',
+        'monitors': const [],
+        'ai': {
+          'trigger': 'AI anomaly',
+          'confidence': 'not_a_confidence',
+          'tldr': 'Unclear signal.',
+        },
+      });
+
+      expect(incident.ai, isNotNull);
+      expect(incident.ai!.confidence, AiConfidence.low);
+    });
+
+    test('leaves ai null when the map carries no ai sub-object', () {
+      final IncidentSummary incident = IncidentSummary.fromMap({
+        'id': 'no-ai',
+        'title': 'No AI analysis attached',
+        'lifecycle': 'detected',
+        'started_at': '2026-07-11T12:00:00Z',
+        'monitors': const [],
+      });
+
+      expect(incident.ai, isNull);
+    });
   });
 }

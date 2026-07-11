@@ -379,6 +379,8 @@
       "form_regions_hint": "Probe from each selected region.",
       "form_slo_label": "Uptime SLO target",
       "form_slo_hint": "Sets the error budget Uptizm tracks on the monitor's detail page.",
+      "form_ai_mode_label": "AI assist",
+      "form_ai_mode_hint": "Suggest mode posts detected anomalies to the dashboard inbox for you to approve or dismiss; nothing is ever created automatically.",
       "form_notifications_title": "Notifications",
       "form_notifications_hint": "Who gets alerted about this monitor.",
       "form_alert_down": "Alert when this monitor goes down",

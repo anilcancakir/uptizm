@@ -60,6 +60,15 @@ const List<MetricOption> kSloTargets = [
   MetricOption(label: '99.99% · ~4m downtime / month', value: '99.99'),
 ];
 
+/// AI-assist mode options for the monitor form's `ai_mode` control.
+///
+/// Only `off`/`suggest` ship; `auto` (fully autonomous incident creation) is
+/// deferred, so it is deliberately absent from this list.
+const List<MetricOption> kAiModes = [
+  MetricOption(label: 'Off', value: 'off'),
+  MetricOption(label: 'Suggest', value: 'suggest'),
+];
+
 // ---------------------------------------------------------------------------
 // AI analyze-step strings and suggested metric seeds.
 // Matches ANALYZE_STEPS and aiMetrics in MonitorCreatePage.tsx.
