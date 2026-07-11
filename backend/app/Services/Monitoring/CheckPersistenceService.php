@@ -4,19 +4,12 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
-use App\Events\IncidentBroadcast;
-use App\Events\MonitorStatusChanged;
-use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetricValue;
-use App\Notifications\IncidentOpened;
-use App\Notifications\IncidentResolved;
-use App\Services\StatusPages\StatusPageCache;
 use App\Support\Monitoring\CheckResult;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
 /**
@@ -59,7 +52,7 @@ class CheckPersistenceService
     public function __construct(
         protected ThresholdEvaluator $evaluator,
         protected MetricExtractor $extractor,
-        protected StatusPageCache $statusPageCache,
+        protected IncidentDispatcher $incidentDispatcher,
     ) {}
 
     /**
@@ -133,78 +126,11 @@ class CheckPersistenceService
             // 4. Dispatch incident notifications OFF-LOCK: the monitor lock is
             //    already released by the time the closure returns, so a queued
             //    send never happens while the per-monitor critical section is
-            //    held.
-            $this->dispatchIncidentNotifications($monitor, $outcome);
+            //    held. The dispatcher is shared with the manual write path so
+            //    both routes fire the same side effects in the same order.
+            $this->incidentDispatcher->dispatch($monitor, $outcome);
         } finally {
             $payloadLock->release();
-        }
-    }
-
-    /**
-     * Dispatch the off-lock side effects of a completed evaluation: the incident
-     * lifecycle notifications (each gated on the monitor's matching alert flag),
-     * the live-dashboard broadcasts (UNCONDITIONAL on the alert flags), and the
-     * status-page cache bust.
-     *
-     * Both notifications are `ShouldQueue`, so a send enqueues rather than
-     * blocks; the alert flag is the gate, so a monitor opted out of down or
-     * recovery alerts stays silent. The broadcasts are a live UI refresh, not a
-     * page, so they ignore the `alert_on_*` gate entirely. Called only AFTER
-     * {@see self::withMonitorLock()} returns so nothing dispatches inside the
-     * per-monitor lock. Both events are `ShouldDispatchAfterCommit`.
-     *
-     * @param  array{
-     *     opened: ?Incident,
-     *     resolved: ?Incident,
-     *     status_change: array{from: MonitorStatus, to: MonitorStatus}|null
-     * }  $outcome
-     */
-    protected function dispatchIncidentNotifications(Monitor $monitor, array $outcome): void
-    {
-        // 1. A threshold open pages the team, gated on the down-alert flag.
-        if ($outcome['opened'] !== null && $monitor->alert_on_down) {
-            Notification::send($outcome['opened']->team->users, new IncidentOpened($outcome['opened']));
-        }
-
-        // 2. A recovery clears the page, gated on the recover-alert flag.
-        if ($outcome['resolved'] !== null && $monitor->alert_on_recover) {
-            Notification::send($outcome['resolved']->team->users, new IncidentResolved($outcome['resolved']));
-        }
-
-        // 3. Broadcast the incident lifecycle to the team's live dashboard.
-        //    Unlike the notifications above, these are UNCONDITIONAL on the alert
-        //    flags: a broadcast is a passive UI refresh, not a page, so the
-        //    alert_on_* gate applies only to the notifications.
-        if ($outcome['opened'] !== null) {
-            event(new IncidentBroadcast($outcome['opened'], 'opened'));
-        }
-
-        if ($outcome['resolved'] !== null) {
-            event(new IncidentBroadcast($outcome['resolved'], 'resolved'));
-        }
-
-        // 4. Broadcast the monitor health flip to the same live dashboard, only
-        //    when the in-lock read recorded a real transition. The guard (prior
-        //    non-null, changed, not paused) already ran inside the transaction,
-        //    so a set `status_change` is always a broadcastable flip. `$monitor`
-        //    was refreshed in place post-UPDATE, so the payload reads fresh
-        //    last_checked_at / last_response_ms.
-        if ($outcome['status_change'] !== null) {
-            event(new MonitorStatusChanged(
-                $monitor,
-                $outcome['status_change']['from'],
-                $outcome['status_change']['to'],
-            ));
-        }
-
-        // 5. Bust the public status-page cache off-lock whenever the lifecycle
-        //    changed. An open/resolve mutates the affected monitor's component
-        //    status, so every containing page's cached read model is now stale
-        //    and must be forgotten immediately, not after the 60s TTL. This is
-        //    wired at the pivot boundary (not an Incident observer), which fires
-        //    before monitors()->attach() and so cannot see the containing pages.
-        if ($outcome['opened'] !== null || $outcome['resolved'] !== null) {
-            $this->statusPageCache->invalidateForMonitors([$monitor->id]);
         }
     }
 
