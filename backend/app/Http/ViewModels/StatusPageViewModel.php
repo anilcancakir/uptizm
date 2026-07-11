@@ -58,6 +58,7 @@ readonly class StatusPageViewModel
         public string $overallLabel,
         public array $components,
         public array $incidents,
+        public string $generatedAt,
     ) {}
 
     /**
@@ -75,6 +76,7 @@ readonly class StatusPageViewModel
             'overallLabel' => $this->overallLabel,
             'components' => $this->components,
             'incidents' => $this->incidents,
+            'generatedAt' => $this->generatedAt,
         ];
     }
 
@@ -91,6 +93,7 @@ readonly class StatusPageViewModel
             overallLabel: $data['overallLabel'],
             components: $data['components'],
             incidents: $data['incidents'],
+            generatedAt: $data['generatedAt'],
         );
     }
 }

@@ -66,7 +66,14 @@ class StatusPageAssembler
             overallStatus: $overallStatus,
             overallLabel: $this->overallLabel($overallStatus),
             components: $components,
-            incidents: $this->buildIncidents($page),
+            // Scope incidents to the VISIBLE monitors only: an incident title
+            // embeds the monitor name ("{name} is down"), so pulling incidents
+            // for a hidden/paused component would leak its name even though its
+            // row is hidden from the page.
+            incidents: $this->buildIncidents($monitors->pluck('id')->all()),
+            // Assembly time travels in the cached array, so "updated Xm ago"
+            // reflects the age of the cached snapshot, not the render time.
+            generatedAt: CarbonImmutable::now()->toIso8601String(),
         );
     }
 
@@ -138,10 +145,8 @@ class StatusPageAssembler
      *     entries: array<int, array<string, mixed>>,
      * }>
      */
-    protected function buildIncidents(StatusPage $page): array
+    protected function buildIncidents(array $monitorIds): array
     {
-        $monitorIds = $page->monitors()->pluck('monitors.id')->all();
-
         if ($monitorIds === []) {
             return [];
         }
