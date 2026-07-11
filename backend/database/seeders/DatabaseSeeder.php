@@ -60,5 +60,9 @@ class DatabaseSeeder extends Seeder
         // 5. Seed a public status page for the demo team, behind the same
         //    local/testing guard (see StatusPageSeeder for the detail).
         $this->call(StatusPageSeeder::class);
+
+        // 6. Seed a pending AI suggestion so the AI inbox renders end-to-end,
+        //    behind the same local/testing guard (see AiSuggestionSeeder).
+        $this->call(AiSuggestionSeeder::class);
     }
 }
