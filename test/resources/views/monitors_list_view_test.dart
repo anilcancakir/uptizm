@@ -47,11 +47,17 @@ void main() {
     // Bind the MagicStarter manager so PageHeader / SegmentedControl / EmptyState
     // resolve their themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
-    // Register the controller MonitorsListView binds to. The view's own
-    // initState calls Magic.findOrPut(MonitorController.new) too, but the
-    // explicit registration here documents the dependency and is harmless
-    // (findOrPut is idempotent).
-    Magic.findOrPut(MonitorController.new);
+    // Bind an empty fake network so the wired controller resolves the `network`
+    // service. The view's onInit `reload()` and per-id `_refreshOne` fetch
+    // `GET /monitors[/:id]`; an empty fake returns `{}` (no `data` list), which
+    // the controller's decode treats as a no-op, leaving the seeded inventory
+    // below untouched instead of clobbering it or throwing.
+    Http.fake();
+    // Register the controller MonitorsListView binds to, then seed its cache
+    // with the fixture inventory. The list view reads `controller.monitors`
+    // synchronously in build(); onInit's async `reload()` degrades to a no-op
+    // under the empty fake, so the seed is what the view renders against.
+    MonitorController.instance.seedForTest(monitors);
 
     // Load the real monitors prose so trans() returns wrappable text.
     // Without this, long key tokens (e.g. 'uptizm.monitors.kpi_monitors_used')

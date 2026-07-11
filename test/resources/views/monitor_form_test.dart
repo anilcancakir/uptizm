@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:uptizm/app/controllers/monitor_controller.dart';
+import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_edit_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
@@ -89,6 +91,18 @@ void main() {
     // and other magic_starter widgets resolve their themes without a full app
     // boot, mirroring the pattern in monitor_detail_view_test.dart.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+
+    // Bind an empty fake network so the wired controller resolves the `network`
+    // service. MonitorEditView reads `controller.monitorById(id)` in build();
+    // its onInit `reload()` and per-id `_refreshOne` fetch `GET /monitors[/:id]`
+    // and the empty fake returns `{}` (no `data`), a decode no-op that leaves
+    // the seeded inventory below untouched instead of clobbering it or throwing.
+    Http.fake();
+    // Seed the controller cache so `monitorById('api')` resolves the fixture
+    // 'API gateway' monitor the edit-view tests assert against. The MonitorForm
+    // and MonitorCreateView groups do not read the controller, so this is inert
+    // for them.
+    MonitorController.instance.seedForTest(monitors);
 
     // Load short prose so trans() returns human labels instead of raw keys.
     Translator.instance.setLoader(_MonitorFormLangLoader());

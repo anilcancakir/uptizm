@@ -16,6 +16,48 @@ void main() {
     Magic.flush();
   });
 
+  /// Binds a fake network driver seeding `GET /incidents` with a canned
+  /// `{data: [...]}` envelope covering an active, a resolved, and a second
+  /// active incident. The controller decodes these via the wired `load`; the
+  /// assertions below exercise that wiring in place of the removed
+  /// fixture-equality checks.
+  void seedIncidents() {
+    Http.fake({
+      'incidents': Http.response({
+        'data': [
+          {
+            'id': 'inc-1',
+            'title': 'Checkout returning 503s',
+            'lifecycle': 'investigating',
+            'started_at': '2026-07-11T14:00:00Z',
+            'monitors': [
+              {'id': 'm1', 'name': 'Checkout'},
+            ],
+          },
+          {
+            'id': 'inc-2',
+            'title': 'EU packet loss',
+            'lifecycle': 'resolved',
+            'started_at': '2026-07-10T10:00:00Z',
+            'resolved_at': '2026-07-10T11:00:00Z',
+            'monitors': [
+              {'id': 'm2', 'name': 'API'},
+            ],
+          },
+          {
+            'id': 'inc-3',
+            'title': 'Latency spike',
+            'lifecycle': 'monitoring',
+            'started_at': '2026-07-11T09:00:00Z',
+            'monitors': [
+              {'id': 'm3', 'name': 'Web'},
+            ],
+          },
+        ],
+      }),
+    });
+  }
+
   test('IncidentController.instance registers and returns a singleton', () {
     final IncidentController first = IncidentController.instance;
     final IncidentController second = IncidentController.instance;
@@ -23,51 +65,85 @@ void main() {
     expect(identical(first, second), isTrue);
   });
 
-  test('incidents returns every fixture incident', () {
+  test('load decodes the incident list from GET /incidents', () async {
+    seedIncidents();
     final IncidentController controller = Magic.findOrPut(
       IncidentController.new,
     );
 
-    expect(controller.incidents, equals(incidents));
-  });
-
-  test('incidentById resolves a known id via the shared fixture lookup', () {
-    final IncidentController controller = Magic.findOrPut(
-      IncidentController.new,
-    );
+    await controller.load();
 
     expect(
-      controller.incidentById('checkout-503'),
-      equals(findIncident('checkout-503')),
+      controller.incidents.map((i) => i.id).toList(),
+      equals(['inc-1', 'inc-2', 'inc-3']),
     );
+    expect(controller.isSuccess, isTrue);
   });
 
-  test('incidentById returns null for an unknown id', () {
+  test('incidentById resolves a decoded incident from the loaded list', () async {
+    seedIncidents();
     final IncidentController controller = Magic.findOrPut(
       IncidentController.new,
     );
+    await controller.load();
+
+    final IncidentSummary? resolved = controller.incidentById('inc-2');
+
+    expect(resolved, isNotNull);
+    expect(resolved!.id, equals('inc-2'));
+    expect(resolved.lifecycle, equals(IncidentLifecycle.resolved));
+  });
+
+  test('incidentById returns null for an unknown id', () async {
+    seedIncidents();
+    final IncidentController controller = Magic.findOrPut(
+      IncidentController.new,
+    );
+    await controller.load();
 
     expect(controller.incidentById('does-not-exist'), isNull);
   });
 
+  test('activeIncidents derives the not-resolved subset of the loaded list', () async {
+    seedIncidents();
+    final IncidentController controller = Magic.findOrPut(
+      IncidentController.new,
+    );
+    await controller.load();
+
+    expect(
+      controller.activeIncidents.map((i) => i.id).toList(),
+      equals(['inc-1', 'inc-3']),
+    );
+  });
+
+  test('aiSuggestions stays empty until AI analysis is wired', () async {
+    seedIncidents();
+    final IncidentController controller = Magic.findOrPut(
+      IncidentController.new,
+    );
+    await controller.load();
+
+    expect(controller.aiSuggestions, isEmpty);
+  });
+
   test(
-    'activeIncidents delegates to the shared not-resolved fixture filter',
-    () {
+    'load degrades to an empty list and an error state when the network is '
+    'unavailable',
+    () async {
+      // No network bound: `Http.get` resolves an unregistered service; the
+      // defensive `load` must surface the controller's error state and never
+      // throw out of onInit/reload.
       final IncidentController controller = Magic.findOrPut(
         IncidentController.new,
       );
 
-      expect(controller.activeIncidents, equals(activeIncidents));
+      await controller.load();
+
+      expect(controller.incidents, isEmpty);
+      expect(controller.isError, isTrue);
     },
   );
-
-  test('aiSuggestions delegates to the shared ai-payload fixture filter', () {
-    final IncidentController controller = Magic.findOrPut(
-      IncidentController.new,
-    );
-
-    expect(controller.aiSuggestions, equals(aiSuggestions));
-  });
 
   // ---------------------------------------------------------------------------
   // Business actions (mock side-effects).

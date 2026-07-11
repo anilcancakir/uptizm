@@ -67,6 +67,113 @@ class _DashboardLangLoader implements TranslationLoader {
   }
 }
 
+/// The three non-resolved fixture incidents, as `IncidentResource`-shaped wire
+/// maps the [DashboardController] decodes for `GET /dashboard/active-incidents`.
+///
+/// Mirrors the active subset of the [incidents] fixture (checkout-503,
+/// api-latency, maintenance-db) so the rendered IncidentCard count matches the
+/// test's fixture-derived `activeCount`. Only the summary fields the card reads
+/// are supplied; assignee/ai/acknowledged have no wire counterpart and stay
+/// null on decode.
+final List<Map<String, dynamic>> _activeIncidentPayload = [
+  {
+    'id': 'checkout-503',
+    'title': 'Checkout service returning 503s across all regions',
+    'impact': 'major',
+    'severity': 'critical',
+    'signal_source': 'ai_anomaly',
+    'lifecycle': 'investigating',
+    'ai_owned': true,
+    'primary_monitor_id': 'checkout',
+    'started_at': '2026-07-09T14:32:00Z',
+    'monitors': [
+      {
+        'id': 'checkout',
+        'name': 'Checkout service',
+        'component_status_at_start': 'down',
+        'component_status_current': 'down',
+      },
+    ],
+  },
+  {
+    'id': 'api-latency',
+    'title': 'Elevated p95 latency on API gateway',
+    'impact': 'minor',
+    'severity': 'warn',
+    'signal_source': 'ai_anomaly',
+    'lifecycle': 'identified',
+    'ai_owned': true,
+    'primary_monitor_id': 'api',
+    'started_at': '2026-07-09T13:30:00Z',
+    'monitors': [
+      {
+        'id': 'api',
+        'name': 'API gateway',
+        'component_status_at_start': 'degraded',
+        'component_status_current': 'degraded',
+      },
+    ],
+  },
+  {
+    'id': 'maintenance-db',
+    'title': 'Scheduled database maintenance',
+    'impact': 'none',
+    'severity': 'info',
+    'signal_source': 'manual',
+    'lifecycle': 'monitoring',
+    'ai_owned': false,
+    'primary_monitor_id': 'api',
+    'started_at': '2026-07-09T14:00:00Z',
+    'monitors': [
+      {
+        'id': 'api',
+        'name': 'API gateway',
+        'component_status_at_start': 'info',
+        'component_status_current': 'info',
+      },
+      {
+        'id': 'checkout',
+        'name': 'Checkout service',
+        'component_status_at_start': 'info',
+        'component_status_current': 'info',
+      },
+    ],
+  },
+];
+
+/// The four fixture monitors, as `MonitorResource`-shaped wire maps the
+/// [DashboardController] decodes for `GET /dashboard/monitors-snapshot`.
+///
+/// `last_response_ms` is intentionally omitted so each [MonitorListRow] renders
+/// `—` for its latency and never collides with the `248ms` average-response KPI
+/// value the "same KPI values as the controller" test matches on.
+final List<Map<String, dynamic>> _monitorsSnapshotPayload = [
+  {
+    'id': 'marketing',
+    'name': 'Marketing site',
+    'url': 'https://uptizm.com',
+    'last_status': 'up',
+  },
+  {
+    'id': 'api',
+    'name': 'API gateway',
+    'url': 'https://api.uptizm.com/health',
+    'last_status': 'degraded',
+  },
+  {
+    'id': 'checkout',
+    'name': 'Checkout service',
+    'url': 'https://pay.uptizm.com',
+    'last_status': 'down',
+  },
+  {
+    'id': 'docs',
+    'name': 'Docs',
+    'url': 'https://docs.uptizm.com',
+    'status': 'paused',
+  },
+];
+
 void main() {
   setUp(() async {
     MagicApp.reset();
@@ -78,6 +185,40 @@ void main() {
     // Load the real dashboard prose so trans() returns wrappable text.
     Translator.instance.setLoader(_DashboardLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
+
+    // Seed the four dashboard aggregate endpoints the wired controller fetches
+    // on the view's onInit. The controller decodes each `{data: ...}` envelope
+    // and republishes, so the view renders against these fixtures once the
+    // async reload resolves (each test pumpAndSettles to let it land):
+    //  - stats: one monitor in each of the four status buckets (up/down/
+    //    degraded/paused, total 4) with a 248ms fleet average and 3 open
+    //    incidents, so `upCount / monitorCount` reads `1 / 4`, the avg-response
+    //    KPI reads `248ms`, and the open-incidents KPI reads `3`.
+    //  - active-incidents: the three non-resolved fixture incidents, so the
+    //    active-incidents grid renders exactly three IncidentCards.
+    //  - monitors-snapshot: the four fixture monitors (no `last_response_ms`,
+    //    so each row reads `—` and never collides with the `248ms` avg KPI).
+    //  - ai-inbox: empty (AI triage is deferred server-side), so the inbox
+    //    renders its empty state while the weekly-digest link still shows.
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 1,
+          'monitors_down': 1,
+          'monitors_degraded': 1,
+          'monitors_paused': 1,
+          'avg_response_ms': 248,
+          'open_incidents': 3,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({
+        'data': _activeIncidentPayload,
+      }),
+      'dashboard/monitors-snapshot': Http.response({
+        'data': _monitorsSnapshotPayload,
+      }),
+      'dashboard/ai-inbox': Http.response({'data': <dynamic>[]}),
+    });
 
     // Register the controller the view resolves in initState. DashboardView
     // registers itself too, but registering here mirrors the canonical
@@ -120,7 +261,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.byType(KpiStatCard), findsNWidgets(4));
   });
@@ -132,7 +273,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.byType(IncidentCard), findsWidgets);
   });
@@ -144,7 +285,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.byType(MonitorListRow), findsNWidgets(monitors.length));
   });
@@ -156,7 +297,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     final activeCount = incidents
         .where((i) => i.lifecycle != IncidentLifecycle.resolved)
@@ -171,7 +312,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.byType(PageContainer), findsOneWidget);
   });
@@ -183,7 +324,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     // The "Right now" banner ([AiInsight] tone: banner) sits between the header
     // and the KPI row, matching the React DashboardPage source. AiInsight
@@ -202,7 +343,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(
       find.text(trans('uptizm.dashboard.ai_inbox_weekly_digest')),
@@ -217,7 +358,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(wrap(const DashboardView()));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     final DashboardController controller = DashboardController.instance;
 

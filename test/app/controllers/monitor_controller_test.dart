@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/mocks/status.dart';
 
 void main() {
   setUp(() {
@@ -12,6 +13,11 @@ void main() {
     // (pause/resume/delete call Magic.success, which falls through to a
     // warning log when no navigator context is mounted, as here).
     Magic.singleton('log', () => LogManager());
+    // Bind a fake network driver so the wired controller resolves the
+    // `network` service. Individual tests override it with `Http.fake({...})`
+    // to seed a canned envelope, or call `Http.unfake()` to exercise the
+    // network-unavailable degradation path.
+    Http.fake();
     // Force-build the lazy GoRouter so MagicRoute.to (used by delete/create/
     // save) does not throw StateError('Router not initialized...'). In
     // production the router is built once at app boot before any controller
@@ -32,17 +38,66 @@ void main() {
     expect(identical(first, second), isTrue);
   });
 
-  test('monitors returns the full fixture list', () {
+  // The controller now sources its inventory from `GET /monitors`, so the
+  // former `controller.monitors == monitors` fixture-equality assertions are
+  // replaced by seeded-envelope decode + degradation assertions against the
+  // wired behavior.
+  test('reload decodes the monitor inventory from GET /monitors', () async {
+    Http.fake({
+      'monitors': Http.response({
+        'data': [
+          {
+            'id': 'api',
+            'name': 'API',
+            'url': 'https://api.uptizm.com',
+            'last_status': 'up',
+            'last_response_ms': 120,
+            'uptime': '99.98%',
+            'check_interval_sec': 30,
+            'regions': ['us-east', 'eu-west'],
+          },
+          {
+            'id': 'marketing',
+            'name': 'Marketing site',
+            'status': 'paused',
+          },
+        ],
+      }),
+    });
     final MonitorController controller = MonitorController.instance;
 
-    expect(controller.monitors, equals(monitors));
+    await controller.reload();
+
+    expect(
+      controller.monitors.map((MonitorSummary m) => m.id).toList(),
+      equals(['api', 'marketing']),
+    );
+    expect(controller.monitors.first.status, equals(StatusKey.up));
+    expect(controller.monitors.first.responseMs, equals(120));
+    expect(controller.monitors.last.status, equals(StatusKey.paused));
   });
 
-  test('monitorById resolves a known fixture id', () {
+  test('monitorById resolves a decoded monitor after a reload', () async {
+    Http.fake({
+      'monitors': Http.response({
+        'data': [
+          {
+            'id': 'api',
+            'name': 'API',
+            'url': 'https://api.uptizm.com',
+            'last_status': 'up',
+          },
+        ],
+      }),
+    });
     final MonitorController controller = MonitorController.instance;
-    final MonitorSummary expected = monitors.first;
+    await controller.reload();
 
-    expect(controller.monitorById(expected.id), equals(expected));
+    final MonitorSummary? resolved = controller.monitorById('api');
+
+    expect(resolved, isNotNull);
+    expect(resolved!.id, equals('api'));
+    expect(resolved.name, equals('API'));
   });
 
   test('monitorById returns null for an unknown or null id', () {
@@ -51,6 +106,20 @@ void main() {
     expect(controller.monitorById('does-not-exist'), isNull);
     expect(controller.monitorById(null), isNull);
   });
+
+  test(
+    'reload degrades to an empty inventory when the network is unavailable',
+    () async {
+      // Drop the faked network so `Http.get` resolves an unregistered service:
+      // the defensive `reload` must swallow it and never throw out of onInit.
+      Http.unfake();
+      final MonitorController controller = MonitorController.instance;
+
+      await controller.reload();
+
+      expect(controller.monitors, isEmpty);
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Business actions: toast + navigation side-effects only.

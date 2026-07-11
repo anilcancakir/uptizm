@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
+import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/index.dart';
@@ -81,11 +82,17 @@ void main() {
     // Bind the MagicStarter manager so Card / PageHeader / Tabs resolve their
     // themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
-    // Register the controller MonitorDetailView binds to. The view's own
-    // initState calls Magic.findOrPut(MonitorController.new) too, but the
-    // explicit registration here documents the dependency and is harmless
-    // (findOrPut is idempotent).
-    Magic.findOrPut(MonitorController.new);
+    // Bind an empty fake network so the wired controller resolves the `network`
+    // service. The view's onInit `reload()` and per-id `_refreshOne` fetch
+    // `GET /monitors[/:id]`; an empty fake returns `{}` (no `data`), which the
+    // controller's decode treats as a no-op, leaving the seeded inventory below
+    // untouched instead of clobbering it or throwing.
+    Http.fake();
+    // Register the controller MonitorDetailView binds to, then seed its cache
+    // with the fixture inventory. The view reads `controller.monitorById(id)`
+    // synchronously in build(); onInit's async `reload()` degrades to a no-op
+    // under the empty fake, so the seed is what `monitorById('api')` resolves.
+    MonitorController.instance.seedForTest(monitors);
 
     // Load short prose so trans() returns wrappable labels; without it the raw
     // 'uptizm.status.*' keys render as long unbreakable strings and overflow

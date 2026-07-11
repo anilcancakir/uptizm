@@ -4,7 +4,6 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/mocks/incidents.dart';
-import '../../../app/mocks/monitors.dart';
 import '../../../ui/components/ai_inbox_item/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/empty_state/index.dart';
@@ -15,8 +14,8 @@ import '../../../ui/layouts/page_container.dart';
 
 /// **The Dashboard home screen.**
 ///
-/// Composes the whole product at a glance from the design-lab mock fixtures
-/// via [DashboardController] (no network): a KPI summary row, the active
+/// Composes the whole product at a glance from the backend `api/v1` aggregate
+/// endpoints via [DashboardController]: a KPI summary row, the active
 /// incidents, a monitor snippet, and the AI inbox (anomalies awaiting the
 /// operator's call).
 ///
@@ -39,9 +38,9 @@ import '../../../ui/layouts/page_container.dart';
 ///   incidents therefore keep the full content width; the active incidents
 ///   still widen to two columns at `sm:` (single-column base).
 ///
-/// Reads all fixture-derived data through [DashboardController]; this is a
-/// mock screen with no mutable state and no actions, so the controller is
-/// data-only (accepted thin controller). The routed app shell wraps this
+/// Reads all data through [DashboardController]; this screen has no mutable
+/// state and no actions, so the controller is data-only (accepted thin
+/// controller). The routed app shell wraps this
 /// content (sidebar / bottom nav) at the routing layer; this widget only
 /// renders the page body inside the shared [PageContainer].
 ///
@@ -169,7 +168,7 @@ class _DashboardViewState
         ),
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_open_incidents'),
-          value: '${controller.activeIncidents.length}',
+          value: '${controller.openIncidentsCount}',
           delta: trans('uptizm.dashboard.kpi_delta_new', {'count': '1'}),
           hint: trans('uptizm.dashboard.kpi_hint_ai_detected', {
             'count': '${controller.aiActiveCount}',
@@ -217,7 +216,7 @@ class _DashboardViewState
         WDiv(
           className: 'flex flex-col gap-2',
           children: [
-            for (final monitor in monitors)
+            for (final monitor in controller.monitorsSnapshot)
               MonitorListRow(
                 monitor: monitor,
                 onTap: () => MagicRoute.to('/monitors/${monitor.id}'),

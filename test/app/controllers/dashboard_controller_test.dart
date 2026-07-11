@@ -2,9 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/dashboard_controller.dart';
-import 'package:uptizm/app/mocks/incidents.dart';
-import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/app/mocks/status.dart';
 
 void main() {
   setUp(() {
@@ -17,6 +14,77 @@ void main() {
     Magic.flush();
   });
 
+  /// Binds a fake network driver seeding every dashboard aggregate endpoint
+  /// with a canned `{data: ...}` envelope and returns the controller. The
+  /// controller decodes these via the wired `reload`; the assertions below
+  /// exercise that wiring in place of the removed fixture-derivation logic.
+  DashboardController seedDashboard() {
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 7,
+          'monitors_down': 2,
+          'monitors_degraded': 1,
+          'monitors_paused': 3,
+          'avg_response_ms': 214,
+          'open_incidents': 5,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({
+        'data': [
+          {
+            'id': 'inc-1',
+            'title': 'Checkout returning 503s',
+            'lifecycle': 'investigating',
+            'ai_owned': true,
+            'started_at': '2026-07-11T14:00:00Z',
+            'monitors': [
+              {
+                'id': 'm1',
+                'name': 'Checkout',
+                'component_status_at_start': 'down',
+                'component_status_current': 'down',
+              },
+            ],
+          },
+          {
+            'id': 'inc-2',
+            'title': 'Elevated latency in EU',
+            'lifecycle': 'monitoring',
+            'ai_owned': false,
+            'started_at': '2026-07-11T13:00:00Z',
+            'monitors': [
+              {
+                'id': 'm2',
+                'name': 'API',
+                'component_status_at_start': 'degraded',
+                'component_status_current': 'up',
+              },
+            ],
+          },
+        ],
+      }),
+      'dashboard/monitors-snapshot': Http.response({
+        'data': [
+          {'id': 'm1', 'name': 'API', 'last_status': 'up'},
+          {'id': 'm2', 'name': 'Web', 'last_status': 'down'},
+        ],
+      }),
+      'dashboard/ai-inbox': Http.response({
+        'data': [
+          {
+            'id': 'ai-1',
+            'title': 'Anomaly on payments',
+            'lifecycle': 'detected',
+            'ai_owned': true,
+            'started_at': '2026-07-11T12:00:00Z',
+          },
+        ],
+      }),
+    });
+    return DashboardController.instance;
+  }
+
   test('DashboardController.instance registers and returns a singleton', () {
     final DashboardController first = DashboardController.instance;
     final DashboardController second = DashboardController.instance;
@@ -24,64 +92,74 @@ void main() {
     expect(identical(first, second), isTrue);
   });
 
-  test('activeIncidents delegates to the shared not-resolved fixture filter', () {
-    final DashboardController controller = DashboardController.instance;
+  test('reload populates the KPI counters from GET /dashboard/stats', () async {
+    final DashboardController controller = seedDashboard();
 
-    final List<IncidentSummary> expected = incidents
-        .where((i) => i.lifecycle != IncidentLifecycle.resolved)
-        .toList();
+    await controller.reload();
 
-    expect(controller.activeIncidents, equals(expected));
+    expect(controller.upCount, equals(7));
+    expect(controller.downCount, equals(2));
+    // monitorCount sums every last-known status bucket (7 + 2 + 1 + 3).
+    expect(controller.monitorCount, equals(13));
+    expect(controller.avgResponseMs, equals(214));
+    expect(controller.openIncidentsCount, equals(5));
   });
 
-  test('aiSuggestions delegates to the shared ai-payload fixture filter', () {
-    final DashboardController controller = DashboardController.instance;
+  test(
+    'reload decodes the active incidents from GET /dashboard/active-incidents',
+    () async {
+      final DashboardController controller = seedDashboard();
 
-    final List<IncidentSummary> expected = activeIncidents
-        .where((i) => i.ai != null)
-        .toList();
+      await controller.reload();
 
-    expect(controller.aiSuggestions, equals(expected));
+      expect(
+        controller.activeIncidents.map((i) => i.id).toList(),
+        equals(['inc-1', 'inc-2']),
+      );
+      // aiActiveCount stays derived client-side from the decoded list.
+      expect(controller.aiActiveCount, equals(1));
+    },
+  );
+
+  test(
+    'reload decodes the monitor snapshot from GET /dashboard/monitors-snapshot',
+    () async {
+      final DashboardController controller = seedDashboard();
+
+      await controller.reload();
+
+      expect(
+        controller.monitorsSnapshot.map((m) => m.id).toList(),
+        equals(['m1', 'm2']),
+      );
+    },
+  );
+
+  test('reload decodes the AI inbox from GET /dashboard/ai-inbox', () async {
+    final DashboardController controller = seedDashboard();
+
+    await controller.reload();
+
+    expect(controller.aiSuggestions.map((i) => i.id).toList(), equals(['ai-1']));
   });
 
-  test('upCount and downCount count monitors by status', () {
-    final DashboardController controller = DashboardController.instance;
+  test(
+    'reload degrades to zeroed counters and empty lists when the network is '
+    'unavailable',
+    () async {
+      // No network bound: every aggregate fetch resolves an unregistered
+      // service; the defensive `reload` must swallow each and never throw.
+      final DashboardController controller = DashboardController.instance;
 
-    final int expectedUp = monitors.where((m) => m.status == StatusKey.up).length;
-    final int expectedDown =
-        monitors.where((m) => m.status == StatusKey.down).length;
+      await controller.reload();
 
-    expect(controller.upCount, equals(expectedUp));
-    expect(controller.downCount, equals(expectedDown));
-  });
-
-  test('monitorCount matches the fixture monitor list length', () {
-    final DashboardController controller = DashboardController.instance;
-
-    expect(controller.monitorCount, equals(monitors.length));
-  });
-
-  test('aiActiveCount counts ai-owned active incidents', () {
-    final DashboardController controller = DashboardController.instance;
-
-    final int expected = controller.activeIncidents
-        .where((i) => i.aiOwned)
-        .length;
-
-    expect(controller.aiActiveCount, equals(expected));
-  });
-
-  test('avgResponseMs averages the response times of monitors that report one', () {
-    final DashboardController controller = DashboardController.instance;
-
-    final List<MonitorSummary> responders =
-        monitors.where((m) => m.responseMs != null).toList();
-    final int expected = responders.isEmpty
-        ? 0
-        : (responders.fold<int>(0, (sum, m) => sum + m.responseMs!) /
-                responders.length)
-            .round();
-
-    expect(controller.avgResponseMs, equals(expected));
-  });
+      expect(controller.upCount, equals(0));
+      expect(controller.downCount, equals(0));
+      expect(controller.monitorCount, equals(0));
+      expect(controller.openIncidentsCount, equals(0));
+      expect(controller.activeIncidents, isEmpty);
+      expect(controller.monitorsSnapshot, isEmpty);
+      expect(controller.aiSuggestions, isEmpty);
+    },
+  );
 }

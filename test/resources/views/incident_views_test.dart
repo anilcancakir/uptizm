@@ -126,11 +126,21 @@ void main() {
     Translator.instance.setLoader(_IncidentViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
 
-    // Register the controller the views resolve in initState. Each view
-    // registers itself too, but registering here mirrors the canonical
-    // harness (Conventions -> Test mount discipline) and makes the
-    // dependency explicit for readers of this file.
-    Magic.findOrPut(IncidentController.new);
+    // Register, initialize, and seed the wired controller BEFORE any view
+    // mounts. The controller now sources its list from `GET /incidents`; under
+    // this bare (network-less) harness `onInit`'s load degrades to the error
+    // state, so we then seed `rxState` with the real fixtures directly. Marking
+    // the controller `initialized` here means each view skips its own
+    // onInit/load, so the seeded fixtures survive to first build (and the
+    // detail view's initState `_seedFrom` resolves the correct incident and
+    // lifecycle synchronously). This exercises the wired, rxState-backed
+    // controller in place of the removed const-fixture reads.
+    final IncidentController controller = Magic.findOrPut(
+      IncidentController.new,
+    );
+    controller.onInit();
+    await Future<void>.delayed(Duration.zero);
+    controller.setSuccess(List<IncidentSummary>.from(incidents));
   });
 
   tearDown(() {
