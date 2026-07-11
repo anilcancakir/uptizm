@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Enums\ComponentStatus;
+use App\Enums\HttpMethod;
 use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
@@ -131,8 +132,13 @@ class StatusPageSeeder extends Seeder
             'team_id' => $team->id,
             'name' => $attributes['name'],
             'type' => MonitorType::Http,
+            'method' => HttpMethod::Get,
             'url' => $attributes['url'],
             'check_interval_sec' => 60,
+            // Probe regions are required by the monitor write contract; a
+            // monitor seeded without them cannot be edited (the PUT 422s on the
+            // empty `regions` field). Use valid App\Enums\MonitorRegion values.
+            'regions' => ['us-east', 'eu-west', 'ap'],
             'show_on_status_page' => true,
             'last_status' => $attributes['last_status'],
             'last_checked_at' => now(),
