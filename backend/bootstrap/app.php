@@ -25,6 +25,18 @@ return Application::configure(basePath: dirname(__DIR__))
             Route::middleware('static')->group(base_path('routes/status.php'));
         },
     )
+    // Register the broadcasting auth route at `api/v1/broadcasting/auth` behind
+    // the Sanctum guard, NOT the default web/session/CSRF group. The Flutter
+    // Echo client dials `<base>/api/v1` + `/broadcasting/auth` (Dio concatenates
+    // baseUrl + path), so the prefix MUST be `api/v1` and the guard must accept
+    // the Sanctum bearer token, not a session cookie.
+    ->withBroadcasting(
+        __DIR__.'/../routes/channels.php',
+        [
+            'prefix' => 'api/v1',
+            'middleware' => ['api', 'auth:sanctum'],
+        ],
+    )
     ->withMiddleware(function (Middleware $middleware): void {
         // Lean group for the public status pages: bind route params but skip
         // StartSession / cookies so the page carries no Set-Cookie and stays
