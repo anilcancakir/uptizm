@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use App\Services\Ai\AnomalyTriageGateway;
+use App\Services\Ai\LaravelAiTriageGateway;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -18,7 +20,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Bind the triage boundary to the real laravel/ai wrapper. Tests rebind
+        // the FakeAnomalyTriageGateway, so no real Anthropic call happens in CI.
+        $this->app->bind(AnomalyTriageGateway::class, LaravelAiTriageGateway::class);
     }
 
     /**
