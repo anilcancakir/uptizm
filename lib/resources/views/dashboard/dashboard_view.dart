@@ -193,16 +193,21 @@ class _DashboardViewState
       className: 'flex flex-col gap-3',
       children: [
         _sectionHeading(trans('uptizm.dashboard.section_active_incidents')),
-        WDiv(
-          className: 'grid grid-cols-1 sm:grid-cols-2 gap-3',
-          children: [
-            for (final incident in controller.activeIncidents)
-              IncidentCard(
-                incident: incident,
-                onTap: () => MagicRoute.to('/incidents/${incident.id}'),
-              ),
-          ],
-        ),
+        if (controller.activeIncidents.isEmpty)
+          EmptyState(
+            title: trans('uptizm.dashboard.active_incidents_empty'),
+          )
+        else
+          WDiv(
+            className: 'grid grid-cols-1 sm:grid-cols-2 gap-3',
+            children: [
+              for (final incident in controller.activeIncidents)
+                IncidentCard(
+                  incident: incident,
+                  onTap: () => MagicRoute.to('/incidents/${incident.id}'),
+                ),
+            ],
+          ),
       ],
     );
   }

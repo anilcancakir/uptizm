@@ -343,6 +343,7 @@
       "description": "Everything Uptizm is watching, at a glance.",
       "ai_fleet_summary": "Checkout is in a major outage (origin-side 503s across all regions) and API gateway is degraded as your cpu_load metric climbs. Docs is paused for maintenance. Marketing site is the only fully operational service right now.",
       "section_active_incidents": "Active incidents",
+      "active_incidents_empty": "All clear. No incidents are open right now.",
       "section_monitors": "Monitors",
       "section_ai_inbox": "AI inbox",
       "ai_inbox_subtitle": "Anomalies Uptizm flagged from its own checks and metrics, not yet incidents. Your call.",
