@@ -431,7 +431,11 @@ class _NotificationBell extends StatelessWidget {
             child: NotificationCenter(
               items: items,
               onClose: close,
-              onItemTap: (item) => MagicRoute.to(item.to),
+              onItemTap: (item) {
+                Notify.markAsRead(item.id);
+                MagicRoute.to(item.to);
+              },
+              onMarkAllRead: () => Notify.markAllAsRead(),
               onSettings: () => MagicRoute.to('/settings'),
             ),
           ),

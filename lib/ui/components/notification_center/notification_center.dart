@@ -240,6 +240,11 @@ class NotificationCenter extends StatefulWidget {
   /// Invoked when the "Notification settings" footer row is tapped.
   final VoidCallback? onSettings;
 
+  /// Invoked when "Mark all as read" is tapped, so the host can persist the
+  /// read state (e.g. `Notify.markAllAsRead()`). The local read set is still
+  /// updated for instant panel feedback.
+  final VoidCallback? onMarkAllRead;
+
   /// Creates a [NotificationCenter] panel.
   const NotificationCenter({
     super.key,
@@ -247,6 +252,7 @@ class NotificationCenter extends StatefulWidget {
     this.onClose,
     this.onItemTap,
     this.onSettings,
+    this.onMarkAllRead,
   });
 
   @override
@@ -264,9 +270,11 @@ class _NotificationCenterState extends State<NotificationCenter> {
   int get _unread =>
       widget.items.where((item) => !_readIds.contains(item.id)).length;
 
-  /// Marks every item read.
+  /// Marks every item read: local set for instant feedback, plus the
+  /// [NotificationCenter.onMarkAllRead] host callback to persist it.
   void _markAll() {
     setState(() => _readIds.addAll(widget.items.map((item) => item.id)));
+    widget.onMarkAllRead?.call();
   }
 
   /// Marks a single item read, fires [onItemTap], then closes the panel.
