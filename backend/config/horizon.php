@@ -199,7 +199,7 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['scheduling', 'checks', 'processing', 'aggregates', 'default'],
+            'queue' => ['scheduling', 'checks', 'processing', 'aggregates', 'ssl', 'default'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,

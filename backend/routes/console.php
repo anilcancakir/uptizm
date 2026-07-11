@@ -2,6 +2,7 @@
 
 use App\Jobs\AggregateMonitorDailyUptime;
 use App\Jobs\ScheduleMonitorChecks;
+use App\Jobs\ScheduleSslChecks;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -25,3 +26,10 @@ Schedule::job(new AggregateMonitorDailyUptime)
     ->dailyAt('00:15')
     ->onOneServer()
     ->name('monitoring:daily-uptime');
+
+// Fan out SSL certificate checks once a day (supervisor `ssl` queue,
+// single-server, unique lock prevents overlap with a still-running fan-out).
+Schedule::job(new ScheduleSslChecks)
+    ->dailyAt('03:00')
+    ->onOneServer()
+    ->name('monitoring:schedule-ssl-checks');
