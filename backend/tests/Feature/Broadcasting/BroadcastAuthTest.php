@@ -20,6 +20,13 @@ class BroadcastAuthTest extends TestCase
     use RefreshDatabase;
 
     /**
+     * The process-global `BROADCAST_CONNECTION` captured before this test
+     * overrides it to `reverb`, restored in tearDown so the override never
+     * leaks into later tests in the same suite.
+     */
+    private string|false $originalBroadcastConnection = false;
+
+    /**
      * The default `BROADCAST_CONNECTION` for the test environment (see
      * `phpunit.xml`) is `null`, whose broadcaster is an intentional no-op:
      * `NullBroadcaster::auth()` never invokes the registered channel
@@ -33,11 +40,33 @@ class BroadcastAuthTest extends TestCase
      */
     protected function setUp(): void
     {
+        $this->originalBroadcastConnection = getenv('BROADCAST_CONNECTION');
+
         putenv('BROADCAST_CONNECTION=reverb');
         $_ENV['BROADCAST_CONNECTION'] = 'reverb';
         $_SERVER['BROADCAST_CONNECTION'] = 'reverb';
 
         parent::setUp();
+    }
+
+    /**
+     * Restore the process-global broadcast driver so the `reverb` override
+     * does not leak into later tests. `putenv` is not reset between tests, so
+     * without this every subsequent test that broadcasts would try to reach a
+     * non-running Reverb server (cURL error 7 on localhost:8080).
+     */
+    protected function tearDown(): void
+    {
+        if ($this->originalBroadcastConnection === false) {
+            putenv('BROADCAST_CONNECTION');
+            unset($_ENV['BROADCAST_CONNECTION'], $_SERVER['BROADCAST_CONNECTION']);
+        } else {
+            putenv('BROADCAST_CONNECTION='.$this->originalBroadcastConnection);
+            $_ENV['BROADCAST_CONNECTION'] = $this->originalBroadcastConnection;
+            $_SERVER['BROADCAST_CONNECTION'] = $this->originalBroadcastConnection;
+        }
+
+        parent::tearDown();
     }
 
     /**
