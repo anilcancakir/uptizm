@@ -2,8 +2,8 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../app/mocks/status.dart';
 import '../../../ui/components/empty_state/index.dart';
@@ -144,10 +144,13 @@ class _MonitorsListViewState
     final int downCount = allMonitors
         .where((m) => m.status == StatusKey.down)
         .length;
-    final List<IncidentSummary> openIncidents = incidents
-        .where((i) => i.lifecycle != IncidentLifecycle.resolved)
-        .toList();
-    final int aiActive = openIncidents.where((i) => i.aiOwned).length;
+    // Live open-incident counts from the dashboard controller (a warm
+    // singleton), NOT the design-lab `incidents` fixture: the monitors KPI must
+    // agree with the dashboard's OPEN INCIDENTS. The realtime coalesced reload
+    // refreshes both controllers together, so an open/resolve updates both.
+    final DashboardController dashboard = DashboardController.instance;
+    final int openIncidentCount = dashboard.openIncidentsCount;
+    final int aiActive = dashboard.aiActiveCount;
     final List<MonitorSummary> responders = allMonitors
         .where((m) => m.responseMs != null)
         .toList();
@@ -174,10 +177,8 @@ class _MonitorsListViewState
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_open_incidents'),
-          value: '${openIncidents.length}',
-          delta: '1 new',
+          value: '$openIncidentCount',
           hint: '$aiActive AI-detected',
-          trend: KpiTrend.down,
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_avg_response'),
