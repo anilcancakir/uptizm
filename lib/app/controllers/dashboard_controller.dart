@@ -218,7 +218,7 @@ class DashboardController extends MagicController {
           ? (response.data as Map<String, dynamic>)['data']
           : null;
       final String? incidentId = data is Map<String, dynamic>
-          ? data['id']?.toString()
+          ? data['incident_id']?.toString()
           : null;
 
       await _reloadAiInbox();

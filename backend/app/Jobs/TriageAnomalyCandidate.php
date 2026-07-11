@@ -54,17 +54,24 @@ class TriageAnomalyCandidate implements ShouldQueue
     use SerializesModels;
 
     /**
-     * Response header names that must never reach the LLM or the stored
-     * evidence: they carry session, credential, or key material controlled by
-     * the (potentially hostile) monitored endpoint. Matched case-insensitively.
+     * The ONLY response header names allowed to reach the LLM. This is a
+     * fail-closed allowlist, not a denylist: a probe-controlled endpoint can
+     * name a secret-bearing header anything (x-auth-token, x-amz-security-token,
+     * a custom bearer header), so anything not explicitly known-safe is dropped.
+     * Matched case-insensitively.
      */
-    private const SENSITIVE_HEADERS = [
-        'set-cookie',
-        'cookie',
-        'authorization',
-        'proxy-authorization',
-        'www-authenticate',
-        'x-api-key',
+    private const SAFE_HEADERS = [
+        'content-type',
+        'content-length',
+        'content-encoding',
+        'server',
+        'date',
+        'cache-control',
+        'last-modified',
+        'etag',
+        'vary',
+        'age',
+        'via',
     ];
 
     /**
@@ -185,9 +192,10 @@ class TriageAnomalyCandidate implements ShouldQueue
     }
 
     /**
-     * Drop every sensitive header case-insensitively. Defense in depth: the
-     * payload also fences and truncates, but a secret must never even enter the
-     * object, so it is removed at the source here.
+     * Keep ONLY allowlisted, known-safe headers. Fail-closed: an unknown header
+     * (which a hostile endpoint could use to smuggle a credential) is dropped
+     * before it reaches the payload, the LLM, or storage. Defense in depth: the
+     * payload also fences and truncates what survives.
      *
      * @param  array<string, mixed>  $headers
      * @return array<string, string>
@@ -197,7 +205,7 @@ class TriageAnomalyCandidate implements ShouldQueue
         $safe = [];
 
         foreach ($headers as $name => $value) {
-            if (in_array(strtolower((string) $name), self::SENSITIVE_HEADERS, true)) {
+            if (! in_array(strtolower((string) $name), self::SAFE_HEADERS, true)) {
                 continue;
             }
 
