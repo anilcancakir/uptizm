@@ -11,6 +11,7 @@ use App\Enums\MonitorType;
 use App\Enums\SignalSource;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Models\MonitorCheck;
 use App\Models\StatusPage;
 use App\Models\Team;
 use FlutterSdk\MagicStarter\Support\MigrationHelper;
@@ -77,6 +78,7 @@ class StatusPageSeeder extends Seeder
         // 4. Backfill uptime rollups so the 90-day strip has real segments.
         foreach ($monitors as $monitor) {
             $this->seedDailyUptime($monitor);
+            $this->seedRecentChecks($monitor);
         }
 
         // 5. Give the timeline a non-empty public incident on the degraded monitor.
@@ -170,6 +172,55 @@ class StatusPageSeeder extends Seeder
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+        }
+    }
+
+    /**
+     * Backfill ~60 recent {@see MonitorCheck} rows over the last hour (60s
+     * interval) so the monitor detail's recent-checks table + response-time
+     * chart and the dashboard/monitors avg-response KPI render real data
+     * instead of empty/zero. Response time is a realistic per-status band (the
+     * degraded monitor runs hotter with jitter); the newest check refreshes the
+     * monitor's denormalized `last_response_ms`.
+     */
+    private function seedRecentChecks(Monitor $monitor): void
+    {
+        $isDegraded = $monitor->last_status === MonitorStatus::Degraded;
+        $baseMs = $isDegraded ? 620 : 180;
+        $latestMs = null;
+
+        for ($i = 59; $i >= 0; $i--) {
+            $checkedAt = now()->subSeconds($i * 60);
+            // Deterministic jitter so the chart is not a flat line; the degraded
+            // monitor spikes higher.
+            $responseMs = $baseMs + ($i % 7) * ($isDegraded ? 45 : 18);
+            if ($i === 0) {
+                $latestMs = $responseMs;
+            }
+
+            MonitorCheck::create([
+                'id' => (string) Str::orderedUuid(),
+                'monitor_id' => $monitor->id,
+                'team_id' => $monitor->team_id,
+                'region' => $i % 2 === 0 ? 'us-east' : 'eu-west',
+                'checked_at' => $checkedAt,
+                'status' => $monitor->last_status,
+                'status_code' => $monitor->last_status === MonitorStatus::Up ? 200 : 503,
+                'response_ms' => $responseMs,
+                'timing_dns_ms' => 4,
+                'timing_connect_ms' => 12,
+                'timing_tls_ms' => 20,
+                'timing_ttfb_ms' => (int) ($responseMs * 0.7),
+                'timing_download_ms' => (int) ($responseMs * 0.1),
+                'probe_run_id' => (string) Str::orderedUuid(),
+            ]);
+        }
+
+        if ($latestMs !== null) {
+            $monitor->forceFill([
+                'last_response_ms' => $latestMs,
+                'last_checked_at' => now(),
+            ])->save();
         }
     }
 
