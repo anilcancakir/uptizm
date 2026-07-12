@@ -4,7 +4,9 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/incident_controller.dart';
+import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
+import 'package:uptizm/app/mocks/monitors.dart' show monitors;
 import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
 import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
 import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
@@ -349,6 +351,12 @@ void main() {
         MagicRoute.page('/incidents', () => const SizedBox());
         MagicRouter.instance.routerConfig;
         addTearDown(MagicRouter.reset);
+
+        // The affected-monitors picker sources the LIVE monitor inventory; seed
+        // it with the fixture list so "Checkout service" (id `checkout`) renders
+        // and its id flows into the POST.
+        MonitorController.instance.seedForTest(monitors);
+        addTearDown(() => MonitorController.instance.seedForTest(const []));
 
         await tester.pumpWidget(wrap(const IncidentCreateView()));
         await tester.pump();

@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 import 'incident_form_support.dart';
 import '../monitors/monitor_metrics_support.dart';
 import '../../../app/controllers/incident_controller.dart';
+import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
@@ -119,8 +120,14 @@ class _IncidentCreateViewState
   /// when the view was opened blank (React `suggestion` from `location.state`).
   IncidentSummary? _suggestion;
 
-  /// The affected-monitor options, projected once from the monitors fixture.
-  late final List<Region> _monitorOptions = monitorsToRegions();
+  /// The affected-monitor options, projected LIVE from the backend monitor
+  /// inventory ([MonitorController.monitors]) so a selected id is a real
+  /// `monitor_id` the backend accepts (not a design-lab fixture id, which would
+  /// 422 on `POST /incidents`).
+  List<Region> get _monitorOptions => [
+    for (final MonitorSummary m in MonitorController.instance.monitors)
+      Region(label: m.name, value: m.id),
+  ];
 
   @override
   void initState() {
@@ -128,6 +135,16 @@ class _IncidentCreateViewState
     // (which throws if unregistered); see Conventions -> Controller binding.
     Magic.findOrPut(IncidentController.new);
     super.initState();
+
+    // The affected-monitors picker projects the live monitor inventory; ensure
+    // it is loaded (warm from the dashboard/list in normal flow, empty on a
+    // direct deep-link) and rebuild when it lands.
+    Magic.findOrPut(MonitorController.new);
+    if (MonitorController.instance.monitors.isEmpty) {
+      MonitorController.instance.reload().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
 
     // 1. Read the AI-promotion suggestion id from the router query itself; the
     //    page builder gets no query params, so the view resolves them here.
@@ -164,7 +181,7 @@ class _IncidentCreateViewState
   /// suggestion's monitor is not in the fixture (the affected list then stays
   /// empty). Mirrors the React `monitors.find((m) => m.name === monitorName)`.
   String? _resolveMonitorId(String monitorName) {
-    for (final MonitorSummary monitor in monitors) {
+    for (final MonitorSummary monitor in MonitorController.instance.monitors) {
       if (monitor.name == monitorName) return monitor.id;
     }
     return null;
