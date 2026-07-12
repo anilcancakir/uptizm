@@ -5,9 +5,11 @@ namespace App\Models;
 use App\Enums\Plan;
 use FlutterSdk\MagicStarter\Models\Team as MagicStarterTeam;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Laravel\Cashier\Billable;
 
 class Team extends MagicStarterTeam
 {
+    use Billable;
     use HasFactory;
 
     /**
