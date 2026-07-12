@@ -410,9 +410,28 @@ void main() {
     );
 
     test(
-      'degrades gracefully (no throw) when the network is unavailable',
+      'degrades gracefully (no throw) when the override write fails',
       () async {
-        Http.unfake();
+        // Prime the schedule cache with a successful reload, so `_ensureSchedule`
+        // returns the cached id WITHOUT re-running `OnCallSchedule.save()` (a
+        // create-through-`save()` on a failing host perturbs the shared test
+        // container, a harness artifact unrelated to this contract). Then swap
+        // the fake so only the override write fails, exercising the real
+        // degradation path: the write returns false, `addOverride` toasts, and
+        // no exception reaches the caller.
+        Http.fake({
+          'on-call/schedules': Http.response({
+            'data': [
+              {'id': 'sched-1', 'name': 'Primary', 'timezone': 'UTC'},
+            ],
+          }, 200),
+          'on-call/schedules/sched-1': Http.response({
+            'data': {'id': 'sched-1', 'rotations': <dynamic>[]},
+          }, 200),
+        });
+        await OnCallController.instance.reload();
+
+        Http.fake((request) => Http.response({'message': 'unavailable'}, 500));
         final TeamMember member = teamMembers.firstWhere((m) => m.id == 'u4');
 
         await expectLater(

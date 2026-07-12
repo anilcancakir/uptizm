@@ -1,5 +1,6 @@
 import 'package:magic/magic.dart';
 
+import '../models/on_call_schedule.dart';
 import '../mocks/teams_data.dart';
 
 /// Controller backing the [OnCallScheduleView]'s live rotation/override
@@ -60,27 +61,16 @@ class OnCallController extends MagicController {
   /// `MonitorController.reload`'s degradation shape.
   Future<void> reload() async {
     try {
-      final response = await Http.get('/on-call/schedules');
-      if (!response.successful) return;
+      final List<OnCallSchedule> schedules = await OnCallSchedule.all();
+      if (schedules.isEmpty) return;
 
-      final Object? rows = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (rows is! List || rows.isEmpty) return;
+      final String id = schedules.first.id;
+      if (id.isEmpty) return;
 
-      final Object? first = rows.first;
-      final Object? id = first is Map<String, dynamic> ? first['id'] : null;
-      if (id is! String) return;
+      final OnCallSchedule? detail = await OnCallSchedule.find(id);
+      if (detail == null) return;
 
-      final detailResponse = await Http.get('/on-call/schedules/$id');
-      if (!detailResponse.successful) return;
-
-      final Object? data = detailResponse.data is Map<String, dynamic>
-          ? (detailResponse.data as Map<String, dynamic>)['data']
-          : null;
-      if (data is! Map<String, dynamic>) return;
-
-      _applyScheduleDetail(data);
+      _applyScheduleDetail(detail);
     } catch (_) {
       // Deliberate degradation: a transport failure (including an
       // unregistered `network` service in a bare test host) keeps the
@@ -89,25 +79,21 @@ class OnCallController extends MagicController {
   }
 
   /// Republishes [_scheduleId] and the [_rotationIdByMember] lookup from a
-  /// full `OnCallScheduleResource` payload (its `rotations` eager-loaded).
+  /// full [OnCallSchedule] (its `rotations` eager-loaded).
   ///
   /// Every mutating endpoint on this schedule (`addRotation`, `addOverride`,
   /// and the initial `store`/`show`) returns this same shape, so a mutation's
-  /// own response is applied directly instead of firing a redundant
-  /// `GET /on-call/schedules/:id` round trip afterward.
-  void _applyScheduleDetail(Map<String, dynamic> data) {
-    _scheduleId = data['id'] as String?;
+  /// own response is hydrated into an [OnCallSchedule] and applied directly
+  /// instead of firing a redundant `GET /on-call/schedules/:id` round trip.
+  void _applyScheduleDetail(OnCallSchedule schedule) {
+    _scheduleId = schedule.id.isEmpty ? null : schedule.id;
 
     _rotationIdByMember.clear();
-    final Object? rotations = data['rotations'];
-    if (rotations is List) {
-      for (final Object? row in rotations) {
-        if (row is! Map<String, dynamic>) continue;
-        final String? rotationId = row['id'] as String?;
-        final String? userId = row['user_id'] as String?;
-        if (rotationId != null && userId != null) {
-          _rotationIdByMember[userId] = rotationId;
-        }
+    for (final Map<String, dynamic> row in schedule.rotations) {
+      final String? rotationId = row['id'] as String?;
+      final String? userId = row['user_id'] as String?;
+      if (rotationId != null && userId != null) {
+        _rotationIdByMember[userId] = rotationId;
       }
     }
     refreshUI();
@@ -125,27 +111,17 @@ class OnCallController extends MagicController {
     await reload();
     if (_scheduleId != null) return _scheduleId;
 
-    try {
-      final response = await Http.post(
-        '/on-call/schedules',
-        data: <String, dynamic>{'name': 'Primary rotation', 'timezone': 'UTC'},
-      );
-      if (!response.successful) {
-        Log.error(
-          '[OnCallController._ensureSchedule] ${response.errorMessage}',
-        );
-        return null;
-      }
+    // `save()` returns false (never throws) when the create cannot reach the
+    // backend; the caller surfaces the action-specific error toast, so a false
+    // result degrades to a null id (the ORM already swallowed the transport
+    // failure internally).
+    final OnCallSchedule schedule = OnCallSchedule()
+      ..fill(<String, dynamic>{'name': 'Primary rotation', 'timezone': 'UTC'});
+    final bool ok = await schedule.save();
+    if (!ok) return null;
 
-      final Object? data = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      _scheduleId = data is Map<String, dynamic> ? data['id'] as String? : null;
-      return _scheduleId;
-    } catch (error) {
-      Log.error('[OnCallController._ensureSchedule] failed: $error');
-      return null;
-    }
+    _scheduleId = schedule.id.isEmpty ? null : schedule.id;
+    return _scheduleId;
   }
 
   // ---------------------------------------------------------------------------
@@ -185,7 +161,9 @@ class OnCallController extends MagicController {
       final Object? data = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (data is Map<String, dynamic>) _applyScheduleDetail(data);
+      if (data is Map<String, dynamic>) {
+        _applyScheduleDetail(OnCallSchedule.fromMap(data));
+      }
 
       Magic.success(trans('uptizm.teams.oncall_add_button'), member.name);
       return true;
@@ -282,7 +260,9 @@ class OnCallController extends MagicController {
       final Object? data = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (data is Map<String, dynamic>) _applyScheduleDetail(data);
+      if (data is Map<String, dynamic>) {
+        _applyScheduleDetail(OnCallSchedule.fromMap(data));
+      }
 
       Magic.success(trans('uptizm.teams.oncall_override_label'), member.name);
       return true;

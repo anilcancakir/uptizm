@@ -102,6 +102,19 @@ class OnCallSchedule extends Model
   /// Set the schedule's timezone.
   set timezone(String? value) => setAttribute('timezone', value);
 
+  /// The eager-loaded rotation rows from the detail payload, as raw maps.
+  ///
+  /// Each row carries at least `id` (rotation row id) and `user_id` (the
+  /// member key), which [OnCallController] reduces into its
+  /// member-to-rotation-row lookup. Returns an empty list when the wire omits
+  /// the `rotations` array (e.g. an index-row payload). Kept as raw maps
+  /// because rotations are a sub-resource the ORM does not model directly.
+  List<Map<String, dynamic>> get rotations {
+    final Object? raw = getAttribute('rotations');
+    if (raw is! List) return const [];
+    return raw.whereType<Map<String, dynamic>>().toList();
+  }
+
   // ---------------------------------------------------------------------------
   // Static Helpers
   // ---------------------------------------------------------------------------
