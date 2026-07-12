@@ -118,8 +118,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     Route::get('incidents', [IncidentController::class, 'index'])
         ->name('api.v1.incidents.index');
+    Route::post('incidents', [IncidentController::class, 'store'])
+        ->name('api.v1.incidents.store');
     Route::get('incidents/{incident}', [IncidentController::class, 'show'])
         ->name('api.v1.incidents.show');
+    Route::post('incidents/{incident}/resolve', [IncidentController::class, 'resolve'])
+        ->name('api.v1.incidents.resolve');
+    Route::post('incidents/{incident}/acknowledge', [IncidentController::class, 'acknowledge'])
+        ->name('api.v1.incidents.acknowledge');
+    Route::post('incidents/{incident}/reopen', [IncidentController::class, 'reopen'])
+        ->name('api.v1.incidents.reopen');
+    Route::post('incidents/{incident}/updates', [IncidentController::class, 'postUpdate'])
+        ->name('api.v1.incidents.updates.store');
 
     Route::get('dashboard/stats', [DashboardController::class, 'stats'])
         ->name('api.v1.dashboard.stats');
