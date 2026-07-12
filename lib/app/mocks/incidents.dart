@@ -9,7 +9,7 @@ import 'status.dart';
 /// Decodes the backend `lifecycle` wire value into an [IncidentLifecycle],
 /// falling back to [IncidentLifecycle.detected] on an unknown value so a
 /// stale client never crashes on a lifecycle stage it does not yet know.
-IncidentLifecycle _lifecycleFromWire(String? raw) {
+IncidentLifecycle lifecycleFromWire(String? raw) {
   if (raw == null) return IncidentLifecycle.detected;
   return IncidentLifecycle.values.firstWhere(
     (v) => v.name == raw,
@@ -21,7 +21,7 @@ IncidentLifecycle _lifecycleFromWire(String? raw) {
 ///
 /// The backend uses `'warn'` where the mock enum spells out `warning`;
 /// everything else falls back to [IncidentSeverity.info].
-IncidentSeverity _severityFromWire(String? raw) {
+IncidentSeverity severityFromWire(String? raw) {
   return switch (raw) {
     'critical' => IncidentSeverity.critical,
     'warn' => IncidentSeverity.warning,
@@ -32,7 +32,7 @@ IncidentSeverity _severityFromWire(String? raw) {
 
 /// Decodes the backend `signal_source` wire value into a [SignalSource],
 /// falling back to [SignalSource.manual] on an unknown value.
-SignalSource _signalSourceFromWire(String? raw) {
+SignalSource signalSourceFromWire(String? raw) {
   return switch (raw) {
     'user_threshold' => SignalSource.threshold,
     'ai_anomaly' => SignalSource.anomaly,
@@ -47,7 +47,7 @@ SignalSource _signalSourceFromWire(String? raw) {
 /// and `major` both read as a full [IncidentImpact.down], `minor` reads as
 /// [IncidentImpact.degraded], and `none` (or anything unrecognized) reads
 /// as [IncidentImpact.info].
-IncidentImpact _impactFromWire(String? raw) {
+IncidentImpact impactFromWire(String? raw) {
   return switch (raw) {
     'critical' || 'major' => IncidentImpact.down,
     'minor' => IncidentImpact.degraded,
@@ -60,7 +60,7 @@ IncidentImpact _impactFromWire(String? raw) {
 /// falling back to [AiConfidence.low] on an unknown value so an unrecognized
 /// confidence string never crashes the inbox and instead reads as the most
 /// conservative tier.
-AiConfidence _aiConfidenceFromWire(String? raw) {
+AiConfidence aiConfidenceFromWire(String? raw) {
   if (raw == null) return AiConfidence.low;
   return AiConfidence.values.firstWhere(
     (v) => v.name == raw,
@@ -70,7 +70,7 @@ AiConfidence _aiConfidenceFromWire(String? raw) {
 
 /// Decodes the backend `actor` wire value into a [TimelineActor], falling
 /// back to [TimelineActor.system] on an unknown value.
-TimelineActor _timelineActorFromWire(String? raw) {
+TimelineActor timelineActorFromWire(String? raw) {
   if (raw == null) return TimelineActor.system;
   return TimelineActor.values.firstWhere(
     (v) => v.name == raw,
@@ -80,7 +80,7 @@ TimelineActor _timelineActorFromWire(String? raw) {
 
 /// Formats an ISO-8601 timestamp string as a local `HH:mm` wall-clock
 /// string. Returns `'—'` when [raw] is `null` or fails to parse.
-String _formatHourMinute(String? raw) {
+String formatHourMinute(String? raw) {
   if (raw == null) return '—';
   final DateTime? parsed = DateTime.tryParse(raw);
   if (parsed == null) return '—';
@@ -92,7 +92,7 @@ String _formatHourMinute(String? raw) {
 /// Formats the elapsed time between [startedAt] and [until] (`resolvedAt` or
 /// now) as `"Xm"` when under an hour, or `"Xh YYm"` otherwise. Matches the
 /// fixture duration convention (e.g. `'14m'`, `'1h 06m'`).
-String _formatDuration(DateTime startedAt, DateTime until) {
+String formatDuration(DateTime startedAt, DateTime until) {
   final Duration elapsed = until.difference(startedAt);
   final int totalMinutes = elapsed.inMinutes.abs();
   if (totalMinutes < 60) return '${totalMinutes}m';
@@ -103,7 +103,7 @@ String _formatDuration(DateTime startedAt, DateTime until) {
 
 /// Formats the relative-time meta line (e.g. `"started 14m ago"` or
 /// `"resolved 2h ago"`) from [startedAt]/[resolvedAt].
-String _formatRelativeMeta(DateTime startedAt, DateTime? resolvedAt) {
+String formatRelativeMeta(DateTime startedAt, DateTime? resolvedAt) {
   final bool isResolved = resolvedAt != null;
   final DateTime reference = resolvedAt ?? startedAt;
   final Duration elapsed = DateTime.now().difference(reference);
@@ -288,10 +288,10 @@ class TimelineEntry {
   /// author for system entries).
   factory TimelineEntry.fromMap(Map<String, dynamic> map) {
     return TimelineEntry(
-      actor: _timelineActorFromWire(map['actor'] as String?),
+      actor: timelineActorFromWire(map['actor'] as String?),
       status: (map['status'] as String?) ?? '',
       message: (map['message'] as String?) ?? '',
-      time: _formatHourMinute(
+      time: formatHourMinute(
         (map['display_at'] ?? map['created_at']) as String?,
       ),
       isPublic: map['is_public'] == true,
@@ -520,7 +520,7 @@ class IncidentSummary {
     final IncidentAi? ai = rawAi is Map
         ? IncidentAi(
             trigger: (rawAi['trigger'] as String?) ?? '',
-            confidence: _aiConfidenceFromWire(rawAi['confidence'] as String?),
+            confidence: aiConfidenceFromWire(rawAi['confidence'] as String?),
             tldr: (rawAi['tldr'] as String?) ?? '',
             evidenceFor: const [],
             evidenceAgainst: const [],
@@ -532,12 +532,12 @@ class IncidentSummary {
     return IncidentSummary(
       id: map['id']?.toString() ?? '',
       title: (map['title'] as String?) ?? '',
-      impact: _impactFromWire(map['impact'] as String?),
-      severity: _severityFromWire(map['severity'] as String?),
-      signalSource: _signalSourceFromWire(map['signal_source'] as String?),
-      lifecycle: _lifecycleFromWire(map['lifecycle'] as String?),
-      startedAt: _formatRelativeMeta(startedAt, resolvedAt),
-      duration: _formatDuration(startedAt, resolvedAt ?? DateTime.now()),
+      impact: impactFromWire(map['impact'] as String?),
+      severity: severityFromWire(map['severity'] as String?),
+      signalSource: signalSourceFromWire(map['signal_source'] as String?),
+      lifecycle: lifecycleFromWire(map['lifecycle'] as String?),
+      startedAt: formatRelativeMeta(startedAt, resolvedAt),
+      duration: formatDuration(startedAt, resolvedAt ?? DateTime.now()),
       affectedCount: monitorMaps.length,
       aiOwned: map['ai_owned'] == true,
       monitorName: (primaryMonitorMap?['name'] as String?) ?? '',

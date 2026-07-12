@@ -1,0 +1,457 @@
+import 'dart:convert';
+
+import 'package:magic/magic.dart';
+
+import '../mocks/status.dart';
+
+/// Monitor model.
+///
+/// Represents a single uptime probe configuration plus its denormalized
+/// runtime state. Extends the Magic ORM [Model] with [HasTimestamps] and
+/// [InteractsWithPersistence] to provide full ORM persistence (find / all /
+/// save / delete) against the `monitors` API resource.
+///
+/// The accessor surface reproduces the predecessor [MonitorSummary] DTO one
+/// for one (computed [status], [responseMs], [uptime], [intervalLabel],
+/// [regions], [sloTarget], [sloUptime7d], [sloUptime30d]) so view call-sites
+/// migrate to this model without shape changes, while the typed write-surface
+/// accessors cover every field the create/edit form posts.
+///
+/// ## Usage with the ORM
+///
+/// ```dart
+/// final monitor = await Monitor.find('api');
+/// Log.debug(monitor?.name);
+/// Log.debug(monitor?.status.label);
+///
+/// final monitors = await Monitor.all();
+/// ```
+///
+/// ## Usage with Typed Accessors
+///
+/// ```dart
+/// final monitor = Monitor()
+///   ..name = 'API gateway'
+///   ..url = 'https://api.uptizm.com/health'
+///   ..checkIntervalSec = 30;
+/// await monitor.save();
+/// ```
+///
+/// ## Computed Status Semantics
+///
+/// The backend exposes two status fields: `status` (admin state:
+/// `active` / `paused`) and `last_status` (probe health:
+/// `up` / `down` / `degraded` / ...). When the admin `status` is `paused` the
+/// monitor is administratively paused and [status] returns
+/// [StatusKey.paused] regardless of `last_status`; otherwise [status] decodes
+/// `last_status` via [statusKeyFromWire], matching [MonitorSummary.fromMap].
+class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
+  /// The table associated with the model.
+  @override
+  String get table => 'monitors';
+
+  /// The API resource for remote operations.
+  @override
+  String get resource => 'monitors';
+
+  /// Whether the primary key is auto-incrementing.
+  ///
+  /// Set to false because monitors use string UUIDs as primary keys.
+  @override
+  bool get incrementing => false;
+
+  /// The attributes that are mass assignable.
+  ///
+  /// Mirrors the create/edit write surface validated by the backend
+  /// `StoreMonitorRequest` / `UpdateMonitorRequest`. Runtime state
+  /// (`last_status`, `last_response_ms`, `consecutive_fails`, ...) is server
+  /// controlled and therefore intentionally NOT mass-assignable here.
+  @override
+  List<String> get fillable => [
+    'name',
+    'url',
+    'type',
+    'method',
+    'check_interval_sec',
+    'timeout_sec',
+    'regions',
+    'expected_status_code',
+    'request_headers',
+    'request_body',
+    'slo_target',
+    'tags',
+    'show_on_status_page',
+    'only_show_if_degraded',
+    'alert_on_down',
+    'alert_on_recover',
+    'ssl_tracking',
+    'ssl_alert_threshold_days',
+    'auth_config',
+  ];
+
+  /// The attributes that should be cast.
+  ///
+  /// JSON columns (`regions`, `request_headers`, `tags`, `auth_config`) round
+  /// trip through the `'json'` cast; numeric and boolean columns are coerced
+  /// to their Dart types so typed accessors never hand a caller a raw
+  /// `String`; timestamp columns become [Carbon] instances.
+  @override
+  Map<String, String> get casts => {
+    // JSON-encoded columns.
+    'regions': 'json',
+    'request_headers': 'json',
+    'tags': 'json',
+    'auth_config': 'json',
+    // Float percentages.
+    'slo_target': 'double',
+    'slo_uptime_7d': 'double',
+    'slo_uptime_30d': 'double',
+    // Booleans.
+    'show_on_status_page': 'bool',
+    'only_show_if_degraded': 'bool',
+    'alert_on_down': 'bool',
+    'alert_on_recover': 'bool',
+    'ssl_tracking': 'bool',
+    'is_group': 'bool',
+    // Integers.
+    'check_interval_sec': 'int',
+    'timeout_sec': 'int',
+    'expected_status_code': 'int',
+    'last_response_ms': 'int',
+    'consecutive_fails': 'int',
+    'incident_threshold': 'int',
+    'ssl_alert_threshold_days': 'int',
+    // Timestamps.
+    'created_at': 'datetime',
+    'updated_at': 'datetime',
+    'last_checked_at': 'datetime',
+    'next_check_at': 'datetime',
+    'ssl_expires_at': 'datetime',
+    'ssl_last_checked_at': 'datetime',
+  };
+
+  // ---------------------------------------------------------------------------
+  // Typed Accessors: Identity + MonitorSummary Surface
+  // ---------------------------------------------------------------------------
+
+  /// Get the monitor's ID.
+  @override
+  String get id => getAttribute('id')?.toString() ?? '';
+
+  /// Get the monitor's display name.
+  String? get name => getAttribute('name') as String?;
+
+  /// Set the monitor's display name.
+  set name(String? value) => setAttribute('name', value);
+
+  /// Get the probed URL.
+  String? get url => getAttribute('url') as String?;
+
+  /// Set the probed URL.
+  set url(String? value) => setAttribute('url', value);
+
+  /// Current health status, computed from the admin + probe states.
+  ///
+  /// The admin `status` field (`active` / `paused`) wins: when it is `paused`
+  /// the monitor is administratively paused and [StatusKey.paused] is returned
+  /// regardless of `last_status`. Otherwise the probe health (`last_status`)
+  /// is decoded via [statusKeyFromWire], which falls back to [StatusKey.info]
+  /// on an unrecognized wire value so a stale client never crashes.
+  StatusKey get status {
+    if (getAttribute('status') == 'paused') {
+      return StatusKey.paused;
+    }
+    return statusKeyFromWire(getAttribute('last_status') as String?);
+  }
+
+  /// The raw admin status wire value (`active` / `paused`).
+  ///
+  /// Exposed separately from the computed [status] so callers that need the
+  /// raw admin state (for example, the pause/resume toggle) can read it
+  /// without going through the [StatusKey] projection.
+  String? get adminStatus => getAttribute('status') as String?;
+
+  /// The raw probe health wire value (`up` / `down` / `degraded` / ...).
+  String? get lastStatus => getAttribute('last_status') as String?;
+
+  /// Most-recent check response time in milliseconds.
+  ///
+  /// Returns the `last_response_ms` column, or `null` when the monitor is
+  /// paused or the last check produced no timing. Mirrors
+  /// [MonitorSummary.responseMs].
+  int? get responseMs => getAttribute('last_response_ms') as int?;
+
+  /// Human-formatted trailing uptime string, e.g. `"99.94%"`.
+  ///
+  /// Defaults to the long-dash placeholder because the current
+  /// `MonitorResource` does not emit a rollup uptime field; the value is
+  /// populated once a backend uptime-rollup endpoint exists. Mirrors
+  /// [MonitorSummary.uptime].
+  String get uptime => getAttribute('uptime') as String? ?? '—';
+
+  /// Human-readable check interval label, e.g. `"30s"` or `"60s"`.
+  ///
+  /// Computed from `check_interval_sec` so the wire never carries a
+  /// preformatted label. Falls back to the long-dash placeholder when the
+  /// interval is absent. Mirrors [MonitorSummary.intervalLabel].
+  String get intervalLabel {
+    final int? seconds = getAttribute('check_interval_sec') as int?;
+    if (seconds == null) return '—';
+    return '${seconds}s';
+  }
+
+  /// Probe region identifiers, e.g. `['us-east', 'eu-west']`.
+  ///
+  /// Stored as a JSON array; decoded to a typed [List] of strings. Coerces
+  /// each element through `toString()` so a wire integer id never leaks as a
+  /// non-string. Defaults to an empty list when absent.
+  List<String> get regions {
+    final Object? raw = getAttribute('regions');
+    if (raw is List) {
+      return raw.map((Object? e) => e.toString()).toList();
+    }
+    return const <String>[];
+  }
+
+  /// Set the probe region identifiers.
+  set regions(List<String> value) => setAttribute('regions', value);
+
+  /// SLO target as a percentage, e.g. `99.9`. Drives error-budget cards.
+  ///
+  /// `null` when no SLO is configured for this monitor.
+  double? get sloTarget => getAttribute('slo_target') as double?;
+
+  /// Set the SLO target percentage.
+  set sloTarget(double? value) => setAttribute('slo_target', value);
+
+  /// Trailing-7-day uptime percentage for the short error-budget window.
+  ///
+  /// `null` until the backend emits the `slo_uptime_7d` rollup.
+  double? get sloUptime7d => getAttribute('slo_uptime_7d') as double?;
+
+  /// Trailing-30-day uptime percentage for the contractual error-budget window.
+  ///
+  /// `null` until the backend emits the `slo_uptime_30d` rollup.
+  double? get sloUptime30d => getAttribute('slo_uptime_30d') as double?;
+
+  // ---------------------------------------------------------------------------
+  // Typed Accessors: Write Surface (fillable fields)
+  // ---------------------------------------------------------------------------
+
+  /// Get the probe type wire value (`http`, `tcp`, ...).
+  String? get type => getAttribute('type') as String?;
+
+  /// Set the probe type wire value.
+  set type(String? value) => setAttribute('type', value);
+
+  /// Get the HTTP method wire value (`GET`, `POST`, ...).
+  String? get method => getAttribute('method') as String?;
+
+  /// Set the HTTP method wire value.
+  set method(String? value) => setAttribute('method', value);
+
+  /// Get the check interval in seconds.
+  int get checkIntervalSec => getAttribute('check_interval_sec') as int? ?? 0;
+
+  /// Set the check interval in seconds.
+  set checkIntervalSec(int value) =>
+      setAttribute('check_interval_sec', value);
+
+  /// Get the probe timeout in seconds.
+  int get timeoutSec => getAttribute('timeout_sec') as int? ?? 0;
+
+  /// Set the probe timeout in seconds.
+  set timeoutSec(int value) => setAttribute('timeout_sec', value);
+
+  /// Get the expected HTTP status code (`null` means any 2xx).
+  int? get expectedStatusCode =>
+      getAttribute('expected_status_code') as int?;
+
+  /// Set the expected HTTP status code.
+  set expectedStatusCode(int? value) =>
+      setAttribute('expected_status_code', value);
+
+  /// Get the custom request headers as a JSON map.
+  ///
+  /// Defaults to an empty map when the wire value is absent or not a JSON
+  /// object, so callers can iterate unconditionally.
+  Map<String, dynamic> get requestHeaders {
+    final Object? raw = getAttribute('request_headers');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return const <String, dynamic>{};
+  }
+
+  /// Set the custom request headers.
+  set requestHeaders(Map<String, dynamic> value) =>
+      setAttribute('request_headers', value);
+
+  /// Get the raw request body sent on each probe.
+  String? get requestBody => getAttribute('request_body') as String?;
+
+  /// Set the raw request body.
+  set requestBody(String? value) => setAttribute('request_body', value);
+
+  /// Get the free-form tag list.
+  List<String> get tags {
+    final Object? raw = getAttribute('tags');
+    if (raw is List) {
+      return raw.map((Object? e) => e.toString()).toList();
+    }
+    return const <String>[];
+  }
+
+  /// Set the free-form tag list.
+  set tags(List<String> value) => setAttribute('tags', value);
+
+  /// Whether this monitor is shown on the public status page.
+  bool get showOnStatusPage =>
+      getAttribute('show_on_status_page') as bool? ?? false;
+
+  /// Set whether this monitor is shown on the public status page.
+  set showOnStatusPage(bool value) =>
+      setAttribute('show_on_status_page', value);
+
+  /// Whether this monitor only appears on the status page when degraded.
+  bool get onlyShowIfDegraded =>
+      getAttribute('only_show_if_degraded') as bool? ?? false;
+
+  /// Set the only-show-if-degraded flag.
+  set onlyShowIfDegraded(bool value) =>
+      setAttribute('only_show_if_degraded', value);
+
+  /// Whether an alert fires when this monitor goes down.
+  bool get alertOnDown => getAttribute('alert_on_down') as bool? ?? false;
+
+  /// Set the alert-on-down flag.
+  set alertOnDown(bool value) => setAttribute('alert_on_down', value);
+
+  /// Whether an alert fires when this monitor recovers.
+  bool get alertOnRecover =>
+      getAttribute('alert_on_recover') as bool? ?? false;
+
+  /// Set the alert-on-recover flag.
+  set alertOnRecover(bool value) => setAttribute('alert_on_recover', value);
+
+  /// Whether SSL certificate expiry is tracked for this monitor.
+  bool get sslTracking => getAttribute('ssl_tracking') as bool? ?? false;
+
+  /// Set the SSL tracking flag.
+  set sslTracking(bool value) => setAttribute('ssl_tracking', value);
+
+  /// Get the SSL alert threshold in days.
+  int get sslAlertThresholdDays =>
+      getAttribute('ssl_alert_threshold_days') as int? ?? 0;
+
+  /// Set the SSL alert threshold in days.
+  set sslAlertThresholdDays(int value) =>
+      setAttribute('ssl_alert_threshold_days', value);
+
+  /// Get the auth credential map (redacted on the wire by `MonitorResource`).
+  ///
+  /// The backend only ever emits the non-secret descriptors
+  /// (`type`, `username`, `header`); secret values (`password`, `token`,
+  /// `key`) are stripped server-side. Returns `null` when no auth is
+  /// configured.
+  Map<String, dynamic>? get authConfig {
+    final Object? raw = getAttribute('auth_config');
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return null;
+  }
+
+  /// Set the auth credential map.
+  set authConfig(Map<String, dynamic>? value) =>
+      setAttribute('auth_config', value);
+
+  // ---------------------------------------------------------------------------
+  // Typed Accessors: Runtime State (server-controlled)
+  // ---------------------------------------------------------------------------
+
+  /// Get the owning team ID.
+  String? get teamId => getAttribute('team_id')?.toString();
+
+  /// Whether this row is a component group with child monitors.
+  bool get isGroup => getAttribute('is_group') as bool? ?? false;
+
+  /// Get the parent group ID for a child monitor (`null` at the top level).
+  String? get parentId => getAttribute('parent_id')?.toString();
+
+  /// Get the consecutive-failure counter for incident thresholding.
+  int get consecutiveFails =>
+      getAttribute('consecutive_fails') as int? ?? 0;
+
+  /// Get the number of consecutive fails that opens an incident.
+  int get incidentThreshold =>
+      getAttribute('incident_threshold') as int? ?? 0;
+
+  /// Get the timestamp of the most recent probe.
+  Carbon? get lastCheckedAt => getAttribute('last_checked_at') as Carbon?;
+
+  /// Get the scheduled timestamp of the next probe.
+  Carbon? get nextCheckAt => getAttribute('next_check_at') as Carbon?;
+
+  /// Get the SSL certificate expiry timestamp.
+  Carbon? get sslExpiresAt => getAttribute('ssl_expires_at') as Carbon?;
+
+  /// Get the timestamp of the most recent SSL check.
+  Carbon? get sslLastCheckedAt =>
+      getAttribute('ssl_last_checked_at') as Carbon?;
+
+  // ---------------------------------------------------------------------------
+  // Static Helpers
+  // ---------------------------------------------------------------------------
+
+  /// Find a monitor by ID.
+  ///
+  /// Returns `null` if no monitor with the given [id] exists (non-2xx
+  /// response or empty envelope).
+  ///
+  /// ```dart
+  /// final monitor = await Monitor.find('api');
+  /// ```
+  static Future<Monitor?> find(dynamic id) =>
+      InteractsWithPersistence.findById<Monitor>(id, Monitor.new);
+
+  /// Get all monitors.
+  ///
+  /// ```dart
+  /// final monitors = await Monitor.all();
+  /// ```
+  static Future<List<Monitor>> all() =>
+      InteractsWithPersistence.allModels<Monitor>(Monitor.new);
+
+  // ---------------------------------------------------------------------------
+  // Flutter-Familiar Factory Methods
+  // ---------------------------------------------------------------------------
+
+  /// Create a [Monitor] from a [Map].
+  ///
+  /// Uses [setRawAttributes] to hydrate the model directly from raw API data,
+  /// bypassing mass-assignment protection. The [exists] flag is set based on
+  /// whether the map contains an `id` key, matching the [User] / [Team]
+  /// template.
+  ///
+  /// ```dart
+  /// final monitor = Monitor.fromMap(resourcePayload);
+  /// ```
+  static Monitor fromMap(Map<String, dynamic> map) {
+    return Monitor()
+      ..setRawAttributes(map, sync: true)
+      ..exists = map.containsKey('id');
+  }
+
+  /// Create a [Monitor] from a JSON string.
+  ///
+  /// Decodes [json] and delegates to [fromMap].
+  ///
+  /// ```dart
+  /// final monitor = Monitor.fromJson('{"id":"api","name":"API"}');
+  /// ```
+  static Monitor fromJson(String json) {
+    final map = jsonDecode(json) as Map<String, dynamic>;
+    return Monitor.fromMap(map);
+  }
+}
