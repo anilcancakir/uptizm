@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AiSuggestionController;
+use App\Http\Controllers\Api\V1\AssistantController;
 use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\DigestController;
@@ -157,6 +158,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.ai-suggestions.accept');
     Route::post('ai-suggestions/{suggestion}/dismiss', [AiSuggestionController::class, 'dismiss'])
         ->name('api.v1.ai-suggestions.dismiss');
+
+    Route::post('assistant', [AssistantController::class, 'answer'])
+        ->name('api.v1.assistant.answer');
 
     // `StatusPage` binds its route key to `slug` for the public `/s/{slug}`
     // surface, so the team-scoped admin routes below bind `{statusPage}` back

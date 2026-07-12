@@ -7,9 +7,11 @@ use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnomalyTriageGateway;
+use App\Services\Ai\AssistantGateway;
 use App\Services\Ai\DigestGateway;
 use App\Services\Ai\IncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiAnalysisGateway;
+use App\Services\Ai\LaravelAiAssistantGateway;
 use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
@@ -43,6 +45,10 @@ class AppServiceProvider extends ServiceProvider
         // Bind the weekly-digest boundary the same way. Tests rebind the
         // FakeDigestGateway, so no real Anthropic call happens in CI.
         $this->app->bind(DigestGateway::class, LaravelAiDigestGateway::class);
+
+        // Bind the floating-assistant boundary the same way. Tests rebind
+        // the FakeAssistantGateway, so no real Anthropic call happens in CI.
+        $this->app->bind(AssistantGateway::class, LaravelAiAssistantGateway::class);
     }
 
     /**
