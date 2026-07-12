@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
+use App\Http\Controllers\Api\V1\OnCallController;
 use App\Http\Controllers\Api\V1\StatusPageController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Route;
@@ -159,6 +160,34 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.status-pages.monitors.attach');
     Route::delete('status-pages/{statusPage:id}/monitors/{monitor}', [StatusPageController::class, 'detachMonitor'])
         ->name('api.v1.status-pages.monitors.detach');
+
+    Route::get('on-call/current', [OnCallController::class, 'current'])
+        ->name('api.v1.on-call.current');
+
+    Route::get('on-call/schedules', [OnCallController::class, 'index'])
+        ->name('api.v1.on-call.schedules.index');
+    Route::post('on-call/schedules', [OnCallController::class, 'store'])
+        ->name('api.v1.on-call.schedules.store');
+    Route::get('on-call/schedules/{schedule}', [OnCallController::class, 'show'])
+        ->name('api.v1.on-call.schedules.show');
+    Route::put('on-call/schedules/{schedule}', [OnCallController::class, 'update'])
+        ->name('api.v1.on-call.schedules.update');
+    Route::delete('on-call/schedules/{schedule}', [OnCallController::class, 'destroy'])
+        ->name('api.v1.on-call.schedules.destroy');
+
+    Route::post('on-call/schedules/{schedule}/rotations', [OnCallController::class, 'addRotation'])
+        ->name('api.v1.on-call.schedules.rotations.store');
+    Route::match(['patch', 'put'], 'on-call/schedules/{schedule}/rotations/reorder', [
+        OnCallController::class,
+        'reorderRotations',
+    ])->name('api.v1.on-call.schedules.rotations.reorder');
+    Route::delete('on-call/schedules/{schedule}/rotations/{rotation}', [OnCallController::class, 'removeRotation'])
+        ->name('api.v1.on-call.schedules.rotations.destroy');
+
+    Route::post('on-call/schedules/{schedule}/overrides', [OnCallController::class, 'addOverride'])
+        ->name('api.v1.on-call.schedules.overrides.store');
+    Route::delete('on-call/schedules/{schedule}/overrides/{override}', [OnCallController::class, 'removeOverride'])
+        ->name('api.v1.on-call.schedules.overrides.destroy');
 
     Route::get('billing', [BillingController::class, 'show'])
         ->name('api.v1.billing.show');
