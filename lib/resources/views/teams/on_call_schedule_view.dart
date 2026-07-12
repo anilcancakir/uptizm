@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/on_call_controller.dart';
 import '../../../app/mocks/billing.dart';
 import '../../../app/mocks/status.dart';
 import '../../../app/mocks/teams_data.dart';
@@ -30,13 +31,17 @@ import '../../../ui/layouts/page_container.dart';
 /// - The [onCallCadence] note sits under the rotation card, and a footer line
 ///   links to `/teams/escalation`.
 ///
-/// Override and Add-to-rotation mutate local state directly and surface a
-/// [Magic.success] toast. Remove opens a [MagicStarterConfirmDialog] first;
-/// on confirm it mutates the local list via [setState], mirroring
-/// `team_members_view.dart`'s `_confirmRemove` exactly (including the
+/// Override, Add-to-rotation, and Remove are live writes against the S27
+/// `api/v1/on-call/*` endpoints through [OnCallController]: the rendered
+/// rotation/hero cards stay sourced from the [onCallRotation]/[teamMembers]
+/// fixtures (see the controller's class docblock for why), but each action
+/// awaits the controller's write, mutates the local list via [setState] only
+/// on success, and stays on the current state (no mutation, no toast beyond
+/// the controller's own error toast) on failure. Remove opens a
+/// [MagicStarterConfirmDialog] first; on confirm it awaits the controller's
+/// delete before mutating the local list, mirroring
+/// `team_members_view.dart`'s `_confirmRemove` (including the
 /// `if (!mounted) return;` guard after the awaited dialog).
-///
-/// This is a mock screen: nothing persists past the local widget state.
 ///
 /// ### Example
 /// ```dart
@@ -75,6 +80,9 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
           orElse: () => _rotation.first,
         )
         .memberId;
+    // Warms the controller's schedule/ring cache so `removeFromRotation`
+    // resolves a backend rotation id later, without blocking this build.
+    OnCallController.instance;
   }
 
   /// The rotation shift matching [_currentId], or `null` when the current
@@ -155,11 +163,16 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     );
   }
 
-  /// Hands the pager to [member]: moves [_currentId] and surfaces a success
-  /// toast. Does not touch [_rotation]'s membership or spans.
-  void _override(TeamMember member) {
+  /// Hands the pager to [member] via `POST /on-call/schedules/:id/overrides`
+  /// ([OnCallController.addOverride]); on success, moves [_currentId] without
+  /// touching [_rotation]'s membership or spans. Surfaces its own success or
+  /// error toast (see the controller's docblock), so this stays silent on
+  /// either outcome beyond the local mutation.
+  Future<void> _override(TeamMember member) async {
+    final bool ok = await OnCallController.instance.addOverride(member);
+    if (!ok || !mounted) return;
+
     setState(() => _currentId = member.id);
-    Magic.success(trans('uptizm.teams.oncall_override_label'), member.name);
   }
 
   // ---------------------------------------------------------------------------
@@ -366,12 +379,19 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     );
   }
 
-  /// Adds [member] to the rotation with an "Unscheduled" span and surfaces a
-  /// success toast. "Unscheduled" is not localized: it mirrors the React
-  /// source's plain literal (a placeholder span for a newly added, not yet
-  /// scheduled, responder), the same convention as the mock's
-  /// `escalationDelayLabel` composing plain English.
-  void _addToRotation(TeamMember member) {
+  /// Adds [member] to the rotation via
+  /// `POST /on-call/schedules/:id/rotations` ([OnCallController.addToRotation]);
+  /// on success, appends an "Unscheduled" span to [_rotation]. "Unscheduled"
+  /// is not localized: it mirrors the React source's plain literal (a
+  /// placeholder span for a newly added, not yet scheduled, responder), the
+  /// same convention as the mock's `escalationDelayLabel` composing plain
+  /// English. Surfaces its own success or error toast (see the controller's
+  /// docblock), so this stays silent on either outcome beyond the local
+  /// mutation.
+  Future<void> _addToRotation(TeamMember member) async {
+    final bool ok = await OnCallController.instance.addToRotation(member);
+    if (!ok || !mounted) return;
+
     final OnCallShift shift = OnCallShift(
       memberId: member.id,
       memberName: member.name,
@@ -381,7 +401,6 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     );
 
     setState(() => _rotation = [..._rotation, shift]);
-    Magic.success(trans('uptizm.teams.oncall_add_button'), member.name);
   }
 
   // ---------------------------------------------------------------------------
@@ -389,8 +408,13 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
   // ---------------------------------------------------------------------------
 
   /// Opens the Remove [MagicStarterConfirmDialog]; on confirm, removes
-  /// [shift] from the local rotation and surfaces a success toast. Mirrors
-  /// `team_members_view.dart`'s `_confirmRemove` exactly.
+  /// [shift] via `DELETE /on-call/schedules/:id/rotations/:rotationId`
+  /// ([OnCallController.removeFromRotation]) and, on success, removes it from
+  /// the local rotation. Mirrors `team_members_view.dart`'s `_confirmRemove`
+  /// (including the `if (!mounted) return;` guard after the awaited dialog).
+  /// Surfaces its own success or error toast (see the controller's
+  /// docblock), so this stays silent on either outcome beyond the local
+  /// mutation.
   Future<void> _confirmRemove(OnCallShift shift) async {
     final bool confirmed = await MagicStarterConfirmDialog.show(
       context,
@@ -406,7 +430,9 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
     // the confirm dialog was open (mirrors team_members_view's precedent).
     if (!mounted) return;
 
+    final bool ok = await OnCallController.instance.removeFromRotation(shift);
+    if (!ok || !mounted) return;
+
     setState(() => _rotation.remove(shift));
-    Magic.success(trans('uptizm.teams.oncall_remove_button'), shift.memberName);
   }
 }
