@@ -282,7 +282,7 @@ class EscalationController extends MagicController {
   /// reconciles its step chain against [rungs]: every [originalStepIds] entry
   /// no longer present in [rungs] is removed
   /// (`DELETE /escalation-policies/{id}/steps/{stepId}`), every rung with a
-  /// `null` [EscalationRungDraft.id] (new, or dirtied by an in-place edit —
+  /// `null` [EscalationRungDraft.id] (new, or dirtied by an in-place edit,
   /// see [EscalationRungDraft]) is added fresh
   /// (`POST /escalation-policies/{id}/steps`), and every untouched,
   /// still-present rung is bulk-repositioned in one

@@ -23,21 +23,21 @@ import 'incident_form_support.dart';
 /// surface for a single incident. It resolves an incident [id] to a fixture via
 /// [findIncident] and renders, in the React section order:
 ///
-/// 1. **Header** — the incident title, a chip row ([StatusBadge] impact +
+/// 1. **Header**: the incident title, a chip row ([StatusBadge] impact +
 ///    lifecycle / signal-source pills + an AI-owned badge), the monitor / start
 ///    meta line, and a trailing Resolve / Reopen [Button].
-/// 2. **Responder strip** (open incidents only) — an "Assigned to" assignee
+/// 2. **Responder strip** (open incidents only): an "Assigned to" assignee
 ///    [Select] over the [responders] roster and an Acknowledge [Button].
-/// 3. **Affected monitors** — each affected monitor with its
-///    `statusAtStart → statusCurrent` transition badges.
-/// 4. **AI analysis** — the signature surface, billing-gated: an
+/// 3. **Affected monitors**: each affected monitor with its
+///    `statusAtStart -> statusCurrent` transition badges.
+/// 4. **AI analysis**: the signature surface, billing-gated: an
 ///    [AiAnalysisCard] when the current tier unlocks [AiLevel.analysis],
 ///    otherwise an [UpgradeNudge] naming the cheapest plan that does.
-/// 5. **Postmortem** (resolved incidents only) — an [AiInsight] banner carrying
+/// 5. **Postmortem** (resolved incidents only): an [AiInsight] banner carrying
 ///    the [postmortemDraft].
-/// 6. **Timeline** — a Public / All [SegmentedControl] filtering the entries,
+/// 6. **Timeline**: a Public / All [SegmentedControl] filtering the entries,
 ///    mapped through [toComponentTimeline] into the [IncidentTimeline].
-/// 7. **Update composer** — a status [Select], an update [Textarea], a publish
+/// 7. **Update composer**: a status [Select], an update [Textarea], a publish
 ///    [Switch], an "AI draft" [Button] that fills the message with
 ///    [draftUpdate], and a "Post update" [Button].
 ///

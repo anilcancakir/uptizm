@@ -22,12 +22,12 @@ class _MetricsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
     return {
-      // MonitorMetricsTab — system section.
+      // MonitorMetricsTab: system section.
       'uptizm.monitors.metrics_system_title': 'System metrics',
       'uptizm.monitors.metrics_system_collected_by_default': 'collected',
       'uptizm.monitors.metrics_response_time': 'Response time',
 
-      // MonitorMetricsTab — custom section.
+      // MonitorMetricsTab: custom section.
       'uptizm.monitors.metrics_custom_title': 'Custom metrics',
       'uptizm.monitors.metrics_add': 'Add metric',
       'uptizm.monitors.metrics_empty_title': 'No custom metrics',
@@ -188,7 +188,7 @@ void main() {
   /// (via the app `builder`), mirroring how MagicApplication wraps
   /// MaterialApp.router at the app root. Modal routes (bottom sheets) mount on
   /// the root Overlay, so they only inherit a WindTheme placed above the
-  /// Navigator — a WindTheme inside `home` would not reach them.
+  /// Navigator; a WindTheme inside `home` would not reach them.
   Widget wrapRootTheme(Widget widget, {Size size = const Size(1280, 2400)}) {
     return MaterialApp(
       builder: (context, child) => MediaQuery(
@@ -208,8 +208,8 @@ void main() {
   /// Using a sub-640px viewport prevents wind's responsive `sm:flex-row` from
   /// activating on the MonitorMetricForm footer. At that breakpoint each button
   /// gets `w-full` inside a Row, which requires a bounded max-width in the
-  /// Overlay's offstage context — a constraint the test Overlay does not
-  /// provide, producing "BoxConstraints forces an infinite width". By staying
+  /// Overlay's offstage context (a constraint the test Overlay does not
+  /// provide), producing "BoxConstraints forces an infinite width". By staying
   /// below `sm`, the footer renders as a flex-col and the buttons get `w-full`
   /// inside a Column (unbounded height only), which is safe.
   Widget wrapForm(Widget widget, {Size size = const Size(600, 3000)}) {
@@ -225,10 +225,10 @@ void main() {
   }
 
   // ---------------------------------------------------------------------------
-  // MonitorMetricsTab — 'api' monitor (has custom metrics).
+  // MonitorMetricsTab: 'api' monitor (has custom metrics).
   // ---------------------------------------------------------------------------
 
-  group('MonitorMetricsTab — monitorId: api', () {
+  group('MonitorMetricsTab, monitorId: api', () {
     testWidgets('renders system metrics title', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -263,7 +263,7 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
       // WindTheme must sit ABOVE the Navigator so the modal bottom sheet (which
-      // mounts on the root Overlay) inherits it — exactly as MagicApplication
+      // mounts on the root Overlay) inherits it, exactly as MagicApplication
       // wraps MaterialApp.router at the app root in production.
       await tester.pumpWidget(
         wrapRootTheme(const MonitorMetricsTab(monitorId: 'api')),
@@ -452,10 +452,10 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // MonitorMetricsTab — 'docs' monitor (no custom metrics).
+  // MonitorMetricsTab: 'docs' monitor (no custom metrics).
   // ---------------------------------------------------------------------------
 
-  group('MonitorMetricsTab — monitorId: docs (no custom metrics)', () {
+  group('MonitorMetricsTab, monitorId: docs (no custom metrics)', () {
     testWidgets('renders the empty-state title', (tester) async {
       await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'docs')));
       await tester.pump();
@@ -482,10 +482,10 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // MonitorMetricForm — pumped directly (no BottomSheet overlay).
+  // MonitorMetricForm: pumped directly (no BottomSheet overlay).
   // ---------------------------------------------------------------------------
 
-  group('MonitorMetricForm — create mode', () {
+  group('MonitorMetricForm, create mode', () {
     testWidgets('typing a Name slugifies the Key field', (tester) async {
       await tester.binding.setSurfaceSize(const Size(600, 3000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -635,7 +635,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // MonitorMetricDetail — pumped directly.
+  // MonitorMetricDetail: pumped directly.
   // ---------------------------------------------------------------------------
 
   group('MonitorMetricDetail', () {

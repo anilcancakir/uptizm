@@ -308,11 +308,12 @@ class IncidentController extends MagicController
   /// nothing persists. There is no backend postmortem-write endpoint (S5
   /// ships resolve/acknowledge/reopen/updates/create only), and the call
   /// site carries neither an incident nor postmortem content to post, so
-  /// this stays a mock action rather than inventing either.
+  /// this stays a mock action rather than inventing either. The toast is an
+  /// honest info signal, not a success claim, since no write actually happens.
   void editPostmortem() {
-    Magic.success(
-      trans('uptizm.incidents.detail_postmortem_heading'),
-      trans('uptizm.incidents.detail_postmortem_edit'),
+    MagicFeedback.info(
+      trans('uptizm.incidents.detail_postmortem_edit_toast_title'),
+      trans('uptizm.incidents.detail_postmortem_edit_toast_description'),
     );
   }
 

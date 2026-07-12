@@ -17,14 +17,14 @@ import '../../../ui/layouts/page_container.dart';
 /// edit it (override the current responder, add a member to the rotation, or
 /// remove one).
 ///
-/// - **Hero card** — the current responder: a large initials avatar tile, a
+/// - **Hero card**: the current responder: a large initials avatar tile, a
 ///   [StatusDot] + "On call now" label, the responder's name, and their span
 ///   from the rotation (falls back to the override label when the current
 ///   responder was set by an override rather than a scheduled shift).
-/// - **Rotation card** — one row per [OnCallShift]: an initials avatar tile,
+/// - **Rotation card**: one row per [OnCallShift]: an initials avatar tile,
 ///   name + span, and either a "Now" [Badge] (the current shift) or a ghost
 ///   "Remove" [Button] (disabled once only one shift remains).
-/// - **Add-to-rotation control** — a [DropdownMenu] listing [teamMembers] not
+/// - **Add-to-rotation control**: a [DropdownMenu] listing [teamMembers] not
 ///   already in the rotation, OR, once `currentLimits.responders` caps the
 ///   rotation at its limit, an [UpgradeNudge] naming the cheapest plan that
 ///   lifts the cap ([smallestPlanWhere]).

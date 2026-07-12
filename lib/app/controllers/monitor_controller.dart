@@ -79,7 +79,7 @@ class MonitorAnalysis {
 /// [create] and [save] both accept an OPTIONAL `fields` map: `MonitorForm`'s
 /// `onSubmit` threads its `buildFields()` result through so Submit fires the
 /// real `POST`/`PUT`, while Cancel calls `create()`/`save(id)` with no
-/// arguments and stays navigation-only — firing the same write on Cancel as
+/// arguments and stays navigation-only; firing the same write on Cancel as
 /// on Submit would silently persist stale field values.
 class MonitorController extends MagicController {
   /// Singleton accessor, registering the controller on first access.

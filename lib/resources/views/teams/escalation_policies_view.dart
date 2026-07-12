@@ -268,7 +268,7 @@ class _EscalationPoliciesViewState
   }
 
   /// Builds a small token-tinted target pill: a rounded [WDiv] + [WText]
-  /// carrying [target]'s label. NOT [StatusBadge] — targets are plain
+  /// carrying [target]'s label. NOT [StatusBadge]: targets are plain
   /// notification-target strings, not a [StatusKey]. Mirrors the React
   /// `Badge tone="outline"` and `TeamMembersView`'s non-owner role pill.
   Widget _buildTargetPill(String target) {

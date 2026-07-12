@@ -19,7 +19,7 @@ use Illuminate\Support\Str;
 
 /*
 |--------------------------------------------------------------------------
-| API v1 — Public routes (no auth).
+| API v1: Public routes (no auth).
 |--------------------------------------------------------------------------
 */
 
@@ -68,7 +68,7 @@ Route::get('public/fixtures/random', function (): JsonResponse {
                 'value' => random_int(1, 100),
             ]),
         ],
-        'notes' => "service stable — active: {$active} — build #{$build}",
+        'notes' => "service stable, active: {$active}, build #{$build}",
         'xml' => "<response><status>{$statusPool[array_rand($statusPool)]}</status>"
             ."<latency>{$latency}</latency></response>",
     ];
@@ -82,7 +82,7 @@ Route::get('public/fixtures/random', function (): JsonResponse {
 
 /*
 |--------------------------------------------------------------------------
-| API v1 — Authenticated routes.
+| API v1: Authenticated routes.
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function (): void {

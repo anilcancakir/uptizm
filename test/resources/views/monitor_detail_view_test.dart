@@ -269,7 +269,7 @@ void main() {
       await tester.pumpWidget(wrap(const MonitorDetailView(id: 'nope')));
       await tester.pump();
 
-      // No monitor surfaces (no KPI cards, no chart) — just the not-found body.
+      // No monitor surfaces (no KPI cards, no chart); just the not-found body.
       expect(find.byType(EmptyState), findsOneWidget);
       expect(find.byType(KpiStatCard), findsNothing);
       expect(find.byType(MetricChart), findsNothing);

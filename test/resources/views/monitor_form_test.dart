@@ -19,7 +19,7 @@ class _MonitorFormLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
     return {
-      // MonitorForm — field labels.
+      // MonitorForm: field labels.
       'uptizm.monitors.form_field_name_label': 'Name',
       'uptizm.monitors.form_field_name_placeholder': 'e.g. API gateway',
       'uptizm.monitors.form_type_label': 'Type',

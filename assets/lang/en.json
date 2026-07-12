@@ -490,7 +490,7 @@
       "metrics_add": "Add metric",
       "metrics_create": "Create metric",
       "metrics_empty_title": "No custom metrics yet",
-      "metrics_empty_description": "Point at your own endpoint or page — server RAM/CPU from a JSON route, a load time from the DOM — and Uptizm parses and records the value on every check.",
+      "metrics_empty_description": "Point at your own endpoint or page (server RAM/CPU from a JSON route, a load time from the DOM), and Uptizm parses and records the value on every check.",
       "metrics_detail_latest": "latest · last 24h",
       "metrics_recent_readings": "Recent readings",
       "metrics_detail_band_insight": "Shaded band is Uptizm's learned expected range. :label stepped outside it once in the last 24h (at :time), :phrase its normal range.",
@@ -631,6 +631,8 @@
       "subscribers_remove_button": "Remove",
       "subscribers_remove_confirm_title": "Remove subscriber?",
       "subscribers_remove_confirm_description": ":email will stop receiving status updates for :page.",
+      "subscribers_remove_toast_title": "Removed locally",
+      "subscribers_remove_toast_description": ":email is removed from this session only; there is no backend endpoint to persist it yet.",
       "subscribers_no_matches_text": "No subscribers match \":query\".",
       "subscribers_open_editor_button": "Open editor"
     },
@@ -738,6 +740,8 @@
       "detail_composer_post": "Post update",
       "detail_postmortem_heading": "Postmortem draft",
       "detail_postmortem_edit": "Edit & publish",
+      "detail_postmortem_edit_toast_title": "Not yet saved",
+      "detail_postmortem_edit_toast_description": "Postmortem editing is local-only for now; there is no backend endpoint to persist it yet.",
       "ai_analysis_gated": "AI incident analysis pinpoints the likely cause with evidence, confidence, and next steps."
     },
     "settings": {
@@ -873,7 +877,7 @@
       "help_search_placeholder": "Search help",
       "help_faq_heading": "Frequently asked",
       "help_faq_q1": "How does Uptizm detect incidents?",
-      "help_faq_a1": "Uptizm runs synthetic checks from multiple regions and watches your custom metrics. When checks fail or a metric breaches its band, it opens an incident — automatically or for your approval, depending on your team's AI mode.",
+      "help_faq_a1": "Uptizm runs synthetic checks from multiple regions and watches your custom metrics. When checks fail or a metric breaches its band, it opens an incident, automatically or for your approval, depending on your team's AI mode.",
       "help_faq_q2": "Where do alerts get delivered?",
       "help_faq_a2": "Team-level channels (email, SMS, Slack, Microsoft Teams, webhook) are set under your team's notification channels. Personal delivery (in-app, web push) is in your account notifications.",
       "help_faq_q3": "Can the AI act on my infrastructure?",
@@ -936,7 +940,7 @@
     },
     "digest": {
       "title": "Weekly AI digest",
-      "description": "What Uptizm's AI did this week · Jun 16 – Jun 22, 2026.",
+      "description": "What Uptizm's AI did this week · Jun 16 to Jun 22, 2026.",
       "back": "Dashboard",
       "insight_label": "This week",
       "insight_body": "Uptizm caught :caught incidents from its own checks and auto-resolved :resolved that recovered on their own. Detection held steady: you dismissed :dismissed anomalies as expected or noise, and those are now folded into the baseline. No SLO was breached on a monitor without an open incident.",

@@ -224,17 +224,20 @@ class StatusPageController extends MagicController {
     }
   }
 
-  /// Removes [subscriber] from the page [pageId] roster, surfaces a success
-  /// toast, and rebuilds the bound view.
+  /// Removes [subscriber] from the page [pageId] roster, surfaces an honest
+  /// info toast (the change is local-only, not persisted), and rebuilds the
+  /// bound view.
   ///
   /// Local-only mutation: the backend has no status-page-subscriber write
   /// endpoint yet (see the class docblock), so this cannot persist beyond the
   /// controller's own lifetime.
   void removeSubscriber(String pageId, Subscriber subscriber) {
     subscribersFor(pageId).remove(subscriber);
-    Magic.success(
-      trans('uptizm.status.subscribers_remove_confirm_title'),
-      subscriber.email,
+    MagicFeedback.info(
+      trans('uptizm.status.subscribers_remove_toast_title'),
+      trans('uptizm.status.subscribers_remove_toast_description', {
+        'email': subscriber.email,
+      }),
     );
     refreshUI();
   }

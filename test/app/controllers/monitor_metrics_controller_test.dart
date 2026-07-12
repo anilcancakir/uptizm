@@ -6,7 +6,7 @@ import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 
 void main() {
   // The write actions' failure path surfaces a `Magic.error` toast, which
-  // reads `MagicRouter.instance.navigatorKey.currentContext` — that getter
+  // reads `MagicRouter.instance.navigatorKey.currentContext`; that getter
   // touches `WidgetsBinding.instance` even with no widget tree mounted, so a
   // plain `test()` needs the binding initialized once up front (it then
   // falls back to a logged warning since no context is mounted, matching
@@ -48,7 +48,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // reload — GET /monitors/:id/metrics
+  // reload: GET /monitors/:id/metrics
   // ---------------------------------------------------------------------------
 
   group('reload', () {
@@ -102,7 +102,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // create — POST /monitors/:id/metrics
+  // create: POST /monitors/:id/metrics
   // ---------------------------------------------------------------------------
 
   group('create', () {
@@ -168,7 +168,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // update — PUT /monitors/:id/metrics/:metricId
+  // update: PUT /monitors/:id/metrics/:metricId
   // ---------------------------------------------------------------------------
 
   group('update', () {
@@ -206,7 +206,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // delete — DELETE /monitors/:id/metrics/:metricId
+  // delete: DELETE /monitors/:id/metrics/:metricId
   // ---------------------------------------------------------------------------
 
   group('delete', () {
@@ -240,7 +240,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // reorder — PUT /monitors/:id/metrics/reorder
+  // reorder: PUT /monitors/:id/metrics/reorder
   // ---------------------------------------------------------------------------
 
   group('reorder', () {

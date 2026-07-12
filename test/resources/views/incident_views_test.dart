@@ -417,7 +417,7 @@ void main() {
 
       // A pre-existing layout overflow in the header chip row (PageHeader's
       // `titleSuffix` slot marks multi-pill wrap children `flex-shrink-0`, so
-      // they keep their intrinsic width instead of shrinking — see Issues in
+      // they keep their intrinsic width instead of shrinking, see Issues in
       // the step report) fires here independent of viewport width; it is not
       // a regression introduced by this test, so it is drained rather than
       // asserted away, and the finder assertions below still verify the real

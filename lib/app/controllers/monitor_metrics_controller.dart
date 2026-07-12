@@ -64,7 +64,7 @@ String _directionToWireValue(String direction) =>
 String _directionFromWire(String? wire) => wire == 'low_bad' ? 'low' : 'high';
 
 // ---------------------------------------------------------------------------
-// MonitorMetricRecord — a persisted custom metric definition.
+// MonitorMetricRecord: a persisted custom metric definition.
 // ---------------------------------------------------------------------------
 
 /// A custom metric definition as persisted by the backend, pairing the wire
@@ -129,7 +129,7 @@ class MonitorMetricRecord {
 /// request; [reload] keeps that cache warm. There is no system/custom
 /// discriminator on the backend `monitor_metrics` table (every row is
 /// user-defined; see `backend/app/Models/MonitorMetric.php`), so this
-/// controller owns only the custom metrics catalog — the metrics tab's
+/// controller owns only the custom metrics catalog; the metrics tab's
 /// system section stays a separate, client-derived concern.
 class MonitorMetricsController extends MagicController {
   /// Singleton accessor, registering the controller on first access.

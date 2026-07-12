@@ -47,9 +47,9 @@ enum _AiStep {
 /// bare form.
 ///
 /// The AI flow is a small state machine over two axes:
-/// - [_CreateMode] (`ai` / `manual`, default `ai`) — switching mode always
+/// - [_CreateMode] (`ai` / `manual`, default `ai`): switching mode always
 ///   resets the step to [_AiStep.input] and drops any in-flight analysis.
-/// - [_AiStep] (`input` -> `analyzing` -> `review`, default `input`) — only
+/// - [_AiStep] (`input` -> `analyzing` -> `review`, default `input`): only
 ///   meaningful in AI mode. A failed analyze falls back to [_AiStep.input]
 ///   with an error toast (surfaced by [MonitorController.analyze] itself).
 ///
@@ -69,7 +69,7 @@ enum _AiStep {
 /// (via [MonitorController.create]) and then returns to the monitors list;
 /// Cancel returns to the monitors list WITHOUT creating anything (the React
 /// `done()` lands on a mock detail, but this app's create flow returns to the
-/// list — both modes route to `/monitors`).
+/// list; both modes route to `/monitors`).
 ///
 /// ### Example
 /// ```dart

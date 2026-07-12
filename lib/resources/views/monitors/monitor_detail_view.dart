@@ -56,8 +56,11 @@ import 'monitor_metrics_tab.dart';
 /// the dense MetricChart + CheckHistoryTable + KPI grid from overflowing on a
 /// narrow phone.
 ///
-/// This is a mock screen: it reads the fixtures directly (no controller, no
-/// network). The state is local tab selection, the active range, the pending
+/// The monitor inventory is wired through [MonitorController]: it seeds from
+/// fixtures on [MonitorController.onInit] and then sources the live `api/v1`
+/// endpoints ([MonitorController.reload], the per-monitor background refresh
+/// inside [MonitorController.monitorById]). The state owned locally by this
+/// widget is presentation-only: the active tab, the active range, the pending
 /// confirm dialog, and the loading flag, so a plain [StatefulWidget] is
 /// intentional.
 ///
@@ -470,7 +473,7 @@ class _MonitorDetailViewState
     ).where((i) => i.lifecycle != IncidentLifecycle.resolved).length;
     final String avgResponse = monitor.responseMs != null
         ? '${monitor.responseMs}ms'
-        : '—';
+        : '-';
 
     // 2. Single-column base; widen to two then four columns at breakpoints.
     return WDiv(
