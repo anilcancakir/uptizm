@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/status_page_controller.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
+import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
 import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
 import 'package:uptizm/resources/views/status/status_page_subscribers_view.dart';
@@ -130,8 +131,15 @@ void main() {
     Magic.singleton('magic_starter', () => MagicStarterManager());
 
     // Register the controller up front (idempotent alongside each view's own
-    // initState registration), matching the plan's canonical harness.
+    // initState registration), matching the plan's canonical harness, and seed
+    // its roster cache from the design-lab fixtures. The views now read the
+    // ORM-native reload cache (`StatusPage.all()`), which a bare test host
+    // cannot serve, so seeding stands in for a successful reload; the
+    // background `onInit` reload degrades to empty and leaves the seed intact.
     Magic.findOrPut(StatusPageController.new);
+    StatusPageController.instance.seedForTest(
+      statusPages.map(statusPageFromConfig).toList(),
+    );
 
     Translator.instance.setLoader(_StatusViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
@@ -215,7 +223,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final StatusPageConfig page = findStatusPage('acme')!;
+      final StatusPage page = findStatusPage('acme')!;
 
       await tester.pumpWidget(
         wrap(
@@ -226,7 +234,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.text(page.name), findsWidgets);
+      expect(find.text(page.name!), findsWidgets);
       expect(
         find.text(trans('uptizm.status.editor_form_save')),
         findsOneWidget,
@@ -287,7 +295,7 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 3200));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPageConfig page = findStatusPage('internal')!;
+        final StatusPage page = findStatusPage('internal')!;
         expect(page.subscriptionsEnabled, isFalse);
 
         await tester.pumpWidget(
@@ -318,7 +326,7 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPageConfig page = findStatusPage('acme')!;
+        final StatusPage page = findStatusPage('acme')!;
 
         await tester.pumpWidget(
           wrap(
@@ -329,7 +337,7 @@ void main() {
         await tester.pump();
 
         expect(tester.takeException(), isNull);
-        expect(find.text(page.name), findsWidgets);
+        expect(find.text(page.name!), findsWidgets);
         expect(find.byType(StatusPagePreview), findsOneWidget);
       },
     );

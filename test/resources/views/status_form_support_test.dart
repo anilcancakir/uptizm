@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
+import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/status/status_form_support.dart';
 
 void main() {
@@ -91,7 +92,7 @@ void main() {
         slug: 'acme',
         domainMode: DomainMode.subdomain,
       );
-      expect(pageUrl(config), 'acme.uptizm.com');
+      expect(pageUrl(statusPageFromConfig(config)), 'acme.uptizm.com');
     });
 
     test('path mode renders uptizm.com/status/slug', () {
@@ -99,7 +100,7 @@ void main() {
         slug: 'acme',
         domainMode: DomainMode.path,
       );
-      expect(pageUrl(config), 'uptizm.com/status/acme');
+      expect(pageUrl(statusPageFromConfig(config)), 'uptizm.com/status/acme');
     });
 
     test('an empty slug falls back to your-page', () {
@@ -107,7 +108,7 @@ void main() {
         slug: '',
         domainMode: DomainMode.path,
       );
-      expect(pageUrl(config), 'uptizm.com/status/your-page');
+      expect(pageUrl(statusPageFromConfig(config)), 'uptizm.com/status/your-page');
     });
   });
 
@@ -149,7 +150,7 @@ void main() {
   group('componentsFor', () {
     test('resolves every known monitor id to a public component', () {
       final config = statusPages.first;
-      final List<PublicComponent> components = componentsFor(config);
+      final List<PublicComponent> components = componentsFor(statusPageFromConfig(config));
 
       expect(components.length, config.monitorIds.length);
       for (var i = 0; i < config.monitorIds.length; i++) {
@@ -163,7 +164,7 @@ void main() {
       final config = statusPages.first.copyWith(
         monitorIds: const ['marketing', 'not-a-real-monitor'],
       );
-      final List<PublicComponent> components = componentsFor(config);
+      final List<PublicComponent> components = componentsFor(statusPageFromConfig(config));
 
       expect(components.length, 1);
       expect(components.first.name, findMonitor('marketing')!.name);
@@ -176,7 +177,7 @@ void main() {
 
   group('findStatusPage', () {
     test('a known id resolves to its fixture', () {
-      final StatusPageConfig? page = findStatusPage('acme');
+      final StatusPage? page = findStatusPage('acme');
       expect(page, isNotNull);
       expect(page!.id, 'acme');
     });

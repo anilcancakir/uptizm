@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart' show Color, immutable;
 import 'metrics.dart';
 import 'monitors.dart' show MonitorSummary, UptimeSegment, monitors, uptime90, findMonitor;
 import 'status.dart';
+import '../models/status_page.dart';
 import '../../resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
 
 // ---------------------------------------------------------------------------
@@ -227,25 +228,31 @@ final Map<String, List<UptimeSegment>> _uptimeHistory = {
 
 /// Public URL a status page is served at, by domain mode.
 ///
-/// Falls back to `your-page` when the slug is empty (live-preview state in the
-/// editor). Mirrors `pageUrl` in the React status mock.
+/// Falls back to `your-page` when the slug is empty or absent (live-preview
+/// state in the editor). Mirrors `pageUrl` in the React status mock. Retyped to
+/// the [StatusPage] ORM model in Wave 2 (the `slug` accessor is now nullable).
 ///
 /// ```dart
-/// pageUrl(statusPages.first); // "uptizm.com/status/acme"
+/// pageUrl(page); // "uptizm.com/status/acme"
 /// ```
-String pageUrl(StatusPageConfig c) {
-  final String slug = c.slug.isEmpty ? 'your-page' : c.slug;
+String pageUrl(StatusPage c) {
+  final String? raw = c.slug;
+  final String slug = (raw == null || raw.isEmpty) ? 'your-page' : raw;
   return switch (c.domainMode) {
     DomainMode.subdomain => '$slug.uptizm.com',
     DomainMode.path => 'uptizm.com/status/$slug',
   };
 }
 
-/// Find a status-page fixture by [id]. Returns `null` when none matches.
-StatusPageConfig? findStatusPage(String? id) {
+/// Find a status page by [id] among the design-lab fixtures, hydrated into a
+/// [StatusPage] model. Returns `null` when none matches.
+///
+/// Test-facing after Wave 2: production reads flow through
+/// `StatusPageController.reload` (`StatusPage.all()`), not this fixture lookup.
+StatusPage? findStatusPage(String? id) {
   if (id == null) return null;
   for (final StatusPageConfig p in statusPages) {
-    if (p.id == id) return p;
+    if (p.id == id) return statusPageFromConfig(p);
   }
   return null;
 }
@@ -258,12 +265,15 @@ List<Subscriber> subscribersFor(String? id) {
   return _subscribers[id] ?? const [];
 }
 
-/// Resolve a config's assigned monitor ids to public components.
+/// Resolve a page's assigned monitor ids to public components.
 ///
 /// Unknown ids are dropped. Each component's [PublicComponent.segments] comes
 /// from the per-monitor [_uptimeHistory] table, falling back to a clean 90-day
-/// bar. Mirrors `componentsFor` in the React status mock.
-List<PublicComponent> componentsFor(StatusPageConfig c) {
+/// bar. Mirrors `componentsFor` in the React status mock. The parameter is the
+/// [StatusPage] model (its callers hold `StatusPage` after Wave 2); the monitor
+/// resolution below stays on [MonitorSummary] until Step 9 retypes it to
+/// `Monitor`.
+List<PublicComponent> componentsFor(StatusPage c) {
   final List<PublicComponent> result = [];
   for (final String id in c.monitorIds) {
     final MonitorSummary? m = findMonitor(id);
@@ -280,12 +290,13 @@ List<PublicComponent> componentsFor(StatusPageConfig c) {
   return result;
 }
 
-/// Resolve a config's assigned metric ids to the metrics of its monitors.
+/// Resolve a page's assigned metric ids to the metrics of its monitors.
 ///
 /// Only metrics belonging to currently-assigned monitors resolve, so
 /// unassigning a monitor quietly drops its published metrics. Mirrors
-/// `metricsFor` in the React status mock.
-List<MonitorMetric> metricsFor(StatusPageConfig c) {
+/// `metricsFor` in the React status mock. Retyped to the [StatusPage] ORM
+/// model in Wave 2.
+List<MonitorMetric> metricsFor(StatusPage c) {
   final List<MonitorMetric> available = metricsForMonitors(c.monitorIds);
   final List<MonitorMetric> result = [];
   for (final String id in c.metricKeys) {
@@ -342,4 +353,60 @@ StatusKey worstStatus(List<PublicComponent> components) {
     if (rank(c.status) > rank(worst)) worst = c.status;
   }
   return worst;
+}
+
+// ---------------------------------------------------------------------------
+// StatusPageConfig <-> StatusPage boundary converters (Wave 2 transitional).
+//
+// The status views migrated their reads to the [StatusPage] ORM model, but the
+// EDITOR keeps a mutable [StatusPageConfig] draft (its per-keystroke `copyWith`
+// machinery and the `generateWithAi` draft both trade in the value object).
+// These converters bridge the two at the view boundary: the editor seeds its
+// draft from a fetched model and renders the live preview through a model.
+// Both die with `StatusPageConfig` in Wave 5.
+// ---------------------------------------------------------------------------
+
+/// Hydrates a [StatusPage] model from a [StatusPageConfig] value object.
+///
+/// Stores the fields in their wire shape so the model's reverse-cast accessors
+/// ([StatusPage.domainMode]/[StatusPage.brandColor]/[StatusPage.monitorIds])
+/// read them back: `domain_mode` as the [DomainMode] name (the in-app
+/// representation, distinct from the backend `path`/`custom` write payload),
+/// `brand_color` as `#rrggbb`, and the monitor pivot as `{id}` rows.
+StatusPage statusPageFromConfig(StatusPageConfig c) {
+  final String hex = c.brandColor.toARGB32().toRadixString(16).substring(2);
+  return StatusPage.fromMap(<String, dynamic>{
+    'id': c.id,
+    'name': c.name,
+    'slug': c.slug,
+    'domain_mode': c.domainMode.name,
+    'brand_color': '#$hex',
+    'logo_text': c.logoText,
+    'description': c.description,
+    'subscriptions_enabled': c.subscriptionsEnabled,
+    'monitors': [
+      for (final String id in c.monitorIds) <String, dynamic>{'id': id},
+    ],
+    'metric_keys': c.metricKeys,
+  });
+}
+
+/// Projects a [StatusPage] model back into a [StatusPageConfig] draft.
+///
+/// Fills the value object's non-null String fields from the model's nullable
+/// accessors so the editor can seed its `copyWith`-driven draft from a fetched
+/// page.
+StatusPageConfig statusPageConfigFrom(StatusPage page) {
+  return StatusPageConfig(
+    id: page.id,
+    name: page.name ?? '',
+    slug: page.slug ?? '',
+    domainMode: page.domainMode,
+    brandColor: page.brandColor,
+    logoText: page.logoText ?? '',
+    description: page.description ?? '',
+    monitorIds: page.monitorIds,
+    metricKeys: page.metricKeys,
+    subscriptionsEnabled: page.subscriptionsEnabled,
+  );
 }

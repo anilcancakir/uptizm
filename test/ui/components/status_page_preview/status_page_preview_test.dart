@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
+import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
 
 void main() {
@@ -110,13 +111,14 @@ void main() {
   testWidgets('renders the page name and the powered-by footer', (
     tester,
   ) async {
-    final StatusPageConfig config = statusPages.first;
+    final StatusPageConfig source = statusPages.first;
+    final StatusPage config = statusPageFromConfig(source);
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.text(config.name), findsOneWidget);
+    expect(find.text(source.name), findsOneWidget);
     expect(find.textContaining('powered by Uptizm'), findsOneWidget);
   });
 
@@ -125,8 +127,8 @@ void main() {
   ) async {
     // `checkout` is down in the uptime-history fixture; assigning only it
     // forces the overall status to `down`.
-    final StatusPageConfig config = statusPages.first.copyWith(
-      monitorIds: const ['checkout'],
+    final StatusPage config = statusPageFromConfig(
+      statusPages.first.copyWith(monitorIds: const ['checkout']),
     );
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));
@@ -139,9 +141,8 @@ void main() {
   testWidgets('a config with no assigned monitors renders the empty placeholder', (
     tester,
   ) async {
-    final StatusPageConfig config = statusPages.first.copyWith(
-      monitorIds: const [],
-      metricKeys: const [],
+    final StatusPage config = statusPageFromConfig(
+      statusPages.first.copyWith(monitorIds: const [], metricKeys: const []),
     );
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));

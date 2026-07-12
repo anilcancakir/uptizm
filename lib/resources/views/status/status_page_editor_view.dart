@@ -7,6 +7,7 @@ import 'status_form_support.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/billing.dart';
 import '../../../app/mocks/status_pages.dart';
+import '../../../app/models/status_page.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
@@ -124,8 +125,10 @@ class _StatusPageEditorViewState
   /// Runs from [initState] and [didUpdateWidget]; both schedule their own build,
   /// so state is assigned directly rather than through [setState]. The slug is
   /// treated as already-edited in edit mode so an existing slug never gets
-  /// clobbered by a name edit (React `useState(!isNew)` for `slugEdited`).
-  void _seedFrom(StatusPageConfig? existing) {
+  /// clobbered by a name edit (React `useState(!isNew)` for `slugEdited`). The
+  /// fetched [StatusPage] model is projected into the editable
+  /// [StatusPageConfig] value object the draft machinery trades in.
+  void _seedFrom(StatusPage? existing) {
     _aiApplied = false;
     if (existing == null) {
       _isEdit = false;
@@ -146,12 +149,17 @@ class _StatusPageEditorViewState
     }
     _isEdit = true;
     _slugEdited = true;
-    _draft = existing;
+    _draft = statusPageConfigFrom(existing);
   }
 
   /// Whether the draft satisfies the Save-enabled rule (name + slug + at least
   /// one assigned monitor).
   bool get _canSave => isConfigValid(_draft);
+
+  /// The current draft projected into a [StatusPage] model, for the read-side
+  /// helpers ([pageUrl]) and the live [StatusPagePreview] that now consume the
+  /// ORM model rather than the [StatusPageConfig] value object.
+  StatusPage get _draftPage => statusPageFromConfig(_draft);
 
   /// Applies a copy of the draft, wrapped in [setState].
   void _update(StatusPageConfig next) {
@@ -276,7 +284,7 @@ class _StatusPageEditorViewState
           backFallback: _listRoute,
           actions: _buildHeaderActions(),
         ),
-        WText(pageUrl(_draft), className: 'font-mono text-xs text-fg-muted'),
+        WText(pageUrl(_draftPage), className: 'font-mono text-xs text-fg-muted'),
       ],
     );
   }
@@ -438,7 +446,7 @@ class _StatusPageEditorViewState
   Widget _buildSlugField() {
     return MSFormField(
       label: trans('uptizm.status.editor_form_slug_label'),
-      hint: pageUrl(_draft),
+      hint: pageUrl(_draftPage),
       child: MSInput(
         value: _draft.slug,
         onChanged: _onSlugChanged,
@@ -717,7 +725,7 @@ class _StatusPageEditorViewState
           child: SizedBox(
             height: 600,
             child: SingleChildScrollView(
-              child: StatusPagePreview(config: _draft),
+              child: StatusPagePreview(config: _draftPage),
             ),
           ),
         ),
@@ -744,7 +752,7 @@ class _StatusPageEditorViewState
           className:
               'min-w-0 flex-1 rounded bg-surface px-2 py-0.5 text-center '
               'font-mono text-xs text-fg-muted',
-          child: WText(pageUrl(_draft)),
+          child: WText(pageUrl(_draftPage)),
         ),
       ],
     );

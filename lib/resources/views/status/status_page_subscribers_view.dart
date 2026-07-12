@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
+import '../../../app/models/status_page.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -99,13 +100,14 @@ class _StatusPageSubscribersViewState
     // 1. Resolve the status page; a null / unknown id falls back to a
     //    graceful not-found state so the screen never crashes on an unknown
     //    route id.
-    final StatusPageConfig? page = controller.configById(widget.id);
+    final StatusPage? page = controller.configById(widget.id);
     if (page == null) {
       return _buildNotFound();
     }
 
     // 2. Compose the page body as a Wind flex column: the 24px section rhythm
     //    is carried by gap-6, not SizedBox spacers.
+    final String pageName = page.name ?? '';
     final bool hasSubscribers = controller.subscribersFor(page.id).isNotEmpty;
     return PageContainer(
       child: WDiv(
@@ -113,8 +115,8 @@ class _StatusPageSubscribersViewState
         children: [
           MSPageHeader(
             title: trans('uptizm.status.subscribers_title'),
-            subtitle: 'People subscribed to ${page.name} updates.',
-            backLabel: page.name,
+            subtitle: 'People subscribed to $pageName updates.',
+            backLabel: pageName,
             backFallback: '/status/${page.id}',
             actions: [
               MSButton(
@@ -149,7 +151,7 @@ class _StatusPageSubscribersViewState
 
   /// Builds the two-card KPI row: total subscriber count and the page's
   /// subscriptions on/off state.
-  Widget _buildKpiRow(StatusPageConfig page) {
+  Widget _buildKpiRow(StatusPage page) {
     return WDiv(
       className: 'grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
@@ -176,7 +178,7 @@ class _StatusPageSubscribersViewState
   /// or there are no subscribers yet. The message branches on
   /// [StatusPageConfig.subscriptionsEnabled]; "Open editor" always routes
   /// back to `/status/<id>`.
-  Widget _buildEmptyState(StatusPageConfig page) {
+  Widget _buildEmptyState(StatusPage page) {
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
       child: EmptyState(
@@ -203,7 +205,7 @@ class _StatusPageSubscribersViewState
   // ---------------------------------------------------------------------------
 
   /// Builds the search input plus the striped [Card] of subscriber rows.
-  Widget _buildSubscriberBody(StatusPageConfig page) {
+  Widget _buildSubscriberBody(StatusPage page) {
     final List<Subscriber> visible = _visible;
 
     return WDiv(
@@ -251,7 +253,7 @@ class _StatusPageSubscribersViewState
   /// The row carries a hairline bottom border on every entry except the
   /// last, mirroring the React `i < visible.length - 1` pattern.
   Widget _buildSubscriberRow(
-    StatusPageConfig page,
+    StatusPage page,
     Subscriber subscriber, {
     required bool isLast,
   }) {
@@ -302,7 +304,7 @@ class _StatusPageSubscribersViewState
   /// delegates the roster mutation (plus its success toast) to
   /// [StatusPageController.removeSubscriber].
   Future<void> _confirmRemove(
-    StatusPageConfig page,
+    StatusPage page,
     Subscriber subscriber,
   ) async {
     final bool confirmed = await MagicStarterConfirmDialog.show(
@@ -310,7 +312,7 @@ class _StatusPageSubscribersViewState
       title: trans('uptizm.status.subscribers_remove_confirm_title'),
       description: trans(
         'uptizm.status.subscribers_remove_confirm_description',
-        {'email': subscriber.email, 'page': page.name},
+        {'email': subscriber.email, 'page': page.name ?? ''},
       ),
       confirmLabel: trans('uptizm.status.subscribers_remove_button'),
       variant: ConfirmDialogVariant.danger,

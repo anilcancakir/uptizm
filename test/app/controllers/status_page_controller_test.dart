@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/status_page_controller.dart';
+import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/resources/views/status/status_form_support.dart'
     show aiDraftFor;
@@ -14,11 +15,12 @@ void main() {
     // (save/create/removeSubscriber call Magic.success, which falls through to
     // a warning log when no navigator context is mounted, as here).
     Magic.singleton('log', () => LogManager());
-    // Bind a fake network driver so the wired save/create/attachMonitor/
+    // Bind a fake network driver so the wired reload/save/create/attachMonitor/
     // detachMonitor/reorderMonitors actions resolve the `network` service.
     // Individual tests override it with `Http.fake({...})` to seed a canned
-    // envelope, or call `Http.unfake()` to exercise the transport-failure
-    // degradation path.
+    // envelope. Degradation tests swap in an error-returning fake (never
+    // `Http.unfake()`, which tears down the sibling log/feedback bindings and
+    // makes the honest Magic.error toast throw).
     Http.fake();
     // Force-build the lazy GoRouter so MagicRoute.to (used by save/create)
     // does not throw StateError('Router not initialized...'). In production
@@ -33,6 +35,32 @@ void main() {
     Magic.flush();
   });
 
+  /// A canned two-page `GET /status-pages` envelope for priming [reload]. Typed
+  /// as `Map<String, MagicResponse>` so the fake driver's keyed-routing branch
+  /// (`stubs is Map<String, MagicResponse>`) recognizes it.
+  Map<String, MagicResponse> pagesEnvelope() => {
+    'status-pages': Http.response({
+      'data': [
+        {
+          'id': 'acme',
+          'name': 'Acme Status',
+          'slug': 'acme',
+          'domain_mode': 'path',
+          'brand_color': '#16A34A',
+          'subscriptions_enabled': true,
+        },
+        {
+          'id': 'internal',
+          'name': 'Acme Internal Ops',
+          'slug': 'internal-ops',
+          'domain_mode': 'custom',
+          'brand_color': '#6366F1',
+          'subscriptions_enabled': false,
+        },
+      ],
+    }, 200),
+  };
+
   test('StatusPageController.instance registers and returns a singleton', () {
     final StatusPageController first = StatusPageController.instance;
     final StatusPageController second = StatusPageController.instance;
@@ -40,23 +68,86 @@ void main() {
     expect(identical(first, second), isTrue);
   });
 
-  test('statusPages returns the full fixture list', () {
-    final StatusPageController controller = StatusPageController.instance;
+  // ---------------------------------------------------------------------------
+  // reload / statusPages: read-side population from `GET /status-pages` via the
+  // ORM-native `StatusPage.all()`, cached and degrading to last-known-good.
+  // ---------------------------------------------------------------------------
 
-    expect(controller.statusPages, equals(statusPages));
+  group('reload', () {
+    test('hydrates the cache from StatusPage.all() (GET /status-pages)', () async {
+      final fake = Http.fake(pagesEnvelope());
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.reload();
+
+      fake.assertSent((r) => r.method == 'GET' && r.url.contains('status-pages'));
+      expect(controller.statusPages, isA<List<StatusPage>>());
+      expect(controller.statusPages.map((p) => p.id), containsAll(['acme', 'internal']));
+    });
+
+    test('preserves the last-known-good cache when a reload yields nothing', () async {
+      Http.fake(pagesEnvelope());
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
+      expect(controller.statusPages, isNotEmpty);
+
+      // A subsequent failing reload must not flush the cache to empty.
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+      await controller.reload();
+
+      expect(controller.statusPages.map((p) => p.id), containsAll(['acme', 'internal']));
+    });
+
+    test('degrades to an empty cache (no throw) before the first success', () async {
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+      final StatusPageController controller = StatusPageController.instance;
+
+      await expectLater(() => controller.reload(), returnsNormally);
+      expect(controller.statusPages, isEmpty);
+    });
   });
 
-  test('configById resolves a known fixture id', () {
+  test('statusPages returns the cached StatusPage list', () async {
+    Http.fake(pagesEnvelope());
     final StatusPageController controller = StatusPageController.instance;
 
-    expect(controller.configById('acme'), equals(findStatusPage('acme')));
+    await controller.reload();
+
+    final List<StatusPage> pages = controller.statusPages;
+    expect(pages, hasLength(2));
+    expect(pages.first, isA<StatusPage>());
+    expect(pages.first.name, equals('Acme Status'));
   });
 
-  test('configById returns null for an unknown or null id', () {
+  test('configById resolves a cached page to a StatusPage', () async {
+    Http.fake(pagesEnvelope());
     final StatusPageController controller = StatusPageController.instance;
+    await controller.reload();
+
+    final StatusPage? page = controller.configById('acme');
+    expect(page, isNotNull);
+    expect(page!.id, equals('acme'));
+    expect(page.slug, equals('acme'));
+  });
+
+  test('configById returns null for an unknown or null id', () async {
+    Http.fake(pagesEnvelope());
+    final StatusPageController controller = StatusPageController.instance;
+    await controller.reload();
 
     expect(controller.configById('does-not-exist'), isNull);
     expect(controller.configById(null), isNull);
+  });
+
+  test('seedForTest populates the cache without the network', () {
+    final StatusPageController controller = StatusPageController.instance;
+
+    controller.seedForTest([
+      StatusPage.fromMap({'id': 'acme', 'name': 'Acme Status'}),
+    ]);
+
+    expect(controller.statusPages, hasLength(1));
+    expect(controller.configById('acme')?.id, equals('acme'));
   });
 
   test('subscribersFor seeds the working copy from the fixture roster', () {
@@ -132,9 +223,10 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // save / create: live `PUT`/`POST` calls against `api/v1/status-pages`,
-  // reload (refreshUI) + navigation on success, error toast + stay on
-  // failure. Mirrors `monitor_controller.dart:145-221`'s wired precedent.
+  // save / create: ORM-native writes through `StatusPage.save()` against
+  // `api/v1/status-pages`, refresh (refreshUI) + navigation on success, error
+  // toast + stay on a false `save()` result. The draft stays a StatusPageConfig
+  // value object; the controller maps it to a persistence model.
   // ---------------------------------------------------------------------------
 
   group('save', () {
@@ -143,7 +235,7 @@ void main() {
         'status-pages/*': Http.response({'data': {}}, 200),
       });
       final StatusPageController controller = StatusPageController.instance;
-      final StatusPageConfig draft = findStatusPage('acme')!;
+      final StatusPageConfig draft = statusPages.first;
 
       await controller.save(draft);
 
@@ -165,7 +257,7 @@ void main() {
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      await controller.save(findStatusPage('acme')!);
+      await controller.save(statusPages.first);
 
       expect(notifications, equals(1));
     });
@@ -178,25 +270,24 @@ void main() {
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      await expectLater(
-        () => controller.save(findStatusPage('acme')!),
-        returnsNormally,
-      );
+      // Await the write fully: the ORM `save()` resolves its error toast after
+      // it returns, so an unawaited future would leak into teardown.
+      await expectLater(controller.save(statusPages.first), completes);
       expect(notifications, equals(0));
     });
 
-    test(
-      'degrades gracefully (no throw) when the network is unavailable',
-      () async {
-        Http.unfake();
-        final StatusPageController controller = StatusPageController.instance;
+    test('degrades gracefully (no throw) when the write fails', () async {
+      // Prime the cache with a successful reload, then swap in an error fake so
+      // ONLY the write fails; never `Http.unfake()` (it tears down the sibling
+      // log/feedback bindings, making the honest Magic.error toast throw).
+      Http.fake(pagesEnvelope());
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
 
-        await expectLater(
-          () => controller.save(findStatusPage('acme')!),
-          returnsNormally,
-        );
-      },
-    );
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+
+      await expectLater(controller.save(statusPages.first), completes);
+    });
   });
 
   group('create', () {
@@ -205,7 +296,7 @@ void main() {
         'status-pages': Http.response({'data': {}}, 201),
       });
       final StatusPageController controller = StatusPageController.instance;
-      final StatusPageConfig draft = findStatusPage('internal')!;
+      final StatusPageConfig draft = statusPages.last;
 
       await controller.create(draft);
 
@@ -227,7 +318,7 @@ void main() {
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      await controller.create(findStatusPage('acme')!);
+      await controller.create(statusPages.first);
 
       expect(notifications, equals(1));
     });
@@ -240,17 +331,14 @@ void main() {
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      await expectLater(
-        () => controller.create(findStatusPage('acme')!),
-        returnsNormally,
-      );
+      await expectLater(controller.create(statusPages.first), completes);
       expect(notifications, equals(0));
     });
   });
 
   // ---------------------------------------------------------------------------
   // attachMonitor / detachMonitor / reorderMonitors: live monitor-membership
-  // actions against the S3 pivot endpoints.
+  // actions against the S3 pivot endpoints, kept as raw `Http.*`.
   // ---------------------------------------------------------------------------
 
   group('attachMonitor', () {
@@ -291,10 +379,7 @@ void main() {
       });
       final StatusPageController controller = StatusPageController.instance;
 
-      await expectLater(
-        () => controller.attachMonitor('acme', 'checkout'),
-        returnsNormally,
-      );
+      await expectLater(controller.attachMonitor('acme', 'checkout'), completes);
     });
   });
 

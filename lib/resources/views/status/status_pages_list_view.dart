@@ -4,6 +4,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
+import '../../../app/models/status_page.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_badge/index.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -86,8 +87,7 @@ class _StatusPagesListViewState
     return WDiv(
       className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
       children: [
-        for (final StatusPageConfig page in controller.statusPages)
-          _buildCard(page),
+        for (final StatusPage page in controller.statusPages) _buildCard(page),
       ],
     );
   }
@@ -97,7 +97,7 @@ class _StatusPagesListViewState
   ///
   /// The whole card is tappable via [WAnchor] (the same pointer-cursor + hit
   /// target wrapper used by [MonitorListRow]) and routes to the page's editor.
-  Widget _buildCard(StatusPageConfig page) {
+  Widget _buildCard(StatusPage page) {
     final List<PublicComponent> components = componentsFor(page);
     final int subscriberCount = controller.subscribersFor(page.id).length;
 
@@ -116,7 +116,7 @@ class _StatusPagesListViewState
                 className: 'flex flex-col min-w-0 flex-1',
                 children: [
                   WText(
-                    page.name,
+                    page.name ?? '',
                     className: 'truncate text-sm font-semibold text-fg',
                   ),
                   WText(
@@ -141,10 +141,12 @@ class _StatusPagesListViewState
   ///
   /// Mirrors the brand-header logo tile from [StatusPagePreview]: `brandColor`
   /// is content data applied via `WDiv.backgroundColor`, not a semantic token.
-  Widget _buildLogoTile(StatusPageConfig page) {
-    final String initials = page.logoText.isNotEmpty
-        ? page.logoText
-        : (page.name.isNotEmpty ? page.name.substring(0, 1) : 'S');
+  Widget _buildLogoTile(StatusPage page) {
+    final String logoText = page.logoText ?? '';
+    final String name = page.name ?? '';
+    final String initials = logoText.isNotEmpty
+        ? logoText
+        : (name.isNotEmpty ? name.substring(0, 1) : 'S');
 
     return WDiv(
       backgroundColor: page.brandColor,
@@ -155,7 +157,7 @@ class _StatusPagesListViewState
 
   /// Footer counts: "N components · Subdomain/Path · N subscribers / Subs off".
   String _footerText(
-    StatusPageConfig page,
+    StatusPage page,
     int componentCount,
     int subscriberCount,
   ) {

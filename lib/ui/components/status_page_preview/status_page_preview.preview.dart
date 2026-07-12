@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/mocks/status_pages.dart';
+import '../../../app/models/status_page.dart';
 import 'status_page_preview.dart';
 
 /// Static variant-matrix preview for [StatusPagePreview].
@@ -20,10 +21,12 @@ class StatusPagePreviewPreview extends StatelessWidget {
     // A healthy variant: reuse the customer-facing fixture but assign only the
     // operational marketing monitor so the overall banner reads "All systems
     // operational" and no past incidents surface.
-    final StatusPageConfig healthy = statusPages.first.copyWith(
-      name: 'Acme Status (healthy)',
-      monitorIds: const ['marketing'],
-      metricKeys: const ['marketing.dom_load'],
+    final StatusPage healthy = statusPageFromConfig(
+      statusPages.first.copyWith(
+        name: 'Acme Status (healthy)',
+        monitorIds: const ['marketing'],
+        metricKeys: const ['marketing.dom_load'],
+      ),
     );
 
     return WDiv(
@@ -32,15 +35,18 @@ class StatusPagePreviewPreview extends StatelessWidget {
         _labelled('Healthy — operational, subscriptions on', healthy),
         _labelled(
           'Outage — live metrics, incidents, subscriptions on',
-          statusPages.first,
+          statusPageFromConfig(statusPages.first),
         ),
-        _labelled('Internal ops — subscriptions off', statusPages.last),
+        _labelled(
+          'Internal ops — subscriptions off',
+          statusPageFromConfig(statusPages.last),
+        ),
       ],
     );
   }
 
   /// One labelled preview block: a caption above the rendered page.
-  Widget _labelled(String caption, StatusPageConfig config) {
+  Widget _labelled(String caption, StatusPage config) {
     return WDiv(
       className: 'flex flex-col gap-2',
       children: [

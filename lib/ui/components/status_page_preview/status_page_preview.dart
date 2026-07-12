@@ -6,6 +6,7 @@ import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/metrics.dart';
 import '../../../app/mocks/status.dart';
 import '../../../app/mocks/status_pages.dart';
+import '../../../app/models/status_page.dart';
 import '../component_status_row/index.dart';
 import '../status_badge/index.dart';
 import '../status_dot/index.dart';
@@ -14,7 +15,7 @@ import 'status_page_preview.recipe.dart';
 /// **The public status page, rendered in-app.**
 ///
 /// A faithful mockup of the (backend-rendered) public status page, driven
-/// entirely by a [StatusPageConfig]. It is embedded twice: in the editor's live
+/// entirely by a [StatusPage]. It is embedded twice: in the editor's live
 /// preview pane (a brand-framed live draft) and by the standalone full-screen
 /// public route. Ported 1:1 in structure from the design source
 /// `StatusPagePreview.tsx`.
@@ -24,20 +25,20 @@ import 'status_page_preview.recipe.dart';
 /// placeholder), an optional past-incidents list filtered to this page's
 /// monitors, an optional subscribe box, and a footer.
 ///
-/// Brand color and logo come from the config; all component/incident health
+/// Brand color and logo come from the model; all component/incident health
 /// reads through the semantic status tokens so it looks right regardless of the
-/// brand tint. The only raw color anywhere is [StatusPageConfig.brandColor]
-/// (the logo tile and the subscribe button), which is content data.
+/// brand tint. The only raw color anywhere is [StatusPage.brandColor] (the logo
+/// tile and the subscribe button), which is content data.
 ///
 /// ### Example Usage:
 ///
 /// ```dart
-/// StatusPagePreview(config: statusPages.first)
+/// StatusPagePreview(config: page)
 /// ```
 @immutable
 class StatusPagePreview extends StatelessWidget {
-  /// The status-page configuration to render.
-  final StatusPageConfig config;
+  /// The status page to render.
+  final StatusPage config;
 
   /// Creates a [StatusPagePreview] for the given [config].
   const StatusPagePreview({super.key, required this.config});
@@ -90,9 +91,11 @@ class StatusPagePreview extends StatelessWidget {
     // white. brandColor is content data (the design source's inline
     // `style={{ background: brandColor }}`), applied through WDiv.backgroundColor
     // (the Team.color / sidebar-avatar precedent), NOT a semantic token.
-    final String initials = config.logoText.isNotEmpty
-        ? config.logoText
-        : (config.name.isNotEmpty ? config.name.substring(0, 1) : 'S');
+    final String logoText = config.logoText ?? '';
+    final String name = config.name ?? '';
+    final String initials = logoText.isNotEmpty
+        ? logoText
+        : (name.isNotEmpty ? name.substring(0, 1) : 'S');
 
     return WDiv(
       className: 'flex flex-row items-center gap-2',
@@ -103,7 +106,7 @@ class StatusPagePreview extends StatelessWidget {
           child: WText(initials, className: 'text-sm font-bold text-white'),
         ),
         WText(
-          config.name.isNotEmpty ? config.name : 'Status',
+          name.isNotEmpty ? name : 'Status',
           className: 'text-base font-semibold tracking-tight text-fg',
         ),
       ],

@@ -1,6 +1,7 @@
-import 'package:flutter/widgets.dart' show Color;
+import 'package:flutter/widgets.dart' show Color, visibleForTesting;
 import 'package:magic/magic.dart';
 
+import '../models/status_page.dart';
 import '../mocks/status_pages.dart';
 import '../mocks/status_pages.dart' as status_pages_fixture;
 import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
@@ -8,36 +9,87 @@ import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 /// Controller backing the four routed status-page views (list, editor,
 /// preview, subscribers).
 ///
-/// [statusPages]/[configById]/[subscribersFor] stay fixture-backed reads (see
-/// their docblocks): the `StatusPageConfig`/`Subscriber` fixture models have
-/// no wire codec and no field parity with the backend's `domain_mode`/
-/// `brand_color` shape (see [_wireDomainMode]/[_wireBrandColor]), and giving
-/// them one is outside this controller's file scope. The business actions
-/// below ([save], [create], [attachMonitor], [detachMonitor],
-/// [reorderMonitors]) DO write through to the live `api/v1` status-page
-/// endpoints (`StatusPageController` on the backend), mirroring
-/// `monitor_controller.dart:145-221`'s try/log/toast/refresh shape.
-/// [removeSubscriber] stays a local-only mutation: the backend has no
-/// status-page-subscriber write endpoint yet (only the `StatusPageSubscriber`
-/// model exists, unrouted), so there is nothing to persist to.
+/// The read side is ORM-native as of Wave 2: [reload] fetches the roster
+/// through `StatusPage.all()` (`GET /status-pages`) and caches it in [_pages],
+/// degrading to the last-known-good cache on any failure (empty before the
+/// first success); [statusPages] and [configById] answer synchronously from
+/// that cache so a view's `build()` never awaits. The write actions [save] and
+/// [create] map the editor's [StatusPageConfig] draft to a [StatusPage] model
+/// and persist through its ORM `save()` (bool-checked, toast on failure),
+/// while [attachMonitor]/[detachMonitor]/[reorderMonitors] stay raw `Http.*`
+/// against the monitor-membership pivot sub-resource. [removeSubscriber] stays
+/// a local-only mutation: the backend has no status-page-subscriber write
+/// endpoint yet (only the `StatusPageSubscriber` model exists, unrouted), so
+/// there is nothing to persist to; the subscriber roster is still fixture-fed
+/// through [subscribersFor].
 class StatusPageController extends MagicController {
   /// Singleton accessor, registering the controller on first access.
   static StatusPageController get instance =>
       Magic.findOrPut(StatusPageController.new);
 
-  /// Mutable per-page subscriber working sets, keyed by [StatusPageConfig.id].
+  /// Mutable per-page subscriber working sets, keyed by status-page id.
   ///
   /// Lazily seeded from the const fixtures on first access (the fixture map is
   /// never mutated in place); [removeSubscriber] edits the working copy so a
   /// removal survives across rebuilds within the controller's lifetime.
   final Map<String, List<Subscriber>> _subscribers = {};
 
-  /// Every configured status page (fixture access; see the class docblock for
-  /// why the read side stays fixture-backed).
-  List<StatusPageConfig> get statusPages => status_pages_fixture.statusPages;
+  /// In-memory cache of the status-page roster, populated by [reload]. Empty
+  /// until the first successful fetch resolves.
+  List<StatusPage> _pages = [];
 
-  /// Resolves a status page by [id]; `null` when none matches (fixture access).
-  StatusPageConfig? configById(String? id) => findStatusPage(id);
+  /// Every configured status page, sourced from `GET /status-pages` via
+  /// [reload]. Reads straight from the cache (no I/O), so a view's `build()`
+  /// never awaits.
+  List<StatusPage> get statusPages => _pages;
+
+  /// Resolves a status page by [id] from the cached roster; `null` when none
+  /// matches (unknown id, or the cache has not loaded yet).
+  StatusPage? configById(String? id) {
+    if (id == null) return null;
+    for (final StatusPage page in _pages) {
+      if (page.id == id) return page;
+    }
+    return null;
+  }
+
+  /// Seeds the in-memory roster directly for a widget/controller test,
+  /// bypassing the network.
+  ///
+  /// The wired [reload] path sources the roster from `GET /status-pages`, which
+  /// a bare test host cannot serve; this lets a test populate [statusPages]
+  /// (and therefore [configById]) with known fixtures before pumping a bound
+  /// view. Notifies listeners so an already-mounted view rebuilds against the
+  /// seeded roster.
+  @visibleForTesting
+  void seedForTest(List<StatusPage> seed) {
+    _pages = List<StatusPage>.from(seed);
+    refreshUI();
+  }
+
+  /// Bootstraps the roster the first time this controller backs a view.
+  @override
+  void onInit() {
+    super.onInit();
+    reload();
+  }
+
+  /// Non-destructive roster refresh: fetches the roster through
+  /// `StatusPage.all()` (`GET /status-pages`) and republishes it on a
+  /// non-empty result. Preserves the previously loaded roster on any failure
+  /// (network error, non-2xx, or an empty payload) so the list view never
+  /// flickers into an empty state between reloads.
+  ///
+  /// `StatusPage.all()` swallows transport failures and returns an empty list,
+  /// so an empty result is treated as "nothing new to publish" and leaves the
+  /// last-known-good cache in place (it is empty before the first success).
+  Future<void> reload() async {
+    final List<StatusPage> pages = await StatusPage.all();
+    if (pages.isEmpty) return;
+
+    _pages = pages;
+    refreshUI();
+  }
 
   /// The working subscriber roster for the page with [id]; empty for a `null`
   /// id.
@@ -63,64 +115,50 @@ class StatusPageController extends MagicController {
   // Business actions: live writes against `api/v1/status-pages`.
   // ---------------------------------------------------------------------------
 
-  /// Saves an existing status page [draft] via `PUT /status-pages/{id}`.
+  /// Saves an existing status page [draft] via the ORM `StatusPage.save()`
+  /// (`PUT /status-pages/{id}`).
   ///
-  /// On success, refreshes the bound view, surfaces a success toast, and
-  /// returns to the list. On a failed response or a transport error, logs the
-  /// failure and surfaces an error toast without navigating away, so the
-  /// operator can retry from the still-open editor.
+  /// Maps the editor's value-object draft to a persistence model marked as
+  /// already existing (so `save()` issues an update, not a create), then checks
+  /// the bool result: on success, refreshes the bound view, surfaces a success
+  /// toast, and returns to the list; on a false result (non-2xx or a swallowed
+  /// transport failure), logs it and surfaces an error toast without navigating
+  /// away, so the operator can retry from the still-open editor.
   Future<void> save(StatusPageConfig draft) async {
-    try {
-      final response = await Http.put(
-        '/status-pages/${draft.id}',
-        data: _wirePayload(draft),
-      );
-      if (!response.successful) {
-        Log.error(
-          '[StatusPageController.save] ${draft.id}: ${response.errorMessage}',
-        );
-        _toastError(response.errorMessage);
-        return;
-      }
+    final StatusPage page = _modelFrom(draft, existing: true);
 
-      refreshUI();
-      Magic.success(trans('uptizm.status.editor_form_save'), draft.name);
-      MagicRoute.to('/status');
-    } catch (error) {
-      Log.error('[StatusPageController.save] ${draft.id} failed: $error');
+    final bool ok = await page.save();
+    if (!ok) {
+      Log.error('[StatusPageController.save] ${draft.id}: save() returned false');
       _toastError(null);
+      return;
     }
+
+    refreshUI();
+    Magic.success(trans('uptizm.status.editor_form_save'), draft.name);
+    MagicRoute.to('/status');
   }
 
-  /// Creates a new status page from [draft] via `POST /status-pages`.
+  /// Creates a new status page from [draft] via the ORM `StatusPage.save()`
+  /// (`POST /status-pages`).
   ///
-  /// On success, refreshes the bound view, surfaces a success toast, and
-  /// returns to the list. On a failed response or a transport error, logs the
-  /// failure and surfaces an error toast without navigating away.
+  /// Maps the value-object draft to a fresh (non-existing) model so `save()`
+  /// issues a create, then checks the bool result: on success, refreshes the
+  /// bound view, surfaces a success toast, and returns to the list; on a false
+  /// result, logs it and surfaces an error toast without navigating away.
   Future<void> create(StatusPageConfig draft) async {
-    try {
-      final response = await Http.post(
-        '/status-pages',
-        data: _wirePayload(draft),
-      );
-      if (!response.successful) {
-        Log.error(
-          '[StatusPageController.create] ${response.errorMessage}',
-        );
-        _toastError(response.errorMessage);
-        return;
-      }
+    final StatusPage page = _modelFrom(draft, existing: false);
 
-      refreshUI();
-      Magic.success(
-        trans('uptizm.status.editor_form_create_page'),
-        draft.name,
-      );
-      MagicRoute.to('/status');
-    } catch (error) {
-      Log.error('[StatusPageController.create] failed: $error');
+    final bool ok = await page.save();
+    if (!ok) {
+      Log.error('[StatusPageController.create] save() returned false');
       _toastError(null);
+      return;
     }
+
+    refreshUI();
+    Magic.success(trans('uptizm.status.editor_form_create_page'), draft.name);
+    MagicRoute.to('/status');
   }
 
   /// Attaches [monitorId] to the page [pageId]'s public component list via
@@ -246,23 +284,33 @@ class StatusPageController extends MagicController {
   // Wire helpers
   // ---------------------------------------------------------------------------
 
-  /// Maps a [StatusPageConfig] draft to the backend's
-  /// `Store`/`UpdateStatusPageRequest` field shape.
+  /// Builds a [StatusPage] persistence model from a [StatusPageConfig] draft.
+  ///
+  /// Fills the backend's `Store`/`UpdateStatusPageRequest` field shape (using
+  /// the forward write-casts [_wireDomainMode]/[_wireBrandColor]) and, when
+  /// [existing] is true, stamps the id and marks the model as already existing
+  /// so `save()` routes to `PUT` rather than `POST`.
   ///
   /// `monitorIds`/`metricKeys` are deliberately excluded: monitor membership
   /// is a separate pivot managed through [attachMonitor]/[detachMonitor], and
   /// metric selection has no live endpoint yet (the backend's `metrics()`
   /// pivot exists for schema completeness only, per `StatusPage.php`).
-  Map<String, dynamic> _wirePayload(StatusPageConfig draft) {
-    return <String, dynamic>{
-      'name': draft.name,
-      'slug': draft.slug,
-      'domain_mode': _wireDomainMode(draft.domainMode),
-      'brand_color': _wireBrandColor(draft.brandColor),
-      'logo_text': draft.logoText,
-      'description': draft.description,
-      'subscriptions_enabled': draft.subscriptionsEnabled,
-    };
+  StatusPage _modelFrom(StatusPageConfig draft, {required bool existing}) {
+    final StatusPage page = StatusPage()
+      ..fill(<String, dynamic>{
+        'name': draft.name,
+        'slug': draft.slug,
+        'domain_mode': _wireDomainMode(draft.domainMode),
+        'brand_color': _wireBrandColor(draft.brandColor),
+        'logo_text': draft.logoText,
+        'description': draft.description,
+        'subscriptions_enabled': draft.subscriptionsEnabled,
+      });
+    if (existing) {
+      page.id = draft.id;
+      page.exists = true;
+    }
+    return page;
   }
 
   /// Maps the fixture's [DomainMode] to the backend's `domain_mode` enum

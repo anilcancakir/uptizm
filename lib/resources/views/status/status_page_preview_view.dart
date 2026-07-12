@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/mocks/status_pages.dart';
+import '../../../app/models/status_page.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_page_preview/index.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -66,7 +67,7 @@ class _StatusPagePreviewViewState
     // 1. Resolve the status page; a null / unknown id falls back to a
     //    graceful not-found state so the screen never crashes on an unknown
     //    route id.
-    final StatusPageConfig? page = controller.configById(widget.id);
+    final StatusPage? page = controller.configById(widget.id);
     if (page == null) {
       return _buildNotFound();
     }
@@ -74,13 +75,14 @@ class _StatusPagePreviewViewState
     // 2. Header: breadcrumb back to the page's editor, then a centered
     //    browser-framed mockup of the public page inside a scroll area. The
     //    24px header rhythm is carried by gap-6, not a SizedBox spacer.
+    final String pageName = page.name ?? '';
     return PageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
           MSPageHeader(
-            title: page.name,
-            backLabel: page.name,
+            title: pageName,
+            backLabel: pageName,
             backFallback: '/status/${page.id}',
           ),
           _buildBrowserFrame(page),
@@ -97,7 +99,7 @@ class _StatusPagePreviewViewState
   /// the mono [pageUrl]) wrapping the [StatusPagePreview] inside a bounded
   /// scroll area, so the mockup reads as a simulated browser window rather
   /// than a bare page section.
-  Widget _buildBrowserFrame(StatusPageConfig page) {
+  Widget _buildBrowserFrame(StatusPage page) {
     return WDiv(
       className: 'w-full max-w-2xl mx-auto',
       child: MSCard(
@@ -120,7 +122,7 @@ class _StatusPagePreviewViewState
 
   /// Builds the chrome bar: three decorative dots on the leading edge and a
   /// centered mono URL pill showing [pageUrl].
-  Widget _buildChromeBar(StatusPageConfig page) {
+  Widget _buildChromeBar(StatusPage page) {
     return WDiv(
       className:
           'flex flex-row items-center gap-3 border-b '
