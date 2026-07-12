@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/escalation_controller.dart';
+import '../../../app/models/escalation_policy.dart';
 import '../../../app/mocks/teams_data.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
@@ -164,8 +165,8 @@ class _EscalationPolicyEditorViewState
   /// Runs from [initState] and [didUpdateWidget]; both schedule their own
   /// build, so state is assigned directly rather than through [setState].
   /// Edit mode copies each wire step into a fresh [_RungDraft] (carrying its
-  /// backend id) so mutating the draft never touches the cached detail.
-  void _seedFrom(EscalationPolicyDetail? existing) {
+  /// backend id) so mutating the draft never touches the cached policy model.
+  void _seedFrom(EscalationPolicy? existing) {
     if (existing == null) {
       _isEdit = false;
       _nameController.text = '';
@@ -177,7 +178,7 @@ class _EscalationPolicyEditorViewState
       return;
     }
     _isEdit = true;
-    _nameController.text = existing.name;
+    _nameController.text = existing.name ?? '';
     _descriptionController.text = '';
     _rungs = <_RungDraft>[
       for (final EscalationStepWire step in existing.steps)

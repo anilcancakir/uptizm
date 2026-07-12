@@ -78,9 +78,9 @@ class EscalationPolicy extends Model
         .toList();
   }
 
-  /// Decodes one wire step map into an [EscalationStepWire], mirroring
-  /// [EscalationController]'s `_stepFromWire` field mapping so the model and
-  /// the controller agree on the wire contract.
+  /// Decodes one wire step map into an [EscalationStepWire] (the id-carrying
+  /// wire step type the editor's save-diff reconciliation consumes), owning the
+  /// `position`/`delay_minutes`/`target_*` field mapping for the whole domain.
   static EscalationStepWire _stepFromWire(Map<String, dynamic> m) {
     return EscalationStepWire(
       id: m['id'] as String,

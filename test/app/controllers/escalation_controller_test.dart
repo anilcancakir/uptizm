@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/escalation_controller.dart';
+import 'package:uptizm/app/models/escalation_policy.dart';
 
 void main() {
   setUp(() {
@@ -71,8 +72,8 @@ void main() {
       expect(controller.policies.single.name, equals('Standard'));
       expect(controller.policies.single.steps, hasLength(1));
       expect(
-        controller.policies.single.steps.single.targets,
-        contains('Slack #incidents'),
+        controller.policies.single.steps.single.channel,
+        equals('Slack #incidents'),
       );
     });
 
@@ -91,7 +92,7 @@ void main() {
       Http.unfake();
       final EscalationController controller = EscalationController.instance;
 
-      await expectLater(() => controller.reload(), returnsNormally);
+      await expectLater(controller.reload(), completes);
       expect(controller.policies, isEmpty);
     });
   });
@@ -111,7 +112,7 @@ void main() {
     test('returns the seeded detail synchronously', () {
       final EscalationController controller = EscalationController.instance;
       controller.seedForTest([
-        const EscalationPolicyDetail(id: 'standard', name: 'Standard', steps: []),
+        EscalationPolicy.fromMap({'id': 'standard', 'name': 'Standard'}),
       ]);
 
       expect(controller.detailById('standard')?.name, equals('Standard'));
@@ -176,10 +177,10 @@ void main() {
       final EscalationController controller = EscalationController.instance;
 
       await expectLater(
-        () => controller.create('New policy', const [
+        controller.create('New policy', const [
           EscalationRungDraft(afterMinutes: 0, targets: ['Slack #incidents']),
         ]),
-        returnsNormally,
+        completes,
       );
       fake.assertNotSent((r) => r.url.contains('/steps'));
     });
@@ -288,8 +289,8 @@ void main() {
       final EscalationController controller = EscalationController.instance;
 
       await expectLater(
-        () => controller.save('standard', 'Standard', const [], {'step-1'}),
-        returnsNormally,
+        controller.save('standard', 'Standard', const [], {'step-1'}),
+        completes,
       );
       fake.assertNotSent((r) => r.method == 'DELETE');
     });
@@ -306,7 +307,7 @@ void main() {
       });
       final EscalationController controller = EscalationController.instance;
       controller.seedForTest([
-        const EscalationPolicyDetail(id: 'standard', name: 'Standard', steps: []),
+        EscalationPolicy.fromMap({'id': 'standard', 'name': 'Standard'}),
       ]);
 
       await controller.delete('standard');
@@ -325,10 +326,10 @@ void main() {
       });
       final EscalationController controller = EscalationController.instance;
       controller.seedForTest([
-        const EscalationPolicyDetail(id: 'standard', name: 'Standard', steps: []),
+        EscalationPolicy.fromMap({'id': 'standard', 'name': 'Standard'}),
       ]);
 
-      await expectLater(() => controller.delete('standard'), returnsNormally);
+      await expectLater(controller.delete('standard'), completes);
       expect(controller.policies, hasLength(1));
     });
   });

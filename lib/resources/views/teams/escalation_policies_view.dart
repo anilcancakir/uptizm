@@ -1,10 +1,9 @@
 import 'package:flutter/widgets.dart';
-import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/escalation_controller.dart';
-import '../../../app/mocks/oncall.dart';
+import '../../../app/models/escalation_policy.dart';
 import '../../../app/mocks/status.dart';
 import '../../../app/mocks/teams_data.dart' show escalationDelayLabel;
 import '../../../ui/components/status_dot/index.dart';
@@ -14,16 +13,16 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// A Flutter port of the React `EscalationPoliciesPage.tsx`: a page header
 /// with a "New policy" action and one [Card] per [EscalationPolicy], each
-/// rendering its ladder of [EscalationStep] rungs as a vertical timeline
+/// rendering its ladder of [EscalationStepWire] rungs as a vertical timeline
 /// (a [StatusDot] + connecting line, the uppercase [escalationDelayLabel],
-/// and the rung's targets as small token-tinted pills), plus a "Repeats last
-/// rung" footer when [EscalationPolicy.repeatLastStep] is set.
+/// and the rung's target as a small token-tinted pill).
 ///
 /// Sources [EscalationController.policies] (live `GET /escalation-policies`
-/// + per-policy detail hydration) instead of the design-lab fixtures; see
-/// the controller's class docblock for the wire-shape divergence
-/// (`description`/`repeatLastStep`/`isDefault`/`monitorCount` default since
-/// the backend model does not persist them yet).
+/// + per-policy detail hydration) as [EscalationPolicy] models. The backend
+/// model persists only `name` + the step chain, so the card renders the policy
+/// name plus its ladder and nothing else (there are no
+/// `description`/`repeat_last_step`/`is_default`/`monitor_count` columns; see
+/// the controller's class docblock for the divergence).
 ///
 /// Delete opens a [MagicStarterConfirmDialog]; on confirm it fires
 /// [EscalationController.delete] (`DELETE /escalation-policies/{id}`), which
@@ -47,9 +46,6 @@ class EscalationPoliciesView extends MagicStatefulView<EscalationController> {
 
 class _EscalationPoliciesViewState
     extends MagicStatefulViewState<EscalationController, EscalationPoliciesView> {
-  /// The repeat-last-rung footer glyph, matching the React source's loop icon.
-  static const IconData _repeatIcon = Icons.repeat;
-
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -103,9 +99,9 @@ class _EscalationPoliciesViewState
   // Policy card
   // ---------------------------------------------------------------------------
 
-  /// Builds one policy [Card]: header (name, Default badge, monitor count,
-  /// Edit/Delete actions), the escalation ladder, and the repeat-last-rung
-  /// footer. Mirrors the React `PolicyCard`.
+  /// Builds one policy [Card]: header (name + Edit/Delete actions) and the
+  /// escalation ladder. Mirrors the React `PolicyCard`, minus the fields the
+  /// backend model does not persist (see the class docblock).
   Widget _buildPolicyCard(EscalationPolicy policy) {
     return MSCard(
       variant: CardVariant.surface,
@@ -114,14 +110,13 @@ class _EscalationPoliciesViewState
         children: [
           _buildPolicyHeader(policy),
           _buildLadder(policy),
-          if (policy.repeatLastStep) _buildRepeatFooter(),
         ],
       ),
     );
   }
 
-  /// Builds the card header: name + optional Default badge + monitor-count
-  /// caption on the left, Edit + (non-default) Delete on the right.
+  /// Builds the card header: the policy name on the left, Edit + Delete on the
+  /// right.
   Widget _buildPolicyHeader(EscalationPolicy policy) {
     return WDiv(
       className: 'flex flex-row items-start justify-between gap-3',
@@ -129,18 +124,10 @@ class _EscalationPoliciesViewState
         WDiv(
           className: 'flex flex-col min-w-0 flex-1',
           children: [
-            WDiv(
-              className: 'flex flex-row flex-wrap items-center gap-2',
-              children: [
-                WText(policy.name, className: 'text-sm font-semibold text-fg'),
-                if (policy.isDefault) _buildDefaultBadge(),
-                WText(
-                  '· ${policy.monitorCount} ${_monitorCountLabel(policy.monitorCount)}',
-                  className: 'font-mono text-xs tabular-nums text-fg-muted',
-                ),
-              ],
+            WText(
+              policy.name ?? '',
+              className: 'text-sm font-semibold text-fg',
             ),
-            WText(policy.description, className: 'mt-1 text-sm text-fg-muted'),
           ],
         ),
         WDiv(
@@ -152,39 +139,17 @@ class _EscalationPoliciesViewState
               onPressed: () => MagicRoute.to('/teams/escalation/${policy.id}'),
               child: WText(trans('uptizm.teams.escalation_policy_edit_button')),
             ),
-            if (!policy.isDefault)
-              MSButton(
-                intent: ButtonIntent.ghost,
-                size: ButtonSize.sm,
-                onPressed: () => _confirmDelete(policy),
-                child: WText(
-                  trans('uptizm.teams.escalation_policy_delete_button'),
-                ),
+            MSButton(
+              intent: ButtonIntent.ghost,
+              size: ButtonSize.sm,
+              onPressed: () => _confirmDelete(policy),
+              child: WText(
+                trans('uptizm.teams.escalation_policy_delete_button'),
               ),
+            ),
           ],
         ),
       ],
-    );
-  }
-
-  /// Resolves the monitor-count word ("monitor" singular, "monitors" plural).
-  String _monitorCountLabel(int count) {
-    return count == 1
-        ? trans('uptizm.teams.escalation_policy_count_word_singular')
-        : trans('uptizm.teams.escalation_policy_count_word_plural');
-  }
-
-  /// Builds the "Default" badge: a small token-tinted pill mirroring the
-  /// React `Badge tone="primary"` (same shape as `TeamMembersView`'s owner
-  /// role pill, NOT [StatusBadge] since "Default" is not a [StatusKey]).
-  Widget _buildDefaultBadge() {
-    return WDiv(
-      className:
-          'flex flex-row items-center rounded-full bg-primary-container px-2.5 py-0.5',
-      child: WText(
-        trans('uptizm.teams.escalation_policy_default_badge'),
-        className: 'text-xs font-medium text-fg',
-      ),
     );
   }
 
@@ -192,28 +157,29 @@ class _EscalationPoliciesViewState
   // Escalation ladder
   // ---------------------------------------------------------------------------
 
-  /// Builds the vertical step ladder: one row per [EscalationStep], each a
+  /// Builds the vertical step ladder: one row per [EscalationStepWire], each a
   /// [StatusDot] + connecting line, the uppercase delay label, and the
-  /// rung's targets as pills.
+  /// rung's target as a pill.
   Widget _buildLadder(EscalationPolicy policy) {
+    final List<EscalationStepWire> steps = policy.steps;
     return WDiv(
       className: 'flex flex-col',
       children: [
-        for (int i = 0; i < policy.steps.length; i++)
-          _buildRung(policy.steps[i], isLast: i == policy.steps.length - 1),
+        for (int i = 0; i < steps.length; i++)
+          _buildRung(steps[i], isLast: i == steps.length - 1),
       ],
     );
   }
 
   /// Builds one rung row: a leading dot, followed by the uppercase delay label
-  /// and the rung's target pills.
+  /// and the rung's target pill.
   ///
   /// The connecting line is an explicit [Positioned] bar painted behind the
   /// row (not an `Expanded` inside a Column), mirroring `incident_timeline`'s
   /// rail: `Expanded` needs a bounded main-axis the page scroll view cannot
   /// give, and `IntrinsicHeight` cannot measure through the target pills'
   /// `flex-wrap` LayoutBuilder. A Positioned bar sidesteps both.
-  Widget _buildRung(EscalationStep step, {required bool isLast}) {
+  Widget _buildRung(EscalationStepWire step, {required bool isLast}) {
     return Stack(
       children: [
         // Rail: a 1px line from just below this dot to the bottom of the row,
@@ -248,14 +214,13 @@ class _EscalationPoliciesViewState
                 className: 'flex flex-col min-w-0 flex-1',
                 children: [
                   WText(
-                    escalationDelayLabel(step.afterMinutes).toUpperCase(),
+                    escalationDelayLabel(step.delayMinutes).toUpperCase(),
                     className: 'text-xs font-medium text-fg-muted',
                   ),
                   WDiv(
                     className: 'mt-1.5 flex flex-row flex-wrap gap-1.5',
                     children: [
-                      for (final String target in step.targets)
-                        _buildTargetPill(target),
+                      _buildTargetPill(_targetLabel(step)),
                     ],
                   ),
                 ],
@@ -279,20 +244,19 @@ class _EscalationPoliciesViewState
     );
   }
 
-  /// Builds the "Repeats last rung" footer shown when the policy's last rung
-  /// keeps firing until acknowledgement.
-  Widget _buildRepeatFooter() {
-    return WDiv(
-      className:
-          'flex flex-row items-center gap-1.5 border-t border-color-border pt-4',
-      children: [
-        WIcon(_repeatIcon, className: 'text-sm text-fg-muted'),
-        WText(
-          trans('uptizm.teams.escalation_policy_repeats_last'),
-          className: 'text-xs text-fg-muted',
-        ),
-      ],
-    );
+  /// Renders a step's target as a single display label: the channel string for
+  /// a `channel` step, `"On-call"` for `on_call`, or `"User <id>"` for a `user`
+  /// step (mirrors the backend's single-target-per-step shape, see the
+  /// controller's class docblock).
+  String _targetLabel(EscalationStepWire step) {
+    switch (step.targetType) {
+      case 'on_call':
+        return 'On-call';
+      case 'user':
+        return 'User ${step.targetId ?? ''}'.trim();
+      default:
+        return step.channel ?? '';
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -308,7 +272,7 @@ class _EscalationPoliciesViewState
     final bool confirmed = await MagicStarterConfirmDialog.show(
       context,
       title: trans('uptizm.teams.escalation_policy_delete_confirm_title', {
-        'name': policy.name,
+        'name': policy.name ?? '',
       }),
       description: trans(
         'uptizm.teams.escalation_policy_delete_confirm_description',

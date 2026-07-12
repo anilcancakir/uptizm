@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
-import '../mocks/oncall.dart';
+import '../models/escalation_policy.dart';
 
 /// One wire-shaped escalation step, as returned by
 /// `GET /escalation-policies/{id}` (`EscalationPolicyResource::toArray`).
@@ -41,83 +41,60 @@ class EscalationStepWire {
   });
 }
 
-/// A wire-shaped escalation policy detail, as returned by
-/// `GET /escalation-policies/{id}`: the backend `name` plus its full,
-/// id-carrying step chain.
-@immutable
-class EscalationPolicyDetail {
-  /// Backend policy id.
-  final String id;
-
-  /// The policy's display name (the only field the backend model persists;
-  /// see the class docblock on [EscalationController] for the divergence
-  /// from the fixture [EscalationPolicy] shape).
-  final String name;
-
-  /// Ordered step chain, ascending by [EscalationStepWire.position].
-  final List<EscalationStepWire> steps;
-
-  /// Creates an [EscalationPolicyDetail].
-  const EscalationPolicyDetail({
-    required this.id,
-    required this.name,
-    required this.steps,
-  });
-}
-
 /// Controller backing the two routed escalation-policy screens
 /// ([EscalationPoliciesView], [EscalationPolicyEditorView]).
 ///
-/// Sources the policy roster from the live `api/v1` `GET /escalation-policies`
-/// (list; `name` + timestamps only) followed by a `GET /escalation-policies/{id}`
-/// per policy (mirrors `dashboard_controller.dart:89-96`'s `Future.wait`
-/// fan-out) to hydrate each policy's step chain, since the index endpoint
-/// does not eager-load `steps` (`EscalationPolicyResource::toArray`).
-/// Business actions ([create], [save], [delete]) write through to the
-/// matching `EscalationPolicyController` endpoints, following
-/// `monitor_controller.dart:145-221`'s try/log/toast/refresh shape.
-/// [removeStep] and [reorderSteps] are exposed directly (and used internally
-/// by [save]'s reconciliation) so they stay independently callable and
-/// testable, mirroring `status_page_controller.dart`'s
-/// `detachMonitor`/`reorderMonitors` precedent.
+/// The read side is ORM-native: [reload] fetches the roster through
+/// `EscalationPolicy.all()` (`GET /escalation-policies`; `name` + timestamps
+/// only) followed by a `EscalationPolicy.find(id)`
+/// (`GET /escalation-policies/{id}`) per policy to hydrate each policy's step
+/// chain, since the index endpoint does not eager-load `steps`
+/// (`EscalationPolicyResource::toArray`). The [EscalationPolicy] model
+/// collapses the former list-row/detail split: a policy IS its detail, with
+/// its id-carrying [EscalationPolicy.steps] chain populated, so [policies] and
+/// [detailById] answer from one cache.
 ///
-/// **Divergence from the fixture shape.** The backend `EscalationPolicy`
+/// Business actions [create]/[save]/[delete] write the policy body through the
+/// model's ORM `save()`/`delete()` (bool-checked, toast on `false`), mirroring
+/// `status_page_controller.dart`'s Wave 2 precedent. The step sub-resource has
+/// no ORM model, so [removeStep]/[reorderSteps]/[_addStep] stay raw `Http.*`
+/// against `escalation-policies/{id}/steps`; [removeStep] and [reorderSteps]
+/// are exposed directly (and used internally by [save]'s reconciliation) so
+/// they stay independently callable and testable.
+///
+/// **Divergence from the backend shape.** The backend `EscalationPolicy`
 /// model only persists `name`; it has no `description`/`repeat_last_step`/
-/// `is_default`/`monitor_count` columns. Wire reads default those fields
-/// (`''`, `false`, `false`, `0`) when projecting onto the fixture
-/// [EscalationPolicy] value type for [policies]' read side. Likewise
-/// `EscalationStep` only carries one `target_type`/`target_id`/`channel` per
-/// row (no free-text multi-target list), so every editor rung maps to
-/// exactly one step whose `channel` holds the rung's targets joined with
-/// `", "` and whose `target_type` is always `channel` (the editor has no
-/// on-call/user target picker yet). See `### Deviations` in the step report
-/// for why this diverges from the former fixture-only shape.
+/// `is_default`/`monitor_count` columns, so the list view renders the policy
+/// name plus its step ladder and nothing else. Likewise `EscalationStep` only
+/// carries one `target_type`/`target_id`/`channel` per row (no free-text
+/// multi-target list), so every editor rung maps to exactly one step whose
+/// `channel` holds the rung's targets joined with `", "` and whose
+/// `target_type` is always `channel` (the editor has no on-call/user target
+/// picker yet).
 class EscalationController extends MagicController {
   /// Singleton accessor, registering the controller on first access.
   static EscalationController get instance =>
       Magic.findOrPut(EscalationController.new);
 
-  /// In-memory cache of the policy roster (fixture-shaped summaries for the
-  /// list view), populated by [reload].
-  List<EscalationPolicy> _policies = [];
-
-  /// In-memory cache of the id-carrying policy detail, keyed by policy id.
-  /// Populated by [reload] and kept warm by [_refreshDetail].
-  final Map<String, EscalationPolicyDetail> _details = {};
+  /// In-memory cache of the id-carrying policy models, keyed by policy id.
+  /// Populated by [reload]/[seedForTest] and kept warm by [_refreshDetail].
+  /// A policy is its own detail, so this single map backs both [policies] and
+  /// [detailById].
+  final Map<String, EscalationPolicy> _details = {};
 
   /// The policy roster, sourced from `GET /escalation-policies` (+ per-policy
-  /// detail hydration). Empty until the first successful [reload].
-  List<EscalationPolicy> get policies => _policies;
+  /// detail hydration). Empty until the first successful [reload]. Preserves
+  /// the insertion order of the last [reload]/[seedForTest].
+  List<EscalationPolicy> get policies => _details.values.toList();
 
-  /// Seeds the in-memory caches directly for a widget/controller test,
+  /// Seeds the in-memory cache directly for a widget/controller test,
   /// bypassing the network. Notifies listeners so an already-mounted view
   /// rebuilds against the seeded data.
   @visibleForTesting
-  void seedForTest(List<EscalationPolicyDetail> seed) {
+  void seedForTest(List<EscalationPolicy> seed) {
     _details
       ..clear()
-      ..addEntries(seed.map((d) => MapEntry(d.id, d)));
-    _policies = seed.map(_summaryFromDetail).toList();
+      ..addEntries(seed.map((p) => MapEntry(p.id, p)));
     refreshUI();
   }
 
@@ -132,244 +109,187 @@ class EscalationController extends MagicController {
   // Reads
   // ---------------------------------------------------------------------------
 
-  /// Non-destructive roster refresh: fetches `GET /escalation-policies`, then
-  /// hydrates every returned policy's step chain in parallel via
-  /// `GET /escalation-policies/{id}` (mirrors `dashboard_controller.dart:89-96`).
-  /// Preserves the previously loaded roster on any failure (network error,
-  /// non-2xx, or a malformed payload) so the list view never flickers into an
-  /// empty state between reloads.
+  /// Non-destructive roster refresh: fetches the roster through
+  /// `EscalationPolicy.all()` (`GET /escalation-policies`), then hydrates every
+  /// returned policy's step chain in parallel through `EscalationPolicy.find`
+  /// (`GET /escalation-policies/{id}`), since the index endpoint does not
+  /// eager-load `steps`.
+  ///
+  /// The model's `all()`/`find()` swallow transport failures (returning an
+  /// empty list / `null`), so an empty roster is treated as "nothing new to
+  /// publish" and leaves the last-known-good cache in place (empty before the
+  /// first success). The list view therefore never flickers into an empty
+  /// state between reloads.
   Future<void> reload() async {
-    try {
-      final response = await Http.get('/escalation-policies');
-      if (!response.successful) return;
+    final List<EscalationPolicy> summaries = await EscalationPolicy.all();
+    if (summaries.isEmpty) return;
 
-      final Object? raw = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (raw is! List) return;
+    final List<EscalationPolicy?> fetched = await Future.wait(
+      summaries.map((p) => EscalationPolicy.find(p.id)),
+    );
+    final List<EscalationPolicy> details = fetched
+        .whereType<EscalationPolicy>()
+        .toList();
+    if (details.isEmpty) return;
 
-      final List<String> ids = raw
-          .whereType<Map<String, dynamic>>()
-          .map((m) => m['id'] as String)
-          .toList();
-
-      final List<EscalationPolicyDetail?> fetched = await Future.wait(
-        ids.map(_fetchDetail),
-      );
-      final List<EscalationPolicyDetail> details = fetched
-          .whereType<EscalationPolicyDetail>()
-          .toList();
-
-      _details
-        ..clear()
-        ..addEntries(details.map((d) => MapEntry(d.id, d)));
-      _policies = details.map(_summaryFromDetail).toList();
-      refreshUI();
-    } catch (_) {
-      // Deliberate degradation: a transport failure (including an
-      // unregistered `network` service in a bare test host) or a malformed
-      // payload keeps the last-known-good roster (empty before the first
-      // successful fetch), so `onInit`/`reload` never throws.
-    }
+    _details
+      ..clear()
+      ..addEntries(details.map((p) => MapEntry(p.id, p)));
+    refreshUI();
   }
 
-  /// Resolves a policy's id-carrying detail by [id] from the cached map, or
-  /// `null` when none matches (unknown id, or the cache has not loaded yet).
+  /// Resolves a policy by [id] from the cached map, or `null` when none
+  /// matches (unknown id, or the cache has not loaded yet).
   ///
   /// The editor view calls this synchronously inside `build()`; it answers
   /// from [_details] immediately and also fires a background
-  /// `GET /escalation-policies/:id` refresh (mirrors
-  /// `monitor_controller.dart`'s `monitorById`/`_refreshOne`).
-  EscalationPolicyDetail? detailById(String? id) {
+  /// `EscalationPolicy.find` refresh (mirrors `monitor_controller.dart`'s
+  /// `monitorById`/`_refreshOne`).
+  EscalationPolicy? detailById(String? id) {
     if (id == null) return null;
 
-    final EscalationPolicyDetail? cached = _details[id];
+    final EscalationPolicy? cached = _details[id];
     _refreshDetail(id);
     return cached;
   }
 
-  /// Background single-resource refresh for [id]: fetches
-  /// `GET /escalation-policies/:id`, merges the result into [_details] and
-  /// [_policies], then notifies listeners. Silently no-ops on failure so a
-  /// transient error never disturbs the already-cached entry.
+  /// Background single-resource refresh for [id]: fetches the policy through
+  /// `EscalationPolicy.find` (`GET /escalation-policies/:id`), merges the
+  /// result into [_details], then notifies listeners. Silently no-ops on
+  /// failure so a transient error never disturbs the already-cached entry.
   Future<void> _refreshDetail(String id) async {
-    final EscalationPolicyDetail? detail = await _fetchDetail(id);
+    final EscalationPolicy? detail = await EscalationPolicy.find(id);
     if (detail == null) return;
 
     _details[id] = detail;
-    final int index = _policies.indexWhere((p) => p.id == id);
-    final EscalationPolicy summary = _summaryFromDetail(detail);
-    _policies = index == -1
-        ? [..._policies, summary]
-        : [for (final p in _policies) p.id == id ? summary : p];
     refreshUI();
-  }
-
-  /// Fetches and parses `GET /escalation-policies/:id`. Returns `null` on any
-  /// failure (network error, non-2xx, or a malformed payload).
-  Future<EscalationPolicyDetail?> _fetchDetail(String id) async {
-    try {
-      final response = await Http.get('/escalation-policies/$id');
-      if (!response.successful) {
-        Log.error(
-          '[EscalationController._fetchDetail] $id: ${response.errorMessage}',
-        );
-        return null;
-      }
-
-      final Object? data = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (data is! Map<String, dynamic>) return null;
-
-      return _detailFromWire(data);
-    } catch (error) {
-      Log.error('[EscalationController._fetchDetail] $id failed: $error');
-      return null;
-    }
   }
 
   // ---------------------------------------------------------------------------
   // Business actions: live writes against `api/v1/escalation-policies`.
   // ---------------------------------------------------------------------------
 
-  /// Creates a policy named [name] via `POST /escalation-policies`, then adds
-  /// [rungs] as its step chain (`position` = list index) via
-  /// `POST /escalation-policies/{id}/steps`, one call per rung. On success,
-  /// reloads the roster, surfaces a success toast, and returns to the list.
-  /// On a failed response or a transport error at any point, logs the
-  /// failure and surfaces an error toast without navigating away, so the
-  /// operator can retry from the still-open editor.
+  /// Creates a policy named [name] through the model's ORM `save()`
+  /// (`POST /escalation-policies`), then adds [rungs] as its step chain
+  /// (`position` = list index) via `POST /escalation-policies/{id}/steps`, one
+  /// raw call per rung. On success, reloads the roster, surfaces a success
+  /// toast, and returns to the list. On a `false` save result, a missing id,
+  /// or a failed step write, logs the failure and surfaces an error toast
+  /// without navigating away, so the operator can retry from the still-open
+  /// editor.
   Future<void> create(String name, List<EscalationRungDraft> rungs) async {
-    try {
-      final response = await Http.post(
-        '/escalation-policies',
-        data: {'name': name},
-      );
-      if (!response.successful) {
-        Log.error('[EscalationController.create] ${response.errorMessage}');
-        _toastError(response.errorMessage);
-        return;
-      }
+    final EscalationPolicy policy = EscalationPolicy()..name = name;
 
-      final Object? data = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      final String? id = data is Map<String, dynamic>
-          ? data['id'] as String?
-          : null;
-      if (id == null) {
-        Log.error('[EscalationController.create] missing id in response');
-        _toastError(null);
-        return;
-      }
-
-      for (int i = 0; i < rungs.length; i++) {
-        final bool ok = await _addStep(id, position: i, rung: rungs[i]);
-        if (!ok) return;
-      }
-
-      await reload();
-      Magic.success(trans('uptizm.teams.escalation_editor_create_button'), name);
-      MagicRoute.to('/teams/escalation');
-    } catch (error) {
-      Log.error('[EscalationController.create] failed: $error');
+    final bool ok = await policy.save();
+    if (!ok) {
+      Log.error('[EscalationController.create] save() returned false');
       _toastError(null);
+      return;
     }
+
+    final String id = policy.id;
+    if (id.isEmpty) {
+      Log.error('[EscalationController.create] missing id after save()');
+      _toastError(null);
+      return;
+    }
+
+    for (int i = 0; i < rungs.length; i++) {
+      final bool stepOk = await _addStep(id, position: i, rung: rungs[i]);
+      if (!stepOk) return;
+    }
+
+    await reload();
+    Magic.success(trans('uptizm.teams.escalation_editor_create_button'), name);
+    MagicRoute.to('/teams/escalation');
   }
 
-  /// Saves the policy [id]'s [name] via `PUT /escalation-policies/{id}`, then
-  /// reconciles its step chain against [rungs]: every [originalStepIds] entry
-  /// no longer present in [rungs] is removed
-  /// (`DELETE /escalation-policies/{id}/steps/{stepId}`), every rung with a
-  /// `null` [EscalationRungDraft.id] (new, or dirtied by an in-place edit,
-  /// see [EscalationRungDraft]) is added fresh
+  /// Saves the policy [id]'s [name] through the model's ORM `save()`
+  /// (`PUT /escalation-policies/{id}`), then reconciles its step chain against
+  /// [rungs]: every [originalStepIds] entry no longer present in [rungs] is
+  /// removed (`DELETE /escalation-policies/{id}/steps/{stepId}`), every rung
+  /// with a `null` [EscalationRungDraft.id] (new, or dirtied by an in-place
+  /// edit, see [EscalationRungDraft]) is added fresh
   /// (`POST /escalation-policies/{id}/steps`), and every untouched,
   /// still-present rung is bulk-repositioned in one
   /// `PUT /escalation-policies/{id}/steps/reorder` call. On success, reloads
   /// the roster, surfaces a success toast, and returns to the list. On a
-  /// failed response or a transport error at any point, logs the failure and
-  /// surfaces an error toast without navigating away.
+  /// `false` save result or a failed step write, logs the failure and surfaces
+  /// an error toast without navigating away.
   Future<void> save(
     String id,
     String name,
     List<EscalationRungDraft> rungs,
     Set<String> originalStepIds,
   ) async {
-    try {
-      final response = await Http.put(
-        '/escalation-policies/$id',
-        data: {'name': name},
-      );
-      if (!response.successful) {
-        Log.error('[EscalationController.save] $id: ${response.errorMessage}');
-        _toastError(response.errorMessage);
-        return;
-      }
+    final EscalationPolicy policy = EscalationPolicy()
+      ..id = id
+      ..name = name
+      ..exists = true;
 
-      final Set<String> keptIds = {
-        for (final r in rungs)
-          if (r.id != null) r.id!,
-      };
-      for (final String stepId in originalStepIds) {
-        if (keptIds.contains(stepId)) continue;
-        final bool ok = await removeStep(id, stepId);
-        if (!ok) return;
-      }
-
-      final List<Map<String, dynamic>> reorderOrder = [];
-      for (int i = 0; i < rungs.length; i++) {
-        final EscalationRungDraft rung = rungs[i];
-        if (rung.id == null) {
-          final bool ok = await _addStep(id, position: i, rung: rung);
-          if (!ok) return;
-        } else {
-          reorderOrder.add({'id': rung.id, 'position': i});
-        }
-      }
-
-      if (reorderOrder.isNotEmpty) {
-        final bool ok = await reorderSteps(id, reorderOrder);
-        if (!ok) return;
-      }
-
-      await reload();
-      Magic.success(trans('uptizm.teams.escalation_editor_save_button'), name);
-      MagicRoute.to('/teams/escalation');
-    } catch (error) {
-      Log.error('[EscalationController.save] $id failed: $error');
+    final bool ok = await policy.save();
+    if (!ok) {
+      Log.error('[EscalationController.save] $id: save() returned false');
       _toastError(null);
+      return;
     }
+
+    final Set<String> keptIds = {
+      for (final r in rungs)
+        if (r.id != null) r.id!,
+    };
+    for (final String stepId in originalStepIds) {
+      if (keptIds.contains(stepId)) continue;
+      final bool stepOk = await removeStep(id, stepId);
+      if (!stepOk) return;
+    }
+
+    final List<Map<String, dynamic>> reorderOrder = [];
+    for (int i = 0; i < rungs.length; i++) {
+      final EscalationRungDraft rung = rungs[i];
+      if (rung.id == null) {
+        final bool stepOk = await _addStep(id, position: i, rung: rung);
+        if (!stepOk) return;
+      } else {
+        reorderOrder.add({'id': rung.id, 'position': i});
+      }
+    }
+
+    if (reorderOrder.isNotEmpty) {
+      final bool stepOk = await reorderSteps(id, reorderOrder);
+      if (!stepOk) return;
+    }
+
+    await reload();
+    Magic.success(trans('uptizm.teams.escalation_editor_save_button'), name);
+    MagicRoute.to('/teams/escalation');
   }
 
-  /// Deletes the policy [id] via `DELETE /escalation-policies/{id}`, evicts
-  /// it from the cache, reloads the roster, and surfaces a deleted toast. On
-  /// a failed response or a transport error, logs the failure and surfaces
-  /// an error toast without mutating the cache.
+  /// Deletes the policy [id] through the model's ORM `delete()`
+  /// (`DELETE /escalation-policies/{id}`), evicts it from the cache, and
+  /// surfaces a deleted toast. On a `false` delete result, logs the failure
+  /// and surfaces an error toast without mutating the cache.
   Future<void> delete(String id) async {
-    final EscalationPolicy? policy = _policies
-        .cast<EscalationPolicy?>()
-        .firstWhere((p) => p?.id == id, orElse: () => null);
+    final EscalationPolicy? cached = _details[id];
+    final EscalationPolicy model =
+        cached ??
+        (EscalationPolicy()
+          ..id = id
+          ..exists = true);
 
-    try {
-      final response = await Http.delete('/escalation-policies/$id');
-      if (!response.successful) {
-        Log.error('[EscalationController.delete] $id: ${response.errorMessage}');
-        _toastError(response.errorMessage);
-        return;
-      }
-
-      _details.remove(id);
-      _policies = _policies.where((p) => p.id != id).toList();
-      refreshUI();
-      Magic.success(
-        trans('uptizm.teams.escalation_policy_delete_confirm_label'),
-        policy?.name ?? id,
-      );
-    } catch (error) {
-      Log.error('[EscalationController.delete] $id failed: $error');
+    final bool ok = await model.delete();
+    if (!ok) {
+      Log.error('[EscalationController.delete] $id: delete() returned false');
       _toastError(null);
+      return;
     }
+
+    _details.remove(id);
+    refreshUI();
+    Magic.success(
+      trans('uptizm.teams.escalation_policy_delete_confirm_label'),
+      cached?.name ?? id,
+    );
   }
 
   /// Removes the step [stepId] from policy [policyId] via
@@ -460,72 +380,6 @@ class EscalationController extends MagicController {
       Log.error('[EscalationController._addStep] $policyId failed: $error');
       _toastError(null);
       return false;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Wire helpers
-  // ---------------------------------------------------------------------------
-
-  /// Parses a `GET /escalation-policies/:id` payload into an
-  /// [EscalationPolicyDetail].
-  EscalationPolicyDetail _detailFromWire(Map<String, dynamic> data) {
-    final Object? rawSteps = data['steps'];
-    final List<EscalationStepWire> steps = rawSteps is List
-        ? rawSteps.whereType<Map<String, dynamic>>().map(_stepFromWire).toList()
-        : const [];
-
-    return EscalationPolicyDetail(
-      id: data['id'] as String,
-      name: (data['name'] as String?) ?? '',
-      steps: steps,
-    );
-  }
-
-  /// Parses one wire step row into an [EscalationStepWire].
-  EscalationStepWire _stepFromWire(Map<String, dynamic> m) {
-    return EscalationStepWire(
-      id: m['id'] as String,
-      position: (m['position'] as num?)?.toInt() ?? 0,
-      delayMinutes: (m['delay_minutes'] as num?)?.toInt() ?? 0,
-      targetType: (m['target_type'] as String?) ?? 'channel',
-      targetId: m['target_id'] as String?,
-      channel: m['channel'] as String?,
-    );
-  }
-
-  /// Projects a detail's `name` + step chain onto the fixture-shaped
-  /// [EscalationPolicy] the list view renders, defaulting the fields the
-  /// backend model does not persist (see the class docblock).
-  EscalationPolicy _summaryFromDetail(EscalationPolicyDetail detail) {
-    return EscalationPolicy(
-      id: detail.id,
-      name: detail.name,
-      description: '',
-      steps: [
-        for (final EscalationStepWire step in detail.steps)
-          EscalationStep(
-            afterMinutes: step.delayMinutes,
-            targets: [_targetLabel(step)],
-          ),
-      ],
-      repeatLastStep: false,
-      isDefault: false,
-      monitorCount: 0,
-    );
-  }
-
-  /// Renders a step's target as a single display label: the channel string
-  /// for a `channel` step, `"On-call"` for `on_call`, or `"User <id>"` for a
-  /// `user` step.
-  String _targetLabel(EscalationStepWire step) {
-    switch (step.targetType) {
-      case 'on_call':
-        return 'On-call';
-      case 'user':
-        return 'User ${step.targetId ?? ''}'.trim();
-      default:
-        return step.channel ?? '';
     }
   }
 

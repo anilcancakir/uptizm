@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/escalation_controller.dart';
+import 'package:uptizm/app/models/escalation_policy.dart';
 import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
@@ -368,33 +369,33 @@ void main() {
     /// standing in for the live `GET /escalation-policies` + per-policy
     /// detail hydration this view now sources instead of the design-lab
     /// fixtures (see `EscalationController`'s class docblock).
-    final List<EscalationPolicyDetail> seeds = const [
-      EscalationPolicyDetail(
-        id: 'standard',
-        name: 'Standard',
-        steps: [
-          EscalationStepWire(
-            id: 'step-1',
-            position: 0,
-            delayMinutes: 0,
-            targetType: 'channel',
-            channel: 'Slack #incidents',
-          ),
+    final List<EscalationPolicy> seeds = [
+      EscalationPolicy.fromMap({
+        'id': 'standard',
+        'name': 'Standard',
+        'steps': [
+          {
+            'id': 'step-1',
+            'position': 0,
+            'delay_minutes': 0,
+            'target_type': 'channel',
+            'channel': 'Slack #incidents',
+          },
         ],
-      ),
-      EscalationPolicyDetail(
-        id: 'critical',
-        name: 'Critical path',
-        steps: [
-          EscalationStepWire(
-            id: 'step-2',
-            position: 0,
-            delayMinutes: 0,
-            targetType: 'channel',
-            channel: 'On-call engineer',
-          ),
+      }),
+      EscalationPolicy.fromMap({
+        'id': 'critical',
+        'name': 'Critical path',
+        'steps': [
+          {
+            'id': 'step-2',
+            'position': 0,
+            'delay_minutes': 0,
+            'target_type': 'channel',
+            'channel': 'On-call engineer',
+          },
         ],
-      ),
+      }),
     ];
 
     testWidgets('renders the title and a card for every policy', (
@@ -415,8 +416,8 @@ void main() {
       // RenderFlex overflow fires under the unbounded-height scroll view.
       expect(tester.takeException(), isNull);
       expect(find.text(trans('uptizm.teams.escalation_title')), findsOneWidget);
-      for (final EscalationPolicyDetail policy in seeds) {
-        expect(find.text(policy.name), findsOneWidget);
+      for (final EscalationPolicy policy in seeds) {
+        expect(find.text(policy.name!), findsOneWidget);
       }
     });
   });
@@ -448,20 +449,20 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 6000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      const EscalationPolicyDetail detail = EscalationPolicyDetail(
-        id: 'standard',
-        name: 'Standard',
-        steps: [
-          EscalationStepWire(
-            id: 'step-1',
-            position: 0,
-            delayMinutes: 0,
-            targetType: 'channel',
-            channel: 'Slack #incidents',
-          ),
+      final EscalationPolicy detail = EscalationPolicy.fromMap({
+        'id': 'standard',
+        'name': 'Standard',
+        'steps': [
+          {
+            'id': 'step-1',
+            'position': 0,
+            'delay_minutes': 0,
+            'target_type': 'channel',
+            'channel': 'Slack #incidents',
+          },
         ],
-      );
-      EscalationController.instance.seedForTest(const [detail]);
+      });
+      EscalationController.instance.seedForTest([detail]);
 
       await tester.pumpWidget(
         wrap(
