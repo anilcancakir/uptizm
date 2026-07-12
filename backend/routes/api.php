@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AiSuggestionController;
 use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\EscalationPolicyController;
+use App\Http\Controllers\Api\V1\IncidentAnalysisController;
 use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
 use App\Http\Controllers\Api\V1\MonitorController;
@@ -135,6 +136,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.incidents.reopen');
     Route::post('incidents/{incident}/updates', [IncidentController::class, 'postUpdate'])
         ->name('api.v1.incidents.updates.store');
+    Route::get('incidents/{incident}/analysis', [IncidentAnalysisController::class, 'show'])
+        ->name('api.v1.incidents.analysis');
 
     Route::get('dashboard/stats', [DashboardController::class, 'stats'])
         ->name('api.v1.dashboard.stats');
