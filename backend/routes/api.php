@@ -83,6 +83,8 @@ Route::get('public/fixtures/random', function (): JsonResponse {
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function (): void {
+    Route::post('monitors/analyze', [MonitorController::class, 'analyze'])
+        ->name('api.v1.monitors.analyze');
     Route::apiResource('monitors', MonitorController::class);
     Route::post('monitors/{monitor}/pause', [MonitorController::class, 'pause'])
         ->name('api.v1.monitors.pause');
