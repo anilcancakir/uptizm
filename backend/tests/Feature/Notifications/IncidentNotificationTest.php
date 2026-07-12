@@ -7,9 +7,11 @@ use App\Models\Monitor;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\Team;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use onesignal\client\model\Notification;
 use Tests\TestCase;
 
 /**
@@ -60,6 +62,60 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('API Health', $payload['monitor_name']);
     }
 
+    public function test_incident_opened_adds_the_onesignal_channel_when_the_feature_is_enabled(): void
+    {
+        $this->enableOnesignal();
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $notification = new IncidentOpened($incident);
+
+        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
+    }
+
+    public function test_incident_resolved_adds_the_onesignal_channel_when_the_feature_is_enabled(): void
+    {
+        $this->enableOnesignal();
+        $incident = $this->makeIncident([
+            'lifecycle' => 'resolved',
+        ]);
+        $user = User::factory()->create();
+
+        $notification = new IncidentResolved($incident);
+
+        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
+    }
+
+    public function test_a_disabled_channel_setting_removes_that_channel_from_via(): void
+    {
+        $this->enableOnesignal();
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+        $user->notificationSettings()->create([
+            'type' => 'incident_opened',
+            'channel' => 'onesignal',
+            'is_enabled' => false,
+        ]);
+
+        $notification = new IncidentOpened($incident);
+
+        $this->assertSame(['mail', 'database'], $notification->via($user));
+    }
+
+    public function test_toonesignal_builds_a_localized_push_payload(): void
+    {
+        $this->enableOnesignal();
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $payload = (new IncidentOpened($incident))->toOneSignal($user);
+
+        $this->assertInstanceOf(Notification::class, $payload);
+        $this->assertSame('API Health is down', $payload->getHeadings()['en']);
+        $this->assertSame($incident->title, $payload->getContents()['en']);
+    }
+
     public function test_both_incident_types_are_registered_with_mail_and_database_defaults(): void
     {
         $this->assertTrue(NotificationPreferenceRegistry::has(IncidentOpened::class));
@@ -75,6 +131,18 @@ class IncidentNotificationTest extends TestCase
         // Also reachable by the slug the client's preference matrix uses.
         $this->assertTrue(NotificationPreferenceRegistry::has('incident_opened'));
         $this->assertTrue(NotificationPreferenceRegistry::has('incident_resolved'));
+    }
+
+    /**
+     * Enable the OneSignal push feature for the duration of the test so the
+     * notifications advertise the `onesignal` channel.
+     */
+    private function enableOnesignal(): void
+    {
+        config(['magic-starter.features' => array_values(array_unique([
+            ...config('magic-starter.features', []),
+            Features::onesignal(),
+        ]))]);
     }
 
     /**

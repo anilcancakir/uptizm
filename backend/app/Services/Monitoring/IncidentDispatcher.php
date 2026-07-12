@@ -9,6 +9,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use App\Services\OnCall\EscalationDispatcher;
 use App\Services\StatusPages\StatusPageCache;
 use Illuminate\Support\Facades\Notification;
 
@@ -30,6 +31,7 @@ class IncidentDispatcher
 {
     public function __construct(
         protected StatusPageCache $statusPageCache,
+        protected EscalationDispatcher $escalationDispatcher,
     ) {}
 
     /**
@@ -94,6 +96,15 @@ class IncidentDispatcher
         //    before monitors()->attach() and so cannot see the containing pages.
         if ($outcome['opened'] !== null || $outcome['resolved'] !== null) {
             $this->statusPageCache->invalidateForMonitors([$monitor->id]);
+        }
+
+        // 6. Walk the escalation ladder for a freshly opened incident, off-lock.
+        //    This is an additive side effect on `opened`: it queues the paging
+        //    chain (on-call resolution + delayed step jobs) without touching the
+        //    notification/broadcast/cache ordering above. A team with no policy
+        //    escalates to nothing (the dispatcher no-ops).
+        if ($outcome['opened'] !== null) {
+            $this->escalationDispatcher->escalate($outcome['opened']);
         }
     }
 }
