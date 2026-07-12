@@ -45,22 +45,29 @@ Map<String, String> checkHistoryTableRecipe({
 }) {
   const recipe = WindSlotRecipe(
     slots: {
-      // No `w-full`: the table sizes to its widest row so the component's
-      // `overflow-x-auto` wrapper can scroll the whole grid on a narrow phone.
-      'table': 'flex flex-col',
+      // `w-full` + `min-w-[680px]`: inside the component's `overflow-x-auto`
+      // wrapper this sizes to max(viewport, 680px), so the table FILLS the width
+      // on desktop and scrolls as one unit on a narrow phone (< 680px). Time /
+      // Region / Status are `flex-1` (equal share) so they distribute the width
+      // evenly; the numeric columns stay a fixed right-aligned track so they hug
+      // the right edge. No per-column `min-w`: a flex-1 column is a Flutter
+      // `Expanded`, which tightly constrains its child and IGNORES `min-w`, so
+      // the floor lives on the table instead. 680px keeps each of the 3 flex
+      // columns >= ~179px at the floor (680 - 144 fixed, / 3), wide enough for
+      // the widest status badge so no cell overflows on a narrow phone.
+      'table': 'flex flex-col w-full min-w-[680px]',
       'header': 'flex flex-row items-center border-b border-color-border',
       'row': 'flex flex-row items-center border-b border-color-border',
       'th':
-          'w-28 shrink-0 py-2.5 text-xs font-medium tracking-wide text-fg-muted uppercase',
+          'flex-1 py-2.5 text-xs font-medium tracking-wide text-fg-muted uppercase',
       'thStatus':
-          'w-48 shrink-0 py-2.5 text-xs font-medium tracking-wide text-fg-muted uppercase',
+          'flex-1 py-2.5 text-xs font-medium tracking-wide text-fg-muted uppercase',
       'thResponse':
           'w-22 shrink-0 py-2.5 text-xs font-medium tracking-wide text-fg-muted uppercase text-right',
       'thCode':
           'w-14 shrink-0 py-2.5 text-xs font-medium tracking-wide text-fg-muted uppercase text-right',
-      'cellId':
-          'w-28 shrink-0 py-2.5 font-mono text-sm tabular-nums text-fg-muted',
-      'statusCell': 'w-48 shrink-0 py-2.5 flex flex-row items-center',
+      'cellId': 'flex-1 py-2.5 font-mono text-sm tabular-nums text-fg-muted',
+      'statusCell': 'flex-1 py-2.5 flex flex-row items-center',
       'cellResponse':
           'w-22 shrink-0 py-2.5 font-mono text-sm tabular-nums text-fg text-right',
       'cellCode':

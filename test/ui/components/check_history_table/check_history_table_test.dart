@@ -48,13 +48,16 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('checkHistoryTableRecipe', () {
-    test('table slot emits a flex column with no w-full (sizes to widest row)', () {
+    test('table slot fills the width and floors at 680px (scroll when narrower)', () {
       final classes = checkHistoryTableRecipe();
       expect(classes['table'], contains('flex'));
       expect(classes['table'], contains('flex-col'));
-      // No w-full: the table sizes to its widest row so the overflow-x-auto
-      // wrapper can scroll it as one unit on a narrow phone.
-      expect(classes['table'], isNot(contains('w-full')));
+      // `w-full` fills the port on desktop; `min-w-[680px]` floors it so the
+      // `overflow-x-auto` wrapper scrolls the grid as one unit below 680px. The
+      // floor also keeps each flex-1 column wide enough for its content (an
+      // Expanded ignores per-column min-w, so the floor must live here).
+      expect(classes['table'], contains('w-full'));
+      expect(classes['table'], contains('min-w-[680px]'));
     });
 
     test('row slot is a flex row with a bottom hairline divider', () {
@@ -71,19 +74,17 @@ void main() {
       expect(classes['header'], contains('border-color-border'));
     });
 
-    test('th slot takes a fixed w-28 track and is quiet uppercase muted', () {
+    test('th slot flexes to fill, quiet uppercase muted', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['th'], contains('w-28'));
-      expect(classes['th'], contains('shrink-0'));
+      expect(classes['th'], contains('flex-1'));
       expect(classes['th'], contains('uppercase'));
       expect(classes['th'], contains('tracking-wide'));
       expect(classes['th'], contains('text-fg-muted'));
     });
 
-    test('thStatus slot takes the wider fixed w-48 track', () {
+    test('thStatus slot flexes to fill for the status column', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['thStatus'], contains('w-48'));
-      expect(classes['thStatus'], contains('shrink-0'));
+      expect(classes['thStatus'], contains('flex-1'));
       expect(classes['thStatus'], contains('uppercase'));
     });
 
@@ -96,10 +97,9 @@ void main() {
       expect(classes['thCode'], contains('text-right'));
     });
 
-    test('cellId slot takes a fixed w-28 track and emits tabular-nums font-mono', () {
+    test('cellId slot flexes to fill with tabular-nums font-mono', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['cellId'], contains('w-28'));
-      expect(classes['cellId'], contains('shrink-0'));
+      expect(classes['cellId'], contains('flex-1'));
       expect(classes['cellId'], contains('tabular-nums'));
       expect(classes['cellId'], contains('font-mono'));
     });
@@ -113,30 +113,29 @@ void main() {
       expect(classes['cellCode'], contains('text-right'));
     });
 
-    test('statusCell slot is a fixed w-48 flex row', () {
+    test('statusCell slot flexes to fill as a flex row', () {
       final classes = checkHistoryTableRecipe();
-      expect(classes['statusCell'], contains('w-48'));
-      expect(classes['statusCell'], contains('shrink-0'));
+      expect(classes['statusCell'], contains('flex-1'));
       expect(classes['statusCell'], contains('flex flex-row'));
       expect(classes['statusCell'], contains('items-center'));
     });
 
-    test('every column slot takes a fixed shrink-0 track (scrollable as one unit)', () {
+    test('content columns flex-1 to fill; numeric columns stay fixed shrink-0', () {
       final classes = checkHistoryTableRecipe();
-      for (final slot in [
-        'th',
-        'thStatus',
-        'thResponse',
-        'thCode',
-        'cellId',
-        'statusCell',
-        'cellResponse',
-        'cellCode',
-      ]) {
+      // Time / Region / Status grow to distribute the full-width desktop table.
+      for (final slot in ['th', 'thStatus', 'cellId', 'statusCell']) {
+        expect(
+          classes[slot],
+          contains('flex-1'),
+          reason: '$slot must flex-1 so the full-width table distributes evenly',
+        );
+      }
+      // Response / Code keep a fixed right-aligned numeric track.
+      for (final slot in ['thResponse', 'thCode', 'cellResponse', 'cellCode']) {
         expect(
           classes[slot],
           contains('shrink-0'),
-          reason: '$slot must be shrink-0 so the row keeps a definite width',
+          reason: '$slot must stay a fixed shrink-0 numeric track',
         );
       }
     });
@@ -149,10 +148,12 @@ void main() {
   testWidgets('CheckHistoryTable scrolls (no overflow) at a 375px mobile width', (
     tester,
   ) async {
-    // Regression: the fixed-width grid (~560px) exceeds a phone viewport, so the
+    // Regression: the 680px-floored grid exceeds a phone viewport, so the
     // `overflow-x-auto` wrapper must scroll it as one unit rather than let a row
-    // or the status pill overflow. Guards the mobile detail page from the earlier
-    // RenderFlex-overflow / crash regression.
+    // or the status pill overflow. The 680px floor keeps each flex-1 column wide
+    // enough for its content (Expanded ignores per-column min-w), so the widest
+    // status badge fits without a RenderFlex overflow. Guards the mobile detail
+    // page from the earlier overflow / crash regression.
     tester.view.physicalSize = const Size(375, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {

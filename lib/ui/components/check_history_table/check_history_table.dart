@@ -19,17 +19,22 @@ import 'check_history_table.recipe.dart';
 /// soft pill with a leading dot, matching the React original), left-aligned so
 /// the pill hugs its content.
 ///
-/// The layout is pure Wind: the table is a `flex flex-col` [WDiv], each header /
-/// data row is a `flex flex-row items-center` [WDiv], and every column takes a
-/// fixed `w-*` + `shrink-0` track. Fixed tracks give the row a definite intrinsic
-/// width (~560px) and keep the columns vertically aligned.
+/// The layout is pure Wind: the table is a `flex flex-col w-full` [WDiv], each
+/// header / data row is a `flex flex-row items-center` [WDiv]. Time / Region /
+/// Status are `flex-1` (equal share) so they distribute the full-width desktop
+/// table evenly; Response / Code keep a fixed `w-*` + `shrink-0` right-aligned
+/// numeric track. The table also carries `min-w-[680px]` so it never collapses
+/// below the point where a flex column would squeeze its content.
 ///
-/// The table is wrapped in a Wind `overflow-x-auto` [WDiv], so on viewports
-/// narrower than that intrinsic width the whole grid scrolls horizontally as one
-/// unit (no cell-text wrapping, no status-pill overflow); wider surfaces show the
-/// full table with no scrollbar. A `LayoutBuilder` stretch-to-fill wrapper is
-/// avoided on purpose: the detail page measures intrinsic heights
-/// (`items-stretch`) and `LayoutBuilder` throws under intrinsic measurement.
+/// The table is wrapped in a Wind `overflow-x-auto` [WDiv], so `w-full` fills the
+/// available width on desktop while the 680px floor makes the whole grid scroll
+/// horizontally as one unit on a narrow phone (no cell-text wrapping, no
+/// status-pill overflow). The floor lives on the table, not the columns: a
+/// `flex-1` column is a Flutter [Expanded], which tightly constrains its child
+/// and IGNORES `min-w`, so a per-column floor would not hold. A `LayoutBuilder`
+/// stretch-to-fill wrapper is avoided on purpose: the detail page measures
+/// intrinsic heights (`items-stretch`) and `LayoutBuilder` throws under intrinsic
+/// measurement.
 ///
 /// Uses [checkHistoryTableRecipe] for all styling; no raw hex, `Color(0xFF...)`,
 /// or `Colors.*` anywhere. Composes [StatusBadge] instead of duplicating the
@@ -71,9 +76,10 @@ class CheckHistoryTable extends StatelessWidget {
     // Resolve all slot classNames once; no per-row overhead.
     final classes = checkHistoryTableRecipe();
 
-    // The table is a Wind flex column of fixed-width rows: a header row followed
-    // by one flex row per check. Fixed columns give it a definite intrinsic
-    // width (~560px).
+    // The table is a Wind `w-full` flex column: a header row followed by one flex
+    // row per check. Content columns flex-1 to fill the desktop width; the table
+    // floors at 680px (min-w) so a flex column never squeezes its content below
+    // the point where the widest status badge fits.
     final Widget table = WDiv(
       className: classes['table'],
       children: [
@@ -83,10 +89,11 @@ class CheckHistoryTable extends StatelessWidget {
     );
 
     // Wrap in Wind's `overflow-x-auto` so the whole grid scrolls sideways as one
-    // unit on a narrow phone (viewport < ~560px) instead of squeezing the cells
+    // unit on a narrow phone (viewport < 680px) instead of squeezing the cells
     // until their text wraps or the status pill overflows; wider surfaces show
-    // the full table with no scrollbar. This is the idiomatic Wind horizontal
-    // scroll (a WDiv-level SingleChildScrollView), no raw Flutter layout needed.
+    // the full table (w-full) with no scrollbar. This is the idiomatic Wind
+    // horizontal scroll (a WDiv-level SingleChildScrollView), no raw Flutter
+    // layout needed.
     return WDiv(className: 'overflow-x-auto', child: table);
   }
 
@@ -95,8 +102,8 @@ class CheckHistoryTable extends StatelessWidget {
   // ---------------------------------------------------------------------------
 
   Widget _buildHeader(Map<String, String> classes) {
-    // A Wind flex row; each cell carries its own fixed `w-*` track so the
-    // columns line up with the data rows below.
+    // A Wind flex row mirroring the data rows: Time / Region / Status flex-1,
+    // Response / Code a fixed right-aligned track, so the columns line up.
     return WDiv(
       className: classes['header'],
       children: [
@@ -110,9 +117,9 @@ class CheckHistoryTable extends StatelessWidget {
   }
 
   Widget _buildRow(CheckRow row, Map<String, String> classes) {
-    // A Wind flex row mirroring the header's fixed tracks. The Status cell is
-    // its own flex row holding a left-aligned [StatusBadge]; the numeric cells
-    // are right-aligned.
+    // A Wind flex row mirroring the header's tracks. The Status cell is its own
+    // flex-1 row holding a left-aligned [StatusBadge]; the numeric cells are a
+    // fixed right-aligned track.
     return WDiv(
       className: classes['row'],
       children: [
