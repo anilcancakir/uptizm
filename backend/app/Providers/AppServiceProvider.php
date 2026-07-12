@@ -7,8 +7,10 @@ use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnomalyTriageGateway;
+use App\Services\Ai\DigestGateway;
 use App\Services\Ai\IncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiAnalysisGateway;
+use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -37,6 +39,10 @@ class AppServiceProvider extends ServiceProvider
         // Bind the post-incident RCA boundary the same way. Tests rebind the
         // FakeIncidentAnalysisGateway, so no real Anthropic call happens in CI.
         $this->app->bind(IncidentAnalysisGateway::class, LaravelAiIncidentAnalysisGateway::class);
+
+        // Bind the weekly-digest boundary the same way. Tests rebind the
+        // FakeDigestGateway, so no real Anthropic call happens in CI.
+        $this->app->bind(DigestGateway::class, LaravelAiDigestGateway::class);
     }
 
     /**

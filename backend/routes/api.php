@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AiSuggestionController;
 use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\DigestController;
 use App\Http\Controllers\Api\V1\EscalationPolicyController;
 use App\Http\Controllers\Api\V1\IncidentAnalysisController;
 use App\Http\Controllers\Api\V1\IncidentController;
@@ -126,6 +127,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.incidents.index');
     Route::post('incidents', [IncidentController::class, 'store'])
         ->name('api.v1.incidents.store');
+    // Registered BEFORE the `{incident}` wildcard below: a literal segment
+    // must win the match, or `digest` would be swallowed as an incident id.
+    Route::get('incidents/digest', [DigestController::class, 'index'])
+        ->name('api.v1.incidents.digest');
     Route::get('incidents/{incident}', [IncidentController::class, 'show'])
         ->name('api.v1.incidents.show');
     Route::post('incidents/{incident}/resolve', [IncidentController::class, 'resolve'])
