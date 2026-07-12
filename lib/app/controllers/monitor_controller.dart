@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
 import '../mocks/monitors.dart';
+import '../mocks/status.dart';
 
 /// Controller backing the four routed monitor screens ([MonitorsListView],
 /// [MonitorDetailView], [MonitorCreateView], [MonitorEditView]).
@@ -285,5 +286,112 @@ class MonitorController extends MagicController {
       }
     }
     MagicRoute.to('/monitors/$id');
+  }
+
+  // ---------------------------------------------------------------------------
+  // 90-day uptime history
+  // ---------------------------------------------------------------------------
+
+  /// Loads the 90-day uptime history for monitor [id] from the existing
+  /// bucketed `GET /monitors/:id/response-times?range=90d` endpoint,
+  /// bucketing the response into daily [UptimeSegment]s via
+  /// [mapBucketsToUptime90].
+  ///
+  /// Degrades to an empty list on any failure (network error, non-2xx, or a
+  /// malformed payload), logged rather than thrown, so the calling view's
+  /// uptime bar renders its own empty state instead of crashing.
+  Future<List<UptimeSegment>> loadUptime90(String id) async {
+    try {
+      final response = await Http.get(
+        '/monitors/$id/response-times?range=90d',
+      );
+      if (!response.successful) {
+        Log.error(
+          '[MonitorController.loadUptime90] $id: ${response.errorMessage}',
+        );
+        return const [];
+      }
+
+      final Object? raw = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (raw is! List) return const [];
+
+      return mapBucketsToUptime90(
+        raw.whereType<Map<String, dynamic>>().toList(),
+      );
+    } catch (error) {
+      Log.error('[MonitorController.loadUptime90] $id failed: $error');
+      return const [];
+    }
+  }
+
+  /// Maps bucketed `MonitorCheckResource` rows (as returned by `GET
+  /// /monitors/:id/response-times?range=90d`) into 90 daily [UptimeSegment]s,
+  /// oldest-first (index 0, ~89 days ago) to newest-last (index 89, today),
+  /// matching the axis labels rendered below [UptimeBar].
+  ///
+  /// Each row's `checked_at` is bucketed into a day offset from [now]
+  /// (defaults to [DateTime.now()]); a day with multiple buckets folds to
+  /// the WORST status seen that day (down > degraded > everything else maps
+  /// to up), mirroring the backend's own bucket-folding precedence
+  /// (`CheckAggregateService::responseTimeSamples`). A day with no bucket
+  /// data at all defaults to [StatusKey.up], matching the design-lab
+  /// [uptime90] generator's existing unspecified-day default. A bucket
+  /// falling outside the trailing 90-day window is ignored.
+  ///
+  /// Exposed as a public static method (rather than a private instance
+  /// method) so the mapping contract is directly unit-testable without a
+  /// network round-trip.
+  static List<UptimeSegment> mapBucketsToUptime90(
+    List<Map<String, dynamic>> rows, {
+    DateTime? now,
+  }) {
+    final DateTime today = _dateOnly(now ?? DateTime.now());
+    final List<StatusKey?> days = List<StatusKey?>.filled(90, null);
+
+    for (final Map<String, dynamic> row in rows) {
+      final DateTime? checkedAt = DateTime.tryParse(
+        (row['checked_at'] as String?) ?? '',
+      )?.toLocal();
+      if (checkedAt == null) continue;
+
+      final int daysAgo = today.difference(_dateOnly(checkedAt)).inDays;
+      if (daysAgo < 0 || daysAgo > 89) continue;
+
+      final int index = 89 - daysAgo;
+      final StatusKey status = statusKeyFromWire(
+        row['status'] as String?,
+        fallback: StatusKey.up,
+      );
+      days[index] = _worseOf(days[index], status);
+    }
+
+    return List<UptimeSegment>.generate(90, (i) {
+      final int daysAgo = 89 - i;
+      return UptimeSegment(
+        status: days[i] ?? StatusKey.up,
+        label: daysAgo == 0 ? 'today' : '${daysAgo}d ago',
+      );
+    });
+  }
+
+  /// Truncates [dt] to a local calendar day (midnight), used for the
+  /// day-bucketing arithmetic in [mapBucketsToUptime90].
+  static DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+
+  /// Folds two [StatusKey]s to the worse one for a single day's bucket,
+  /// mirroring the backend's down > degraded > up precedence. Any status
+  /// other than `down`/`degraded` (e.g. `paused`, `info`, `ai`) is treated
+  /// as `up` for this fold, since the uptime bar's vocabulary is
+  /// up/down/degraded only.
+  static StatusKey _worseOf(StatusKey? current, StatusKey next) {
+    const Map<StatusKey, int> precedence = {
+      StatusKey.down: 2,
+      StatusKey.degraded: 1,
+    };
+    final int currentRank = precedence[current] ?? 0;
+    final int nextRank = precedence[next] ?? 0;
+    return nextRank >= currentRank ? next : (current ?? StatusKey.up);
   }
 }

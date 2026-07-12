@@ -120,6 +120,12 @@ class _MonitorDetailViewState
   /// single line (not the design-lab p50/p95/p99 trio).
   List<MetricDatum> _responseData = const [];
 
+  /// Live 90-day uptime history from `GET
+  /// /monitors/:id/response-times?range=90d`, bucketed into daily segments by
+  /// [MonitorController.loadUptime90]. Empty while loading or on failure, in
+  /// which case [UptimeBar] renders its own empty track.
+  List<UptimeSegment> _uptimeSegments = const [];
+
   /// Single-series descriptor for the live response-time chart.
   static const List<MetricSeries> _liveResponseSeries = [
     MetricSeries(key: 'response', label: 'Response', tone: ChartTone.up),
@@ -156,11 +162,13 @@ class _MonitorDetailViewState
     _loading = true;
     _recentChecks = const [];
     _responseData = const [];
+    _uptimeSegments = const [];
     unawaited(_fetchData());
   }
 
-  /// Fetches the recent checks + response-time series for the current [id] and
-  /// publishes them, flipping [_loading] off once both settle.
+  /// Fetches the recent checks, response-time series, and 90-day uptime
+  /// history for the current [id] and publishes them, flipping [_loading]
+  /// off once all three settle.
   Future<void> _fetchData() async {
     final String? id = widget.id;
     if (id == null) {
@@ -170,11 +178,15 @@ class _MonitorDetailViewState
 
     final List<CheckRow> checks = await _loadChecks(id);
     final List<MetricDatum> series = await _loadResponseSeries(id);
+    final List<UptimeSegment> uptimeSegments = await controller.loadUptime90(
+      id,
+    );
 
     if (!mounted) return;
     setState(() {
       _recentChecks = checks;
       _responseData = series;
+      _uptimeSegments = uptimeSegments;
       _loading = false;
     });
   }
@@ -505,14 +517,12 @@ class _MonitorDetailViewState
 
   /// Builds the 90-day uptime section: a heading row with the trailing uptime
   /// figure, the [UptimeBar], and the 90-days-ago / today axis labels.
+  ///
+  /// [_uptimeSegments] is sourced from the live `GET
+  /// /monitors/:id/response-times?range=90d` endpoint (see [_fetchData] and
+  /// [MonitorController.loadUptime90]); it is empty while loading or on a
+  /// failed fetch, in which case [UptimeBar] renders its own empty track.
   Widget _buildUptimeSection(MonitorSummary monitor) {
-    // Deterministic 90-day history with two degraded days and three down days,
-    // matching the design mock's representative outage pattern.
-    final segments = uptime90(
-      degraded: const [41, 42],
-      down: const [58, 73, 74],
-    );
-
     // Uniform 8px (gap-2) between the heading, the bar, and the axis labels.
     return WDiv(
       className: 'flex flex-col gap-2',
@@ -533,7 +543,7 @@ class _MonitorDetailViewState
         ),
 
         // 2. The 90-day bar (prominent height for the detail header).
-        UptimeBar(segments: segments, size: UptimeBarSize.lg),
+        UptimeBar(segments: _uptimeSegments, size: UptimeBarSize.lg),
 
         // 3. Axis labels: 90 days ago (left) and today (right).
         WDiv(

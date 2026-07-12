@@ -14,6 +14,7 @@ import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/metric_chart/index.dart';
 import 'package:uptizm/ui/components/slo_budget_card/index.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
+import 'package:uptizm/ui/components/uptime_bar/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 
 /// In-memory loader feeding the monitor-detail prose so [trans] returns short,
@@ -229,6 +230,24 @@ void main() {
       );
       expect(overviewChart.band, isNull);
       expect(overviewChart.unit, 'ms');
+    },
+  );
+
+  testWidgets(
+    'MonitorDetailView renders the 90-day uptime bar from the live '
+    'response-times endpoint',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+      await settleSkeleton(tester);
+
+      // The stubbed `*response-times*` fixture (all `status: 'up'`) is bucketed
+      // into 90 daily segments by MonitorController.loadUptime90, so the bar
+      // always renders exactly 90 segments regardless of the source data shape.
+      final UptimeBar bar = tester.widget<UptimeBar>(find.byType(UptimeBar));
+      expect(bar.segments, hasLength(90));
     },
   );
 

@@ -195,4 +195,92 @@ void main() {
       expect(notifications, equals(0));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // 90-day uptime bucket mapping (S10).
+  // ---------------------------------------------------------------------------
+
+  group('mapBucketsToUptime90', () {
+    test('defaults every day with no bucket data to up', () {
+      final segments = MonitorController.mapBucketsToUptime90(const []);
+
+      expect(segments, hasLength(90));
+      expect(segments.every((s) => s.status == StatusKey.up), isTrue);
+    });
+
+    test('maps a bucket to the down status on its day offset', () {
+      final DateTime now = DateTime(2026, 7, 12, 12);
+      final segments = MonitorController.mapBucketsToUptime90([
+        {'checked_at': '2026-07-12T09:00:00.000Z', 'status': 'down'},
+      ], now: now);
+
+      // Today (daysAgo == 0) is the LAST segment (index 89), matching the
+      // "90 days ago" (left) / "today" (right) axis labels.
+      expect(segments.last.status, equals(StatusKey.down));
+      expect(segments.last.label, equals('today'));
+      expect(
+        segments.sublist(0, 89).every((s) => s.status == StatusKey.up),
+        isTrue,
+      );
+    });
+
+    test('folds a day with mixed buckets to the worst status (down > degraded)', () {
+      final DateTime now = DateTime(2026, 7, 12, 12);
+      final segments = MonitorController.mapBucketsToUptime90([
+        {'checked_at': '2026-07-10T01:00:00.000Z', 'status': 'up'},
+        {'checked_at': '2026-07-10T05:00:00.000Z', 'status': 'degraded'},
+        {'checked_at': '2026-07-10T09:00:00.000Z', 'status': 'up'},
+      ], now: now);
+
+      // 2026-07-10 is 2 days before 2026-07-12 -> index 89 - 2 = 87.
+      expect(segments[87].status, equals(StatusKey.degraded));
+    });
+
+    test('a down bucket outranks a degraded bucket on the same day', () {
+      final DateTime now = DateTime(2026, 7, 12, 12);
+      final segments = MonitorController.mapBucketsToUptime90([
+        {'checked_at': '2026-07-12T01:00:00.000Z', 'status': 'degraded'},
+        {'checked_at': '2026-07-12T05:00:00.000Z', 'status': 'down'},
+      ], now: now);
+
+      expect(segments.last.status, equals(StatusKey.down));
+    });
+
+    test('ignores buckets outside the trailing 90-day window', () {
+      final DateTime now = DateTime(2026, 7, 12, 12);
+      final segments = MonitorController.mapBucketsToUptime90([
+        {'checked_at': '2026-01-01T00:00:00.000Z', 'status': 'down'},
+      ], now: now);
+
+      expect(segments.every((s) => s.status == StatusKey.up), isTrue);
+    });
+  });
+
+  group('loadUptime90', () {
+    test('decodes bucketed response-times into 90 daily segments', () async {
+      final DateTime now = DateTime(2026, 7, 12, 12);
+      Http.fake({
+        'monitors/api/response-times*': Http.response({
+          'data': [
+            {'checked_at': now.toIso8601String(), 'status': 'down'},
+          ],
+        }),
+      });
+      final MonitorController controller = MonitorController.instance;
+
+      final segments = await controller.loadUptime90('api');
+
+      expect(segments, hasLength(90));
+      expect(segments.last.status, equals(StatusKey.down));
+    });
+
+    test('degrades to an empty list when the network is unavailable', () async {
+      Http.unfake();
+      final MonitorController controller = MonitorController.instance;
+
+      final segments = await controller.loadUptime90('api');
+
+      expect(segments, isEmpty);
+    });
+  });
 }
