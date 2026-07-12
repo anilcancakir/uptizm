@@ -5,11 +5,64 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/mocks/oncall.dart';
 import 'package:uptizm/app/mocks/teams_data.dart';
+import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
 import 'package:uptizm/resources/views/teams/notification_channels_view.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
 import 'package:uptizm/resources/views/teams/plan_billing_view.dart';
+
+/// In-memory [BillingService] fake for [PlanBillingView] wiring tests.
+///
+/// Records every [checkout] call's `plan` and lets a test configure a canned
+/// [entitlementPlan] (`currentEntitlement`) or a [checkoutError] to throw from
+/// [checkout], so a widget test can assert the live-wiring branch (web
+/// checkout, mobile-deferred, error) without a real network driver.
+class _FakeBillingService implements BillingService {
+  _FakeBillingService({this.entitlementPlan, this.checkoutError});
+
+  /// The plan id [currentEntitlement] resolves to; `null` mirrors an absent
+  /// entitlement field.
+  final String? entitlementPlan;
+
+  /// When set, [checkout] throws this instead of returning a session.
+  final BillingException? checkoutError;
+
+  /// Every `plan` passed to [checkout], in call order.
+  final List<String> checkoutPlans = [];
+
+  @override
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  }) async {
+    checkoutPlans.add(plan);
+    if (checkoutError != null) throw checkoutError!;
+    return const BillingCheckoutSession(
+      checkoutUrl: 'https://checkout.stripe.com/test_session',
+      sessionId: 'session_test',
+    );
+  }
+
+  @override
+  Future<void> swap({required String plan}) async {}
+
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<String> openPortal({String? returnUrl}) async => '';
+
+  @override
+  Future<BillingEntitlement> currentEntitlement() async {
+    return BillingEntitlement(
+      plan: entitlementPlan,
+      status: 'active',
+      raw: {'plan': entitlementPlan, 'status': 'active'},
+    );
+  }
+}
 
 /// In-memory language loader supplying every [trans] key exercised by the
 /// uptizm team-operations views' smoke tests (notification channels,
@@ -144,6 +197,8 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.billing_toast_upgrade_title': 'Upgrading to :name',
       'uptizm.teams.billing_toast_switch_title': 'Switching to :name',
       'uptizm.teams.billing_toast_change_description': 'Billed :cycle.',
+      'uptizm.teams.billing_toast_deferred_title': 'Billing coming soon',
+      'uptizm.teams.billing_toast_checkout_failed_title': 'Checkout failed',
     };
   }
 }
@@ -156,6 +211,11 @@ void main() {
     // / PageHeader resolve their themes via MagicStarter.* without a full app
     // boot (mirrors settings_views_test.dart).
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind LogManager so Log.warning() works inside MagicFeedback.showSnackbar
+    // (the PlanBillingView CTA calls Magic.success/error/MagicFeedback.info,
+    // which fall through to a warning log when no navigator context is
+    // mounted, as here; mirrors monitor_controller_test.dart).
+    Magic.singleton('log', () => LogManager());
 
     Translator.instance.setLoader(_TeamsViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
@@ -303,6 +363,25 @@ void main() {
   // PlanBillingView
   // ---------------------------------------------------------------------------
 
+  /// Wraps [widget] like [wrap], but pins the [MaterialApp]'s navigator key to
+  /// [MagicRouter.instance.navigatorKey] so [MagicFeedback] (`Magic.success`/
+  /// `Magic.error`/`MagicFeedback.info`) resolves a mounted context and
+  /// actually renders its `SnackBar`, instead of degrading to a logged
+  /// warning. Only the billing-toast assertions below need this; the shared
+  /// [wrap] stays as-is for every other group in this file.
+  Widget wrapWithSnackbar(Widget widget, {Size size = const Size(1280, 8000)}) {
+    return MaterialApp(
+      navigatorKey: MagicRouter.instance.navigatorKey,
+      home: MediaQuery(
+        data: MediaQueryData(size: size),
+        child: WindTheme(
+          data: WindThemeData(),
+          child: Scaffold(body: SingleChildScrollView(child: widget)),
+        ),
+      ),
+    );
+  }
+
   group('PlanBillingView', () {
     testWidgets('renders the title and the billing-history heading', (
       tester,
@@ -320,6 +399,137 @@ void main() {
       expect(
         find.text(trans('uptizm.teams.billing_invoices_header')),
         findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'selecting an upgrade plan on web calls BillingService.checkout',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 8000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final _FakeBillingService billing = _FakeBillingService(
+          entitlementPlan: 'pro',
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            PlanBillingView(billingService: billing),
+            size: const Size(1280, 8000),
+          ),
+        );
+        await tester.pump();
+
+        // Business sits above the fixture default ("pro"), so its CTA reads
+        // "Upgrade" and is enabled.
+        await tester.tap(
+          find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(billing.checkoutPlans, ['business']);
+      },
+    );
+
+    testWidgets(
+      'mobile-deferred: UnsupportedPlatformException surfaces an info toast, '
+      'not an error',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 8000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final _FakeBillingService billing = _FakeBillingService(
+          entitlementPlan: 'pro',
+          checkoutError: const UnsupportedPlatformException(
+            'In-app purchases are not yet available on this platform.',
+          ),
+        );
+
+        await tester.pumpWidget(
+          wrapWithSnackbar(PlanBillingView(billingService: billing)),
+        );
+        await tester.pump();
+
+        await tester.tap(
+          find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        );
+        await tester.pump();
+
+        // The checkout call still fires (and fails); the failure must not
+        // crash the screen, and must surface the friendly deferred title
+        // rather than the checkout-failed error title.
+        expect(tester.takeException(), isNull);
+        expect(billing.checkoutPlans, ['business']);
+        expect(
+          find.text(trans('uptizm.teams.billing_toast_deferred_title')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('a failed checkout surfaces the checkout-failed error toast', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 8000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final _FakeBillingService billing = _FakeBillingService(
+        entitlementPlan: 'pro',
+        checkoutError: const BillingException('No payment method.'),
+      );
+
+      await tester.pumpWidget(
+        wrapWithSnackbar(PlanBillingView(billingService: billing)),
+      );
+      await tester.pump();
+
+      await tester.tap(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the loaded entitlement plan becomes the current plan', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 8000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final _FakeBillingService billing = _FakeBillingService(
+        entitlementPlan: 'business',
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          PlanBillingView(billingService: billing),
+          size: const Size(1280, 8000),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      // Business is now the current plan, so exactly one CTA reads
+      // "Current plan" (Business's own), and both Free and Pro's CTAs read
+      // "Downgrade" since Business now outranks them.
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_current')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_downgrade')),
+        findsNWidgets(2),
       );
     });
   });

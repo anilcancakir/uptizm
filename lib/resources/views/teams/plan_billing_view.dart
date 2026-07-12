@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/billing.dart';
 import '../../../app/mocks/teams_data.dart';
+import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
 import '../../../ui/layouts/page_container.dart';
 
@@ -33,8 +34,12 @@ enum BillingCycle {
 ///   list with a check glyph, the responder add-on line when present, a
 ///   "Recommended" badge when [Plan.recommended], and a CTA: "Current plan"
 ///   (disabled) for the active plan, else "Upgrade"/"Downgrade"/"Contact sales"
-///   decided by comparing the plan's position to the current plan's. The CTA
-///   only surfaces a [Magic.success] toast; nothing navigates or persists.
+///   decided by comparing the plan's position to the current plan's. On web,
+///   a priced-tier CTA starts a live Stripe Checkout session via
+///   [BillingService.checkout]; on mobile it surfaces the deferred-billing
+///   message instead of erroring (store rails deferred, see
+///   `BillingServiceIo`). The custom (Enterprise) tier only surfaces a
+///   "contact sales" toast; nothing navigates or persists there.
 /// - **Payment method card**: the [paymentMethod] brand tile, the masked card
 ///   number + expiry, and an "Update" [Button] (mock, no-op).
 /// - **Billing history card**: one row per [invoices] entry: date + number, a
@@ -43,9 +48,11 @@ enum BillingCycle {
 ///   pairs, NOT [StatusBadge], which takes a monitoring [StatusKey]), the
 ///   amount, and a "Receipt" [Button] (mock, no-op).
 ///
-/// This is a mock screen: cycle selection is the only local state; nothing
-/// persists and no financial computation runs beyond selecting monthly vs
-/// annual off the fixture prices.
+/// The current-plan id is sourced from the live `GET /billing` entitlement
+/// (via [BillingService.currentEntitlement]), falling back to the design-lab
+/// fixture ([currentPlanId]) until the read resolves or on failure. The plan
+/// catalog, usage stats, payment method, and invoices stay design-lab
+/// fixtures; only the entitlement read and the priced-tier CTA are live.
 ///
 /// ### Example
 /// ```dart
@@ -54,7 +61,14 @@ enum BillingCycle {
 @immutable
 class PlanBillingView extends StatefulWidget {
   /// Creates the [PlanBillingView].
-  const PlanBillingView({super.key});
+  ///
+  /// [billingService] overrides [BillingService.instance] for tests; omit it
+  /// in production to get the platform-resolved singleton.
+  const PlanBillingView({super.key, this.billingService});
+
+  /// Injectable [BillingService], overriding [BillingService.instance].
+  @visibleForTesting
+  final BillingService? billingService;
 
   @override
   State<PlanBillingView> createState() => _PlanBillingViewState();
@@ -76,13 +90,61 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// The route the back affordance returns to.
   static const String _backFallback = '/';
 
+  /// The app's canonical web origin, used to build the checkout
+  /// `success_url`/`cancel_url` Stripe redirects back to.
+  ///
+  /// A fixed constant rather than `Uri.base` (which is not a valid checkout
+  /// redirect target off the web platform, and throws on a non-http(s)
+  /// scheme, e.g. under `flutter test`'s `file://` origin).
+  static const String _webOrigin = 'https://uptizm.com';
+
   /// The selected billing cycle. Defaults to annual (mirrors the React
   /// `useState<BillingCycle>("annual")`), so the toggle opens on the second
-  /// segment and prices read the discounted annual column.
+  /// segment and prices read the discounted annual column. Local display
+  /// state only: the backend plan map has no monthly/annual price dimension
+  /// yet, so [_selectPlan] never encodes this into the checkout payload (see
+  /// the `### Deviations` note on this step).
   BillingCycle _cycle = BillingCycle.annual;
 
-  /// The active plan, resolved once from the fixtures.
-  late final Plan _current = _findPlan(currentPlanId);
+  /// The [BillingService] resolved once for the entitlement read + checkout
+  /// action: [PlanBillingView.billingService] when injected (tests), else the
+  /// platform-resolved [BillingService.instance].
+  late final BillingService _billing =
+      widget.billingService ?? BillingService.instance;
+
+  /// The active plan id. Seeded from the design-lab fixture ([currentPlanId])
+  /// and republished by [_loadEntitlement] once the live `GET /billing` read
+  /// resolves; keeps the fixture id as last-known state on any failure.
+  String _currentPlanId = currentPlanId;
+
+  /// The active plan, resolved from [_currentPlanId].
+  Plan get _current => _findPlan(_currentPlanId);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEntitlement();
+  }
+
+  /// Reads the team's current plan from `GET /billing` via
+  /// [BillingService.currentEntitlement] and republishes [_currentPlanId].
+  ///
+  /// Deliberate degradation on failure (network error, non-2xx, malformed
+  /// payload): keeps the fixture plan id as last-known state instead of
+  /// throwing, mirroring `MonitorController.reload`'s read-path convention, so
+  /// a transient read failure never crashes this screen.
+  Future<void> _loadEntitlement() async {
+    try {
+      final BillingEntitlement entitlement = await _billing
+          .currentEntitlement();
+      final String? plan = entitlement.plan;
+      if (plan == null || !mounted) return;
+      setState(() => _currentPlanId = plan);
+    } catch (_) {
+      // Deliberate degradation: keeps the fixture plan id as last-known
+      // state (see the docblock above) instead of throwing.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +265,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// hero tile, the feature list, an optional responder add-on line, an optional
   /// "Recommended" badge, and the CTA.
   Widget _buildPlanCard(Plan plan) {
-    final bool isCurrent = plan.id == currentPlanId;
+    final bool isCurrent = plan.id == _currentPlanId;
     final bool isCustom = plan.monthly == null;
 
     return WDiv(
@@ -451,13 +513,26 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // CTA + toast
   // ---------------------------------------------------------------------------
 
-  /// Surfaces the plan-selection toast (mock: no navigation, nothing persists).
+  /// Selects [plan]: hands off to sales for the custom tier, otherwise starts
+  /// a live Stripe Checkout session via [BillingService.checkout] for
+  /// [plan.id], the backend `Plan` enum value (`'pro'`/`'business'`; the
+  /// backend rejects anything else with a 422).
   ///
-  /// A custom (Enterprise) plan routes to the "contact sales" toast; otherwise
-  /// the title reflects the direction (upgrade vs switch) and the description
-  /// names the selected billing cycle. Mirrors the React `selectPlan`.
-  void _selectPlan(Plan plan) {
-    // 1. Custom tier: hand off to sales, no cycle-based copy.
+  /// The monthly/annual [_cycle] toggle is local display state only: the
+  /// backend plan map is cycle-agnostic (one Stripe price per plan, no
+  /// monthly/annual price dimension yet), so it is never encoded into the
+  /// checkout payload (see the `### Deviations` note on this step).
+  ///
+  /// On web, [BillingService.checkout] opens the returned checkout URL in an
+  /// in-app browser tab; this only surfaces the local confirmation toast
+  /// afterward. On mobile, [BillingService.checkout] throws
+  /// [UnsupportedPlatformException] (store rails deferred, see
+  /// `BillingServiceIo`), surfaced here as a friendly info toast rather than
+  /// an error. Any other [BillingException] (a failed request) surfaces an
+  /// error toast; neither failure is swallowed silently. Mirrors the React
+  /// `selectPlan`.
+  Future<void> _selectPlan(Plan plan) async {
+    // 1. Custom tier: hand off to sales, no live billing call.
     if (plan.monthly == null) {
       Magic.success(
         trans('uptizm.teams.billing_toast_contact_title'),
@@ -466,19 +541,37 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       return;
     }
 
-    // 2. Priced tier: title by direction, description by cycle.
+    // 2. Priced tier: start checkout for the plan, redirecting Stripe back to
+    //    this screen on completion/abort.
     final bool isUpgrade = _direction(plan) > 0;
-    Magic.success(
-      trans(
-        isUpgrade
-            ? 'uptizm.teams.billing_toast_upgrade_title'
-            : 'uptizm.teams.billing_toast_switch_title',
-        {'name': plan.name},
-      ),
-      trans('uptizm.teams.billing_toast_change_description', {
-        'cycle': _cycleLabel(_cycle),
-      }),
-    );
+    try {
+      await _billing.checkout(
+        plan: plan.id,
+        successUrl: '$_webOrigin/teams/billing?checkout=success',
+        cancelUrl: '$_webOrigin/teams/billing?checkout=cancel',
+      );
+      Magic.success(
+        trans(
+          isUpgrade
+              ? 'uptizm.teams.billing_toast_upgrade_title'
+              : 'uptizm.teams.billing_toast_switch_title',
+          {'name': plan.name},
+        ),
+        trans('uptizm.teams.billing_toast_change_description', {
+          'cycle': _cycleLabel(_cycle),
+        }),
+      );
+    } on UnsupportedPlatformException catch (error) {
+      MagicFeedback.info(
+        trans('uptizm.teams.billing_toast_deferred_title'),
+        error.message,
+      );
+    } on BillingException catch (error) {
+      Magic.error(
+        trans('uptizm.teams.billing_toast_checkout_failed_title'),
+        error.message,
+      );
+    }
   }
 
   /// Resolves the CTA label for [plan] against the current plan.
@@ -487,7 +580,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// otherwise "Upgrade" (higher tier) or "Downgrade" (lower tier). Mirrors the
   /// React `ctaLabel`.
   String _ctaLabel(Plan plan) {
-    if (plan.id == currentPlanId) {
+    if (plan.id == _currentPlanId) {
       return trans('uptizm.teams.billing_plan_button_current');
     }
     if (plan.monthly == null) {
@@ -500,9 +593,10 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
   /// The tier distance of [plan] from the current plan: positive when [plan] is
   /// higher (an upgrade), negative when lower. Mirrors the React
-  /// `PLAN_ORDER.indexOf(plan.id) - PLAN_ORDER.indexOf(currentPlanId)`.
+  /// `PLAN_ORDER.indexOf(plan.id) - PLAN_ORDER.indexOf(currentPlanId)`, against
+  /// the live [_currentPlanId] rather than the static fixture.
   int _direction(Plan plan) {
-    return _planIndex(plan.id) - _planIndex(currentPlanId);
+    return _planIndex(plan.id) - _planIndex(_currentPlanId);
   }
 
   // ---------------------------------------------------------------------------
