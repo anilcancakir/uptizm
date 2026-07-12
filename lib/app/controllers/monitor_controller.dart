@@ -4,6 +4,67 @@ import 'package:magic/magic.dart';
 import '../mocks/monitors.dart';
 import '../mocks/status.dart';
 
+/// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
+///
+/// Mirrors the backend `AnalysisResult` wire shape (see the Laravel
+/// `AnalysisResult::toArray()`): a SUGGESTION for a URL not yet turned into a
+/// monitor, never a decision. The AI-flow review step in [MonitorCreateView]
+/// prefills [MonitorForm] from this value; the operator still submits the
+/// form themselves.
+@immutable
+class MonitorAnalysis {
+  /// The analyzed URL, echoed back by the backend.
+  final String url;
+
+  /// The AI-suggested display name for the monitor.
+  final String name;
+
+  /// The suggested check interval, in seconds.
+  final int recommendedIntervalSeconds;
+
+  /// The suggested warn-severity response-time bound, in milliseconds.
+  final int recommendedWarnThresholdMs;
+
+  /// The suggested critical-severity response-time bound, in milliseconds.
+  final int recommendedCriticalThresholdMs;
+
+  /// The suggested relay regions to probe from.
+  final List<String> recommendedRegions;
+
+  /// The narration behind the suggestion.
+  final String rationale;
+
+  /// Creates a [MonitorAnalysis].
+  const MonitorAnalysis({
+    required this.url,
+    required this.name,
+    required this.recommendedIntervalSeconds,
+    required this.recommendedWarnThresholdMs,
+    required this.recommendedCriticalThresholdMs,
+    required this.recommendedRegions,
+    required this.rationale,
+  });
+
+  /// Decodes a [MonitorAnalysis] from the `data` object of the `POST
+  /// /monitors/analyze` response.
+  factory MonitorAnalysis.fromMap(Map<String, dynamic> map) {
+    return MonitorAnalysis(
+      url: map['url'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      recommendedIntervalSeconds:
+          (map['recommended_interval_seconds'] as num?)?.toInt() ?? 30,
+      recommendedWarnThresholdMs:
+          (map['recommended_warn_threshold_ms'] as num?)?.toInt() ?? 0,
+      recommendedCriticalThresholdMs:
+          (map['recommended_critical_threshold_ms'] as num?)?.toInt() ?? 0,
+      recommendedRegions:
+          (map['recommended_regions'] as List?)?.whereType<String>().toList() ??
+          const [],
+      rationale: map['rationale'] as String? ?? '',
+    );
+  }
+}
+
 /// Controller backing the four routed monitor screens ([MonitorsListView],
 /// [MonitorDetailView], [MonitorCreateView], [MonitorEditView]).
 ///
@@ -288,6 +349,54 @@ class MonitorController extends MagicController {
     MagicRoute.to('/monitors/$id');
   }
 
+  /// Runs the AI analyze probe for [url] via `POST /monitors/analyze` and
+  /// returns the [MonitorAnalysis] prefill for the AI-flow review step, or
+  /// `null` on failure.
+  ///
+  /// [region] optionally pins the probe location; omitted, the backend
+  /// defaults to US East. A non-2xx response or a transport failure surfaces
+  /// an error toast (reusing [create]'s `toast_save_failed_*` copy; there is
+  /// no dedicated analyze-failed string yet) and logs via [Log.error], never
+  /// a silent swallow.
+  Future<MonitorAnalysis?> analyze(String url, {String? region}) async {
+    try {
+      final response = await Http.post(
+        '/monitors/analyze',
+        data: {'url': url, 'region': ?region},
+      );
+      if (!response.successful) {
+        Log.error('[MonitorController.analyze] $url: ${response.errorMessage}');
+        Magic.error(
+          trans('uptizm.monitors.toast_save_failed_title'),
+          response.errorMessage ??
+              trans('uptizm.monitors.toast_save_failed_description'),
+        );
+        return null;
+      }
+
+      final Object? data = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (data is! Map<String, dynamic>) {
+        Log.error('[MonitorController.analyze] $url: malformed response');
+        Magic.error(
+          trans('uptizm.monitors.toast_save_failed_title'),
+          trans('uptizm.monitors.toast_save_failed_description'),
+        );
+        return null;
+      }
+
+      return MonitorAnalysis.fromMap(data);
+    } catch (error) {
+      Log.error('[MonitorController.analyze] $url failed: $error');
+      Magic.error(
+        trans('uptizm.monitors.toast_save_failed_title'),
+        trans('uptizm.monitors.toast_save_failed_description'),
+      );
+      return null;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // 90-day uptime history
   // ---------------------------------------------------------------------------
@@ -302,9 +411,7 @@ class MonitorController extends MagicController {
   /// uptime bar renders its own empty state instead of crashing.
   Future<List<UptimeSegment>> loadUptime90(String id) async {
     try {
-      final response = await Http.get(
-        '/monitors/$id/response-times?range=90d',
-      );
+      final response = await Http.get('/monitors/$id/response-times?range=90d');
       if (!response.successful) {
         Log.error(
           '[MonitorController.loadUptime90] $id: ${response.errorMessage}',

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
@@ -42,16 +40,18 @@ enum _AiStep {
 /// **The Monitor Create screen (`/monitors/new`).**
 ///
 /// A faithful Flutter port of the React `MonitorCreatePage.tsx`. AI-first by
-/// default: the user pastes a URL, Uptizm "probes" it (a simulated 2.2s
-/// [Timer], never a real request), then proposes optimal settings the user
-/// reviews and edits in the shared [MonitorForm] before creating. A "Manual"
-/// [SegmentedControl] toggle drops straight into the bare form.
+/// default: the user pastes a URL, Uptizm probes it via the live `POST
+/// /monitors/analyze` ([MonitorController.analyze]), then proposes optimal
+/// settings the user reviews and edits in the shared [MonitorForm] before
+/// creating. A "Manual" [SegmentedControl] toggle drops straight into the
+/// bare form.
 ///
 /// The AI flow is a small state machine over two axes:
 /// - [_CreateMode] (`ai` / `manual`, default `ai`) — switching mode always
-///   resets the step to [_AiStep.input] and cancels any pending analyze timer.
+///   resets the step to [_AiStep.input] and drops any in-flight analysis.
 /// - [_AiStep] (`input` -> `analyzing` -> `review`, default `input`) — only
-///   meaningful in AI mode.
+///   meaningful in AI mode. A failed analyze falls back to [_AiStep.input]
+///   with an error toast (surfaced by [MonitorController.analyze] itself).
 ///
 /// On the review step the [MonitorForm] is pre-filled with the AI's choices and
 /// carries an AI summary banner (the `banner` slot) so the human stays in
@@ -87,10 +87,6 @@ class MonitorCreateView extends MagicStatefulView<MonitorController> {
 
 class _MonitorCreateViewState
     extends MagicStatefulViewState<MonitorController, MonitorCreateView> {
-  /// How long the simulated AI probe runs before flipping to the review step.
-  /// Mirrors the React `setTimeout(..., 2200)` in `MonitorCreatePage.analyze`.
-  static const Duration _analyzeDelay = Duration(milliseconds: 2200);
-
   /// The route the create flow returns to on submit or cancel (mock: nothing
   /// persists, so both just leave for the monitors list).
   static const String _doneRoute = '/monitors';
@@ -106,9 +102,9 @@ class _MonitorCreateViewState
   /// The URL the user pasted for the AI to analyze (React `url`).
   String _url = '';
 
-  /// The pending analyze timer; cancelled on dispose and whenever the mode
-  /// switches so a stale callback never flips a torn-down step.
-  Timer? _analyzeTimer;
+  /// The live analyze result, populated once [_analyze] resolves
+  /// successfully. Backs the [_AiStep.review] prefill; `null` until then.
+  MonitorAnalysis? _analysis;
 
   @override
   void initState() {
@@ -118,36 +114,37 @@ class _MonitorCreateViewState
     super.initState();
   }
 
-  @override
-  void onClose() {
-    // MagicStatefulViewState.dispose() calls onClose() before tearing down the
-    // controller listener, so the analyze timer is cancelled here.
-    _analyzeTimer?.cancel();
-  }
-
-  /// The AI-derived display name for the current [_url] (React `aiName`).
+  /// The AI-derived display name for the current [_url] (React `aiName`),
+  /// used as a fallback until [_analysis] resolves.
   String get _aiName => aiNameFromUrl(_url);
 
-  /// Starts the simulated AI probe: flip to [_AiStep.analyzing], then to
-  /// [_AiStep.review] after [_analyzeDelay]. No network request runs (React
-  /// `analyze`). Cancels any in-flight timer first so a double tap cannot queue
-  /// two transitions.
-  void _analyze() {
-    _analyzeTimer?.cancel();
+  /// Runs the live AI probe: flips to [_AiStep.analyzing], awaits
+  /// [MonitorController.analyze], then flips to [_AiStep.review] pre-filled
+  /// from the response. A failed analyze (the controller already surfaced the
+  /// error toast) falls back to [_AiStep.input] instead of stalling on the
+  /// analyzing step.
+  Future<void> _analyze() async {
     setState(() => _step = _AiStep.analyzing);
-    _analyzeTimer = Timer(_analyzeDelay, () {
-      if (!mounted) return;
-      setState(() => _step = _AiStep.review);
+    final MonitorAnalysis? result = await controller.analyze(_url);
+    if (!mounted) return;
+
+    if (result == null) {
+      setState(() => _step = _AiStep.input);
+      return;
+    }
+    setState(() {
+      _analysis = result;
+      _step = _AiStep.review;
     });
   }
 
   /// Switches the setup mode and resets the AI step to [_AiStep.input],
-  /// cancelling any pending analyze timer (React `switchMode`).
+  /// dropping any previously resolved analysis (React `switchMode`).
   void _switchMode(_CreateMode next) {
-    _analyzeTimer?.cancel();
     setState(() {
       _mode = next;
       _step = _AiStep.input;
+      _analysis = null;
     });
   }
 
@@ -342,14 +339,24 @@ class _MonitorCreateViewState
 
   /// Builds the AI review step: the [MonitorForm] pre-filled with the AI's
   /// choices, behind the AI summary banner. React lines 152-204.
+  ///
+  /// [_analysis] carries the live `POST /monitors/analyze` response by the
+  /// time this step renders (set right before the [_AiStep.review]
+  /// transition); the `_aiName`/default-regions fallbacks only guard against
+  /// a null value defensively, they are never exercised in the wired flow.
   Widget _buildAiReview() {
+    final MonitorAnalysis? analysis = _analysis;
     return MonitorForm(
       key: const ValueKey('monitor-form-ai-review'),
-      initialName: _aiName,
+      initialName: analysis?.name ?? _aiName,
       initialUrl: _url,
       initialType: 'http',
-      initialInterval: '30s',
-      initialRegions: const ['us-east', 'eu-west', 'ap'],
+      initialInterval: _intervalTokenForSeconds(
+        analysis?.recommendedIntervalSeconds,
+      ),
+      initialRegions: analysis != null && analysis.recommendedRegions.isNotEmpty
+          ? analysis.recommendedRegions
+          : const ['us-east', 'eu-west', 'ap'],
       initialHeaders: const [
         KeyValueRow(key: 'Accept', value: 'application/json'),
       ],
@@ -359,6 +366,27 @@ class _MonitorCreateViewState
       onCancel: _done,
       banner: _buildReviewBanner(),
     );
+  }
+
+  /// Maps [seconds] to the closest [kCheckIntervals] token (e.g. `45` ->
+  /// `'30s'`), falling back to `'30s'` when [seconds] is `null`.
+  ///
+  /// [MonitorForm.initialInterval] only accepts one of the fixed interval
+  /// tokens, so the backend's raw `recommended_interval_seconds` must be
+  /// snapped to the nearest option rather than passed through directly.
+  String _intervalTokenForSeconds(int? seconds) {
+    if (seconds == null) return '30s';
+
+    String closest = '30s';
+    int bestDiff = 1 << 30;
+    for (final MapEntry<String, int> entry in kIntervalSeconds.entries) {
+      final int diff = (entry.value - seconds).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        closest = entry.key;
+      }
+    }
+    return closest;
   }
 
   /// Builds the AI summary banner shown above the review form.

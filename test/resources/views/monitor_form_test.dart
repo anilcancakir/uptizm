@@ -91,6 +91,9 @@ void main() {
     // and other magic_starter widgets resolve their themes without a full app
     // boot, mirroring the pattern in monitor_detail_view_test.dart.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind LogManager so Log.error() works inside MonitorController.analyze's
+    // failure path (it logs before surfacing the error toast).
+    Magic.singleton('log', () => LogManager());
 
     // Bind an empty fake network so the wired controller resolves the `network`
     // service. MonitorEditView reads `controller.monitorById(id)` in build();
@@ -443,10 +446,31 @@ void main() {
       );
     });
 
-    testWidgets('entering a URL enables the Analyze button then the analyze timer '
-        'advances to the review step', (tester) async {
+    testWidgets('entering a URL enables the Analyze button then a successful '
+        'POST /monitors/analyze advances to the review step, prefilled', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(1200, 5000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final fake = Http.fake({
+        'monitors/analyze': Http.response({
+          'data': {
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_warn_threshold_ms': 300,
+            'recommended_critical_threshold_ms': 1000,
+            'recommended_regions': ['us-east', 'eu-west'],
+            'rationale': 'Stable JSON API, 60s checks are sufficient.',
+            'probe': {
+              'region': 'us-east',
+              'status_code': 200,
+              'response_ms': 120,
+            },
+          },
+        }),
+      });
 
       await tester.pumpWidget(
         wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
@@ -476,27 +500,95 @@ void main() {
         reason: 'Analyze button must be enabled once a URL is entered',
       );
 
-      // Tap Analyze to start the simulated probe (2200ms timer).
+      // Tap Analyze to fire the live POST /monitors/analyze request.
       await tester.tap(
         find.widgetWithText(
           MSButton,
           trans('uptizm.monitors.create_ai_analyze_button'),
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      // Advance the analyze timer to completion and let the review step settle.
-      await tester.pump(const Duration(milliseconds: 2200));
-      await tester.pump();
+      // The request actually fired the analyze endpoint with the pasted URL.
+      fake.assertSent(
+        (request) =>
+            request.method == 'POST' &&
+            request.url.contains('monitors/analyze') &&
+            (request.data as Map)['url'] == 'https://api.example.com/health',
+      );
 
-      // After the timer fires the view flips to the review step: a MonitorForm
-      // pre-filled with the AI settings is now in the tree.
+      // After the response resolves the view flips to the review step: a
+      // MonitorForm pre-filled from the response is now in the tree.
       expect(
         find.byType(MonitorForm),
         findsOneWidget,
         reason: 'MonitorForm must be present in the AI review step',
       );
+      expect(
+        find.widgetWithText(MSInput, 'api.example.com'),
+        findsOneWidget,
+        reason: 'The Name field must be prefilled from the analyze response',
+      );
     });
+
+    testWidgets(
+      'a failed POST /monitors/analyze falls back to the input step',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        Http.fake({
+          'monitors/analyze': Http.response({
+            'message': 'The url field is required.',
+          }, 422),
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        final Finder urlInput = find.widgetWithText(
+          MSInput,
+          trans('uptizm.monitors.create_ai_url_placeholder'),
+        );
+        await tester.tap(urlInput);
+        await tester.pump();
+        await tester.enterText(urlInput, 'https://api.example.com/health');
+        await tester.pump();
+
+        await tester.tap(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.monitors.create_ai_analyze_button'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The failed analyze must fall back to the input step, never the
+        // review form: the Analyze button (only rendered on the input step)
+        // is back in the tree, re-enabled for a retry.
+        expect(
+          find.byType(MonitorForm),
+          findsNothing,
+          reason: 'A failed analyze must not render the review MonitorForm',
+        );
+        final Finder analyzeButtonAgain = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.create_ai_analyze_button'),
+        );
+        expect(
+          analyzeButtonAgain,
+          findsOneWidget,
+          reason: 'A failed analyze must fall back to the AI input step',
+        );
+        expect(
+          tester.widget<MSButton>(analyzeButtonAgain).disabled,
+          isFalse,
+          reason: 'The retry Analyze button must be enabled (URL is retained)',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

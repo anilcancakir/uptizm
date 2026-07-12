@@ -56,11 +56,7 @@ void main() {
             'check_interval_sec': 30,
             'regions': ['us-east', 'eu-west'],
           },
-          {
-            'id': 'marketing',
-            'name': 'Marketing site',
-            'status': 'paused',
-          },
+          {'id': 'marketing', 'name': 'Marketing site', 'status': 'paused'},
         ],
       }),
     });
@@ -197,6 +193,86 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // analyze (S38): POST /monitors/analyze.
+  // ---------------------------------------------------------------------------
+
+  group('analyze', () {
+    test(
+      'posts the url to /monitors/analyze and decodes the prefill on success',
+      () async {
+        final fake = Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_warn_threshold_ms': 300,
+              'recommended_critical_threshold_ms': 1000,
+              'recommended_regions': ['us-east', 'eu-west'],
+              'rationale': 'Stable JSON API, 60s checks are sufficient.',
+              'probe': {
+                'region': 'us-east',
+                'status_code': 200,
+                'response_ms': 120,
+              },
+            },
+          }),
+        });
+        final MonitorController controller = MonitorController.instance;
+
+        final MonitorAnalysis? result = await controller.analyze(
+          'https://api.example.com/health',
+        );
+
+        expect(result, isNotNull);
+        expect(result!.url, equals('https://api.example.com/health'));
+        expect(result.name, equals('api.example.com'));
+        expect(result.recommendedIntervalSeconds, equals(60));
+        expect(result.recommendedWarnThresholdMs, equals(300));
+        expect(result.recommendedCriticalThresholdMs, equals(1000));
+        expect(result.recommendedRegions, equals(['us-east', 'eu-west']));
+        expect(
+          result.rationale,
+          equals('Stable JSON API, 60s checks are sufficient.'),
+        );
+        fake.assertSent(
+          (request) =>
+              request.method == 'POST' &&
+              request.url.contains('monitors/analyze') &&
+              (request.data as Map)['url'] == 'https://api.example.com/health',
+        );
+      },
+    );
+
+    test('returns null and does not throw on a non-2xx response', () async {
+      Http.fake({
+        'monitors/analyze': Http.response({
+          'message': 'The url field is required.',
+        }, 422),
+      });
+      final MonitorController controller = MonitorController.instance;
+
+      final MonitorAnalysis? result = await controller.analyze('not-a-url');
+
+      expect(result, isNull);
+    });
+
+    test(
+      'returns null and does not throw when the network is unavailable',
+      () async {
+        Http.unfake();
+        final MonitorController controller = MonitorController.instance;
+
+        final MonitorAnalysis? result = await controller.analyze(
+          'https://api.example.com/health',
+        );
+
+        expect(result, isNull);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // 90-day uptime bucket mapping (S10).
   // ---------------------------------------------------------------------------
 
@@ -224,17 +300,20 @@ void main() {
       );
     });
 
-    test('folds a day with mixed buckets to the worst status (down > degraded)', () {
-      final DateTime now = DateTime(2026, 7, 12, 12);
-      final segments = MonitorController.mapBucketsToUptime90([
-        {'checked_at': '2026-07-10T01:00:00.000Z', 'status': 'up'},
-        {'checked_at': '2026-07-10T05:00:00.000Z', 'status': 'degraded'},
-        {'checked_at': '2026-07-10T09:00:00.000Z', 'status': 'up'},
-      ], now: now);
+    test(
+      'folds a day with mixed buckets to the worst status (down > degraded)',
+      () {
+        final DateTime now = DateTime(2026, 7, 12, 12);
+        final segments = MonitorController.mapBucketsToUptime90([
+          {'checked_at': '2026-07-10T01:00:00.000Z', 'status': 'up'},
+          {'checked_at': '2026-07-10T05:00:00.000Z', 'status': 'degraded'},
+          {'checked_at': '2026-07-10T09:00:00.000Z', 'status': 'up'},
+        ], now: now);
 
-      // 2026-07-10 is 2 days before 2026-07-12 -> index 89 - 2 = 87.
-      expect(segments[87].status, equals(StatusKey.degraded));
-    });
+        // 2026-07-10 is 2 days before 2026-07-12 -> index 89 - 2 = 87.
+        expect(segments[87].status, equals(StatusKey.degraded));
+      },
+    );
 
     test('a down bucket outranks a degraded bucket on the same day', () {
       final DateTime now = DateTime(2026, 7, 12, 12);
