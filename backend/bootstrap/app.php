@@ -44,6 +44,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->group('static', [
             SubstituteBindings::class,
         ]);
+
+        // The Stripe webhook lives in the `web` group (StripeWebhookController)
+        // but arrives with no CSRF token, so exempt the whole `stripe/*` path.
+        // Authenticity is enforced by Cashier's VerifyWebhookSignature instead.
+        $middleware->validateCsrfTokens(except: [
+            'stripe/*',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

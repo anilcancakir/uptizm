@@ -27,6 +27,13 @@ return [
     | Drivers: "sync", "database", "beanstalkd", "sqs", "redis",
     |          "deferred", "background", "failover", "null"
     |
+    | Invariant: every connection's "retry_after" MUST stay strictly greater
+    | than the longest worker/job "timeout" (default worker timeout is 60s).
+    | If a still-running billing/webhook job outlives "retry_after", the queue
+    | re-dispatches it to a second worker and the SAME Stripe event is processed
+    | twice. The 90s floor here keeps a comfortable margin over the 60s timeout;
+    | idempotency (ProcessedWebhookEvent) is the second line of defense.
+    |
     */
 
     'connections' => [
