@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
-import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/index.dart';
@@ -16,6 +15,8 @@ import 'package:uptizm/ui/components/slo_budget_card/index.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
 import 'package:uptizm/ui/components/uptime_bar/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
+
+import '../../support/monitor_fixtures.dart';
 
 /// In-memory loader feeding the monitor-detail prose so [trans] returns short,
 /// wrappable strings instead of raw key tokens. Without it the StatusBadge and
@@ -133,7 +134,7 @@ void main() {
     // with the fixture inventory. The view reads `controller.monitorById(id)`
     // synchronously in build(); onInit's async `reload()` degrades to a no-op
     // under the empty fake, so the seed is what `monitorById('api')` resolves.
-    MonitorController.instance.seedForTest(monitors);
+    MonitorController.instance.seedForTest(monitorFixtures);
 
     // Load short prose so trans() returns wrappable labels; without it the raw
     // 'uptizm.status.*' keys render as long unbreakable strings and overflow

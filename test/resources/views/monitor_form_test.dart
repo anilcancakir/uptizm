@@ -4,11 +4,12 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/monitor_controller.dart';
-import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_edit_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
 import 'package:uptizm/ui/components/empty_state/index.dart';
+
+import '../../support/monitor_fixtures.dart';
 
 /// In-memory language loader supplying all [trans] keys exercised by the
 /// monitor create/edit/form widgets.
@@ -105,7 +106,7 @@ void main() {
     // 'API gateway' monitor the edit-view tests assert against. The MonitorForm
     // and MonitorCreateView groups do not read the controller, so this is inert
     // for them.
-    MonitorController.instance.seedForTest(monitors);
+    MonitorController.instance.seedForTest(monitorFixtures);
 
     // Load short prose so trans() returns human labels instead of raw keys.
     Translator.instance.setLoader(_MonitorFormLangLoader());

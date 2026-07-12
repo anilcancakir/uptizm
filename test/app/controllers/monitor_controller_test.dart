@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/monitor_controller.dart';
+import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
 
@@ -65,7 +66,7 @@ void main() {
     await controller.reload();
 
     expect(
-      controller.monitors.map((MonitorSummary m) => m.id).toList(),
+      controller.monitors.map((Monitor m) => m.id).toList(),
       equals(['api', 'marketing']),
     );
     expect(controller.monitors.first.status, equals(StatusKey.up));
@@ -89,7 +90,7 @@ void main() {
     final MonitorController controller = MonitorController.instance;
     await controller.reload();
 
-    final MonitorSummary? resolved = controller.monitorById('api');
+    final Monitor? resolved = controller.monitorById('api');
 
     expect(resolved, isNotNull);
     expect(resolved!.id, equals('api'));
@@ -337,11 +338,16 @@ void main() {
 
   group('loadUptime90', () {
     test('decodes bucketed response-times into 90 daily segments', () async {
-      final DateTime now = DateTime(2026, 7, 12, 12);
+      // `loadUptime90` buckets against the live `DateTime.now()` (it does not
+      // thread a fixed `now:` into `mapBucketsToUptime90`), so the fixture's
+      // `checked_at` MUST be derived from the current wall clock rather than a
+      // hard-coded calendar date. A bucket dated "today" lands in the LAST
+      // segment (index 89, daysAgo == 0) regardless of when the suite runs.
+      final DateTime today = DateTime.now();
       Http.fake({
         'monitors/api/response-times*': Http.response({
           'data': [
-            {'checked_at': now.toIso8601String(), 'status': 'down'},
+            {'checked_at': today.toIso8601String(), 'status': 'down'},
           ],
         }),
       });

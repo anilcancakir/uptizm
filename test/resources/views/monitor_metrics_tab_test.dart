@@ -5,9 +5,8 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/controllers/monitor_metrics_controller.dart';
+import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/mocks/metrics.dart';
-import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metric_detail.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metric_form.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
@@ -103,16 +102,16 @@ void main() {
     // `customMetricsForMonitors`/`systemMetricsForMonitors`, bypassing the
     // network exactly like `monitor_controller_test.dart`'s `seedForTest`.
     MonitorController.instance.seedForTest([
-      const MonitorSummary(
-        id: 'api',
-        name: 'API',
-        url: 'https://api.uptizm.com',
-        status: StatusKey.up,
-        responseMs: 412,
-        uptime: '99.9%',
-        intervalLabel: '30s',
-        regions: ['us-east'],
-      ),
+      Monitor.fromMap(const {
+        'id': 'api',
+        'name': 'API',
+        'url': 'https://api.uptizm.com',
+        'last_status': 'up',
+        'last_response_ms': 412,
+        'uptime': '99.9%',
+        'check_interval_sec': 30,
+        'regions': ['us-east'],
+      }),
     ]);
     MonitorMetricsController.instance.seedForTest('api', [
       MonitorMetricRecord(

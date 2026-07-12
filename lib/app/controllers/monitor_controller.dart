@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
+import '../models/monitor.dart';
 import '../mocks/monitors.dart';
 import '../mocks/status.dart';
 
@@ -89,10 +90,10 @@ class MonitorController extends MagicController {
   /// In-memory cache of the monitor inventory, populated by [reload] and kept
   /// warm by the per-monitor background refresh in [monitorById]. Empty until
   /// the first successful fetch resolves.
-  List<MonitorSummary> _monitors = [];
+  List<Monitor> _monitors = [];
 
-  /// The monitor inventory, sourced from `GET /monitors`.
-  List<MonitorSummary> get monitors => _monitors;
+  /// The monitor inventory, sourced from `GET /monitors` via [Monitor.all].
+  List<Monitor> get monitors => _monitors;
 
   /// Seeds the in-memory inventory directly for a widget/controller test,
   /// bypassing the network.
@@ -104,8 +105,8 @@ class MonitorController extends MagicController {
   /// instead of the empty degradation state. Notifies listeners so an
   /// already-mounted view rebuilds against the seeded inventory.
   @visibleForTesting
-  void seedForTest(List<MonitorSummary> seed) {
-    _monitors = List<MonitorSummary>.from(seed);
+  void seedForTest(List<Monitor> seed) {
+    _monitors = List<Monitor>.from(seed);
     refreshUI();
   }
 
@@ -116,32 +117,24 @@ class MonitorController extends MagicController {
     reload();
   }
 
-  /// Non-destructive list refresh: fetches `GET /monitors` and republishes
-  /// the inventory on success. Preserves the previously loaded inventory on
-  /// any failure (network error, non-2xx) so the list view never flickers
-  /// into an empty state between reloads.
+  /// Non-destructive list refresh: republishes the inventory from [Monitor.all]
+  /// (`GET /monitors`) on a non-empty fetch, preserving the previously loaded
+  /// inventory otherwise so the list view never flickers into an empty state
+  /// between reloads.
+  ///
+  /// [Monitor.all] absorbs transport failures internally and resolves an empty
+  /// list rather than throwing (including for an unregistered `network` service
+  /// in a bare test host); it cannot distinguish that failure from a genuine
+  /// empty result. Treating both as "keep the last-known-good inventory"
+  /// mirrors the pre-ORM decode, which returned early on a malformed or
+  /// failed payload: `onInit`/`reload` never throws, and an explicit removal
+  /// still updates the cache through [delete] rather than a reload.
   Future<void> reload() async {
-    try {
-      final response = await Http.get('/monitors');
-      if (!response.successful) return;
+    final List<Monitor> fetched = await Monitor.all();
+    if (fetched.isEmpty) return;
 
-      final Object? raw = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (raw is! List) return;
-
-      _monitors = raw
-          .whereType<Map<String, dynamic>>()
-          .map(MonitorSummary.fromMap)
-          .toList();
-      refreshUI();
-    } catch (_) {
-      // Deliberate degradation: a transport failure (including an unregistered
-      // `network` service in a bare test host) or a malformed payload keeps the
-      // last-known-good inventory (empty before the first successful fetch), so
-      // `onInit`/`reload` never throws and the list renders its empty or stale
-      // state instead of crashing.
-    }
+    _monitors = fetched;
+    refreshUI();
   }
 
   /// Resolves a monitor by [id] from the cached inventory, or `null` when
@@ -155,49 +148,46 @@ class MonitorController extends MagicController {
   /// loops (refresh -> `refreshUI` -> rebuild -> `build` -> refresh), pegging
   /// the main isolate with ~10 `GET /monitors/:id` per second and dropping
   /// scroll to a few FPS.
-  MonitorSummary? monitorById(String? id) {
+  Monitor? monitorById(String? id) {
     if (id == null) return null;
 
     return _cachedById(id);
   }
 
   /// Synchronous cache lookup by [id]. Returns `null` when absent.
-  MonitorSummary? _cachedById(String id) {
-    for (final MonitorSummary m in _monitors) {
+  Monitor? _cachedById(String id) {
+    for (final Monitor m in _monitors) {
       if (m.id == id) return m;
     }
     return null;
   }
 
-  /// Background single-resource refresh for [id]: fetches `GET /monitors/:id`
-  /// and merges the result into [_monitors] (replacing an existing entry or
-  /// appending a new one), then notifies listeners. Silently no-ops on failure
-  /// so a transient error never disturbs the already-cached entry.
+  /// Background single-resource refresh for [id]: fetches the monitor via
+  /// [Monitor.find] (`GET /monitors/:id`) and merges the result into
+  /// [_monitors] (replacing an existing entry or appending a new one), then
+  /// notifies listeners. Silently no-ops on failure so a transient error never
+  /// disturbs the already-cached entry.
+  ///
+  /// [Monitor.find] absorbs transport failures internally and resolves `null`
+  /// rather than throwing (including for an unregistered `network` service), so
+  /// the synchronous `monitorById` caller never sees a throw. It can, however,
+  /// hydrate an empty model from a bodyless `200 {}` response (the ORM treats a
+  /// `data`-less envelope as valid), so the merge is gated on `fresh.id == id`:
+  /// only a fetch that actually resolved the requested monitor replaces the
+  /// cached entry, mirroring the pre-ORM decode's no-op on a malformed payload.
   ///
   /// Call this ONCE from a view's `initState` (or on an id change), NEVER from
   /// `build`: its `refreshUI()` notifies listeners, so a `build`-time call self
   /// loops and floods the backend.
   Future<void> refreshOne(String id) async {
-    try {
-      final response = await Http.get('/monitors/$id');
-      if (!response.successful) return;
+    final Monitor? fresh = await Monitor.find(id);
+    if (fresh == null || fresh.id != id) return;
 
-      final Object? data = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (data is! Map<String, dynamic>) return;
-
-      final MonitorSummary fresh = MonitorSummary.fromMap(data);
-      final int index = _monitors.indexWhere((m) => m.id == id);
-      _monitors = index == -1
-          ? [..._monitors, fresh]
-          : [for (final MonitorSummary m in _monitors) m.id == id ? fresh : m];
-      refreshUI();
-    } catch (_) {
-      // Silent no-op on failure (including an unregistered `network` service):
-      // a transient single-resource error never disturbs the already-cached
-      // entry, and the synchronous `monitorById` caller never sees a throw.
-    }
+    final int index = _monitors.indexWhere((m) => m.id == id);
+    _monitors = index == -1
+        ? [..._monitors, fresh]
+        : [for (final Monitor m in _monitors) m.id == id ? fresh : m];
+    refreshUI();
   }
 
   // ---------------------------------------------------------------------------
@@ -209,7 +199,7 @@ class MonitorController extends MagicController {
   /// cached monitor, or when the request fails (degrades silently rather than
   /// blocking the UI).
   Future<void> pause(String id) async {
-    final MonitorSummary? monitor = _cachedById(id);
+    final Monitor? monitor = _cachedById(id);
     if (monitor == null) return;
 
     try {
@@ -235,7 +225,7 @@ class MonitorController extends MagicController {
   /// inventory, and surfaces the resumed toast. No-op when [id] resolves to
   /// no cached monitor, or when the request fails.
   Future<void> resume(String id) async {
-    final MonitorSummary? monitor = _cachedById(id);
+    final Monitor? monitor = _cachedById(id);
     if (monitor == null) return;
 
     try {
@@ -257,33 +247,38 @@ class MonitorController extends MagicController {
     }
   }
 
-  /// Deletes the monitor [id] via `DELETE /monitors/:id` (the view runs the
-  /// confirm dialog before calling), evicts it from the cache, surfaces the
-  /// deleted toast, and returns to the monitors list. No-op when [id]
-  /// resolves to no cached monitor, or when the request fails.
+  /// Deletes the monitor [id] through the [Monitor] ORM (`DELETE /monitors/:id`;
+  /// the view runs the confirm dialog before calling), evicts it from the
+  /// cache, surfaces the deleted toast, and returns to the monitors list. No-op
+  /// when [id] resolves to no cached monitor.
+  ///
+  /// [Monitor.delete] absorbs transport failures internally and returns `false`
+  /// rather than throwing; on a `false` result the delete surfaces the
+  /// save-failed error toast and leaves the cache untouched instead of silently
+  /// evicting a monitor the backend still holds.
   Future<void> delete(String id) async {
-    final MonitorSummary? monitor = _cachedById(id);
+    final Monitor? monitor = _cachedById(id);
     if (monitor == null) return;
 
-    try {
-      final response = await Http.delete('/monitors/$id');
-      if (!response.successful) {
-        Log.error('[MonitorController.delete] $id: ${response.errorMessage}');
-        return;
-      }
-
-      _monitors = _monitors.where((m) => m.id != id).toList();
-      refreshUI();
-      Magic.success(
-        trans('uptizm.monitors.toast_deleted_title'),
-        trans('uptizm.monitors.toast_deleted_description', {
-          'name': monitor.name,
-        }),
+    final bool ok = await monitor.delete();
+    if (!ok) {
+      Log.error('[MonitorController.delete] $id: delete returned false');
+      Magic.error(
+        trans('uptizm.monitors.toast_save_failed_title'),
+        trans('uptizm.monitors.toast_save_failed_description'),
       );
-      MagicRoute.to('/monitors');
-    } catch (error) {
-      Log.error('[MonitorController.delete] $id failed: $error');
+      return;
     }
+
+    _monitors = _monitors.where((m) => m.id != id).toList();
+    refreshUI();
+    Magic.success(
+      trans('uptizm.monitors.toast_deleted_title'),
+      trans('uptizm.monitors.toast_deleted_description', {
+        'name': monitor.name,
+      }),
+    );
+    MagicRoute.to('/monitors');
   }
 
   /// Creates a monitor and returns to the monitors list.
@@ -292,31 +287,27 @@ class MonitorController extends MagicController {
   /// `method`, `check_interval_sec`, `timeout_sec`, `regions`,
   /// `expected_status_code`, ...); omitted, this stays navigation-only
   /// exactly as before (see the class docblock for why). When present, it
-  /// fires `POST /monitors` and reloads the inventory before navigating.
+  /// mass-assigns them into a fresh [Monitor] and persists it through the ORM
+  /// (`POST /monitors`), then reloads the inventory before navigating.
+  ///
+  /// [Monitor.save] absorbs transport failures internally and returns `false`
+  /// rather than throwing; on a `false` result the create surfaces the
+  /// save-failed error toast and STAYS on the form so the user can correct and
+  /// retry, instead of being bounced to the list with no monitor created and no
+  /// feedback.
   Future<void> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
-      try {
-        final response = await Http.post('/monitors', data: fields);
-        if (!response.successful) {
-          Log.error('[MonitorController.create] ${response.errorMessage}');
-          Magic.error(
-            trans('uptizm.monitors.toast_save_failed_title'),
-            response.errorMessage ??
-                trans('uptizm.monitors.toast_save_failed_description'),
-          );
-          // Stay on the form so the user can correct + retry instead of being
-          // bounced to the list with no monitor created and no feedback.
-          return;
-        }
-        await reload();
-      } catch (error) {
-        Log.error('[MonitorController.create] failed: $error');
+      final Monitor monitor = Monitor()..fill(fields);
+      final bool ok = await monitor.save();
+      if (!ok) {
+        Log.error('[MonitorController.create] save returned false');
         Magic.error(
           trans('uptizm.monitors.toast_save_failed_title'),
           trans('uptizm.monitors.toast_save_failed_description'),
         );
         return;
       }
+      await reload();
     }
     MagicRoute.to('/monitors');
   }
@@ -324,31 +315,31 @@ class MonitorController extends MagicController {
   /// Saves the monitor [id] and returns to its detail route.
   ///
   /// [fields] is the raw edit-form field map; omitted, this stays
-  /// navigation-only exactly as before (see the class docblock). When
-  /// present, it fires `PUT /monitors/:id` and reloads the inventory before
-  /// navigating.
+  /// navigation-only exactly as before (see the class docblock). When present,
+  /// it resolves the monitor through the ORM ([Monitor.find]), mass-assigns the
+  /// edited fields, and persists it (`PUT /monitors/:id`), then reloads the
+  /// inventory before navigating.
+  ///
+  /// A missing monitor (the id no longer resolves) returns early without
+  /// navigating. [Monitor.save] absorbs transport failures internally and
+  /// returns `false` rather than throwing; on a `false` result the save
+  /// surfaces the save-failed error toast and stays on the form.
   Future<void> save(String id, [Map<String, dynamic>? fields]) async {
     if (fields != null) {
-      try {
-        final response = await Http.put('/monitors/$id', data: fields);
-        if (!response.successful) {
-          Log.error('[MonitorController.save] $id: ${response.errorMessage}');
-          Magic.error(
-            trans('uptizm.monitors.toast_save_failed_title'),
-            response.errorMessage ??
-                trans('uptizm.monitors.toast_save_failed_description'),
-          );
-          return;
-        }
-        await reload();
-      } catch (error) {
-        Log.error('[MonitorController.save] $id failed: $error');
+      final Monitor? monitor = await Monitor.find(id);
+      if (monitor == null) return;
+
+      monitor.fill(fields);
+      final bool ok = await monitor.save();
+      if (!ok) {
+        Log.error('[MonitorController.save] $id: save returned false');
         Magic.error(
           trans('uptizm.monitors.toast_save_failed_title'),
           trans('uptizm.monitors.toast_save_failed_description'),
         );
         return;
       }
+      await reload();
     }
     MagicRoute.to('/monitors/$id');
   }

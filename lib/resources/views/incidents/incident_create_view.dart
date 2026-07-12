@@ -7,7 +7,7 @@ import '../monitors/monitor_metrics_support.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/incidents.dart';
-import '../../../app/mocks/monitors.dart';
+import '../../../app/models/monitor.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -125,8 +125,8 @@ class _IncidentCreateViewState
   /// `monitor_id` the backend accepts (not a design-lab fixture id, which would
   /// 422 on `POST /incidents`).
   List<Region> get _monitorOptions => [
-    for (final MonitorSummary m in MonitorController.instance.monitors)
-      Region(label: m.name, value: m.id),
+    for (final Monitor m in MonitorController.instance.monitors)
+      Region(label: m.name ?? '', value: m.id),
   ];
 
   @override
@@ -181,7 +181,7 @@ class _IncidentCreateViewState
   /// suggestion's monitor is not in the fixture (the affected list then stays
   /// empty). Mirrors the React `monitors.find((m) => m.name === monitorName)`.
   String? _resolveMonitorId(String monitorName) {
-    for (final MonitorSummary monitor in MonitorController.instance.monitors) {
+    for (final Monitor monitor in MonitorController.instance.monitors) {
       if (monitor.name == monitorName) return monitor.id;
     }
     return null;

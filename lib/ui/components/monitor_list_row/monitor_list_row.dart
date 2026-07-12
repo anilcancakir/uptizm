@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/mocks/monitors.dart';
+import '../../../app/models/monitor.dart';
 import '../status_badge/index.dart';
 import 'monitor_list_row.recipe.dart';
 
@@ -25,7 +25,7 @@ import 'monitor_list_row.recipe.dart';
 @immutable
 class MonitorListRow extends StatelessWidget {
   /// The monitor data to display.
-  final MonitorSummary monitor;
+  final Monitor monitor;
 
   /// Tapped when the whole row is pressed.
   ///
@@ -61,8 +61,8 @@ class MonitorListRow extends StatelessWidget {
           WDiv(
             className: slots['main'],
             children: [
-              WText(monitor.name, className: slots['name']),
-              WText(monitor.url, className: slots['url']),
+              WText(monitor.name ?? '', className: slots['name']),
+              WText(monitor.url ?? '', className: slots['url']),
             ],
           ),
 

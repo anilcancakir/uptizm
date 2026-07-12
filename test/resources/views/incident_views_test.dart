@@ -6,13 +6,14 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
-import 'package:uptizm/app/mocks/monitors.dart' show monitors;
 import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
 import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
 import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
 import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
+
+import '../../support/monitor_fixtures.dart';
 
 /// In-memory language loader supplying every [trans] key exercised by the
 /// incident list/create/detail views, mirroring the pattern established in
@@ -355,7 +356,7 @@ void main() {
         // The affected-monitors picker sources the LIVE monitor inventory; seed
         // it with the fixture list so "Checkout service" (id `checkout`) renders
         // and its id flows into the POST.
-        MonitorController.instance.seedForTest(monitors);
+        MonitorController.instance.seedForTest(monitorFixtures);
         addTearDown(() => MonitorController.instance.seedForTest(const []));
 
         await tester.pumpWidget(wrap(const IncidentCreateView()));

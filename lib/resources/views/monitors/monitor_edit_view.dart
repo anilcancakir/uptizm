@@ -4,7 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/monitors.dart';
+import '../../../app/models/monitor.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/layouts/page_container.dart';
 import 'monitor_form.dart';
@@ -16,8 +16,8 @@ import 'monitor_form.dart';
 /// is null) it renders a graceful not-found [EmptyState] rather than crashing.
 ///
 /// When a monitor is found the screen renders a [MonitorForm] prefilled with
-/// the monitor's [MonitorSummary.name], [MonitorSummary.url], and
-/// [MonitorSummary.regions]. All other fields use [MonitorForm]'s defaults
+/// the monitor's [Monitor.name], [Monitor.url], and
+/// [Monitor.regions]. All other fields use [MonitorForm]'s defaults
 /// (matching the React `MonitorFormPage.tsx` lines 33-40, which passes only
 /// `initialName`, `initialUrl`, and `initialRegions`). "Save changes" fires
 /// [MonitorController.save] with the form's full field map (a `PUT` to the
@@ -69,7 +69,7 @@ class _MonitorEditViewState
   Widget build(BuildContext context) {
     // 1. Resolve the monitor; null or unknown id falls back to not-found so
     //    the screen never crashes on a stale or invalid route parameter.
-    final MonitorSummary? monitor = controller.monitorById(widget.id);
+    final Monitor? monitor = controller.monitorById(widget.id);
     if (monitor == null) {
       return _buildNotFound();
     }
@@ -102,8 +102,8 @@ class _MonitorEditViewState
           //    it must never fire the same save call as Submit, or a stale
           //    field would silently persist on cancel.
           MonitorForm(
-            initialName: monitor.name,
-            initialUrl: monitor.url,
+            initialName: monitor.name ?? '',
+            initialUrl: monitor.url ?? '',
             initialRegions: monitor.regions,
             submitLabel: trans('uptizm.monitors.form_submit_save'),
             onSubmit: (fields) => controller.save(monitor.id, fields),

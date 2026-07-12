@@ -5,8 +5,8 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/controllers/monitor_metrics_controller.dart';
+import '../../../app/models/monitor.dart';
 import '../../../app/mocks/metrics.dart';
-import '../../../app/mocks/monitors.dart';
 import '../../../app/mocks/status.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_dot/index.dart';
@@ -98,7 +98,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   /// live [MonitorController] inventory, absent when that monitor has no
   /// recorded response time yet (paused, or no check has completed).
   List<MonitorMetric> get _systemMetrics {
-    final MonitorSummary? monitor = MonitorController.instance.monitorById(
+    final Monitor? monitor = MonitorController.instance.monitorById(
       widget.monitorId,
     );
     final int? responseMs = monitor?.responseMs;

@@ -4,7 +4,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/monitors.dart';
+import '../../../app/models/monitor.dart';
 import '../../../app/mocks/status.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
@@ -81,7 +81,7 @@ class _MonitorsListViewState
   }
 
   /// Monitors that satisfy the active filter.
-  List<MonitorSummary> get _visible {
+  List<Monitor> get _visible {
     final selected = _filters[_filterIndex].status;
     if (selected == null) return controller.monitors;
     return controller.monitors.where((m) => m.status == selected).toList();
@@ -137,7 +137,7 @@ class _MonitorsListViewState
   /// and average response time.
   Widget _buildKpiRow() {
     // 1. Derive headline metrics from the mock fixtures.
-    final List<MonitorSummary> allMonitors = controller.monitors;
+    final List<Monitor> allMonitors = controller.monitors;
     final int upCount = allMonitors
         .where((m) => m.status == StatusKey.up)
         .length;
@@ -151,7 +151,7 @@ class _MonitorsListViewState
     final DashboardController dashboard = DashboardController.instance;
     final int openIncidentCount = dashboard.openIncidentsCount;
     final int aiActive = dashboard.aiActiveCount;
-    final List<MonitorSummary> responders = allMonitors
+    final List<Monitor> responders = allMonitors
         .where((m) => m.responseMs != null)
         .toList();
     final int avgResponse = responders.isEmpty

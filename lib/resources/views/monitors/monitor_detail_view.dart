@@ -6,6 +6,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
+import '../../../app/models/monitor.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/metrics.dart';
 import '../../../app/mocks/monitors.dart';
@@ -266,7 +267,7 @@ class _MonitorDetailViewState
     // 1. Resolve the monitor; a null / unknown id falls back to a graceful
     //    not-found state so the screen never crashes when the route passes an
     //    id with no fixture behind it.
-    final MonitorSummary? monitor = controller.monitorById(widget.id);
+    final Monitor? monitor = controller.monitorById(widget.id);
     if (monitor == null) {
       return _buildNotFound();
     }
@@ -284,7 +285,7 @@ class _MonitorDetailViewState
           // 3. Header: name + StatusBadge as a title suffix, URL as subtitle,
           //    Pause-Resume / Edit / Delete actions on the trailing edge.
           MSPageHeader(
-            title: monitor.name,
+            title: monitor.name ?? '',
             subtitle: monitor.url,
             titleSuffix: StatusBadge(monitor.status),
             backLabel: trans('uptizm.monitors.back_to_monitors'),
@@ -303,7 +304,7 @@ class _MonitorDetailViewState
   }
 
   /// Builds the full monitor body (KPI row, uptime, reliability, tabs).
-  Widget _buildContent(MonitorSummary monitor, bool paused) {
+  Widget _buildContent(Monitor monitor, bool paused) {
     // Uniform 32px (gap-8) between every section; the reliability block drops
     // in conditionally without a manual spacer.
     return WDiv(
@@ -337,7 +338,7 @@ class _MonitorDetailViewState
   /// - **Edit**: a secondary [Button] that navigates to `/monitors/:id/edit`.
   /// - **Delete**: a destructive [Button] that opens a delete confirm dialog,
   ///   then surfaces a deleted toast and returns to the monitors list.
-  List<Widget> _buildHeaderActions(MonitorSummary monitor, bool paused) {
+  List<Widget> _buildHeaderActions(Monitor monitor, bool paused) {
     // The PageHeader lays its actions in a bare non-wrapping flex-row, so the
     // three buttons would overflow a narrow phone. Wrapping them in a single
     // `wrap` leaf container lets them flow onto a second line below ~360px
@@ -378,7 +379,7 @@ class _MonitorDetailViewState
   ///
   /// The confirm dialog needs a [BuildContext], so it stays view-side; the
   /// toast (and, for delete, the navigation) live in [MonitorController].
-  Future<void> _onPauseResume(MonitorSummary monitor, bool paused) async {
+  Future<void> _onPauseResume(Monitor monitor, bool paused) async {
     if (paused) {
       controller.resume(monitor.id);
       return;
@@ -399,13 +400,13 @@ class _MonitorDetailViewState
 
   /// Handles the Edit action by navigating to the edit route for the current
   /// monitor. Requires the monitor to be resolved before calling.
-  void _onEdit(MonitorSummary monitor) {
+  void _onEdit(Monitor monitor) {
     MagicRoute.to('/monitors/${monitor.id}/edit');
   }
 
   /// Opens the delete confirm dialog; on confirm, delegates to the controller
   /// which surfaces the deleted toast and returns to the monitors list.
-  Future<void> _onDelete(MonitorSummary monitor) async {
+  Future<void> _onDelete(Monitor monitor) async {
     final bool confirmed = await MagicStarterConfirmDialog.show(
       context,
       title: trans('uptizm.monitors.confirm_delete_title', {
@@ -473,10 +474,10 @@ class _MonitorDetailViewState
   ///
   /// Single-column base, widening to two columns at `sm:` then four at `lg:`
   /// so the grid never forces a multi-column layout onto a narrow phone.
-  Widget _buildKpiRow(MonitorSummary monitor, bool paused) {
+  Widget _buildKpiRow(Monitor monitor, bool paused) {
     // 1. Derive the headline metrics directly from the fixtures.
     final int openIncidents = incidentsForMonitor(
-      monitor.name,
+      monitor.name ?? '',
     ).where((i) => i.lifecycle != IncidentLifecycle.resolved).length;
     final String avgResponse = monitor.responseMs != null
         ? '${monitor.responseMs}ms'
@@ -532,7 +533,7 @@ class _MonitorDetailViewState
   /// /monitors/:id/response-times?range=90d` endpoint (see [_fetchData] and
   /// [MonitorController.loadUptime90]); it is empty while loading or on a
   /// failed fetch, in which case [UptimeBar] renders its own empty track.
-  Widget _buildUptimeSection(MonitorSummary monitor) {
+  Widget _buildUptimeSection(Monitor monitor) {
     // Uniform 8px (gap-2) between the heading, the bar, and the axis labels.
     return WDiv(
       className: 'flex flex-col gap-2',
@@ -583,7 +584,7 @@ class _MonitorDetailViewState
   ///
   /// Shown only for active monitors with a configured [sloTarget] (the caller
   /// gates on `!paused && sloTarget != null`).
-  Widget _buildReliabilitySection(MonitorSummary monitor, double sloTarget) {
+  Widget _buildReliabilitySection(Monitor monitor, double sloTarget) {
     // 1. Resolve the two uptime windows, mirroring the React fallback chain:
     //    u30 = sloUptime30d ?? parse(uptime); u7 = sloUptime7d ?? u30.
     final double u30 = monitor.sloUptime30d ?? _parseUptime(monitor.uptime);
@@ -650,13 +651,13 @@ class _MonitorDetailViewState
   /// - 30-day breached + still burning → "spent and still burning".
   /// - 30-day at risk (degraded) → "burned most of its 30-day budget".
   String _budgetBurnCopy(
-    MonitorSummary monitor,
+    Monitor monitor,
     double sloTarget,
     SloErrorBudget budget7,
     SloErrorBudget budget30,
   ) {
     final Map<String, Object> args = {
-      'name': monitor.name,
+      'name': monitor.name ?? '',
       'slo': _formatSloTarget(sloTarget),
     };
 
@@ -683,7 +684,7 @@ class _MonitorDetailViewState
   /// The list spans the full content-column width via [WTabs]'s default
   /// `fullWidthList: true` (wind #128), so the `border-b` underline runs
   /// edge-to-edge without a manual `w-full` override.
-  Widget _buildTabs(MonitorSummary monitor, bool paused) {
+  Widget _buildTabs(Monitor monitor, bool paused) {
     return MSTabs(
       tabs: [
         trans('uptizm.monitors.tab_overview'),
@@ -704,7 +705,7 @@ class _MonitorDetailViewState
   /// Builds the Overview panel: a response-time [MetricChart] (or a paused /
   /// no-data state) with a [DateRangePicker] in its heading row and a response
   /// [AiInsight] below the chart, followed by the recent [CheckHistoryTable].
-  Widget _buildOverviewTab(MonitorSummary monitor, bool paused) {
+  Widget _buildOverviewTab(Monitor monitor, bool paused) {
     final List<MetricDatum>? series = _responseSeriesFor(monitor);
 
     // The panel opens with a 16px top gap (pt-4) and separates its two groups
@@ -767,7 +768,7 @@ class _MonitorDetailViewState
   /// a response series; shows a paused or no-data [EmptyState] otherwise so the
   /// section never renders an empty chart frame.
   Widget _buildResponseSurface(
-    MonitorSummary monitor,
+    Monitor monitor,
     bool paused,
     List<MetricDatum>? series,
   ) {
@@ -816,9 +817,9 @@ class _MonitorDetailViewState
 
   /// Builds the Incidents panel: a responsive grid of [IncidentCard]s for the
   /// incidents that touch this monitor, or a graceful [EmptyState] when none.
-  Widget _buildIncidentsTab(MonitorSummary monitor) {
+  Widget _buildIncidentsTab(Monitor monitor) {
     final List<IncidentSummary> monitorIncidents = incidentsForMonitor(
-      monitor.name,
+      monitor.name ?? '',
     );
 
     if (monitorIncidents.isEmpty) {
@@ -880,7 +881,7 @@ class _MonitorDetailViewState
   ///
   /// Only the fixtured monitors carry a series; everything else has none, which
   /// drives the no-data / paused surface.
-  List<MetricDatum>? _responseSeriesFor(MonitorSummary monitor) {
+  List<MetricDatum>? _responseSeriesFor(Monitor monitor) {
     return _responseData.isEmpty ? null : _responseData;
   }
 
@@ -889,7 +890,7 @@ class _MonitorDetailViewState
   /// Only the API gateway carries an anomaly fixture (the single pinned 13:00
   /// p99 spike), matching the React `responseAnomaliesFor` (`m.id !== "api"`
   /// returns none). Every other monitor charts a clean band.
-  List<MetricAnomaly> _anomaliesFor(MonitorSummary monitor) {
+  List<MetricAnomaly> _anomaliesFor(Monitor monitor) {
     // No live anomaly-detection source is wired into the detail chart yet, so
     // no markers are drawn (the AI suggestion inbox is the anomaly surface).
     return const [];

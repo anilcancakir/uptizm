@@ -5,6 +5,8 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
+
+import '../../support/monitor_fixtures.dart';
 import 'package:uptizm/resources/views/monitors/monitors_list_view.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
@@ -57,7 +59,7 @@ void main() {
     // with the fixture inventory. The list view reads `controller.monitors`
     // synchronously in build(); onInit's async `reload()` degrades to a no-op
     // under the empty fake, so the seed is what the view renders against.
-    MonitorController.instance.seedForTest(monitors);
+    MonitorController.instance.seedForTest(monitorFixtures);
 
     // Load the real monitors prose so trans() returns wrappable text.
     // Without this, long key tokens (e.g. 'uptizm.monitors.kpi_monitors_used')

@@ -1,7 +1,7 @@
 import 'package:magic/magic.dart';
 
+import '../models/monitor.dart';
 import '../mocks/incidents.dart';
-import '../mocks/monitors.dart';
 import '../mocks/status.dart';
 
 /// Controller backing [DashboardView].
@@ -35,7 +35,7 @@ class DashboardController extends MagicController {
   List<IncidentSummary> _activeIncidents = [];
 
   /// Cached `GET /dashboard/monitors-snapshot` result.
-  List<MonitorSummary> _monitorsSnapshot = [];
+  List<Monitor> _monitorsSnapshot = [];
 
   /// Cached `GET /dashboard/ai-inbox` result (always empty today; the
   /// backend reserves the contract ahead of AI triage).
@@ -45,7 +45,7 @@ class DashboardController extends MagicController {
   List<IncidentSummary> get activeIncidents => _activeIncidents;
 
   /// The team's monitors with their last-known health status.
-  List<MonitorSummary> get monitorsSnapshot => _monitorsSnapshot;
+  List<Monitor> get monitorsSnapshot => _monitorsSnapshot;
 
   /// AI inbox entries. Always empty today (AI triage is deferred
   /// server-side), which drives the existing empty-state rendering.
@@ -157,7 +157,7 @@ class DashboardController extends MagicController {
 
       _monitorsSnapshot = raw
           .whereType<Map<String, dynamic>>()
-          .map(MonitorSummary.fromMap)
+          .map(Monitor.fromMap)
           .toList();
       refreshUI();
     } catch (_) {
@@ -279,12 +279,12 @@ class DashboardController extends MagicController {
     }
 
     final List<String> down = _monitorsSnapshot
-        .where((MonitorSummary m) => m.status == StatusKey.down)
-        .map((MonitorSummary m) => m.name)
+        .where((Monitor m) => m.status == StatusKey.down)
+        .map((Monitor m) => m.name ?? '')
         .toList();
     final List<String> degraded = _monitorsSnapshot
-        .where((MonitorSummary m) => m.status == StatusKey.degraded)
-        .map((MonitorSummary m) => m.name)
+        .where((Monitor m) => m.status == StatusKey.degraded)
+        .map((Monitor m) => m.name ?? '')
         .toList();
 
     if (down.isEmpty && degraded.isEmpty && _openIncidents == 0) {
