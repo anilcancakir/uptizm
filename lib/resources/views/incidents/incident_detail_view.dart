@@ -45,13 +45,14 @@ import 'incident_form_support.dart';
 /// (mirroring [MonitorDetailView]'s `_buildNotFound`) rather than crashing when
 /// the route passes an id with no fixture behind it.
 ///
-/// This is a mock screen: every mutation (Resolve / Reopen, Acknowledge, Assign,
-/// AI draft, Post update) is local state; the resolve / reopen / acknowledge /
-/// post-update / postmortem-edit toasts are the [IncidentController] business
-/// actions, while the transient compose state (lifecycle, assignee, composer
-/// body) stays local. Nothing persists (the React source is the same navigate /
-/// local-state mock). The body is a Wind flex column (`gap-*` carries the
-/// section rhythm); the shared [PageContainer] bounds the width.
+/// Resolve / Reopen, Acknowledge, and Post update are live [IncidentController]
+/// business actions against the backend (`POST /incidents/{id}/resolve`
+/// `.../reopen` `.../acknowledge` `.../updates`); Assign, AI draft, and
+/// postmortem-edit stay local mocks (there is no assignee-write, AI-analysis,
+/// or postmortem-write endpoint yet). The transient compose state (lifecycle,
+/// assignee, composer body) stays local to this view regardless. The body is
+/// a Wind flex column (`gap-*` carries the section rhythm); the shared
+/// [PageContainer] bounds the width.
 ///
 /// ### Example
 /// ```dart
@@ -678,14 +679,18 @@ class _IncidentDetailViewState
     });
   }
 
-  /// Posts the update: a local mock that clears the composer and surfaces a
-  /// toast. Nothing persists (the React source is the same local-state mock).
+  /// Posts the composer text via [IncidentController.postUpdate] (`POST
+  /// /incidents/{id}/updates`), then clears the composer. The submit button
+  /// is disabled while the composer is blank, so [_message] is always
+  /// non-empty here; it is captured before the composer clears so the
+  /// controller still receives the real text.
   void _onPostUpdate(IncidentSummary incident) {
+    final String message = _message.trim();
     setState(() {
       _message = '';
       _aiDrafted = false;
     });
-    controller.postUpdate(incident);
+    controller.postUpdate(incident, message);
   }
 
   /// Maps a title-case status [label] (e.g. `"Investigating"`) back to its

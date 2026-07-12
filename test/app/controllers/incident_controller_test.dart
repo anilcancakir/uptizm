@@ -16,14 +16,20 @@ void main() {
     Magic.flush();
   });
 
-  /// Binds a fake network driver seeding `GET /incidents` with a canned
-  /// `{data: [...]}` envelope covering an active, a resolved, and a second
-  /// active incident. The controller decodes these via the wired `load`; the
-  /// assertions below exercise that wiring in place of the removed
-  /// fixture-equality checks.
-  void seedIncidents() {
-    Http.fake({
-      'incidents': Http.response({
+  /// Stubs `GET /incidents` with a canned `{data: [...]}` envelope covering
+  /// an active, a resolved, and a second active incident, and returns the
+  /// [FakeNetworkDriver] carrying it. The controller decodes these via the
+  /// wired `load`; the assertions below exercise that wiring in place of the
+  /// removed fixture-equality checks.
+  ///
+  /// Adds the stub to [fake] when given (so a caller can `reset()` a driver
+  /// after seeding a controller and re-seed the same instance for a later
+  /// `reload()` assertion) instead of always swapping in a brand-new driver.
+  FakeNetworkDriver seedIncidents([FakeNetworkDriver? fake]) {
+    final driver = fake ?? Http.fake();
+    driver.stub(
+      'incidents',
+      Http.response({
         'data': [
           {
             'id': 'inc-1',
@@ -55,7 +61,8 @@ void main() {
           },
         ],
       }),
-    });
+    );
+    return driver;
   }
 
   test('IncidentController.instance registers and returns a singleton', () {
@@ -80,19 +87,22 @@ void main() {
     expect(controller.isSuccess, isTrue);
   });
 
-  test('incidentById resolves a decoded incident from the loaded list', () async {
-    seedIncidents();
-    final IncidentController controller = Magic.findOrPut(
-      IncidentController.new,
-    );
-    await controller.load();
+  test(
+    'incidentById resolves a decoded incident from the loaded list',
+    () async {
+      seedIncidents();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+      await controller.load();
 
-    final IncidentSummary? resolved = controller.incidentById('inc-2');
+      final IncidentSummary? resolved = controller.incidentById('inc-2');
 
-    expect(resolved, isNotNull);
-    expect(resolved!.id, equals('inc-2'));
-    expect(resolved.lifecycle, equals(IncidentLifecycle.resolved));
-  });
+      expect(resolved, isNotNull);
+      expect(resolved!.id, equals('inc-2'));
+      expect(resolved.lifecycle, equals(IncidentLifecycle.resolved));
+    },
+  );
 
   test('incidentById returns null for an unknown id', () async {
     seedIncidents();
@@ -104,18 +114,21 @@ void main() {
     expect(controller.incidentById('does-not-exist'), isNull);
   });
 
-  test('activeIncidents derives the not-resolved subset of the loaded list', () async {
-    seedIncidents();
-    final IncidentController controller = Magic.findOrPut(
-      IncidentController.new,
-    );
-    await controller.load();
+  test(
+    'activeIncidents derives the not-resolved subset of the loaded list',
+    () async {
+      seedIncidents();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+      await controller.load();
 
-    expect(
-      controller.activeIncidents.map((i) => i.id).toList(),
-      equals(['inc-1', 'inc-3']),
-    );
-  });
+      expect(
+        controller.activeIncidents.map((i) => i.id).toList(),
+        equals(['inc-1', 'inc-3']),
+      );
+    },
+  );
 
   test('aiSuggestions stays empty until AI analysis is wired', () async {
     seedIncidents();
@@ -127,30 +140,26 @@ void main() {
     expect(controller.aiSuggestions, isEmpty);
   });
 
-  test(
-    'load degrades to an empty list and an error state when the network is '
-    'unavailable',
-    () async {
-      // No network bound: `Http.get` resolves an unregistered service; the
-      // defensive `load` must surface the controller's error state and never
-      // throw out of onInit/reload.
-      final IncidentController controller = Magic.findOrPut(
-        IncidentController.new,
-      );
+  test('load degrades to an empty list and an error state when the network is '
+      'unavailable', () async {
+    // No network bound: `Http.get` resolves an unregistered service; the
+    // defensive `load` must surface the controller's error state and never
+    // throw out of onInit/reload.
+    final IncidentController controller = Magic.findOrPut(
+      IncidentController.new,
+    );
 
-      await controller.load();
+    await controller.load();
 
-      expect(controller.incidents, isEmpty);
-      expect(controller.isError, isTrue);
-    },
-  );
+    expect(controller.incidents, isEmpty);
+    expect(controller.isError, isTrue);
+  });
 
   // ---------------------------------------------------------------------------
-  // Business actions (mock side-effects).
-  //
-  // Every incident fixture is a compile-time constant, so no action persists a
-  // mutation: each is a toast (or, for `create`, a navigation) fired on top of
-  // the const fixture. `assign` stays out of scope: it was NOT moved to the
+  // Business actions: live-wired writes against the S5 incident-write
+  // endpoints, following the monitor_controller.dart action pattern
+  // (`Http.post` -> reload on success -> toast; error toast + stay on
+  // failure). `assign` stays out of scope: it was NOT moved to the
   // controller (the assignee toggle remains view-local `setState`).
   // ---------------------------------------------------------------------------
 
@@ -159,7 +168,6 @@ void main() {
     late IncidentSummary incident;
 
     setUp(() {
-      controller = Magic.findOrPut(IncidentController.new);
       incident = incidents.first;
 
       // MagicFeedback logs a warning when no navigator context is mounted
@@ -174,28 +182,154 @@ void main() {
       });
     });
 
-    test('resolve surfaces the resolved toast without throwing', () {
-      expect(() => controller.resolve(incident), returnsNormally);
+    group('resolve', () {
+      test('POSTs /incidents/{id}/resolve and reloads on success', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.resolve(incident);
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/${incident.id}/resolve',
+        );
+        fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
+      });
+
+      test('surfaces an error toast and does not reload on failure', () async {
+        Http.fake({'incidents/${incident.id}/resolve': Http.response({}, 422)});
+        controller = Magic.findOrPut(IncidentController.new);
+
+        await expectLater(controller.resolve(incident), completes);
+      });
     });
 
-    test('reopen surfaces the reopened toast without throwing', () {
-      expect(() => controller.reopen(incident), returnsNormally);
+    group('reopen', () {
+      test('POSTs /incidents/{id}/reopen and reloads on success', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.reopen(incident);
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' && r.url == '/incidents/${incident.id}/reopen',
+        );
+        fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
+      });
+
+      test('surfaces an error toast and does not reload on failure', () async {
+        Http.fake({'incidents/${incident.id}/reopen': Http.response({}, 422)});
+        controller = Magic.findOrPut(IncidentController.new);
+
+        await expectLater(controller.reopen(incident), completes);
+      });
     });
 
-    test('acknowledge surfaces the acknowledged toast without throwing', () {
-      expect(() => controller.acknowledge('Jordan Lee'), returnsNormally);
+    group('acknowledge', () {
+      test('POSTs /incidents/{id}/acknowledge for the incident in view and '
+          'reloads', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        controller.incidentById(incident.id);
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.acknowledge('Jordan Lee');
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/${incident.id}/acknowledge',
+        );
+        fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
+      });
+
+      test('is a no-op when no incident is currently in view', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+
+        await controller.acknowledge('Jordan Lee');
+
+        fake.assertNothingSent();
+      });
     });
 
-    test('postUpdate surfaces the posted-update toast without throwing', () {
-      expect(() => controller.postUpdate(incident), returnsNormally);
+    group('postUpdate', () {
+      test(
+        'POSTs /incidents/{id}/updates with the message and reloads',
+        () async {
+          final fake = seedIncidents();
+          controller = Magic.findOrPut(IncidentController.new);
+          await controller.load();
+          fake.reset();
+          seedIncidents(fake);
+
+          await controller.postUpdate(incident, 'Rolling back the release.');
+
+          fake.assertSent(
+            (r) =>
+                r.method == 'POST' &&
+                r.url == '/incidents/${incident.id}/updates' &&
+                (r.data as Map)['message'] == 'Rolling back the release.',
+          );
+          fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
+        },
+      );
+
+      test('is a no-op when no message is given', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+
+        await controller.postUpdate(incident);
+
+        fake.assertNothingSent();
+      });
     });
 
     test(
       'editPostmortem surfaces the postmortem-edit toast without throwing',
       () {
+        controller = Magic.findOrPut(IncidentController.new);
         expect(() => controller.editPostmortem(), returnsNormally);
       },
     );
+
+    group('create', () {
+      test('POSTs /incidents with the given fields and reloads', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        MagicRouter.reset();
+        MagicRoute.page('/', () => const SizedBox());
+        MagicRoute.page('/incidents', () => const SizedBox());
+        MagicRouter.instance.routerConfig;
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.create({
+          'monitor_id': 'm1',
+          'severity': 'critical',
+          'title': 'Checkout returning 503s',
+        });
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents' &&
+              (r.data as Map)['monitor_id'] == 'm1',
+        );
+        fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
+        MagicRouter.reset();
+      });
+    });
   });
 
   group('create()', () {

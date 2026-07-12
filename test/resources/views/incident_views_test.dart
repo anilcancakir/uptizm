@@ -332,6 +332,66 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'submitting the incident kind POSTs /incidents with the form values',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 3200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake();
+
+        // `IncidentController.create` navigates to `/incidents` on success;
+        // the context-free `MagicRoute.to` requires the router initialized
+        // (mirroring `incident_controller_test.dart`'s `create` group).
+        MagicRouter.reset();
+        MagicRoute.page('/', () => const SizedBox());
+        MagicRoute.page('/incidents', () => const SizedBox());
+        MagicRouter.instance.routerConfig;
+        addTearDown(MagicRouter.reset);
+
+        await tester.pumpWidget(wrap(const IncidentCreateView()));
+        await tester.pump();
+
+        // 1. Fill the required title field.
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.incidents.form_title_placeholder_incident'),
+          ),
+          'Checkout returning 503s',
+        );
+        await tester.pump();
+
+        // 2. Select the affected monitor (Region tile labelled by monitor
+        //    name; "Checkout service" is the fixture's `checkout` monitor).
+        await tester.tap(find.text('Checkout service'));
+        await tester.pump();
+
+        // 3. Pick the "Warning" severity (maps to the backend's `warn` enum
+        //    value), then submit.
+        await tester.tap(find.text('Warning'));
+        await tester.pump();
+
+        await tester.tap(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.incidents.submit_open'),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents' &&
+              (r.data as Map)['monitor_id'] == 'checkout' &&
+              (r.data as Map)['severity'] == 'warn' &&
+              (r.data as Map)['title'] == 'Checkout returning 503s',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -468,5 +528,82 @@ void main() {
         reason: 'The responder strip must be hidden for a resolved incident',
       );
     });
+
+    testWidgets(
+      'posting an update POSTs /incidents/{id}/updates with the composer text',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake();
+        // `postUpdate` reloads the list on success; stub the follow-up
+        // `GET /incidents` so `checkout-503` stays resolvable and the
+        // composer keeps rendering after the reload.
+        fake.stub(
+          'incidents',
+          Http.response({
+            'data': [
+              {
+                'id': 'checkout-503',
+                'title': 'Checkout returning 503s',
+                'lifecycle': 'investigating',
+                'started_at': '2026-07-11T14:00:00Z',
+                'monitors': [
+                  {'id': 'checkout', 'name': 'Checkout service'},
+                ],
+              },
+            ],
+          }),
+        );
+
+        // `MagicFeedback` (the success/error toast) falls back to `Log` when
+        // no navigator context is mounted; bind a LogManager so that fallback
+        // path resolves (mirroring `incident_controller_test.dart`'s
+        // `business actions` setUp).
+        Magic.singleton('log', () => LogManager());
+        Config.set('logging', {
+          'default': 'console',
+          'channels': {
+            'console': {'driver': 'console', 'level': 'debug'},
+          },
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'checkout-503'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException(); // see the header chip-row overflow note above
+
+        final Finder composer = find.byType(MSTextarea);
+        await tester.ensureVisible(composer);
+        await tester.enterText(composer, 'Rolling back the release.');
+        await tester.pump();
+
+        final Finder postButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.incidents.detail_composer_post'),
+        );
+        await tester.ensureVisible(postButton);
+        await tester.tap(postButton);
+        await tester.pump();
+
+        tester.takeException();
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/checkout-503/updates' &&
+              (r.data as Map)['message'] == 'Rolling back the release.',
+        );
+
+        // The composer clears on success.
+        final MSTextarea after = tester.widget<MSTextarea>(
+          find.byType(MSTextarea),
+        );
+        expect(after.value, isEmpty);
+      },
+    );
   });
 }

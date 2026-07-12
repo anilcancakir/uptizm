@@ -61,8 +61,11 @@ enum _IncidentKind {
 /// are auto-width inside a `flex flex-row justify-end gap-3` row (never `w-full`
 /// in a Row, which forces unbounded width and aborts the layout).
 ///
-/// This is a mock screen: nothing persists. Both submit and cancel navigate to
-/// the incidents list.
+/// Submitting the incident kind fires `POST /incidents` via
+/// [IncidentController.create] with the form's real `monitor_id`/`severity`/
+/// `title`/`message`, then navigates to the incidents list; the maintenance
+/// kind has no backend counterpart yet, so it stays the navigation-only mock.
+/// Cancel always just navigates back.
 ///
 /// ### Example
 /// ```dart
@@ -480,7 +483,7 @@ class _IncidentCreateViewState
         ),
         MSButton(
           disabled: !_canSubmit,
-          onPressed: _canSubmit ? controller.create : null,
+          onPressed: _canSubmit ? _onSubmit : null,
           child: WText(
             _isMaintenance
                 ? trans('uptizm.incidents.submit_schedule')
@@ -512,5 +515,39 @@ class _IncidentCreateViewState
   int _indexOfValue(List<MetricOption> options, String value) {
     final int index = options.indexWhere((o) => o.value == value);
     return index < 0 ? 0 : index;
+  }
+
+  /// Submits the form: the incident kind threads its real field values into
+  /// [IncidentController.create] so `POST /incidents` fires; the maintenance
+  /// kind has no backend counterpart (S5 ships resolve/acknowledge/reopen/
+  /// updates/create only), so it stays the navigation-only mock.
+  void _onSubmit() {
+    controller.create(_isMaintenance ? null : _buildCreateFields());
+  }
+
+  /// Builds the `POST /incidents` field map (`StoreIncidentRequest`):
+  /// `monitor_id` from the first selected affected monitor (the backend
+  /// accepts a single monitor per incident; [_canSubmit] guarantees
+  /// [_affected] is non-empty here), `severity` mapped to the backend enum
+  /// value via [_severityForBackend], the trimmed `title`, and an optional
+  /// trimmed `message`.
+  Map<String, dynamic> _buildCreateFields() {
+    final Map<String, dynamic> fields = <String, dynamic>{
+      'monitor_id': _affected.first,
+      'severity': _severityForBackend(_severity),
+      'title': _title.trim(),
+    };
+    final String message = _message.trim();
+    if (message.isNotEmpty) {
+      fields['message'] = message;
+    }
+    return fields;
+  }
+
+  /// Maps the form's severity token to the backend `IncidentSeverity` enum
+  /// value: the form offers `critical`/`warning`/`info` ([kIncidentSeverities])
+  /// while the backend enum is `critical`/`warn`/`info`.
+  String _severityForBackend(String severity) {
+    return severity == 'warning' ? 'warn' : severity;
   }
 }
