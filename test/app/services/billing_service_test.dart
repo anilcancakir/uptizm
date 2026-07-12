@@ -38,14 +38,20 @@ void main() {
       });
 
       final BillingCheckoutSession session = await service.checkout(
-        priceId: 'price_pro_monthly',
+        plan: 'pro',
+        successUrl: 'https://uptizm.com/teams/billing?checkout=success',
+        cancelUrl: 'https://uptizm.com/teams/billing?checkout=cancel',
       );
 
       fake.assertSent(
         (r) =>
             r.method == 'POST' &&
             r.url.contains('billing/checkout') &&
-            (r.data as Map<String, dynamic>)['price_id'] == 'price_pro_monthly',
+            (r.data as Map<String, dynamic>)['plan'] == 'pro' &&
+            (r.data as Map<String, dynamic>)['success_url'] ==
+                'https://uptizm.com/teams/billing?checkout=success' &&
+            (r.data as Map<String, dynamic>)['cancel_url'] ==
+                'https://uptizm.com/teams/billing?checkout=cancel',
       );
       expect(session.checkoutUrl, 'https://checkout.stripe.com/session_123');
       expect(session.sessionId, 'session_123');
@@ -57,21 +63,25 @@ void main() {
       });
 
       expect(
-        () => service.checkout(priceId: 'price_pro_monthly'),
+        () => service.checkout(
+          plan: 'pro',
+          successUrl: 'https://uptizm.com/teams/billing?checkout=success',
+          cancelUrl: 'https://uptizm.com/teams/billing?checkout=cancel',
+        ),
         throwsA(isA<BillingException>()),
       );
     });
 
-    test('swap posts to /billing/swap with the new price', () async {
+    test('swap posts to /billing/swap with the new plan', () async {
       final FakeNetworkDriver fake = Http.fake();
 
-      await service.swap(priceId: 'price_pro_annual');
+      await service.swap(plan: 'business');
 
       fake.assertSent(
         (r) =>
             r.method == 'POST' &&
             r.url.contains('billing/swap') &&
-            (r.data as Map<String, dynamic>)['price_id'] == 'price_pro_annual',
+            (r.data as Map<String, dynamic>)['plan'] == 'business',
       );
     });
 
@@ -86,14 +96,23 @@ void main() {
     });
 
     test('openPortal gets /billing/portal and returns the portal url', () async {
-      Http.fake({
+      final FakeNetworkDriver fake = Http.fake({
         'billing/portal': Http.response({
           'portal_url': 'https://billing.stripe.com/portal_abc',
         }),
       });
 
-      final String portalUrl = await service.openPortal();
+      final String portalUrl = await service.openPortal(
+        returnUrl: 'https://uptizm.com/teams/billing',
+      );
 
+      fake.assertSent(
+        (r) =>
+            r.method == 'GET' &&
+            r.url.contains('billing/portal') &&
+            r.queryParameters?['return_url'] ==
+                'https://uptizm.com/teams/billing',
+      );
       expect(portalUrl, 'https://billing.stripe.com/portal_abc');
     });
 
@@ -118,7 +137,11 @@ void main() {
       final FakeNetworkDriver fake = Http.fake();
 
       await expectLater(
-        () => service.checkout(priceId: 'price_pro_monthly'),
+        () => service.checkout(
+          plan: 'pro',
+          successUrl: 'https://uptizm.com/teams/billing?checkout=success',
+          cancelUrl: 'https://uptizm.com/teams/billing?checkout=cancel',
+        ),
         throwsA(isA<UnsupportedPlatformException>()),
       );
       fake.assertNothingSent();
@@ -128,7 +151,7 @@ void main() {
       final FakeNetworkDriver fake = Http.fake();
 
       await expectLater(
-        () => service.swap(priceId: 'price_pro_annual'),
+        () => service.swap(plan: 'business'),
         throwsA(isA<UnsupportedPlatformException>()),
       );
       fake.assertNothingSent();
@@ -173,11 +196,15 @@ void main() {
 
     test('every method throws UnsupportedPlatformException', () async {
       await expectLater(
-        () => service.checkout(priceId: 'price_pro_monthly'),
+        () => service.checkout(
+          plan: 'pro',
+          successUrl: 'https://uptizm.com/teams/billing?checkout=success',
+          cancelUrl: 'https://uptizm.com/teams/billing?checkout=cancel',
+        ),
         throwsA(isA<UnsupportedPlatformException>()),
       );
       await expectLater(
-        () => service.swap(priceId: 'price_pro_annual'),
+        () => service.swap(plan: 'business'),
         throwsA(isA<UnsupportedPlatformException>()),
       );
       await expectLater(

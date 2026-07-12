@@ -14,12 +14,16 @@ class BillingServiceStub implements BillingService {
       'Billing is not supported on this platform.';
 
   @override
-  Future<BillingCheckoutSession> checkout({required String priceId}) async {
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  }) async {
     throw const UnsupportedPlatformException(_message);
   }
 
   @override
-  Future<void> swap({required String priceId}) async {
+  Future<void> swap({required String plan}) async {
     throw const UnsupportedPlatformException(_message);
   }
 
@@ -29,7 +33,7 @@ class BillingServiceStub implements BillingService {
   }
 
   @override
-  Future<String> openPortal() async {
+  Future<String> openPortal({String? returnUrl}) async {
     throw const UnsupportedPlatformException(_message);
   }
 

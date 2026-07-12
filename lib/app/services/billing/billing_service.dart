@@ -92,7 +92,11 @@ class BillingEntitlement {
 ///
 /// ```dart
 /// final BillingService billing = BillingService.instance;
-/// final session = await billing.checkout(priceId: 'price_pro_monthly');
+/// final session = await billing.checkout(
+///   plan: 'pro',
+///   successUrl: 'https://uptizm.com/teams/billing?checkout=success',
+///   cancelUrl: 'https://uptizm.com/teams/billing?checkout=cancel',
+/// );
 /// ```
 ///
 /// Store rails (StoreKit/Play Billing) are a separate, deferred scope (S20/
@@ -102,17 +106,29 @@ abstract class BillingService {
   /// The platform-resolved [BillingService] singleton instance.
   static BillingService get instance => impl.createBillingService();
 
-  /// Starts a Stripe Checkout session for [priceId] via
-  /// `POST /billing/checkout` and returns the resulting [BillingCheckoutSession].
+  /// Starts a Stripe Checkout session for [plan] via `POST /billing/checkout`
+  /// and returns the resulting [BillingCheckoutSession].
+  ///
+  /// [plan] is the backend `Plan` enum value (`'pro'` or `'business'`), never
+  /// a Stripe price id; the backend resolves the price via its own
+  /// `cashier.plans` config map. [successUrl] and [cancelUrl] are the pages
+  /// Stripe Checkout redirects back to on completion/abort.
   ///
   /// On web, the checkout URL is opened in an in-app browser tab. On mobile,
   /// throws [UnsupportedPlatformException] (store rails deferred).
-  Future<BillingCheckoutSession> checkout({required String priceId});
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  });
 
-  /// Swaps the team's subscription to [priceId] via `POST /billing/swap`.
+  /// Swaps the team's subscription to [plan] via `POST /billing/swap`.
+  ///
+  /// [plan] is the backend `Plan` enum value (`'pro'` or `'business'`), never
+  /// a Stripe price id.
   ///
   /// On mobile, throws [UnsupportedPlatformException] (store rails deferred).
-  Future<void> swap({required String priceId});
+  Future<void> swap({required String plan});
 
   /// Cancels the team's subscription via `POST /billing/cancel`.
   ///
@@ -120,11 +136,12 @@ abstract class BillingService {
   Future<void> cancel();
 
   /// Opens the Stripe billing portal via `GET /billing/portal` and returns
-  /// the portal URL.
+  /// the portal URL. [returnUrl] is the page Stripe's portal returns to when
+  /// the customer is done, sent as the `return_url` query parameter.
   ///
   /// On web, the URL is opened in an in-app browser tab. On mobile, throws
   /// [UnsupportedPlatformException] (store rails deferred).
-  Future<String> openPortal();
+  Future<String> openPortal({String? returnUrl});
 
   /// Reads the team's current plan/subscription entitlement via
   /// `GET /billing`.

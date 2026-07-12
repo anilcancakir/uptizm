@@ -19,12 +19,16 @@ class BillingServiceIo implements BillingService {
       'but not implemented; manage your subscription on the web.';
 
   @override
-  Future<BillingCheckoutSession> checkout({required String priceId}) async {
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  }) async {
     throw const UnsupportedPlatformException(_deferredMessage);
   }
 
   @override
-  Future<void> swap({required String priceId}) async {
+  Future<void> swap({required String plan}) async {
     throw const UnsupportedPlatformException(_deferredMessage);
   }
 
@@ -34,7 +38,7 @@ class BillingServiceIo implements BillingService {
   }
 
   @override
-  Future<String> openPortal() async {
+  Future<String> openPortal({String? returnUrl}) async {
     throw const UnsupportedPlatformException(_deferredMessage);
   }
 

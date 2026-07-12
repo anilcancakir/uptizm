@@ -8,10 +8,18 @@ class BillingServiceWeb implements BillingService {
   const BillingServiceWeb();
 
   @override
-  Future<BillingCheckoutSession> checkout({required String priceId}) async {
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  }) async {
     final MagicResponse response = await Http.post(
       '/billing/checkout',
-      data: {'price_id': priceId},
+      data: {
+        'plan': plan,
+        'success_url': successUrl,
+        'cancel_url': cancelUrl,
+      },
     );
     if (!response.successful) {
       Log.error('[BillingServiceWeb.checkout] ${response.errorMessage}');
@@ -31,10 +39,10 @@ class BillingServiceWeb implements BillingService {
   }
 
   @override
-  Future<void> swap({required String priceId}) async {
+  Future<void> swap({required String plan}) async {
     final MagicResponse response = await Http.post(
       '/billing/swap',
-      data: {'price_id': priceId},
+      data: {'plan': plan},
     );
     if (!response.successful) {
       Log.error('[BillingServiceWeb.swap] ${response.errorMessage}');
@@ -56,8 +64,11 @@ class BillingServiceWeb implements BillingService {
   }
 
   @override
-  Future<String> openPortal() async {
-    final MagicResponse response = await Http.get('/billing/portal');
+  Future<String> openPortal({String? returnUrl}) async {
+    final MagicResponse response = await Http.get(
+      '/billing/portal',
+      query: returnUrl == null ? null : {'return_url': returnUrl},
+    );
     if (!response.successful) {
       Log.error('[BillingServiceWeb.openPortal] ${response.errorMessage}');
       throw BillingException(
