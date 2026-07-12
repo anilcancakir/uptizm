@@ -147,17 +147,18 @@ class MonitorController extends MagicController {
   /// Resolves a monitor by [id] from the cached inventory, or `null` when
   /// none matches (unknown id, or the cache has not loaded yet).
   ///
-  /// The views call this synchronously inside `build()`, so this cannot
-  /// itself be a `Future`. It answers from [_monitors] immediately and, when
-  /// [id] is present, also fires a background `GET /monitors/:id` refresh
-  /// (via [_refreshOne]) that republishes the freshest single-resource
-  /// fields and triggers a rebuild once it resolves.
+  /// The views call this synchronously inside `build()`, so it MUST stay a
+  /// pure, side-effect-free cache read: it answers from [_monitors] and never
+  /// performs I/O or notifies listeners. A single-resource refresh is a
+  /// separate, explicit [refreshOne] call a view issues ONCE from `initState`
+  /// (or on an id change), never from `build`: firing it from `build` self
+  /// loops (refresh -> `refreshUI` -> rebuild -> `build` -> refresh), pegging
+  /// the main isolate with ~10 `GET /monitors/:id` per second and dropping
+  /// scroll to a few FPS.
   MonitorSummary? monitorById(String? id) {
     if (id == null) return null;
 
-    final MonitorSummary? cached = _cachedById(id);
-    _refreshOne(id);
-    return cached;
+    return _cachedById(id);
   }
 
   /// Synchronous cache lookup by [id]. Returns `null` when absent.
@@ -168,12 +169,15 @@ class MonitorController extends MagicController {
     return null;
   }
 
-  /// Background single-resource refresh for [id]: fetches `GET
-  /// /monitors/:id` and merges the result into [_monitors] (replacing an
-  /// existing entry or appending a new one), then notifies listeners.
-  /// Silently no-ops on failure so a transient error never disturbs the
-  /// already-cached entry.
-  Future<void> _refreshOne(String id) async {
+  /// Background single-resource refresh for [id]: fetches `GET /monitors/:id`
+  /// and merges the result into [_monitors] (replacing an existing entry or
+  /// appending a new one), then notifies listeners. Silently no-ops on failure
+  /// so a transient error never disturbs the already-cached entry.
+  ///
+  /// Call this ONCE from a view's `initState` (or on an id change), NEVER from
+  /// `build`: its `refreshUI()` notifies listeners, so a `build`-time call self
+  /// loops and floods the backend.
+  Future<void> refreshOne(String id) async {
     try {
       final response = await Http.get('/monitors/$id');
       if (!response.successful) return;

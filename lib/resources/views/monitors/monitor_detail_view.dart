@@ -162,6 +162,13 @@ class _MonitorDetailViewState
   /// [didUpdateWidget], both of which schedule a build of their own; only the
   /// deferred [_fetchData] completion (outside a build) calls [setState].
   void _startLoading() {
+    // Refresh this monitor's single-resource fields ONCE per mount / id change
+    // (never from build; see [MonitorController.refreshOne]). Fire-and-forget:
+    // its `refreshUI()` lands on a later frame, not during this build cycle.
+    final String? id = widget.id;
+    if (id != null) {
+      controller.refreshOne(id);
+    }
     _loading = true;
     _recentChecks = const [];
     _responseData = const [];

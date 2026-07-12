@@ -56,6 +56,13 @@ class _MonitorEditViewState
     // Magic.find<T>() (which throws when unregistered). Idempotent.
     Magic.findOrPut(MonitorController.new);
     super.initState();
+
+    // One-time single-resource refresh for the prefill (never from build; see
+    // [MonitorController.refreshOne], which notifies listeners).
+    final String? id = widget.id;
+    if (id != null) {
+      controller.refreshOne(id);
+    }
   }
 
   @override
