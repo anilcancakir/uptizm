@@ -14,6 +14,12 @@ void main() {
     // (save/create/removeSubscriber call Magic.success, which falls through to
     // a warning log when no navigator context is mounted, as here).
     Magic.singleton('log', () => LogManager());
+    // Bind a fake network driver so the wired save/create/attachMonitor/
+    // detachMonitor/reorderMonitors actions resolve the `network` service.
+    // Individual tests override it with `Http.fake({...})` to seed a canned
+    // envelope, or call `Http.unfake()` to exercise the transport-failure
+    // degradation path.
+    Http.fake();
     // Force-build the lazy GoRouter so MagicRoute.to (used by save/create)
     // does not throw StateError('Router not initialized...'). In production
     // the router is built once at app boot before any controller action
@@ -126,29 +132,237 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // save / create: toast + navigation side-effects only (mock: nothing else
-  // persists), matching the monitor/incident controller precedent.
+  // save / create: live `PUT`/`POST` calls against `api/v1/status-pages`,
+  // reload (refreshUI) + navigation on success, error toast + stay on
+  // failure. Mirrors `monitor_controller.dart:145-221`'s wired precedent.
   // ---------------------------------------------------------------------------
 
-  group('save / create surface a toast and navigate back to the list', () {
-    test('save does not throw and does not notify listeners', () {
+  group('save', () {
+    test('PUTs /status-pages/{id} with the mapped field payload', () async {
+      final fake = Http.fake({
+        'status-pages/*': Http.response({'data': {}}, 200),
+      });
       final StatusPageController controller = StatusPageController.instance;
       final StatusPageConfig draft = findStatusPage('acme')!;
+
+      await controller.save(draft);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'PUT' &&
+            r.url.contains('status-pages/${draft.id}') &&
+            r.data is Map &&
+            (r.data as Map)['name'] == draft.name &&
+            (r.data as Map)['slug'] == draft.slug,
+      );
+    });
+
+    test('refreshes the bound view on a successful save', () async {
+      Http.fake({
+        'status-pages/*': Http.response({'data': {}}, 200),
+      });
+      final StatusPageController controller = StatusPageController.instance;
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      expect(() => controller.save(draft), returnsNormally);
+      await controller.save(findStatusPage('acme')!);
+
+      expect(notifications, equals(1));
+    });
+
+    test('surfaces an error toast and does not refresh on a failed save', () async {
+      Http.fake({
+        'status-pages/*': Http.response({'message': 'Validation failed'}, 422),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      int notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await expectLater(
+        () => controller.save(findStatusPage('acme')!),
+        returnsNormally,
+      );
       expect(notifications, equals(0));
     });
 
-    test('create does not throw and does not notify listeners', () {
+    test(
+      'degrades gracefully (no throw) when the network is unavailable',
+      () async {
+        Http.unfake();
+        final StatusPageController controller = StatusPageController.instance;
+
+        await expectLater(
+          () => controller.save(findStatusPage('acme')!),
+          returnsNormally,
+        );
+      },
+    );
+  });
+
+  group('create', () {
+    test('POSTs /status-pages with the mapped field payload', () async {
+      final fake = Http.fake({
+        'status-pages': Http.response({'data': {}}, 201),
+      });
       final StatusPageController controller = StatusPageController.instance;
-      final StatusPageConfig draft = findStatusPage('acme')!;
+      final StatusPageConfig draft = findStatusPage('internal')!;
+
+      await controller.create(draft);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('status-pages') &&
+            r.data is Map &&
+            (r.data as Map)['name'] == draft.name &&
+            (r.data as Map)['domain_mode'] == 'custom',
+      );
+    });
+
+    test('refreshes the bound view on a successful create', () async {
+      Http.fake({
+        'status-pages': Http.response({'data': {}}, 201),
+      });
+      final StatusPageController controller = StatusPageController.instance;
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      expect(() => controller.create(draft), returnsNormally);
+      await controller.create(findStatusPage('acme')!);
+
+      expect(notifications, equals(1));
+    });
+
+    test('surfaces an error toast on a failed create', () async {
+      Http.fake({
+        'status-pages': Http.response({'message': 'Validation failed'}, 422),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      int notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await expectLater(
+        () => controller.create(findStatusPage('acme')!),
+        returnsNormally,
+      );
       expect(notifications, equals(0));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // attachMonitor / detachMonitor / reorderMonitors: live monitor-membership
+  // actions against the S3 pivot endpoints.
+  // ---------------------------------------------------------------------------
+
+  group('attachMonitor', () {
+    test('POSTs /status-pages/{pageId}/monitors with the monitor_id', () async {
+      final fake = Http.fake({
+        'status-pages/acme/monitors': Http.response({'data': {}}, 200),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.attachMonitor('acme', 'checkout', displayOrder: 2);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('status-pages/acme/monitors') &&
+            r.data is Map &&
+            (r.data as Map)['monitor_id'] == 'checkout' &&
+            (r.data as Map)['display_order'] == 2,
+      );
+    });
+
+    test('refreshes the bound view on success', () async {
+      Http.fake({
+        'status-pages/acme/monitors': Http.response({'data': {}}, 200),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      int notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.attachMonitor('acme', 'checkout');
+
+      expect(notifications, equals(1));
+    });
+
+    test('surfaces an error toast without throwing on failure', () async {
+      Http.fake({
+        'status-pages/acme/monitors': Http.response({'message': 'nope'}, 422),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await expectLater(
+        () => controller.attachMonitor('acme', 'checkout'),
+        returnsNormally,
+      );
+    });
+  });
+
+  group('detachMonitor', () {
+    test('DELETEs /status-pages/{pageId}/monitors/{monitorId}', () async {
+      final fake = Http.fake({
+        'status-pages/acme/monitors/checkout': Http.response(null, 204),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.detachMonitor('acme', 'checkout');
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'DELETE' &&
+            r.url.contains('status-pages/acme/monitors/checkout'),
+      );
+    });
+
+    test('refreshes the bound view on success', () async {
+      Http.fake({
+        'status-pages/acme/monitors/checkout': Http.response(null, 204),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      int notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.detachMonitor('acme', 'checkout');
+
+      expect(notifications, equals(1));
+    });
+  });
+
+  group('reorderMonitors', () {
+    test('PUTs /status-pages/{pageId}/monitors/reorder with the order', () async {
+      final fake = Http.fake({
+        'status-pages/acme/monitors/reorder': Http.response(null, 204),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      final order = [
+        {'id': 'checkout', 'display_order': 0},
+        {'id': 'api', 'display_order': 1},
+      ];
+
+      await controller.reorderMonitors('acme', order);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'PUT' &&
+            r.url.contains('status-pages/acme/monitors/reorder') &&
+            r.data is Map &&
+            (r.data as Map)['order'] == order,
+      );
+    });
+
+    test('refreshes the bound view on success', () async {
+      Http.fake({
+        'status-pages/acme/monitors/reorder': Http.response(null, 204),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      int notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.reorderMonitors('acme', [
+        {'id': 'checkout', 'display_order': 0},
+      ]);
+
+      expect(notifications, equals(1));
     });
   });
 }
