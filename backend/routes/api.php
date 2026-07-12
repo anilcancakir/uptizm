@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AiSuggestionController;
+use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
@@ -158,4 +159,15 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.status-pages.monitors.attach');
     Route::delete('status-pages/{statusPage:id}/monitors/{monitor}', [StatusPageController::class, 'detachMonitor'])
         ->name('api.v1.status-pages.monitors.detach');
+
+    Route::get('billing', [BillingController::class, 'show'])
+        ->name('api.v1.billing.show');
+    Route::post('billing/checkout', [BillingController::class, 'checkout'])
+        ->name('api.v1.billing.checkout');
+    Route::post('billing/swap', [BillingController::class, 'swap'])
+        ->name('api.v1.billing.swap');
+    Route::post('billing/cancel', [BillingController::class, 'cancel'])
+        ->name('api.v1.billing.cancel');
+    Route::get('billing/portal', [BillingController::class, 'portal'])
+        ->name('api.v1.billing.portal');
 });
