@@ -1055,6 +1055,8 @@
       "channels_connect_button": "Connect",
       "channels_test_button": "Send test",
       "channels_save_button": "Save",
+      "channels_toast_title": "Not yet saved",
+      "channels_toast_description": ":channel preferences are local-only for now; there is no backend endpoint to persist them yet.",
       "escalation_title": "Escalation policies",
       "escalation_description": "When an alert goes unacknowledged, Uptizm climbs the ladder and pages wider. Monitors pick a policy in their settings.",
       "escalation_new_button": "New policy",

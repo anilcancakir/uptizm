@@ -95,6 +95,8 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.channels_connect_button': 'Connect',
       'uptizm.teams.channels_save_button': 'Save',
       'uptizm.teams.channels_test_button': 'Send test',
+      'uptizm.teams.channels_toast_title': 'Not yet saved',
+      'uptizm.teams.channels_toast_description': ':channel not persisted.',
       'uptizm.teams.channels_email_recipients_label': 'Additional recipients',
       'uptizm.teams.channels_email_recipients_hint': 'Plus every member.',
       'uptizm.teams.channels_email_recipients_placeholder': 'oncall@acme.com',
@@ -251,6 +253,26 @@ void main() {
     );
   }
 
+  /// Wraps [widget] like [wrap], but pins the [MaterialApp]'s navigator key to
+  /// [MagicRouter.instance.navigatorKey] so [MagicFeedback] (`Magic.success`/
+  /// `Magic.error`/`MagicFeedback.info`) resolves a mounted context and
+  /// actually renders its `SnackBar`, instead of degrading to a logged
+  /// warning. Needed by the notification-channels honest-toast assertions and
+  /// the billing-toast assertions below; the shared [wrap] stays as-is for
+  /// every other group in this file.
+  Widget wrapWithSnackbar(Widget widget, {Size size = const Size(1280, 8000)}) {
+    return MaterialApp(
+      navigatorKey: MagicRouter.instance.navigatorKey,
+      home: MediaQuery(
+        data: MediaQueryData(size: size),
+        child: WindTheme(
+          data: WindThemeData(),
+          child: Scaffold(body: SingleChildScrollView(child: widget)),
+        ),
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // NotificationChannelsView
   // ---------------------------------------------------------------------------
@@ -273,6 +295,68 @@ void main() {
         expect(find.text(channel.name), findsOneWidget);
       }
     });
+
+    testWidgets(
+      'saving a channel surfaces an honest "not yet saved" info toast, '
+      'not a success claim',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 6000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrapWithSnackbar(
+            const NotificationChannelsView(),
+            size: const Size(1280, 6000),
+          ),
+        );
+        await tester.pump();
+
+        // Email is connected by fixture, so tapping its row expands the
+        // inline config form and reveals the Save button.
+        await tester.tap(find.text('Email'));
+        await tester.pump();
+        await tester.tap(find.text(trans('uptizm.teams.channels_save_button')));
+        await tester.pump();
+
+        // There is no team channel-integrations backend (S9 gap): the toast
+        // must be the honest info signal, never claim the change persisted.
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.teams.channels_toast_title')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'connecting an unconnected channel surfaces the same honest info '
+      'toast instead of a success claim',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 6000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrapWithSnackbar(
+            const NotificationChannelsView(),
+            size: const Size(1280, 6000),
+          ),
+        );
+        await tester.pump();
+
+        // Microsoft Teams is unconnected by fixture, so its trailing control
+        // is a "Connect" button rather than a Switch.
+        await tester.tap(
+          find.text(trans('uptizm.teams.channels_connect_button')),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.teams.channels_toast_title')),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -423,25 +507,6 @@ void main() {
   // ---------------------------------------------------------------------------
   // PlanBillingView
   // ---------------------------------------------------------------------------
-
-  /// Wraps [widget] like [wrap], but pins the [MaterialApp]'s navigator key to
-  /// [MagicRouter.instance.navigatorKey] so [MagicFeedback] (`Magic.success`/
-  /// `Magic.error`/`MagicFeedback.info`) resolves a mounted context and
-  /// actually renders its `SnackBar`, instead of degrading to a logged
-  /// warning. Only the billing-toast assertions below need this; the shared
-  /// [wrap] stays as-is for every other group in this file.
-  Widget wrapWithSnackbar(Widget widget, {Size size = const Size(1280, 8000)}) {
-    return MaterialApp(
-      navigatorKey: MagicRouter.instance.navigatorKey,
-      home: MediaQuery(
-        data: MediaQueryData(size: size),
-        child: WindTheme(
-          data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      ),
-    );
-  }
 
   group('PlanBillingView', () {
     testWidgets('renders the title and the billing-history heading', (

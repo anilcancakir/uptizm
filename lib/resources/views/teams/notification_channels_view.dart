@@ -24,8 +24,9 @@ import '../../../ui/layouts/page_container.dart';
 /// [Button]s.
 ///
 /// This is a pure UI mock: connecting, toggling, changing severity, saving, and
-/// sending a test only mutate local state and show a [Magic.success] toast.
-/// There is no real integration and nothing is persisted.
+/// sending a test only mutate local state and show an honest
+/// [MagicFeedback.info] toast (not a success claim). There is no team
+/// channel-integrations backend yet, so nothing is actually persisted.
 ///
 /// ### Example
 /// ```dart
@@ -116,7 +117,8 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       ? trans('uptizm.teams.channels_severity_critical')
       : trans('uptizm.teams.channels_severity_all');
 
-  /// Connects [type] (mock: flips connected + enabled on and shows a toast).
+  /// Connects [type] (mock: flips connected + enabled on and shows an honest
+  /// "not yet saved" toast; there is no backend to actually connect to).
   void _connect(ChannelType type) {
     setState(() {
       final _ChannelState state = _states[type]!;
@@ -124,7 +126,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       state.enabled = true;
       state.expanded = true;
     });
-    _channelToast(type, trans('uptizm.teams.channels_connect_button'));
+    _channelToast(type);
   }
 
   /// Toggles alert delivery for [type] (mock: local state only).
@@ -145,19 +147,27 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     setState(() => _states[type]!.severity = _severityValues[index]);
   }
 
-  /// Saves the channel config (mock: no persistence, toast only).
+  /// Saves the channel config (mock: no persistence, honest toast only).
   void _save(ChannelType type) {
-    _channelToast(type, trans('uptizm.teams.channels_save_button'));
+    _channelToast(type);
   }
 
-  /// Sends a test alert (mock: no delivery, toast only).
+  /// Sends a test alert (mock: no delivery, honest toast only).
   void _sendTest(ChannelType type) {
-    _channelToast(type, trans('uptizm.teams.channels_test_button'));
+    _channelToast(type);
   }
 
-  /// Shows a [Magic.success] toast naming the [action] and the channel [type].
-  void _channelToast(ChannelType type, String action) {
-    Magic.success(action, type.label);
+  /// Shows an honest [MagicFeedback.info] toast for the channel [type].
+  ///
+  /// There is no team channel-integrations backend yet (S9 ships no
+  /// email/SMS/Slack/Teams/webhook write endpoint), so connecting, saving,
+  /// and sending a test must not claim success; this signals the change is
+  /// local-only instead.
+  void _channelToast(ChannelType type) {
+    MagicFeedback.info(
+      trans('uptizm.teams.channels_toast_title'),
+      trans('uptizm.teams.channels_toast_description', {'channel': type.label}),
+    );
   }
 
   @override
