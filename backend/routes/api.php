@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AiSuggestionController;
 use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\EscalationPolicyController;
 use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
 use App\Http\Controllers\Api\V1\MonitorController;
@@ -188,6 +189,26 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.on-call.schedules.overrides.store');
     Route::delete('on-call/schedules/{schedule}/overrides/{override}', [OnCallController::class, 'removeOverride'])
         ->name('api.v1.on-call.schedules.overrides.destroy');
+
+    Route::get('escalation-policies', [EscalationPolicyController::class, 'index'])
+        ->name('api.v1.escalation-policies.index');
+    Route::post('escalation-policies', [EscalationPolicyController::class, 'store'])
+        ->name('api.v1.escalation-policies.store');
+    Route::get('escalation-policies/{policy}', [EscalationPolicyController::class, 'show'])
+        ->name('api.v1.escalation-policies.show');
+    Route::put('escalation-policies/{policy}', [EscalationPolicyController::class, 'update'])
+        ->name('api.v1.escalation-policies.update');
+    Route::delete('escalation-policies/{policy}', [EscalationPolicyController::class, 'destroy'])
+        ->name('api.v1.escalation-policies.destroy');
+
+    Route::post('escalation-policies/{policy}/steps', [EscalationPolicyController::class, 'addStep'])
+        ->name('api.v1.escalation-policies.steps.store');
+    Route::match(['patch', 'put'], 'escalation-policies/{policy}/steps/reorder', [
+        EscalationPolicyController::class,
+        'reorderSteps',
+    ])->name('api.v1.escalation-policies.steps.reorder');
+    Route::delete('escalation-policies/{policy}/steps/{step}', [EscalationPolicyController::class, 'removeStep'])
+        ->name('api.v1.escalation-policies.steps.destroy');
 
     Route::get('billing', [BillingController::class, 'show'])
         ->name('api.v1.billing.show');
