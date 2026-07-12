@@ -3,14 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\AiSuggestionStatus;
-use App\Enums\IncidentSeverity;
-use App\Enums\IncidentStatus;
-use App\Enums\MonitorStatus;
-use App\Enums\SignalSource;
 use App\Http\Controllers\Controller;
-use App\Jobs\PerformSslCheck;
 use App\Models\AiSuggestion;
-use App\Models\Incident;
+use App\Services\Ai\AiIncidentOpener;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +26,13 @@ use Illuminate\Support\Facades\DB;
  */
 class AiSuggestionController extends Controller
 {
+    /**
+     * @param  AiIncidentOpener  $incidentOpener  The shared AI-owned incident creator.
+     */
+    public function __construct(
+        protected AiIncidentOpener $incidentOpener,
+    ) {}
+
     /**
      * Accept a suggestion into a single incident and return the incident id.
      *
@@ -67,9 +69,9 @@ class AiSuggestionController extends Controller
                     ->value('accepted_incident_id');
             }
 
-            // 4. Open exactly one incident via the public model path, then link
-            //    it back and flip the status so a later accept short-circuits.
-            $incident = $this->openIncident($claimed);
+            // 4. Open exactly one incident via the shared creator, then link it
+            //    back and flip the status so a later accept short-circuits.
+            $incident = $this->incidentOpener->open($claimed);
             $claimed->forceFill([
                 'status' => AiSuggestionStatus::Accepted,
                 'accepted_incident_id' => $incident->id,
@@ -99,46 +101,6 @@ class AiSuggestionController extends Controller
                 'status' => AiSuggestionStatus::Dismissed->value,
             ],
         ]);
-    }
-
-    /**
-     * Open an AI-owned incident for the suggestion's monitor.
-     *
-     * Mirrors {@see PerformSslCheck::openSslIncident()}: `create` +
-     * `monitors()->attach` on the public model path, seeding the component
-     * status from the monitor's current health. Marked `ai_owned` with the
-     * `ai_anomaly` signal source so the UI badges and filters it as AI-driven.
-     */
-    protected function openIncident(AiSuggestion $suggestion): Incident
-    {
-        $monitor = $suggestion->monitor;
-        $severity = IncidentSeverity::from($suggestion->severity);
-
-        // 1. Persist the incident with the denormalized primary-monitor hint and
-        //    the anomaly signal marker. Impact rolls up from the operator-facing
-        //    severity the detector assigned to the suggestion.
-        $incident = Incident::query()->create([
-            'team_id' => $suggestion->team_id,
-            'primary_monitor_id' => $monitor->id,
-            'title' => "Anomaly detected on {$monitor->name}",
-            'impact' => $severity->toImpact(),
-            'severity' => $severity,
-            'signal_source' => SignalSource::AiAnomaly,
-            'lifecycle' => IncidentStatus::Detected,
-            'ai_owned' => true,
-            'trigger_metric_key' => $suggestion->signal,
-            'started_at' => now(),
-        ]);
-
-        // 2. Attach the monitor to the affected-component pivot, freezing its
-        //    current health at open time and mirroring it as the live status.
-        $componentStatus = $monitor->last_status?->value ?? MonitorStatus::Down->value;
-        $incident->monitors()->attach($monitor->id, [
-            'component_status_at_start' => $componentStatus,
-            'component_status_current' => $componentStatus,
-        ]);
-
-        return $incident;
     }
 
     /**

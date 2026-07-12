@@ -8,14 +8,20 @@ use App\Enums\AiSuggestionKind;
 use App\Enums\AiSuggestionStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Enums\SignalSource;
 use App\Jobs\SweepAiSuggestions;
 use App\Jobs\TriageAnomalyCandidate;
 use App\Models\AiSuggestion;
+use App\Models\Incident;
+use App\Models\IncidentUpdate;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\Team;
 use App\Models\User;
-use App\Services\Ai\ResponseTimeAnomalyDetector;
+use App\Services\Ai\AnomalyTriageGateway;
+use App\Services\Ai\FakeAnomalyTriageGateway;
+use App\Services\Ai\TriagePayload;
+use App\Services\Ai\TriageResult;
 use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -35,6 +41,16 @@ use Tests\TestCase;
 class SweepAiSuggestionsTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Default the triage boundary to the deterministic fake, so no run ever
+        // reaches the real Anthropic gateway; auto-mode tests rebind a specific
+        // confidence stub before sweeping.
+        $this->app->bind(AnomalyTriageGateway::class, FakeAnomalyTriageGateway::class);
+    }
 
     public function test_anomalous_suggest_monitor_dispatches_a_triage(): void
     {
@@ -87,13 +103,77 @@ class SweepAiSuggestionsTest extends TestCase
         Queue::assertNotPushed(TriageAnomalyCandidate::class);
     }
 
+    public function test_auto_monitor_above_threshold_within_budget_auto_opens_an_incident(): void
+    {
+        // A high-confidence label clears the auto-open threshold; the anomalous
+        // window puts a real candidate under budget.
+        $this->app->instance(AnomalyTriageGateway::class, new HighConfidenceTriageGateway);
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $this->seedAnomalousWindow($monitor);
+
+        $this->runSweep();
+
+        // 1. Exactly one AI-owned incident is opened, sourced from the anomaly.
+        $incident = Incident::query()->sole();
+        $this->assertTrue($incident->ai_owned);
+        $this->assertSame(SignalSource::AiAnomaly, $incident->signal_source);
+        $this->assertSame($monitor->id, $incident->primary_monitor_id);
+
+        // 2. The opening timeline entry is flagged autonomous (AI, no human ok).
+        $opening = IncidentUpdate::query()->where('incident_id', $incident->id)->sole();
+        $this->assertTrue($opening->autonomous);
+        $this->assertSame('ai', $opening->actor);
+
+        // 3. The suggestion audit-trails the accept, linked to the incident.
+        $suggestion = AiSuggestion::query()->sole();
+        $this->assertSame(AiSuggestionStatus::Accepted, $suggestion->status);
+        $this->assertSame('llm', $suggestion->source);
+        $this->assertSame($incident->id, $suggestion->accepted_incident_id);
+    }
+
+    public function test_auto_monitor_below_threshold_does_not_auto_open(): void
+    {
+        // The default fake labels at medium confidence, below the high-only
+        // auto-open bar: the anomaly falls back to a pending suggestion.
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $this->seedAnomalousWindow($monitor);
+
+        $this->runSweep();
+
+        $this->assertSame(0, Incident::query()->count());
+
+        $suggestion = AiSuggestion::query()->sole();
+        $this->assertSame(AiSuggestionStatus::Pending, $suggestion->status);
+        $this->assertSame('llm', $suggestion->source);
+        $this->assertNull($suggestion->accepted_incident_id);
+    }
+
+    public function test_auto_monitor_over_budget_does_not_auto_open(): void
+    {
+        // A zero daily cap forces over budget even with a high-confidence stub:
+        // the LLM is never called and no incident is auto-opened.
+        config(['ai.budget.daily_per_team' => 0]);
+        $this->app->instance(AnomalyTriageGateway::class, new HighConfidenceTriageGateway);
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $this->seedAnomalousWindow($monitor);
+
+        $this->runSweep();
+
+        $this->assertSame(0, Incident::query()->count());
+
+        $suggestion = AiSuggestion::query()->sole();
+        $this->assertSame(AiSuggestionStatus::Pending, $suggestion->status);
+        $this->assertSame('statistical', $suggestion->source);
+        $this->assertNull($suggestion->accepted_incident_id);
+    }
+
     /**
-     * Run the sweep with a real (pure) detector, exactly as the queue worker
-     * would resolve it.
+     * Run the sweep with a real (pure) detector, resolving the gateway, budget,
+     * and incident opener from the container exactly as the queue worker would.
      */
     protected function runSweep(): void
     {
-        (new SweepAiSuggestions)->handle(new ResponseTimeAnomalyDetector);
+        $this->app->call([new SweepAiSuggestions, 'handle']);
     }
 
     /**
@@ -187,5 +267,23 @@ class SweepAiSuggestionsTest extends TestCase
             'status' => AiSuggestionStatus::Pending,
             'expires_at' => now()->addDays(7),
         ]);
+    }
+}
+
+/**
+ * A gateway that always labels at high confidence, so a test can exercise the
+ * autonomous auto-open branch (which fires only above the confidence threshold).
+ */
+class HighConfidenceTriageGateway implements AnomalyTriageGateway
+{
+    public function triage(TriagePayload $payload): TriageResult
+    {
+        return new TriageResult(
+            confirmed: true,
+            severity: 'critical',
+            confidence: AiConfidence::High,
+            recommendation: 'High-confidence stub: sustained response-time deviation.',
+            strippedCitations: [],
+        );
     }
 }
