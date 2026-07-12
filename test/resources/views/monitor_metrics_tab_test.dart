@@ -3,7 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:uptizm/app/controllers/monitor_controller.dart';
+import 'package:uptizm/app/controllers/monitor_metrics_controller.dart';
 import 'package:uptizm/app/mocks/metrics.dart';
+import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metric_detail.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metric_form.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
@@ -21,6 +25,7 @@ class _MetricsLangLoader implements TranslationLoader {
       // MonitorMetricsTab — system section.
       'uptizm.monitors.metrics_system_title': 'System metrics',
       'uptizm.monitors.metrics_system_collected_by_default': 'collected',
+      'uptizm.monitors.metrics_response_time': 'Response time',
 
       // MonitorMetricsTab — custom section.
       'uptizm.monitors.metrics_custom_title': 'Custom metrics',
@@ -82,10 +87,74 @@ void main() {
     // Bind MagicStarter so magic_starter widgets (Button, BottomSheet, etc.)
     // resolve their theme without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind a fake network driver: the tab's `initState` kicks off
+    // `MonitorMetricsController.reload` (and `MonitorController.monitorById`
+    // fires a background single-resource refresh), both of which need a
+    // registered `network` service even though the tests below seed their
+    // state directly via `seedForTest` rather than through a live fetch.
+    Http.fake();
 
     // Load short strings so trans() returns human labels rather than raw keys.
     Translator.instance.setLoader(_MetricsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
+
+    // Seed the live controllers with the fixture-equivalent data the tab
+    // used to read directly from `mocks/metrics.dart`'s
+    // `customMetricsForMonitors`/`systemMetricsForMonitors`, bypassing the
+    // network exactly like `monitor_controller_test.dart`'s `seedForTest`.
+    MonitorController.instance.seedForTest([
+      const MonitorSummary(
+        id: 'api',
+        name: 'API',
+        url: 'https://api.uptizm.com',
+        status: StatusKey.up,
+        responseMs: 412,
+        uptime: '99.9%',
+        intervalLabel: '30s',
+        regions: ['us-east'],
+      ),
+    ]);
+    MonitorMetricsController.instance.seedForTest('api', [
+      MonitorMetricRecord(
+        id: 'm1',
+        form: kEmptyMetricForm.copyWith(
+          label: 'Memory usage',
+          key: 'memory_usage',
+          path: r'$.system.memory.used_pct',
+          unit: '%',
+          direction: 'high',
+          warn: '80',
+          critical: '95',
+          value: 73,
+        ),
+      ),
+      MonitorMetricRecord(
+        id: 'm2',
+        form: kEmptyMetricForm.copyWith(
+          label: 'CPU load',
+          key: 'cpu_load',
+          path: r'$.system.cpu.load_pct',
+          unit: '%',
+          direction: 'high',
+          warn: '70',
+          critical: '90',
+          value: 41,
+        ),
+      ),
+      MonitorMetricRecord(
+        id: 'm3',
+        form: kEmptyMetricForm.copyWith(
+          label: 'Request rate',
+          key: 'req_rate',
+          path: r'$.requests.rate',
+          unit: 'req_s',
+          direction: 'low',
+          warn: '50',
+          critical: '20',
+          value: 96,
+        ),
+      ),
+    ]);
   });
 
   tearDown(() {
@@ -280,6 +349,106 @@ void main() {
             'Empty state must not appear when the monitor has custom metrics',
       );
     });
+
+    testWidgets(
+      'Save in the create sheet POSTs the new metric and it renders after '
+      'the post-create reload',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // A callback stub: POST creates (201), everything else (the
+        // post-create reload's GET) answers with the pre-existing 3 metrics
+        // plus the newly created one, so the assertion below proves the row
+        // came from a live reload rather than optimistic local state.
+        final FakeNetworkDriver fake = Http.fake((request) {
+          if (request.method == 'POST') {
+            return Http.response({'data': {}}, 201);
+          }
+          return Http.response({
+            'data': [
+              {
+                'id': 'm1',
+                'label': 'Memory usage',
+                'key': 'memory_usage',
+                'type': 'numeric',
+                'latest': {'numeric_value': 73},
+              },
+              {
+                'id': 'm2',
+                'label': 'CPU load',
+                'key': 'cpu_load',
+                'type': 'numeric',
+                'latest': {'numeric_value': 41},
+              },
+              {
+                'id': 'm3',
+                'label': 'Request rate',
+                'key': 'req_rate',
+                'type': 'numeric',
+                'latest': {'numeric_value': 96},
+              },
+              {
+                'id': 'm4',
+                'label': 'Queue depth',
+                'key': 'queue_depth',
+                'type': 'numeric',
+                'latest': {'numeric_value': 12},
+              },
+            ],
+          });
+        });
+
+        // The BottomSheet mounts on the root Overlay, so WindTheme must sit
+        // above the Navigator (React MagicApplication.builder pattern).
+        await tester.pumpWidget(
+          wrapRootTheme(const MonitorMetricsTab(monitorId: 'api')),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text(trans('uptizm.monitors.metrics_add')));
+        await tester.pumpAndSettle();
+
+        final Finder nameField = find.widgetWithText(
+          MSInput,
+          trans('uptizm.monitors.metrics_form_name_placeholder'),
+        );
+        await tester.tap(nameField);
+        await tester.pumpAndSettle();
+        await tester.enterText(nameField, 'Queue depth');
+        await tester.pump();
+
+        // The default source is `json`, which requires a non-empty
+        // extraction path before Save enables (`_ruleReady`); fill it via
+        // its source-specific placeholder.
+        final Finder pathField = find.widgetWithText(
+          MSInput,
+          kPathPlaceholder['json']!,
+        );
+        await tester.tap(pathField);
+        await tester.pumpAndSettle();
+        await tester.enterText(pathField, r'$.queue.depth');
+        await tester.pump();
+
+        final Finder saveButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.metrics_form_save_create'),
+        );
+        await tester.tap(saveButton);
+        await tester.pumpAndSettle();
+
+        fake.assertSent(
+          (r) => r.method == 'POST' && r.url == '/monitors/api/metrics',
+        );
+        expect(
+          find.text('Queue depth'),
+          findsOneWidget,
+          reason:
+              'The newly created metric must render after the post-create '
+              'reload, proving the write persisted through the live endpoint',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

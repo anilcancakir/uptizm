@@ -3,7 +3,10 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/monitor_controller.dart';
+import '../../../app/controllers/monitor_metrics_controller.dart';
 import '../../../app/mocks/metrics.dart';
+import '../../../app/mocks/monitors.dart';
 import '../../../app/mocks/status.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_dot/index.dart';
@@ -24,21 +27,29 @@ import 'monitor_metrics_support.dart';
 ///
 /// ### State model
 ///
-/// System metrics are read straight from [systemMetricsForMonitors] and never
-/// mutate. Custom metrics are seeded once from [customMetricsForMonitors] via
-/// [fromCatalog] into a *local mutable* [List] (the fixture list is never
-/// mutated in place). Every create/edit/delete acts on that local list and is
-/// committed through [setState].
+/// System metrics have no backend model (the `monitor_metrics` table is
+/// exclusively user-defined; see `MonitorMetric.php`'s docblock), so the
+/// single "response time" row stays derived from the already-live
+/// [MonitorController] inventory (`responseMs`) rather than a mock fixture.
+///
+/// Custom metrics are sourced from [MonitorMetricsController], which fetches
+/// the monitor's metric catalog + latest readings from the live `api/v1`
+/// metrics endpoints (`routes/api.php:99-116`). [initState] kicks off a
+/// [MonitorMetricsController.reload]; this widget listens for the
+/// controller's notifications and rebuilds against [MonitorMetricsController.metricsFor].
+/// Every create/edit/delete/reorder calls the matching controller action,
+/// which persists the write and reloads the catalog on success (see
+/// `monitor_metrics_controller.dart`).
 ///
 /// ### Sheet interactions
 ///
 /// - "Add metric" / "Create metric" opens [MonitorMetricForm] in create mode;
-///   Save appends the new [MetricForm].
+///   Save posts the new metric.
 /// - Tapping a custom row opens [MonitorMetricDetail] in a [BottomSheet].
 /// - The detail's Edit closes the detail sheet, then opens the form in edit
-///   mode bound to that row's index; Save replaces the row in place.
-/// - The detail's Delete (already confirmed inside the detail) removes the row
-///   and closes the sheet.
+///   mode bound to that row's record; Save puts the updated fields.
+/// - The detail's Delete (already confirmed inside the detail) deletes the
+///   metric and closes the sheet.
 ///
 /// No color is hardcoded: every tone flows through semantic alias keys
 /// (`text-fg`, `bg-surface`, `border-color-border`, ...) and the monitoring
@@ -60,71 +71,100 @@ class MonitorMetricsTab extends StatefulWidget {
 }
 
 class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
-  /// Read-only system metrics (response time, collected by default). These come
-  /// straight from the fixture and never change for the lifetime of the tab.
-  late final List<MonitorMetric> _systemMetrics;
-
-  /// The mutable working copy of the monitor's custom metrics.
-  ///
-  /// Seeded once in [initState] from [customMetricsForMonitors] via
-  /// [fromCatalog]; the fixture list itself is never mutated (see the MUST NOT
-  /// contract). Create appends, edit replaces in place, delete removes.
-  late final List<MetricForm> _metrics;
+  /// The singleton controller sourcing this monitor's custom metric catalog
+  /// from the live metrics endpoints.
+  late final MonitorMetricsController _controller;
 
   @override
   void initState() {
     super.initState();
-    _systemMetrics = systemMetricsForMonitors([widget.monitorId]);
-    // Copy the fixture output into a fresh growable list so create/edit/delete
-    // never touch the shared fixture (MUST NOT: mutate the fixture in place).
-    _metrics = customMetricsForMonitors([
-      widget.monitorId,
-    ]).map(fromCatalog).toList();
+    _controller = MonitorMetricsController.instance;
+    _controller.addListener(_onControllerChanged);
+    _controller.reload(widget.monitorId);
   }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  /// Rebuilds against the freshest catalog once the controller notifies.
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Read-only system metrics: a single "response time" row derived from the
+  /// live [MonitorController] inventory, absent when that monitor has no
+  /// recorded response time yet (paused, or no check has completed).
+  List<MonitorMetric> get _systemMetrics {
+    final MonitorSummary? monitor = MonitorController.instance.monitorById(
+      widget.monitorId,
+    );
+    final int? responseMs = monitor?.responseMs;
+    if (responseMs == null) return const [];
+
+    return [
+      MonitorMetric(
+        monitorId: widget.monitorId,
+        label: trans('uptizm.monitors.metrics_response_time'),
+        key: 'response_time',
+        unit: 'ms',
+        value: responseMs,
+        direction: MetricDirection.high,
+        warn: 500,
+        critical: 1000,
+        kind: MetricKind.system,
+      ),
+    ];
+  }
+
+  /// The live custom metric catalog for this monitor.
+  List<MonitorMetricRecord> get _metrics =>
+      _controller.metricsFor(widget.monitorId);
 
   // ---------------------------------------------------------------------------
   // State transitions (React openCreate / openEdit / save / removeDetail).
   // ---------------------------------------------------------------------------
 
-  /// Opens the create form; Save appends the new metric to [_metrics].
+  /// Opens the create form; Save posts the new metric to the backend.
   void _openCreate() {
     MonitorMetricForm.show(
       context,
       initial: kEmptyMetricForm,
       isEdit: false,
-      onSave: (form) => setState(() => _metrics.add(form)),
+      onSave: (form) => _controller.create(widget.monitorId, form),
     );
   }
 
-  /// Opens the edit form for the metric at [index]; Save replaces it in place.
-  void _openEdit(int index) {
+  /// Opens the edit form for [record]; Save puts the updated fields.
+  void _openEdit(MonitorMetricRecord record) {
     MonitorMetricForm.show(
       context,
-      initial: _metrics[index],
+      initial: record.form,
       isEdit: true,
-      onSave: (form) => setState(() => _metrics[index] = form),
+      onSave: (form) => _controller.update(widget.monitorId, record.id, form),
     );
   }
 
-  /// Opens the historical detail sheet for the metric at [index].
+  /// Opens the historical detail sheet for [record].
   ///
   /// The detail's Edit first pops the detail sheet, then opens the edit form
-  /// for [index] (React `openEdit(detailIndex)` after closing the detail). Its
-  /// Delete removes the metric from local state and closes the sheet.
-  void _openDetail(int index) {
-    final MetricForm metric = _metrics[index];
+  /// for [record] (React `openEdit(detailIndex)` after closing the detail).
+  /// Its Delete deletes the metric and closes the sheet.
+  void _openDetail(MonitorMetricRecord record) {
     MSBottomSheet.show<void>(
       context,
-      title: metric.label,
+      title: record.form.label,
       body: Builder(
         builder: (sheetContext) => MonitorMetricDetail(
-          metric: metric,
+          metric: record.form,
           onEdit: () {
             Navigator.of(sheetContext).pop();
-            _openEdit(index);
+            _openEdit(record);
           },
           onDelete: () {
-            setState(() => _metrics.removeAt(index));
+            _controller.delete(widget.monitorId, record.id);
             Navigator.of(sheetContext).pop();
           },
         ),
@@ -259,8 +299,8 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     return WDiv(
       className: 'flex flex-col gap-2',
       children: [
-        for (final (int index, MetricForm metric) in _metrics.indexed)
-          _buildMetricRow(index, metric),
+        for (final MonitorMetricRecord record in _metrics)
+          _buildMetricRow(record),
       ],
     );
   }
@@ -268,11 +308,13 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   /// Builds one clickable custom-metric row.
   ///
   /// The row shows the label and `key · path` on the left, and on the right a
-  /// [StatusDot] (numeric metrics only) plus the latest value. Tapping opens
-  /// the historical [MonitorMetricDetail] sheet for [index].
-  Widget _buildMetricRow(int index, MetricForm metric) {
+  /// [StatusDot] (numeric metrics only) plus the latest live value (decoded
+  /// from the backend's `latest.numeric_value`, via [MetricForm.value]).
+  /// Tapping opens the historical [MonitorMetricDetail] sheet for [record].
+  Widget _buildMetricRow(MonitorMetricRecord record) {
+    final MetricForm metric = record.form;
     final bool isNumeric = metric.type == 'numeric';
-    final num latest = latestOf(metric);
+    final num latest = metric.value ?? 0;
     final StatusKey band = isNumeric
         ? bandOf(latest, metric.warn, metric.critical, metric.direction)
         : StatusKey.up;
@@ -290,7 +332,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     // inert). `transition-colors` smooths the hover, mirroring the React
     // `<button ... hover:bg-muted>` row.
     return WAnchor(
-      onTap: () => _openDetail(index),
+      onTap: () => _openDetail(record),
       child: WDiv(
         className:
             'flex flex-row items-center justify-between gap-3 '
