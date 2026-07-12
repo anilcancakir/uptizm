@@ -3,7 +3,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import '../../../app/mocks/oncall.dart';
+import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/mocks/teams_data.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
@@ -12,29 +12,35 @@ import '../../../ui/layouts/page_container.dart';
 /// **The Escalation Policy editor screen (`/teams/escalation/new` + `/:id`).**
 ///
 /// A Flutter port of the React `EscalationPolicyEditor.tsx`: one screen serving
-/// both create and edit. In edit mode it resolves [id] to a fixture via
-/// [findEscalationPolicy] (an unknown id falls back to a graceful [EmptyState]);
-/// in create mode ([id] `null`) it seeds a single blank rung.
+/// both create and edit. In edit mode it resolves [id] to
+/// [EscalationController.detailById] (an unknown id falls back to a graceful
+/// [EmptyState]); in create mode ([id] `null`) it seeds a single blank rung.
 ///
 /// The body is a single stacked column:
 ///
-/// - A Branding [Card] with the policy name + description [Input]s.
+/// - A Branding [Card] with the policy name + description [Input]s (the
+///   backend model only persists `name`; see [EscalationController]'s
+///   docblock, so `description` stays a local-only field like the
+///   repeat/default switches below).
 /// - An escalation-ladder section: each rung is a [Card] carrying its rung
 ///   number, a delay [Select] over the fixed delay options
 ///   ([_delayOptions], labelled via [escalationDelayLabel]), a targets
 ///   [RegionPicker] over [escalationTargetRegions] bound to that rung's
 ///   targets, and a remove-rung ghost [Button] (disabled while only one rung
 ///   remains). An "Add rung" [Button] appends a blank rung.
-/// - A settings [Card] with the repeat-last-rung and use-as-default [Switch]es.
+/// - A settings [Card] with the repeat-last-rung and use-as-default [Switch]es
+///   (local-only inputs; the backend has no matching columns yet).
 ///
 /// State is a mutable [_RungDraft] list plus name/description text controllers.
-/// [EscalationStep] is immutable, so each rung is held as an editable
-/// [_RungDraft] and projected back to [EscalationStep] only conceptually (the
-/// mock never persists). Save is enabled only while [_canSave] (name non-empty
-/// and every rung has at least one target); it shows a [Magic.success] toast and
-/// returns to `/teams/escalation`. [didUpdateWidget] reseeds on an id change so
-/// navigating between policies never carries a stale draft across (mirrors
-/// `status_page_editor_view`).
+/// Save fires [EscalationController.create] (no [id]) or
+/// [EscalationController.save] (existing [id]), which persists the policy
+/// `name` and reconciles the step chain against [_originalStepIds] (add/
+/// remove/reorder; see the controller's docblock for why an in-place rung
+/// edit clears its [_RungDraft.id] rather than calling a step-update
+/// endpoint that does not exist). Save is enabled only while [_canSave] (name
+/// non-empty and every rung has at least one target). [didUpdateWidget]
+/// reseeds on an id change so navigating between policies never carries a
+/// stale draft across (mirrors `status_page_editor_view`).
 ///
 /// ### Example
 /// ```dart
@@ -43,10 +49,11 @@ import '../../../ui/layouts/page_container.dart';
 /// MagicRoute.page('/teams/escalation/:id', () => EscalationPolicyEditorView(id: id));
 /// ```
 @immutable
-class EscalationPolicyEditorView extends StatefulWidget {
-  /// The escalation-policy identifier resolved against the fixtures via
-  /// [findEscalationPolicy]. `null` (or an unknown id) puts the editor in
-  /// create mode.
+class EscalationPolicyEditorView
+    extends MagicStatefulView<EscalationController> {
+  /// The escalation-policy identifier resolved against
+  /// [EscalationController.detailById]. `null` (or an unknown id) puts the
+  /// editor in create mode.
   final String? id;
 
   /// Creates the [EscalationPolicyEditorView] for the given policy [id].
@@ -59,24 +66,32 @@ class EscalationPolicyEditorView extends StatefulWidget {
 
 /// An editable escalation rung.
 ///
-/// [EscalationStep] is `@immutable`, so per-rung form state lives here where
-/// [afterMinutes] and [targets] can mutate in place while the user edits. The
-/// mock never persists, so there is no projection back to [EscalationStep].
+/// Carries the backend step [id] once persisted so
+/// [EscalationController.save] can diff the draft ladder against its
+/// previously loaded chain. [id] is cleared back to `null` whenever
+/// [afterMinutes]/[targets] mutate in place: the backend has no step-update
+/// endpoint, so an edited rung is reconciled as "remove the old row, add a
+/// fresh one" rather than silently dropping the edit (see
+/// [EscalationController.save]'s docblock).
 class _RungDraft {
+  /// The backend step id, or `null` for a new (or just-edited) rung.
+  String? id;
+
   /// Minutes to wait after the previous rung fires. 0 means immediately.
   int afterMinutes;
 
   /// Notification targets this rung pages, e.g. `"Slack #incidents"`.
   List<String> targets;
 
-  _RungDraft({required this.afterMinutes, required this.targets});
+  _RungDraft({this.id, required this.afterMinutes, required this.targets});
 }
 
 class _EscalationPolicyEditorViewState
-    extends State<EscalationPolicyEditorView> {
-  /// The route both Save and the breadcrumb return to.
-  static const String _listRoute = '/teams/escalation';
-
+    extends
+        MagicStatefulViewState<
+          EscalationController,
+          EscalationPolicyEditorView
+        > {
   /// The remove-rung glyph (a trash can, matching the React source).
   static const IconData _removeIcon = Icons.delete_outline;
 
@@ -87,29 +102,44 @@ class _EscalationPolicyEditorViewState
   /// The policy-name field controller.
   late TextEditingController _nameController;
 
-  /// The policy-description field controller.
+  /// The policy-description field controller. Local-only: the backend model
+  /// does not persist a description column (see the class docblock).
   late TextEditingController _descriptionController;
 
-  /// The mutable escalation ladder. Seeded from the resolved fixture (edit) or
+  /// The mutable escalation ladder. Seeded from the resolved detail (edit) or
   /// a single blank rung (create).
   late List<_RungDraft> _rungs;
 
   /// Whether the last rung keeps firing until the alert is acknowledged.
+  /// Local-only (see the class docblock).
   late bool _repeatLastStep;
 
   /// Whether this policy applies to any monitor that does not pick one.
+  /// Local-only (see the class docblock).
   late bool _isDefault;
 
-  /// Whether the resolved id maps to a real fixture (edit mode). `false` puts
-  /// the editor in create mode.
+  /// Whether the resolved id maps to a real, loaded policy (edit mode).
+  /// `false` puts the editor in create mode.
   late bool _isEdit;
+
+  /// The step ids present on the policy at the moment it was seeded, used by
+  /// [_save] to diff the current [_rungs] draft and issue exactly the
+  /// remove/add/reorder calls the change requires.
+  late Set<String> _originalStepIds;
+
+  /// Whether a save/create request is currently in flight, disabling the
+  /// Save/Create action so a double-tap cannot fire two writes.
+  bool _saving = false;
 
   @override
   void initState() {
+    // Register the controller before the base state resolves it via
+    // Magic.find<T>() (which throws when unregistered). Idempotent.
+    Magic.findOrPut(EscalationController.new);
     super.initState();
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
-    _seedFrom(findEscalationPolicy(widget.id));
+    _seedFrom(controller.detailById(widget.id));
   }
 
   @override
@@ -118,7 +148,7 @@ class _EscalationPolicyEditorViewState
     // Reseed whenever the resolved id changes so navigating between policies
     // does not carry a stale draft across (mirrors status_page_editor_view).
     if (oldWidget.id != widget.id) {
-      _seedFrom(findEscalationPolicy(widget.id));
+      _seedFrom(controller.detailById(widget.id));
     }
   }
 
@@ -132,10 +162,10 @@ class _EscalationPolicyEditorViewState
   /// Seeds the draft from [existing] (edit) or the create defaults.
   ///
   /// Runs from [initState] and [didUpdateWidget]; both schedule their own
-  /// build, so state is assigned directly rather than through [setState]. Edit
-  /// mode copies each fixture rung into a fresh [_RungDraft] (with a copied
-  /// targets list) so mutating the draft never touches the const fixture.
-  void _seedFrom(EscalationPolicy? existing) {
+  /// build, so state is assigned directly rather than through [setState].
+  /// Edit mode copies each wire step into a fresh [_RungDraft] (carrying its
+  /// backend id) so mutating the draft never touches the cached detail.
+  void _seedFrom(EscalationPolicyDetail? existing) {
     if (existing == null) {
       _isEdit = false;
       _nameController.text = '';
@@ -143,25 +173,30 @@ class _EscalationPolicyEditorViewState
       _rungs = <_RungDraft>[_RungDraft(afterMinutes: 0, targets: <String>[])];
       _repeatLastStep = true;
       _isDefault = false;
+      _originalStepIds = <String>{};
       return;
     }
     _isEdit = true;
     _nameController.text = existing.name;
-    _descriptionController.text = existing.description;
+    _descriptionController.text = '';
     _rungs = <_RungDraft>[
-      for (final EscalationStep step in existing.steps)
+      for (final EscalationStepWire step in existing.steps)
         _RungDraft(
-          afterMinutes: step.afterMinutes,
-          targets: List<String>.from(step.targets),
+          id: step.id,
+          afterMinutes: step.delayMinutes,
+          targets: <String>[step.channel ?? ''],
         ),
     ];
-    _repeatLastStep = existing.repeatLastStep;
-    _isDefault = existing.isDefault;
+    _repeatLastStep = true;
+    _isDefault = false;
+    _originalStepIds = existing.steps.map((s) => s.id).toSet();
   }
 
   /// Whether the draft satisfies the Save-enabled rule: a non-empty name and at
-  /// least one target on every rung (React `canSave`).
+  /// least one target on every rung (React `canSave`), and no save already in
+  /// flight.
   bool get _canSave =>
+      !_saving &&
       _nameController.text.trim().isNotEmpty &&
       _rungs.every((_RungDraft rung) => rung.targets.isNotEmpty);
 
@@ -181,38 +216,58 @@ class _EscalationPolicyEditorViewState
     });
   }
 
-  /// Sets the delay of the rung at [index] (React `setDelay`).
+  /// Sets the delay of the rung at [index] (React `setDelay`). Clears the
+  /// rung's persisted id: the backend has no step-update endpoint, so an
+  /// in-place edit is reconciled as remove-then-add at save time (see the
+  /// class docblock).
   void _setDelay(int index, int minutes) {
     setState(() {
       _rungs[index].afterMinutes = minutes;
+      _rungs[index].id = null;
     });
   }
 
-  /// Sets the notification targets of the rung at [index] (React `setTargets`).
+  /// Sets the notification targets of the rung at [index] (React
+  /// `setTargets`). Clears the rung's persisted id for the same reason as
+  /// [_setDelay].
   void _setTargets(int index, List<String> targets) {
     setState(() {
       _rungs[index].targets = targets;
+      _rungs[index].id = null;
     });
   }
 
-  /// Saves the draft and returns to the list (mock: nothing persists).
-  void _save() {
-    Magic.success(
-      trans(
-        _isEdit
-            ? 'uptizm.teams.escalation_editor_save_button'
-            : 'uptizm.teams.escalation_editor_create_button',
-      ),
-      _nameController.text.trim(),
-    );
-    MagicRoute.to(_listRoute);
+  /// Saves the draft: [EscalationController.create] in create mode,
+  /// [EscalationController.save] in edit mode. Both persist through to
+  /// `api/v1/escalation-policies` and navigate back to the list on success,
+  /// surfacing an error toast and leaving the editor open on failure (see the
+  /// controller's docblock).
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    final String name = _nameController.text.trim();
+    final List<EscalationRungDraft> rungs = [
+      for (final _RungDraft rung in _rungs)
+        EscalationRungDraft(
+          id: rung.id,
+          afterMinutes: rung.afterMinutes,
+          targets: rung.targets,
+        ),
+    ];
+
+    if (_isEdit) {
+      await controller.save(widget.id!, name, rungs, _originalStepIds);
+    } else {
+      await controller.create(name, rungs);
+    }
+
+    if (mounted) setState(() => _saving = false);
   }
 
   @override
   Widget build(BuildContext context) {
     // 1. A supplied-but-unknown id is a broken link, so it renders a graceful
     //    not-found state (mirrors status_page_editor_view).
-    if (widget.id != null && findEscalationPolicy(widget.id) == null) {
+    if (widget.id != null && controller.detailById(widget.id) == null) {
       return _buildNotFound();
     }
 
@@ -240,7 +295,7 @@ class _EscalationPolicyEditorViewState
         description: trans('uptizm.teams.escalation_editor_description'),
         action: MSButton(
           intent: ButtonIntent.primary,
-          onPressed: () => MagicRoute.to(_listRoute),
+          onPressed: () => MagicRoute.to('/teams/escalation'),
           child: WText(trans('uptizm.team_menu.escalation')),
         ),
       ),
@@ -260,7 +315,7 @@ class _EscalationPolicyEditorViewState
           : trans('uptizm.teams.escalation_editor_title_new'),
       subtitle: trans('uptizm.teams.escalation_editor_description'),
       backLabel: trans('uptizm.team_menu.escalation'),
-      backFallback: _listRoute,
+      backFallback: '/teams/escalation',
       actions: <Widget>[
         MSButton(
           disabled: !_canSave,

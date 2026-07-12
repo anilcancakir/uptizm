@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import 'package:uptizm/app/mocks/oncall.dart';
+import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
@@ -149,6 +149,8 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.escalation_editor_targets_hint': "Who this rung pages.",
       'uptizm.teams.escalation_editor_repeat_label': 'Repeat the last rung',
       'uptizm.teams.escalation_editor_default_label': 'Use as default',
+      'uptizm.teams.escalation_toast_error_title': "Couldn't save",
+      'uptizm.teams.escalation_toast_error_description': 'Try again.',
 
       // On-call schedule.
       'uptizm.teams.oncall_title': 'On-call schedule',
@@ -216,6 +218,14 @@ void main() {
     // which fall through to a warning log when no navigator context is
     // mounted, as here; mirrors monitor_controller_test.dart).
     Magic.singleton('log', () => LogManager());
+    // Bind a fake network driver so EscalationController's wired reload/
+    // create/save/delete actions resolve the `network` service instead of
+    // throwing on an unregistered service (mirrors monitor_controller_test.dart).
+    Http.fake();
+    // Force-build the lazy GoRouter so MagicRoute.to (used by
+    // EscalationController.create/save/delete) does not throw
+    // StateError('Router not initialized...').
+    MagicRouter.instance.routerConfig;
 
     Translator.instance.setLoader(_TeamsViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
@@ -270,11 +280,46 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('EscalationPoliciesView', () {
+    /// Fixture-shaped detail seeds for [EscalationController.seedForTest],
+    /// standing in for the live `GET /escalation-policies` + per-policy
+    /// detail hydration this view now sources instead of the design-lab
+    /// fixtures (see `EscalationController`'s class docblock).
+    final List<EscalationPolicyDetail> seeds = const [
+      EscalationPolicyDetail(
+        id: 'standard',
+        name: 'Standard',
+        steps: [
+          EscalationStepWire(
+            id: 'step-1',
+            position: 0,
+            delayMinutes: 0,
+            targetType: 'channel',
+            channel: 'Slack #incidents',
+          ),
+        ],
+      ),
+      EscalationPolicyDetail(
+        id: 'critical',
+        name: 'Critical path',
+        steps: [
+          EscalationStepWire(
+            id: 'step-2',
+            position: 0,
+            delayMinutes: 0,
+            targetType: 'channel',
+            channel: 'On-call engineer',
+          ),
+        ],
+      ),
+    ];
+
     testWidgets('renders the title and a card for every policy', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1280, 6000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      EscalationController.instance.seedForTest(seeds);
 
       await tester.pumpWidget(
         wrap(const EscalationPoliciesView(), size: const Size(1280, 6000)),
@@ -286,7 +331,7 @@ void main() {
       // RenderFlex overflow fires under the unbounded-height scroll view.
       expect(tester.takeException(), isNull);
       expect(find.text(trans('uptizm.teams.escalation_title')), findsOneWidget);
-      for (final EscalationPolicy policy in escalationPolicies) {
+      for (final EscalationPolicyDetail policy in seeds) {
         expect(find.text(policy.name), findsOneWidget);
       }
     });
@@ -319,10 +364,26 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 6000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final String id = escalationPolicies.first.id;
+      const EscalationPolicyDetail detail = EscalationPolicyDetail(
+        id: 'standard',
+        name: 'Standard',
+        steps: [
+          EscalationStepWire(
+            id: 'step-1',
+            position: 0,
+            delayMinutes: 0,
+            targetType: 'channel',
+            channel: 'Slack #incidents',
+          ),
+        ],
+      );
+      EscalationController.instance.seedForTest(const [detail]);
 
       await tester.pumpWidget(
-        wrap(EscalationPolicyEditorView(id: id), size: const Size(1280, 6000)),
+        wrap(
+          EscalationPolicyEditorView(id: detail.id),
+          size: const Size(1280, 6000),
+        ),
       );
       await tester.pump();
 

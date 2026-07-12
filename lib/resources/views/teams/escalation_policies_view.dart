@@ -3,9 +3,10 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/mocks/oncall.dart';
 import '../../../app/mocks/status.dart';
-import '../../../app/mocks/teams_data.dart';
+import '../../../app/mocks/teams_data.dart' show escalationDelayLabel;
 import '../../../ui/components/status_dot/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
@@ -18,11 +19,17 @@ import '../../../ui/layouts/page_container.dart';
 /// and the rung's targets as small token-tinted pills), plus a "Repeats last
 /// rung" footer when [EscalationPolicy.repeatLastStep] is set.
 ///
-/// Delete opens a [MagicStarterConfirmDialog]; on confirm it removes the
-/// policy from the local working copy and surfaces a [Magic.success] toast,
-/// with the `if (!mounted) return;` guard after the awaited dialog (mirrors
-/// `sessions_settings_view.dart`'s `_confirmSignOut` exactly). This is a mock
-/// screen: nothing persists past the local widget state.
+/// Sources [EscalationController.policies] (live `GET /escalation-policies`
+/// + per-policy detail hydration) instead of the design-lab fixtures; see
+/// the controller's class docblock for the wire-shape divergence
+/// (`description`/`repeatLastStep`/`isDefault`/`monitorCount` default since
+/// the backend model does not persist them yet).
+///
+/// Delete opens a [MagicStarterConfirmDialog]; on confirm it fires
+/// [EscalationController.delete] (`DELETE /escalation-policies/{id}`), which
+/// reloads the roster and surfaces a toast, with the `if (!mounted) return;`
+/// guard after the awaited dialog (mirrors `sessions_settings_view.dart`'s
+/// `_confirmSignOut` exactly).
 ///
 /// ### Example
 /// ```dart
@@ -30,7 +37,7 @@ import '../../../ui/layouts/page_container.dart';
 /// MagicRoute.page('/teams/escalation', () => const EscalationPoliciesView());
 /// ```
 @immutable
-class EscalationPoliciesView extends StatefulWidget {
+class EscalationPoliciesView extends MagicStatefulView<EscalationController> {
   /// Creates the [EscalationPoliciesView].
   const EscalationPoliciesView({super.key});
 
@@ -38,24 +45,22 @@ class EscalationPoliciesView extends StatefulWidget {
   State<EscalationPoliciesView> createState() => _EscalationPoliciesViewState();
 }
 
-class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
+class _EscalationPoliciesViewState
+    extends MagicStatefulViewState<EscalationController, EscalationPoliciesView> {
   /// The repeat-last-rung footer glyph, matching the React source's loop icon.
   static const IconData _repeatIcon = Icons.repeat;
 
-  /// The mutable working copy of the team's escalation policies.
-  ///
-  /// Seeded once in [initState] from [escalationPolicies]; the fixture list
-  /// is never mutated in place. Delete mutates this list via [setState].
-  late List<EscalationPolicy> _policies;
-
   @override
   void initState() {
+    // Register the controller before the base state resolves it via
+    // Magic.find<T>() (which throws when unregistered). Idempotent.
+    Magic.findOrPut(EscalationController.new);
     super.initState();
-    _policies = escalationPolicies.toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final List<EscalationPolicy> policies = controller.policies;
     // A plain Flutter Column scaffolds the page body so each descendant gets
     // a proper bounded width from PageContainer (same discipline as
     // StatusPagesListView / OnCallScheduleView).
@@ -80,7 +85,7 @@ class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
           WDiv(
             className: 'flex flex-col gap-4',
             children: [
-              for (final EscalationPolicy policy in _policies)
+              for (final EscalationPolicy policy in policies)
                 _buildPolicyCard(policy),
             ],
           ),
@@ -294,9 +299,11 @@ class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
   // Delete confirmation
   // ---------------------------------------------------------------------------
 
-  /// Opens the delete [MagicStarterConfirmDialog]; on confirm, removes
-  /// [policy] from the local list and surfaces a success toast. Mirrors
-  /// `sessions_settings_view.dart`'s `_confirmSignOut` exactly.
+  /// Opens the delete [MagicStarterConfirmDialog]; on confirm, fires
+  /// [EscalationController.delete] (`DELETE /escalation-policies/{id}`),
+  /// which reloads the roster and surfaces its own toast. Mirrors
+  /// `sessions_settings_view.dart`'s `_confirmSignOut` exactly, including the
+  /// `if (!mounted) return;` guard after the awaited dialog.
   Future<void> _confirmDelete(EscalationPolicy policy) async {
     final bool confirmed = await MagicStarterConfirmDialog.show(
       context,
@@ -316,10 +323,6 @@ class _EscalationPoliciesViewState extends State<EscalationPoliciesView> {
     // the confirm dialog was open (mirrors sessions_settings_view's precedent).
     if (!mounted) return;
 
-    setState(() => _policies.remove(policy));
-    Magic.success(
-      trans('uptizm.teams.escalation_policy_delete_confirm_label'),
-      policy.name,
-    );
+    await controller.delete(policy.id);
   }
 }

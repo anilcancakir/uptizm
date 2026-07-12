@@ -1,0 +1,411 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:magic/magic.dart';
+
+import 'package:uptizm/app/controllers/escalation_controller.dart';
+
+void main() {
+  setUp(() {
+    MagicApp.reset();
+    Magic.flush();
+    // Bind LogManager so Log.warning() works inside MagicFeedback.showSnackbar
+    // (create/save/delete call Magic.success/Magic.error, which fall through
+    // to a warning log when no navigator context is mounted, as here).
+    Magic.singleton('log', () => LogManager());
+    // Bind a fake network driver so the wired reload/create/save/delete/
+    // removeStep/reorderSteps actions resolve the `network` service.
+    // Individual tests override it with `Http.fake({...})` to seed a canned
+    // envelope, or call `Http.unfake()` to exercise the transport-failure
+    // degradation path.
+    Http.fake();
+    // Force-build the lazy GoRouter so MagicRoute.to (used by create/save)
+    // does not throw StateError('Router not initialized...').
+    MagicRouter.instance.routerConfig;
+  });
+
+  tearDown(() {
+    MagicApp.reset();
+    Magic.flush();
+  });
+
+  test('EscalationController.instance registers and returns a singleton', () {
+    final EscalationController first = EscalationController.instance;
+    final EscalationController second = EscalationController.instance;
+
+    expect(identical(first, second), isTrue);
+  });
+
+  // ---------------------------------------------------------------------------
+  // reload: GET index + per-policy GET detail (Future.wait fan-out).
+  // ---------------------------------------------------------------------------
+
+  group('reload', () {
+    test('hydrates the roster from index + per-policy detail fetches', () async {
+      Http.fake({
+        'escalation-policies': Http.response({
+          'data': [
+            {'id': 'standard', 'name': 'Standard'},
+          ],
+        }, 200),
+        'escalation-policies/standard': Http.response({
+          'data': {
+            'id': 'standard',
+            'name': 'Standard',
+            'steps': [
+              {
+                'id': 'step-1',
+                'position': 0,
+                'delay_minutes': 0,
+                'target_type': 'channel',
+                'target_id': null,
+                'channel': 'Slack #incidents',
+              },
+            ],
+          },
+        }, 200),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.reload();
+
+      expect(controller.policies, hasLength(1));
+      expect(controller.policies.single.name, equals('Standard'));
+      expect(controller.policies.single.steps, hasLength(1));
+      expect(
+        controller.policies.single.steps.single.targets,
+        contains('Slack #incidents'),
+      );
+    });
+
+    test('preserves the last-known-good roster on a failed index fetch', () async {
+      Http.fake({
+        'escalation-policies': Http.response({'message': 'nope'}, 500),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.reload();
+
+      expect(controller.policies, isEmpty);
+    });
+
+    test('degrades gracefully (no throw) when the network is unavailable', () async {
+      Http.unfake();
+      final EscalationController controller = EscalationController.instance;
+
+      await expectLater(() => controller.reload(), returnsNormally);
+      expect(controller.policies, isEmpty);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // detailById: synchronous cache + background refresh.
+  // ---------------------------------------------------------------------------
+
+  group('detailById', () {
+    test('returns null for an unknown or null id', () {
+      final EscalationController controller = EscalationController.instance;
+
+      expect(controller.detailById('does-not-exist'), isNull);
+      expect(controller.detailById(null), isNull);
+    });
+
+    test('returns the seeded detail synchronously', () {
+      final EscalationController controller = EscalationController.instance;
+      controller.seedForTest([
+        const EscalationPolicyDetail(id: 'standard', name: 'Standard', steps: []),
+      ]);
+
+      expect(controller.detailById('standard')?.name, equals('Standard'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // create: POST policy + sequential POST steps, reload + navigate on
+  // success, error toast + stay on failure.
+  // ---------------------------------------------------------------------------
+
+  group('create', () {
+    test('POSTs the policy then one step per rung, in order', () async {
+      final fake = Http.fake({
+        'escalation-policies': Http.response({
+          'data': {'id': 'new-policy', 'name': 'New policy'},
+        }, 201),
+        'escalation-policies/new-policy/steps': Http.response({'data': {}}, 201),
+        'escalation-policies/new-policy': Http.response({
+          'data': {'id': 'new-policy', 'name': 'New policy', 'steps': []},
+        }, 200),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.create('New policy', const [
+        EscalationRungDraft(afterMinutes: 0, targets: ['Slack #incidents']),
+        EscalationRungDraft(afterMinutes: 5, targets: ['On-call engineer']),
+      ]);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('escalation-policies') &&
+            !r.url.contains('/steps') &&
+            r.data is Map &&
+            (r.data as Map)['name'] == 'New policy',
+      );
+      final int stepPostCount = fake.recorded
+          .where(
+            (entry) =>
+                entry.$1.method == 'POST' &&
+                entry.$1.url.contains('escalation-policies/new-policy/steps'),
+          )
+          .length;
+      expect(stepPostCount, equals(2));
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('escalation-policies/new-policy/steps') &&
+            r.data is Map &&
+            (r.data as Map)['position'] == 0 &&
+            (r.data as Map)['delay_minutes'] == 0 &&
+            (r.data as Map)['target_type'] == 'channel' &&
+            (r.data as Map)['channel'] == 'Slack #incidents',
+      );
+    });
+
+    test('surfaces an error toast and does not create steps on a failed policy create', () async {
+      final fake = Http.fake({
+        'escalation-policies': Http.response({'message': 'Validation failed'}, 422),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await expectLater(
+        () => controller.create('New policy', const [
+          EscalationRungDraft(afterMinutes: 0, targets: ['Slack #incidents']),
+        ]),
+        returnsNormally,
+      );
+      fake.assertNotSent((r) => r.url.contains('/steps'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // save: PUT policy + reconcile steps (remove/add/reorder).
+  // ---------------------------------------------------------------------------
+
+  group('save', () {
+    test('PUTs the policy name', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard': Http.response({
+          'data': {'id': 'standard', 'name': 'Standard', 'steps': []},
+        }, 200),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.save('standard', 'Standard', const [], const {});
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'PUT' &&
+            r.url.contains('escalation-policies/standard') &&
+            !r.url.contains('/steps') &&
+            r.data is Map &&
+            (r.data as Map)['name'] == 'Standard',
+      );
+    });
+
+    test('removes an original step id no longer present in the draft', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard': Http.response({
+          'data': {'id': 'standard', 'name': 'Standard', 'steps': []},
+        }, 200),
+        'escalation-policies/standard/steps/step-1': Http.response(null, 204),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.save('standard', 'Standard', const [], {'step-1'});
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'DELETE' &&
+            r.url.contains('escalation-policies/standard/steps/step-1'),
+      );
+    });
+
+    test('adds a step for a rung with a null id (new or edited)', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard': Http.response({
+          'data': {'id': 'standard', 'name': 'Standard', 'steps': []},
+        }, 200),
+        'escalation-policies/standard/steps': Http.response({'data': {}}, 201),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.save('standard', 'Standard', const [
+        EscalationRungDraft(afterMinutes: 10, targets: ['PagerDuty']),
+      ], const {});
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('escalation-policies/standard/steps') &&
+            r.data is Map &&
+            (r.data as Map)['position'] == 0 &&
+            (r.data as Map)['delay_minutes'] == 10 &&
+            (r.data as Map)['channel'] == 'PagerDuty',
+      );
+    });
+
+    test('bulk-reorders untouched rungs via the reorder endpoint', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard': Http.response({
+          'data': {'id': 'standard', 'name': 'Standard', 'steps': []},
+        }, 200),
+        'escalation-policies/standard/steps/reorder': Http.response(null, 204),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.save('standard', 'Standard', const [
+        EscalationRungDraft(id: 'step-2', afterMinutes: 5, targets: ['Team admins']),
+        EscalationRungDraft(id: 'step-1', afterMinutes: 0, targets: ['Slack #incidents']),
+      ], {'step-1', 'step-2'});
+
+      fake.assertSent((r) {
+        if (r.method != 'PUT' ||
+            !r.url.contains('escalation-policies/standard/steps/reorder') ||
+            r.data is! Map) {
+          return false;
+        }
+        final Object? order = (r.data as Map)['order'];
+        if (order is! List || order.length != 2) return false;
+        return order[0]['id'] == 'step-2' &&
+            order[0]['position'] == 0 &&
+            order[1]['id'] == 'step-1' &&
+            order[1]['position'] == 1;
+      });
+    });
+
+    test('surfaces an error toast and stops reconciling on a failed policy update', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard': Http.response({'message': 'nope'}, 422),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      await expectLater(
+        () => controller.save('standard', 'Standard', const [], {'step-1'}),
+        returnsNormally,
+      );
+      fake.assertNotSent((r) => r.method == 'DELETE');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // delete: DELETE policy, evict from cache, reload on success.
+  // ---------------------------------------------------------------------------
+
+  group('delete', () {
+    test('DELETEs /escalation-policies/{id} and evicts it from the cache', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard': Http.response(null, 204),
+      });
+      final EscalationController controller = EscalationController.instance;
+      controller.seedForTest([
+        const EscalationPolicyDetail(id: 'standard', name: 'Standard', steps: []),
+      ]);
+
+      await controller.delete('standard');
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'DELETE' &&
+            r.url.contains('escalation-policies/standard'),
+      );
+      expect(controller.policies, isEmpty);
+    });
+
+    test('surfaces an error toast without throwing on a failed delete', () async {
+      Http.fake({
+        'escalation-policies/standard': Http.response({'message': 'nope'}, 422),
+      });
+      final EscalationController controller = EscalationController.instance;
+      controller.seedForTest([
+        const EscalationPolicyDetail(id: 'standard', name: 'Standard', steps: []),
+      ]);
+
+      await expectLater(() => controller.delete('standard'), returnsNormally);
+      expect(controller.policies, hasLength(1));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // removeStep / reorderSteps: directly callable + testable primitives.
+  // ---------------------------------------------------------------------------
+
+  group('removeStep', () {
+    test('DELETEs /escalation-policies/{policyId}/steps/{stepId}', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard/steps/step-1': Http.response(null, 204),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      final bool ok = await controller.removeStep('standard', 'step-1');
+
+      expect(ok, isTrue);
+      fake.assertSent(
+        (r) =>
+            r.method == 'DELETE' &&
+            r.url.contains('escalation-policies/standard/steps/step-1'),
+      );
+    });
+
+    test('returns false and toasts on a failed removal', () async {
+      Http.fake({
+        'escalation-policies/standard/steps/step-1': Http.response(
+          {'message': 'nope'},
+          422,
+        ),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      final bool ok = await controller.removeStep('standard', 'step-1');
+
+      expect(ok, isFalse);
+    });
+  });
+
+  group('reorderSteps', () {
+    test('PUTs /escalation-policies/{policyId}/steps/reorder with the order', () async {
+      final fake = Http.fake({
+        'escalation-policies/standard/steps/reorder': Http.response(null, 204),
+      });
+      final EscalationController controller = EscalationController.instance;
+      final order = [
+        {'id': 'step-2', 'position': 0},
+        {'id': 'step-1', 'position': 1},
+      ];
+
+      final bool ok = await controller.reorderSteps('standard', order);
+
+      expect(ok, isTrue);
+      fake.assertSent(
+        (r) =>
+            r.method == 'PUT' &&
+            r.url.contains('escalation-policies/standard/steps/reorder') &&
+            r.data is Map &&
+            (r.data as Map)['order'] == order,
+      );
+    });
+
+    test('returns false and toasts on a failed reorder', () async {
+      Http.fake({
+        'escalation-policies/standard/steps/reorder': Http.response(
+          {'message': 'nope'},
+          422,
+        ),
+      });
+      final EscalationController controller = EscalationController.instance;
+
+      final bool ok = await controller.reorderSteps('standard', const [
+        {'id': 'step-1', 'position': 0},
+      ]);
+
+      expect(ok, isFalse);
+    });
+  });
+}
