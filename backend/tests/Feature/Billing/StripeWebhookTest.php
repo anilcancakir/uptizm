@@ -3,12 +3,16 @@
 namespace Tests\Feature\Billing;
 
 use App\Enums\Plan;
+use App\Http\Controllers\StripeWebhookController;
 use App\Models\ProcessedWebhookEvent;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Mockery\MockInterface;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -153,6 +157,52 @@ class StripeWebhookTest extends TestCase
         $this->assertSame(Plan::Free, $team->plan);
         $this->assertSame('canceled', $team->plan_status);
         $this->assertSame(1, ProcessedWebhookEvent::query()->where('event_id', 'evt_replay')->count());
+    }
+
+    public function test_granting_status_with_unmapped_price_leaves_a_paid_team_untouched(): void
+    {
+        Log::spy();
+
+        $team = $this->makeBillableTeam(['plan' => Plan::Pro->value, 'plan_status' => 'active']);
+
+        // Seed a synced Pro subscription, then deliver an update whose price id
+        // is absent from cashier.plans (a prod config gap). A granting status
+        // resolving to Free ONLY because the price is unmapped must NOT revoke
+        // the paid tier; the entitlement is left untouched and a warning logged.
+        $this->postSignedWebhook(
+            $this->subscriptionEvent('evt_gap_seed', 'customer.subscription.created', $team, 'price_pro', 'active'),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent('evt_gap', 'customer.subscription.updated', $team, 'price_unmapped', 'active'),
+        )->assertOk();
+
+        $team->refresh();
+        $this->assertSame(Plan::Pro, $team->plan);
+        $this->assertSame('active', $team->plan_status);
+
+        Log::shouldHaveReceived('warning')->once();
+    }
+
+    public function test_mid_handler_failure_rolls_back_the_dedup_row_so_a_retry_reprocesses(): void
+    {
+        $team = $this->makeBillableTeam();
+
+        // A handler that throws AFTER the dedup insert must not leave a
+        // processed_webhook_events row behind: otherwise Stripe's retry becomes
+        // a permanent no-op and the team keeps a paid tier for free.
+        $this->partialMock(StripeWebhookController::class, function (MockInterface $mock): void {
+            $mock->shouldAllowMockingProtectedMethods()
+                ->shouldReceive('syncEntitlementFromSubscription')
+                ->andThrow(new RuntimeException('handler exploded mid-flight'));
+        });
+
+        $event = $this->subscriptionEvent('evt_poison', 'customer.subscription.created', $team, 'price_pro', 'active');
+
+        $response = $this->postSignedWebhook($event);
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame(0, ProcessedWebhookEvent::query()->where('event_id', 'evt_poison')->count());
     }
 
     public function test_unsigned_request_is_rejected(): void

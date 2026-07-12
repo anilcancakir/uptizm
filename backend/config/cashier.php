@@ -1,11 +1,36 @@
 <?php
 
+use App\Enums\Plan;
 use Laravel\Cashier\Console\WebhookCommand;
 use Laravel\Cashier\Invoices\DompdfInvoiceRenderer;
 
 // use Laravel\Cashier\Invoices\LaravelPdfInvoiceRenderer;
 
 return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Price -> Plan Map
+    |--------------------------------------------------------------------------
+    |
+    | The authoritative map the Stripe webhook uses to project a subscription's
+    | price id onto the `teams.plan` entitlement tier. Each paid tier reads its
+    | Stripe price id from the environment so production has a real mapping; a
+    | granting subscription whose price is absent here is treated as a config
+    | gap (logged, entitlement left untouched), never a silent downgrade. Null
+    | keys are stripped so an unset price id can never map an absent price to a
+    | paid tier.
+    |
+    */
+
+    'plans' => array_filter(
+        [
+            (string) env('CASHIER_PRICE_PRO') => Plan::Pro->value,
+            (string) env('CASHIER_PRICE_BUSINESS') => Plan::Business->value,
+        ],
+        static fn (string $priceId): bool => $priceId !== '',
+        ARRAY_FILTER_USE_KEY,
+    ),
 
     /*
     |--------------------------------------------------------------------------
