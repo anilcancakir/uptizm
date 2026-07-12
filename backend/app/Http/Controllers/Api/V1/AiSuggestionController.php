@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\V1;
 use App\Enums\AiSuggestionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\AiSuggestion;
+use App\Models\Incident;
 use App\Services\Ai\AiIncidentOpener;
+use App\Services\Monitoring\IncidentDispatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,9 +30,11 @@ class AiSuggestionController extends Controller
 {
     /**
      * @param  AiIncidentOpener  $incidentOpener  The shared AI-owned incident creator.
+     * @param  IncidentDispatcher  $incidentDispatcher  The shared off-lock side-effect seam.
      */
     public function __construct(
         protected AiIncidentOpener $incidentOpener,
+        protected IncidentDispatcher $incidentDispatcher,
     ) {}
 
     /**
@@ -52,7 +56,7 @@ class AiSuggestionController extends Controller
             return $this->incidentResponse($model->accepted_incident_id);
         }
 
-        $incidentId = DB::transaction(function () use ($model): string {
+        $incident = DB::transaction(function () use ($model): ?Incident {
             // 3. Conditional claim under a row lock: only the first accept whose
             //    row is still pending with no incident wins and opens one. A
             //    concurrent accept that lost the race falls through to reuse.
@@ -64,9 +68,7 @@ class AiSuggestionController extends Controller
                 ->first();
 
             if ($claimed === null) {
-                return (string) AiSuggestion::query()
-                    ->whereKey($model->id)
-                    ->value('accepted_incident_id');
+                return null;
             }
 
             // 4. Open exactly one incident via the shared creator, then link it
@@ -77,8 +79,24 @@ class AiSuggestionController extends Controller
                 'accepted_incident_id' => $incident->id,
             ])->save();
 
-            return $incident->id;
+            return $incident;
         });
+
+        // 5. Dispatch the shared off-lock side effects (page + broadcast +
+        //    status-page cache bust + escalation) AFTER the transaction commits,
+        //    and only for a genuine open: a lost race or an AI-lane dedupe fold
+        //    returns an already-dispatched incident, so re-dispatch is skipped.
+        if ($incident !== null && $incident->wasRecentlyCreated) {
+            $this->incidentDispatcher->dispatch($incident->primaryMonitor, [
+                'opened' => $incident,
+                'resolved' => null,
+                'status_change' => null,
+            ]);
+        }
+
+        $incidentId = $incident?->id ?? (string) AiSuggestion::query()
+            ->whereKey($model->id)
+            ->value('accepted_incident_id');
 
         return $this->incidentResponse($incidentId);
     }

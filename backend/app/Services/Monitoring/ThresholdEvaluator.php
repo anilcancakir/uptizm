@@ -12,6 +12,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
+use App\Services\Ai\AiIncidentOpener;
 
 /**
  * Opens {@see Incident} rows tagged {@see SignalSource::UserThreshold} when a
@@ -221,13 +222,22 @@ class ThresholdEvaluator
     }
 
     /**
-     * True when the monitor already has any unresolved incident, guarding
-     * the consecutive-fail fallback against opening a duplicate.
+     * True when the monitor already has an active NON-AI incident, guarding the
+     * consecutive-fail fallback against opening a duplicate.
+     *
+     * Deliberately scoped to non-AI-owned incidents: an autonomous AI incident
+     * lives in a separate detection lane and must NOT mask a threshold-DOWN, so
+     * a threshold breach still opens even while an AI incident is active. The
+     * mirror of this scoping lives in
+     * {@see AiIncidentOpener::open()}, which dedupes only
+     * against active AI incidents; the two lanes are independent so neither
+     * source can suppress the other.
      */
     protected function hasActiveIncidentForMonitor(Monitor $monitor): bool
     {
         return Incident::query()
             ->where('primary_monitor_id', $monitor->id)
+            ->where('ai_owned', false)
             ->get()
             ->contains(fn (Incident $incident): bool => $incident->lifecycle->isActive());
     }

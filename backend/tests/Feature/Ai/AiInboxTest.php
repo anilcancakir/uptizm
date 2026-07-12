@@ -5,20 +5,29 @@ namespace Tests\Feature\Ai;
 use App\Enums\AiConfidence;
 use App\Enums\AiSuggestionKind;
 use App\Enums\AiSuggestionStatus;
+use App\Enums\EscalationTargetType;
 use App\Enums\IncidentSeverity;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
+use App\Events\IncidentBroadcast;
 use App\Http\Controllers\Api\V1\AiSuggestionController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Jobs\DispatchEscalationStep;
 use App\Models\AiSuggestion;
+use App\Models\EscalationPolicy;
+use App\Models\EscalationStep;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\StatusPages\StatusPageCache;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -133,6 +142,43 @@ class AiInboxTest extends TestCase
         $this->assertSame($incident->id, $suggestion->accepted_incident_id);
     }
 
+    public function test_accept_dispatches_through_the_shared_seam(): void
+    {
+        // An operator-accepted AI incident must drive the SAME off-transaction
+        // dispatch as every other incident path: broadcast, status-page cache
+        // bust, and on-call escalation.
+        Event::fake([IncidentBroadcast::class]);
+        Queue::fake();
+        $cache = Mockery::spy(StatusPageCache::class);
+        $this->app->instance(StatusPageCache::class, $cache);
+
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team, MonitorStatus::Down);
+        $suggestion = $this->makeSuggestion($team, $monitor);
+        $this->seedDefaultPolicy($team, $monitor);
+
+        $response = $this->postJson("/api/v1/ai-suggestions/{$suggestion->id}/accept");
+
+        $response->assertOk();
+        $incident = Incident::query()->sole();
+
+        // 1. The dashboard broadcast fired for the opened incident.
+        Event::assertDispatched(
+            IncidentBroadcast::class,
+            fn (IncidentBroadcast $event): bool => $event->kind === 'opened'
+                && $event->incident->id === $incident->id,
+        );
+
+        // 2. The public status-page cache was busted for the incident's monitor.
+        $cache->shouldHaveReceived('invalidateForMonitors')->once()->with([$monitor->id]);
+
+        // 3. The escalation ladder was walked for the accepted incident.
+        Queue::assertPushed(
+            DispatchEscalationStep::class,
+            fn (DispatchEscalationStep $job): bool => $job->incidentId === $incident->id,
+        );
+    }
+
     public function test_double_accept_is_idempotent_and_returns_the_same_incident(): void
     {
         $team = $this->actingAsTeamMember();
@@ -234,6 +280,25 @@ class AiInboxTest extends TestCase
             'url' => 'https://example.com/health',
             'check_interval_sec' => 60,
             'last_status' => $lastStatus,
+        ]);
+    }
+
+    /**
+     * Give the team a default escalation policy with one on-call step so the
+     * shared dispatcher's escalation walk queues a real step job on accept.
+     */
+    protected function seedDefaultPolicy(Team $team, Monitor $monitor): void
+    {
+        $policy = EscalationPolicy::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Primary On-Call Policy',
+        ]);
+
+        EscalationStep::query()->create([
+            'escalation_policy_id' => $policy->id,
+            'position' => 0,
+            'delay_minutes' => 0,
+            'target_type' => EscalationTargetType::OnCall,
         ]);
     }
 

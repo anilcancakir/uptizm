@@ -2,7 +2,9 @@
 
 namespace Tests\Unit\Services\Monitoring;
 
+use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
+use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
@@ -94,6 +96,30 @@ class ThresholdEvaluatorTest extends TestCase
         $this->assertNull($incident->trigger_metric_key);
     }
 
+    public function test_a_threshold_down_opens_even_when_an_ai_incident_is_active(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $evaluator = new ThresholdEvaluator;
+
+        // 1. An autonomous AI incident is already open on the monitor. Because
+        //    the threshold dedupe is signal-scoped to non-AI incidents, this AI
+        //    incident must NOT mask a later threshold-DOWN detection.
+        $this->makeActiveAiIncident($monitor);
+
+        // 2. The consecutive-fail threshold crosses: a NON-AI threshold incident
+        //    opens alongside the active AI incident (it is not suppressed).
+        $monitor->consecutive_fails = 2;
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), []);
+
+        $threshold = Incident::query()->where('ai_owned', false)->sole();
+        $this->assertSame(SignalSource::UserThreshold, $threshold->signal_source);
+        $this->assertNull($threshold->trigger_metric_key);
+
+        // 3. Both lanes coexist: the AI incident stays, the threshold opens once.
+        $this->assertSame(1, Incident::query()->where('ai_owned', true)->count());
+        $this->assertSame(2, Incident::query()->count());
+    }
+
     public function test_create_incident_opens_a_manual_incident_without_a_check(): void
     {
         $monitor = $this->makeMonitor();
@@ -152,6 +178,26 @@ class ThresholdEvaluatorTest extends TestCase
             'check_interval_sec' => 60,
             'incident_threshold' => $incidentThreshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD,
             'consecutive_fails' => 0,
+        ]);
+    }
+
+    /**
+     * Persist an active, autonomous AI-owned incident on the monitor so the
+     * signal-scoped threshold dedupe can be exercised against it.
+     */
+    protected function makeActiveAiIncident(Monitor $monitor): Incident
+    {
+        return Incident::query()->create([
+            'team_id' => $monitor->team_id,
+            'primary_monitor_id' => $monitor->id,
+            'title' => "Anomaly detected on {$monitor->name}",
+            'impact' => IncidentImpact::Major,
+            'severity' => IncidentSeverity::Warn,
+            'signal_source' => SignalSource::AiAnomaly,
+            'lifecycle' => IncidentStatus::Detected,
+            'ai_owned' => true,
+            'trigger_metric_key' => 'response_time',
+            'started_at' => now(),
         ]);
     }
 

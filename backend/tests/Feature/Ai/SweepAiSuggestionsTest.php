@@ -6,12 +6,17 @@ use App\Enums\AiConfidence;
 use App\Enums\AiMode;
 use App\Enums\AiSuggestionKind;
 use App\Enums\AiSuggestionStatus;
+use App\Enums\EscalationTargetType;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
+use App\Events\IncidentBroadcast;
+use App\Jobs\DispatchEscalationStep;
 use App\Jobs\SweepAiSuggestions;
 use App\Jobs\TriageAnomalyCandidate;
 use App\Models\AiSuggestion;
+use App\Models\EscalationPolicy;
+use App\Models\EscalationStep;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
@@ -22,10 +27,13 @@ use App\Services\Ai\AnomalyTriageGateway;
 use App\Services\Ai\FakeAnomalyTriageGateway;
 use App\Services\Ai\TriagePayload;
 use App\Services\Ai\TriageResult;
+use App\Services\StatusPages\StatusPageCache;
 use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -129,6 +137,42 @@ class SweepAiSuggestionsTest extends TestCase
         $this->assertSame(AiSuggestionStatus::Accepted, $suggestion->status);
         $this->assertSame('llm', $suggestion->source);
         $this->assertSame($incident->id, $suggestion->accepted_incident_id);
+    }
+
+    public function test_autonomous_auto_open_dispatches_through_the_shared_seam(): void
+    {
+        // The AI open must drive the SAME off-transaction dispatch as every other
+        // incident path: broadcast to the dashboard, bust the status-page cache,
+        // and page the on-call escalation ladder.
+        Event::fake([IncidentBroadcast::class]);
+        Queue::fake();
+        $cache = Mockery::spy(StatusPageCache::class);
+        $this->app->instance(StatusPageCache::class, $cache);
+
+        $this->app->instance(AnomalyTriageGateway::class, new HighConfidenceTriageGateway);
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $this->seedAnomalousWindow($monitor);
+        $this->seedDefaultPolicy($monitor);
+
+        $this->runSweep();
+
+        $incident = Incident::query()->sole();
+
+        // 1. The dashboard broadcast fired for the freshly opened AI incident.
+        Event::assertDispatched(
+            IncidentBroadcast::class,
+            fn (IncidentBroadcast $event): bool => $event->kind === 'opened'
+                && $event->incident->id === $incident->id,
+        );
+
+        // 2. The public status-page cache was busted for the incident's monitor.
+        $cache->shouldHaveReceived('invalidateForMonitors')->once()->with([$monitor->id]);
+
+        // 3. The escalation ladder was walked: a step is queued for the incident.
+        Queue::assertPushed(
+            DispatchEscalationStep::class,
+            fn (DispatchEscalationStep $job): bool => $job->incidentId === $incident->id,
+        );
     }
 
     public function test_auto_monitor_below_threshold_does_not_auto_open(): void
@@ -240,6 +284,25 @@ class SweepAiSuggestionsTest extends TestCase
             'status' => MonitorStatus::Up->value,
             'status_code' => 200,
             'response_ms' => $responseMs,
+        ]);
+    }
+
+    /**
+     * Give the monitor's team a default escalation policy with one on-call step,
+     * so the shared dispatcher's escalation walk queues a real step job.
+     */
+    protected function seedDefaultPolicy(Monitor $monitor): void
+    {
+        $policy = EscalationPolicy::query()->create([
+            'team_id' => $monitor->team_id,
+            'name' => 'Primary On-Call Policy',
+        ]);
+
+        EscalationStep::query()->create([
+            'escalation_policy_id' => $policy->id,
+            'position' => 0,
+            'delay_minutes' => 0,
+            'target_type' => EscalationTargetType::OnCall,
         ]);
     }
 

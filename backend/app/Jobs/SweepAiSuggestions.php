@@ -20,6 +20,7 @@ use App\Services\Ai\AnomalyCandidate;
 use App\Services\Ai\AnomalyTriageGateway;
 use App\Services\Ai\ResponseTimeAnomalyDetector;
 use App\Services\Ai\TriagePayload;
+use App\Services\Monitoring\IncidentDispatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -107,12 +108,14 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
      * @param  AnomalyTriageGateway  $gateway  The LLM boundary (faked in tests).
      * @param  AiBudget  $budget  The atomic per-team daily spend guard.
      * @param  AiIncidentOpener  $opener  The shared AI-owned incident creator.
+     * @param  IncidentDispatcher  $dispatcher  The shared off-lock side-effect seam.
      */
     public function handle(
         ResponseTimeAnomalyDetector $detector,
         AnomalyTriageGateway $gateway,
         AiBudget $budget,
         AiIncidentOpener $opener,
+        IncidentDispatcher $dispatcher,
     ): void {
         // Chunk the fleet so a large workspace never loads every monitor into
         // memory at once. Off monitors are excluded by the scope.
@@ -121,8 +124,8 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
                 AiMode::Suggest,
                 AiMode::Auto,
             ])
-            ->each(function (Monitor $monitor) use ($detector, $gateway, $budget, $opener): void {
-                $this->sweepMonitor($monitor, $detector, $gateway, $budget, $opener);
+            ->each(function (Monitor $monitor) use ($detector, $gateway, $budget, $opener, $dispatcher): void {
+                $this->sweepMonitor($monitor, $detector, $gateway, $budget, $opener, $dispatcher);
             });
     }
 
@@ -136,6 +139,7 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
         AnomalyTriageGateway $gateway,
         AiBudget $budget,
         AiIncidentOpener $opener,
+        IncidentDispatcher $dispatcher,
     ): void {
         // 1. Pull the bounded, oldest-to-newest response_ms window.
         $window = $this->loadWindow($monitor);
@@ -162,7 +166,7 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
 
         // 4. Auto monitors triage and accept inline; suggest monitors fan out.
         if ($monitor->ai_mode === AiMode::Auto) {
-            $this->sweepAuto($monitor, $candidate, $gateway, $budget, $opener);
+            $this->sweepAuto($monitor, $candidate, $gateway, $budget, $opener, $dispatcher);
 
             return;
         }
@@ -183,6 +187,7 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
         AnomalyTriageGateway $gateway,
         AiBudget $budget,
         AiIncidentOpener $opener,
+        IncidentDispatcher $dispatcher,
     ): void {
         // 1. Spend one unit of the team's daily budget atomically. Over budget is
         //    not a failure: it degrades to a pending statistical suggestion (the
@@ -225,7 +230,7 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
         // 4. High confidence AND within budget: auto-accept. Create the accepted
         //    suggestion (the audit trail), open one ai_owned incident via the
         //    shared creator, link it back, and stamp the autonomous opening note.
-        DB::transaction(function () use ($monitor, $candidate, $result, $opener): void {
+        $incident = DB::transaction(function () use ($monitor, $candidate, $result, $opener): Incident {
             $suggestion = $this->persistSuggestion($monitor, $candidate, [
                 'severity' => $result->severity,
                 'confidence' => $result->confidence,
@@ -237,8 +242,29 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
             $incident = $opener->open($suggestion);
             $suggestion->forceFill(['accepted_incident_id' => $incident->id])->save();
 
-            $this->stampAutonomousOpening($incident);
+            // Stamp the autonomous opening only for a genuine open; an AI-lane
+            // dedupe fold returns an already-open incident, so a second note
+            // would misrepresent the folded suggestion as a fresh opening.
+            if ($incident->wasRecentlyCreated) {
+                $this->stampAutonomousOpening($incident);
+            }
+
+            return $incident;
         });
+
+        // 5. Drive the shared off-lock side effects (page + broadcast +
+        //    status-page cache bust + escalation) AFTER the transaction commits:
+        //    every notification is ShouldQueue and both events are
+        //    ShouldDispatchAfterCommit, so nothing may enqueue inside it. A
+        //    deduped fold already dispatched on its original open, so it is
+        //    skipped here.
+        if ($incident->wasRecentlyCreated) {
+            $dispatcher->dispatch($incident->primaryMonitor, [
+                'opened' => $incident,
+                'resolved' => null,
+                'status_change' => null,
+            ]);
+        }
     }
 
     /**
