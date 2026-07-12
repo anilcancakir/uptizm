@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' show Icons, Material, MaterialType;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
+import '../../../app/controllers/assistant_controller.dart';
 import 'assistant.recipe.dart';
 
 /// The author of an assistant chat message.
@@ -61,9 +62,9 @@ const List<String> _quickPrompts = [
 /// - **Glass + elevation:** the open surface composites over a [BackdropFilter]
 ///   blur with a high-opacity surface fallback (PORTING.md §4); the FAB carries
 ///   [Material] elevation rather than an arbitrary drop shadow (§6).
-/// - **Grounded replies:** the mock reply attaches no live cards (those are the
-///   shell's concern); it echoes a short on-brand acknowledgement so the chat
-///   surface demonstrates the round-trip.
+/// - **Grounded replies:** [_send] asks the live assistant via
+///   [AssistantController] (`POST /assistant`); the reply attaches no live
+///   cards (those are the shell's concern), just the grounded answer text.
 ///
 /// ### Example Usage:
 ///
@@ -112,28 +113,33 @@ class _AssistantState extends State<Assistant> {
   /// Whether the quick-prompt chips should still be shown (pre-first-reply).
   bool get _showChips => _messages.length <= 1;
 
-  /// Appends a user message plus a canned assistant acknowledgement.
+  /// Appends the user message, then asks the live assistant and appends its
+  /// grounded reply once it resolves.
   void _send(String text) {
     final String trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
     setState(() {
       _messages.add(AssistantMessage(role: AssistantRole.user, text: trimmed));
-      _messages.add(_respond(trimmed));
       _input.clear();
     });
+
+    _ask(trimmed);
   }
 
-  /// A minimal canned reply. The real assistant grounds answers in monitoring
-  /// signals; the mock acknowledges and points back at the data.
-  AssistantMessage _respond(String text) {
-    return const AssistantMessage(
-      role: AssistantRole.assistant,
-      text:
-          'I can answer from your monitoring data (checks, regions, response '
-          'times, and custom metrics), or set things up for you. Try "which '
-          'monitors are slow?" or "create a monitor".',
-    );
+  /// Fires the live `POST /assistant` round-trip via [AssistantController]
+  /// and appends the grounded answer. On failure, [AssistantController.ask]
+  /// already surfaced an error toast and logged the failure, so this leaves
+  /// the conversation unchanged rather than appending a placeholder reply.
+  Future<void> _ask(String question) async {
+    final String? answer = await AssistantController.instance.ask(question);
+    if (!mounted || answer == null) return;
+
+    setState(() {
+      _messages.add(
+        AssistantMessage(role: AssistantRole.assistant, text: answer),
+      );
+    });
   }
 
   @override

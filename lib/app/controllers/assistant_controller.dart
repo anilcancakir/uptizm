@@ -1,0 +1,64 @@
+import 'package:magic/magic.dart';
+
+/// Controller backing the floating Assistant widget's live Q&A round-trip.
+///
+/// Fires `POST /assistant` with the operator's question and returns the
+/// grounded answer produced by the team-scoped assistant gateway
+/// (`{data: {answer, confidence, stripped_citations}}`). Mirrors
+/// `monitor_controller.dart:145-221`'s action pattern (no silent catch, log +
+/// toast on failure), but the caller-facing contract here returns the
+/// failure as `null` rather than degrading to a stale cache: a conversation
+/// has no prior answer to fall back to.
+class AssistantController extends MagicController {
+  /// Singleton accessor, registering the controller on first access.
+  static AssistantController get instance =>
+      Magic.findOrPut(AssistantController.new);
+
+  /// Asks the live assistant [question] via `POST /assistant` and returns the
+  /// grounded answer, or `null` on failure (network error, non-2xx, or a
+  /// malformed payload). Logs and surfaces an error toast on every failure
+  /// path so the caller never sees a silent swallow.
+  Future<String?> ask(String question) async {
+    try {
+      final response = await Http.post(
+        '/assistant',
+        data: {'question': question},
+      );
+      if (!response.successful) {
+        Log.error('[AssistantController.ask] ${response.errorMessage}');
+        _toastFailed(response.errorMessage);
+        return null;
+      }
+
+      final Object? data = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      final Object? answer = data is Map<String, dynamic>
+          ? data['answer']
+          : null;
+      if (answer is! String) {
+        Log.error('[AssistantController.ask] malformed response payload');
+        _toastFailed(null);
+        return null;
+      }
+
+      return answer;
+    } catch (error) {
+      Log.error('[AssistantController.ask] failed: $error');
+      _toastFailed(null);
+      return null;
+    }
+  }
+
+  /// Surfaces the assistant's failure toast. There is no dedicated
+  /// `uptizm.assistant.*` lang namespace yet and this step's file scope does
+  /// not extend to `assets/lang/en.json`, so this uses a literal English
+  /// string rather than `trans()` (see the status-page controller's
+  /// `_toastError` for the same pattern).
+  void _toastFailed(String? detail) {
+    Magic.error(
+      "Couldn't reach Uptizm AI",
+      detail ?? 'Something went wrong. Please try again.',
+    );
+  }
+}

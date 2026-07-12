@@ -10,6 +10,10 @@ void main() {
     MagicApp.reset();
     Magic.flush();
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Baseline fake network so AssistantController resolves the `network`
+    // service; tests that exercise a live reply override this with a stub
+    // seeding the `POST /assistant` envelope before pumping.
+    Http.fake();
   });
 
   tearDown(() {
@@ -107,14 +111,23 @@ void main() {
   });
 
   testWidgets('a user message renders without an avatar', (tester) async {
+    Http.fake({
+      'assistant': Http.response({
+        'data': {
+          'answer': 'Your API monitor is up with 99.98% uptime.',
+          'confidence': 'high',
+          'stripped_citations': [],
+        },
+      }),
+    });
     await tester.pumpWidget(wrap(const Assistant()));
     await tester.tap(find.byType(WButton));
     await tester.pump();
 
     await tester.tap(find.text('Which monitors are slow?'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    // Header glyph + greeting avatar + the canned reply's avatar = 3 sparkles;
+    // Header glyph + greeting avatar + the live reply's avatar = 3 sparkles;
     // the user bubble between them contributes none (flex-row-reverse, no
     // avatar), matching the design-lab row model.
     expect(find.byIcon(Icons.auto_awesome), findsNWidgets(3));
@@ -134,6 +147,15 @@ void main() {
   testWidgets('tapping a chip appends the user message and a reply', (
     tester,
   ) async {
+    Http.fake({
+      'assistant': Http.response({
+        'data': {
+          'answer': 'Your API monitor is up with 99.98% uptime.',
+          'confidence': 'high',
+          'stripped_citations': [],
+        },
+      }),
+    });
     await tester.pumpWidget(wrap(const Assistant()));
     await tester.tap(find.byType(WButton));
     await tester.pump();
@@ -141,15 +163,39 @@ void main() {
     await tester.tap(find.text('Which monitors are slow?'));
     await tester.pump();
 
-    // The chip text is now echoed as a user bubble.
+    // The chip text is echoed as a user bubble immediately, before the live
+    // reply resolves.
     expect(find.text('Which monitors are slow?'), findsOneWidget);
     // And the chips are gone once the conversation has progressed.
     expect(find.text('Create a monitor'), findsNothing);
-    // A grounded acknowledgement reply is present.
+
+    await tester.pumpAndSettle();
+
+    // The grounded live reply is present once the round-trip resolves.
     expect(
-      find.textContaining('I can answer from your monitoring data'),
+      find.textContaining('Your API monitor is up with 99.98% uptime.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a failed round-trip surfaces an error toast and leaves the '
+      'conversation unchanged', (tester) async {
+    Http.fake({'assistant': Http.response({'message': 'Server error'}, 500)});
+    // Bind LogManager so Log.error() works inside AssistantController.ask's
+    // failure path.
+    Magic.singleton('log', () => LogManager());
+    await tester.pumpWidget(wrap(const Assistant()));
+    await tester.tap(find.byType(WButton));
+    await tester.pump();
+
+    await tester.tap(find.text('Which monitors are slow?'));
+    await tester.pumpAndSettle();
+
+    // The user message is still appended, but no assistant reply follows a
+    // failed round-trip (the toast/log already surfaced the failure), so the
+    // sparkle count stays at the header glyph + greeting avatar (2).
+    expect(find.text('Which monitors are slow?'), findsOneWidget);
+    expect(find.byIcon(Icons.auto_awesome), findsNWidgets(2));
   });
 
   testWidgets('closing the surface returns to the FAB', (tester) async {
