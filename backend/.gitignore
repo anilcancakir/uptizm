@@ -31,3 +31,8 @@ frankenphp
 frankenphp-worker.php
 
 /dump.rdb
+
+# Stray SQLite databases (this backend runs on PostgreSQL; a bare
+# DB_DATABASE=uptizm_dev with DB_CONNECTION=sqlite resolves to a file here).
+/uptizm_dev
+*.sqlite
