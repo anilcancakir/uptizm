@@ -141,6 +141,13 @@ class _EscalationPolicyEditorViewState
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
     _seedFrom(controller.detailById(widget.id));
+    // One-shot single-resource refresh for the prefill (never from build; see
+    // [EscalationController.refreshDetail], which notifies listeners on
+    // completion so the seeded draft picks up the freshly fetched steps).
+    final String? id = widget.id;
+    if (id != null) {
+      controller.refreshDetail(id);
+    }
   }
 
   @override
@@ -150,6 +157,10 @@ class _EscalationPolicyEditorViewState
     // does not carry a stale draft across (mirrors status_page_editor_view).
     if (oldWidget.id != widget.id) {
       _seedFrom(controller.detailById(widget.id));
+      final String? id = widget.id;
+      if (id != null) {
+        controller.refreshDetail(id);
+      }
     }
   }
 

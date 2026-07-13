@@ -141,25 +141,35 @@ class EscalationController extends MagicController {
   /// Resolves a policy by [id] from the cached map, or `null` when none
   /// matches (unknown id, or the cache has not loaded yet).
   ///
-  /// The editor view calls this synchronously inside `build()`; it answers
-  /// from [_details] immediately and also fires a background
-  /// `EscalationPolicy.find` refresh (mirrors `monitor_controller.dart`'s
-  /// `monitorById`/`_refreshOne`).
+  /// Resolves a policy's id-carrying detail by [id] from the cached map, or
+  /// `null` when none matches (unknown id, or the cache has not loaded yet).
+  ///
+  /// The editor view calls this synchronously inside `build()`, so it MUST stay
+  /// a pure, side-effect-free cache read: it answers from [_details] and never
+  /// performs I/O or notifies listeners. A single-resource refresh is a
+  /// separate, explicit [refreshDetail] call the editor issues ONCE from
+  /// `initState` (or on an id change), never from `build`: firing it from
+  /// `build` self loops (refresh -> `refreshUI` -> rebuild -> `build` ->
+  /// refresh), flooding the backend with `GET /escalation-policies/:id`
+  /// (mirrors the `monitorById`/`refreshOne` split).
   EscalationPolicy? detailById(String? id) {
     if (id == null) return null;
 
-    final EscalationPolicy? cached = _details[id];
-    _refreshDetail(id);
-    return cached;
+    return _details[id];
   }
 
-  /// Background single-resource refresh for [id]: fetches the policy through
-  /// `EscalationPolicy.find` (`GET /escalation-policies/:id`), merges the
-  /// result into [_details], then notifies listeners. Silently no-ops on
-  /// failure so a transient error never disturbs the already-cached entry.
-  Future<void> _refreshDetail(String id) async {
+  /// One-shot single-resource refresh for [id]: fetches the policy through
+  /// `EscalationPolicy.find` (`GET /escalation-policies/:id`), gates the merge
+  /// on `fresh.id == id` (defending against a bodyless-`200` empty hydration),
+  /// merges the result into [_details], then notifies listeners. Silently
+  /// no-ops on failure so a transient error never disturbs the cached entry.
+  ///
+  /// Call this ONCE from the editor's `initState` (or on an id change), NEVER
+  /// from `build`: its `refreshUI()` notifies listeners, so a `build`-time call
+  /// self loops and floods the backend.
+  Future<void> refreshDetail(String id) async {
     final EscalationPolicy? detail = await EscalationPolicy.find(id);
-    if (detail == null) return;
+    if (detail == null || detail.id != id) return;
 
     _details[id] = detail;
     refreshUI();
