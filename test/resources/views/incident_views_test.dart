@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
+import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
 import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
 import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
@@ -13,6 +14,7 @@ import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 
+import '../../support/incident_fixtures.dart';
 import '../../support/monitor_fixtures.dart';
 
 /// In-memory language loader supplying every [trans] key exercised by the
@@ -130,20 +132,21 @@ void main() {
     await Translator.instance.setLocale(const Locale('en'));
 
     // Register, initialize, and seed the wired controller BEFORE any view
-    // mounts. The controller now sources its list from `GET /incidents`; under
-    // this bare (network-less) harness `onInit`'s load degrades to the error
-    // state, so we then seed `rxState` with the real fixtures directly. Marking
-    // the controller `initialized` here means each view skips its own
-    // onInit/load, so the seeded fixtures survive to first build (and the
-    // detail view's initState `_seedFrom` resolves the correct incident and
-    // lifecycle synchronously). This exercises the wired, rxState-backed
-    // controller in place of the removed const-fixture reads.
+    // mounts. The controller now sources its list from the `Incident` ORM
+    // (`GET /incidents` via `Incident.all()`); under this bare (network-less)
+    // harness `onInit`'s load degrades to the empty state, so we then seed
+    // `rxState` with the projected model fixtures directly. Marking the
+    // controller `initialized` here means each view skips its own onInit/load,
+    // so the seeded fixtures survive to first build (and the detail view's
+    // initState `_seedFrom` resolves the correct incident and lifecycle
+    // synchronously). This exercises the wired, rxState-backed controller in
+    // place of the removed const-fixture reads.
     final IncidentController controller = Magic.findOrPut(
       IncidentController.new,
     );
     controller.onInit();
     await Future<void>.delayed(Duration.zero);
-    controller.setSuccess(List<IncidentSummary>.from(incidents));
+    controller.setSuccess(incidentFixtures);
   });
 
   tearDown(() {
@@ -391,6 +394,10 @@ void main() {
         await tester.pump();
 
         expect(tester.takeException(), isNull);
+        // The create form maps the "Warning" choice to the backend `warn` wire
+        // value. The `Incident` model posts the raw wire string (the enum
+        // fields are decoded only by the typed read accessors, not stored as
+        // enums in the outgoing payload), so `save()` sends `'warn'` exactly.
         fake.assertSent(
           (r) =>
               r.method == 'POST' &&
@@ -414,7 +421,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final IncidentSummary incident = findIncident('checkout-503')!;
+      final Incident incident = findIncidentFixture('checkout-503')!;
 
       await tester.pumpWidget(
         wrap(
@@ -468,7 +475,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final IncidentSummary incident = findIncident('checkout-503')!;
+      final Incident incident = findIncidentFixture('checkout-503')!;
 
       await tester.pumpWidget(
         wrap(
@@ -504,7 +511,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final IncidentSummary incident = findIncident('eu-packet-loss')!;
+      final Incident incident = findIncidentFixture('eu-packet-loss')!;
       expect(incident.lifecycle, IncidentLifecycle.resolved);
 
       await tester.pumpWidget(

@@ -75,10 +75,6 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
     'updated_at': 'datetime',
     'started_at': 'datetime',
     'resolved_at': 'datetime',
-    'severity': _WireEnumCast<IncidentSeverity>(severityFromWire),
-    'impact': _WireEnumCast<IncidentImpact>(impactFromWire),
-    'signal_source': _WireEnumCast<SignalSource>(signalSourceFromWire),
-    'lifecycle': _WireEnumCast<IncidentLifecycle>(lifecycleFromWire),
   };
 
   /// No relations this wave: `monitors` and `updates` stay decoded as DTOs
@@ -140,8 +136,18 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
         : severityFromWire(value?.toString());
   }
 
-  /// Set the operator-side severity tier.
-  set severity(IncidentSeverity? value) => setAttribute('severity', value);
+  /// Set the operator-side severity tier, stored as its backend wire string so
+  /// a subsequent `toArray()`/`save()` posts a JSON-encodable value (the wire
+  /// gap: [IncidentSeverity.warning] serializes to `'warn'`, not `'warning'`).
+  set severity(IncidentSeverity? value) => setAttribute(
+    'severity',
+    switch (value) {
+      IncidentSeverity.critical => 'critical',
+      IncidentSeverity.warning => 'warn',
+      IncidentSeverity.info => 'info',
+      null => null,
+    },
+  );
 
   /// Customer-facing impact classification, decoded via [impactFromWire].
   IncidentImpact get impact {
@@ -334,40 +340,5 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
     final Object? raw = getAttribute(key);
     if (raw is! List) return const [];
     return raw.whereType<Map<String, dynamic>>().toList();
-  }
-}
-
-/// A [CastsAttributes] adapter that decodes a wire enum through a
-/// `String? -> T` bridge function.
-///
-/// The four incident enum fields (`severity`, `impact`, `signal_source`,
-/// `lifecycle`) reuse the public wire-bridge helpers in
-/// `lib/app/mocks/incidents.dart`, which carry the safe-fallback and known
-/// wire-gap (`'warn'` -> [IncidentSeverity.warning]) behaviour this model
-/// inherits verbatim. Storing the enum instance as-is on `set` lets the `get`
-/// short-circuit, so a programmatic `incident.severity = ...` never
-/// round-trips through the wire string and re-introduces a wire gap.
-///
-/// The type parameter [T] is bounded to [Enum] so the `get` short-circuit
-/// (`raw is T`) and the `set` passthrough stay type-safe.
-class _WireEnumCast<T extends Enum> implements CastsAttributes<T> {
-  /// Creates a wire-enum cast backed by [decode].
-  const _WireEnumCast(this.decode);
-
-  /// The public wire-bridge function that turns a raw wire string into the
-  /// domain enum, applying the safe fallback for `null` or unknown values.
-  final T Function(String? raw) decode;
-
-  @override
-  T? get(Model model, String key, Object? raw) {
-    if (raw is T) return raw;
-    return decode(raw?.toString());
-  }
-
-  @override
-  Object? set(Model model, String key, Object? value) {
-    // Store enum instances as-is so the get above short-circuits; pass raw
-    // strings through unchanged so backend hydration keeps working.
-    return value;
   }
 }

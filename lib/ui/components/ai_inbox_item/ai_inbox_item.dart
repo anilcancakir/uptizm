@@ -2,7 +2,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/mocks/incidents.dart';
+import '../../../app/models/incident.dart';
 import '../ai_confidence_badge/index.dart';
 import 'ai_inbox_item.recipe.dart';
 
@@ -45,8 +45,8 @@ import 'ai_inbox_item.recipe.dart';
 /// ```
 @immutable
 class AiInboxItem extends StatelessWidget {
-  /// The incident summary carrying the AI analysis data.
-  final IncidentSummary incident;
+  /// The incident carrying the AI analysis data.
+  final Incident incident;
 
   /// Called when the operator taps the open-incident button.
   ///

@@ -1,6 +1,7 @@
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/incidents.dart' as mocks;
 import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 import 'package:uptizm/ui/components/incident_timeline/incident_timeline.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
@@ -65,10 +66,9 @@ const Map<mocks.AiConfidence, String> severityFromConfidence = {
 /// A signal-grounded draft of the next public update, in the operator's
 /// voice. Ports `draftUpdate` from IncidentDetailPage.tsx.
 ///
-/// Branches on [mocks.IncidentSummary.lifecycle] first (resolved), then on
-/// manual/info maintenance, then falls back to the impact-driven
-/// investigating copy.
-String draftUpdate(mocks.IncidentSummary i) {
+/// Branches on [Incident.lifecycle] first (resolved), then on manual/info
+/// maintenance, then falls back to the impact-driven investigating copy.
+String draftUpdate(Incident i) {
   if (i.lifecycle == mocks.IncidentLifecycle.resolved) {
     return 'This incident is resolved. ${i.monitorName} is back to normal '
         'across all regions and checks are passing again. Thanks for your '
@@ -97,7 +97,7 @@ String draftUpdate(mocks.IncidentSummary i) {
 
 /// A postmortem draft built only from what Uptizm observed. Ports
 /// `postmortemDraft` from IncidentDetailPage.tsx.
-String postmortemDraft(mocks.IncidentSummary i) {
+String postmortemDraft(Incident i) {
   final String monitorWord = i.affectedCount == 1 ? 'monitor' : 'monitors';
   return '${i.title} lasted ${i.duration} and affected ${i.affectedCount} '
       '$monitorWord. Uptizm first detected it via '

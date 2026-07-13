@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/incidents.dart' as mocks;
 import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/resources/views/incidents/incident_form_support.dart';
+
+import '../../support/incident_fixtures.dart';
 
 void main() {
   // ---------------------------------------------------------------------------
@@ -30,9 +33,7 @@ void main() {
 
   group('draftUpdate', () {
     test('produces a non-empty string referencing the monitor name', () {
-      final mocks.IncidentSummary incident = mocks.findIncident(
-        'checkout-503',
-      )!;
+      final Incident incident = findIncidentFixture('checkout-503')!;
       final String draft = draftUpdate(incident);
 
       expect(draft, isNotEmpty);
@@ -40,9 +41,7 @@ void main() {
     });
 
     test('branches on the resolved lifecycle for a resolved incident', () {
-      final mocks.IncidentSummary incident = mocks.findIncident(
-        'eu-packet-loss',
-      )!;
+      final Incident incident = findIncidentFixture('eu-packet-loss')!;
       final String draft = draftUpdate(incident);
 
       expect(draft, isNotEmpty);
@@ -53,9 +52,7 @@ void main() {
 
   group('postmortemDraft', () {
     test('produces a non-empty string referencing the duration', () {
-      final mocks.IncidentSummary incident = mocks.findIncident(
-        'eu-packet-loss',
-      )!;
+      final Incident incident = findIncidentFixture('eu-packet-loss')!;
       final String draft = postmortemDraft(incident);
 
       expect(draft, isNotEmpty);

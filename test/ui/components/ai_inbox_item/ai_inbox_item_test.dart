@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
-import 'package:uptizm/app/mocks/incidents.dart';
+import 'package:uptizm/app/mocks/incidents.dart' show AiConfidence;
+import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/ui/components/ai_confidence_badge/index.dart';
 import 'package:uptizm/ui/components/ai_inbox_item/ai_inbox_item.dart';
 import 'package:uptizm/ui/components/ai_inbox_item/ai_inbox_item.preview.dart';
 import 'package:uptizm/ui/components/ai_inbox_item/ai_inbox_item.recipe.dart';
+
+import '../../../support/incident_fixtures.dart';
 
 void main() {
   setUp(() {
@@ -63,7 +66,7 @@ void main() {
     testWidgets('renders the ai stripe as a Positioned bar without overflow', (
       tester,
     ) async {
-      await tester.pumpWidget(wrap(AiInboxItem(incident: incidents.first)));
+      await tester.pumpWidget(wrap(AiInboxItem(incident: incidentFixtures.first)));
       await tester.pump();
       // A Positioned 4px bar paints the stripe; the pl-5 content clears it.
       expect(find.byType(Positioned), findsWidgets);
@@ -76,7 +79,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   // Use the first fixture incident which has a rich IncidentAi payload.
-  final IncidentSummary sampleIncident = incidents.first;
+  final Incident sampleIncident = incidentFixtures.first;
 
   testWidgets('AiInboxItem renders the monitor name', (tester) async {
     await tester.pumpWidget(wrap(AiInboxItem(incident: sampleIncident)));
@@ -178,7 +181,7 @@ void main() {
   testWidgets('AiInboxItem renders for medium-confidence fixture', (
     tester,
   ) async {
-    final IncidentSummary mediumIncident = incidents[1];
+    final Incident mediumIncident = incidentFixtures[1];
     await tester.pumpWidget(wrap(AiInboxItem(incident: mediumIncident)));
 
     final badge = tester.widget<AiConfidenceBadge>(
@@ -192,7 +195,7 @@ void main() {
     await tester.pump();
 
     // All fixture AI incidents should produce an AiInboxItem widget.
-    final aiIncidentCount = incidents.where((i) => i.ai != null).length;
+    final aiIncidentCount = incidentFixtures.where((i) => i.ai != null).length;
     expect(find.byType(AiInboxItem), findsNWidgets(aiIncidentCount));
   });
 }

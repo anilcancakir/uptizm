@@ -3,7 +3,8 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/incident_controller.dart';
-import '../../../app/mocks/incidents.dart';
+import '../../../app/models/incident.dart';
+import '../../../app/mocks/incidents.dart' show IncidentLifecycle, IncidentSeverity;
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/incident_card/incident_card.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
@@ -69,7 +70,7 @@ class _IncidentsListViewState
   }
 
   /// Incidents that satisfy the active filter and search query.
-  List<IncidentSummary> get _visible {
+  List<Incident> get _visible {
     return controller.incidents.where((i) {
       // 1. Filter tab first.
       final bool matchesFilter = switch (_filter) {

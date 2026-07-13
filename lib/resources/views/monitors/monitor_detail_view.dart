@@ -6,6 +6,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
+import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/mocks/incidents.dart';
 import '../../../app/mocks/metrics.dart';
@@ -838,11 +839,54 @@ class _MonitorDetailViewState
       children: [
         for (final incident in monitorIncidents)
           IncidentCard(
-            incident: incident,
+            incident: _asIncidentCardModel(incident),
             onTap: () => MagicRoute.to('/incidents/${incident.id}'),
           ),
       ],
     );
+  }
+
+  /// Projects a design-lab [IncidentSummary] onto an [Incident] model so the
+  /// migrated [IncidentCard] (which now takes the ORM model) renders the
+  /// design-lab incidents that touch this monitor.
+  ///
+  /// This screen still sources its incidents from the [incidentsForMonitor]
+  /// fixtures (no per-monitor incident endpoint is wired yet); the projection
+  /// only bridges the DTO onto the card's new model type. It is a type-only
+  /// cascade from the incident-model migration, mapping the DTO enums back to
+  /// their backend wire values so the model's wire-bridge decode reproduces the
+  /// same impact / severity / lifecycle the DTO carried.
+  Incident _asIncidentCardModel(IncidentSummary summary) {
+    final int primaryIndex = summary.affectedMonitors.indexWhere(
+      (m) => m.name == summary.monitorName,
+    );
+    return Incident.fromMap(<String, dynamic>{
+      'id': summary.id,
+      'title': summary.title,
+      'impact': switch (summary.impact) {
+        IncidentImpact.down => 'critical',
+        IncidentImpact.degraded => 'minor',
+        IncidentImpact.info => 'none',
+      },
+      'severity': switch (summary.severity) {
+        IncidentSeverity.critical => 'critical',
+        IncidentSeverity.warning => 'warn',
+        IncidentSeverity.info => 'info',
+      },
+      'lifecycle': summary.lifecycle.name,
+      'ai_owned': summary.aiOwned,
+      'started_at': '2026-07-11T14:00:00Z',
+      if (summary.lifecycle == IncidentLifecycle.resolved)
+        'resolved_at': '2026-07-11T15:00:00Z',
+      'primary_monitor_id': primaryIndex >= 0 ? 'm$primaryIndex' : 'm0',
+      'monitors': <Map<String, dynamic>>[
+        for (int i = 0; i < summary.affectedMonitors.length; i++)
+          <String, dynamic>{
+            'monitor_id': 'm$i',
+            'name': summary.affectedMonitors[i].name,
+          },
+      ],
+    });
   }
 
   // ---------------------------------------------------------------------------

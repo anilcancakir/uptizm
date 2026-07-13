@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/mocks/billing.dart';
 import '../../../app/mocks/incidents.dart';
+import '../../../app/models/incident.dart';
 import '../../../app/mocks/status.dart';
 import '../../../ui/components/ai_analysis_card/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
@@ -147,32 +148,37 @@ class _IncidentDetailViewState
   ///
   /// Runs from [initState] and [didUpdateWidget]; both schedule their own build,
   /// so state is assigned directly rather than through [setState].
-  void _seedFrom(IncidentSummary? incident) {
+  ///
+  /// [_assigneeName] and [_ack] always start empty: the [Incident] ORM model
+  /// carries no assignee/acknowledgement (the backend `IncidentResource` has
+  /// no counterpart for them, so an `Incident.fromMap` never hydrates one).
+  /// Assignment and acknowledgement are wired locally from here (the responder
+  /// strip + the Acknowledge button), matching the previous behaviour on a
+  /// backend-decoded incident, which also had both fields null.
+  void _seedFrom(Incident? incident) {
     _view = _viewPublic;
     _message = '';
     _publish = true;
     _aiDrafted = false;
+    _assigneeName = null;
+    _ack = null;
     if (incident == null) {
       _lifecycle = IncidentLifecycle.investigating;
       _reopenTo = IncidentLifecycle.investigating;
-      _assigneeName = null;
-      _ack = null;
       return;
     }
     _lifecycle = incident.lifecycle;
-    // If the fixture is already resolved, reopening should land on a live stage.
+    // If the incident is already resolved, reopening should land on a live stage.
     _reopenTo = incident.lifecycle == IncidentLifecycle.resolved
         ? IncidentLifecycle.investigating
         : incident.lifecycle;
-    _assigneeName = incident.assignee?.name;
-    _ack = incident.acknowledged;
   }
 
   @override
   Widget build(BuildContext context) {
     // 1. Resolve the incident; a null / unknown id falls back to a graceful
     //    not-found state so the screen never crashes on an unknown route id.
-    final IncidentSummary? incident = controller.incidentById(widget.id);
+    final Incident? incident = controller.incidentById(widget.id);
     if (incident == null) {
       return _buildNotFound();
     }
@@ -235,7 +241,7 @@ class _IncidentDetailViewState
   ///
   /// Uses `wrap` so the chips flow onto a second line on a narrow phone instead
   /// of overflowing the header title row.
-  Widget _buildChipRow(IncidentSummary incident) {
+  Widget _buildChipRow(Incident incident) {
     return WDiv(
       className: 'wrap items-center gap-2',
       children: [
@@ -265,7 +271,7 @@ class _IncidentDetailViewState
   /// A resolved incident shows "Reopen" and restores [_reopenTo]; an open
   /// incident shows "Resolve" and moves to [IncidentLifecycle.resolved]. Either
   /// way the toggle is local state plus a `Magic.success` toast.
-  Widget _buildResolveButton(IncidentSummary incident, bool resolved) {
+  Widget _buildResolveButton(Incident incident, bool resolved) {
     return MSButton(
       size: ButtonSize.sm,
       onPressed: () => _onResolveReopen(incident, resolved),
@@ -280,7 +286,7 @@ class _IncidentDetailViewState
   /// Toggles the incident between resolved and its previous live stage, then
   /// surfaces a toast. Reopening restores [_reopenTo]; resolving remembers the
   /// current stage first so a later reopen lands back on it.
-  void _onResolveReopen(IncidentSummary incident, bool resolved) {
+  void _onResolveReopen(Incident incident, bool resolved) {
     setState(() {
       if (resolved) {
         _lifecycle = _reopenTo;
@@ -309,7 +315,7 @@ class _IncidentDetailViewState
   ///
   /// Shown only while the incident is open (the caller gates on `!resolved`);
   /// once resolved, ownership lives in the timeline and postmortem.
-  Widget _buildResponderStrip(IncidentSummary incident) {
+  Widget _buildResponderStrip(Incident incident) {
     return WDiv(
       className:
           'flex flex-col gap-3 rounded-lg border border-color-border '
@@ -406,7 +412,7 @@ class _IncidentDetailViewState
   /// Builds the affected-monitors section: a heading with the affected count and
   /// a bordered list of each affected monitor with its `statusAtStart →
   /// statusCurrent` transition (the arrow only appears when the two differ).
-  Widget _buildAffectedMonitors(IncidentSummary incident) {
+  Widget _buildAffectedMonitors(Incident incident) {
     return WDiv(
       className: 'flex flex-col gap-3',
       children: [
@@ -481,7 +487,7 @@ class _IncidentDetailViewState
 
   /// Builds the postmortem section (resolved incidents only): an [AiInsight]
   /// banner carrying the [postmortemDraft] with an "Edit & publish" action.
-  Widget _buildPostmortem(IncidentSummary incident) {
+  Widget _buildPostmortem(Incident incident) {
     return AiInsight(
       tone: 'banner',
       label: trans('uptizm.incidents.detail_postmortem_heading'),
@@ -511,7 +517,7 @@ class _IncidentDetailViewState
   /// The mocks-layer entries are mapped through [toComponentTimeline] into the
   /// timeline component's own entry type (the two types intentionally stay
   /// separate; the mapper is the bridge).
-  Widget _buildTimeline(IncidentSummary incident) {
+  Widget _buildTimeline(Incident incident) {
     final List<TimelineEntry> filtered = _view == _viewPublic
         ? incident.timeline.where((e) => e.isPublic).toList()
         : incident.timeline;
@@ -568,7 +574,7 @@ class _IncidentDetailViewState
   /// status [Select], the message [Textarea], an optional "drafted by AI"
   /// [AiInsight] hint, and a footer with the publish [Switch] and the "Post
   /// update" [Button].
-  Widget _buildComposer(IncidentSummary incident) {
+  Widget _buildComposer(Incident incident) {
     return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
@@ -672,7 +678,7 @@ class _IncidentDetailViewState
   }
 
   /// Fills the composer with an AI-generated draft and flags the drafted hint.
-  void _onAiDraft(IncidentSummary incident) {
+  void _onAiDraft(Incident incident) {
     setState(() {
       _message = draftUpdate(incident);
       _aiDrafted = true;
@@ -684,7 +690,7 @@ class _IncidentDetailViewState
   /// is disabled while the composer is blank, so [_message] is always
   /// non-empty here; it is captured before the composer clears so the
   /// controller still receives the real text.
-  void _onPostUpdate(IncidentSummary incident) {
+  void _onPostUpdate(Incident incident) {
     final String message = _message.trim();
     setState(() {
       _message = '';

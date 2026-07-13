@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import '../../../app/mocks/incidents.dart';
+import '../../../app/models/incident.dart';
 import '../../../app/mocks/status.dart';
 import '../status_badge/index.dart';
 import 'incident_card.recipe.dart';
@@ -34,7 +34,7 @@ import 'incident_card.recipe.dart';
 @immutable
 class IncidentCard extends StatelessWidget {
   /// The incident data to display.
-  final IncidentSummary incident;
+  final Incident incident;
 
   /// Optional tap handler. When `null` the card is non-interactive.
   final VoidCallback? onTap;

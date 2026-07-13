@@ -1,7 +1,7 @@
 import 'package:magic/magic.dart';
 
+import '../models/incident.dart';
 import '../models/monitor.dart';
-import '../mocks/incidents.dart';
 import '../mocks/status.dart';
 
 /// Controller backing [DashboardView].
@@ -32,24 +32,24 @@ class DashboardController extends MagicController {
   int _openIncidents = 0;
 
   /// Cached `GET /dashboard/active-incidents` result.
-  List<IncidentSummary> _activeIncidents = [];
+  List<Incident> _activeIncidents = [];
 
   /// Cached `GET /dashboard/monitors-snapshot` result.
   List<Monitor> _monitorsSnapshot = [];
 
   /// Cached `GET /dashboard/ai-inbox` result (always empty today; the
   /// backend reserves the contract ahead of AI triage).
-  List<IncidentSummary> _aiInbox = [];
+  List<Incident> _aiInbox = [];
 
   /// Active incidents: everything the backend still considers open.
-  List<IncidentSummary> get activeIncidents => _activeIncidents;
+  List<Incident> get activeIncidents => _activeIncidents;
 
   /// The team's monitors with their last-known health status.
   List<Monitor> get monitorsSnapshot => _monitorsSnapshot;
 
   /// AI inbox entries. Always empty today (AI triage is deferred
   /// server-side), which drives the existing empty-state rendering.
-  List<IncidentSummary> get aiSuggestions => _aiInbox;
+  List<Incident> get aiSuggestions => _aiInbox;
 
   /// Count of monitors currently up.
   int get upCount => _monitorsUp;
@@ -134,7 +134,7 @@ class DashboardController extends MagicController {
 
       _activeIncidents = raw
           .whereType<Map<String, dynamic>>()
-          .map(IncidentSummary.fromMap)
+          .map(Incident.fromMap)
           .toList();
       refreshUI();
     } catch (_) {
@@ -183,7 +183,7 @@ class DashboardController extends MagicController {
 
       _aiInbox = raw
           .whereType<Map<String, dynamic>>()
-          .map(IncidentSummary.fromMap)
+          .map(Incident.fromMap)
           .toList();
       refreshUI();
     } catch (_) {

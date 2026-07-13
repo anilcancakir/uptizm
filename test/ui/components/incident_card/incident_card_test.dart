@@ -2,10 +2,11 @@ import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
-import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/components/incident_card/incident_card.preview.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
+
+import '../../../support/incident_fixtures.dart';
 
 void main() {
   setUp(() {
@@ -88,7 +89,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   testWidgets('IncidentCard renders incident title as WText', (tester) async {
-    final incident = incidents[0]; // checkout-503 outage
+    final incident = incidentFixtures[0]; // checkout-503 outage
     await tester.pumpWidget(wrap(IncidentCard(incident: incident)));
 
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
@@ -100,7 +101,7 @@ void main() {
   });
 
   testWidgets('IncidentCard renders monitor name in meta row', (tester) async {
-    final incident = incidents[0];
+    final incident = incidentFixtures[0];
     await tester.pumpWidget(wrap(IncidentCard(incident: incident)));
 
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
@@ -112,7 +113,7 @@ void main() {
   });
 
   testWidgets('IncidentCard renders startedAt in meta row', (tester) async {
-    final incident = incidents[0];
+    final incident = incidentFixtures[0];
     await tester.pumpWidget(wrap(IncidentCard(incident: incident)));
 
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
@@ -126,7 +127,7 @@ void main() {
   testWidgets('IncidentCard renders severity label in meta row', (
     tester,
   ) async {
-    final incident = incidents[0]; // critical severity
+    final incident = incidentFixtures[0]; // critical severity
     await tester.pumpWidget(wrap(IncidentCard(incident: incident)));
 
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
@@ -138,21 +139,21 @@ void main() {
   });
 
   testWidgets('IncidentCard composes magic_starter Card shell', (tester) async {
-    await tester.pumpWidget(wrap(IncidentCard(incident: incidents[0])));
+    await tester.pumpWidget(wrap(IncidentCard(incident: incidentFixtures[0])));
     expect(find.byType(MSCard), findsOneWidget);
   });
 
   testWidgets('IncidentCard composes StatusBadge for impact', (tester) async {
-    // incidents[3] is non-AI-owned (info/monitoring) — exactly one StatusBadge
+    // incidentFixtures[3] is non-AI-owned (info/monitoring) — exactly one StatusBadge
     // for the impact; no AI badge.
-    await tester.pumpWidget(wrap(IncidentCard(incident: incidents[3])));
+    await tester.pumpWidget(wrap(IncidentCard(incident: incidentFixtures[3])));
     expect(find.byType(StatusBadge), findsOneWidget);
   });
 
   testWidgets('IncidentCard invokes onTap when tapped', (tester) async {
     var tapped = false;
     await tester.pumpWidget(
-      wrap(IncidentCard(incident: incidents[0], onTap: () => tapped = true)),
+      wrap(IncidentCard(incident: incidentFixtures[0], onTap: () => tapped = true)),
     );
     await tester.tap(find.byType(GestureDetector));
     expect(tapped, isTrue);
@@ -161,7 +162,7 @@ void main() {
   testWidgets('IncidentCard without onTap renders no GestureDetector', (
     tester,
   ) async {
-    await tester.pumpWidget(wrap(IncidentCard(incident: incidents[0])));
+    await tester.pumpWidget(wrap(IncidentCard(incident: incidentFixtures[0])));
     expect(find.byType(GestureDetector), findsNothing);
   });
 
@@ -170,7 +171,7 @@ void main() {
     (tester) async {
       // AI-owned: impact StatusBadge + AI StatusBadge = 2 StatusBadges.
       await tester.pumpWidget(
-        wrap(IncidentCard(incident: incidents[0])), // aiOwned: true
+        wrap(IncidentCard(incident: incidentFixtures[0])), // aiOwned: true
       );
       final aiOwnedBadges = tester
           .widgetList<StatusBadge>(find.byType(StatusBadge))
@@ -178,7 +179,7 @@ void main() {
 
       // Non-AI-owned: impact StatusBadge only = 1 StatusBadge.
       await tester.pumpWidget(
-        wrap(IncidentCard(incident: incidents[2])), // aiOwned: false
+        wrap(IncidentCard(incident: incidentFixtures[2])), // aiOwned: false
       );
       final nonAiOwnedBadges = tester
           .widgetList<StatusBadge>(find.byType(StatusBadge))
@@ -193,7 +194,7 @@ void main() {
   );
 
   testWidgets('IncidentCard renders lifecycle label as WBadge', (tester) async {
-    final incident = incidents[0]; // lifecycle: investigating
+    final incident = incidentFixtures[0]; // lifecycle: investigating
     await tester.pumpWidget(wrap(IncidentCard(incident: incident)));
 
     final badges = tester.widgetList<WBadge>(find.byType(WBadge)).toList();
@@ -207,6 +208,6 @@ void main() {
   testWidgets('IncidentCardPreview renders without error', (tester) async {
     await tester.pumpWidget(wrap(const IncidentCardPreview()));
     await tester.pump();
-    expect(find.byType(IncidentCard), findsNWidgets(incidents.length));
+    expect(find.byType(IncidentCard), findsNWidgets(incidentFixtures.length));
   });
 }

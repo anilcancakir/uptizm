@@ -6,7 +6,8 @@ import 'incident_form_support.dart';
 import '../monitors/monitor_metrics_support.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/incidents.dart';
+import '../../../app/mocks/incidents.dart' show AiConfidence;
+import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
@@ -118,7 +119,7 @@ class _IncidentCreateViewState
 
   /// The promoted AI suggestion, resolved from `?from=<id>` on mount, or `null`
   /// when the view was opened blank (React `suggestion` from `location.state`).
-  IncidentSummary? _suggestion;
+  Incident? _suggestion;
 
   /// The affected-monitor options, projected LIVE from the backend monitor
   /// inventory ([MonitorController.monitors]) so a selected id is a real
@@ -149,7 +150,7 @@ class _IncidentCreateViewState
     // 1. Read the AI-promotion suggestion id from the router query itself; the
     //    page builder gets no query params, so the view resolves them here.
     final String? fromId = MagicRouter.instance.queryParameters['from'];
-    final IncidentSummary? suggestion = controller.incidentById(fromId);
+    final Incident? suggestion = controller.incidentById(fromId);
     _suggestion = suggestion;
 
     // 2. Seed the form. With a resolved suggestion, prefill title/affected/
@@ -240,7 +241,7 @@ class _IncidentCreateViewState
   /// promoted variant; a blank incident shows the generic variant.
   Widget? _buildBanner() {
     if (_isMaintenance) return null;
-    final IncidentSummary? suggestion = _suggestion;
+    final Incident? suggestion = _suggestion;
     if (suggestion != null) return _buildPromotedBanner(suggestion);
     return _buildGenericBanner();
   }
@@ -249,10 +250,10 @@ class _IncidentCreateViewState
   /// tile, the "Promoted from an AI anomaly" title with an [AiConfidenceBadge]
   /// and the start time, the anomaly summary, and the prefill explainer.
   ///
-  /// [IncidentSummary] carries no `summary`/`time` field (those lived on the
+  /// [Incident] carries no `summary`/`time` field (those lived on the
   /// React router-state `Suggestion`), so the summary maps to
   /// `ai?.tldr ?? ''` and the time to `startedAt`.
-  Widget _buildPromotedBanner(IncidentSummary suggestion) {
+  Widget _buildPromotedBanner(Incident suggestion) {
     final String summary = suggestion.ai?.tldr ?? '';
     return WDiv(
       className:

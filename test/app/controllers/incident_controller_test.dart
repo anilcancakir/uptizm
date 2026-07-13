@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/incident_controller.dart';
+import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/app/mocks/incidents.dart';
 
 void main() {
@@ -96,7 +97,7 @@ void main() {
       );
       await controller.load();
 
-      final IncidentSummary? resolved = controller.incidentById('inc-2');
+      final Incident? resolved = controller.incidentById('inc-2');
 
       expect(resolved, isNotNull);
       expect(resolved!.id, equals('inc-2'));
@@ -140,19 +141,22 @@ void main() {
     expect(controller.aiSuggestions, isEmpty);
   });
 
-  test('load degrades to an empty list and an error state when the network is '
+  test('load degrades to an empty list without throwing when the network is '
       'unavailable', () async {
-    // No network bound: `Http.get` resolves an unregistered service; the
-    // defensive `load` must surface the controller's error state and never
-    // throw out of onInit/reload.
+    // No network bound: the unfiltered `load` sources its list from
+    // `Incident.all()`, which absorbs the transport failure internally and
+    // resolves `[]` (it cannot distinguish that from a genuine empty result).
+    // The defensive `load` keeps the (empty) last-known-good list and surfaces
+    // the empty state, never throwing out of onInit/reload.
     final IncidentController controller = Magic.findOrPut(
       IncidentController.new,
     );
 
-    await controller.load();
+    await expectLater(controller.load(), completes);
 
     expect(controller.incidents, isEmpty);
-    expect(controller.isError, isTrue);
+    expect(controller.isError, isFalse);
+    expect(controller.isEmpty, isTrue);
   });
 
   // ---------------------------------------------------------------------------
@@ -165,10 +169,16 @@ void main() {
 
   group('business actions', () {
     late IncidentController controller;
-    late IncidentSummary incident;
+    late Incident incident;
 
     setUp(() {
-      incident = incidents.first;
+      // The write actions read only `id` and `title` off the incident, so a
+      // minimal `Incident.fromMap` stands in for the former const DTO fixture
+      // now that these methods take the ORM model.
+      incident = Incident.fromMap({
+        'id': 'checkout-503',
+        'title': 'Checkout service returning 503s',
+      });
 
       // MagicFeedback logs a warning when no navigator context is mounted
       // (the case here, a plain unit test); bind a LogManager so that

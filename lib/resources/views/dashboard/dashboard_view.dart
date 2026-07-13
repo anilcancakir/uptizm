@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/dashboard_controller.dart';
-import '../../../app/mocks/incidents.dart';
+import '../../../app/models/incident.dart';
 import '../../../ui/components/ai_inbox_item/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/empty_state/index.dart';
@@ -235,7 +235,7 @@ class _DashboardViewState
   /// Builds the AI inbox section: heading + pending count, a subtitle, then the
   /// suggestion list (or an [EmptyState] when the inbox is clear).
   Widget _buildAiInbox() {
-    final List<IncidentSummary> suggestions = controller.aiSuggestions;
+    final List<Incident> suggestions = controller.aiSuggestions;
 
     return WDiv(
       className: 'flex flex-col gap-3',
