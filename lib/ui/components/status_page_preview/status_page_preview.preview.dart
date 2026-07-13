@@ -21,12 +21,11 @@ class StatusPagePreviewPreview extends StatelessWidget {
     // A healthy variant: reuse the customer-facing fixture but assign only the
     // operational marketing monitor so the overall banner reads "All systems
     // operational" and no past incidents surface.
-    final StatusPage healthy = statusPageFromConfig(
-      statusPages.first.copyWith(
-        name: 'Acme Status (healthy)',
-        monitorIds: const ['marketing'],
-        metricKeys: const ['marketing.dom_load'],
-      ),
+    final StatusPage healthy = cloneStatusPage(
+      statusPages.first,
+      name: 'Acme Status (healthy)',
+      monitorIds: const ['marketing'],
+      metricKeys: const ['marketing.dom_load'],
     );
 
     return WDiv(
@@ -35,11 +34,11 @@ class StatusPagePreviewPreview extends StatelessWidget {
         _labelled('Healthy — operational, subscriptions on', healthy),
         _labelled(
           'Outage — live metrics, incidents, subscriptions on',
-          statusPageFromConfig(statusPages.first),
+          statusPages.first,
         ),
         _labelled(
           'Internal ops — subscriptions off',
-          statusPageFromConfig(statusPages.last),
+          statusPages.last,
         ),
       ],
     );

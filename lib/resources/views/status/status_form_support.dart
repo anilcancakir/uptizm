@@ -3,6 +3,8 @@ import 'package:flutter/widgets.dart' show Color;
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
+import 'package:uptizm/app/models/monitor.dart';
+import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
@@ -43,7 +45,7 @@ const List<Color> kBrandColors = [
 /// ```
 List<Region> monitorRegions() {
   return [
-    for (final MonitorSummary m in monitors) Region(label: m.name, value: m.id),
+    for (final Monitor m in monitors) Region(label: m.name ?? '', value: m.id),
   ];
 }
 
@@ -73,19 +75,20 @@ List<Region> customMetricRegions(List<String> ids) {
 // Pure helpers.
 // ---------------------------------------------------------------------------
 
-/// The "Draft with AI" mock: compose a starter [StatusPageConfig] from the
+/// The "Draft with AI" mock: compose a starter [StatusPage] draft from the
 /// given [monitorIds].
 ///
 /// Groups every provided monitor into public components and writes a starter
 /// name, slug, and description, plus a preset metric selection filtered to the
 /// metrics that actually resolve for the chosen monitors. Mirrors
 /// `generateWithAi` in the React `StatusPageEditor` source: the description is
-/// composed from the monitors themselves, nothing external.
+/// composed from the monitors themselves, nothing external. The draft is a
+/// fresh (unsaved) [StatusPage] the editor seeds its fields from.
 ///
 /// ```dart
 /// final draft = aiDraftFor(monitors.map((m) => m.id).toList());
 /// ```
-StatusPageConfig aiDraftFor(List<String> monitorIds) {
+StatusPage aiDraftFor(List<String> monitorIds) {
   // 1. Preset metric ids the React source seeds, kept only when they resolve
   //    for the selected monitors (an unassigned monitor drops its metrics).
   const List<String> presetMetricKeys = [
@@ -102,32 +105,35 @@ StatusPageConfig aiDraftFor(List<String> monitorIds) {
       if (available.contains(key)) key,
   ];
 
-  // 2. Assemble the draft config. The brand color defaults to the first preset
+  // 2. Assemble the draft model. The brand color defaults to the first preset
   //    swatch, matching the editor's initial state.
-  return StatusPageConfig(
-    id: 'draft',
-    name: 'Acme Status',
-    slug: 'acme',
-    domainMode: DomainMode.path,
-    brandColor: kBrandColors.first,
-    logoText: '',
-    description:
+  final Color brand = kBrandColors.first;
+  return StatusPage.fromMap(<String, dynamic>{
+    'id': 'draft',
+    'name': 'Acme Status',
+    'slug': 'acme',
+    'domain_mode': DomainMode.path.name,
+    'brand_color': '#${brand.toARGB32().toRadixString(16).substring(2)}',
+    'logo_text': '',
+    'description':
         'Real-time status of our services. Subscribe to get notified about '
         'incidents and maintenance.',
-    monitorIds: monitorIds,
-    metricKeys: metricKeys,
-    subscriptionsEnabled: true,
-  );
+    'subscriptions_enabled': true,
+    'monitors': <Map<String, dynamic>>[
+      for (final String id in monitorIds) <String, dynamic>{'id': id},
+    ],
+    'metric_keys': metricKeys,
+  });
 }
 
-/// Whether the config satisfies the editor's Save-enabled rule.
+/// Whether the draft satisfies the editor's Save-enabled rule.
 ///
-/// Requires a non-empty [StatusPageConfig.name], [StatusPageConfig.slug], and
-/// at least one assigned monitor. Mirrors the `canSave` guard in the React
-/// `StatusPageEditor` source.
-bool isConfigValid(StatusPageConfig c) {
-  return c.name.trim().isNotEmpty &&
-      c.slug.trim().isNotEmpty &&
+/// Requires a non-empty [StatusPage.name], [StatusPage.slug], and at least one
+/// assigned monitor. Mirrors the `canSave` guard in the React `StatusPageEditor`
+/// source.
+bool isConfigValid(StatusPage c) {
+  return (c.name ?? '').trim().isNotEmpty &&
+      (c.slug ?? '').trim().isNotEmpty &&
       c.monitorIds.isNotEmpty;
 }
 

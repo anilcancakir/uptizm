@@ -1,126 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/monitor.dart';
 import 'status.dart';
-
-/// Summary of a single monitor as shown in the monitor list.
-///
-/// All fields are immutable. Optional fields (`responseMs`, `sloTarget`, etc.)
-/// are absent for paused monitors or monitor types that do not report them.
-///
-/// ```dart
-/// final monitor = monitors.first;
-/// print('${monitor.name}: ${monitor.status.label}');
-/// ```
-@immutable
-class MonitorSummary {
-  /// Stable identifier used for routing (e.g. `'marketing'`, `'api'`).
-  final String id;
-
-  /// Human-readable display name.
-  final String name;
-
-  /// Probed URL.
-  final String url;
-
-  /// Current health status.
-  final StatusKey status;
-
-  /// Most-recent check response time in milliseconds.
-  ///
-  /// `null` when the monitor is paused or the last check produced no timing.
-  final int? responseMs;
-
-  /// Human-formatted trailing uptime string, e.g. `"99.94%"` or `"—"`.
-  final String uptime;
-
-  /// Human-readable check interval label, e.g. `"30s"` or `"60s"`.
-  final String intervalLabel;
-
-  /// Probe region identifiers, e.g. `['us-east', 'eu-west']`.
-  final List<String> regions;
-
-  /// SLO target as a percentage, e.g. `99.9`. Drives error-budget cards.
-  ///
-  /// `null` when no SLO is configured for this monitor.
-  final double? sloTarget;
-
-  /// Trailing-7-day uptime percentage for the short error-budget window.
-  final double? sloUptime7d;
-
-  /// Trailing-30-day uptime percentage for the contractual error-budget window.
-  final double? sloUptime30d;
-
-  const MonitorSummary({
-    required this.id,
-    required this.name,
-    required this.url,
-    required this.status,
-    this.responseMs,
-    required this.uptime,
-    required this.intervalLabel,
-    required this.regions,
-    this.sloTarget,
-    this.sloUptime7d,
-    this.sloUptime30d,
-  });
-
-  /// Builds a [MonitorSummary] from a `MonitorResource` payload (backend
-  /// `api/v1` snake_case keys).
-  ///
-  /// The backend exposes two status fields: `last_status` (probe health:
-  /// up/down/degraded/paused) and `status` (admin state: active/paused).
-  /// When `status` is `'paused'` the monitor is administratively paused and
-  /// [StatusKey.paused] wins regardless of `last_status`, matching how the
-  /// fixture data already represents a paused monitor.
-  ///
-  /// `uptime`, `sloUptime7d`, and `sloUptime30d` are rollup fields the
-  /// current `MonitorResource` does not emit; they default to `'—'`/`null`
-  /// until a backend uptime-rollup endpoint exists.
-  factory MonitorSummary.fromMap(Map<String, dynamic> map) {
-    final bool isAdminPaused = map['status'] == 'paused';
-    final int? checkIntervalSec = (map['check_interval_sec'] as num?)?.toInt();
-    return MonitorSummary(
-      id: map['id']?.toString() ?? '',
-      name: (map['name'] as String?) ?? '',
-      url: (map['url'] as String?) ?? '',
-      status: isAdminPaused
-          ? StatusKey.paused
-          : statusKeyFromWire(map['last_status'] as String?),
-      responseMs: (map['last_response_ms'] as num?)?.toInt(),
-      uptime: (map['uptime'] as String?) ?? '—',
-      intervalLabel: checkIntervalSec != null ? '${checkIntervalSec}s' : '—',
-      regions: switch (map['regions']) {
-        List<dynamic> raw => raw.map((e) => e.toString()).toList(),
-        _ => const [],
-      },
-      sloTarget: (map['slo_target'] as num?)?.toDouble(),
-      sloUptime7d: (map['slo_uptime_7d'] as num?)?.toDouble(),
-      sloUptime30d: (map['slo_uptime_30d'] as num?)?.toDouble(),
-    );
-  }
-
-  /// Serializes the editable subset of this monitor for `POST`/`PUT`
-  /// create/edit requests.
-  ///
-  /// Only fields present on [MonitorSummary] are emitted; the backend's
-  /// wider write surface (`type`, `method`, `timeout_sec`,
-  /// `expected_status_code`, `show_on_status_page`, `only_show_if_degraded`,
-  /// ...) has no corresponding property on this mock shape yet, so those
-  /// keys are intentionally absent from the payload.
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'url': url,
-      'regions': regions,
-      if (sloTarget != null) 'slo_target': sloTarget,
-      if (intervalLabel.endsWith('s'))
-        'check_interval_sec': int.tryParse(
-          intervalLabel.substring(0, intervalLabel.length - 1),
-        ),
-    };
-  }
-}
 
 /// A single segment of the 90-day uptime history bar.
 ///
@@ -242,58 +123,62 @@ class ProbeRegion {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/// Design-lab fixture monitors. Deterministic; no network.
+/// Design-lab fixture monitors, projected onto the [Monitor] ORM model.
 ///
 /// Four monitors covering the four representative status states
-/// (up / degraded / down / paused).
-const List<MonitorSummary> monitors = [
-  MonitorSummary(
-    id: 'marketing',
-    name: 'Marketing site',
-    url: 'https://uptizm.com',
-    status: StatusKey.up,
-    responseMs: 84,
-    uptime: '100.00%',
-    intervalLabel: '30s',
-    regions: ['us-east', 'eu-west'],
-    sloTarget: 99.9,
-    sloUptime7d: 100,
-    sloUptime30d: 100,
-  ),
-  MonitorSummary(
-    id: 'api',
-    name: 'API gateway',
-    url: 'https://api.uptizm.com/health',
-    status: StatusKey.degraded,
-    responseMs: 412,
-    uptime: '99.94%',
-    intervalLabel: '30s',
-    regions: ['us-east', 'us-west', 'eu-west', 'ap-southeast'],
-    sloTarget: 99.95,
-    sloUptime7d: 99.99,
-    sloUptime30d: 99.94,
-  ),
-  MonitorSummary(
-    id: 'checkout',
-    name: 'Checkout service',
-    url: 'https://pay.uptizm.com',
-    status: StatusKey.down,
-    uptime: '99.91%',
-    intervalLabel: '10s',
-    regions: ['us-east', 'eu-west'],
-    sloTarget: 99.9,
-    sloUptime7d: 99.98,
-    sloUptime30d: 99.91,
-  ),
-  MonitorSummary(
-    id: 'docs',
-    name: 'Docs',
-    url: 'https://docs.uptizm.com',
-    status: StatusKey.paused,
-    uptime: '—',
-    intervalLabel: '60s',
-    regions: ['eu-central'],
-  ),
+/// (up / degraded / down / paused). The predecessor `MonitorSummary` DTO was
+/// deleted once every controller migrated to [Monitor]; these fixtures are
+/// hydrated through [Monitor.fromMap] from `MonitorResource`-shaped maps so the
+/// design-lab surfaces (status-page components, form pickers) read the same
+/// model the live inventory does. Deterministic; no network.
+final List<Monitor> monitors = [
+  Monitor.fromMap(<String, dynamic>{
+    'id': 'marketing',
+    'name': 'Marketing site',
+    'url': 'https://uptizm.com',
+    'last_status': 'up',
+    'last_response_ms': 84,
+    'uptime': '100.00%',
+    'check_interval_sec': 30,
+    'regions': <String>['us-east', 'eu-west'],
+    'slo_target': 99.9,
+    'slo_uptime_7d': 100,
+    'slo_uptime_30d': 100,
+  }),
+  Monitor.fromMap(<String, dynamic>{
+    'id': 'api',
+    'name': 'API gateway',
+    'url': 'https://api.uptizm.com/health',
+    'last_status': 'degraded',
+    'last_response_ms': 412,
+    'uptime': '99.94%',
+    'check_interval_sec': 30,
+    'regions': <String>['us-east', 'us-west', 'eu-west', 'ap-southeast'],
+    'slo_target': 99.95,
+    'slo_uptime_7d': 99.99,
+    'slo_uptime_30d': 99.94,
+  }),
+  Monitor.fromMap(<String, dynamic>{
+    'id': 'checkout',
+    'name': 'Checkout service',
+    'url': 'https://pay.uptizm.com',
+    'last_status': 'down',
+    'uptime': '99.91%',
+    'check_interval_sec': 10,
+    'regions': <String>['us-east', 'eu-west'],
+    'slo_target': 99.9,
+    'slo_uptime_7d': 99.98,
+    'slo_uptime_30d': 99.91,
+  }),
+  Monitor.fromMap(<String, dynamic>{
+    'id': 'docs',
+    'name': 'Docs',
+    'url': 'https://docs.uptizm.com',
+    'status': 'paused',
+    'uptime': '—',
+    'check_interval_sec': 60,
+    'regions': <String>['eu-central'],
+  }),
 ];
 
 /// Recent probe results shown in the monitor-detail checks table.
@@ -355,9 +240,9 @@ const List<ProbeRegion> allRegions = [
 ];
 
 /// Find a monitor fixture by [id]. Returns `null` when none matches.
-MonitorSummary? findMonitor(String? id) {
+Monitor? findMonitor(String? id) {
   if (id == null) return null;
-  for (final m in monitors) {
+  for (final Monitor m in monitors) {
     if (m.id == id) return m;
   }
   return null;

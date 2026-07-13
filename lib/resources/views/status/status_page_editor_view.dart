@@ -41,11 +41,14 @@ import '../../../ui/layouts/page_container.dart';
 ///   [pageUrl] and a bounded, scrollable [StatusPagePreview] that re-renders
 ///   live as the draft mutates.
 ///
-/// State is a single mutable [StatusPageConfig] draft; every field edit does
-/// `setState(() => _draft = _draft.copyWith(...))`. The name field auto-slugs
-/// into the slug until the user edits the slug directly ([_slugEdited]). Save /
-/// Create is enabled only while [isConfigValid]; the action shows a
-/// [Magic.success] toast and returns to `/status` (mock: nothing persists).
+/// State is a set of individual draft fields (name, slug, domain mode, brand
+/// color, logo text, description, assigned monitor ids, metric keys, and the
+/// subscriptions flag); every field edit runs `setState` on the field it
+/// touches. The name field auto-slugs into the slug until the user edits the
+/// slug directly ([_slugEdited]). The draft is projected into a [StatusPage]
+/// through [_draftPage] for the read-side helpers ([pageUrl]) and the live
+/// [StatusPagePreview]; Save / Create hands that same projection to the
+/// controller and is enabled only while [_canSave].
 ///
 /// Logo file-upload is a deliberate mock affordance (initials + brand color
 /// only); no file picker is wired (Risk Accepted in the plan).
@@ -78,10 +81,45 @@ class _StatusPageEditorViewState
   /// The lock icon standing in for the (mocked) logo-upload affordance.
   static const IconData _uploadIcon = Icons.image_outlined;
 
-  /// The live, mutable draft. Seeded from the resolved fixture (edit) or from
-  /// the React defaults (create); every field edit round-trips through
-  /// [StatusPageConfig.copyWith].
-  late StatusPageConfig _draft;
+  // ---------------------------------------------------------------------------
+  // Draft fields.
+  //
+  // The editable status-page draft, held as individual fields rather than a DTO
+  // (the `StatusPageConfig` value object was deleted). Seeded from the resolved
+  // model (edit) or the React defaults (create); each edit runs `setState` on
+  // the field it touches. [_draftPage] projects them into a [StatusPage] for
+  // the read helpers and the live preview.
+  // ---------------------------------------------------------------------------
+
+  /// The status-page id (`'draft'` in create mode).
+  late String _draftId;
+
+  /// The page name; auto-slugs into [_slug] until the slug is edited.
+  late String _name;
+
+  /// The URL-safe slug.
+  late String _slug;
+
+  /// How the page is served (subdomain vs. path).
+  late DomainMode _domainMode;
+
+  /// The per-page brand tint (content data, the sanctioned raw-color exception).
+  late Color _brandColor;
+
+  /// The one-to-two character logo fallback text.
+  late String _logoText;
+
+  /// The short description shown under the page name.
+  late String _description;
+
+  /// The assigned monitor ids (public components).
+  late List<String> _monitorIds;
+
+  /// The published metric keys (`monitorId.key`).
+  late List<String> _metricKeys;
+
+  /// Whether email subscriptions are enabled.
+  late bool _subscriptionsEnabled;
 
   /// Whether the resolved id maps to a real fixture (edit mode). `false` puts
   /// the editor in create mode.
@@ -120,60 +158,80 @@ class _StatusPageEditorViewState
     }
   }
 
-  /// Seeds the draft from [existing] (edit) or the React create defaults.
+  /// Seeds the draft fields from [existing] (edit) or the React create defaults.
   ///
   /// Runs from [initState] and [didUpdateWidget]; both schedule their own build,
   /// so state is assigned directly rather than through [setState]. The slug is
   /// treated as already-edited in edit mode so an existing slug never gets
   /// clobbered by a name edit (React `useState(!isNew)` for `slugEdited`). The
-  /// fetched [StatusPage] model is projected into the editable
-  /// [StatusPageConfig] value object the draft machinery trades in.
+  /// monitor-id and metric-key lists are copied so editing the draft never
+  /// mutates the controller's cached model.
   void _seedFrom(StatusPage? existing) {
     _aiApplied = false;
     if (existing == null) {
       _isEdit = false;
       _slugEdited = false;
-      _draft = StatusPageConfig(
-        id: 'draft',
-        name: '',
-        slug: '',
-        domainMode: DomainMode.path,
-        brandColor: kBrandColors.first,
-        logoText: '',
-        description: '',
-        monitorIds: const <String>[],
-        metricKeys: const <String>[],
-        subscriptionsEnabled: true,
-      );
+      _draftId = 'draft';
+      _name = '';
+      _slug = '';
+      _domainMode = DomainMode.path;
+      _brandColor = kBrandColors.first;
+      _logoText = '';
+      _description = '';
+      _monitorIds = <String>[];
+      _metricKeys = <String>[];
+      _subscriptionsEnabled = true;
       return;
     }
     _isEdit = true;
     _slugEdited = true;
-    _draft = statusPageConfigFrom(existing);
+    _draftId = existing.id;
+    _name = existing.name ?? '';
+    _slug = existing.slug ?? '';
+    _domainMode = existing.domainMode;
+    _brandColor = existing.brandColor;
+    _logoText = existing.logoText ?? '';
+    _description = existing.description ?? '';
+    _monitorIds = List<String>.of(existing.monitorIds);
+    _metricKeys = List<String>.of(existing.metricKeys);
+    _subscriptionsEnabled = existing.subscriptionsEnabled;
   }
 
   /// Whether the draft satisfies the Save-enabled rule (name + slug + at least
   /// one assigned monitor).
-  bool get _canSave => isConfigValid(_draft);
+  bool get _canSave =>
+      _name.trim().isNotEmpty &&
+      _slug.trim().isNotEmpty &&
+      _monitorIds.isNotEmpty;
 
-  /// The current draft projected into a [StatusPage] model, for the read-side
-  /// helpers ([pageUrl]) and the live [StatusPagePreview] that now consume the
-  /// ORM model rather than the [StatusPageConfig] value object.
-  StatusPage get _draftPage => statusPageFromConfig(_draft);
-
-  /// Applies a copy of the draft, wrapped in [setState].
-  void _update(StatusPageConfig next) {
-    setState(() => _draft = next);
+  /// The current draft projected into a [StatusPage], for the read-side helpers
+  /// ([pageUrl]), the live [StatusPagePreview], and the controller write
+  /// actions.
+  StatusPage get _draftPage {
+    return StatusPage.fromMap(<String, dynamic>{
+      'id': _draftId,
+      'name': _name,
+      'slug': _slug,
+      'domain_mode': _domainMode.name,
+      'brand_color':
+          '#${_brandColor.toARGB32().toRadixString(16).substring(2)}',
+      'logo_text': _logoText,
+      'description': _description,
+      'subscriptions_enabled': _subscriptionsEnabled,
+      'monitors': <Map<String, dynamic>>[
+        for (final String id in _monitorIds) <String, dynamic>{'id': id},
+      ],
+      'metric_keys': _metricKeys,
+    });
   }
 
   /// Handles a name edit: updates the name and, until the slug is manually
   /// edited, keeps the slug auto-synced from the name (React `onName`).
   void _onNameChanged(String value) {
-    _update(
-      _slugEdited
-          ? _draft.copyWith(name: value)
-          : _draft.copyWith(name: value, slug: _slugify(value)),
-    );
+    setState(() {
+      _name = value;
+      if (!_slugEdited) _slug = _slugify(value);
+    });
   }
 
   /// Handles a slug edit: latches [_slugEdited] and stores the slugified value
@@ -181,18 +239,26 @@ class _StatusPageEditorViewState
   void _onSlugChanged(String value) {
     setState(() {
       _slugEdited = true;
-      _draft = _draft.copyWith(slug: _slugify(value));
+      _slug = _slugify(value);
     });
   }
 
-  /// Runs the "Draft with AI" mock: replaces the draft with the controller's
-  /// AI fill over the currently-assigned monitors and shows the post-generate
-  /// note. The draft and its slug latch stay ephemeral here; only the fill
-  /// itself is a controller action. The AI draft owns the slug, so it is
-  /// treated as already-edited afterwards (React `generateWithAi`).
+  /// Runs the "Draft with AI" mock: reads the controller's AI fill (over the
+  /// currently-assigned monitors) into the draft fields and shows the
+  /// post-generate note. The AI draft owns the slug, so it is treated as
+  /// already-edited afterwards (React `generateWithAi`).
   void _generateWithAi() {
+    final StatusPage draft = controller.generateWithAi(_monitorIds);
     setState(() {
-      _draft = controller.generateWithAi(_draft.monitorIds);
+      _name = draft.name ?? '';
+      _slug = draft.slug ?? '';
+      _domainMode = draft.domainMode;
+      _brandColor = draft.brandColor;
+      _logoText = draft.logoText ?? '';
+      _description = draft.description ?? '';
+      _monitorIds = List<String>.of(draft.monitorIds);
+      _metricKeys = List<String>.of(draft.metricKeys);
+      _subscriptionsEnabled = draft.subscriptionsEnabled;
       _slugEdited = true;
       _aiApplied = true;
     });
@@ -203,15 +269,15 @@ class _StatusPageEditorViewState
   /// controller.
   void _save() {
     if (_isEdit) {
-      controller.save(_draft);
+      controller.save(_draftPage);
     } else {
-      controller.create(_draft);
+      controller.create(_draftPage);
     }
   }
 
   /// Navigates to the public preview of the saved page (edit mode only).
   void _viewPublicPage() {
-    MagicRoute.to('/status/${_draft.id}/preview');
+    MagicRoute.to('/status/$_draftId/preview');
   }
 
   /// Slugifies [value] to a URL-safe, hyphen-separated handle capped at 40
@@ -276,8 +342,8 @@ class _StatusPageEditorViewState
       children: [
         MSPageHeader(
           title: _isEdit
-              ? (_draft.name.isNotEmpty
-                    ? _draft.name
+              ? (_name.isNotEmpty
+                    ? _name
                     : trans('uptizm.status.editor_title_edit'))
               : trans('uptizm.status.editor_title_new'),
           backLabel: trans('uptizm.status.editor_breadcrumb_back'),
@@ -347,7 +413,7 @@ class _StatusPageEditorViewState
       if (_aiApplied) _buildAiAppliedBanner(),
       _buildBrandingCard(),
       _buildComponentsCard(),
-      if (_draft.monitorIds.isNotEmpty) _buildMetricsCard(),
+      if (_monitorIds.isNotEmpty) _buildMetricsCard(),
       _buildSubscriptionsCard(),
     ];
   }
@@ -420,7 +486,7 @@ class _StatusPageEditorViewState
     return MSFormField(
       label: trans('uptizm.status.editor_form_name_label'),
       child: MSInput(
-        value: _draft.name,
+        value: _name,
         onChanged: _onNameChanged,
         placeholder: trans('uptizm.status.editor_form_name_placeholder'),
       ),
@@ -434,9 +500,9 @@ class _StatusPageEditorViewState
       label: trans('uptizm.status.editor_form_how_served_label'),
       child: MSSegmentedControl<String>(
         options: _domainModes.map((DomainMode m) => m.label).toList(),
-        selectedIndex: _domainModes.indexOf(_draft.domainMode),
+        selectedIndex: _domainModes.indexOf(_domainMode),
         onChanged: (int index) =>
-            _update(_draft.copyWith(domainMode: _domainModes[index])),
+            setState(() => _domainMode = _domainModes[index]),
       ),
     );
   }
@@ -448,7 +514,7 @@ class _StatusPageEditorViewState
       label: trans('uptizm.status.editor_form_slug_label'),
       hint: pageUrl(_draftPage),
       child: MSInput(
-        value: _draft.slug,
+        value: _slug,
         onChanged: _onSlugChanged,
         placeholder: trans('uptizm.status.editor_form_slug_placeholder'),
         className: 'font-mono',
@@ -460,8 +526,8 @@ class _StatusPageEditorViewState
   ///
   /// Each swatch is a tappable circle: a [WButton] wrapping a
   /// [WDiv] with the raw brand color as its background. The selected swatch
-  /// gets a ring. [StatusPageConfig.brandColor] + [kBrandColors] are the ONLY
-  /// raw colors on this screen (content data, the sanctioned exception).
+  /// gets a ring. The draft brand color + [kBrandColors] are the ONLY raw
+  /// colors on this screen (content data, the sanctioned exception).
   Widget _buildBrandColorField() {
     return MSFormField(
       label: trans('uptizm.status.editor_form_brand_color_label'),
@@ -482,9 +548,9 @@ class _StatusPageEditorViewState
   /// bordered wrapper (`border-2 border-primary` + padding gap) around the
   /// raw-brand-color swatch circle instead. Only the swatch fill is a raw color.
   Widget _buildSwatch(Color swatch) {
-    final bool selected = _draft.brandColor.toARGB32() == swatch.toARGB32();
+    final bool selected = _brandColor.toARGB32() == swatch.toARGB32();
     return WButton(
-      onTap: () => _update(_draft.copyWith(brandColor: swatch)),
+      onTap: () => setState(() => _brandColor = swatch),
       child: WDiv(
         className: selected
             ? 'rounded-full border-2 border-primary p-0.5'
@@ -499,9 +565,9 @@ class _StatusPageEditorViewState
   /// The upload button is a disabled mock (initials + color only; no file
   /// picker is wired, Risk Accepted). The initials input caps at 2 characters.
   Widget _buildLogoField() {
-    final String initials = _draft.logoText.isNotEmpty
-        ? _draft.logoText
-        : (_draft.name.isNotEmpty ? _draft.name.substring(0, 1) : 'A');
+    final String initials = _logoText.isNotEmpty
+        ? _logoText
+        : (_name.isNotEmpty ? _name.substring(0, 1) : 'A');
     return MSFormField(
       label: trans('uptizm.status.editor_form_logo_text_label'),
       hint: trans('uptizm.status.editor_form_logo_text_hint'),
@@ -512,7 +578,7 @@ class _StatusPageEditorViewState
             className: 'flex flex-row items-center gap-3',
             children: <Widget>[
               WDiv(
-                backgroundColor: _draft.brandColor,
+                backgroundColor: _brandColor,
                 className:
                     'size-12 shrink-0 rounded-lg flex items-center justify-center',
                 child: WText(
@@ -536,11 +602,10 @@ class _StatusPageEditorViewState
             ],
           ),
           MSInput(
-            value: _draft.logoText,
-            onChanged: (String value) => _update(
-              _draft.copyWith(
-                logoText: value.length > 2 ? value.substring(0, 2) : value,
-              ),
+            value: _logoText,
+            onChanged: (String value) => setState(
+              () => _logoText =
+                  value.length > 2 ? value.substring(0, 2) : value,
             ),
             className: 'max-w-20',
           ),
@@ -554,16 +619,15 @@ class _StatusPageEditorViewState
     return MSFormField(
       label: trans('uptizm.status.editor_form_description_label'),
       child: MSTextarea(
-        value: _draft.description,
-        onChanged: (String value) =>
-            _update(_draft.copyWith(description: value)),
+        value: _description,
+        onChanged: (String value) => setState(() => _description = value),
         placeholder: trans('uptizm.status.editor_form_description_placeholder'),
       ),
     );
   }
 
   /// Builds the Components card: a [RegionPicker] over every monitor, bound to
-  /// the draft's [StatusPageConfig.monitorIds].
+  /// the draft's assigned monitor ids.
   Widget _buildComponentsCard() {
     return MSCard(
       variant: CardVariant.surface,
@@ -576,9 +640,9 @@ class _StatusPageEditorViewState
           ),
           RegionPicker(
             regions: monitorRegions(),
-            value: _draft.monitorIds,
+            value: _monitorIds,
             onChanged: (List<String> next) =>
-                _update(_draft.copyWith(monitorIds: next)),
+                setState(() => _monitorIds = next),
           ),
         ],
       ),
@@ -586,15 +650,14 @@ class _StatusPageEditorViewState
   }
 
   /// Builds the Metrics card (rendered only when monitors are assigned): the
-  /// System and Custom metric pickers, each bound to the draft's
-  /// [StatusPageConfig.metricKeys].
+  /// System and Custom metric pickers, each bound to the draft's metric keys.
   ///
   /// Each picker resolves its options from the assigned monitors; when a monitor
   /// set exposes no system (or no custom) metric, the picker is replaced with an
   /// explanatory line (React's `systemOptions.length > 0 ? … : <p>`).
   Widget _buildMetricsCard() {
-    final List<Region> systemOptions = systemMetricRegions(_draft.monitorIds);
-    final List<Region> customOptions = customMetricRegions(_draft.monitorIds);
+    final List<Region> systemOptions = systemMetricRegions(_monitorIds);
+    final List<Region> customOptions = customMetricRegions(_monitorIds);
     return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
@@ -609,9 +672,9 @@ class _StatusPageEditorViewState
             child: systemOptions.isNotEmpty
                 ? RegionPicker(
                     regions: systemOptions,
-                    value: _draft.metricKeys,
+                    value: _metricKeys,
                     onChanged: (List<String> next) =>
-                        _update(_draft.copyWith(metricKeys: next)),
+                        setState(() => _metricKeys = next),
                   )
                 : WText(
                     trans('uptizm.status.editor_form_no_system_metrics'),
@@ -623,9 +686,9 @@ class _StatusPageEditorViewState
             child: customOptions.isNotEmpty
                 ? RegionPicker(
                     regions: customOptions,
-                    value: _draft.metricKeys,
+                    value: _metricKeys,
                     onChanged: (List<String> next) =>
-                        _update(_draft.copyWith(metricKeys: next)),
+                        setState(() => _metricKeys = next),
                   )
                 : WText(
                     trans('uptizm.status.editor_form_no_custom_metrics'),
@@ -651,9 +714,9 @@ class _StatusPageEditorViewState
           ),
           _buildSwitchRow(
             label: trans('uptizm.status.editor_form_allow_subscriptions_label'),
-            value: _draft.subscriptionsEnabled,
+            value: _subscriptionsEnabled,
             onChanged: (bool value) =>
-                _update(_draft.copyWith(subscriptionsEnabled: value)),
+                setState(() => _subscriptionsEnabled = value),
           ),
           if (_isEdit) _buildSubscriberSummary(),
         ],
@@ -664,7 +727,7 @@ class _StatusPageEditorViewState
   /// Builds the edit-mode subscriber summary: the count line and a "View
   /// subscribers" secondary button routing to the subscribers screen.
   Widget _buildSubscriberSummary() {
-    final int count = controller.subscribersFor(_draft.id).length;
+    final int count = controller.subscribersFor(_draftId).length;
     final String unit = count == 1
         ? trans('uptizm.status.editor_form_subscribers_count_singular')
         : trans('uptizm.status.editor_form_subscribers_count');
@@ -686,7 +749,7 @@ class _StatusPageEditorViewState
         MSButton(
           intent: ButtonIntent.secondary,
           size: ButtonSize.sm,
-          onPressed: () => MagicRoute.to('/status/${_draft.id}/subscribers'),
+          onPressed: () => MagicRoute.to('/status/$_draftId/subscribers'),
           child: WText(
             trans('uptizm.status.editor_form_view_subscribers_button'),
           ),

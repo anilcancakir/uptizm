@@ -1,8 +1,9 @@
 import 'package:flutter/widgets.dart' show Color, immutable;
 
 import 'metrics.dart';
-import 'monitors.dart' show MonitorSummary, UptimeSegment, monitors, uptime90, findMonitor;
+import 'monitors.dart' show UptimeSegment, monitors, uptime90, findMonitor;
 import 'status.dart';
+import '../models/monitor.dart';
 import '../models/status_page.dart';
 import '../../resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
 
@@ -28,94 +29,6 @@ enum DomainMode {
     DomainMode.subdomain => 'Subdomain',
     DomainMode.path => 'Path',
   };
-}
-
-/// Configuration for a single public status page.
-///
-/// A status page is a CRUD resource in the panel: the operator assigns
-/// monitors (which become public components carrying their linked incidents)
-/// and custom metrics, sets branding (color + logo), and picks how it is
-/// served. Mirrors the `StatusPageConfig` interface in the React status mock.
-///
-/// ```dart
-/// final page = statusPages.first;
-/// print(pageUrl(page)); // "uptizm.com/status/acme"
-/// ```
-@immutable
-class StatusPageConfig {
-  /// Stable identifier used for routing, e.g. `'acme'`.
-  final String id;
-
-  /// Human-readable page name shown in the header.
-  final String name;
-
-  /// URL-safe handle used in the public URL.
-  final String slug;
-
-  /// How the page is served (subdomain vs. path).
-  final DomainMode domainMode;
-
-  /// Per-page brand color (the header tint and accent).
-  ///
-  /// This is content data, the direct analogue of the React source's inline
-  /// `style={{ background: brandColor }}`, so it lives here as a raw [Color]
-  /// (the `Team.color` precedent), NOT a semantic Wind token.
-  final Color brandColor;
-
-  /// One-to-two character logo fallback shown when no logo image is set.
-  final String logoText;
-
-  /// Short description shown under the page name.
-  final String description;
-
-  /// Monitor ids assigned as public components.
-  final List<String> monitorIds;
-
-  /// Custom/aggregate metric ids surfaced publicly (`monitorId.key`).
-  final List<String> metricKeys;
-
-  /// When true, visitors can subscribe by email and the subscribe box shows.
-  final bool subscriptionsEnabled;
-
-  const StatusPageConfig({
-    required this.id,
-    required this.name,
-    required this.slug,
-    required this.domainMode,
-    required this.brandColor,
-    required this.logoText,
-    required this.description,
-    required this.monitorIds,
-    required this.metricKeys,
-    required this.subscriptionsEnabled,
-  });
-
-  /// Returns a copy of this config with the given fields replaced.
-  StatusPageConfig copyWith({
-    String? id,
-    String? name,
-    String? slug,
-    DomainMode? domainMode,
-    Color? brandColor,
-    String? logoText,
-    String? description,
-    List<String>? monitorIds,
-    List<String>? metricKeys,
-    bool? subscriptionsEnabled,
-  }) {
-    return StatusPageConfig(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      slug: slug ?? this.slug,
-      domainMode: domainMode ?? this.domainMode,
-      brandColor: brandColor ?? this.brandColor,
-      logoText: logoText ?? this.logoText,
-      description: description ?? this.description,
-      monitorIds: monitorIds ?? this.monitorIds,
-      metricKeys: metricKeys ?? this.metricKeys,
-      subscriptionsEnabled: subscriptionsEnabled ?? this.subscriptionsEnabled,
-    );
-  }
 }
 
 /// A monitor resolved to a public component (name + current health + history).
@@ -164,38 +77,59 @@ class Subscriber {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/// Design-lab status-page fixtures. Deterministic; no network.
+/// Design-lab status-page fixtures, projected onto the [StatusPage] ORM model.
 ///
 /// Two pages: a customer-facing page assigning all monitors, and an internal
-/// ops page assigning a subset. Ids match the [monitors] fixture.
-const List<StatusPageConfig> statusPages = [
-  StatusPageConfig(
-    id: 'acme',
-    name: 'Acme Status',
-    slug: 'acme',
-    domainMode: DomainMode.path,
-    brandColor: Color(0xFF16A34A),
-    logoText: 'A',
-    description: "Real-time status of Acme's services.",
-    monitorIds: ['marketing', 'api', 'checkout', 'docs'],
-    metricKeys: ['api.response_time', 'api.req_rate', 'marketing.dom_load'],
-    subscriptionsEnabled: true,
-  ),
-  StatusPageConfig(
-    id: 'internal',
-    name: 'Acme Internal Ops',
-    slug: 'internal-ops',
-    domainMode: DomainMode.subdomain,
-    brandColor: Color(0xFF6366F1),
-    logoText: 'I',
-    description: 'Internal platform health for the engineering org.',
-    monitorIds: ['api', 'checkout'],
-    metricKeys: ['api.response_time', 'api.cpu_load', 'checkout.queue_depth'],
-    subscriptionsEnabled: false,
-  ),
+/// ops page assigning a subset. Ids match the [monitors] fixture. The
+/// predecessor `StatusPageConfig` value object was deleted once the status
+/// views, controller, and editor migrated to [StatusPage]; these fixtures are
+/// hydrated through [StatusPage.fromMap] from `StatusPageResource`-shaped maps
+/// (`domain_mode` as the in-app [DomainMode] name, `brand_color` as `#rrggbb`,
+/// the monitor pivot as `{id}` rows). Deterministic; no network.
+final List<StatusPage> statusPages = [
+  StatusPage.fromMap(<String, dynamic>{
+    'id': 'acme',
+    'name': 'Acme Status',
+    'slug': 'acme',
+    'domain_mode': 'path',
+    'brand_color': '#16A34A',
+    'logo_text': 'A',
+    'description': "Real-time status of Acme's services.",
+    'subscriptions_enabled': true,
+    'monitors': <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'marketing'},
+      <String, dynamic>{'id': 'api'},
+      <String, dynamic>{'id': 'checkout'},
+      <String, dynamic>{'id': 'docs'},
+    ],
+    'metric_keys': <String>[
+      'api.response_time',
+      'api.req_rate',
+      'marketing.dom_load',
+    ],
+  }),
+  StatusPage.fromMap(<String, dynamic>{
+    'id': 'internal',
+    'name': 'Acme Internal Ops',
+    'slug': 'internal-ops',
+    'domain_mode': 'subdomain',
+    'brand_color': '#6366F1',
+    'logo_text': 'I',
+    'description': 'Internal platform health for the engineering org.',
+    'subscriptions_enabled': false,
+    'monitors': <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'api'},
+      <String, dynamic>{'id': 'checkout'},
+    ],
+    'metric_keys': <String>[
+      'api.response_time',
+      'api.cpu_load',
+      'checkout.queue_depth',
+    ],
+  }),
 ];
 
-/// Per-page subscriber fixtures, keyed by [StatusPageConfig.id].
+/// Per-page subscriber fixtures, keyed by [StatusPage.id].
 ///
 /// The internal ops page has no subscribers. Mirrors the `SUBSCRIBERS` record
 /// in the React status mock.
@@ -229,8 +163,8 @@ final Map<String, List<UptimeSegment>> _uptimeHistory = {
 /// Public URL a status page is served at, by domain mode.
 ///
 /// Falls back to `your-page` when the slug is empty or absent (live-preview
-/// state in the editor). Mirrors `pageUrl` in the React status mock. Retyped to
-/// the [StatusPage] ORM model in Wave 2 (the `slug` accessor is now nullable).
+/// state in the editor). Mirrors `pageUrl` in the React status mock. Reads the
+/// [StatusPage] ORM model (the `slug` accessor is nullable).
 ///
 /// ```dart
 /// pageUrl(page); // "uptizm.com/status/acme"
@@ -244,15 +178,49 @@ String pageUrl(StatusPage c) {
   };
 }
 
-/// Find a status page by [id] among the design-lab fixtures, hydrated into a
-/// [StatusPage] model. Returns `null` when none matches.
+/// Clones [page] into a fresh [StatusPage], replacing only the fields named in
+/// the overrides.
 ///
-/// Test-facing after Wave 2: production reads flow through
+/// The editable status-page draft (editor, preview variants, and the fixture
+/// tests) needs a copy-with-overrides that no longer flows through the deleted
+/// `StatusPageConfig.copyWith`. This rehydrates a new model from the source's
+/// raw attributes, then patches the wire keys for any provided override so the
+/// clone reads them back through the model's reverse-cast accessors.
+StatusPage cloneStatusPage(
+  StatusPage page, {
+  String? name,
+  String? slug,
+  DomainMode? domainMode,
+  Color? brandColor,
+  List<String>? monitorIds,
+  List<String>? metricKeys,
+}) {
+  final Map<String, dynamic> map = Map<String, dynamic>.from(page.attributes);
+  if (name != null) map['name'] = name;
+  if (slug != null) map['slug'] = slug;
+  if (domainMode != null) map['domain_mode'] = domainMode.name;
+  if (brandColor != null) {
+    map['brand_color'] =
+        '#${brandColor.toARGB32().toRadixString(16).substring(2)}';
+  }
+  if (monitorIds != null) {
+    map['monitors'] = <Map<String, dynamic>>[
+      for (final String id in monitorIds) <String, dynamic>{'id': id},
+    ];
+  }
+  if (metricKeys != null) map['metric_keys'] = metricKeys;
+  return StatusPage.fromMap(map);
+}
+
+/// Find a status page among the design-lab fixtures by [id]. Returns `null`
+/// when none matches.
+///
+/// Test-facing after the ORM migration: production reads flow through
 /// `StatusPageController.reload` (`StatusPage.all()`), not this fixture lookup.
 StatusPage? findStatusPage(String? id) {
   if (id == null) return null;
-  for (final StatusPageConfig p in statusPages) {
-    if (p.id == id) return statusPageFromConfig(p);
+  for (final StatusPage page in statusPages) {
+    if (page.id == id) return page;
   }
   return null;
 }
@@ -269,18 +237,16 @@ List<Subscriber> subscribersFor(String? id) {
 ///
 /// Unknown ids are dropped. Each component's [PublicComponent.segments] comes
 /// from the per-monitor [_uptimeHistory] table, falling back to a clean 90-day
-/// bar. Mirrors `componentsFor` in the React status mock. The parameter is the
-/// [StatusPage] model (its callers hold `StatusPage` after Wave 2); the monitor
-/// resolution below stays on [MonitorSummary] until Step 9 retypes it to
-/// `Monitor`.
+/// bar. Mirrors `componentsFor` in the React status mock. Reads the [StatusPage]
+/// model; monitor resolution runs through the [Monitor]-typed [findMonitor].
 List<PublicComponent> componentsFor(StatusPage c) {
   final List<PublicComponent> result = [];
   for (final String id in c.monitorIds) {
-    final MonitorSummary? m = findMonitor(id);
+    final Monitor? m = findMonitor(id);
     if (m == null) continue;
     result.add(
       PublicComponent(
-        name: m.name,
+        name: m.name ?? '',
         status: m.status,
         uptime: '${m.uptime} uptime',
         segments: _uptimeHistory[id] ?? uptime90(),
@@ -294,8 +260,7 @@ List<PublicComponent> componentsFor(StatusPage c) {
 ///
 /// Only metrics belonging to currently-assigned monitors resolve, so
 /// unassigning a monitor quietly drops its published metrics. Mirrors
-/// `metricsFor` in the React status mock. Retyped to the [StatusPage] ORM
-/// model in Wave 2.
+/// `metricsFor` in the React status mock. Reads the [StatusPage] ORM model.
 List<MonitorMetric> metricsFor(StatusPage c) {
   final List<MonitorMetric> available = metricsForMonitors(c.monitorIds);
   final List<MonitorMetric> result = [];
@@ -353,60 +318,4 @@ StatusKey worstStatus(List<PublicComponent> components) {
     if (rank(c.status) > rank(worst)) worst = c.status;
   }
   return worst;
-}
-
-// ---------------------------------------------------------------------------
-// StatusPageConfig <-> StatusPage boundary converters (Wave 2 transitional).
-//
-// The status views migrated their reads to the [StatusPage] ORM model, but the
-// EDITOR keeps a mutable [StatusPageConfig] draft (its per-keystroke `copyWith`
-// machinery and the `generateWithAi` draft both trade in the value object).
-// These converters bridge the two at the view boundary: the editor seeds its
-// draft from a fetched model and renders the live preview through a model.
-// Both die with `StatusPageConfig` in Wave 5.
-// ---------------------------------------------------------------------------
-
-/// Hydrates a [StatusPage] model from a [StatusPageConfig] value object.
-///
-/// Stores the fields in their wire shape so the model's reverse-cast accessors
-/// ([StatusPage.domainMode]/[StatusPage.brandColor]/[StatusPage.monitorIds])
-/// read them back: `domain_mode` as the [DomainMode] name (the in-app
-/// representation, distinct from the backend `path`/`custom` write payload),
-/// `brand_color` as `#rrggbb`, and the monitor pivot as `{id}` rows.
-StatusPage statusPageFromConfig(StatusPageConfig c) {
-  final String hex = c.brandColor.toARGB32().toRadixString(16).substring(2);
-  return StatusPage.fromMap(<String, dynamic>{
-    'id': c.id,
-    'name': c.name,
-    'slug': c.slug,
-    'domain_mode': c.domainMode.name,
-    'brand_color': '#$hex',
-    'logo_text': c.logoText,
-    'description': c.description,
-    'subscriptions_enabled': c.subscriptionsEnabled,
-    'monitors': [
-      for (final String id in c.monitorIds) <String, dynamic>{'id': id},
-    ],
-    'metric_keys': c.metricKeys,
-  });
-}
-
-/// Projects a [StatusPage] model back into a [StatusPageConfig] draft.
-///
-/// Fills the value object's non-null String fields from the model's nullable
-/// accessors so the editor can seed its `copyWith`-driven draft from a fetched
-/// page.
-StatusPageConfig statusPageConfigFrom(StatusPage page) {
-  return StatusPageConfig(
-    id: page.id,
-    name: page.name ?? '',
-    slug: page.slug ?? '',
-    domainMode: page.domainMode,
-    brandColor: page.brandColor,
-    logoText: page.logoText ?? '',
-    description: page.description ?? '',
-    monitorIds: page.monitorIds,
-    metricKeys: page.metricKeys,
-    subscriptionsEnabled: page.subscriptionsEnabled,
-  );
 }

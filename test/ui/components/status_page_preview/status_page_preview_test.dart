@@ -111,14 +111,13 @@ void main() {
   testWidgets('renders the page name and the powered-by footer', (
     tester,
   ) async {
-    final StatusPageConfig source = statusPages.first;
-    final StatusPage config = statusPageFromConfig(source);
+    final StatusPage config = statusPages.first;
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.text(source.name), findsOneWidget);
+    expect(find.text(config.name!), findsOneWidget);
     expect(find.textContaining('powered by Uptizm'), findsOneWidget);
   });
 
@@ -127,8 +126,9 @@ void main() {
   ) async {
     // `checkout` is down in the uptime-history fixture; assigning only it
     // forces the overall status to `down`.
-    final StatusPage config = statusPageFromConfig(
-      statusPages.first.copyWith(monitorIds: const ['checkout']),
+    final StatusPage config = cloneStatusPage(
+      statusPages.first,
+      monitorIds: const ['checkout'],
     );
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));
@@ -141,8 +141,10 @@ void main() {
   testWidgets('a config with no assigned monitors renders the empty placeholder', (
     tester,
   ) async {
-    final StatusPage config = statusPageFromConfig(
-      statusPages.first.copyWith(monitorIds: const [], metricKeys: const []),
+    final StatusPage config = cloneStatusPage(
+      statusPages.first,
+      monitorIds: const [],
+      metricKeys: const [],
     );
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));

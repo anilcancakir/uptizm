@@ -81,12 +81,12 @@ void main() {
 
   testWidgets('MonitorListRow renders monitor name', (tester) async {
     await tester.pumpWidget(wrap(MonitorListRow(monitor: monitorFixtures.first)));
-    expect(find.text(monitors.first.name), findsOneWidget);
+    expect(find.text(monitors.first.name!), findsOneWidget);
   });
 
   testWidgets('MonitorListRow renders monitor URL', (tester) async {
     await tester.pumpWidget(wrap(MonitorListRow(monitor: monitorFixtures.first)));
-    expect(find.text(monitors.first.url), findsOneWidget);
+    expect(find.text(monitors.first.url!), findsOneWidget);
   });
 
   testWidgets('MonitorListRow renders a StatusBadge', (tester) async {

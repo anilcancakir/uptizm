@@ -14,7 +14,7 @@ import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 /// degrading to the last-known-good cache on any failure (empty before the
 /// first success); [statusPages] and [configById] answer synchronously from
 /// that cache so a view's `build()` never awaits. The write actions [save] and
-/// [create] map the editor's [StatusPageConfig] draft to a [StatusPage] model
+/// [create] map the editor's [StatusPage] draft to a clean persistence model
 /// and persist through its ORM `save()` (bool-checked, toast on failure),
 /// while [attachMonitor]/[detachMonitor]/[reorderMonitors] stay raw `Http.*`
 /// against the monitor-membership pivot sub-resource. [removeSubscriber] stays
@@ -104,11 +104,11 @@ class StatusPageController extends MagicController {
     );
   }
 
-  /// Composes an AI-drafted [StatusPageConfig] over the given [monitorIds].
+  /// Composes an AI-drafted [StatusPage] over the given [monitorIds].
   ///
-  /// A pure fill: the view assigns the returned draft into its local compose
-  /// state, so the draft and its slug latch stay ephemeral in the view.
-  StatusPageConfig generateWithAi(List<String> monitorIds) =>
+  /// A pure fill: the view reads the returned draft's fields into its local
+  /// compose state, so the draft and its slug latch stay ephemeral in the view.
+  StatusPage generateWithAi(List<String> monitorIds) =>
       aiDraftFor(monitorIds);
 
   // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ class StatusPageController extends MagicController {
   /// toast, and returns to the list; on a false result (non-2xx or a swallowed
   /// transport failure), logs it and surfaces an error toast without navigating
   /// away, so the operator can retry from the still-open editor.
-  Future<void> save(StatusPageConfig draft) async {
+  Future<void> save(StatusPage draft) async {
     final StatusPage page = _modelFrom(draft, existing: true);
 
     final bool ok = await page.save();
@@ -135,7 +135,7 @@ class StatusPageController extends MagicController {
     }
 
     refreshUI();
-    Magic.success(trans('uptizm.status.editor_form_save'), draft.name);
+    Magic.success(trans('uptizm.status.editor_form_save'), draft.name ?? '');
     MagicRoute.to('/status');
   }
 
@@ -146,7 +146,7 @@ class StatusPageController extends MagicController {
   /// issues a create, then checks the bool result: on success, refreshes the
   /// bound view, surfaces a success toast, and returns to the list; on a false
   /// result, logs it and surfaces an error toast without navigating away.
-  Future<void> create(StatusPageConfig draft) async {
+  Future<void> create(StatusPage draft) async {
     final StatusPage page = _modelFrom(draft, existing: false);
 
     final bool ok = await page.save();
@@ -157,7 +157,10 @@ class StatusPageController extends MagicController {
     }
 
     refreshUI();
-    Magic.success(trans('uptizm.status.editor_form_create_page'), draft.name);
+    Magic.success(
+      trans('uptizm.status.editor_form_create_page'),
+      draft.name ?? '',
+    );
     MagicRoute.to('/status');
   }
 
@@ -284,7 +287,8 @@ class StatusPageController extends MagicController {
   // Wire helpers
   // ---------------------------------------------------------------------------
 
-  /// Builds a [StatusPage] persistence model from a [StatusPageConfig] draft.
+  /// Builds a clean [StatusPage] persistence model from the editor's [draft]
+  /// model.
   ///
   /// Fills the backend's `Store`/`UpdateStatusPageRequest` field shape (using
   /// the forward write-casts [_wireDomainMode]/[_wireBrandColor]) and, when
@@ -295,7 +299,7 @@ class StatusPageController extends MagicController {
   /// is a separate pivot managed through [attachMonitor]/[detachMonitor], and
   /// metric selection has no live endpoint yet (the backend's `metrics()`
   /// pivot exists for schema completeness only, per `StatusPage.php`).
-  StatusPage _modelFrom(StatusPageConfig draft, {required bool existing}) {
+  StatusPage _modelFrom(StatusPage draft, {required bool existing}) {
     final StatusPage page = StatusPage()
       ..fill(<String, dynamic>{
         'name': draft.name,

@@ -170,11 +170,11 @@ void main() {
     final StatusPageController controller = StatusPageController.instance;
     final List<String> monitorIds = ['api', 'checkout'];
 
-    final StatusPageConfig draft = controller.generateWithAi(monitorIds);
+    final StatusPage draft = controller.generateWithAi(monitorIds);
 
-    // StatusPageConfig has no value equality, so compare field-by-field
-    // against the pure aiDraftFor fill it delegates to.
-    final StatusPageConfig expected = aiDraftFor(monitorIds);
+    // StatusPage has no value equality, so compare field-by-field against the
+    // pure aiDraftFor fill it delegates to.
+    final StatusPage expected = aiDraftFor(monitorIds);
     expect(draft, isNotNull);
     expect(draft.name, equals(expected.name));
     expect(draft.slug, equals(expected.slug));
@@ -225,8 +225,8 @@ void main() {
   // ---------------------------------------------------------------------------
   // save / create: ORM-native writes through `StatusPage.save()` against
   // `api/v1/status-pages`, refresh (refreshUI) + navigation on success, error
-  // toast + stay on a false `save()` result. The draft stays a StatusPageConfig
-  // value object; the controller maps it to a persistence model.
+  // toast + stay on a false `save()` result. The draft is a StatusPage model;
+  // the controller maps it to a clean persistence model.
   // ---------------------------------------------------------------------------
 
   group('save', () {
@@ -235,7 +235,7 @@ void main() {
         'status-pages/*': Http.response({'data': {}}, 200),
       });
       final StatusPageController controller = StatusPageController.instance;
-      final StatusPageConfig draft = statusPages.first;
+      final StatusPage draft = statusPages.first;
 
       await controller.save(draft);
 
@@ -296,7 +296,7 @@ void main() {
         'status-pages': Http.response({'data': {}}, 201),
       });
       final StatusPageController controller = StatusPageController.instance;
-      final StatusPageConfig draft = statusPages.last;
+      final StatusPage draft = statusPages.last;
 
       await controller.create(draft);
 

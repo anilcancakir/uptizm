@@ -13,7 +13,7 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// Renders every configured public status page from the design-lab mock
 /// fixtures (no controller, no network): a page header with a "New status
-/// page" action and a responsive card grid, one card per [StatusPageConfig].
+/// page" action and a responsive card grid, one card per [StatusPage].
 /// An [EmptyState] placeholder is shown when [statusPages] is empty.
 ///
 /// Layout follows the same discipline as [IncidentsListView]: a plain Flutter

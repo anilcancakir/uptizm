@@ -26,7 +26,7 @@ import '../../../ui/layouts/page_container.dart';
 ///    on/off state.
 /// 4. **Body** — when subscriptions are off or there are no subscribers, a
 ///    dashed-border [EmptyState] (message branches on
-///    [StatusPageConfig.subscriptionsEnabled]) with an "Open editor" action
+///    [StatusPage.subscriptionsEnabled]) with an "Open editor" action
 ///    back to `/status/<id>`. Otherwise a search [Input] over a striped
 ///    [Card] of subscriber rows, each with a Remove [Button] that opens a
 ///    [MagicStarterConfirmDialog] before mutating local state.
@@ -176,7 +176,7 @@ class _StatusPageSubscribersViewState
 
   /// Builds the dashed-border empty state shown when subscriptions are off
   /// or there are no subscribers yet. The message branches on
-  /// [StatusPageConfig.subscriptionsEnabled]; "Open editor" always routes
+  /// [StatusPage.subscriptionsEnabled]; "Open editor" always routes
   /// back to `/status/<id>`.
   Widget _buildEmptyState(StatusPage page) {
     return WDiv(

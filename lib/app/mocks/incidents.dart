@@ -402,6 +402,13 @@ class IncidentAcknowledgement {
 }
 
 /// Full incident record as shown in the incident list and detail page.
+///
+/// Fixture-only design-lab DTO. The wire-decode role moved to the [Incident]
+/// ORM model; this shape survives solely to carry the design-lab [incidents]
+/// fixtures, which hold richer data than any backend endpoint emits (per-item
+/// [assignee]/[acknowledged], and the full [IncidentAi] evidence lists) for the
+/// design-lab-only surfaces: the weekly AI digest, the public status-page
+/// preview, the monitor-detail incidents tab, and the AI analysis card preview.
 @immutable
 class IncidentSummary {
   /// Stable identifier used for routing, e.g. `'checkout-503'`.
@@ -470,82 +477,6 @@ class IncidentSummary {
     this.acknowledged,
     this.ai,
   });
-
-  /// Builds an [IncidentSummary] from an `IncidentResource` payload (backend
-  /// `api/v1` snake_case keys).
-  ///
-  /// [monitorName] is resolved from the `monitors[]` pivot list by matching
-  /// each entry's `monitor_id` against `primary_monitor_id` (the key the
-  /// backend `IncidentResource` emits), falling back to the first affected
-  /// monitor, and reads that entry's `name` for the header meta line.
-  /// [assignee] and [acknowledged] have no counterpart in the resource shape
-  /// above and stay `null` on a backend-decoded instance; they are wired in
-  /// separately (an assignment endpoint). [ai] decodes when the map carries
-  /// an `ai` sub-object (the `GET /dashboard/ai-inbox` shape); the evidence,
-  /// suggested-action, and similar-incident lists have no counterpart there
-  /// yet and stay empty.
-  factory IncidentSummary.fromMap(Map<String, dynamic> map) {
-    final Object? rawMonitors = map['monitors'];
-    final List<Map<String, dynamic>> monitorMaps = rawMonitors is List
-        ? rawMonitors.whereType<Map<String, dynamic>>().toList()
-        : const [];
-    final List<AffectedMonitor> affectedMonitors = monitorMaps
-        .map(AffectedMonitor.fromMap)
-        .toList();
-
-    final Object? rawUpdates = map['updates'];
-    final List<TimelineEntry> timeline = rawUpdates is List
-        ? rawUpdates
-              .whereType<Map<String, dynamic>>()
-              .map(TimelineEntry.fromMap)
-              .toList()
-        : const [];
-
-    final String? primaryMonitorId = map['primary_monitor_id']?.toString();
-    final Map<String, dynamic>? primaryMonitorMap = monitorMaps.isEmpty
-        ? null
-        : monitorMaps.firstWhere(
-            (m) => m['monitor_id']?.toString() == primaryMonitorId,
-            orElse: () => monitorMaps.first,
-          );
-
-    final DateTime startedAt =
-        DateTime.tryParse(map['started_at'] as String? ?? '') ??
-        DateTime.now();
-    final DateTime? resolvedAt = map['resolved_at'] is String
-        ? DateTime.tryParse(map['resolved_at'] as String)
-        : null;
-
-    final Object? rawAi = map['ai'];
-    final IncidentAi? ai = rawAi is Map
-        ? IncidentAi(
-            trigger: (rawAi['trigger'] as String?) ?? '',
-            confidence: aiConfidenceFromWire(rawAi['confidence'] as String?),
-            tldr: (rawAi['tldr'] as String?) ?? '',
-            evidenceFor: const [],
-            evidenceAgainst: const [],
-            suggestedActions: const [],
-            similarIncidents: const [],
-          )
-        : null;
-
-    return IncidentSummary(
-      id: map['id']?.toString() ?? '',
-      title: (map['title'] as String?) ?? '',
-      impact: impactFromWire(map['impact'] as String?),
-      severity: severityFromWire(map['severity'] as String?),
-      signalSource: signalSourceFromWire(map['signal_source'] as String?),
-      lifecycle: lifecycleFromWire(map['lifecycle'] as String?),
-      startedAt: formatRelativeMeta(startedAt, resolvedAt),
-      duration: formatDuration(startedAt, resolvedAt ?? DateTime.now()),
-      affectedCount: monitorMaps.length,
-      aiOwned: map['ai_owned'] == true,
-      monitorName: (primaryMonitorMap?['name'] as String?) ?? '',
-      affectedMonitors: affectedMonitors,
-      timeline: timeline,
-      ai: ai,
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------

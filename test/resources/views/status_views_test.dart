@@ -138,7 +138,7 @@ void main() {
     // background `onInit` reload degrades to empty and leaves the seed intact.
     Magic.findOrPut(StatusPageController.new);
     StatusPageController.instance.seedForTest(
-      statusPages.map(statusPageFromConfig).toList(),
+      List<StatusPage>.of(statusPages),
     );
 
     Translator.instance.setLoader(_StatusViewsLangLoader());
@@ -179,8 +179,8 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(PageContainer), findsOneWidget);
-      for (final StatusPageConfig page in statusPages) {
-        expect(find.text(page.name), findsOneWidget);
+      for (final StatusPage page in statusPages) {
+        expect(find.text(page.name!), findsOneWidget);
       }
     });
   });

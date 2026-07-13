@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/status.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
+import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/status/status_form_support.dart';
 
@@ -67,17 +68,17 @@ void main() {
     });
 
     test('an empty name is invalid', () {
-      final config = statusPages.first.copyWith(name: '  ');
+      final config = cloneStatusPage(statusPages.first, name: '  ');
       expect(isConfigValid(config), isFalse);
     });
 
     test('an empty slug is invalid', () {
-      final config = statusPages.first.copyWith(slug: '');
+      final config = cloneStatusPage(statusPages.first, slug: '');
       expect(isConfigValid(config), isFalse);
     });
 
     test('no assigned monitors is invalid', () {
-      final config = statusPages.first.copyWith(monitorIds: const []);
+      final config = cloneStatusPage(statusPages.first, monitorIds: const []);
       expect(isConfigValid(config), isFalse);
     });
   });
@@ -88,27 +89,30 @@ void main() {
 
   group('pageUrl', () {
     test('subdomain mode renders slug.uptizm.com', () {
-      final config = statusPages.first.copyWith(
+      final config = cloneStatusPage(
+        statusPages.first,
         slug: 'acme',
         domainMode: DomainMode.subdomain,
       );
-      expect(pageUrl(statusPageFromConfig(config)), 'acme.uptizm.com');
+      expect(pageUrl(config), 'acme.uptizm.com');
     });
 
     test('path mode renders uptizm.com/status/slug', () {
-      final config = statusPages.first.copyWith(
+      final config = cloneStatusPage(
+        statusPages.first,
         slug: 'acme',
         domainMode: DomainMode.path,
       );
-      expect(pageUrl(statusPageFromConfig(config)), 'uptizm.com/status/acme');
+      expect(pageUrl(config), 'uptizm.com/status/acme');
     });
 
     test('an empty slug falls back to your-page', () {
-      final config = statusPages.first.copyWith(
+      final config = cloneStatusPage(
+        statusPages.first,
         slug: '',
         domainMode: DomainMode.path,
       );
-      expect(pageUrl(statusPageFromConfig(config)), 'uptizm.com/status/your-page');
+      expect(pageUrl(config), 'uptizm.com/status/your-page');
     });
   });
 
@@ -119,7 +123,7 @@ void main() {
   group('aiDraftFor', () {
     test('prefills name, slug, and description for a non-empty monitor set', () {
       final List<String> ids = monitors.map((m) => m.id).toList();
-      final StatusPageConfig draft = aiDraftFor(ids);
+      final StatusPage draft = aiDraftFor(ids);
 
       expect(draft.name, isNotEmpty);
       expect(draft.slug, isNotEmpty);
@@ -128,7 +132,7 @@ void main() {
     });
 
     test('metric keys resolve only to metrics of the selected monitors', () {
-      final StatusPageConfig draft = aiDraftFor(const ['marketing']);
+      final StatusPage draft = aiDraftFor(const ['marketing']);
 
       expect(draft.monitorIds, const ['marketing']);
       for (final String key in draft.metricKeys) {
@@ -137,7 +141,7 @@ void main() {
     });
 
     test('an empty monitor set yields an empty metric-key list', () {
-      final StatusPageConfig draft = aiDraftFor(const []);
+      final StatusPage draft = aiDraftFor(const []);
       expect(draft.monitorIds, isEmpty);
       expect(draft.metricKeys, isEmpty);
     });
@@ -150,21 +154,22 @@ void main() {
   group('componentsFor', () {
     test('resolves every known monitor id to a public component', () {
       final config = statusPages.first;
-      final List<PublicComponent> components = componentsFor(statusPageFromConfig(config));
+      final List<PublicComponent> components = componentsFor(config);
 
       expect(components.length, config.monitorIds.length);
       for (var i = 0; i < config.monitorIds.length; i++) {
-        final MonitorSummary monitor = findMonitor(config.monitorIds[i])!;
+        final Monitor monitor = findMonitor(config.monitorIds[i])!;
         expect(components[i].name, monitor.name);
         expect(components[i].status, monitor.status);
       }
     });
 
     test('unknown monitor ids are dropped', () {
-      final config = statusPages.first.copyWith(
+      final config = cloneStatusPage(
+        statusPages.first,
         monitorIds: const ['marketing', 'not-a-real-monitor'],
       );
-      final List<PublicComponent> components = componentsFor(statusPageFromConfig(config));
+      final List<PublicComponent> components = componentsFor(config);
 
       expect(components.length, 1);
       expect(components.first.name, findMonitor('marketing')!.name);

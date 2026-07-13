@@ -128,6 +128,9 @@ void main() {
 
       expect(incident.monitorName, 'Checkout service');
       expect(incident.affectedCount, 2);
+      // The pivot order is preserved: the primary is resolved by monitor_id,
+      // not by promoting the first affected monitor to the header.
+      expect(incident.affectedMonitors.first.name, 'Marketing site');
     });
 
     test('unknown enum wire values fall back safely', () {
