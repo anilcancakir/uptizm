@@ -233,6 +233,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     Route::get('billing', [BillingController::class, 'show'])
         ->name('api.v1.billing.show');
+    Route::get('billing/plans', [BillingController::class, 'plans'])
+        ->name('api.v1.billing.plans');
+    Route::get('billing/usage', [BillingController::class, 'usage'])
+        ->name('api.v1.billing.usage');
+    Route::get('billing/invoices', [BillingController::class, 'invoices'])
+        ->name('api.v1.billing.invoices');
+    Route::get('billing/payment-method', [BillingController::class, 'paymentMethod'])
+        ->name('api.v1.billing.payment-method');
     Route::post('billing/checkout', [BillingController::class, 'checkout'])
         ->name('api.v1.billing.checkout');
     Route::post('billing/swap', [BillingController::class, 'swap'])
