@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Services\Ai;
 
+use App\Enums\AiConfidence;
 use App\Services\Ai\FakeIncidentAnalysisGateway;
 use App\Services\Ai\IncidentAnalysisGateway;
 use App\Services\Ai\IncidentAnalysisPayload;
@@ -134,6 +135,152 @@ class IncidentAnalysisGatewayTest extends TestCase
             LaravelAiIncidentAnalysisGateway::class,
             $this->app->make(IncidentAnalysisGateway::class),
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // (4) Nested evidence + suggested actions: schema mapping, the
+    //     source-enum honesty guard, and the citation strip
+    // ---------------------------------------------------------------------
+
+    public function test_normalize_maps_a_conforming_nested_payload(): void
+    {
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $data = $gateway->normalize([
+            'summary' => 'Root cause narrated for an operator.',
+            'confidence' => 'high',
+            'contributing_factors' => [
+                'Latency crossed the configured bound.',
+            ],
+            'evidence_for' => [
+                [
+                    'label' => 'All regions affected',
+                    'detail' => 'Every recorded probe reported a failure.',
+                    'source' => 'check',
+                ],
+            ],
+            'evidence_against' => [
+                [
+                    'label' => 'Healthy history',
+                    'detail' => 'The monitor was green before the window.',
+                    'source' => 'monitor',
+                ],
+            ],
+            'suggested_actions' => [
+                [
+                    'title' => 'Check the origin',
+                    'rationale' => 'A cross-region failure points upstream of the probes.',
+                ],
+            ],
+        ]);
+
+        $this->assertNotNull($data);
+        $this->assertSame('check', $data['evidence_for'][0]['source']);
+        $this->assertSame('monitor', $data['evidence_against'][0]['source']);
+        $this->assertSame('Check the origin', $data['suggested_actions'][0]['title']);
+    }
+
+    public function test_normalize_rejects_a_malformed_nested_payload(): void
+    {
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        // A bare string where an array-of-objects is required: the whole
+        // payload is non-conforming, which drives the single retry.
+        $wrongContainer = $gateway->normalize([
+            'summary' => 'Root cause narrated for an operator.',
+            'confidence' => 'high',
+            'contributing_factors' => [],
+            'evidence_for' => 'not an array',
+            'evidence_against' => [],
+            'suggested_actions' => [],
+        ]);
+        $this->assertNull($wrongContainer);
+
+        // An evidence item missing its detail is equally non-conforming.
+        $missingField = $gateway->normalize([
+            'summary' => 'Root cause narrated for an operator.',
+            'confidence' => 'high',
+            'contributing_factors' => [],
+            'evidence_for' => [
+                [
+                    'label' => 'No detail here',
+                    'source' => 'check',
+                ],
+            ],
+            'evidence_against' => [],
+            'suggested_actions' => [],
+        ]);
+        $this->assertNull($missingField);
+    }
+
+    public function test_out_of_enum_evidence_source_is_dropped_and_never_emitted(): void
+    {
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload();
+
+        $result = $gateway->sanitizeEvidence(
+            [
+                [
+                    'label' => 'Grounded',
+                    'detail' => 'Drawn from a recorded check.',
+                    'source' => 'check',
+                ],
+                [
+                    'label' => 'Fabricated',
+                    'detail' => 'Drawn from a deploy log we never expose.',
+                    'source' => 'deploy_log',
+                ],
+            ],
+            $payload,
+        );
+
+        // Only the in-enum source survives; the fabricated source never reaches
+        // the wire.
+        $this->assertCount(1, $result['evidence']);
+        $this->assertSame('check', $result['evidence'][0]['source']);
+        foreach ($result['evidence'] as $evidence) {
+            $this->assertContains($evidence['source'], ['timeline', 'check', 'monitor']);
+        }
+    }
+
+    public function test_evidence_label_and_detail_run_through_the_citation_strip(): void
+    {
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(knownCheckIds: ['check-1'], knownMonitorIds: ['monitor-1']);
+
+        $result = $gateway->sanitizeEvidence(
+            [
+                [
+                    'label' => 'Traced to check_id:phantom noise',
+                    'detail' => 'Confirmed by check_id:check-1.',
+                    'source' => 'check',
+                ],
+            ],
+            $payload,
+        );
+
+        // The out-of-catalog citation is stripped from the label; the known
+        // citation in the detail survives.
+        $this->assertStringNotContainsString('check_id:phantom', $result['evidence'][0]['label']);
+        $this->assertContains('check_id:phantom', $result['stripped']);
+        $this->assertStringContainsString('check_id:check-1', $result['evidence'][0]['detail']);
+    }
+
+    public function test_result_emits_empty_nested_arrays_by_default(): void
+    {
+        $result = new IncidentAnalysisResult(
+            summary: 'Baseline.',
+            confidence: AiConfidence::Low,
+            contributingFactors: [],
+        );
+
+        $wire = $result->toArray();
+
+        // The three enriched keys are always present as arrays, never null and
+        // never omitted, so the client renders no hole.
+        $this->assertSame([], $wire['evidence_for']);
+        $this->assertSame([], $wire['evidence_against']);
+        $this->assertSame([], $wire['suggested_actions']);
     }
 
     /**

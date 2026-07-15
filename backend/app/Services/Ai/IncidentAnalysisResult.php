@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\AiConfidence;
+use App\Enums\EvidenceSource;
 
 /**
  * The immutable post-incident RCA summary the analysis LLM produces from an
@@ -17,6 +18,14 @@ use App\Enums\AiConfidence;
  * catalog has been stripped before this object was built.
  * `strippedCitations` records what was removed so the caller can audit the
  * hallucination rate.
+ *
+ * `evidenceFor`, `evidenceAgainst`, and `suggestedActions` are the enriched,
+ * nested wire fields the incident detail screen renders. Every evidence row is
+ * allowlist-cleaned and carries an {@see EvidenceSource}-constrained
+ * source; the deterministic and non-conforming fallbacks leave them empty. The
+ * LLM path and every fallback path therefore return the IDENTICAL wire shape
+ * (empty arrays, never null, never omitted), so the client renders no hole and
+ * never sees a fabricated source.
  */
 readonly class IncidentAnalysisResult
 {
@@ -24,13 +33,19 @@ readonly class IncidentAnalysisResult
      * @param  string  $summary  The allowlist-cleaned root-cause narration.
      * @param  AiConfidence  $confidence  How strongly the summary is supported by the evidence.
      * @param  list<string>  $contributingFactors  Allowlist-cleaned contributing-factor bullets.
-     * @param  list<string>  $strippedCitations  Out-of-catalog citations removed from the summary.
+     * @param  list<string>  $strippedCitations  Out-of-catalog citations removed from every free-text field.
+     * @param  list<array{label: string, detail: string, source: string}>  $evidenceFor  Evidence supporting the root cause.
+     * @param  list<array{label: string, detail: string, source: string}>  $evidenceAgainst  Evidence that qualifies or contradicts it.
+     * @param  list<array{title: string, rationale: string}>  $suggestedActions  Concrete next steps derived from the evidence.
      */
     public function __construct(
         public string $summary,
         public AiConfidence $confidence,
         public array $contributingFactors,
         public array $strippedCitations = [],
+        public array $evidenceFor = [],
+        public array $evidenceAgainst = [],
+        public array $suggestedActions = [],
     ) {}
 
     /**
@@ -45,6 +60,9 @@ readonly class IncidentAnalysisResult
             'confidence' => $this->confidence->value,
             'contributing_factors' => $this->contributingFactors,
             'stripped_citations' => $this->strippedCitations,
+            'evidence_for' => $this->evidenceFor,
+            'evidence_against' => $this->evidenceAgainst,
+            'suggested_actions' => $this->suggestedActions,
         ];
     }
 }

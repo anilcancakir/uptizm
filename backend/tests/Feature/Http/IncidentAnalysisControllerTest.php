@@ -17,6 +17,7 @@ use App\Services\Ai\FakeIncidentAnalysisGateway;
 use App\Services\Ai\IncidentAnalysisGateway;
 use App\Services\Ai\IncidentAnalysisPayload;
 use App\Services\Ai\IncidentAnalysisResult;
+use App\Services\Ai\NonConformingAnalysisException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -54,6 +55,71 @@ class IncidentAnalysisControllerTest extends TestCase
             'Response time exceeded the configured threshold during the incident window.',
         );
         $response->assertJsonPath('data.stripped_citations', []);
+    }
+
+    public function test_analysis_emits_the_enriched_evidence_and_actions_shape(): void
+    {
+        $this->app->bind(IncidentAnalysisGateway::class, FakeIncidentAnalysisGateway::class);
+        [$monitor, $user] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->getJson("/api/v1/incidents/{$incident->id}/analysis");
+
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
+            'data' => [
+                'summary',
+                'confidence',
+                'contributing_factors',
+                'stripped_citations',
+                'evidence_for' => [
+                    ['label', 'detail', 'source'],
+                ],
+                'evidence_against' => [
+                    ['label', 'detail', 'source'],
+                ],
+                'suggested_actions' => [
+                    ['title', 'rationale'],
+                ],
+            ],
+        ]);
+
+        // Every emitted evidence source is one of the three enum members: the
+        // honest-AI-boundary never leaks a free-text or fabricated source.
+        foreach ($response->json('data.evidence_for') as $evidence) {
+            $this->assertContains($evidence['source'], ['timeline', 'check', 'monitor']);
+        }
+        foreach ($response->json('data.evidence_against') as $evidence) {
+            $this->assertContains($evidence['source'], ['timeline', 'check', 'monitor']);
+        }
+    }
+
+    public function test_analysis_degrades_to_the_fallback_shape_on_non_conforming_output(): void
+    {
+        // A gateway that always rejects models the case where the LLM returned
+        // malformed nesting twice (past the single retry). The endpoint must
+        // degrade to the deterministic baseline with the identical empty-array
+        // wire shape, never a 500.
+        $this->app->instance(IncidentAnalysisGateway::class, new class implements IncidentAnalysisGateway
+        {
+            public function analyze(IncidentAnalysisPayload $payload): IncidentAnalysisResult
+            {
+                throw new NonConformingAnalysisException('Malformed nested structured output.');
+            }
+        });
+
+        [$monitor, $user] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->getJson("/api/v1/incidents/{$incident->id}/analysis");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.confidence', 'low');
+        $this->assertSame([], $response->json('data.evidence_for'));
+        $this->assertSame([], $response->json('data.evidence_against'));
+        $this->assertSame([], $response->json('data.suggested_actions'));
     }
 
     public function test_analysis_folds_the_timeline_and_recent_checks_into_the_payload(): void
@@ -142,6 +208,12 @@ class IncidentAnalysisControllerTest extends TestCase
         $response->assertStatus(200);
         $response->assertJsonPath('data.confidence', 'low');
         $this->assertStringContainsString('budget', strtolower((string) $response->json('data.summary')));
+
+        // The over-budget path emits the SAME enriched keys as the LLM path,
+        // as empty arrays, so the client renders no hole.
+        $this->assertSame([], $response->json('data.evidence_for'));
+        $this->assertSame([], $response->json('data.evidence_against'));
+        $this->assertSame([], $response->json('data.suggested_actions'));
     }
 
     public function test_analysis_requires_authentication(): void

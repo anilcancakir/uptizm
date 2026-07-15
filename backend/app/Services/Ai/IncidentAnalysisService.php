@@ -55,9 +55,21 @@ class IncidentAnalysisService
 
         $teamId = (string) $incident->team_id;
 
-        return $this->budget->tryConsume($teamId)
-            ? $this->gateway->analyze($payload)
-            : $this->deterministicSummary($incident);
+        // 1. Over budget never calls the LLM: degrade to the deterministic
+        //    baseline so the endpoint still answers.
+        if (! $this->budget->tryConsume($teamId)) {
+            return $this->deterministicSummary($incident, 'AI analysis budget exhausted for today');
+        }
+
+        // 2. A model that returns non-conforming output past the gateway's
+        //    single retry degrades to the SAME deterministic baseline, so the
+        //    endpoint returns the identical empty-array wire shape rather than
+        //    a 500. Infrastructure failures still propagate.
+        try {
+            return $this->gateway->analyze($payload);
+        } catch (NonConformingAnalysisException) {
+            return $this->deterministicSummary($incident, 'AI analysis could not be produced reliably for this incident');
+        }
     }
 
     /**
@@ -131,19 +143,30 @@ class IncidentAnalysisService
 
     /**
      * Build a deterministic summary from the incident's own fields, used
-     * when the team is over its daily AI budget so the LLM is never called.
+     * whenever the LLM is not consulted (over budget) or its output could not
+     * be trusted (non-conforming past the retry).
+     *
+     * The enriched evidence and action arrays are left empty so this fallback
+     * returns the IDENTICAL wire shape as the LLM path: the client renders no
+     * hole and never sees a fabricated source.
+     *
+     * @param  string  $reason  A short clause naming why the baseline was used.
      */
-    protected function deterministicSummary(Incident $incident): IncidentAnalysisResult
+    protected function deterministicSummary(Incident $incident, string $reason): IncidentAnalysisResult
     {
         return new IncidentAnalysisResult(
             summary: sprintf(
-                'Deterministic baseline from the incident record (AI analysis budget exhausted for today): %s severity incident, currently %s.',
+                'Deterministic baseline from the incident record (%s): %s severity incident, currently %s.',
+                $reason,
                 $incident->severity?->value ?? 'unknown',
                 $incident->lifecycle?->value ?? 'unknown',
             ),
             confidence: AiConfidence::Low,
             contributingFactors: [],
             strippedCitations: [],
+            evidenceFor: [],
+            evidenceAgainst: [],
+            suggestedActions: [],
         );
     }
 }
