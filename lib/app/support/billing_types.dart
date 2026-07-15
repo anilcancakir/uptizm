@@ -52,6 +52,38 @@ class PlanLimits {
     required this.privatePages,
     required this.sso,
   });
+
+  /// Decodes a [PlanLimits] from a `GET /billing/plans` catalog entry's
+  /// nested `limits` object (`backend/config/plans.php`'s `tiers.*.limits`).
+  ///
+  /// A missing/unrecognized `ai` wire value falls back to [AiLevel.inbox]
+  /// (the lowest capability), mirroring the safe-fallback shape every other
+  /// `fromWire` decoder in this codebase uses.
+  factory PlanLimits.fromMap(Map<String, dynamic> map) {
+    return PlanLimits(
+      monitors: (map['monitors'] as num?)?.toInt(),
+      checkIntervalSec: (map['check_interval_sec'] as num?)?.toInt() ?? 0,
+      statusPages: (map['status_pages'] as num?)?.toInt(),
+      subscribers: (map['subscribers'] as num?)?.toInt(),
+      responders: (map['responders'] as num?)?.toInt(),
+      ai: _aiLevelFromWire(map['ai'] as String?),
+      whiteLabel: (map['white_label'] as bool?) ?? false,
+      privatePages: (map['private_pages'] as bool?) ?? false,
+      sso: (map['sso'] as bool?) ?? false,
+    );
+  }
+}
+
+/// Decodes the `GET /billing/plans` `limits.ai` wire string into an
+/// [AiLevel], falling back to [AiLevel.inbox] on an absent/unrecognized value.
+AiLevel _aiLevelFromWire(String? wire) {
+  return switch (wire) {
+    'inbox' => AiLevel.inbox,
+    'analysis' => AiLevel.analysis,
+    'auto' => AiLevel.auto,
+    'custom' => AiLevel.custom,
+    _ => AiLevel.inbox,
+  };
 }
 
 /// A billing tier with its display metadata and in-product limits.
@@ -104,4 +136,33 @@ class Plan {
     this.recommended = false,
     required this.limits,
   });
+
+  /// Decodes a [Plan] from a `GET /billing/plans` catalog entry
+  /// (`backend/config/plans.php`'s `tiers` array, served verbatim under the
+  /// `data` envelope; see `BillingController::plans()`).
+  ///
+  /// The `currency` wire field is not decoded: the view renders every price
+  /// as a bare `"$<n>"` (no currency-aware formatting), so it carries no
+  /// field this value object needs.
+  factory Plan.fromMap(Map<String, dynamic> map) {
+    final Object? rawLimits = map['limits'];
+    final Object? rawFeatures = map['features'];
+
+    return Plan(
+      id: (map['id'] as String?) ?? '',
+      name: (map['name'] as String?) ?? '',
+      tagline: (map['tagline'] as String?) ?? '',
+      monthly: (map['monthly'] as num?)?.toInt(),
+      annual: (map['annual'] as num?)?.toInt(),
+      aiLine: (map['ai_line'] as String?) ?? '',
+      features: rawFeatures is List
+          ? rawFeatures.whereType<String>().toList()
+          : const [],
+      responderAddOn: map['responder_add_on'] as String?,
+      recommended: (map['recommended'] as bool?) ?? false,
+      limits: PlanLimits.fromMap(
+        rawLimits is Map<String, dynamic> ? rawLimits : const {},
+      ),
+    );
+  }
 }
