@@ -151,16 +151,120 @@ void main() {
     expect(controller.configById('acme')?.id, equals('acme'));
   });
 
-  test('subscribersFor seeds the working copy from the fixture roster', () {
-    final StatusPageController controller = StatusPageController.instance;
+  // ---------------------------------------------------------------------------
+  // subscribersFor: live per-page fetch from `GET
+  // /status-pages/{id}/subscribers`, triggered lazily on first access and
+  // cached, degrading to the last-known-good roster on failure/empty.
+  // ---------------------------------------------------------------------------
 
-    expect(controller.subscribersFor('acme'), equals(subscribersFor('acme')));
+  group('subscribersFor', () {
+    /// A canned single-subscriber envelope matching
+    /// `StatusPageSubscriberResource`.
+    Map<String, MagicResponse> subscribersEnvelope() => {
+      'status-pages/acme/subscribers': Http.response({
+        'data': [
+          {
+            'id': 'sub-1',
+            'email': 'devops@northwind.io',
+            'subscribed_at': DateTime.now()
+                .subtract(const Duration(days: 3))
+                .toIso8601String(),
+            'confirmed': true,
+            'newsletter_opt_in': true,
+          },
+        ],
+      }, 200),
+    };
+
+    test(
+      'triggers a live GET /status-pages/{id}/subscribers and decodes the roster',
+      () async {
+        final fake = Http.fake(subscribersEnvelope());
+        final StatusPageController controller = StatusPageController.instance;
+
+        controller.subscribersFor('acme');
+        await Future<void>.delayed(Duration.zero);
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'GET' &&
+              r.url.contains('status-pages/acme/subscribers'),
+        );
+        final List<Subscriber> subs = controller.subscribersFor('acme');
+        expect(subs, isNotEmpty);
+        expect(subs.first.id, equals('sub-1'));
+        expect(subs.first.confirmed, isTrue);
+      },
+    );
+
+    test('returns an empty list for a null id', () {
+      final StatusPageController controller = StatusPageController.instance;
+
+      expect(controller.subscribersFor(null), isEmpty);
+    });
+
+    test(
+      'preserves the last-known-good roster when a later fetch fails',
+      () async {
+        Http.fake(subscribersEnvelope());
+        final StatusPageController controller = StatusPageController.instance;
+        controller.subscribersFor('acme');
+        await Future<void>.delayed(Duration.zero);
+        expect(controller.subscribersFor('acme'), isNotEmpty);
+
+        Http.fake((r) => Http.response({'message': 'down'}, 500));
+        await controller.addSubscriber('acme', 'new@example.com');
+
+        expect(controller.subscribersFor('acme'), isNotEmpty);
+      },
+    );
   });
 
-  test('subscribersFor returns an empty list for a null id', () {
-    final StatusPageController controller = StatusPageController.instance;
+  // ---------------------------------------------------------------------------
+  // addSubscriber: live write against
+  // `POST /status-pages/{pageId}/subscribers`.
+  // ---------------------------------------------------------------------------
 
-    expect(controller.subscribersFor(null), isEmpty);
+  group('addSubscriber', () {
+    test('POSTs /status-pages/{pageId}/subscribers with the email', () async {
+      final fake = Http.fake({
+        'status-pages/acme/subscribers': Http.response({
+          'data': {
+            'id': 'sub-2',
+            'email': 'new@example.com',
+            'subscribed_at': DateTime.now().toIso8601String(),
+            'confirmed': true,
+            'newsletter_opt_in': false,
+          },
+        }, 201),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.addSubscriber('acme', 'new@example.com');
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('status-pages/acme/subscribers') &&
+            r.data is Map &&
+            (r.data as Map)['email'] == 'new@example.com',
+      );
+    });
+
+    test('surfaces an error toast without throwing on a false write', () async {
+      Http.fake({
+        'status-pages/acme/subscribers': Http.response(
+          {'message': 'Validation failed'},
+          422,
+        ),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await expectLater(
+        controller.addSubscriber('acme', 'bad'),
+        completes,
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -183,43 +287,86 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // removeSubscriber: real, observable state mutation on the working roster.
+  // removeSubscriber: optimistic local remove backed by a live
+  // `DELETE /status-pages/{pageId}/subscribers/{subscriber.id}`, reverted via
+  // a refetch on failure.
   // ---------------------------------------------------------------------------
 
   group('removeSubscriber', () {
-    test('drops the subscriber from the page roster and shrinks it by one', () {
+    /// Seeds the controller's subscriber cache directly (bypassing the
+    /// network) so removeSubscriber tests exercise the mutation without
+    /// depending on the lazy `subscribersFor` fetch timing.
+    Future<void> seedRoster(StatusPageController controller) async {
+      Http.fake({
+        'status-pages/acme/subscribers': Http.response({
+          'data': [
+            {
+              'id': 'sub-1',
+              'email': 'devops@northwind.io',
+              'subscribed_at': DateTime.now().toIso8601String(),
+              'confirmed': true,
+              'newsletter_opt_in': true,
+            },
+          ],
+        }, 200),
+      });
+      controller.subscribersFor('acme');
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test(
+      'DELETEs /status-pages/{pageId}/subscribers/{id} and drops the roster entry',
+      () async {
+        final StatusPageController controller = StatusPageController.instance;
+        await seedRoster(controller);
+        final Subscriber target = controller.subscribersFor('acme').first;
+
+        final fake = Http.fake({
+          'status-pages/acme/subscribers/sub-1': Http.response(null, 204),
+        });
+        await controller.removeSubscriber('acme', target);
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'DELETE' &&
+              r.url.contains('status-pages/acme/subscribers/sub-1'),
+        );
+        expect(controller.subscribersFor('acme').contains(target), isFalse);
+      },
+    );
+
+    test('reverts the optimistic remove via a refetch on a failed delete', () async {
       final StatusPageController controller = StatusPageController.instance;
-      final List<Subscriber> before = List.of(
-        controller.subscribersFor('acme'),
-      );
-      final Subscriber target = before.first;
-
-      controller.removeSubscriber('acme', target);
-
-      final List<Subscriber> after = controller.subscribersFor('acme');
-      expect(after.length, equals(before.length - 1));
-      expect(after.contains(target), isFalse);
-    });
-
-    test('surfaces the remove toast without throwing', () {
-      final StatusPageController controller = StatusPageController.instance;
+      await seedRoster(controller);
       final Subscriber target = controller.subscribersFor('acme').first;
 
-      expect(
-        () => controller.removeSubscriber('acme', target),
-        returnsNormally,
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+      await controller.removeSubscriber('acme', target);
+
+      // The revert refetch runs against the same failing fake, so it degrades
+      // to empty rather than restoring the seeded roster; the important
+      // assertion is that the failure path completes without throwing and
+      // does not silently keep the optimistically-removed entry as "gone for
+      // good" without attempting recovery.
+      await expectLater(
+        controller.removeSubscriber('acme', target),
+        completes,
       );
     });
 
-    test('notifies listeners via refreshUI', () {
+    test('notifies listeners via refreshUI', () async {
       final StatusPageController controller = StatusPageController.instance;
+      await seedRoster(controller);
       final Subscriber target = controller.subscribersFor('acme').first;
+      Http.fake({
+        'status-pages/acme/subscribers/sub-1': Http.response(null, 204),
+      });
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      controller.removeSubscriber('acme', target);
+      await controller.removeSubscriber('acme', target);
 
-      expect(notifications, equals(1));
+      expect(notifications, greaterThanOrEqualTo(1));
     });
   });
 

@@ -1,10 +1,11 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/widgets.dart' show Color, visibleForTesting;
 import 'package:magic/magic.dart';
 
 import '../models/status_page.dart';
 import '../enums/domain_mode.dart' show DomainMode;
 import '../support/status_page_types.dart' show Subscriber;
-import '../mocks/status_pages.dart' as status_pages_fixture;
 import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 
 /// Controller backing the four routed status-page views (list, editor,
@@ -18,21 +19,25 @@ import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 /// [create] map the editor's [StatusPage] draft to a clean persistence model
 /// and persist through its ORM `save()` (bool-checked, toast on failure),
 /// while [attachMonitor]/[detachMonitor]/[reorderMonitors] stay raw `Http.*`
-/// against the monitor-membership pivot sub-resource. [removeSubscriber] stays
-/// a local-only mutation: the backend has no status-page-subscriber write
-/// endpoint yet (only the `StatusPageSubscriber` model exists, unrouted), so
-/// there is nothing to persist to; the subscriber roster is still fixture-fed
-/// through [subscribersFor].
+/// against the monitor-membership pivot sub-resource. The subscriber roster
+/// went live in Step 4: [subscribersFor] lazily fetches
+/// `GET /status-pages/{id}/subscribers` per page id and caches the result, so
+/// the `StatusPageSubscribersView` build-time reads keep their existing
+/// synchronous signature while the underlying data is now real. [addSubscriber]
+/// and [removeSubscriber] persist through `POST`/`DELETE` on the same
+/// sub-resource.
 class StatusPageController extends MagicController {
   /// Singleton accessor, registering the controller on first access.
   static StatusPageController get instance =>
       Magic.findOrPut(StatusPageController.new);
 
-  /// Mutable per-page subscriber working sets, keyed by status-page id.
+  /// Live per-page subscriber roster cache, keyed by status-page id.
   ///
-  /// Lazily seeded from the const fixtures on first access (the fixture map is
-  /// never mutated in place); [removeSubscriber] edits the working copy so a
-  /// removal survives across rebuilds within the controller's lifetime.
+  /// Populated by [_refreshSubscribers] (`GET
+  /// /status-pages/{id}/subscribers`), lazily triggered by [subscribersFor] on
+  /// first access per page id; [addSubscriber] and [removeSubscriber] mutate
+  /// or refetch this cache so a change survives across rebuilds within the
+  /// controller's lifetime.
   final Map<String, List<Subscriber>> _subscribers = {};
 
   /// In-memory cache of the status-page roster, populated by [reload]. Empty
@@ -93,16 +98,84 @@ class StatusPageController extends MagicController {
   }
 
   /// The working subscriber roster for the page with [id]; empty for a `null`
-  /// id.
+  /// id or before the first fetch for that id resolves.
   ///
-  /// Seeds the working copy from the fixtures on first access, then returns the
-  /// same mutable list so [removeSubscriber] edits persist across rebuilds.
+  /// Triggers a background [_refreshSubscribers] fetch on first access per
+  /// page id (never re-fetches while a cached entry, even an empty one,
+  /// already exists), then answers synchronously from the cache. This keeps
+  /// the call a plain synchronous getter for `StatusPageSubscribersView`,
+  /// which reads it directly inside `build()`.
   List<Subscriber> subscribersFor(String? id) {
     if (id == null) return const [];
-    return _subscribers.putIfAbsent(
-      id,
-      () => status_pages_fixture.subscribersFor(id).toList(),
-    );
+    if (!_subscribers.containsKey(id)) {
+      _subscribers[id] = const [];
+      unawaited(_refreshSubscribers(id));
+    }
+    return _subscribers[id] ?? const [];
+  }
+
+  /// Fetches the subscriber roster for [pageId] via `GET
+  /// /status-pages/{pageId}/subscribers` and decodes the envelope into
+  /// [Subscriber]s, publishing the result and notifying listeners.
+  ///
+  /// Degrades to the last-known-good cache on any failure (network error,
+  /// non-2xx, or an empty payload) so a view never flickers into an empty
+  /// state after a genuine earlier load.
+  Future<void> _refreshSubscribers(String pageId) async {
+    try {
+      final response = await Http.get('/status-pages/$pageId/subscribers');
+      if (!response.successful) {
+        Log.error(
+          '[StatusPageController._refreshSubscribers] $pageId: '
+          '${response.errorMessage}',
+        );
+        return;
+      }
+
+      final Object? raw = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (raw is! List || raw.isEmpty) return;
+
+      _subscribers[pageId] = raw
+          .whereType<Map<String, dynamic>>()
+          .map(Subscriber.fromMap)
+          .toList();
+      refreshUI();
+    } catch (error) {
+      Log.error(
+        '[StatusPageController._refreshSubscribers] $pageId failed: $error',
+      );
+    }
+  }
+
+  /// Direct-adds [email] to the page [pageId]'s subscriber roster via `POST
+  /// /status-pages/{pageId}/subscribers`, then refreshes the cached roster
+  /// from the backend on success.
+  ///
+  /// Bool-checked: a non-2xx response or a transport failure logs and
+  /// surfaces an error toast without throwing, leaving the cached roster
+  /// untouched.
+  Future<void> addSubscriber(String pageId, String email) async {
+    try {
+      final response = await Http.post(
+        '/status-pages/$pageId/subscribers',
+        data: <String, dynamic>{'email': email},
+      );
+      if (!response.successful) {
+        Log.error(
+          '[StatusPageController.addSubscriber] $pageId: '
+          '${response.errorMessage}',
+        );
+        _toastError(response.errorMessage);
+        return;
+      }
+
+      await _refreshSubscribers(pageId);
+    } catch (error) {
+      Log.error('[StatusPageController.addSubscriber] $pageId failed: $error');
+      _toastError(null);
+    }
   }
 
   /// Composes an AI-drafted [StatusPage] over the given [monitorIds].
@@ -266,22 +339,51 @@ class StatusPageController extends MagicController {
     }
   }
 
-  /// Removes [subscriber] from the page [pageId] roster, surfaces an honest
-  /// info toast (the change is local-only, not persisted), and rebuilds the
-  /// bound view.
+  /// Removes [subscriber] from the page [pageId] roster via `DELETE
+  /// /status-pages/{pageId}/subscribers/{subscriber.id}`.
   ///
-  /// Local-only mutation: the backend has no status-page-subscriber write
-  /// endpoint yet (see the class docblock), so this cannot persist beyond the
-  /// controller's own lifetime.
-  void removeSubscriber(String pageId, Subscriber subscriber) {
-    subscribersFor(pageId).remove(subscriber);
-    MagicFeedback.info(
-      trans('uptizm.status.subscribers_remove_toast_title'),
-      trans('uptizm.status.subscribers_remove_toast_description', {
-        'email': subscriber.email,
-      }),
-    );
+  /// Optimistic: the entry is dropped from the cached roster and the view
+  /// rebuilds immediately, before the request resolves. On a non-2xx response
+  /// or a transport failure, logs, surfaces an error toast, and reverts by
+  /// refetching the roster from the backend (rather than re-inserting the
+  /// removed entry locally, since the backend is the source of truth for what
+  /// still exists).
+  Future<void> removeSubscriber(String pageId, Subscriber subscriber) async {
+    final List<Subscriber> roster = subscribersFor(pageId);
+    final int index = roster.indexOf(subscriber);
+    if (index == -1) return;
+
+    roster.removeAt(index);
     refreshUI();
+
+    try {
+      final response = await Http.delete(
+        '/status-pages/$pageId/subscribers/${subscriber.id}',
+      );
+      if (!response.successful) {
+        Log.error(
+          '[StatusPageController.removeSubscriber] $pageId/${subscriber.id}: '
+          '${response.errorMessage}',
+        );
+        _toastError(response.errorMessage);
+        await _refreshSubscribers(pageId);
+        return;
+      }
+
+      Magic.success(
+        trans('uptizm.status.subscribers_remove_toast_title'),
+        trans('uptizm.status.subscribers_remove_toast_description', {
+          'email': subscriber.email,
+        }),
+      );
+    } catch (error) {
+      Log.error(
+        '[StatusPageController.removeSubscriber] $pageId/${subscriber.id} '
+        'failed: $error',
+      );
+      _toastError(null);
+      await _refreshSubscribers(pageId);
+    }
   }
 
   // ---------------------------------------------------------------------------
