@@ -34,12 +34,13 @@ import '../../../ui/layouts/page_container.dart';
 /// When [StatusPageController.configById] returns `null` it renders a graceful
 /// not-found [EmptyState] rather than crashing on an unknown route id.
 ///
-/// This is a mock screen: the subscriber roster lives in
-/// [StatusPageController], seeded once from the fixtures per page id; Remove
-/// delegates to [StatusPageController.removeSubscriber] (list mutation +
-/// `Magic.success` toast + rebuild). Nothing persists. Only the search
-/// [_query] stays local. The page body is a Wind flex column; Wind utilities
-/// carry both spacing and leaf styling.
+/// The subscriber roster is live: [StatusPageController.subscribersFor] fetches
+/// it from `GET /status-pages/<id>/subscribers`, and Remove delegates to
+/// [StatusPageController.removeSubscriber] (optimistic local remove +
+/// `DELETE .../subscribers/<id>` + a `Magic.success`/`Magic.error` toast,
+/// reverting via a refetch on failure). Only the search [_query] stays local.
+/// The page body is a Wind flex column; Wind utilities carry both spacing and
+/// leaf styling.
 ///
 /// ### Example
 /// ```dart
