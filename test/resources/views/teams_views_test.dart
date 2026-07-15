@@ -5,8 +5,10 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
+import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/support/team_types.dart'
-    show NotificationChannelConfig, OnCallShift;
+    show NotificationChannelConfig, OnCallShift, PaymentMethod, UsageStat;
+import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
@@ -65,6 +67,23 @@ class _FakeBillingService implements BillingService {
       raw: {'plan': entitlementPlan, 'status': 'active'},
     );
   }
+
+  /// Returns the design-lab plan catalog verbatim (mirrors the live
+  /// cheapest-to-priciest order the widget under test relies on for its CTA
+  /// assertions), so the plans grid renders without a real network driver.
+  @override
+  Future<List<Plan>> getPlans() async => plans;
+
+  @override
+  Future<List<UsageStat>> getUsage() async => const [];
+
+  @override
+  Future<BillingInvoicesPage> getInvoices({String? cursor}) async {
+    return const BillingInvoicesPage(invoices: [], nextCursor: null);
+  }
+
+  @override
+  Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
 }
 
 /// In-memory language loader supplying every [trans] key exercised by the
@@ -661,5 +680,110 @@ void main() {
         findsNWidgets(2),
       );
     });
+
+    testWidgets(
+      'fetches the 4 live billing endpoints and renders the decoded shapes',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 10000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final FakeNetworkDriver fake = Http.fake({
+          'billing/plans': Http.response({
+            'data': [
+              {
+                'id': 'free',
+                'name': 'Free',
+                'tagline': 'Kick the tires.',
+                'monthly': 0,
+                'annual': 0,
+                'ai_line': 'AI anomaly inbox.',
+                'features': <String>[],
+                'recommended': false,
+                'limits': {'check_interval_sec': 180, 'ai': 'inbox'},
+              },
+              {
+                'id': 'pro',
+                'name': 'Pro',
+                'tagline': 'Startups.',
+                'monthly': 34,
+                'annual': 29,
+                'ai_line': 'Full AI incident analysis.',
+                'features': <String>[],
+                'recommended': true,
+                'limits': {'check_interval_sec': 30, 'ai': 'analysis'},
+              },
+            ],
+          }),
+          'billing/usage': Http.response({
+            'monitors': {'used': 47, 'limit': 50},
+            'responders': {'used': 3, 'limit': 3},
+            'checks_this_month': {'used': 128400, 'limit': null},
+          }),
+          'billing/invoices': Http.response({
+            'data': [
+              {
+                'id': 'in_test_1',
+                'number': 'INV-0001',
+                'date': '2026-06-01T00:00:00.000000Z',
+                'amount': '\$29.00',
+                'status': 'paid',
+                'pdf_url': 'https://stripe.test/invoice.pdf',
+              },
+            ],
+            'next_cursor': null,
+          }),
+          'billing/payment-method': Http.response({
+            'renewal_date': null,
+            'brand': null,
+            'last4': null,
+            'exp_month': null,
+            'exp_year': null,
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(const PlanBillingView(), size: const Size(1280, 10000)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+
+        // The 4 endpoints were all hit.
+        fake.assertSent(
+          (r) => r.method == 'GET' && r.url.contains('billing/plans'),
+        );
+        fake.assertSent(
+          (r) => r.method == 'GET' && r.url.contains('billing/usage'),
+        );
+        fake.assertSent(
+          (r) => r.method == 'GET' && r.url.contains('billing/invoices'),
+        );
+        fake.assertSent(
+          (r) => r.method == 'GET' && r.url.contains('billing/payment-method'),
+        );
+
+        // Plans grid renders both tiers, in the price order the backend
+        // sent. "Pro" also appears on the current-plan card (the fixture
+        // `currentPlanId` default), so it renders twice.
+        expect(find.text('Free'), findsOneWidget);
+        expect(find.text('Pro'), findsNWidgets(2));
+
+        // Usage meters render the used/limit readout.
+        expect(find.textContaining('47'), findsWidgets);
+
+        // Invoices list renders the fetched row.
+        expect(find.text('INV-0001'), findsOneWidget);
+
+        // The all-null payment-method payload (Stripe soft-fail) renders an
+        // empty/updatable state instead of crashing: no masked card number,
+        // but the "Update" action is still present.
+        expect(find.textContaining('••••'), findsNothing);
+        expect(
+          find.text(trans('uptizm.teams.billing_payment_update_button')),
+          findsOneWidget,
+        );
+      },
+    );
   });
 }

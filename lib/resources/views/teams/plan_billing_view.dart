@@ -4,10 +4,10 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/support/billing_types.dart' show Plan;
-import '../../../app/support/team_types.dart' show Invoice, UsageStat;
-import '../../../app/mocks/billing.dart';
+import '../../../app/support/team_types.dart'
+    show Invoice, PaymentMethod, UsageStat;
+import '../../../app/mocks/billing.dart' show currentPlanId;
 import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
-import '../../../app/mocks/teams_data.dart';
 import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -23,39 +23,51 @@ enum BillingCycle {
 
 /// **Plan & billing screen (`/teams/billing`).**
 ///
-/// A faithful Flutter port of the React `PlanBillingPage.tsx`: the current plan
-/// with live [UsageMeter]s over [billingUsage], the tier comparison with a
-/// monthly/annual [SegmentedControl] cycle toggle over a responsive grid of
-/// plan cards, the on-file payment method, and the billing history.
+/// A faithful Flutter port of the React `PlanBillingPage.tsx`, wired live
+/// against the four `api/v1` billing read endpoints: the current plan with
+/// live [UsageMeter]s over [BillingService.getUsage], the tier comparison
+/// with a monthly/annual [SegmentedControl] cycle toggle over a responsive
+/// grid of [BillingService.getPlans] plan cards, the on-file payment method
+/// from [BillingService.getPaymentMethod], and the billing history from
+/// [BillingService.getInvoices].
 ///
 /// - **Current plan card**: the active [Plan]'s name + a "Current" [Badge],
-///   the renewal line, and a two-column [UsageMeter] grid over [billingUsage].
+///   the renewal line, and a two-column [UsageMeter] grid over the fetched
+///   usage stats. Renders a loading skeleton until the plan catalog resolves
+///   (the active plan is looked up by id inside it).
 /// - **Plans section**: a centered heading and a monthly/annual cycle toggle,
-///   then a responsive grid of one card per [plans] entry. Each card shows the
-///   name/tagline, the price for the selected cycle (`"Custom"` when
-///   [Plan.monthly] is null), the AI hero line on a soft-tone tile, the feature
-///   list with a check glyph, the responder add-on line when present, a
-///   "Recommended" badge when [Plan.recommended], and a CTA: "Current plan"
-///   (disabled) for the active plan, else "Upgrade"/"Downgrade"/"Contact sales"
-///   decided by comparing the plan's position to the current plan's. On web,
-///   a priced-tier CTA starts a live Stripe Checkout session via
-///   [BillingService.checkout]; on mobile it surfaces the deferred-billing
-///   message instead of erroring (store rails deferred, see
-///   `BillingServiceIo`). The custom (Enterprise) tier only surfaces a
-///   "contact sales" toast; nothing navigates or persists there.
-/// - **Payment method card**: the [paymentMethod] brand tile, the masked card
-///   number + expiry, and an "Update" [Button] (mock, no-op).
-/// - **Billing history card**: one row per [invoices] entry: date + number, a
+///   then a responsive grid of one card per fetched plan, in the
+///   cheapest-to-priciest order the backend serves (load-bearing for the
+///   upgrade/downgrade CTA). Each card shows the name/tagline, the price for
+///   the selected cycle (`"Custom"` when [Plan.monthly] is null), the AI hero
+///   line on a soft-tone tile, the feature list with a check glyph, the
+///   responder add-on line when present, a "Recommended" badge when
+///   [Plan.recommended], and a CTA: "Current plan" (disabled) for the active
+///   plan, else "Upgrade"/"Downgrade"/"Contact sales" decided by comparing the
+///   plan's position to the current plan's. On web, a priced-tier CTA starts
+///   a live Stripe Checkout session via [BillingService.checkout]; on mobile
+///   it surfaces the deferred-billing message instead of erroring (store
+///   rails deferred, see `BillingServiceIo`). The custom (Enterprise) tier
+///   only surfaces a "contact sales" toast; nothing navigates or persists
+///   there.
+/// - **Payment method card**: the fetched [PaymentMethod]'s brand tile, the
+///   masked card number + expiry + renewal date, and an "Update" [Button]
+///   that opens the Stripe billing portal via [BillingService.openPortal].
+///   Fetched independently of the rest of the screen (the only Stripe-live
+///   read, soft-failing server-side to an all-null payload), so it carries
+///   its own loading/error state and never blocks the rest of the screen.
+/// - **Billing history card**: one row per fetched [Invoice]: date + number, a
 ///   token-tinted [InvoiceStatus] pill (a `WDiv` + `WText` mapping
 ///   paid -> up-soft, pending -> degraded-soft, failed -> down-soft with `dark:`
 ///   pairs, NOT [StatusBadge], which takes a monitoring [StatusKey]), the
-///   amount, and a "Receipt" [Button] (mock, no-op).
+///   amount, and a "Receipt" [Button] that opens the Stripe billing portal.
 ///
 /// The current-plan id is sourced from the live `GET /billing` entitlement
 /// (via [BillingService.currentEntitlement]), falling back to the design-lab
-/// fixture ([currentPlanId]) until the read resolves or on failure. The plan
-/// catalog, usage stats, payment method, and invoices stay design-lab
-/// fixtures; only the entitlement read and the priced-tier CTA are live.
+/// fixture ([currentPlanId]) until the read resolves or on failure. Every
+/// other section (plan catalog, usage, payment method, invoices) is fully
+/// live; every read degrades to its last-known state (empty before the first
+/// successful fetch) on failure instead of throwing out of `initState`.
 ///
 /// ### Example
 /// ```dart
@@ -120,13 +132,47 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// resolves; keeps the fixture id as last-known state on any failure.
   String _currentPlanId = currentPlanId;
 
-  /// The active plan, resolved from [_currentPlanId].
-  Plan get _current => _findPlan(_currentPlanId);
+  /// The plan catalog from `GET /billing/plans`, cheapest-to-priciest as
+  /// served by the backend. Empty until [_loadPlans] resolves; stays empty
+  /// (last-known state) on a fetch failure.
+  List<Plan> _plans = const [];
+
+  /// The team's current-cycle usage stats from `GET /billing/usage`. Empty
+  /// until [_loadUsage] resolves; the meter grid simply renders no rows
+  /// instead of crashing on a fetch failure.
+  List<UsageStat> _usage = const [];
+
+  /// The team's billing history from `GET /billing/invoices`. Empty until
+  /// [_loadInvoices] resolves; stays empty (last-known state) on failure.
+  List<Invoice> _invoices = const [];
+
+  /// The team's on-file payment method from `GET /billing/payment-method`.
+  /// `null` until [_loadPaymentMethod] resolves (see [_pmLoading]/[_pmError]
+  /// for that section's own loading/error state).
+  PaymentMethod? _paymentMethod;
+
+  /// Whether [_loadPaymentMethod] is still in flight. Gates only the payment
+  /// method card, never the rest of the screen (it is the lazy Stripe-backed
+  /// read).
+  bool _pmLoading = true;
+
+  /// Whether [_loadPaymentMethod] failed (network error, non-2xx, or a
+  /// malformed payload). The backend itself soft-fails a Stripe outage to an
+  /// all-null 200, so this only fires on a transport-level failure.
+  bool _pmError = false;
+
+  /// The active plan, resolved from [_currentPlanId]; `null` while [_plans]
+  /// is still empty (loading, or the catalog fetch failed).
+  Plan? get _current => _plans.isEmpty ? null : _findPlan(_currentPlanId);
 
   @override
   void initState() {
     super.initState();
     _loadEntitlement();
+    _loadPlans();
+    _loadUsage();
+    _loadInvoices();
+    _loadPaymentMethod();
   }
 
   /// Reads the team's current plan from `GET /billing` via
@@ -146,6 +192,80 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     } catch (_) {
       // Deliberate degradation: keeps the fixture plan id as last-known
       // state (see the docblock above) instead of throwing.
+    }
+  }
+
+  /// Reads the plan catalog from `GET /billing/plans` via
+  /// [BillingService.getPlans] and republishes [_plans].
+  ///
+  /// Deliberate degradation on failure: [_plans] stays empty (last-known
+  /// state before the first successful fetch), so the current-plan card and
+  /// the plans grid render their loading/empty state instead of crashing.
+  Future<void> _loadPlans() async {
+    try {
+      final List<Plan> plans = await _billing.getPlans();
+      if (!mounted) return;
+      setState(() => _plans = plans);
+    } catch (_) {
+      // Deliberate degradation: see the docblock above.
+    }
+  }
+
+  /// Reads the team's usage stats from `GET /billing/usage` via
+  /// [BillingService.getUsage] and republishes [_usage].
+  ///
+  /// Deliberate degradation on failure: [_usage] stays empty, so the meter
+  /// grid simply renders no rows instead of crashing.
+  Future<void> _loadUsage() async {
+    try {
+      final List<UsageStat> usage = await _billing.getUsage();
+      if (!mounted) return;
+      setState(() => _usage = usage);
+    } catch (_) {
+      // Deliberate degradation: see the docblock above.
+    }
+  }
+
+  /// Reads the first page of the team's billing history from
+  /// `GET /billing/invoices` via [BillingService.getInvoices] and republishes
+  /// [_invoices].
+  ///
+  /// Deliberate degradation on failure: [_invoices] stays empty, so the
+  /// billing-history card simply renders no rows instead of crashing.
+  Future<void> _loadInvoices() async {
+    try {
+      final BillingInvoicesPage page = await _billing.getInvoices();
+      if (!mounted) return;
+      setState(() => _invoices = page.invoices);
+    } catch (_) {
+      // Deliberate degradation: see the docblock above.
+    }
+  }
+
+  /// Reads the team's on-file payment method from
+  /// `GET /billing/payment-method` via [BillingService.getPaymentMethod] and
+  /// republishes [_paymentMethod].
+  ///
+  /// This is the only Stripe-live billing read (see the class docblock), so
+  /// it carries its own [_pmLoading]/[_pmError] state instead of gating the
+  /// rest of the screen. A transport-level failure sets [_pmError]; the
+  /// backend's own soft-fail (an all-null 200 on a Stripe outage) decodes
+  /// cleanly into an all-null [PaymentMethod] instead, which the card renders
+  /// as its empty/updatable state.
+  Future<void> _loadPaymentMethod() async {
+    try {
+      final PaymentMethod paymentMethod = await _billing.getPaymentMethod();
+      if (!mounted) return;
+      setState(() {
+        _paymentMethod = paymentMethod;
+        _pmLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _pmLoading = false;
+        _pmError = true;
+      });
     }
   }
 
@@ -179,8 +299,23 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // ---------------------------------------------------------------------------
 
   /// Builds the current-plan [Card]: name + "Current" badge, the renewal line,
-  /// and a responsive two-column grid of [UsageMeter]s over [billingUsage].
+  /// and a responsive two-column grid of [UsageMeter]s over the fetched usage
+  /// stats. Renders a loading skeleton while [_current] is `null` (the plan
+  /// catalog has not resolved yet, or its fetch failed).
   Widget _buildCurrentPlanCard() {
+    final Plan? current = _current;
+    if (current == null) {
+      return MSCard(
+        child: WDiv(
+          className: 'flex flex-col gap-5',
+          children: const [
+            MSSkeleton(shape: SkeletonShape.text, width: 160, height: 20),
+            MSSkeleton(height: 16, width: 220),
+          ],
+        ),
+      );
+    }
+
     return MSCard(
       child: WDiv(
         className: 'flex flex-col gap-5',
@@ -192,7 +327,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                 className: 'flex flex-row items-center gap-2',
                 children: [
                   WText(
-                    _current.name,
+                    current.name,
                     className: 'text-sm font-semibold text-fg',
                   ),
                   MSBadge(
@@ -203,7 +338,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
               ),
               WText(
                 trans('uptizm.teams.billing_renewal_text', {
-                  'price': _priceLabel(_current, BillingCycle.annual),
+                  'price': _priceLabel(current, BillingCycle.annual),
                   'cycle': trans('uptizm.teams.billing_renewal_cycle_annual'),
                   'date': 'Jul 1, 2026',
                 }),
@@ -214,7 +349,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           WDiv(
             className: 'grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2',
             children: [
-              for (final UsageStat stat in billingUsage)
+              for (final UsageStat stat in _usage)
                 UsageMeter(
                   label: stat.label,
                   used: stat.used,
@@ -232,8 +367,9 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // Plans section
   // ---------------------------------------------------------------------------
 
-  /// Builds the tier-comparison section: a centered heading + cycle toggle, then
-  /// a responsive grid of one plan card per [plans] entry.
+  /// Builds the tier-comparison section: a centered heading + cycle toggle,
+  /// then a responsive grid of one plan card per fetched plan (a loading
+  /// skeleton grid while [_plans] is still empty).
   Widget _buildPlansSection() {
     return WDiv(
       className: 'flex flex-col gap-5',
@@ -256,10 +392,21 @@ class _PlanBillingViewState extends State<PlanBillingView> {
             ),
           ],
         ),
-        WDiv(
-          className: 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4',
-          children: [for (final Plan plan in plans) _buildPlanCard(plan)],
-        ),
+        if (_plans.isEmpty)
+          const WDiv(
+            className: 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4',
+            children: [
+              MSSkeleton(height: 280),
+              MSSkeleton(height: 280),
+              MSSkeleton(height: 280),
+              MSSkeleton(height: 280),
+            ],
+          )
+        else
+          WDiv(
+            className: 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4',
+            children: [for (final Plan plan in _plans) _buildPlanCard(plan)],
+          ),
       ],
     );
   }
@@ -369,7 +516,15 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // ---------------------------------------------------------------------------
 
   /// Builds the payment-method section: a heading + a [Card] with the brand
-  /// tile, the masked number, the expiry, and a mock "Update" [Button].
+  /// tile, the masked number, the expiry + renewal date, and an "Update"
+  /// [Button] that opens the Stripe billing portal.
+  ///
+  /// This card owns its own loading/error state (see [_pmLoading]/[_pmError])
+  /// since `GET /billing/payment-method` is the only Stripe-live billing
+  /// read: it never blocks the rest of the screen, and a soft-fail (an
+  /// all-null [PaymentMethod], whether from a genuine "no card on file" or
+  /// the endpoint's own Stripe-outage degradation) renders as an
+  /// empty/updatable state instead of crashing.
   Widget _buildPaymentMethodSection() {
     return WDiv(
       className: 'flex flex-col gap-3',
@@ -378,51 +533,110 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           trans('uptizm.teams.billing_payment_header'),
           className: 'text-sm font-semibold text-fg',
         ),
-        MSCard(
+        MSCard(child: _buildPaymentMethodContent()),
+      ],
+    );
+  }
+
+  /// Builds the payment-method card's body for its three states: loading
+  /// skeleton, error text, or the resolved (possibly all-null) card.
+  Widget _buildPaymentMethodContent() {
+    if (_pmLoading) {
+      return WDiv(
+        className: 'flex flex-row items-center gap-4',
+        children: const [
+          MSSkeleton(width: 48, height: 36),
+          Expanded(child: MSSkeleton(shape: SkeletonShape.text, height: 16)),
+        ],
+      );
+    }
+
+    if (_pmError) {
+      return WDiv(
+        className: 'flex flex-row items-center gap-4',
+        children: [
+          Expanded(
+            child: WText(
+              trans('common.error_occurred'),
+              className: 'text-sm text-fg-muted',
+            ),
+          ),
+          MSButton(
+            intent: ButtonIntent.secondary,
+            size: ButtonSize.sm,
+            onPressed: () => _openBillingPortal(),
+            child: WText(trans('uptizm.teams.billing_payment_update_button')),
+          ),
+        ],
+      );
+    }
+
+    final PaymentMethod? paymentMethod = _paymentMethod;
+    final String? last4 = paymentMethod?.last4;
+    final String? expiry = paymentMethod?.expiry;
+
+    return WDiv(
+      className: 'flex flex-row items-center gap-4',
+      children: [
+        WDiv(
+          className:
+              'grid h-9 w-12 shrink-0 place-items-center '
+              'rounded-md border border-color-border '
+              'bg-surface-container-high',
+          child: WText(
+            paymentMethod?.brand ?? trans('common.unknown'),
+            className: 'text-xs font-semibold text-fg',
+          ),
+        ),
+        Expanded(
           child: WDiv(
-            className: 'flex flex-row items-center gap-4',
+            className: 'flex flex-col min-w-0',
             children: [
-              WDiv(
-                className:
-                    'grid h-9 w-12 shrink-0 place-items-center '
-                    'rounded-md border border-color-border '
-                    'bg-surface-container-high',
-                child: WText(
-                  paymentMethod.brand,
-                  className: 'text-xs font-semibold text-fg',
-                ),
+              WText(
+                last4 != null
+                    ? '•••• •••• •••• $last4'
+                    : trans('uptizm.teams.billing_payment_header'),
+                className: 'font-mono text-sm tabular-nums text-fg',
               ),
-              Expanded(
-                child: WDiv(
-                  className: 'flex flex-col min-w-0',
-                  children: [
-                    WText(
-                      '•••• •••• '
-                      '•••• ${paymentMethod.last4}',
-                      className: 'font-mono text-sm tabular-nums text-fg',
-                    ),
-                    WText(
-                      trans('uptizm.teams.billing_payment_expires', {
-                        'date': paymentMethod.expiry,
-                      }),
-                      className: 'font-mono text-xs tabular-nums text-fg-muted',
-                    ),
-                  ],
+              if (expiry != null)
+                WText(
+                  trans('uptizm.teams.billing_payment_expires', {
+                    'date': expiry,
+                  }),
+                  className: 'font-mono text-xs tabular-nums text-fg-muted',
                 ),
-              ),
-              MSButton(
-                intent: ButtonIntent.secondary,
-                size: ButtonSize.sm,
-                onPressed: () {},
-                child: WText(
-                  trans('uptizm.teams.billing_payment_update_button'),
-                ),
-              ),
             ],
           ),
         ),
+        MSButton(
+          intent: ButtonIntent.secondary,
+          size: ButtonSize.sm,
+          onPressed: () => _openBillingPortal(),
+          child: WText(trans('uptizm.teams.billing_payment_update_button')),
+        ),
       ],
     );
+  }
+
+  /// Opens the Stripe billing portal via [BillingService.openPortal],
+  /// surfacing the same deferred/failure toasts as [_selectPlan]'s checkout
+  /// path. Shared by the payment-method "Update" button and every invoice
+  /// row's "Receipt" button (both are Stripe-portal actions; the portal
+  /// itself deep-links a customer straight to their invoice history).
+  Future<void> _openBillingPortal() async {
+    try {
+      await _billing.openPortal(returnUrl: '$_webOrigin/teams/billing');
+    } on UnsupportedPlatformException catch (error) {
+      MagicFeedback.info(
+        trans('uptizm.teams.billing_toast_deferred_title'),
+        error.message,
+      );
+    } on BillingException catch (error) {
+      Magic.error(
+        trans('uptizm.teams.billing_toast_checkout_failed_title'),
+        error.message,
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -430,7 +644,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // ---------------------------------------------------------------------------
 
   /// Builds the billing-history section: a heading + a full-bleed [Card] with
-  /// one row per [invoices] entry.
+  /// one row per fetched [Invoice] (no rows until [_loadInvoices] resolves).
   Widget _buildInvoicesSection() {
     return WDiv(
       className: 'flex flex-col gap-3',
@@ -444,8 +658,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           child: WDiv(
             className: 'flex flex-col',
             children: [
-              for (final (int index, Invoice invoice) in invoices.indexed)
-                _buildInvoiceRow(invoice, isLast: index == invoices.length - 1),
+              for (final (int index, Invoice invoice) in _invoices.indexed)
+                _buildInvoiceRow(
+                  invoice,
+                  isLast: index == _invoices.length - 1,
+                ),
             ],
           ),
         ),
@@ -453,8 +670,8 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
-  /// Builds one invoice row: date + number, the status pill, the amount, and a
-  /// mock "Receipt" [Button].
+  /// Builds one invoice row: date + number, the status pill, the amount, and
+  /// a "Receipt" [Button] that opens the Stripe billing portal.
   Widget _buildInvoiceRow(Invoice invoice, {required bool isLast}) {
     return WDiv(
       className: isLast
@@ -485,7 +702,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         MSButton(
           intent: ButtonIntent.ghost,
           size: ButtonSize.sm,
-          onPressed: () {},
+          onPressed: () => _openBillingPortal(),
           child: WText(trans('uptizm.teams.billing_invoice_receipt_button')),
         ),
       ],
@@ -659,17 +876,17 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // Plan lookup
   // ---------------------------------------------------------------------------
 
-  /// The index of the plan with [id] in [plans], or `0` when not found.
+  /// The index of the plan with [id] in [_plans], or `0` when not found.
   int _planIndex(String id) {
-    for (int i = 0; i < plans.length; i++) {
-      if (plans[i].id == id) return i;
+    for (int i = 0; i < _plans.length; i++) {
+      if (_plans[i].id == id) return i;
     }
     return 0;
   }
 
-  /// The plan with [id], or `plans.first` when not found (mirrors the private
-  /// `_findPlan` in `billing.dart`, which is not exported).
+  /// The plan with [id] in [_plans], or `_plans.first` when not found. Only
+  /// called once [_plans] is non-empty (see [_current]).
   Plan _findPlan(String id) {
-    return plans[_planIndex(id)];
+    return _plans[_planIndex(id)];
   }
 }
