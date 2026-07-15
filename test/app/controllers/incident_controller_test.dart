@@ -342,6 +342,88 @@ void main() {
     });
   });
 
+  group('loadAnalysis', () {
+    test(
+      'GETs /incidents/{id}/analysis and decodes evidence_for/against + '
+      'suggested_actions',
+      () async {
+        final fake = Http.fake({
+          'incidents/checkout-503/analysis': Http.response({
+            'data': {
+              'summary': 'The origin returned 503s under load.',
+              'confidence': 'high',
+              'contributing_factors': ['Deploy at 14:02'],
+              'stripped_citations': [],
+              'evidence_for': [
+                {
+                  'label': 'All regions affected',
+                  'detail': 'Checks failed in us-east and eu-west.',
+                  'source': 'check',
+                },
+              ],
+              'evidence_against': [
+                {
+                  'label': 'No DNS change',
+                  'detail': 'DNS records are unchanged since last week.',
+                  'source': 'monitor',
+                },
+              ],
+              'suggested_actions': [
+                {
+                  'title': 'Check your origin',
+                  'rationale': 'The origin server is returning 503s.',
+                },
+              ],
+            },
+          }),
+        });
+        final IncidentController controller = Magic.findOrPut(
+          IncidentController.new,
+        );
+        final Incident incident = Incident.fromMap({
+          'id': 'checkout-503',
+          'title': 'Checkout returning 503s',
+        });
+
+        await controller.loadAnalysis(incident.id);
+
+        fake.assertSent(
+          (r) => r.method == 'GET' && r.url == '/incidents/checkout-503/analysis',
+        );
+
+        final ai = controller.analysisFor(incident)!;
+        expect(ai.evidenceFor, hasLength(1));
+        expect(ai.evidenceFor.single.label, equals('All regions affected'));
+        expect(ai.evidenceFor.single.source, equals('check'));
+        expect(ai.evidenceAgainst, hasLength(1));
+        expect(ai.evidenceAgainst.single.label, equals('No DNS change'));
+        expect(ai.suggestedActions, hasLength(1));
+        expect(ai.suggestedActions.single.title, equals('Check your origin'));
+      },
+    );
+
+    test(
+      'analysisFor falls back to Incident.ai unenriched before loadAnalysis '
+      'resolves',
+      () {
+        final IncidentController controller = Magic.findOrPut(
+          IncidentController.new,
+        );
+        final Incident incident = Incident.fromMap({
+          'id': 'checkout-503',
+          'title': 'Checkout returning 503s',
+          'ai': {'trigger': 'AI anomaly', 'confidence': 'high', 'tldr': 'tldr'},
+        });
+
+        final ai = controller.analysisFor(incident);
+
+        expect(ai, isNotNull);
+        expect(ai!.tldr, equals('tldr'));
+        expect(ai.evidenceFor, isEmpty);
+      },
+    );
+  });
+
   group('create()', () {
     setUp(() {
       MagicRouter.reset();

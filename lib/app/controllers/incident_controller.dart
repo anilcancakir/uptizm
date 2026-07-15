@@ -1,7 +1,10 @@
 import 'package:magic/magic.dart';
 
 import '../models/incident.dart';
+import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
+import '../support/incident_types.dart'
+    show AiEvidence, AiSuggestedAction, IncidentAi;
 
 /// Controller backing the three incident screens ([IncidentsListView],
 /// [IncidentDetailView], [IncidentCreateView]).
@@ -34,6 +37,14 @@ class IncidentController extends MagicController
 
   /// The id [_detail] was (or is being) fetched for.
   String? _detailId;
+
+  /// Enriched AI analysis per incident id, populated by [loadAnalysis].
+  ///
+  /// Kept as a separate cache rather than merged into [Incident.ai] so the
+  /// fast first-paint `trigger`/`confidence`/`tldr` from `GET /incidents/{id}`
+  /// keeps rendering unchanged while the richer analysis fetch is in flight;
+  /// [analysisFor] combines the two views for the detail screen.
+  final Map<String, IncidentAi> _analysisById = {};
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -190,6 +201,91 @@ class IncidentController extends MagicController
       // the synchronous `incidentById` caller keeps its `null` detail and the
       // view renders its not-found state instead of seeing a throw.
     }
+  }
+
+  /// The enriched AI analysis for [incident], or `null` when neither the
+  /// `GET /incidents/{id}` payload nor [loadAnalysis] has attached one.
+  ///
+  /// Combines the fast first-paint `trigger`/`confidence`/`tldr` from
+  /// [Incident.ai] with the `evidenceFor`/`evidenceAgainst`/`suggestedActions`
+  /// fetched by [loadAnalysis], once resolved. Before [loadAnalysis] resolves
+  /// this returns the un-enriched [Incident.ai] unchanged, so the detail
+  /// screen's AI analysis card shows the inline summary immediately and
+  /// re-renders with evidence/actions once they arrive. `similarIncidents`
+  /// stays empty (deferred, see the plan's Deferred Ideas).
+  IncidentAi? analysisFor(Incident incident) {
+    final IncidentAi? enriched = _analysisById[incident.id];
+    if (enriched == null) return incident.ai;
+
+    final IncidentAi? base = incident.ai;
+    return IncidentAi(
+      trigger: base?.trigger ?? '',
+      confidence: base?.confidence ?? enriched.confidence,
+      tldr: base?.tldr ?? enriched.tldr,
+      evidenceFor: enriched.evidenceFor,
+      evidenceAgainst: enriched.evidenceAgainst,
+      suggestedActions: enriched.suggestedActions,
+      similarIncidents: const [],
+    );
+  }
+
+  /// Fetches the enriched AI analysis for incident [id] via `GET
+  /// /incidents/{id}/analysis`, decodes it into an [IncidentAi], and caches it
+  /// in [_analysisById] so [analysisFor] enriches its result on the next
+  /// build. Fired once from `IncidentDetailView.initState` (never from
+  /// `build`).
+  ///
+  /// Degrades silently on any failure (network error, non-2xx, or a malformed
+  /// payload, including an unregistered `network` service in a bare test
+  /// host): [analysisFor] keeps returning the un-enriched [Incident.ai] first
+  /// paint instead of the screen crashing or flashing an error state for a
+  /// surface that already has a working fallback.
+  Future<void> loadAnalysis(String id) async {
+    try {
+      final response = await Http.get('/incidents/$id/analysis');
+      if (!response.successful) {
+        Log.error(
+          '[IncidentController.loadAnalysis] $id: ${response.errorMessage}',
+        );
+        return;
+      }
+
+      final Object? data = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (data is! Map<String, dynamic>) return;
+
+      _analysisById[id] = IncidentAi(
+        trigger: '',
+        confidence: aiConfidenceFromWire(data['confidence'] as String?),
+        tldr: (data['summary'] as String?) ?? '',
+        evidenceFor: _decodeEvidence(data['evidence_for']),
+        evidenceAgainst: _decodeEvidence(data['evidence_against']),
+        suggestedActions: _decodeActions(data['suggested_actions']),
+        similarIncidents: const [],
+      );
+      refreshUI();
+    } catch (error) {
+      Log.error('[IncidentController.loadAnalysis] $id failed: $error');
+    }
+  }
+
+  /// Decodes an `evidence_for`/`evidence_against` wire list into
+  /// [AiEvidence]s, tolerating a non-list or absent value as empty (the
+  /// over-budget fallback shape).
+  List<AiEvidence> _decodeEvidence(Object? raw) {
+    if (raw is! List) return const [];
+    return raw.whereType<Map<String, dynamic>>().map(AiEvidence.fromMap).toList();
+  }
+
+  /// Decodes a `suggested_actions` wire list into [AiSuggestedAction]s,
+  /// tolerating a non-list or absent value as empty.
+  List<AiSuggestedAction> _decodeActions(Object? raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(AiSuggestedAction.fromMap)
+        .toList();
   }
 
   /// Active incidents: everything not yet resolved, derived from the fetched

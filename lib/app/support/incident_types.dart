@@ -111,6 +111,18 @@ class AiEvidence {
   final String? source;
 
   const AiEvidence({required this.label, required this.detail, this.source});
+
+  /// Builds an [AiEvidence] from a backend `evidence_for`/`evidence_against`
+  /// row (`{label, detail, source}` snake_case keys; `source` is one of the
+  /// backend's `timeline|check|monitor` enum values, decoded as a plain
+  /// string since the client only ever displays it as a citation tag).
+  factory AiEvidence.fromMap(Map<String, dynamic> map) {
+    return AiEvidence(
+      label: (map['label'] as String?) ?? '',
+      detail: (map['detail'] as String?) ?? '',
+      source: map['source'] as String?,
+    );
+  }
 }
 
 /// A suggested remediation step from Uptizm AI.
@@ -123,6 +135,15 @@ class AiSuggestedAction {
   final String rationale;
 
   const AiSuggestedAction({required this.title, required this.rationale});
+
+  /// Builds an [AiSuggestedAction] from a backend `suggested_actions` row
+  /// (`{title, rationale}` snake_case keys).
+  factory AiSuggestedAction.fromMap(Map<String, dynamic> map) {
+    return AiSuggestedAction(
+      title: (map['title'] as String?) ?? '',
+      rationale: (map['rationale'] as String?) ?? '',
+    );
+  }
 }
 
 /// A historically similar incident surfaced by the AI.

@@ -57,12 +57,17 @@ import 'incident_form_support.dart';
 ///
 /// Resolve / Reopen, Acknowledge, and Post update are live [IncidentController]
 /// business actions against the backend (`POST /incidents/{id}/resolve`
-/// `.../reopen` `.../acknowledge` `.../updates`); Assign, AI draft, and
-/// postmortem-edit stay local mocks (there is no assignee-write, AI-analysis,
-/// or postmortem-write endpoint yet). The transient compose state (lifecycle,
-/// assignee, composer body) stays local to this view regardless. The body is
-/// a Wind flex column (`gap-*` carries the section rhythm); the shared
-/// [PageContainer] bounds the width.
+/// `.../reopen` `.../acknowledge` `.../updates`); Assign and postmortem-edit
+/// stay local mocks (there is no assignee-write or postmortem-write endpoint
+/// yet). The AI analysis section is live too: `initState` fires a one-shot
+/// [IncidentController.loadAnalysis] (`GET /incidents/{id}/analysis`) and
+/// [IncidentController.analysisFor] renders the fast first-paint
+/// trigger/confidence/tldr from `GET /incidents/{id}` immediately, enriching
+/// with evidence/suggested-actions once the analysis fetch resolves;
+/// `similarIncidents` stays empty (deferred). The transient compose state
+/// (lifecycle, assignee, composer body) stays local to this view regardless.
+/// The body is a Wind flex column (`gap-*` carries the section rhythm); the
+/// shared [PageContainer] bounds the width.
 ///
 /// ### Example
 /// ```dart
@@ -132,6 +137,13 @@ class _IncidentDetailViewState
     // (which throws if unregistered); see Conventions -> Controller binding.
     Magic.findOrPut(IncidentController.new);
     super.initState();
+    // One-shot fetch of the enriched AI analysis (evidence + suggested
+    // actions); never called from `build`, so navigating away and back
+    // re-fetches exactly once per mount instead of on every rebuild. A
+    // `null` id has no analysis to fetch.
+    if (widget.id != null) {
+      controller.loadAnalysis(widget.id!);
+    }
   }
 
   @override
@@ -230,7 +242,8 @@ class _IncidentDetailViewState
             children: [
               if (!resolved) _buildResponderStrip(incident),
               _buildAffectedMonitors(incident),
-              if (incident.ai != null) _buildAiAnalysis(incident.ai!),
+              if (controller.analysisFor(incident) case final ai?)
+                _buildAiAnalysis(ai),
               if (resolved) _buildPostmortem(incident),
               _buildTimeline(incident),
               _buildComposer(incident),
