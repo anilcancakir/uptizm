@@ -340,7 +340,10 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                 trans('uptizm.teams.billing_renewal_text', {
                   'price': _priceLabel(current, BillingCycle.annual),
                   'cycle': trans('uptizm.teams.billing_renewal_cycle_annual'),
-                  'date': 'Jul 1, 2026',
+                  // Live renewal date from GET /billing/payment-method; falls
+                  // back to a neutral label while the lazy fetch is pending or
+                  // after its Stripe soft-fail (never a fabricated date).
+                  'date': _paymentMethod?.renewalDate ?? trans('common.unknown'),
                 }),
                 className: 'text-sm text-fg-muted',
               ),
