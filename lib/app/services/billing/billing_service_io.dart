@@ -1,5 +1,7 @@
 import 'package:magic/magic.dart';
 
+import '../../support/billing_types.dart' show Plan;
+import '../../support/team_types.dart' show PaymentMethod, UsageStat;
 import 'billing_service.dart';
 
 /// Mobile (iOS/Android) [BillingService].
@@ -8,8 +10,9 @@ import 'billing_service.dart';
 /// separate, risk-accepted-deferred scope (plan steps S20/S21): every
 /// purchase-affecting action ([checkout], [swap], [cancel], [openPortal])
 /// throws [UnsupportedPlatformException] with a clear deferred message rather
-/// than silently no-op or fake success. [currentEntitlement] is a read, so it
-/// still calls the real `GET /billing` endpoint.
+/// than silently no-op or fake success. [currentEntitlement], [getPlans],
+/// [getUsage], [getInvoices], and [getPaymentMethod] are reads, so they still
+/// call the real `api/v1` endpoints.
 class BillingServiceIo implements BillingService {
   const BillingServiceIo();
 
@@ -62,6 +65,85 @@ class BillingServiceIo implements BillingService {
     }
 
     return BillingEntitlement.fromMap(raw);
+  }
+
+  @override
+  Future<List<Plan>> getPlans() async {
+    final MagicResponse response = await Http.get('/billing/plans');
+    if (!response.successful) {
+      Log.error('[BillingServiceIo.getPlans] ${response.errorMessage}');
+      throw BillingException(
+        response.errorMessage ?? 'Failed to load the plan catalog.',
+      );
+    }
+
+    final Object? raw = response.data is Map<String, dynamic>
+        ? (response.data as Map<String, dynamic>)['data']
+        : null;
+    if (raw is! List) {
+      throw const BillingException('Malformed plan catalog response.');
+    }
+
+    return raw.whereType<Map<String, dynamic>>().map(Plan.fromMap).toList();
+  }
+
+  @override
+  Future<List<UsageStat>> getUsage() async {
+    final MagicResponse response = await Http.get('/billing/usage');
+    if (!response.successful) {
+      Log.error('[BillingServiceIo.getUsage] ${response.errorMessage}');
+      throw BillingException(
+        response.errorMessage ?? 'Failed to load usage.',
+      );
+    }
+
+    final Object? data = response.data;
+    if (data is! Map<String, dynamic>) {
+      throw const BillingException('Malformed usage response.');
+    }
+
+    return UsageStat.fromWireMap(data);
+  }
+
+  @override
+  Future<BillingInvoicesPage> getInvoices({String? cursor}) async {
+    final MagicResponse response = await Http.get(
+      '/billing/invoices',
+      query: cursor == null ? null : {'cursor': cursor},
+    );
+    if (!response.successful) {
+      Log.error('[BillingServiceIo.getInvoices] ${response.errorMessage}');
+      throw BillingException(
+        response.errorMessage ?? 'Failed to load invoices.',
+      );
+    }
+
+    final Object? data = response.data;
+    if (data is! Map<String, dynamic>) {
+      throw const BillingException('Malformed invoices response.');
+    }
+
+    return BillingInvoicesPage.fromMap(data);
+  }
+
+  @override
+  Future<PaymentMethod> getPaymentMethod() async {
+    final MagicResponse response = await Http.get('/billing/payment-method');
+    if (!response.successful) {
+      Log.error(
+        '[BillingServiceIo.getPaymentMethod] ${response.errorMessage}',
+      );
+      throw BillingException(
+        response.errorMessage ?? 'Failed to load the payment method.',
+      );
+    }
+
+    final Object? data = response.data;
+    if (data is! Map<String, dynamic>) {
+      throw const BillingException('Malformed payment method response.');
+    }
+
+    return PaymentMethod.fromMap(data);
   }
 }
 

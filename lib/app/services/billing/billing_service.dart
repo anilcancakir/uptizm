@@ -1,3 +1,5 @@
+import '../../support/billing_types.dart' show Plan;
+import '../../support/team_types.dart' show Invoice, PaymentMethod, UsageStat;
 import 'billing_service_stub.dart'
     if (dart.library.html) 'billing_service_web.dart'
     if (dart.library.io) 'billing_service_io.dart'
@@ -83,6 +85,32 @@ class BillingEntitlement {
   }
 }
 
+/// A cursor-paginated page of the team's Stripe invoices, as returned by
+/// `GET /billing/invoices`.
+class BillingInvoicesPage {
+  const BillingInvoicesPage({required this.invoices, required this.nextCursor});
+
+  /// The page of invoices, most recent first (the order Cashier's
+  /// `cursorPaginateInvoices` returns).
+  final List<Invoice> invoices;
+
+  /// The encoded cursor for the next page, or `null` when this is the last
+  /// page.
+  final String? nextCursor;
+
+  /// Decodes a [BillingInvoicesPage] from the raw `GET /billing/invoices`
+  /// response body (`{data: [...], next_cursor}`).
+  factory BillingInvoicesPage.fromMap(Map<String, dynamic> map) {
+    final Object? rawData = map['data'];
+    return BillingInvoicesPage(
+      invoices: rawData is List
+          ? rawData.whereType<Map<String, dynamic>>().map(Invoice.fromMap).toList()
+          : const [],
+      nextCursor: map['next_cursor'] as String?,
+    );
+  }
+}
+
 /// Client-side billing abstraction over the S17 Cashier-backed endpoints.
 ///
 /// Resolves to a platform-specific implementation via conditional import,
@@ -149,4 +177,34 @@ abstract class BillingService {
   /// A read, not a purchase action: safe on every platform, including
   /// mobile ahead of the deferred store rails.
   Future<BillingEntitlement> currentEntitlement();
+
+  /// Reads the static plan catalog via `GET /billing/plans`, cheapest tier
+  /// first (the order the backend's `config/plans.php` serves and the
+  /// upgrade/downgrade CTA depends on).
+  ///
+  /// A read, not a purchase action: safe on every platform.
+  Future<List<Plan>> getPlans();
+
+  /// Reads the team's current-cycle resource usage against its plan limits
+  /// via `GET /billing/usage`.
+  ///
+  /// A read, not a purchase action: safe on every platform.
+  Future<List<UsageStat>> getUsage();
+
+  /// Cursor-paginates the team's Stripe invoices via `GET /billing/invoices`.
+  ///
+  /// [cursor] is the encoded cursor from a previous [BillingInvoicesPage],
+  /// omitted for the first page. A read, not a purchase action: safe on
+  /// every platform.
+  Future<BillingInvoicesPage> getInvoices({String? cursor});
+
+  /// Reads the team's on-file card + renewal date via
+  /// `GET /billing/payment-method`.
+  ///
+  /// This is the only Stripe-live billing read; the backend soft-fails a
+  /// Stripe outage to an all-null [PaymentMethod] with a 200, so callers
+  /// should still give this its own loading/error UI rather than assuming a
+  /// resolved [PaymentMethod] always has a card. A read, not a purchase
+  /// action: safe on every platform.
+  Future<PaymentMethod> getPaymentMethod();
 }

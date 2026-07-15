@@ -1,3 +1,5 @@
+import '../../support/billing_types.dart' show Plan;
+import '../../support/team_types.dart' show PaymentMethod, UsageStat;
 import 'billing_service.dart';
 
 /// Unsupported-platform fallback [BillingService].
@@ -39,6 +41,26 @@ class BillingServiceStub implements BillingService {
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
+    throw const UnsupportedPlatformException(_message);
+  }
+
+  @override
+  Future<List<Plan>> getPlans() async {
+    throw const UnsupportedPlatformException(_message);
+  }
+
+  @override
+  Future<List<UsageStat>> getUsage() async {
+    throw const UnsupportedPlatformException(_message);
+  }
+
+  @override
+  Future<BillingInvoicesPage> getInvoices({String? cursor}) async {
+    throw const UnsupportedPlatformException(_message);
+  }
+
+  @override
+  Future<PaymentMethod> getPaymentMethod() async {
     throw const UnsupportedPlatformException(_message);
   }
 }
