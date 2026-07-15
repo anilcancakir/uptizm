@@ -4,7 +4,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/on_call_controller.dart';
 import '../../../app/mocks/billing.dart';
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import '../../../app/mocks/teams_data.dart';
 import '../../../ui/components/status_dot/index.dart';
 import '../../../ui/components/upgrade_nudge/index.dart';

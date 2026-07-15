@@ -2,7 +2,8 @@ import 'package:flutter/widgets.dart' show Color, immutable;
 
 import 'metrics.dart';
 import 'monitors.dart' show UptimeSegment, monitors, uptime90, findMonitor;
-import 'status.dart';
+import '../enums/domain_mode.dart' show DomainMode;
+import '../enums/status_key.dart' show StatusKey;
 import '../models/monitor.dart';
 import '../models/status_page.dart';
 import '../../resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
@@ -10,26 +11,6 @@ import '../../resources/views/monitors/monitor_metrics_support.dart' show Metric
 // ---------------------------------------------------------------------------
 // Domain types
 // ---------------------------------------------------------------------------
-
-/// How a status page is served to the public.
-///
-/// - [subdomain]: `slug.uptizm.com`.
-/// - [path]: `uptizm.com/status/slug`.
-///
-/// Mirrors the `DomainMode` union in the React status mock.
-enum DomainMode {
-  /// Served on a dedicated subdomain, e.g. `acme.uptizm.com`.
-  subdomain,
-
-  /// Served under a shared path, e.g. `uptizm.com/status/acme`.
-  path;
-
-  /// Human-readable label shown in the editor's domain-mode control.
-  String get label => switch (this) {
-    DomainMode.subdomain => 'Subdomain',
-    DomainMode.path => 'Path',
-  };
-}
 
 /// A monitor resolved to a public component (name + current health + history).
 ///

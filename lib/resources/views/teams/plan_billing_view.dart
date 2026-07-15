@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/billing.dart';
+import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
 import '../../../app/mocks/teams_data.dart';
 import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';

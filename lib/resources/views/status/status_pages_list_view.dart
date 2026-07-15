@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
+import '../../../app/enums/domain_mode.dart' show DomainMode;
 import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/empty_state/index.dart';

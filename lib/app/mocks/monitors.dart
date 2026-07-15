@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/monitor.dart';
-import 'status.dart';
+import '../enums/status_key.dart';
 
 /// A single segment of the 90-day uptime history bar.
 ///

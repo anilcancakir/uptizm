@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import '../../../app/mocks/incidents.dart';
+import '../../../app/enums/ai_confidence.dart';
 import 'ai_insight.dart';
 
 /// Static variant-matrix preview for [AiInsight].

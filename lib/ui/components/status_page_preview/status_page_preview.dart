@@ -3,8 +3,9 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/mocks/incidents.dart';
+import '../../../app/enums/metric_direction.dart' show MetricDirection;
 import '../../../app/mocks/metrics.dart';
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';
 import '../component_status_row/index.dart';

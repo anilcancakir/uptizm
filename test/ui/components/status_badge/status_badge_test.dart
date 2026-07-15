@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
 import 'package:uptizm/ui/components/status_badge/status_badge.preview.dart';
 

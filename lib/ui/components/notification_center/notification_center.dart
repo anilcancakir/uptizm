@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import '../status_dot/index.dart';
 import 'notification_center.recipe.dart';
 

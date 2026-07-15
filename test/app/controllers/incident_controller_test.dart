@@ -4,7 +4,7 @@ import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/models/incident.dart';
-import 'package:uptizm/app/mocks/incidents.dart';
+import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 
 void main() {
   setUp(() {

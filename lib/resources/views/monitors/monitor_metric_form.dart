@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'monitor_metrics_support.dart';
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 

@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/mocks/incidents.dart';
+import '../../../app/enums/ai_confidence.dart';
 import 'ai_confidence_badge.recipe.dart';
 
 /// A soft pill badge visualizing the AI confidence level for an incident

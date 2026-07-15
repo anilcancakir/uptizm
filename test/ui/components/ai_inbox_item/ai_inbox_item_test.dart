@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
-import 'package:uptizm/app/mocks/incidents.dart' show AiConfidence;
+import 'package:uptizm/app/enums/ai_confidence.dart' show AiConfidence;
 import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/ui/components/ai_confidence_badge/index.dart';
 import 'package:uptizm/ui/components/ai_inbox_item/ai_inbox_item.dart';

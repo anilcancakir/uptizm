@@ -2,7 +2,7 @@ import 'package:magic/magic.dart';
 
 import '../models/incident.dart';
 import '../models/monitor.dart';
-import '../mocks/status.dart';
+import '../enums/status_key.dart';
 
 /// Controller backing [DashboardView].
 ///

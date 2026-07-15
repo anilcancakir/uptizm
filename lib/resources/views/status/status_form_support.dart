@@ -1,7 +1,9 @@
 import 'package:flutter/widgets.dart' show Color;
 
+import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
 import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/status_page.dart';

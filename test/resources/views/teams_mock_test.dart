@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:uptizm/app/enums/team_role.dart' show TeamRole;
 import 'package:uptizm/app/mocks/teams_data.dart';
 
 void main() {

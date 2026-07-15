@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/component_status_row/index.dart';
 import 'package:uptizm/ui/components/component_status_row/component_status_row.preview.dart';
 

@@ -6,7 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 import 'monitor_form.dart';
 import 'monitor_form_support.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/incidents.dart';
+import '../../../app/enums/ai_confidence.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
 import '../../../ui/layouts/page_container.dart';

@@ -1,8 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:uptizm/app/enums/incident_impact.dart' show IncidentImpact;
+import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import 'package:uptizm/app/mocks/incidents.dart';
+import 'package:uptizm/app/enums/chart_tone.dart' show ChartTone;
+import 'package:uptizm/app/enums/metric_kind.dart' show MetricKind;
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 
 void main() {
   group('StatusKey', () {

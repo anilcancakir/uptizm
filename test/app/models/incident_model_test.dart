@@ -1,6 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:uptizm/app/enums/ai_confidence.dart' show AiConfidence, aiConfidenceFromWire;
+import 'package:uptizm/app/enums/incident_impact.dart' show IncidentImpact, impactFromWire;
+import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle, lifecycleFromWire;
+import 'package:uptizm/app/enums/incident_severity.dart' show IncidentSeverity, severityFromWire;
+import 'package:uptizm/app/enums/signal_source.dart' show SignalSource, signalSourceFromWire;
+import 'package:uptizm/app/enums/timeline_actor.dart' show TimelineActor, timelineActorFromWire;
 import 'package:uptizm/app/mocks/incidents.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/app/models/incident.dart';
 
 void main() {

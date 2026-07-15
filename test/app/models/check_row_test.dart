@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 
 void main() {
   group('CheckRow.fromMap', () {

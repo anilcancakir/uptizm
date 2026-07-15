@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/mocks/metrics.dart';
+import '../../../app/enums/chart_tone.dart' show ChartTone;
 
 /// Container-chrome recipe for [MetricChart].
 ///

@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:uptizm/app/enums/chart_tone.dart' show ChartTone;
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/ui/components/metric_chart/index.dart';
 import 'package:uptizm/ui/components/metric_chart/metric_chart.preview.dart';

@@ -1,7 +1,7 @@
 import 'package:magic/magic.dart';
 
 import '../models/incident.dart';
-import '../mocks/incidents.dart' show IncidentLifecycle;
+import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
 
 /// Controller backing the three incident screens ([IncidentsListView],
 /// [IncidentDetailView], [IncidentCreateView]).

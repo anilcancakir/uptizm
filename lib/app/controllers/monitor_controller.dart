@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 
 import '../models/monitor.dart';
 import '../mocks/monitors.dart';
-import '../mocks/status.dart';
+import '../enums/status_key.dart';
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
 ///

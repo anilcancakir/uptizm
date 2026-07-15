@@ -5,7 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';

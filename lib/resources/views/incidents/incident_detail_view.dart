@@ -4,10 +4,12 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/incident_controller.dart';
+import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/mocks/billing.dart';
+import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/mocks/incidents.dart';
 import '../../../app/models/incident.dart';
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_analysis_card/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/empty_state/index.dart';

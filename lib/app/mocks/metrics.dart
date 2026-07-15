@@ -2,31 +2,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../enums/chart_tone.dart' show ChartTone;
+import '../enums/metric_direction.dart' show MetricDirection;
+import '../enums/metric_kind.dart' show MetricKind;
+
 // ---------------------------------------------------------------------------
 // MetricChart contract types
 // ---------------------------------------------------------------------------
-
-/// Semantic chart color tones; map to CSS vars so series follow the theme.
-///
-/// These are the tones the `MetricChart` component understands. Note that
-/// `down` and `paused` are absent: those status keys do not have a chart
-/// tone variant in the design contract.
-enum ChartTone {
-  /// Brand primary color; default for single-series charts.
-  primary,
-
-  /// Operational green; used for latency series in healthy monitors.
-  up,
-
-  /// Informational blue; used for informational or AI-baseline series.
-  info,
-
-  /// Amber warning; used for elevated-latency or saturation series.
-  degraded,
-
-  /// AI purple; used for AI-learned baseline bands and anomaly series.
-  ai,
-}
 
 /// One plotted series in a [MetricChart].
 ///
@@ -203,24 +185,6 @@ MetricDirection _directionFromWire(String? raw) {
     'low_bad' => MetricDirection.low,
     _ => MetricDirection.high,
   };
-}
-
-/// Whether a higher or lower metric reading constitutes a worse state.
-enum MetricDirection {
-  /// Higher values are more concerning (CPU, latency, error rate).
-  high,
-
-  /// Lower values are more concerning (queue headroom, throughput).
-  low,
-}
-
-/// Collection method for a metric.
-enum MetricKind {
-  /// Collected automatically from every monitor (response time, error rate).
-  system,
-
-  /// Defined by the user pointing at a custom endpoint.
-  custom,
 }
 
 // ---------------------------------------------------------------------------

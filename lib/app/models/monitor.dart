@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:magic/magic.dart';
 
-import '../mocks/status.dart';
+import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
 
 /// Monitor model.
 ///

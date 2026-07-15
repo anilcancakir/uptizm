@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:uptizm/app/mocks/incidents.dart';
+import 'package:uptizm/app/enums/ai_confidence.dart';
 import 'package:uptizm/ui/components/ai_confidence_badge/ai_confidence_badge.dart';
 
 void main() {

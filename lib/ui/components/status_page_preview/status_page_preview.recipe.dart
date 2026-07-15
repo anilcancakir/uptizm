@@ -1,4 +1,4 @@
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 
 /// Root shell className for [StatusPagePreview].
 ///

@@ -6,7 +6,7 @@ import 'incident_form_support.dart';
 import '../monitors/monitor_metrics_support.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/incidents.dart' show AiConfidence;
+import '../../../app/enums/ai_confidence.dart' show AiConfidence;
 import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';

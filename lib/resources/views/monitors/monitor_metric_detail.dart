@@ -2,8 +2,9 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/enums/chart_tone.dart' show ChartTone;
 import '../../../app/mocks/metrics.dart';
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/metric_chart/index.dart';
 import '../../../ui/components/status_dot/index.dart';

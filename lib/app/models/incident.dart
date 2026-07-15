@@ -2,7 +2,19 @@ import 'dart:convert';
 
 import 'package:magic/magic.dart';
 
-import '../mocks/incidents.dart';
+import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
+import '../enums/incident_impact.dart' show IncidentImpact, impactFromWire;
+import '../enums/incident_lifecycle.dart' show IncidentLifecycle, lifecycleFromWire;
+import '../enums/incident_severity.dart' show IncidentSeverity, severityFromWire;
+import '../enums/signal_source.dart' show SignalSource, signalSourceFromWire;
+import '../mocks/incidents.dart'
+    show
+        AffectedMonitor,
+        IncidentAi,
+        IncidentSummary,
+        TimelineEntry,
+        formatDuration,
+        formatRelativeMeta;
 
 /// Incident model.
 ///
@@ -13,12 +25,13 @@ import '../mocks/incidents.dart';
 ///
 /// The typed accessors reproduce the full [IncidentSummary] DTO surface so a
 /// later wave can swap the mocks-layer DTO for this ORM model at the call
-/// sites under `lib/resources/views/incidents/`. The wire-bridge helpers
+/// sites under `lib/resources/views/incidents/`. The enum wire-bridge helpers
 /// ([lifecycleFromWire], [severityFromWire], [signalSourceFromWire],
-/// [impactFromWire], [aiConfidenceFromWire], [timelineActorFromWire]) and the
-/// formatting helpers ([formatRelativeMeta], [formatDuration],
-/// [formatHourMinute]) are imported from `lib/app/mocks/incidents.dart`,
-/// which keeps this model's decode path byte-for-byte identical to
+/// [impactFromWire], [aiConfidenceFromWire]) are imported from
+/// `lib/app/enums/`; the value-objects ([AffectedMonitor], [IncidentAi],
+/// [TimelineEntry]) and the formatting helpers ([formatRelativeMeta],
+/// [formatDuration]) still come from `lib/app/mocks/incidents.dart`. Either
+/// way this model's decode path stays byte-for-byte identical to
 /// [IncidentSummary.fromMap] (same safe-fallback behaviour, same wire gaps).
 ///
 /// ## Usage
@@ -64,7 +77,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   /// `ai_owned`/`is_public`/`autonomous` decode as `bool`; the four timestamp
   /// columns decode as [Carbon] datetimes; and the four wire-bridge enums
   /// (`severity`/`impact`/`signal_source`/`lifecycle`) decode through the
-  /// matching public helper in `lib/app/mocks/incidents.dart`, so this model
+  /// matching public helper in `lib/app/enums/`, so this model
   /// inherits the exact same safe-fallback semantics as [IncidentSummary].
   @override
   Map<String, dynamic> get casts => {

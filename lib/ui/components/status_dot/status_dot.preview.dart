@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import 'status_dot.dart';
 
 /// Static variant-matrix preview for [StatusDot].

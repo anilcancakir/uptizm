@@ -1,7 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
+import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
 import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/status_page.dart';

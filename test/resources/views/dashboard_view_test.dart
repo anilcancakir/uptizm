@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/dashboard_controller.dart';
+import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/dashboard/dashboard_view.dart';

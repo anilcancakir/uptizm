@@ -1,82 +1,12 @@
 import 'package:flutter/foundation.dart';
 
-import 'status.dart';
-
-// ---------------------------------------------------------------------------
-// Wire decoders (safe enum fallback)
-// ---------------------------------------------------------------------------
-
-/// Decodes the backend `lifecycle` wire value into an [IncidentLifecycle],
-/// falling back to [IncidentLifecycle.detected] on an unknown value so a
-/// stale client never crashes on a lifecycle stage it does not yet know.
-IncidentLifecycle lifecycleFromWire(String? raw) {
-  if (raw == null) return IncidentLifecycle.detected;
-  return IncidentLifecycle.values.firstWhere(
-    (v) => v.name == raw,
-    orElse: () => IncidentLifecycle.detected,
-  );
-}
-
-/// Decodes the backend `severity` wire value into an [IncidentSeverity].
-///
-/// The backend uses `'warn'` where the mock enum spells out `warning`;
-/// everything else falls back to [IncidentSeverity.info].
-IncidentSeverity severityFromWire(String? raw) {
-  return switch (raw) {
-    'critical' => IncidentSeverity.critical,
-    'warn' => IncidentSeverity.warning,
-    'info' => IncidentSeverity.info,
-    _ => IncidentSeverity.info,
-  };
-}
-
-/// Decodes the backend `signal_source` wire value into a [SignalSource],
-/// falling back to [SignalSource.manual] on an unknown value.
-SignalSource signalSourceFromWire(String? raw) {
-  return switch (raw) {
-    'user_threshold' => SignalSource.threshold,
-    'ai_anomaly' => SignalSource.anomaly,
-    'manual' => SignalSource.manual,
-    _ => SignalSource.manual,
-  };
-}
-
-/// Derives the customer-facing [IncidentImpact] badge from the backend
-/// `impact` wire value (`none`/`minor`/`major`/`critical`), the vocabulary
-/// the mock's three-value [IncidentImpact] does not share 1:1: `critical`
-/// and `major` both read as a full [IncidentImpact.down], `minor` reads as
-/// [IncidentImpact.degraded], and `none` (or anything unrecognized) reads
-/// as [IncidentImpact.info].
-IncidentImpact impactFromWire(String? raw) {
-  return switch (raw) {
-    'critical' || 'major' => IncidentImpact.down,
-    'minor' => IncidentImpact.degraded,
-    'none' => IncidentImpact.info,
-    _ => IncidentImpact.info,
-  };
-}
-
-/// Decodes the backend `ai.confidence` wire value into an [AiConfidence],
-/// falling back to [AiConfidence.low] on an unknown value so an unrecognized
-/// confidence string never crashes the inbox and instead reads as the most
-/// conservative tier.
-AiConfidence aiConfidenceFromWire(String? raw) {
-  if (raw == null) return AiConfidence.low;
-  return AiConfidence.values.firstWhere(
-    (v) => v.name == raw,
-    orElse: () => AiConfidence.low,
-  );
-}
-
-/// Decodes the backend `actor` wire value into a [TimelineActor], falling
-/// back to [TimelineActor.system] on an unknown value.
-TimelineActor timelineActorFromWire(String? raw) {
-  if (raw == null) return TimelineActor.system;
-  return TimelineActor.values.firstWhere(
-    (v) => v.name == raw,
-    orElse: () => TimelineActor.system,
-  );
-}
+import '../enums/ai_confidence.dart' show AiConfidence;
+import '../enums/incident_impact.dart' show IncidentImpact;
+import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
+import '../enums/incident_severity.dart' show IncidentSeverity;
+import '../enums/signal_source.dart' show SignalSource;
+import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
+import '../enums/timeline_actor.dart' show TimelineActor, timelineActorFromWire;
 
 /// Formats an ISO-8601 timestamp string as a local `HH:mm` wall-clock
 /// string. Returns `'—'` when [raw] is `null` or fails to parse.
@@ -110,101 +40,6 @@ String formatRelativeMeta(DateTime startedAt, DateTime? resolvedAt) {
   final int minutes = elapsed.inMinutes.abs();
   final String magnitude = minutes < 60 ? '${minutes}m' : '${elapsed.inHours}h';
   return '${isResolved ? 'resolved' : 'started'} $magnitude ago';
-}
-
-// ---------------------------------------------------------------------------
-// Domain types
-// ---------------------------------------------------------------------------
-
-/// Customer-facing impact level; a subset of [StatusKey].
-///
-/// Only statuses that meaningfully describe visible impact are included:
-/// service is completely down, partially degraded, or in a planned maintenance
-/// window.
-enum IncidentImpact {
-  /// Service is completely unavailable.
-  down,
-
-  /// Service is slower or partially impaired.
-  degraded,
-
-  /// Planned maintenance; no unexpected impact.
-  info;
-
-  /// Maps to the equivalent [StatusKey] for badge rendering.
-  StatusKey get statusKey => switch (this) {
-    IncidentImpact.down => StatusKey.down,
-    IncidentImpact.degraded => StatusKey.degraded,
-    IncidentImpact.info => StatusKey.info,
-  };
-}
-
-/// Operator-side severity tier, independent of customer-facing [IncidentImpact].
-enum IncidentSeverity {
-  /// Requires immediate response; business impact is severe.
-  critical,
-
-  /// Elevated concern; monitoring closely but not emergency.
-  warning,
-
-  /// Low-risk informational event.
-  info;
-
-  /// Human-readable display label.
-  String get label => switch (this) {
-    IncidentSeverity.critical => 'Critical',
-    IncidentSeverity.warning => 'Warning',
-    IncidentSeverity.info => 'Info',
-  };
-}
-
-/// How the incident was first detected.
-enum SignalSource {
-  /// A configured numeric threshold was breached.
-  threshold,
-
-  /// Uptizm AI detected an anomaly in a learned baseline.
-  anomaly,
-
-  /// Created manually by an operator.
-  manual;
-
-  /// Human-readable display label for timeline and filter chips.
-  String get label => switch (this) {
-    SignalSource.threshold => 'Threshold breach',
-    SignalSource.anomaly => 'AI anomaly',
-    SignalSource.manual => 'Manual',
-  };
-}
-
-/// Lifecycle stage an incident moves through.
-enum IncidentLifecycle {
-  detected,
-  investigating,
-  identified,
-  monitoring,
-  resolved;
-
-  /// Display label matching the design source (title-case).
-  String get label => switch (this) {
-    IncidentLifecycle.detected => 'Detected',
-    IncidentLifecycle.investigating => 'Investigating',
-    IncidentLifecycle.identified => 'Identified',
-    IncidentLifecycle.monitoring => 'Monitoring',
-    IncidentLifecycle.resolved => 'Resolved',
-  };
-}
-
-/// Actor that authored a timeline entry.
-enum TimelineActor {
-  /// A human operator or on-call engineer.
-  human,
-
-  /// Uptizm AI.
-  ai,
-
-  /// The Uptizm platform itself (threshold triggers, auto-resolution).
-  system,
 }
 
 // ---------------------------------------------------------------------------
@@ -373,9 +208,6 @@ class IncidentAi {
     required this.similarIncidents,
   });
 }
-
-/// AI confidence level for an incident analysis.
-enum AiConfidence { high, medium, low }
 
 /// Assignee for an incident: the engineer currently driving it.
 @immutable

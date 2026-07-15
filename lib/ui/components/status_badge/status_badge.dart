@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import 'status_badge.recipe.dart';
 
 /// Badge size; maps to the `size` axis of [statusBadgeRecipe].

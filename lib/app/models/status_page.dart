@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/painting.dart' show Color;
 import 'package:magic/magic.dart';
 
-import '../mocks/status_pages.dart' show DomainMode;
+import '../enums/domain_mode.dart' show DomainMode;
 
 /// **A public status page.**
 ///

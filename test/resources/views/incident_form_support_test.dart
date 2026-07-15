@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
 import 'package:uptizm/app/mocks/billing.dart';
+import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
 import 'package:uptizm/app/mocks/incidents.dart' as mocks;
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/models/incident.dart';

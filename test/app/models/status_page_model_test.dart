@@ -1,7 +1,7 @@
 import 'package:flutter/painting.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:uptizm/app/mocks/status_pages.dart' show DomainMode;
+import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
 import 'package:uptizm/app/models/status_page.dart';
 
 void main() {

@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/monitor_list_row.preview.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';

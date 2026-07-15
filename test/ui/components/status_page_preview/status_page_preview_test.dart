@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:uptizm/app/mocks/status.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';

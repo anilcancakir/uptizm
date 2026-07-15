@@ -1,6 +1,9 @@
 import 'package:flutter/widgets.dart' show Color, immutable;
 
 import '../../ui/components/region_picker/region_picker.dart' show Region;
+import '../enums/channel_type.dart' show ChannelType;
+import '../enums/invoice_status.dart' show InvoiceStatus;
+import '../enums/team_role.dart' show TeamRole;
 
 /// **Teams-domain mock fixtures.**
 ///
@@ -21,25 +24,6 @@ import '../../ui/components/region_picker/region_picker.dart' show Region;
 // ---------------------------------------------------------------------------
 // Members + invitations
 // ---------------------------------------------------------------------------
-
-/// A team member's access level.
-enum TeamRole {
-  /// Full control, including billing and team deletion. Cannot be removed.
-  owner,
-
-  /// Can manage members, channels, and settings but not billing/deletion.
-  admin,
-
-  /// Standard access to monitors, incidents, and status pages.
-  member;
-
-  /// Human-readable label shown in role badges and selects.
-  String get label => switch (this) {
-    TeamRole.owner => 'Owner',
-    TeamRole.admin => 'Admin',
-    TeamRole.member => 'Member',
-  };
-}
 
 /// A person with access to the current team.
 ///
@@ -166,24 +150,6 @@ const List<TeamInvitation> pendingInvitations = [
 // ---------------------------------------------------------------------------
 // Notification channels
 // ---------------------------------------------------------------------------
-
-/// Where a team's monitoring + incident alerts can be delivered.
-enum ChannelType {
-  email,
-  sms,
-  slack,
-  teams,
-  webhook;
-
-  /// Human-readable channel name shown as the row title.
-  String get label => switch (this) {
-    ChannelType.email => 'Email',
-    ChannelType.sms => 'SMS',
-    ChannelType.slack => 'Slack',
-    ChannelType.teams => 'Microsoft Teams',
-    ChannelType.webhook => 'Webhook',
-  };
-}
 
 /// A team-level notification channel: where alerts route to, and how.
 ///
@@ -347,20 +313,6 @@ const String onCallCadence = 'Weekly handoff, Mondays at 09:00';
 // ---------------------------------------------------------------------------
 // Billing: invoices, payment method, usage
 // ---------------------------------------------------------------------------
-
-/// The settlement state of a billing invoice.
-enum InvoiceStatus {
-  paid,
-  pending,
-  failed;
-
-  /// Human-readable label shown in the invoice status badge.
-  String get label => switch (this) {
-    InvoiceStatus.paid => 'Paid',
-    InvoiceStatus.pending => 'Pending',
-    InvoiceStatus.failed => 'Failed',
-  };
-}
 
 /// One row in the team's billing history.
 ///

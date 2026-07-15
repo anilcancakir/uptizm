@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/mocks/monitors.dart';
-import '../../../app/mocks/status.dart';
+import '../../../app/enums/status_key.dart';
 import 'component_status_row.dart';
 
 /// Static variant-matrix preview for [ComponentStatusRow].
