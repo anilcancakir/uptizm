@@ -7,6 +7,13 @@ import '../../../app/controllers/incident_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/mocks/billing.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
+import '../../../app/support/incident_types.dart'
+    show
+        AffectedMonitor,
+        IncidentAcknowledgement,
+        IncidentAi,
+        IncidentAssignee,
+        TimelineEntry;
 import '../../../app/mocks/incidents.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/enums/status_key.dart';

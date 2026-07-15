@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/incident_types.dart' show IncidentSummary;
 import '../../../app/mocks/incidents.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/ai_insight/index.dart';

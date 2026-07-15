@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
+import '../../../app/support/incident_types.dart' show IncidentAi;
 import '../../../app/mocks/incidents.dart';
 import 'ai_analysis_card.dart';
 

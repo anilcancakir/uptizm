@@ -2,6 +2,9 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/enums/change_kind.dart' show ChangeKind;
+import '../../../app/support/settings_types.dart'
+    show ChangelogChange, ChangelogRelease;
 import '../../../app/mocks/settings.dart';
 
 /// **Changelog settings sub-page (`/settings/changelog`).**

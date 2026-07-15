@@ -4,6 +4,8 @@ import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/app/enums/chart_tone.dart' show ChartTone;
 import 'package:uptizm/app/enums/metric_kind.dart' show MetricKind;
+import 'package:uptizm/app/support/metric_types.dart'
+    show MetricAnomaly, MetricSeries;
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/enums/status_key.dart';

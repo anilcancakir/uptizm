@@ -11,9 +11,12 @@ import '../../../app/models/monitor.dart';
 import '../../../app/enums/incident_impact.dart' show IncidentImpact;
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
+import '../../../app/support/incident_types.dart' show IncidentSummary;
+import '../../../app/support/metric_types.dart'
+    show MetricAnomaly, MetricDatum, MetricSeries;
+import '../../../app/support/monitor_types.dart' show CheckRow, UptimeSegment;
 import '../../../app/mocks/incidents.dart';
 import '../../../app/enums/chart_tone.dart' show ChartTone;
-import '../../../app/mocks/metrics.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';

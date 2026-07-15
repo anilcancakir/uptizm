@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/support/monitor_types.dart' show CheckRow;
 import 'package:uptizm/app/enums/status_key.dart';
 
 void main() {

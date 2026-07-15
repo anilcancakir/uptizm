@@ -1,6 +1,7 @@
 import 'package:magic/magic.dart';
 
 import '../models/on_call_schedule.dart';
+import '../support/team_types.dart' show OnCallShift, TeamMember;
 import '../mocks/teams_data.dart';
 
 /// Controller backing the [OnCallScheduleView]'s live rotation/override

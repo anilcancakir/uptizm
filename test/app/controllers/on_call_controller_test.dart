@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/on_call_controller.dart';
+import 'package:uptizm/app/support/team_types.dart' show OnCallShift, TeamMember;
 import 'package:uptizm/app/mocks/teams_data.dart';
 
 void main() {

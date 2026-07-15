@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/status_page_controller.dart';
+import 'package:uptizm/app/support/status_page_types.dart' show Subscriber;
 import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/status/status_page_editor_view.dart';

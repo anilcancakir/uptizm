@@ -3,7 +3,8 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/enums/chart_tone.dart' show ChartTone;
-import '../../../app/mocks/metrics.dart';
+import '../../../app/support/metric_types.dart'
+    show MetricAnomaly, MetricDatum, MetricSeries;
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/metric_chart/index.dart';

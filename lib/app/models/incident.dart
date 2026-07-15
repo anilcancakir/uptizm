@@ -7,14 +7,9 @@ import '../enums/incident_impact.dart' show IncidentImpact, impactFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle, lifecycleFromWire;
 import '../enums/incident_severity.dart' show IncidentSeverity, severityFromWire;
 import '../enums/signal_source.dart' show SignalSource, signalSourceFromWire;
-import '../mocks/incidents.dart'
-    show
-        AffectedMonitor,
-        IncidentAi,
-        IncidentSummary,
-        TimelineEntry,
-        formatDuration,
-        formatRelativeMeta;
+import '../support/formatters.dart' show formatDuration, formatRelativeMeta;
+import '../support/incident_types.dart'
+    show AffectedMonitor, IncidentAi, IncidentSummary, TimelineEntry;
 
 /// Incident model.
 ///
@@ -29,10 +24,11 @@ import '../mocks/incidents.dart'
 /// ([lifecycleFromWire], [severityFromWire], [signalSourceFromWire],
 /// [impactFromWire], [aiConfidenceFromWire]) are imported from
 /// `lib/app/enums/`; the value-objects ([AffectedMonitor], [IncidentAi],
-/// [TimelineEntry]) and the formatting helpers ([formatRelativeMeta],
-/// [formatDuration]) still come from `lib/app/mocks/incidents.dart`. Either
-/// way this model's decode path stays byte-for-byte identical to
-/// [IncidentSummary.fromMap] (same safe-fallback behaviour, same wire gaps).
+/// [TimelineEntry]) come from `lib/app/support/incident_types.dart` and the
+/// formatting helpers ([formatRelativeMeta], [formatDuration]) from
+/// `lib/app/support/formatters.dart`. Either way this model's decode path stays
+/// byte-for-byte identical to [IncidentSummary.fromMap] (same safe-fallback
+/// behaviour, same wire gaps).
 ///
 /// ## Usage
 ///

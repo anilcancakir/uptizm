@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/enums/channel_type.dart' show ChannelType;
+import '../../../app/support/team_types.dart' show NotificationChannelConfig;
 import '../../../app/mocks/teams_data.dart';
 import '../../../ui/layouts/page_container.dart';
 

@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/controllers/monitor_metrics_controller.dart';
 import 'package:uptizm/app/models/monitor.dart';
+import 'package:uptizm/app/support/metric_types.dart' show MonitorMetric;
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metric_detail.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metric_form.dart';

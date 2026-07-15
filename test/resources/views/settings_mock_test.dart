@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:uptizm/app/support/settings_types.dart'
+    show AppTimezone, ChangelogRelease, DeviceSession;
 import 'package:uptizm/app/mocks/settings.dart';
 
 void main() {

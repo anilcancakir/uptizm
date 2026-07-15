@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/settings_types.dart' show LegalSection;
 import '../../../app/mocks/settings.dart';
 
 /// Terms of Service (`/settings/terms`): a titled legal document.

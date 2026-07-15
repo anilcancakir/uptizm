@@ -5,7 +5,8 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
-import '../../../app/mocks/teams_data.dart';
+import '../../../app/support/escalation_support.dart'
+    show escalationDelayLabel, escalationTargetRegions;
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/layouts/page_container.dart';

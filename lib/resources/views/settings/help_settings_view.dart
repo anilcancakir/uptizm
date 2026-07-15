@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/settings_types.dart' show FaqItem;
 import '../../../app/mocks/settings.dart';
 
 /// One external-resource row rendered in the links [Card].

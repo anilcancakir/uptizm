@@ -8,7 +8,7 @@ import '../../../app/controllers/monitor_metrics_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/metric_direction.dart' show MetricDirection;
 import '../../../app/enums/metric_kind.dart' show MetricKind;
-import '../../../app/mocks/metrics.dart';
+import '../../../app/support/metric_types.dart' show MonitorMetric;
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_dot/index.dart';

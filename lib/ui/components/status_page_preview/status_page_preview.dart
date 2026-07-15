@@ -2,9 +2,12 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/incident_types.dart' show IncidentSummary;
+import '../../../app/support/metric_types.dart' show MonitorMetric;
+import '../../../app/support/status_page_support.dart' show pageUrl, worstStatus;
+import '../../../app/support/status_page_types.dart' show PublicComponent;
 import '../../../app/mocks/incidents.dart';
 import '../../../app/enums/metric_direction.dart' show MetricDirection;
-import '../../../app/mocks/metrics.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';

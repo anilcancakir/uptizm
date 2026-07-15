@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/on_call_controller.dart';
+import 'package:uptizm/app/support/team_types.dart' show TeamMember;
 import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';

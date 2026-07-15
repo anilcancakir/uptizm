@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/mocks/oncall.dart';

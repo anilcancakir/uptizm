@@ -3,7 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/enums/chart_tone.dart' show ChartTone;
-import '../../../app/mocks/metrics.dart';
+import '../../../app/support/metric_types.dart'
+    show MetricAnomaly, MetricDatum, MetricSeries;
 import 'metric_chart.recipe.dart';
 
 /// Series stroke width in logical pixels. Chart geometry literal (PORTING.md §1

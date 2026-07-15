@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/enums/chart_tone.dart' show ChartTone;
+import '../../../app/support/metric_types.dart' show MetricSeries;
 import '../../../app/mocks/metrics.dart';
 import 'metric_chart.dart';
 

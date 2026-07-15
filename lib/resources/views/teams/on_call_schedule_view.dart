@@ -3,6 +3,8 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/on_call_controller.dart';
+import '../../../app/support/billing_types.dart' show PlanLimits;
+import '../../../app/support/team_types.dart' show OnCallShift, TeamMember;
 import '../../../app/mocks/billing.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../app/mocks/teams_data.dart';

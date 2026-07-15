@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:uptizm/app/support/monitor_types.dart' show UptimeSegment;
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/uptime_bar/index.dart';

@@ -5,7 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/enums/status_key.dart';
-import '../../../app/mocks/teams_data.dart' show escalationDelayLabel;
+import '../../../app/support/escalation_support.dart' show escalationDelayLabel;
 import '../../../ui/components/status_dot/index.dart';
 import '../../../ui/layouts/page_container.dart';
 

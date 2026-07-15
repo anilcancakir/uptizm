@@ -1,58 +1,13 @@
-import 'package:flutter/widgets.dart' show Color, immutable;
-
-import 'metrics.dart';
-import 'monitors.dart' show UptimeSegment, monitors, uptime90, findMonitor;
-import '../enums/domain_mode.dart' show DomainMode;
-import '../enums/status_key.dart' show StatusKey;
+import 'metrics.dart'
+    show customMetricsForMonitors, metricsForMonitors, systemMetricsForMonitors;
+import 'monitors.dart' show findMonitor, uptime90;
 import '../models/monitor.dart';
 import '../models/status_page.dart';
-import '../../resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
-
-// ---------------------------------------------------------------------------
-// Domain types
-// ---------------------------------------------------------------------------
-
-/// A monitor resolved to a public component (name + current health + history).
-///
-/// Reuses [StatusKey] from `status.dart` and the existing [UptimeSegment] from
-/// `monitors.dart` so [segments] unifies with the monitors-layer type consumed
-/// by later status components. Mirrors the `PublicComponent` interface in the
-/// React status mock.
-@immutable
-class PublicComponent {
-  /// Public display name of the component.
-  final String name;
-
-  /// Current health status.
-  final StatusKey status;
-
-  /// Human-formatted trailing uptime string, e.g. `"99.94% uptime"`.
-  final String uptime;
-
-  /// 90-day uptime history bar segments.
-  final List<UptimeSegment> segments;
-
-  const PublicComponent({
-    required this.name,
-    required this.status,
-    required this.uptime,
-    required this.segments,
-  });
-}
-
-/// A subscriber to a status page's email updates.
-///
-/// Mirrors the `Subscriber` interface in the React status mock.
-@immutable
-class Subscriber {
-  /// Subscriber email address.
-  final String email;
-
-  /// Relative time string of when they subscribed, e.g. `"3 days ago"`.
-  final String subscribedAt;
-
-  const Subscriber({required this.email, required this.subscribedAt});
-}
+import '../support/metric_types.dart' show MonitorMetric;
+import '../support/monitor_types.dart' show UptimeSegment;
+import '../support/status_page_types.dart' show PublicComponent, Subscriber;
+import '../../resources/views/monitors/monitor_metrics_support.dart'
+    show MetricOption;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -61,11 +16,11 @@ class Subscriber {
 /// Design-lab status-page fixtures, projected onto the [StatusPage] ORM model.
 ///
 /// Two pages: a customer-facing page assigning all monitors, and an internal
-/// ops page assigning a subset. Ids match the [monitors] fixture. The
+/// ops page assigning a subset. Ids match the `monitors` fixture. The
 /// predecessor `StatusPageConfig` value object was deleted once the status
 /// views, controller, and editor migrated to [StatusPage]; these fixtures are
 /// hydrated through [StatusPage.fromMap] from `StatusPageResource`-shaped maps
-/// (`domain_mode` as the in-app [DomainMode] name, `brand_color` as `#rrggbb`,
+/// (`domain_mode` as the in-app `DomainMode` name, `brand_color` as `#rrggbb`,
 /// the monitor pivot as `{id}` rows). Deterministic; no network.
 final List<StatusPage> statusPages = [
   StatusPage.fromMap(<String, dynamic>{
@@ -138,60 +93,8 @@ final Map<String, List<UptimeSegment>> _uptimeHistory = {
 };
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Fixture-data accessors
 // ---------------------------------------------------------------------------
-
-/// Public URL a status page is served at, by domain mode.
-///
-/// Falls back to `your-page` when the slug is empty or absent (live-preview
-/// state in the editor). Mirrors `pageUrl` in the React status mock. Reads the
-/// [StatusPage] ORM model (the `slug` accessor is nullable).
-///
-/// ```dart
-/// pageUrl(page); // "uptizm.com/status/acme"
-/// ```
-String pageUrl(StatusPage c) {
-  final String? raw = c.slug;
-  final String slug = (raw == null || raw.isEmpty) ? 'your-page' : raw;
-  return switch (c.domainMode) {
-    DomainMode.subdomain => '$slug.uptizm.com',
-    DomainMode.path => 'uptizm.com/status/$slug',
-  };
-}
-
-/// Clones [page] into a fresh [StatusPage], replacing only the fields named in
-/// the overrides.
-///
-/// The editable status-page draft (editor, preview variants, and the fixture
-/// tests) needs a copy-with-overrides that no longer flows through the deleted
-/// `StatusPageConfig.copyWith`. This rehydrates a new model from the source's
-/// raw attributes, then patches the wire keys for any provided override so the
-/// clone reads them back through the model's reverse-cast accessors.
-StatusPage cloneStatusPage(
-  StatusPage page, {
-  String? name,
-  String? slug,
-  DomainMode? domainMode,
-  Color? brandColor,
-  List<String>? monitorIds,
-  List<String>? metricKeys,
-}) {
-  final Map<String, dynamic> map = Map<String, dynamic>.from(page.attributes);
-  if (name != null) map['name'] = name;
-  if (slug != null) map['slug'] = slug;
-  if (domainMode != null) map['domain_mode'] = domainMode.name;
-  if (brandColor != null) {
-    map['brand_color'] =
-        '#${brandColor.toARGB32().toRadixString(16).substring(2)}';
-  }
-  if (monitorIds != null) {
-    map['monitors'] = <Map<String, dynamic>>[
-      for (final String id in monitorIds) <String, dynamic>{'id': id},
-    ];
-  }
-  if (metricKeys != null) map['metric_keys'] = metricKeys;
-  return StatusPage.fromMap(map);
-}
 
 /// Find a status page among the design-lab fixtures by [id]. Returns `null`
 /// when none matches.
@@ -276,27 +179,4 @@ List<MetricOption> customMetricOptions(List<String> ids) {
     for (final MonitorMetric m in customMetricsForMonitors(ids))
       MetricOption(label: m.label, value: '${m.monitorId}.${m.key}'),
   ];
-}
-
-/// Worst component status, for the overall banner tone.
-///
-/// Ranks the statuses `down` (4) > `degraded` (3) > `info` (2) > `paused` (1)
-/// > `up`/`ai` (0) and returns the highest-ranked status among [components],
-/// defaulting to [StatusKey.up] for an empty list. Mirrors `worstStatus` in
-/// the React status mock.
-StatusKey worstStatus(List<PublicComponent> components) {
-  int rank(StatusKey s) => switch (s) {
-    StatusKey.down => 4,
-    StatusKey.degraded => 3,
-    StatusKey.info => 2,
-    StatusKey.paused => 1,
-    StatusKey.up => 0,
-    StatusKey.ai => 0,
-  };
-
-  StatusKey worst = StatusKey.up;
-  for (final PublicComponent c in components) {
-    if (rank(c.status) > rank(worst)) worst = c.status;
-  }
-  return worst;
 }

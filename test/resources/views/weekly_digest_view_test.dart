@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
+import 'package:uptizm/app/support/incident_types.dart' show IncidentSummary;
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/resources/views/incidents/weekly_digest_view.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';

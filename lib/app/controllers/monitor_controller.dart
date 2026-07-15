@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
 import '../models/monitor.dart';
+import '../support/monitor_types.dart' show UptimeSegment;
 import '../mocks/monitors.dart';
 import '../enums/status_key.dart';
 

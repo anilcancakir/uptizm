@@ -2,6 +2,8 @@ import 'package:uptizm/app/enums/incident_impact.dart' show IncidentImpact;
 import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import 'package:uptizm/app/enums/incident_severity.dart' show IncidentSeverity;
 import 'package:uptizm/app/enums/signal_source.dart' show SignalSource;
+import 'package:uptizm/app/support/incident_types.dart'
+    show IncidentSummary, TimelineEntry;
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/app/models/incident.dart';
 

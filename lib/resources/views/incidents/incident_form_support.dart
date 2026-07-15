@@ -1,10 +1,12 @@
 import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
+import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
 import 'package:uptizm/app/enums/incident_impact.dart' as mocks;
 import 'package:uptizm/app/enums/incident_lifecycle.dart' as mocks;
 import 'package:uptizm/app/enums/signal_source.dart' as mocks;
-import 'package:uptizm/app/mocks/incidents.dart' as mocks;
+import 'package:uptizm/app/support/incident_types.dart' as mocks
+    show IncidentAssignee, TimelineEntry;
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/app/models/monitor.dart';

@@ -2,7 +2,8 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
-import '../../../app/mocks/incidents.dart';
+import '../../../app/support/incident_types.dart'
+    show AiEvidence, AiSimilarIncident, AiSuggestedAction, IncidentAi;
 import '../ai_confidence_badge/index.dart';
 import 'ai_analysis_card.recipe.dart';
 

@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
+import '../../../app/support/monitor_types.dart' show CheckRow;
 import '../../../app/mocks/monitors.dart';
 import '../status_badge/index.dart';
 import 'check_history_table.recipe.dart';

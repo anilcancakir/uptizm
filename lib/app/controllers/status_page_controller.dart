@@ -3,7 +3,7 @@ import 'package:magic/magic.dart';
 
 import '../models/status_page.dart';
 import '../enums/domain_mode.dart' show DomainMode;
-import '../mocks/status_pages.dart';
+import '../support/status_page_types.dart' show Subscriber;
 import '../mocks/status_pages.dart' as status_pages_fixture;
 import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 

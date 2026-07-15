@@ -4,7 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/status_page_controller.dart';
-import '../../../app/mocks/status_pages.dart';
+import '../../../app/support/status_page_types.dart' show Subscriber;
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';

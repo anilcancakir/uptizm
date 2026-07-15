@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:uptizm/app/enums/team_role.dart' show TeamRole;
+import 'package:uptizm/app/support/escalation_support.dart'
+    show escalationDelayLabel, escalationTargetRegions;
+import 'package:uptizm/app/support/team_types.dart' show OnCallShift, TeamMember;
 import 'package:uptizm/app/mocks/teams_data.dart';
 
 void main() {

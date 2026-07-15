@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:uptizm/app/enums/metric_direction.dart' show MetricDirection;
+import 'package:uptizm/app/support/metric_types.dart'
+    show MetricDatum, MonitorMetric;
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';

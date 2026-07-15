@@ -5,6 +5,8 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
+import 'package:uptizm/app/support/team_types.dart'
+    show NotificationChannelConfig, OnCallShift;
 import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';

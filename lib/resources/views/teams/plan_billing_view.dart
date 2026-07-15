@@ -3,6 +3,8 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/billing_types.dart' show Plan;
+import '../../../app/support/team_types.dart' show Invoice, UsageStat;
 import '../../../app/mocks/billing.dart';
 import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
 import '../../../app/mocks/teams_data.dart';
