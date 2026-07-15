@@ -176,6 +176,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::delete('status-pages/{statusPage:id}/monitors/{monitor}', [StatusPageController::class, 'detachMonitor'])
         ->name('api.v1.status-pages.monitors.detach');
 
+    Route::get('status-pages/{statusPage:id}/subscribers', [StatusPageController::class, 'listSubscribers'])
+        ->name('api.v1.status-pages.subscribers.index');
+    Route::post('status-pages/{statusPage:id}/subscribers', [StatusPageController::class, 'addSubscriber'])
+        ->name('api.v1.status-pages.subscribers.store');
+    Route::delete('status-pages/{statusPage:id}/subscribers/{subscriber}', [StatusPageController::class, 'removeSubscriber'])
+        ->name('api.v1.status-pages.subscribers.destroy');
+
     Route::get('on-call/current', [OnCallController::class, 'current'])
         ->name('api.v1.on-call.current');
 

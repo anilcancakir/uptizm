@@ -3,17 +3,21 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\StatusPage\SubscribeController;
 use App\Http\Requests\StoreStatusPageRequest;
 use App\Http\Requests\UpdateStatusPageRequest;
 use App\Http\Resources\StatusPageResource;
+use App\Http\Resources\StatusPageSubscriberResource;
 use App\Models\Monitor;
 use App\Models\StatusPage;
+use App\Models\StatusPageSubscriber;
 use App\Services\StatusPages\StatusPageCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
@@ -205,6 +209,87 @@ class StatusPageController extends Controller
         });
 
         $this->statusPageCache->invalidateForMonitors($incomingIds);
+
+        return response()->noContent();
+    }
+
+    /**
+     * List the subscribers of a status page owned by the current team,
+     * newest opt-in first.
+     */
+    public function listSubscribers(Request $request, StatusPage $statusPage): AnonymousResourceCollection
+    {
+        $this->authorizeTeam($request, $statusPage);
+
+        $subscribers = $statusPage->subscribers()
+            ->orderByDesc('subscribed_at')
+            ->get();
+
+        return StatusPageSubscriberResource::collection($subscribers);
+    }
+
+    /**
+     * Direct-add a subscriber to a status page owned by the current team.
+     *
+     * Unlike the public {@see SubscribeController}
+     * double opt-in, an admin add is trusted: the subscriber is created already
+     * confirmed (`confirmed_at = now()`, no `confirmed_token`) and NO
+     * confirmation mail is sent. The email rule mirrors the public store; the
+     * dedupe on the `(status_page_id, email)` unique constraint returns the
+     * existing row rather than leaking a constraint-violation 500.
+     */
+    public function addSubscriber(Request $request, StatusPage $statusPage): JsonResponse
+    {
+        $this->authorizeTeam($request, $statusPage);
+
+        $validated = $request->validate([
+            'email' => [
+                'required',
+                'email',
+                'max:254',
+            ],
+        ]);
+        $email = $validated['email'];
+
+        // 1. Dedupe: an admin re-adding an address already on the page returns
+        //    that row (200) instead of hitting the unique constraint.
+        $existing = $statusPage->subscribers()->where('email', $email)->first();
+
+        if ($existing !== null) {
+            return StatusPageSubscriberResource::make($existing)->response();
+        }
+
+        // 2. Trusted direct-add: create an already-confirmed subscriber with an
+        //    unsubscribe token but no confirm token and no double opt-in mail.
+        $subscriber = $statusPage->subscribers()->create([
+            'email' => $email,
+            'unsubscribe_token' => Str::random(48),
+            'subscribed_at' => now(),
+            'confirmed_at' => now(),
+        ]);
+
+        return StatusPageSubscriberResource::make($subscriber)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Remove a subscriber from a status page owned by the current team.
+     *
+     * The subscriber must belong to this page; a subscriber id from a sibling
+     * page 404s (the same mask {@see self::authorizeTeam()} applies to a
+     * foreign team) so the route can never delete across pages.
+     */
+    public function removeSubscriber(
+        Request $request,
+        StatusPage $statusPage,
+        StatusPageSubscriber $subscriber,
+    ): Response {
+        $this->authorizeTeam($request, $statusPage);
+
+        abort_if($subscriber->status_page_id !== $statusPage->id, HttpResponse::HTTP_NOT_FOUND);
+
+        $subscriber->delete();
 
         return response()->noContent();
     }
