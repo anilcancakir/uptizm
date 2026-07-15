@@ -132,6 +132,23 @@ void main() {
     Translator.instance.setLoader(_IncidentViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
 
+    // `IncidentDetailView.initState` now fires a one-shot
+    // `IncidentController.loadAnalysis` (`GET /incidents/{id}/analysis`);
+    // bind a default-success fake network driver so every detail-view test
+    // has one registered (a test needing a specific analysis payload swaps in
+    // its own `Http.fake` afterwards), and bind `log` so a failed fetch's
+    // `Log.error` call resolves instead of throwing on an unregistered
+    // service (mirroring `incident_controller_test.dart`'s `business actions`
+    // setUp).
+    Http.fake();
+    Magic.singleton('log', () => LogManager());
+    Config.set('logging', {
+      'default': 'console',
+      'channels': {
+        'console': {'driver': 'console', 'level': 'debug'},
+      },
+    });
+
     // Register, initialize, and seed the wired controller BEFORE any view
     // mounts. The controller now sources its list from the `Incident` ORM
     // (`GET /incidents` via `Incident.all()`); under this bare (network-less)
@@ -620,6 +637,72 @@ void main() {
           find.byType(MSTextarea),
         );
         expect(after.value, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'fetches the AI analysis and enriches the card with evidence + '
+      'suggested actions, keeping similar-incidents empty',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 5200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final Incident incident = findIncidentFixture('checkout-503')!;
+        final String inlineTldr = incident.ai!.tldr;
+
+        final fake = Http.fake({
+          'incidents/checkout-503/analysis': Http.response({
+            'data': {
+              'summary': 'Origin returns 503 under load.',
+              'confidence': 'high',
+              'contributing_factors': [],
+              'stripped_citations': [],
+              'evidence_for': [
+                {
+                  'label': 'All regions affected',
+                  'detail': 'Every check fails.',
+                  'source': 'check',
+                },
+              ],
+              'evidence_against': [
+                {
+                  'label': 'No DNS change',
+                  'detail': 'Records unchanged.',
+                  'source': 'monitor',
+                },
+              ],
+              'suggested_actions': [
+                {'title': 'Check your origin', 'rationale': 'Returns 503s.'},
+              ],
+            },
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'checkout-503'),
+            size: const Size(1280, 5200),
+          ),
+        );
+        // Before the analysis fetch resolves, the fast first-paint tldr from
+        // the inline `Incident.ai` payload is already on screen.
+        expect(find.text(inlineTldr), findsOneWidget);
+
+        await tester.pumpAndSettle();
+        tester.takeException(); // see the header chip-row overflow note above
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'GET' && r.url == '/incidents/checkout-503/analysis',
+        );
+        expect(find.text('All regions affected'), findsOneWidget);
+        expect(find.text('No DNS change'), findsOneWidget);
+        expect(find.text('Check your origin'), findsOneWidget);
+        expect(
+          find.text(trans('uptizm.ai.similar_incidents')),
+          findsNothing,
+          reason: 'similar_incidents stays empty (deferred)',
+        );
       },
     );
   });
