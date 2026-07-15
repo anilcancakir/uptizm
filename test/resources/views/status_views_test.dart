@@ -142,6 +142,16 @@ void main() {
       List<StatusPage>.of(statusPages),
     );
 
+    // Bind LogManager so Log.error resolves (the live `subscribersFor`
+    // background fetch logs on a non-2xx/failed response) and fake the
+    // network with a default baseline (200 + empty data for every request) so
+    // that background fetch resolves and degrades cleanly instead of
+    // throwing "Service [network] is not registered". Individual tests
+    // override this with a keyed `Http.fake({...})` to seed a specific
+    // subscriber roster.
+    Magic.singleton('log', () => LogManager());
+    Http.fake();
+
     Translator.instance.setLoader(_StatusViewsLangLoader());
     await Translator.instance.setLocale(const Locale('en'));
   });
@@ -273,7 +283,33 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final List<Subscriber> subs = subscribersFor('acme');
+      // Fakes the live `GET status-pages/acme/subscribers` roster the view's
+      // controller fetches; the view now renders this live roster, not the
+      // mocks fixture (see StatusPageController.subscribersFor).
+      final List<Map<String, dynamic>> roster = [
+        {
+          'id': 'sub-1',
+          'email': 'devops@northwind.io',
+          'subscribed_at': DateTime.now()
+              .subtract(const Duration(days: 3))
+              .toIso8601String(),
+          'confirmed': true,
+          'newsletter_opt_in': true,
+        },
+        {
+          'id': 'sub-2',
+          'email': 'sre-team@globex.com',
+          'subscribed_at': DateTime.now()
+              .subtract(const Duration(days: 7))
+              .toIso8601String(),
+          'confirmed': true,
+          'newsletter_opt_in': false,
+        },
+      ];
+      final List<Subscriber> subs = roster.map(Subscriber.fromMap).toList();
+      Http.fake({
+        'status-pages/acme/subscribers': Http.response({'data': roster}, 200),
+      });
 
       await tester.pumpWidget(
         wrap(
@@ -281,7 +317,10 @@ void main() {
           size: const Size(1280, 4000),
         ),
       );
-      await tester.pump();
+      // The roster fetch fires from the controller's `subscribersFor` getter
+      // on the first build and lands asynchronously; settle so the view
+      // rebuilds against the decoded roster before asserting on it.
+      await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(find.byType(PageContainer), findsOneWidget);
