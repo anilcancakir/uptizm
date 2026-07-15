@@ -6,7 +6,10 @@ use App\Enums\AiConfidence;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Models\Incident;
 use App\Models\MonitorCheck;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Composes an incident's timeline plus the checks recorded against its
@@ -62,13 +65,22 @@ class IncidentAnalysisService
         }
 
         // 2. A model that returns non-conforming output past the gateway's
-        //    single retry degrades to the SAME deterministic baseline, so the
-        //    endpoint returns the identical empty-array wire shape rather than
-        //    a 500. Infrastructure failures still propagate.
+        //    single retry, OR an unreachable AI service (outage, timeout, or a
+        //    missing/invalid key), both degrade to the SAME deterministic
+        //    baseline, so the endpoint returns the identical empty-array wire
+        //    shape rather than a 500. The transport failure is logged first so
+        //    the ops problem stays visible.
         try {
             return $this->gateway->analyze($payload);
         } catch (NonConformingAnalysisException) {
             return $this->deterministicSummary($incident, 'AI analysis could not be produced reliably for this incident');
+        } catch (ConnectionException|RequestException $exception) {
+            Log::warning('Incident AI analysis degraded: the AI service was unreachable.', [
+                'incident_id' => (string) $incident->id,
+                'exception' => $exception->getMessage(),
+            ]);
+
+            return $this->deterministicSummary($incident, 'the AI service was temporarily unavailable');
         }
     }
 

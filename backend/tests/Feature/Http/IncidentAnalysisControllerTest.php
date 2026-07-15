@@ -19,6 +19,8 @@ use App\Services\Ai\IncidentAnalysisPayload;
 use App\Services\Ai\IncidentAnalysisResult;
 use App\Services\Ai\NonConformingAnalysisException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Tests\TestCase;
@@ -120,6 +122,38 @@ class IncidentAnalysisControllerTest extends TestCase
         $this->assertSame([], $response->json('data.evidence_for'));
         $this->assertSame([], $response->json('data.evidence_against'));
         $this->assertSame([], $response->json('data.suggested_actions'));
+    }
+
+    public function test_analysis_degrades_to_the_fallback_shape_when_the_ai_service_is_unreachable(): void
+    {
+        // A gateway whose transport fails (an AI outage, a timeout, or a
+        // missing/invalid key) degrades to the SAME deterministic baseline as
+        // the over-budget and non-conforming paths: a logged 200 with the
+        // identical empty-array wire shape, never a 500 that would blank the
+        // incident detail screen.
+        Log::spy();
+        $this->app->instance(IncidentAnalysisGateway::class, new class implements IncidentAnalysisGateway
+        {
+            public function analyze(IncidentAnalysisPayload $payload): IncidentAnalysisResult
+            {
+                throw new ConnectionException('cURL error 7: connection refused.');
+            }
+        });
+
+        [$monitor, $user] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->getJson("/api/v1/incidents/{$incident->id}/analysis");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.confidence', 'low');
+        $this->assertStringContainsString('unavailable', strtolower((string) $response->json('data.summary')));
+        $this->assertSame([], $response->json('data.evidence_for'));
+        $this->assertSame([], $response->json('data.evidence_against'));
+        $this->assertSame([], $response->json('data.suggested_actions'));
+
+        Log::shouldHaveReceived('warning')->once();
     }
 
     public function test_analysis_folds_the_timeline_and_recent_checks_into_the_payload(): void
