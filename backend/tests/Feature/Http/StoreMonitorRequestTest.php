@@ -82,6 +82,103 @@ class StoreMonitorRequestTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_store_accepts_a_tcp_host_port_target(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'type' => 'tcp',
+            'url' => 'db.example.com:5432',
+        ]);
+
+        $response->assertStatus(201);
+        $monitor = Monitor::query()->where('team_id', $team->id)->sole();
+        $this->assertSame('db.example.com:5432', $monitor->url);
+    }
+
+    public function test_store_rejects_a_tcp_target_without_a_port(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // A TCP check connects to a specific port, so a bare host is rejected.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'type' => 'tcp',
+            'url' => 'db.example.com',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('url');
+    }
+
+    public function test_store_rejects_a_tcp_target_shaped_as_a_full_url(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // A TCP target is a bare host[:port]; a scheme + path is not accepted.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'type' => 'tcp',
+            'url' => 'https://db.example.com/health',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('url');
+    }
+
+    public function test_store_rejects_a_tcp_target_on_an_internal_host(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // The SSRF guard extracts the host from host:port and blocks RFC1918.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'type' => 'tcp',
+            'url' => '10.0.0.5:5432',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('url');
+        Queue::assertNothingPushed();
+    }
+
+    public function test_store_rejects_a_tcp_target_with_an_out_of_range_port(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'type' => 'tcp',
+            'url' => 'db.example.com:99999',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('url');
+    }
+
+    public function test_store_still_rejects_a_scheme_less_host_port_for_http(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // The HTTP branch keeps the strict `url` rule: a bare host:port is not
+        // a valid URL and must be rejected.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'type' => 'http',
+            'url' => 'db.example.com:5432',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('url');
+    }
+
     public function test_store_rejects_auth_config_missing_matching_secret(): void
     {
         Queue::fake();

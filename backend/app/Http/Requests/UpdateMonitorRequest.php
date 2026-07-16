@@ -31,14 +31,7 @@ class UpdateMonitorRequest extends StoreMonitorRequest
                 'string',
                 'max:200',
             ],
-            'url' => [
-                'sometimes',
-                'required',
-                'string',
-                'url',
-                'max:2048',
-                $this->noInternalHost(),
-            ],
+            'url' => $this->targetRules(partial: true),
             'type' => [
                 'sometimes',
                 'required',

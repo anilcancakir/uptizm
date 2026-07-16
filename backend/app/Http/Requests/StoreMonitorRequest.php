@@ -64,13 +64,7 @@ class StoreMonitorRequest extends FormRequest
                 'string',
                 'max:200',
             ],
-            'url' => [
-                'required',
-                'string',
-                'url',
-                'max:2048',
-                $this->noInternalHost(),
-            ],
+            'url' => $this->targetRules(partial: false),
             'type' => [
                 'required',
                 Rule::enum(MonitorType::class),
@@ -201,6 +195,66 @@ class StoreMonitorRequest extends FormRequest
     }
 
     /**
+     * Build the rules for the `url` target field, conditional on monitor type.
+     *
+     * The `url` column holds two shapes depending on `type`: an HTTP monitor
+     * targets a full URL (`https://host/path`), a TCP monitor targets a bare
+     * `host` or `host:port`. Validating both with the `url` rule would reject
+     * every TCP target (a `host:port` is not a URL), so the rule set switches
+     * on the effective type. Both branches carry an SSRF host guard so a tenant
+     * can never point a probe at the platform's own internal network.
+     *
+     * @param  bool  $partial  True for a partial (update) request; prefixes
+     *                         `sometimes` so an edit only validates the key it
+     *                         sends.
+     *
+     * @return array<int, mixed>
+     */
+    protected function targetRules(bool $partial): array
+    {
+        $rules = $partial ? ['sometimes', 'required'] : ['required'];
+        $rules[] = 'string';
+        $rules[] = 'max:2048';
+
+        if ($this->effectiveType() === MonitorType::Tcp->value) {
+            // host:port, no scheme, no path. A TCP check connects to a specific
+            // port, so the port is required (a bare host has nothing to probe).
+            // The SSRF guard does the real host extraction + range check.
+            $rules[] = 'regex:/^[^\s\/:]+:\d{1,5}$/';
+            $rules[] = $this->noInternalTcpHost();
+
+            return $rules;
+        }
+
+        $rules[] = 'url';
+        $rules[] = $this->noInternalHost();
+
+        return $rules;
+    }
+
+    /**
+     * Resolve the monitor type this request should validate the target against.
+     *
+     * Prefers the submitted `type`; on a partial edit that omits it, falls back
+     * to the bound monitor's current type; defaults to HTTP when neither is
+     * available (a create always sends `type`, so this only guards edits).
+     */
+    protected function effectiveType(): string
+    {
+        $submitted = $this->input('type');
+        if (is_string($submitted) && $submitted !== '') {
+            return $submitted;
+        }
+
+        $monitor = $this->route('monitor');
+        if ($monitor instanceof Monitor) {
+            return $monitor->type->value;
+        }
+
+        return MonitorType::Http->value;
+    }
+
+    /**
      * Build the SSRF guard closure for the `url` field.
      *
      * Extracts the host from the URL, then delegates to {@see HostGuard} to
@@ -215,6 +269,49 @@ class StoreMonitorRequest extends FormRequest
             $host = parse_url((string) $value, PHP_URL_HOST);
 
             if (! is_string($host) || $host === '') {
+                $fail('The :attribute must contain a valid host.');
+
+                return;
+            }
+
+            if ($this->hostGuard()->isBlockedHost($host)) {
+                $fail('The :attribute host is not allowed.');
+            }
+        };
+    }
+
+    /**
+     * Build the SSRF guard closure for a bare `host` / `host:port` TCP target.
+     *
+     * `parse_url` cannot parse a scheme-less `host:port` (it reads the host as
+     * the scheme), so the host is split off the last colon by hand: the segment
+     * after a trailing all-digit `:port` is the port (validated 1-65535), the
+     * rest is the host. The host then goes through the same {@see HostGuard}
+     * range check as the HTTP path.
+     *
+     * @return Closure(string, mixed, Closure): void
+     */
+    protected function noInternalTcpHost(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            $target = (string) $value;
+            $host = $target;
+
+            $colon = strrpos($target, ':');
+            if ($colon !== false) {
+                $portPart = substr($target, $colon + 1);
+                if ($portPart !== '' && ctype_digit($portPart)) {
+                    $port = (int) $portPart;
+                    if ($port < 1 || $port > 65535) {
+                        $fail('The :attribute port must be between 1 and 65535.');
+
+                        return;
+                    }
+                    $host = substr($target, 0, $colon);
+                }
+            }
+
+            if ($host === '') {
                 $fail('The :attribute must contain a valid host.');
 
                 return;

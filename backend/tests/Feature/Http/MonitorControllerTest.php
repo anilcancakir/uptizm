@@ -192,6 +192,24 @@ class MonitorControllerTest extends TestCase
         $this->assertNull($monitor->fresh()->next_check_at);
     }
 
+    public function test_update_validates_a_partial_host_edit_against_the_bound_tcp_type(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id, [
+            'type' => 'tcp',
+            'url' => 'db.example.com:5432',
+        ]);
+
+        // A partial edit that omits `type` must still validate the new host:port
+        // as a TCP target (resolved from the bound monitor), not as a URL.
+        $response = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'url' => 'db2.example.com:5433',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame('db2.example.com:5433', $monitor->fresh()->url);
+    }
+
     /**
      * Authenticate as a user whose current team is a freshly created team.
      */
