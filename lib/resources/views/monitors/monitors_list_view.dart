@@ -4,8 +4,11 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
+import '../../../app/mocks/billing.dart' show currentPlanId, planById;
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/status_key.dart';
+import '../../../app/services/billing/billing_service.dart';
+import '../../../app/support/billing_types.dart' show Plan;
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
@@ -72,12 +75,42 @@ class _MonitorsListViewState
   /// The index of the currently active filter tab (ephemeral, per-screen input).
   int _filterIndex = 0;
 
+  /// Platform-resolved billing service for the entitlement read.
+  final BillingService _billing = BillingService.instance;
+
+  /// The team's active plan id, seeded from the design-lab fixture and
+  /// corrected by the live `GET /billing` entitlement, so the "monitors used"
+  /// KPI shows the real plan name and monitor cap instead of a hardcoded tier.
+  String _planId = currentPlanId;
+
+  /// The active plan resolved from [_planId] via the catalog.
+  Plan get _plan => planById(_planId);
+
   @override
   void initState() {
     // Register the controller before the base state resolves it via
     // Magic.find<T>() (which throws when unregistered). Idempotent.
     Magic.findOrPut(MonitorController.new);
     super.initState();
+    _loadEntitlement();
+  }
+
+  /// Reads the team's live plan id from `GET /billing` and republishes it, so
+  /// the KPI card matches the Plan & billing screen instead of the fixture.
+  ///
+  /// Deliberate degradation on failure (network error, non-2xx, malformed
+  /// payload): keeps the fixture plan id as last-known state instead of
+  /// throwing, matching [plan_billing_view]'s read-path convention.
+  Future<void> _loadEntitlement() async {
+    try {
+      final BillingEntitlement entitlement = await _billing
+          .currentEntitlement();
+      final String? plan = entitlement.plan;
+      if (plan == null || !mounted) return;
+      setState(() => _planId = plan);
+    } catch (_) {
+      // Deliberate degradation: keep the fixture plan id (see the docblock).
+    }
   }
 
   /// Monitors that satisfy the active filter.
@@ -166,8 +199,8 @@ class _MonitorsListViewState
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_monitors_used'),
-          value: '${allMonitors.length} / 50',
-          hint: 'Pro plan',
+          value: '${allMonitors.length} / ${_plan.limits.monitors}',
+          hint: '${_plan.name} plan',
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_operational'),

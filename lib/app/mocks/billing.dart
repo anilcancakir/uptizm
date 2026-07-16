@@ -138,6 +138,11 @@ Plan _findPlan(String id) {
   return plans.first;
 }
 
+/// Public entry point over [_findPlan]: resolves a live entitlement plan id
+/// (e.g. `'free'` from `GET /billing`) to its catalog [Plan], so a consumer can
+/// read the real plan name and limits instead of hardcoding a tier.
+Plan planById(String id) => _findPlan(id);
+
 /// Returns the cheapest plan whose limits satisfy [pred].
 ///
 /// Walks [plans] cheapest-first and returns the first match. Falls back to the
