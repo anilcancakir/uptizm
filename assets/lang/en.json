@@ -1122,6 +1122,7 @@
       "billing_description": "Your plan, usage, and invoices. AI scales with the tier, never metered per incident.",
       "billing_current_header": "Current plan",
       "billing_renewal_text": ":price/mo billed :cycle · renews :date",
+      "billing_renewal_free": "Free forever · no card required",
       "billing_renewal_cycle_monthly": "monthly",
       "billing_renewal_cycle_annual": "annually",
       "billing_plans_heading": "Plans",

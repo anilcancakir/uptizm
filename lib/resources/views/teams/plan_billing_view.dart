@@ -337,14 +337,24 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                 ],
               ),
               WText(
-                trans('uptizm.teams.billing_renewal_text', {
-                  'price': _priceLabel(current, BillingCycle.annual),
-                  'cycle': trans('uptizm.teams.billing_renewal_cycle_annual'),
-                  // Live renewal date from GET /billing/payment-method; falls
-                  // back to a neutral label while the lazy fetch is pending or
-                  // after its Stripe soft-fail (never a fabricated date).
-                  'date': _paymentMethod?.renewalDate ?? trans('common.unknown'),
-                }),
+                // A free plan never renews and carries no payment method, so it
+                // shows a "free forever" line instead of a "renews <date>" one
+                // (which otherwise read "renews Unknown" with no card on file).
+                (current.monthly == 0 && current.annual == 0)
+                    ? trans('uptizm.teams.billing_renewal_free')
+                    : trans('uptizm.teams.billing_renewal_text', {
+                        'price': _priceLabel(current, BillingCycle.annual),
+                        'cycle': trans(
+                          'uptizm.teams.billing_renewal_cycle_annual',
+                        ),
+                        // Live renewal date from GET /billing/payment-method;
+                        // falls back to a neutral label while the lazy fetch is
+                        // pending or after its Stripe soft-fail (never a
+                        // fabricated date).
+                        'date':
+                            _paymentMethod?.renewalDate ??
+                            trans('common.unknown'),
+                      }),
                 className: 'text-sm text-fg-muted',
               ),
             ],
