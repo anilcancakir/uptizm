@@ -17,6 +17,8 @@
  * round trip.
  */
 
+import { connect } from "cloudflare:sockets";
+
 import {
     emptyTiming,
     type TimingBreakdown,
@@ -88,50 +90,9 @@ async function executeProbe(
     const start = Date.now();
 
     try {
-        // 1. Fire the region-pinned probe and resolve the colo in parallel.
-        const [response, colo] = await Promise.all([
-            fetch(probe.url, {
-                method: (probe.method ?? "GET").toUpperCase(),
-                // Headers/method may be null when a monitor sets none; fetch()
-                // rejects a null `headers`, so default to an empty object.
-                headers: probe.request_headers ?? {},
-                body: probe.request_body ?? undefined,
-                redirect: "manual",
-                signal: AbortSignal.timeout(probe.timeout_seconds * 1000),
-            }),
-            resolveColo(),
-        ]);
-        const ttfbAt = Date.now();
-
-        // 2. Drain up to 10 KiB of the response body for the preview.
-        const preview = await readBodyPreview(response);
-        const downloadEnd = Date.now();
-
-        // 3. DNS/connect/TLS stay zero: CF does not expose per-phase timing.
-        const timing: TimingBreakdown = {
-            ...emptyTiming(),
-            ttfb_ms: ttfbAt - start,
-            download_ms: downloadEnd - ttfbAt,
-        };
-
-        const status = determineStatus(response.status, probe.expected_status_code);
-
-        return {
-            result: {
-                monitor_id: probe.monitor_id,
-                probe_run_id: probe.probe_run_id,
-                region: probe.region,
-                checked_at: checkedAt,
-                status,
-                status_code: response.status,
-                response_ms: downloadEnd - start,
-                error_message: null,
-                timing,
-                response_headers: extractHeaders(response.headers),
-                response_body_preview: preview,
-            },
-            colo,
-        };
+        return probe.type === "tcp"
+            ? await probeTcp(probe, checkedAt, start)
+            : await probeHttp(probe, checkedAt, start);
     } catch (error: unknown) {
         return {
             result: {
@@ -150,6 +111,152 @@ async function executeProbe(
             colo: "unknown",
         };
     }
+}
+
+/**
+ * HTTP(S) probe: issue the request at `probe.url`, classify the status code,
+ * and capture TTFB / download timing plus a bounded body preview.
+ */
+async function probeHttp(
+    probe: ProbeRequest,
+    checkedAt: string,
+    start: number,
+): Promise<{ result: CheckResultPayload; colo: string }> {
+    // 1. Fire the region-pinned probe and resolve the colo in parallel.
+    const [response, colo] = await Promise.all([
+        fetch(probe.url, {
+            method: (probe.method ?? "GET").toUpperCase(),
+            // Headers/method may be null when a monitor sets none; fetch()
+            // rejects a null `headers`, so default to an empty object.
+            headers: probe.request_headers ?? {},
+            body: probe.request_body ?? undefined,
+            redirect: "manual",
+            signal: AbortSignal.timeout(probe.timeout_seconds * 1000),
+        }),
+        resolveColo(),
+    ]);
+    const ttfbAt = Date.now();
+
+    // 2. Drain up to 10 KiB of the response body for the preview.
+    const preview = await readBodyPreview(response);
+    const downloadEnd = Date.now();
+
+    // 3. DNS/connect/TLS stay zero: CF does not expose per-phase timing.
+    const timing: TimingBreakdown = {
+        ...emptyTiming(),
+        ttfb_ms: ttfbAt - start,
+        download_ms: downloadEnd - ttfbAt,
+    };
+
+    const status = determineStatus(response.status, probe.expected_status_code);
+
+    return {
+        result: {
+            monitor_id: probe.monitor_id,
+            probe_run_id: probe.probe_run_id,
+            region: probe.region,
+            checked_at: checkedAt,
+            status,
+            status_code: response.status,
+            response_ms: downloadEnd - start,
+            error_message: null,
+            timing,
+            response_headers: extractHeaders(response.headers),
+            response_body_preview: preview,
+        },
+        colo,
+    };
+}
+
+/**
+ * TCP probe: open a socket to `host:port` and measure connect timing only.
+ *
+ * A TCP monitor targets a bare `host:port` (the backend rejects any other
+ * shape), so there is no request to send or body to read: reaching the
+ * `opened` state is the health signal. The socket is closed immediately after,
+ * regardless of outcome. A connection that neither opens nor errors within the
+ * monitor timeout is raced to a rejection, which the caller maps to `down`.
+ */
+async function probeTcp(
+    probe: ProbeRequest,
+    checkedAt: string,
+    start: number,
+): Promise<{ result: CheckResultPayload; colo: string }> {
+    const { hostname, port } = parseTcpTarget(probe.url);
+    const socket = connect(
+        { hostname, port },
+        { allowHalfOpen: false },
+    );
+
+    let colo: string;
+    try {
+        [, colo] = await Promise.all([
+            withTimeout(
+                socket.opened,
+                probe.timeout_seconds * 1000,
+                "tcp connect",
+            ),
+            resolveColo(),
+        ]);
+    } finally {
+        // Fire and forget: closing a socket whose connect is still pending (the
+        // timeout path) blocks on the OS connect attempt for its full ~75s SYN
+        // timeout, which would stall the whole probe response. The isolate GCs
+        // the socket after the request ends, so an un-awaited close is safe.
+        void socket.close().catch(() => {});
+    }
+
+    const connectMs = Date.now() - start;
+    const timing: TimingBreakdown = {
+        ...emptyTiming(),
+        connect_ms: connectMs,
+    };
+
+    return {
+        result: {
+            monitor_id: probe.monitor_id,
+            probe_run_id: probe.probe_run_id,
+            region: probe.region,
+            checked_at: checkedAt,
+            status: "up",
+            status_code: null,
+            response_ms: connectMs,
+            error_message: null,
+            timing,
+            response_headers: {},
+            response_body_preview: null,
+        },
+        colo,
+    };
+}
+
+/**
+ * Split a `host:port` TCP target into its parts.
+ *
+ * The backend validation guarantees a trailing `:port`, so the last colon is
+ * the port separator (IPv6 literals are not a supported TCP target shape).
+ */
+function parseTcpTarget(target: string): { hostname: string; port: number } {
+    const colon = target.lastIndexOf(":");
+    return {
+        hostname: target.slice(0, colon),
+        port: Number(target.slice(colon + 1)),
+    };
+}
+
+/**
+ * Reject `promise` if it does not settle within `ms`, clearing the timer once
+ * it does so a resolved socket never leaves a dangling timeout behind.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () => reject(new Error(`${label} timed out after ${ms}ms`)),
+            ms,
+        );
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
