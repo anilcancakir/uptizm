@@ -23,6 +23,14 @@ enum StatusKey {
   /// Monitoring paused by the user; no checks are running.
   paused,
 
+  /// Active but awaiting its first probe result; no health verdict yet.
+  ///
+  /// A freshly created monitor sits here until its first check lands. It reads
+  /// as a neutral grey (like [paused]), NOT as [info]/"Maintenance": a monitor
+  /// is never administratively in maintenance, so a missing `last_status` must
+  /// not borrow that label.
+  pending,
+
   /// Informational maintenance window; no health impact.
   info,
 
@@ -35,6 +43,7 @@ enum StatusKey {
     StatusKey.down => 'Major outage',
     StatusKey.degraded => 'Degraded',
     StatusKey.paused => 'Paused',
+    StatusKey.pending => 'Pending',
     StatusKey.info => 'Maintenance',
     StatusKey.ai => 'AI',
   };
@@ -47,6 +56,7 @@ const List<StatusKey> statusKeys = [
   StatusKey.down,
   StatusKey.degraded,
   StatusKey.paused,
+  StatusKey.pending,
   StatusKey.info,
   StatusKey.ai,
 ];

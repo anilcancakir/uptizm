@@ -223,14 +223,16 @@ void main() {
     expect(dotWidget.className, contains('size-3'));
   });
 
-  testWidgets('StatusDotPreview renders all 6 statuses', (tester) async {
+  testWidgets('StatusDotPreview renders all 7 statuses', (tester) async {
     await tester.pumpWidget(wrap(const StatusDotPreview()));
     await tester.pump();
     final wdivs = tester.widgetList<WDiv>(find.byType(WDiv));
     // Each status must produce at least one WDiv carrying its solid bg token.
+    // Pending is neutral and reuses the paused dot token (no bg-pending).
     for (final status in StatusKey.values) {
+      final tokenFamily = status == StatusKey.pending ? 'paused' : status.name;
       final matching = wdivs.where(
-        (w) => w.className?.contains('bg-${status.name}') ?? false,
+        (w) => w.className?.contains('bg-$tokenFamily') ?? false,
       );
       expect(
         matching.length,

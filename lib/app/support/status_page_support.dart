@@ -69,6 +69,7 @@ StatusKey worstStatus(List<PublicComponent> components) {
     StatusKey.degraded => 3,
     StatusKey.info => 2,
     StatusKey.paused => 1,
+    StatusKey.pending => 1,
     StatusKey.up => 0,
     StatusKey.ai => 0,
   };

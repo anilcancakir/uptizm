@@ -556,6 +556,7 @@
       "down": "Major outage",
       "degraded": "Degraded",
       "paused": "Paused",
+      "pending": "Pending",
       "info": "Maintenance",
       "ai": "AI",
       "list_title": "Status pages",

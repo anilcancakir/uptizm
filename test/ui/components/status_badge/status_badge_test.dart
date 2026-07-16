@@ -269,14 +269,16 @@ void main() {
     expect(root.className, contains('px-2.5'));
   });
 
-  testWidgets('StatusBadgePreview renders all 6 statuses', (tester) async {
+  testWidgets('StatusBadgePreview renders all 7 statuses', (tester) async {
     await tester.pumpWidget(wrap(const StatusBadgePreview()));
     await tester.pump();
     final divs = tester.widgetList<WDiv>(find.byType(WDiv));
     // Each status must produce at least one WDiv carrying its soft bg token.
+    // Pending is neutral and reuses the paused palette (no bg-pending-soft).
     for (final status in StatusKey.values) {
+      final tokenFamily = status == StatusKey.pending ? 'paused' : status.name;
       final matching = divs.where(
-        (w) => w.className?.contains('bg-${status.name}-soft') ?? false,
+        (w) => w.className?.contains('bg-$tokenFamily-soft') ?? false,
       );
       expect(
         matching.length,

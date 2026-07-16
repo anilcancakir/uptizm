@@ -201,6 +201,21 @@ void main() {
 
       expect(monitor.status, StatusKey.info);
     });
+
+    test('admin active + no last_status yet resolves to pending', () {
+      // A freshly created monitor awaiting its first check has no last_status;
+      // it must read as neutral "Pending", not info/"Maintenance".
+      final Monitor monitor = Monitor.fromMap(<String, dynamic>{
+        'id': 'fresh',
+        'name': 'Fresh',
+        'url': 'https://fresh.example.com',
+        'status': 'active',
+        'last_status': null,
+        'check_interval_sec': 60,
+      });
+
+      expect(monitor.status, StatusKey.pending);
+    });
   });
 
   group('Monitor persistence routing', () {

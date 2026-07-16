@@ -154,14 +154,22 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   ///
   /// The admin `status` field (`active` / `paused`) wins: when it is `paused`
   /// the monitor is administratively paused and [StatusKey.paused] is returned
-  /// regardless of `last_status`. Otherwise the probe health (`last_status`)
-  /// is decoded via [statusKeyFromWire], which falls back to [StatusKey.info]
-  /// on an unrecognized wire value so a stale client never crashes.
+  /// regardless of `last_status`. An active monitor with no `last_status` yet
+  /// (freshly created, first check still pending) is [StatusKey.pending], NOT
+  /// [StatusKey.info]/"Maintenance": a monitor is never in maintenance, so an
+  /// absent probe verdict must read as a neutral "Pending", not borrow the
+  /// component-maintenance label. Otherwise the probe health (`last_status`) is
+  /// decoded via [statusKeyFromWire], which falls back to [StatusKey.info] on an
+  /// unrecognized (non-null) wire value so a stale client never crashes.
   StatusKey get status {
     if (getAttribute('status') == 'paused') {
       return StatusKey.paused;
     }
-    return statusKeyFromWire(getAttribute('last_status') as String?);
+    final String? lastStatus = getAttribute('last_status') as String?;
+    if (lastStatus == null) {
+      return StatusKey.pending;
+    }
+    return statusKeyFromWire(lastStatus);
   }
 
   /// The raw admin status wire value (`active` / `paused`).

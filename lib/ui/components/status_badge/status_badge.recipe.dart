@@ -20,6 +20,7 @@ const String kStatusBadgeSizeAxis = 'size';
 /// - down:     root `bg-down-soft text-down-soft-foreground`, dot `bg-down`
 /// - degraded: root `bg-degraded-soft text-degraded-soft-foreground`, dot `bg-degraded`
 /// - paused:   root `bg-paused-soft text-paused-soft-foreground`, dot `bg-paused`
+/// - pending:  root `bg-paused-soft text-paused-soft-foreground`, dot `bg-paused` (neutral, awaiting first check)
 /// - info:     root `bg-info-soft text-info-soft-foreground`, dot `bg-info`
 /// - ai:       root `bg-ai-soft text-ai-soft-foreground`, dot `bg-ai`
 ///
@@ -47,6 +48,12 @@ const WindSlotRecipe statusBadgeRecipe = WindSlotRecipe(
         'dot': 'bg-degraded',
       },
       'paused': {
+        'root': 'bg-paused-soft text-paused-soft-foreground',
+        'dot': 'bg-paused',
+      },
+      // Pending (awaiting first check) reuses the neutral paused palette: a
+      // monitor with no verdict yet reads as neutral grey, not maintenance blue.
+      'pending': {
         'root': 'bg-paused-soft text-paused-soft-foreground',
         'dot': 'bg-paused',
       },

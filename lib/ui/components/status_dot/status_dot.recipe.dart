@@ -19,6 +19,7 @@ const String kStatusDotSizeAxis = 'size';
 /// - down:     `bg-down`
 /// - degraded: `bg-degraded`
 /// - paused:   `bg-paused`
+/// - pending:  `bg-paused` (neutral, awaiting first check)
 /// - info:     `bg-info`
 /// - ai:       `bg-ai`
 ///
@@ -35,6 +36,7 @@ const WindRecipe statusDotRecipe = WindRecipe(
       'down': 'bg-down',
       'degraded': 'bg-degraded',
       'paused': 'bg-paused',
+      'pending': 'bg-paused',
       'info': 'bg-info',
       'ai': 'bg-ai',
     },
