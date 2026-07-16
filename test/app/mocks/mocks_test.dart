@@ -12,11 +12,11 @@ import 'package:uptizm/app/enums/status_key.dart';
 
 void main() {
   group('StatusKey', () {
-    test('has exactly 6 values', () {
-      expect(StatusKey.values, hasLength(6));
+    test('has exactly 7 values', () {
+      expect(StatusKey.values, hasLength(7));
     });
 
-    test('statusKeys list covers all 6 values in canonical order', () {
+    test('statusKeys list covers all 7 values in canonical order', () {
       expect(statusKeys, equals(StatusKey.values));
     });
 

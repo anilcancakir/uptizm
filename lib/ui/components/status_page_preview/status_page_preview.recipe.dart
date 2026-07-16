@@ -121,6 +121,12 @@ const Map<StatusKey, StatusPageBannerTone> statusPageBannerTones =
         dot: 'bg-paused',
         label: 'Some components paused',
       ),
+      StatusKey.pending: StatusPageBannerTone(
+        box: 'bg-paused-soft',
+        text: 'text-paused-soft-foreground',
+        dot: 'bg-paused',
+        label: 'Awaiting first checks',
+      ),
       StatusKey.ai: StatusPageBannerTone(
         box: 'bg-up-soft',
         text: 'text-up-soft-foreground',
