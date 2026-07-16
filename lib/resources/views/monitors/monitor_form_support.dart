@@ -10,14 +10,18 @@ import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 // SLO_TARGETS constants in the React MonitorForm.tsx source.
 // ---------------------------------------------------------------------------
 
-/// Monitor check types. Matches `TYPES` in MonitorForm.tsx.
+/// Monitor check types.
 ///
-/// Used to populate the type segmented control on the monitor form.
+/// Used to populate the type segmented control on the monitor form. Scoped to
+/// the two protocols the backend + regional checker support end to end: HTTP
+/// (request at the URL) and TCP (socket connect to host:port). Ping / keyword /
+/// SSL are on the product roadmap (see docs/uptizm-system/product.md) but are
+/// NOT wired through the `MonitorType` enum or the worker, so offering them here
+/// only produced a silent 422 on submit. Add a type back only once its whole
+/// path (enum, request validation, worker probe) exists.
 const List<MetricOption> kMonitorTypes = [
   MetricOption(label: 'HTTP', value: 'http'),
-  MetricOption(label: 'Ping', value: 'ping'),
   MetricOption(label: 'TCP', value: 'tcp'),
-  MetricOption(label: 'DNS', value: 'dns'),
 ];
 
 /// HTTP request methods for the advanced section. Matches `METHODS` in

@@ -164,6 +164,94 @@ void main() {
       expect(find.byType(MonitorForm), findsOneWidget);
     });
 
+    testWidgets('a blank target blocks submit and shows an inline error', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      var submitted = false;
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (_) => submitted = true,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final submit = find.text(trans('uptizm.monitors.form_submit_create'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pump();
+
+      expect(submitted, isFalse, reason: 'A blank target must not submit');
+      expect(
+        find.text(trans('uptizm.monitors.form_url_error_required')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a TCP target without a port shows the host:port error', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      var submitted = false;
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            initialType: 'tcp',
+            initialUrl: 'db.example.com',
+            onSubmit: (_) => submitted = true,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final submit = find.text(trans('uptizm.monitors.form_submit_create'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pump();
+
+      expect(submitted, isFalse, reason: 'A portless TCP target must not submit');
+      expect(
+        find.text(trans('uptizm.monitors.form_url_error_tcp')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a valid TCP host:port target submits', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      var submitted = false;
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            initialType: 'tcp',
+            initialUrl: 'db.example.com:5432',
+            onSubmit: (_) => submitted = true,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final submit = find.text(trans('uptizm.monitors.form_submit_create'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pump();
+
+      expect(submitted, isTrue, reason: 'A valid host:port target must submit');
+    });
+
     testWidgets('advanced section is hidden by default', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));

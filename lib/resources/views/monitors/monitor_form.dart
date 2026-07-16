@@ -40,8 +40,8 @@ class MonitorForm extends StatefulWidget {
   /// Initial monitor name. Defaults to empty (React `initialName = ""`).
   final String initialName;
 
-  /// Initial monitor type token (`http` / `ping` / `tcp` / `dns`). Defaults to
-  /// `http` (React `initialType = "http"`).
+  /// Initial monitor type token (`http` / `tcp`, the two protocols the backend
+  /// supports). Defaults to `http`.
   final String initialType;
 
   /// Initial monitored URL or host. Defaults to empty (React `initialUrl = ""`).
@@ -124,6 +124,14 @@ class _MonitorFormState extends State<MonitorForm> {
 
   /// Monitored URL or host (React `url`).
   late String _url;
+
+  /// Inline validation error for the target field, or null when it is valid.
+  ///
+  /// Set on submit by [_targetError] so a malformed target surfaces under the
+  /// field immediately (an HTTP monitor needs a full URL, a TCP monitor needs
+  /// `host:port`), instead of only bouncing back as a generic save-failed toast
+  /// after the round trip. Cleared when the target or the type changes.
+  String? _urlError;
 
   /// Check-interval token (React `intervalValue`).
   late String _intervalValue;
@@ -245,23 +253,37 @@ class _MonitorFormState extends State<MonitorForm> {
       child: MSSegmentedControl<String>(
         options: kMonitorTypes.map((o) => o.label).toList(),
         selectedIndex: _indexOfValue(kMonitorTypes, _type),
-        onChanged: (index) =>
-            setState(() => _type = kMonitorTypes[index].value),
+        onChanged: (index) => setState(() {
+          _type = kMonitorTypes[index].value;
+          // The target's valid shape depends on the type, so a pending error
+          // no longer applies once the type changes.
+          _urlError = null;
+        }),
       ),
     );
   }
 
-  /// Builds the URL field, with the hint switching on the HTTP/non-HTTP type.
+  /// Builds the URL field. The label, hint, and placeholder all switch on the
+  /// HTTP/non-HTTP type: an HTTP monitor targets a full URL, a TCP monitor
+  /// targets a `host:port` (the backend validates the field accordingly).
   Widget _buildUrlField() {
     return MSFormField(
-      label: trans('uptizm.monitors.form_url_label'),
+      label: _isHttp
+          ? trans('uptizm.monitors.form_url_label')
+          : trans('uptizm.monitors.form_url_label_other'),
       hint: _isHttp
           ? trans('uptizm.monitors.form_url_hint_http')
           : trans('uptizm.monitors.form_url_hint_other'),
+      error: _urlError,
       child: MSInput(
         value: _url,
-        onChanged: (value) => setState(() => _url = value),
-        placeholder: trans('uptizm.monitors.form_url_placeholder'),
+        onChanged: (value) => setState(() {
+          _url = value;
+          _urlError = null;
+        }),
+        placeholder: _isHttp
+            ? trans('uptizm.monitors.form_url_placeholder')
+            : trans('uptizm.monitors.form_url_placeholder_other'),
       ),
     );
   }
@@ -482,11 +504,55 @@ class _MonitorFormState extends State<MonitorForm> {
           child: WText(trans('uptizm.monitors.form_cancel')),
         ),
         MSButton(
-          onPressed: () => widget.onSubmit(buildFields()),
+          onPressed: _submitIfValid,
           child: WText(widget.submitLabel),
         ),
       ],
     );
+  }
+
+  /// Validates the target field before handing the fields to [onSubmit].
+  ///
+  /// A malformed target is the one backend rejection the client can catch up
+  /// front, so it is surfaced inline (via [_urlError]) instead of firing a
+  /// round trip that only bounces back a generic save-failed toast.
+  void _submitIfValid() {
+    final String? error = _targetError();
+    if (error != null) {
+      setState(() => _urlError = error);
+      return;
+    }
+    widget.onSubmit(buildFields());
+  }
+
+  /// Validates the target against the selected type, mirroring the backend
+  /// rule: an HTTP monitor needs a full http(s) URL with a host, a TCP monitor
+  /// needs `host:port`. Returns the error message, or null when the target is
+  /// well formed.
+  String? _targetError() {
+    final String value = _url.trim();
+    if (value.isEmpty) {
+      return trans('uptizm.monitors.form_url_error_required');
+    }
+
+    if (_isHttp) {
+      final Uri? uri = Uri.tryParse(value);
+      final bool valid = uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.isNotEmpty;
+      return valid ? null : trans('uptizm.monitors.form_url_error_http');
+    }
+
+    // TCP: host:port with a port in 1..65535.
+    final RegExpMatch? match = RegExp(r'^[^\s/:]+:(\d{1,5})$').firstMatch(value);
+    if (match == null) {
+      return trans('uptizm.monitors.form_url_error_tcp');
+    }
+    final int port = int.parse(match.group(1)!);
+    if (port < 1 || port > 65535) {
+      return trans('uptizm.monitors.form_url_error_tcp');
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------------------

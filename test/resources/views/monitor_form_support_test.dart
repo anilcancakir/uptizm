@@ -92,9 +92,11 @@ void main() {
       expect(kMonitorTypes, isNotEmpty);
     });
 
-    test('contains http, ping, tcp, dns', () {
+    test('is scoped to the backend-supported types http and tcp', () {
       final List<String> values = kMonitorTypes.map((o) => o.value).toList();
-      expect(values, containsAll(['http', 'ping', 'tcp', 'dns']));
+      // The backend App\Enums\MonitorType has exactly these two cases; ping /
+      // keyword / ssl are roadmap and must not be offered (they 422 on submit).
+      expect(values, equals(['http', 'tcp']));
     });
   });
 
