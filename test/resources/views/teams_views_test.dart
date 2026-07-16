@@ -283,12 +283,17 @@ void main() {
   /// the billing-toast assertions below; the shared [wrap] stays as-is for
   /// every other group in this file.
   Widget wrapWithSnackbar(Widget widget, {Size size = const Size(1280, 8000)}) {
-    return MaterialApp(
-      navigatorKey: MagicRouter.instance.navigatorKey,
-      home: MediaQuery(
-        data: MediaQueryData(size: size),
-        child: WindTheme(
-          data: WindThemeData(),
+    // WindTheme sits ABOVE the MaterialApp so the Navigator overlay (where
+    // MagicFeedback now inserts its toast) can resolve it, mirroring the real
+    // app's root-level WindTheme. A WindTheme under `home` is a sibling of the
+    // overlay, so a Wind-built toast would throw "No WindTheme found in
+    // context".
+    return WindTheme(
+      data: WindThemeData(),
+      child: MaterialApp(
+        navigatorKey: MagicRouter.instance.navigatorKey,
+        home: MediaQuery(
+          data: MediaQueryData(size: size),
           child: Scaffold(body: SingleChildScrollView(child: widget)),
         ),
       ),
@@ -347,6 +352,10 @@ void main() {
           find.text(trans('uptizm.teams.channels_toast_title')),
           findsOneWidget,
         );
+        // Flush the overlay toast's auto-dismiss timer so it does not leak past
+        // the test (the framework's !timersPending invariant).
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
       },
     );
 
@@ -377,6 +386,10 @@ void main() {
           find.text(trans('uptizm.teams.channels_toast_title')),
           findsOneWidget,
         );
+        // Flush the overlay toast's auto-dismiss timer so it does not leak past
+        // the test (the framework's !timersPending invariant).
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
       },
     );
   });
@@ -617,6 +630,10 @@ void main() {
           find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
           findsNothing,
         );
+        // Flush the overlay toast's auto-dismiss timer so it does not leak past
+        // the test (the framework's !timersPending invariant).
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
       },
     );
 
@@ -646,6 +663,10 @@ void main() {
         find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
         findsOneWidget,
       );
+      // Flush the overlay toast's auto-dismiss timer so it does not leak past
+      // the test (the framework's !timersPending invariant).
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
     });
 
     testWidgets('the loaded entitlement plan becomes the current plan', (
