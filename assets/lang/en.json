@@ -409,6 +409,7 @@
       "create_ai_url_label": "URL",
       "create_ai_url_placeholder": "https://api.example.com",
       "create_ai_analyze_button": "Analyze with AI",
+      "create_ai_analyze_failed": "Couldn't analyze that URL. Check that it's reachable and try again, or switch to Manual to set it up by hand.",
       "create_ai_analyzing_title": "Analyzing endpoint…",
       "create_ai_step_1": "Probing the endpoint",
       "create_ai_step_2": "Detecting monitor type",

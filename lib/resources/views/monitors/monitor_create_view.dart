@@ -106,6 +106,13 @@ class _MonitorCreateViewState
   /// successfully. Backs the [_AiStep.review] prefill; `null` until then.
   MonitorAnalysis? _analysis;
 
+  /// A human-facing error shown on the input card when the last [_analyze]
+  /// failed (an unreachable URL, a down relay, a non-2xx). `null` when the
+  /// input step has not just bounced back from a failed probe. The controller
+  /// also logs the technical cause; this is the visible affordance so the flow
+  /// never bounces to the input step silently.
+  String? _analyzeError;
+
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -124,16 +131,23 @@ class _MonitorCreateViewState
   /// error toast) falls back to [_AiStep.input] instead of stalling on the
   /// analyzing step.
   Future<void> _analyze() async {
-    setState(() => _step = _AiStep.analyzing);
+    setState(() {
+      _step = _AiStep.analyzing;
+      _analyzeError = null;
+    });
     final MonitorAnalysis? result = await controller.analyze(_url);
     if (!mounted) return;
 
     if (result == null) {
-      setState(() => _step = _AiStep.input);
+      setState(() {
+        _step = _AiStep.input;
+        _analyzeError = trans('uptizm.monitors.create_ai_analyze_failed');
+      });
       return;
     }
     setState(() {
       _analysis = result;
+      _analyzeError = null;
       _step = _AiStep.review;
     });
   }
@@ -145,6 +159,7 @@ class _MonitorCreateViewState
       _mode = next;
       _step = _AiStep.input;
       _analysis = null;
+      _analyzeError = null;
     });
   }
 
@@ -251,6 +266,22 @@ class _MonitorCreateViewState
           trans('uptizm.monitors.create_ai_card_description'),
           className: 'mt-3 text-sm text-fg-muted',
         ),
+        // Visible failure affordance: when the last analyze bounced back to the
+        // input step (unreachable URL, down relay, non-2xx), show why instead
+        // of silently returning to the form. Destructive-family alias tokens
+        // carry their own dark: pairs.
+        if (_analyzeError != null)
+          WDiv(
+            className:
+                'mt-4 flex flex-row items-start gap-2 rounded-lg bg-destructive-container px-4 py-3',
+            children: [
+              WIcon(
+                Icons.error_outline,
+                className: 'size-4 shrink-0 text-destructive',
+              ),
+              WText(_analyzeError!, className: 'text-sm text-destructive'),
+            ],
+          ),
         WDiv(
           className: 'mt-5',
           child: MSFormField(
