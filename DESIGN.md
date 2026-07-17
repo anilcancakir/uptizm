@@ -280,8 +280,11 @@ For type hierarchy guidance see
 
 ## Layout
 
-The app uses a mobile-first 1-column layout that expands to a sidebar + content
-column at the `md` breakpoint (768px). Spacing follows the 4px logical scale
+The app uses a mobile-first 1-column layout that swaps its navigation shell
+(bottom tab bar) for a sidebar + content column at the `lg` breakpoint (1024px),
+matching `AppLayout`'s `wScreenIs(context, 'lg')` gate; below `lg` (phones and
+portrait tablets) the mobile shell is kept. Content grids still relax earlier
+(the KPI row goes 2-up then 4-up at `lg`). Spacing follows the 4px logical scale
 defined in the `spacing` section above; `gutter` (16px) is the horizontal
 content margin on narrow screens and `section` (32px) separates stacked
 sections.
