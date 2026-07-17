@@ -291,8 +291,10 @@ class _IncidentDetailViewState
   /// Builds the trailing Resolve / Reopen [Button].
   ///
   /// A resolved incident shows "Reopen" and restores [_reopenTo]; an open
-  /// incident shows "Resolve" and moves to [IncidentLifecycle.resolved]. Either
-  /// way the toggle is local state plus a `Magic.success` toast.
+  /// incident shows "Resolve" and moves to [IncidentLifecycle.resolved]. The
+  /// lifecycle flip is optimistic local state; the persistence is the
+  /// controller's `POST /incidents/{id}/resolve` (or `/reopen`), which surfaces
+  /// its own success/error toast.
   Widget _buildResolveButton(Incident incident, bool resolved) {
     return MSButton(
       size: ButtonSize.sm,
