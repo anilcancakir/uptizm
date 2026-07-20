@@ -42,6 +42,12 @@ class MonitorResource extends JsonResource
             'request_headers' => $this->resource->request_headers ?? [],
             'auth_config' => $this->redactAuthConfig($this->resource->auth_config),
             'slo_target' => $this->resource->slo_target,
+            // Measured uptime over the trailing 24h / 7d / 30d, attached by the
+            // show action only (null in list/edit responses and while a monitor
+            // has no checks yet, which the client renders as "no data").
+            'uptime_24h' => $this->resource->uptime_24h,
+            'slo_uptime_7d' => $this->resource->slo_uptime_7d,
+            'slo_uptime_30d' => $this->resource->slo_uptime_30d,
             'tags' => $this->resource->tags ?? [],
             'show_on_status_page' => (bool) $this->resource->show_on_status_page,
             'only_show_if_degraded' => (bool) $this->resource->only_show_if_degraded,

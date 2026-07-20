@@ -52,6 +52,21 @@ class AnalyzeMonitorControllerTest extends TestCase
         $response->assertJsonPath('data.url', 'https://example.com/health');
     }
 
+    public function test_analyze_requires_the_analysis_ai_tier(): void
+    {
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        // A Free team (ai=inbox) cannot use AI monitor analysis.
+        $this->actingAsTeamMember('free');
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(403);
+        $this->assertStringContainsString('Pro plan', (string) $response->json('message'));
+    }
+
     public function test_analyze_rejects_a_cloud_metadata_ssrf_host(): void
     {
         // The fake relay would answer "up" if a probe ever ran; asserting the
@@ -135,7 +150,7 @@ class AnalyzeMonitorControllerTest extends TestCase
     /**
      * Authenticate as a fresh user owning a personal team.
      */
-    protected function actingAsTeamMember(): Team
+    protected function actingAsTeamMember(string $plan = 'pro'): Team
     {
         $user = User::factory()->create();
 
@@ -144,6 +159,9 @@ class AnalyzeMonitorControllerTest extends TestCase
             'name' => 'Acme Ops',
             'personal_team' => true,
         ]);
+        // AI monitor analysis is an analysis-tier (Pro+) feature; the base
+        // MagicStarter Team does not fill `plan`, so set it directly.
+        $team->forceFill(['plan' => $plan])->save();
 
         $user->forceFill(['current_team_id' => $team->id])->save();
 

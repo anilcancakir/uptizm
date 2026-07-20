@@ -12,11 +12,14 @@ use App\Http\Requests\UpdateMonitorRequest;
 use App\Http\Resources\MonitorResource;
 use App\Jobs\PerformMonitorCheck;
 use App\Models\Monitor;
+use App\Models\Team;
 use App\Services\Ai\AiBudget;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
 use App\Services\Ai\ResponseTimeAnomalyDetector;
+use App\Services\Billing\PlanGate;
+use App\Services\Monitoring\CheckAggregateService;
 use App\Services\Monitoring\RelayClient;
 use App\Support\Monitoring\CheckResult;
 use Illuminate\Http\JsonResponse;
@@ -74,12 +77,36 @@ class MonitorController extends Controller
 
     /**
      * Show a single monitor owned by the current team.
+     *
+     * Attaches the measured 24h / 7-day / 30-day uptime (from the raw check
+     * stream) as transient attributes so the detail screen's KPI row and
+     * reliability section render real figures. Each is null when its window
+     * has no checks yet, so a brand-new monitor shows "no data" instead of a
+     * fabricated 0% (which read as a total breach). Only computed here
+     * (single-monitor show), never in the list/collection path, to avoid an
+     * N+1 of aggregate queries.
      */
-    public function show(Request $request, Monitor $monitor): MonitorResource
+    public function show(Request $request, Monitor $monitor, CheckAggregateService $checks): MonitorResource
     {
         $this->authorizeTeam($request, $monitor);
 
+        $monitor->setAttribute('uptime_24h', $this->measuredUptimePercent($checks, $monitor, '24h'));
+        $monitor->setAttribute('slo_uptime_7d', $this->measuredUptimePercent($checks, $monitor, '7d'));
+        $monitor->setAttribute('slo_uptime_30d', $this->measuredUptimePercent($checks, $monitor, '30d'));
+
         return MonitorResource::make($monitor);
+    }
+
+    /**
+     * Measured uptime percentage for [$monitor] over [$range], or null when
+     * the window holds no checks (so the client distinguishes "no data" from
+     * a real 0%).
+     */
+    protected function measuredUptimePercent(CheckAggregateService $checks, Monitor $monitor, string $range): ?float
+    {
+        $summary = $checks->uptimeSummary($monitor, $range);
+
+        return $summary->total > 0 ? round($summary->uptime_ratio * 100, 2) : null;
     }
 
     /**
@@ -172,6 +199,11 @@ class MonitorController extends Controller
         AnalysisGateway $gateway,
         AiBudget $budget,
     ): JsonResponse {
+        $team = Team::find($request->user()->current_team_id);
+        if ($team !== null) {
+            (new PlanGate)->assertAiLevel($team, 'analysis', 'AI monitor analysis');
+        }
+
         $url = (string) $request->validated('url');
         $region = $request->probeRegion();
 

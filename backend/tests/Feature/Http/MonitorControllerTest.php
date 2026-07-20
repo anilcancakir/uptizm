@@ -2,14 +2,18 @@
 
 namespace Tests\Feature\Http;
 
+use App\Enums\MonitorStatus;
+use App\Enums\Plan;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Jobs\PerformMonitorCheck;
 use App\Models\Monitor;
+use App\Models\MonitorCheck;
 use App\Models\User;
 use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -50,7 +54,7 @@ class MonitorControllerTest extends TestCase
         $response = $this->postJson('/api/v1/monitors', $this->validPayload());
 
         $response->assertStatus(201);
-        $response->assertJsonPath('data.check_interval_sec', 60);
+        $response->assertJsonPath('data.check_interval_sec', 180);
         $response->assertJsonPath('data.status', 'active');
 
         // A first check is fanned out per configured region.
@@ -137,6 +141,54 @@ class MonitorControllerTest extends TestCase
         }
     }
 
+    public function test_free_team_cannot_exceed_its_monitor_quota(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+
+        // Fill the Free tier's 10-monitor allowance, then attempt one more.
+        for ($i = 0; $i < 10; $i++) {
+            $this->makeMonitor($team->id);
+        }
+
+        $response = $this->postJson('/api/v1/monitors', $this->validPayload());
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('plan');
+        $this->assertSame(10, Monitor::query()->where('team_id', $team->id)->count());
+    }
+
+    public function test_free_team_cannot_check_faster_than_its_plan_floor(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // 30s is below the Free tier's 180s floor.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'check_interval_sec' => 30,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('check_interval_sec');
+    }
+
+    public function test_a_paid_team_may_check_faster_than_the_free_floor(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $team->forceFill(['plan' => Plan::Pro->value])->save();
+
+        // 30s is the Pro tier's floor, so it is allowed for a paid team.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'check_interval_sec' => 30,
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.check_interval_sec', 30);
+    }
+
     public function test_show_masks_cross_team_monitor_as_404(): void
     {
         $this->actingAsTeamMember();
@@ -178,6 +230,39 @@ class MonitorControllerTest extends TestCase
 
         // Defense in depth: no secret string survives anywhere in the body.
         $this->assertStringNotContainsString('super-secret', $response->getContent());
+    }
+
+    public function test_show_includes_measured_slo_uptime_from_checks(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        // 2 up + 1 down in the trailing window -> 2/3 = 66.67% over both 7d/30d.
+        foreach ([MonitorStatus::Up, MonitorStatus::Up, MonitorStatus::Down] as $status) {
+            $this->makeCheck($monitor, $status);
+        }
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}");
+
+        $response->assertStatus(200);
+        $this->assertEqualsWithDelta(66.67, $response->json('data.uptime_24h'), 0.01);
+        $this->assertEqualsWithDelta(66.67, $response->json('data.slo_uptime_7d'), 0.01);
+        $this->assertEqualsWithDelta(66.67, $response->json('data.slo_uptime_30d'), 0.01);
+    }
+
+    public function test_show_reports_null_slo_uptime_when_a_monitor_has_no_checks(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}");
+
+        $response->assertStatus(200);
+        // A brand-new monitor has no checks: uptime is null (no data), never a
+        // fabricated 0% that would read as a total breach on the client.
+        $this->assertNull($response->json('data.uptime_24h'));
+        $this->assertNull($response->json('data.slo_uptime_7d'));
+        $this->assertNull($response->json('data.slo_uptime_30d'));
     }
 
     public function test_pause_sets_status_to_paused(): void
@@ -254,6 +339,23 @@ class MonitorControllerTest extends TestCase
     }
 
     /**
+     * Record a check for the monitor at the current time (used to exercise the
+     * measured-uptime computation on show).
+     */
+    protected function makeCheck(Monitor $monitor, MonitorStatus $status): MonitorCheck
+    {
+        return MonitorCheck::create([
+            'id' => (string) Str::orderedUuid(),
+            'checked_at' => now(),
+            'monitor_id' => $monitor->id,
+            'team_id' => $monitor->team_id,
+            'region' => 'us-east-1',
+            'status' => $status,
+            'response_ms' => 100,
+        ]);
+    }
+
+    /**
      * A valid create payload targeting a public host across two regions.
      *
      * @return array<string, mixed>
@@ -262,10 +364,13 @@ class MonitorControllerTest extends TestCase
     {
         return [
             'name' => 'API Health',
+            // 180s is the Free tier's fastest allowed interval, so the base
+            // payload is plan-valid for the default (Free) acting team; the
+            // plan-enforcement tests override it to exercise the floor.
             'type' => 'http',
             'url' => 'https://example.com/health',
             'method' => 'get',
-            'check_interval_sec' => 60,
+            'check_interval_sec' => 180,
             'timeout_sec' => 30,
             'regions' => [
                 'us-east',
