@@ -125,7 +125,7 @@ class MonitorMetricControllerTest extends TestCase
      * user, then run `validateResolved()` so validation failures surface
      * as the same `ValidationException` a real 422 response would throw.
      *
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     protected function makeStoreRequest(array $data, Monitor $monitor, User $user): StoreMonitorMetricRequest
     {

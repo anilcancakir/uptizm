@@ -151,8 +151,7 @@ class Monitor extends Model
      * Scope to active monitors whose `next_check_at` is at or before `$at`
      * (defaults to now). Used by the scheduler to fan out checks.
      *
-     * @param Builder<self> $query
-     *
+     * @param  Builder<self>  $query
      * @return Builder<self>
      */
     public function scopeDue(Builder $query, ?DateTimeInterface $at = null): Builder

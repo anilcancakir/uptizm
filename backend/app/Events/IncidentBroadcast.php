@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Http\Resources\IncidentResource;
 use App\Models\Incident;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -19,7 +20,7 @@ use Illuminate\Queue\SerializesModels;
  * `incident.opened` and `incident.resolved` separately on the same channel.
  *
  * The payload is the leak boundary: {@see self::broadcastWith()} mirrors the
- * redacted, team-owned allowlist of {@see \App\Http\Resources\IncidentResource}
+ * redacted, team-owned allowlist of {@see IncidentResource}
  * and never exposes the primary monitor's url, auth_config, password, or
  * headers.
  */
@@ -63,7 +64,7 @@ class IncidentBroadcast implements ShouldBroadcast, ShouldDispatchAfterCommit
 
     /**
      * The redacted, team-owned payload the client receives. Mirrors the
-     * {@see \App\Http\Resources\IncidentResource} allowlist and deliberately
+     * {@see IncidentResource} allowlist and deliberately
      * omits every monitor connection secret (url, auth_config, headers).
      *
      * @return array<string, mixed>

@@ -18,7 +18,7 @@ use DateTimeImmutable;
 readonly class CheckResult
 {
     /**
-     * @param array<string, string> $responseHeaders
+     * @param  array<string, string>  $responseHeaders
      */
     public function __construct(
         public string $monitorId,
@@ -41,9 +41,7 @@ readonly class CheckResult
     /**
      * Build a CheckResult from the JSON payload returned by the worker.
      *
-     * @param array<string, mixed> $payload
-     *
-     * @return self
+     * @param  array<string, mixed>  $payload
      */
     public static function fromWorkerPayload(array $payload): self
     {

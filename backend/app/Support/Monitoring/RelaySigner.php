@@ -17,8 +17,8 @@ namespace App\Support\Monitoring;
 class RelaySigner
 {
     /**
-     * @param string $secret     Shared secret between API and worker.
-     * @param int    $ttlSeconds Max clock skew / replay window in seconds.
+     * @param  string  $secret  Shared secret between API and worker.
+     * @param  int  $ttlSeconds  Max clock skew / replay window in seconds.
      */
     public function __construct(
         protected string $secret,
@@ -32,9 +32,8 @@ class RelaySigner
      * timestamp yields a plain decimal string, matching the worker's
      * `${timestamp}.${body}` template byte for byte.
      *
-     * @param int    $timestamp Unix seconds the request was signed at.
-     * @param string $body      Raw request body being protected.
-     *
+     * @param  int  $timestamp  Unix seconds the request was signed at.
+     * @param  string  $body  Raw request body being protected.
      * @return string 64-character lowercase hex digest.
      */
     public function sign(int $timestamp, string $body): string
@@ -47,11 +46,9 @@ class RelaySigner
      *
      * Uses constant-time comparison to avoid timing side channels.
      *
-     * @param int    $timestamp Unix seconds carried alongside the request.
-     * @param string $body      Raw request body being verified.
-     * @param string $signature Hex signature presented by the caller.
-     *
-     * @return bool
+     * @param  int  $timestamp  Unix seconds carried alongside the request.
+     * @param  string  $body  Raw request body being verified.
+     * @param  string  $signature  Hex signature presented by the caller.
      */
     public function verify(int $timestamp, string $body, string $signature): bool
     {

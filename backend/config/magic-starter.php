@@ -1,5 +1,6 @@
 <?php
 
+use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\Team;
 use FlutterSdk\MagicStarter\Models\TeamInvitation;
 use FlutterSdk\MagicStarter\Models\TeamUser;
@@ -34,19 +35,19 @@ return [
     */
 
     'features' => [
-        \FlutterSdk\MagicStarter\Features::twoFactorAuthentication(),
-        \FlutterSdk\MagicStarter\Features::teams(),
-        \FlutterSdk\MagicStarter\Features::profilePhotos(),
-        \FlutterSdk\MagicStarter\Features::sessions(),
-        \FlutterSdk\MagicStarter\Features::socialLogin(),
-        \FlutterSdk\MagicStarter\Features::newsletterSubscription(),
-        \FlutterSdk\MagicStarter\Features::extendedProfile(),
-        \FlutterSdk\MagicStarter\Features::notifications(),
+        Features::twoFactorAuthentication(),
+        Features::teams(),
+        Features::profilePhotos(),
+        Features::sessions(),
+        Features::socialLogin(),
+        Features::newsletterSubscription(),
+        Features::extendedProfile(),
+        Features::notifications(),
         // \FlutterSdk\MagicStarter\Features::onesignal(),
         // \FlutterSdk\MagicStarter\Features::guestAuth(),
         // \FlutterSdk\MagicStarter\Features::phoneOtp(),
-        \FlutterSdk\MagicStarter\Features::emailVerification(),
-        \FlutterSdk\MagicStarter\Features::timezones(),
+        Features::emailVerification(),
+        Features::timezones(),
     ],
 
     /*

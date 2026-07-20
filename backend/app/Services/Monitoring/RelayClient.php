@@ -7,6 +7,7 @@ use App\Models\Monitor;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\RelaySigner;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -34,15 +35,14 @@ class RelayClient
      * The freshly generated `probe_run_id` is echoed back by the worker and
      * carried on the returned {@see CheckResult} as the idempotency key.
      *
-     * @param Monitor $monitor The monitor whose probe spec is executed.
-     * @param string  $region  Target region value (see {@see MonitorRegion}).
-     *
+     * @param  Monitor  $monitor  The monitor whose probe spec is executed.
+     * @param  string  $region  Target region value (see {@see MonitorRegion}).
      * @return CheckResult Parsed outcome from the worker `/run` response.
      *
      * @throws RuntimeException When the region is not one the relay supports.
      * @throws ConnectionException When the worker is unreachable after retries.
-     * @throws \Illuminate\Http\Client\RequestException When the worker
-     *         responds with a non-2xx status (e.g. 401 on a secret mismatch).
+     * @throws RequestException When the worker
+     *                          responds with a non-2xx status (e.g. 401 on a secret mismatch).
      */
     public function dispatch(Monitor $monitor, string $region): CheckResult
     {
@@ -86,9 +86,8 @@ class RelayClient
      * A fresh `probe_run_id` is minted per dispatch and echoed by the worker
      * so the processing job can de-duplicate a payload delivered more than once.
      *
-     * @param Monitor $monitor The monitor supplying the request definition.
-     * @param string  $region  The already-validated target region value.
-     *
+     * @param  Monitor  $monitor  The monitor supplying the request definition.
+     * @param  string  $region  The already-validated target region value.
      * @return array<string, mixed>
      */
     protected function buildSpec(Monitor $monitor, string $region): array

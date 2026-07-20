@@ -29,9 +29,9 @@ class ProcessCheckResult implements ShouldQueue
     use SerializesModels;
 
     /**
-     * @param string              $monitorId The monitor the probe ran against.
-     * @param string              $region    Target region value the probe ran in.
-     * @param array<string, mixed> $payload  Worker wire payload for the result.
+     * @param  string  $monitorId  The monitor the probe ran against.
+     * @param  string  $region  Target region value the probe ran in.
+     * @param  array<string, mixed>  $payload  Worker wire payload for the result.
      */
     public function __construct(
         public string $monitorId,

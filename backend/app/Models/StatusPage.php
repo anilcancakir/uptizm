@@ -113,8 +113,7 @@ class StatusPage extends Model
     /**
      * Scope to status pages a team has published for public viewing.
      *
-     * @param Builder<self> $query
-     *
+     * @param  Builder<self>  $query
      * @return Builder<self>
      */
     public function scopePublic(Builder $query): Builder

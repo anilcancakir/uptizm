@@ -19,11 +19,6 @@ enum ThresholdDirection: string
      *
      * HighBad requires warn < critical (warn fires earlier on the climb);
      * LowBad requires warn > critical (warn fires earlier on the descent).
-     *
-     * @param float $warn
-     * @param float $critical
-     *
-     * @return bool
      */
     public function validateBounds(float $warn, float $critical): bool
     {

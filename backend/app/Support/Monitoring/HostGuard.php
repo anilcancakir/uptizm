@@ -47,7 +47,6 @@ class HostGuard
      * probed and carries no SSRF risk.
      *
      * @param  string  $host  A bare host (not a full URL).
-     *
      * @return bool True when the host must not be probed.
      */
     public function isBlockedHost(string $host): bool

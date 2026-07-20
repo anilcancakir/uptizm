@@ -23,7 +23,7 @@ class HostGuardTest extends TestCase
     {
         parent::setUp();
 
-        $this->guard = new HostGuard();
+        $this->guard = new HostGuard;
     }
 
     /** Loopback resolves into 127.0.0.0/8 and is blocked. */

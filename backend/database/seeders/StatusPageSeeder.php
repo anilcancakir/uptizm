@@ -17,6 +17,7 @@ use App\Models\StatusPage;
 use App\Models\Team;
 use FlutterSdk\MagicStarter\Support\MigrationHelper;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -108,9 +109,9 @@ class StatusPageSeeder extends Seeder
      * Create three demo monitors for the team, with varied `last_status`
      * values so the public banner has something interesting to render.
      *
-     * @return \Illuminate\Support\Collection<int, Monitor>
+     * @return Collection<int, Monitor>
      */
-    private function createDemoMonitors(Team $team): \Illuminate\Support\Collection
+    private function createDemoMonitors(Team $team): Collection
     {
         $monitors = collect([
             [
@@ -235,9 +236,9 @@ class StatusPageSeeder extends Seeder
      * first monitor when none is degraded) with a single public update, so the
      * status page's timeline is non-empty.
      *
-     * @param \Illuminate\Support\Collection<int, Monitor> $monitors
+     * @param  Collection<int, Monitor>  $monitors
      */
-    private function seedPublicIncident(Team $team, \Illuminate\Support\Collection $monitors): void
+    private function seedPublicIncident(Team $team, Collection $monitors): void
     {
         $primaryMonitor = $monitors->firstWhere('last_status', MonitorStatus::Degraded) ?? $monitors->first();
 

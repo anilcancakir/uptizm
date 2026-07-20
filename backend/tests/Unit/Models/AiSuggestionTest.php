@@ -11,6 +11,7 @@ use App\Models\Monitor;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -65,7 +66,7 @@ class AiSuggestionTest extends TestCase
         $this->assertInstanceOf(AiSuggestionStatus::class, $suggestion->status);
         $this->assertIsArray($suggestion->evidence);
         $this->assertIsFloat($suggestion->score);
-        $this->assertInstanceOf(\Illuminate\Support\Carbon::class, $suggestion->expires_at);
+        $this->assertInstanceOf(Carbon::class, $suggestion->expires_at);
     }
 
     public function test_team_and_monitor_and_accepted_incident_relations_resolve(): void

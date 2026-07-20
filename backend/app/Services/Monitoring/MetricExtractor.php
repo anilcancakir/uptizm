@@ -25,7 +25,7 @@ class MetricExtractor
      * Apply the extraction rule and validate the result against the
      * declared metric type.
      *
-     * @param array<string, string> $headers Case-insensitive header map.
+     * @param  array<string, string>  $headers  Case-insensitive header map.
      */
     public function extract(
         MetricSource $source,
@@ -152,7 +152,7 @@ class MetricExtractor
     /**
      * Look up a response header by name, case-insensitively.
      *
-     * @param array<string, string> $headers
+     * @param  array<string, string>  $headers
      */
     protected function extractHeader(array $headers, string $name): ExtractResult
     {

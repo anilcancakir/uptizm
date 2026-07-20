@@ -96,8 +96,7 @@ class AiSuggestion extends Model
     /**
      * Scope to suggestions still awaiting an operator decision.
      *
-     * @param Builder<self> $query
-     *
+     * @param  Builder<self>  $query
      * @return Builder<self>
      */
     public function scopePending(Builder $query): Builder
@@ -108,8 +107,7 @@ class AiSuggestion extends Model
     /**
      * Scope to suggestions belonging to the given team.
      *
-     * @param Builder<self> $query
-     *
+     * @param  Builder<self>  $query
      * @return Builder<self>
      */
     public function scopeForTeam(Builder $query, string $teamId): Builder

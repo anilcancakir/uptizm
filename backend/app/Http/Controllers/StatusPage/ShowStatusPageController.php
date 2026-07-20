@@ -8,6 +8,7 @@ use App\Services\StatusPages\StatusPageAssembler;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * Renders the public status page for `GET /s/{slug}`.
@@ -34,7 +35,7 @@ class ShowStatusPageController
      * Resolve the page behind the privacy gate and render it, caching only the
      * public path's array payload.
      *
-     * @throws \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
+     * @throws NotFoundHttpException
      */
     public function __invoke(Request $request, string $slug): View
     {

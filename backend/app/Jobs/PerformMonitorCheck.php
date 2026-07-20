@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\MonitorRegion;
 use App\Models\Monitor;
 use App\Services\Monitoring\RelayClient;
 use Illuminate\Bus\Queueable;
@@ -39,8 +40,8 @@ class PerformMonitorCheck implements ShouldQueue
     public $backoff = 10;
 
     /**
-     * @param Monitor $monitor The monitor to probe.
-     * @param string  $region  Target region value (see {@see \App\Enums\MonitorRegion}).
+     * @param  Monitor  $monitor  The monitor to probe.
+     * @param  string  $region  Target region value (see {@see MonitorRegion}).
      */
     public function __construct(
         public Monitor $monitor,
