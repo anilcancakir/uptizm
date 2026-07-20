@@ -95,10 +95,22 @@ class DigestControllerTest extends TestCase
         $response->assertStatus(401);
     }
 
+    public function test_digest_requires_the_auto_ai_tier(): void
+    {
+        // A Pro team (ai=analysis) is below the auto tier the digest needs; the
+        // gate fires before the digest lookup, so no digest need exist.
+        [, $user] = $this->makeTeam('pro');
+
+        $response = $this->actingAs($user, 'sanctum')->getJson('/api/v1/incidents/digest');
+
+        $response->assertStatus(403);
+        $this->assertStringContainsString('Business plan', (string) $response->json('message'));
+    }
+
     /**
      * @return array{0: Team, 1: User}
      */
-    protected function makeTeam(): array
+    protected function makeTeam(string $plan = 'business'): array
     {
         $user = User::query()->create([
             'name' => 'Digest Tester',
@@ -109,6 +121,8 @@ class DigestControllerTest extends TestCase
         $team = Team::query()->create([
             'user_id' => $user->id,
             'name' => 'Digest Team',
+            // The AI weekly digest is an auto-tier (Business+) feature.
+            'plan' => $plan,
         ]);
         $user->forceFill(['current_team_id' => $team->id])->save();
 

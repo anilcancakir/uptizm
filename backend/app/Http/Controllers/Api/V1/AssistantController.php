@@ -7,10 +7,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\AskAssistantRequest;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Models\Team;
 use App\Services\Ai\AiBudget;
 use App\Services\Ai\AssistantGateway;
 use App\Services\Ai\AssistantPayload;
 use App\Services\Ai\AssistantResult;
+use App\Services\Billing\PlanGate;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 
@@ -48,6 +50,11 @@ class AssistantController extends Controller
     public function answer(AskAssistantRequest $request): JsonResponse
     {
         $teamId = (string) $request->user()->current_team_id;
+
+        $team = Team::find($teamId);
+        if ($team !== null) {
+            (new PlanGate)->assertAiLevel($team, 'analysis', 'The AI assistant');
+        }
 
         $monitors = Monitor::query()
             ->where('team_id', $teamId)

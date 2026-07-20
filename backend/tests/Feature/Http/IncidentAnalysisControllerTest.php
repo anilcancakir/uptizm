@@ -274,6 +274,8 @@ class IncidentAnalysisControllerTest extends TestCase
         $team = Team::query()->create([
             'user_id' => $user->id,
             'name' => 'Incident Analysis Team',
+            // AI incident analysis is an analysis-tier (Pro+) feature.
+            'plan' => 'pro',
         ]);
         $user->forceFill(['current_team_id' => $team->id])->save();
 

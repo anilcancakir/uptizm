@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateWeeklyDigest;
+use App\Models\Team;
 use App\Models\TeamDigest;
+use App\Services\Billing\PlanGate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
@@ -25,6 +27,11 @@ class DigestController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $team = Team::find($request->user()->current_team_id);
+        if ($team !== null) {
+            (new PlanGate)->assertAiLevel($team, 'auto', 'The AI weekly digest');
+        }
+
         $digest = TeamDigest::query()
             ->forTeam((string) $request->user()->current_team_id)
             ->orderByDesc('generated_at')

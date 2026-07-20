@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Incident;
+use App\Models\Team;
 use App\Services\Ai\IncidentAnalysisService;
+use App\Services\Billing\PlanGate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
@@ -29,6 +31,11 @@ class IncidentAnalysisController extends Controller
     public function show(Request $request, Incident $incident): JsonResponse
     {
         $this->authorizeTeam($request, $incident);
+
+        $team = Team::find($request->user()->current_team_id);
+        if ($team !== null) {
+            (new PlanGate)->assertAiLevel($team, 'analysis', 'AI incident analysis');
+        }
 
         $result = $this->incidentAnalysisService->analyzeFor($incident);
 
