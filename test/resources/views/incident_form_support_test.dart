@@ -1,10 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
-import 'package:uptizm/app/support/billing_types.dart' show Plan;
-import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
-import 'package:uptizm/app/support/incident_types.dart' as mocks
+import 'package:uptizm/app/support/incident_types.dart'
+    as mocks
     show IncidentSummary, TimelineEntry;
 import 'package:uptizm/app/mocks/incidents.dart' as mocks;
 import 'package:uptizm/app/mocks/monitors.dart';
@@ -110,23 +108,5 @@ void main() {
         }
       },
     );
-  });
-
-  // ---------------------------------------------------------------------------
-  // planForAiAnalysis
-  // ---------------------------------------------------------------------------
-
-  group('planForAiAnalysis', () {
-    test('returns the cheapest plan whose ai capability covers analysis', () {
-      final Plan plan = planForAiAnalysis();
-
-      expect(plan.limits.ai.index, greaterThanOrEqualTo(AiLevel.analysis.index));
-
-      // The plans list is ordered cheapest-first; no earlier plan qualifies.
-      final int planIndex = plans.indexOf(plan);
-      for (var i = 0; i < planIndex; i++) {
-        expect(plans[i].limits.ai.index, lessThan(AiLevel.analysis.index));
-      }
-    });
   });
 }

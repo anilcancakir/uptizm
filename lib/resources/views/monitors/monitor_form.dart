@@ -4,7 +4,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'monitor_form_support.dart';
 import 'monitor_metrics_support.dart';
-import '../../../app/mocks/billing.dart';
+import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../app/mocks/oncall.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
@@ -20,10 +20,11 @@ import '../../../ui/components/region_picker/region_picker.dart';
 ///
 /// The form is self-contained state: every field round-trips through this
 /// widget's [State] and the [onSubmit] / [onCancel] callbacks report the user's
-/// intent. The check-interval [Select] gates options below the current billing
-/// tier's fastest allowed interval, labelling each locked option with the
-/// cheapest plan that unlocks it (`currentLimits.checkIntervalSec` +
-/// [smallestPlanWhere]).
+/// intent. The check-interval [Select] gates options below the team's real
+/// billing tier's fastest allowed interval, labelling each locked option with
+/// the cheapest plan that unlocks it (via [EntitlementController]:
+/// `minCheckIntervalSec` + `planNameUnlocking`). This mirrors the backend's own
+/// interval-floor 422 so a locked interval is nudged here, not on save.
 ///
 /// No color is hardcoded: every tone flows through semantic alias keys, and no
 /// footer button carries `w-full` (a full-width button inside a `flex-row`
@@ -174,6 +175,11 @@ class _MonitorFormState extends State<MonitorForm> {
   /// computed once from the static [allRegions] fixture.
   late final List<Region> _regionOptions = probeRegionsToRegions(allRegions);
 
+  /// The team's real billing entitlement, driving the check-interval lock. The
+  /// interval field is wrapped in a [ListenableBuilder] on this controller so
+  /// the locked options re-resolve the moment the real plan lands.
+  final EntitlementController _entitlement = EntitlementController.instance;
+
   @override
   void initState() {
     super.initState();
@@ -296,12 +302,18 @@ class _MonitorFormState extends State<MonitorForm> {
   Widget _buildIntervalField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_interval_label'),
-      child: MSSelect<String>(
-        value: _intervalValue,
-        options: kCheckIntervals.map(_intervalOption).toList(),
-        onChange: (value) {
-          if (value != null) setState(() => _intervalValue = value);
-        },
+      // Rebuild the options against the live entitlement: until the real plan
+      // resolves the floor is 0 (nothing locked), then the sub-tier intervals
+      // lock the instant the plan lands.
+      child: ListenableBuilder(
+        listenable: _entitlement,
+        builder: (context, _) => MSSelect<String>(
+          value: _intervalValue,
+          options: kCheckIntervals.map(_intervalOption).toList(),
+          onChange: (value) {
+            if (value != null) setState(() => _intervalValue = value);
+          },
+        ),
       ),
     );
   }
@@ -310,15 +322,15 @@ class _MonitorFormState extends State<MonitorForm> {
   /// relabelling it when its interval is faster than the plan allows.
   SelectOption<String> _intervalOption(MetricOption option) {
     final int seconds = kIntervalSeconds[option.value] ?? 0;
-    final bool locked = seconds < currentLimits.checkIntervalSec;
+    final bool locked = seconds < _entitlement.minCheckIntervalSec;
     if (!locked) {
       return SelectOption<String>(value: option.value, label: option.label);
     }
 
     // The cheapest plan whose fastest interval reaches this option unlocks it.
-    final String requiredPlan = smallestPlanWhere(
+    final String requiredPlan = _entitlement.planNameUnlocking(
       (limits) => limits.checkIntervalSec <= seconds,
-    ).name;
+    );
     return SelectOption<String>(
       value: option.value,
       label: '${option.label} · $requiredPlan',
@@ -503,10 +515,7 @@ class _MonitorFormState extends State<MonitorForm> {
           onPressed: widget.onCancel,
           child: WText(trans('uptizm.monitors.form_cancel')),
         ),
-        MSButton(
-          onPressed: _submitIfValid,
-          child: WText(widget.submitLabel),
-        ),
+        MSButton(onPressed: _submitIfValid, child: WText(widget.submitLabel)),
       ],
     );
   }
@@ -537,14 +546,17 @@ class _MonitorFormState extends State<MonitorForm> {
 
     if (_isHttp) {
       final Uri? uri = Uri.tryParse(value);
-      final bool valid = uri != null &&
+      final bool valid =
+          uri != null &&
           (uri.scheme == 'http' || uri.scheme == 'https') &&
           uri.host.isNotEmpty;
       return valid ? null : trans('uptizm.monitors.form_url_error_http');
     }
 
     // TCP: host:port with a port in 1..65535.
-    final RegExpMatch? match = RegExp(r'^[^\s/:]+:(\d{1,5})$').firstMatch(value);
+    final RegExpMatch? match = RegExp(
+      r'^[^\s/:]+:(\d{1,5})$',
+    ).firstMatch(value);
     if (match == null) {
       return trans('uptizm.monitors.form_url_error_tcp');
     }

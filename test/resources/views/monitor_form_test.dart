@@ -219,7 +219,11 @@ void main() {
       await tester.tap(submit);
       await tester.pump();
 
-      expect(submitted, isFalse, reason: 'A portless TCP target must not submit');
+      expect(
+        submitted,
+        isFalse,
+        reason: 'A portless TCP target must not submit',
+      );
       expect(
         find.text(trans('uptizm.monitors.form_url_error_tcp')),
         findsOneWidget,
@@ -368,9 +372,10 @@ void main() {
     );
 
     testWidgets('interval select renders the 10s option label', (tester) async {
-      // The 10s option is locked (Pro plan has 30s limit), so it renders with a
-      // plan suffix. We assert the base label text appears somewhere in the tree
-      // (the SelectOption may not be introspectable under the bare harness).
+      // Under the bare harness the EntitlementController has not resolved a plan
+      // (its interval floor is a permissive 0, nothing is locked), so we assert
+      // only that the base interval label renders; the plan-driven lock/suffix
+      // is exercised in entitlement_controller_test.dart.
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 

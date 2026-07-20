@@ -51,6 +51,10 @@ void main() {
     // Bind the MagicStarter manager so Card, Button, Input, and the other
     // magic_starter widgets resolve their themes without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind LogManager so the EntitlementController's offline-degradation path
+    // (Log.error on the failed billing fetch the monitor form triggers via
+    // EntitlementController.instance) resolves instead of throwing.
+    Magic.singleton('log', () => LogManager());
 
     Translator.instance.setLoader(_MonitorWriteLangLoader());
     await Translator.instance.setLocale(const Locale('en'));

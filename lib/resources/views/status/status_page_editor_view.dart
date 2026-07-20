@@ -5,8 +5,8 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'status_form_support.dart';
 import '../../../app/controllers/status_page_controller.dart';
+import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
-import '../../../app/mocks/billing.dart';
 import '../../../app/enums/domain_mode.dart' show DomainMode;
 import '../../../app/support/status_page_support.dart' show pageUrl;
 import '../../../app/models/status_page.dart';
@@ -30,9 +30,10 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// - **LEFT** — the configuration column. In create mode it leads with the
 ///   "Draft with AI" banner, billing-gated exactly like the incident-detail AI
-///   surface: when the current tier unlocks [AiLevel.analysis] the banner offers
-///   a Generate action ([aiDraftFor]); otherwise an [UpgradeNudge] names the
-///   cheapest plan that does ([planForAiDraft]). Below it: a Branding [Card]
+///   surface: when the team's real tier unlocks [AiLevel.analysis] the banner
+///   offers a Generate action ([aiDraftFor]); otherwise an [UpgradeNudge] names
+///   the cheapest plan that does (via [EntitlementController.planNameUnlocking]).
+///   Below it: a Branding [Card]
 ///   (name, domain mode, slug, the eight-swatch brand-color grid, fallback
 ///   initials, description), a Components [Card] ([RegionPicker] over
 ///   [monitorRegions]), a Metrics [Card] (only when monitors are assigned:
@@ -352,7 +353,10 @@ class _StatusPageEditorViewState
           backFallback: _listRoute,
           actions: _buildHeaderActions(),
         ),
-        WText(pageUrl(_draftPage), className: 'font-mono text-xs text-fg-muted'),
+        WText(
+          pageUrl(_draftPage),
+          className: 'font-mono text-xs text-fg-muted',
+        ),
       ],
     );
   }
@@ -422,33 +426,43 @@ class _StatusPageEditorViewState
 
   /// Builds the create-mode "Draft with AI" surface, billing-gated.
   ///
-  /// Mirrors the incident-detail AI gate exactly: when the current tier reaches
-  /// [AiLevel.analysis] the Generate banner shows; otherwise an [UpgradeNudge]
-  /// names the cheapest plan that unlocks AI drafting ([planForAiDraft]).
+  /// Mirrors the incident-detail AI gate exactly: when the team's real tier
+  /// reaches [AiLevel.analysis] the Generate banner shows; otherwise an
+  /// [UpgradeNudge] names the cheapest plan that unlocks AI drafting (via
+  /// [EntitlementController.planNameUnlocking]). Wrapped in a [ListenableBuilder]
+  /// so it re-gates the moment the real plan lands.
   Widget _buildAiBanner() {
-    final bool unlocked = currentLimits.ai.index >= AiLevel.analysis.index;
-    if (!unlocked) {
-      return UpgradeNudge(
-        message: trans('uptizm.status.editor_ai_draft_gated', {
-          'plan': planForAiDraft().name,
-        }),
-        requiredPlan: planForAiDraft().name,
-        onUpgrade: () => MagicRoute.to('/settings'),
-      );
-    }
-    return AiInsight(
-      tone: 'banner',
-      label: trans('uptizm.status.editor_ai_draft_banner_label'),
-      action: MSButton(
-        intent: ButtonIntent.secondary,
-        size: ButtonSize.sm,
-        onPressed: _generateWithAi,
-        child: WText(trans('uptizm.status.editor_ai_draft_button')),
-      ),
-      child: WText(
-        trans('uptizm.status.editor_ai_draft_banner_text'),
-        className: 'text-sm leading-relaxed text-fg',
-      ),
+    return ListenableBuilder(
+      listenable: EntitlementController.instance,
+      builder: (context, _) {
+        final entitlement = EntitlementController.instance;
+        if (!entitlement.aiLevelAllows(AiLevel.analysis)) {
+          final String requiredPlan = entitlement.planNameUnlocking(
+            (limits) => limits.ai.index >= AiLevel.analysis.index,
+          );
+          return UpgradeNudge(
+            message: trans('uptizm.status.editor_ai_draft_gated', {
+              'plan': requiredPlan,
+            }),
+            requiredPlan: requiredPlan,
+            onUpgrade: () => MagicRoute.to('/settings'),
+          );
+        }
+        return AiInsight(
+          tone: 'banner',
+          label: trans('uptizm.status.editor_ai_draft_banner_label'),
+          action: MSButton(
+            intent: ButtonIntent.secondary,
+            size: ButtonSize.sm,
+            onPressed: _generateWithAi,
+            child: WText(trans('uptizm.status.editor_ai_draft_button')),
+          ),
+          child: WText(
+            trans('uptizm.status.editor_ai_draft_banner_text'),
+            className: 'text-sm leading-relaxed text-fg',
+          ),
+        );
+      },
     );
   }
 
@@ -606,8 +620,8 @@ class _StatusPageEditorViewState
           MSInput(
             value: _logoText,
             onChanged: (String value) => setState(
-              () => _logoText =
-                  value.length > 2 ? value.substring(0, 2) : value,
+              () =>
+                  _logoText = value.length > 2 ? value.substring(0, 2) : value,
             ),
             className: 'max-w-20',
           ),

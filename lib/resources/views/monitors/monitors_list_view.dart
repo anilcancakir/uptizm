@@ -3,12 +3,10 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/dashboard_controller.dart';
+import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/billing.dart' show currentPlanId, planById;
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/status_key.dart';
-import '../../../app/services/billing/billing_service.dart';
-import '../../../app/support/billing_types.dart' show Plan;
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
@@ -76,15 +74,10 @@ class _MonitorsListViewState
   int _filterIndex = 0;
 
   /// Platform-resolved billing service for the entitlement read.
-  final BillingService _billing = BillingService.instance;
-
-  /// The team's active plan id, seeded from the design-lab fixture and
-  /// corrected by the live `GET /billing` entitlement, so the "monitors used"
-  /// KPI shows the real plan name and monitor cap instead of a hardcoded tier.
-  String _planId = currentPlanId;
-
-  /// The active plan resolved from [_planId] via the catalog.
-  Plan get _plan => planById(_planId);
+  /// Shared billing entitlement driving the monitor plan gates (the New-monitor
+  /// cap and the "monitors used" KPI). Listened to so the gates re-render when
+  /// the real plan and usage land from the backend.
+  final EntitlementController _entitlement = EntitlementController.instance;
 
   @override
   void initState() {
@@ -92,25 +85,40 @@ class _MonitorsListViewState
     // Magic.find<T>() (which throws when unregistered). Idempotent.
     Magic.findOrPut(MonitorController.new);
     super.initState();
-    _loadEntitlement();
+    _entitlement.addListener(_onEntitlement);
   }
 
-  /// Reads the team's live plan id from `GET /billing` and republishes it, so
-  /// the KPI card matches the Plan & billing screen instead of the fixture.
-  ///
-  /// Deliberate degradation on failure (network error, non-2xx, malformed
-  /// payload): keeps the fixture plan id as last-known state instead of
-  /// throwing, matching [plan_billing_view]'s read-path convention.
-  Future<void> _loadEntitlement() async {
-    try {
-      final BillingEntitlement entitlement = await _billing
-          .currentEntitlement();
-      final String? plan = entitlement.plan;
-      if (plan == null || !mounted) return;
-      setState(() => _planId = plan);
-    } catch (_) {
-      // Deliberate degradation: keep the fixture plan id (see the docblock).
-    }
+  @override
+  void dispose() {
+    _entitlement.removeListener(_onEntitlement);
+    super.dispose();
+  }
+
+  /// Re-render the plan gates when the real entitlement (plan + usage) lands.
+  void _onEntitlement() {
+    if (mounted) setState(() {});
+  }
+
+  /// Whether the team is below its plan's monitor cap. Uses the loaded list
+  /// count (the freshest source) against the entitlement's limit; unlimited
+  /// (null limit) is always allowed.
+  bool get _canCreateMonitor {
+    final int? limit = _entitlement.currentLimits.monitors;
+    return limit == null || controller.monitors.length < limit;
+  }
+
+  /// Nudges to upgrade when the New-monitor action is tapped at the cap,
+  /// mirroring the backend's own 422 message so the two never diverge.
+  void _nudgeMonitorLimit() {
+    final int? limit = _entitlement.currentLimits.monitors;
+    Magic.error(
+      trans('uptizm.monitors.title'),
+      trans('uptizm.monitors.limit_nudge', {
+        'plan': _entitlement.planName,
+        'count': '$limit',
+        'noun': limit == 1 ? 'monitor' : 'monitors',
+      }),
+    );
   }
 
   /// Monitors that satisfy the active filter.
@@ -140,7 +148,12 @@ class _MonitorsListViewState
                 subtitle: trans('uptizm.monitors.description'),
                 actions: [
                   MSButton(
-                    onPressed: () => MagicRoute.to('/monitors/new'),
+                    // Proactive cap: below the plan's monitor limit this opens
+                    // the create flow; at the cap it nudges to upgrade instead
+                    // of letting the create form 422 on save.
+                    onPressed: _canCreateMonitor
+                        ? () => MagicRoute.to('/monitors/new')
+                        : _nudgeMonitorLimit,
                     child: WText(trans('uptizm.monitors.new_monitor')),
                   ),
                 ],
@@ -199,9 +212,13 @@ class _MonitorsListViewState
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_monitors_used'),
-          value: '${allMonitors.length} / ${_plan.limits.monitors}',
-          hint: '${_plan.name} plan',
+          value:
+              '${allMonitors.length} / ${_entitlement.currentLimits.monitors ?? '∞'}',
+          hint: _entitlement.planName.isEmpty
+              ? null
+              : '${_entitlement.planName} plan',
         ),
+
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_operational'),
           value: '$upCount / ${allMonitors.length}',

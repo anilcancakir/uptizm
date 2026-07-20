@@ -49,6 +49,10 @@ void main() {
     // Bind the MagicStarter manager so PageHeader / SegmentedControl / EmptyState
     // resolve their themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind LogManager so the EntitlementController's offline-degradation path
+    // (Log.error on the failed billing fetch this view triggers via
+    // EntitlementController.instance) resolves instead of throwing.
+    Magic.singleton('log', () => LogManager());
     // Bind an empty fake network so the wired controller resolves the `network`
     // service. The view's onInit `reload()` and per-id `_refreshOne` fetch
     // `GET /monitors[/:id]`; an empty fake returns `{}` (no `data` list), which

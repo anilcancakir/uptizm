@@ -2,10 +2,10 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/on_call_controller.dart';
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/team_types.dart' show OnCallShift, TeamMember;
-import '../../../app/mocks/billing.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../app/mocks/teams_data.dart';
 import '../../../ui/components/status_dot/index.dart';
@@ -27,9 +27,9 @@ import '../../../ui/layouts/page_container.dart';
 ///   name + span, and either a "Now" [Badge] (the current shift) or a ghost
 ///   "Remove" [Button] (disabled once only one shift remains).
 /// - **Add-to-rotation control**: a [DropdownMenu] listing [teamMembers] not
-///   already in the rotation, OR, once `currentLimits.responders` caps the
-///   rotation at its limit, an [UpgradeNudge] naming the cheapest plan that
-///   lifts the cap ([smallestPlanWhere]).
+///   already in the rotation, OR, once the team's real responder cap fills the
+///   rotation, an [UpgradeNudge] naming the cheapest plan that lifts the cap
+///   (via [EntitlementController.planNameUnlocking]).
 /// - The [onCallCadence] note sits under the rotation card, and a footer line
 ///   links to `/teams/escalation`.
 ///
@@ -331,18 +331,30 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
   }
 
   /// Builds the add-to-rotation [DropdownMenu] (members not already in the
-  /// rotation) or, once the plan's responder cap is reached, an
+  /// rotation) or, once the team's real responder cap is reached, an
   /// [UpgradeNudge] naming the cheapest plan that lifts it. Renders nothing
-  /// when there is no cap and no member left to add.
+  /// when there is no cap and no member left to add. Wrapped in a
+  /// [ListenableBuilder] on [EntitlementController] so the cap re-resolves the
+  /// moment the real plan lands, mirroring the backend's own responder-cap 422
+  /// on invite.
   Widget _buildAddOrUpgrade() {
-    final int? limit = currentLimits.responders;
+    return ListenableBuilder(
+      listenable: EntitlementController.instance,
+      builder: (context, _) => _buildAddOrUpgradeBody(),
+    );
+  }
+
+  Widget _buildAddOrUpgradeBody() {
+    final int? limit = EntitlementController.instance.currentLimits.responders;
     final bool atLimit = limit != null && _rotation.length >= limit;
 
     if (atLimit) {
       final int cappedLimit = limit;
-      final String requiredPlan = smallestPlanWhere(
-        (PlanLimits l) => l.responders == null || l.responders! > cappedLimit,
-      ).name;
+      final String requiredPlan = EntitlementController.instance
+          .planNameUnlocking(
+            (PlanLimits l) =>
+                l.responders == null || l.responders! > cappedLimit,
+          );
 
       return UpgradeNudge(
         message: trans('uptizm.teams.oncall_add_button'),

@@ -1,14 +1,12 @@
 import 'package:flutter/widgets.dart' show Color;
 
-import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
-import 'package:uptizm/app/support/billing_types.dart' show Plan;
-import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
 import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/status_page.dart';
-import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart' show MetricOption;
+import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart'
+    show MetricOption;
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
 // ---------------------------------------------------------------------------
@@ -138,13 +136,4 @@ bool isConfigValid(StatusPage c) {
   return (c.name ?? '').trim().isNotEmpty &&
       (c.slug ?? '').trim().isNotEmpty &&
       c.monitorIds.isNotEmpty;
-}
-
-/// The cheapest plan whose AI capability covers full incident analysis.
-///
-/// Feeds the editor's "Draft with AI" upgrade nudge when the current tier does
-/// not unlock [AiLevel.analysis]. Mirrors `planForAiAnalysis` in
-/// `incident_form_support.dart`.
-Plan planForAiDraft() {
-  return smallestPlanWhere((l) => l.ai.index >= AiLevel.analysis.index);
 }

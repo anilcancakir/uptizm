@@ -1,11 +1,9 @@
-import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
-import 'package:uptizm/app/support/billing_types.dart' show Plan;
-import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
 import 'package:uptizm/app/enums/incident_impact.dart' as mocks;
 import 'package:uptizm/app/enums/incident_lifecycle.dart' as mocks;
 import 'package:uptizm/app/enums/signal_source.dart' as mocks;
-import 'package:uptizm/app/support/incident_types.dart' as mocks
+import 'package:uptizm/app/support/incident_types.dart'
+    as mocks
     show IncidentAssignee, TimelineEntry;
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/models/incident.dart';
@@ -124,8 +122,7 @@ String postmortemDraft(Incident i) {
 /// ```
 List<Region> monitorsToRegions() {
   return [
-    for (final Monitor m in monitors)
-      Region(label: m.name ?? '', value: m.id),
+    for (final Monitor m in monitors) Region(label: m.name ?? '', value: m.id),
   ];
 }
 
@@ -154,14 +151,6 @@ List<TimelineEntry> toComponentTimeline(List<mocks.TimelineEntry> src) {
         autonomous: e.autonomous,
       ),
   ];
-}
-
-/// The cheapest plan whose AI capability covers full incident analysis.
-///
-/// Feeds the detail view's `UpgradeNudge(requiredPlan: ...)` when the
-/// current tier does not unlock [AiLevel.analysis].
-Plan planForAiAnalysis() {
-  return smallestPlanWhere((l) => l.ai.index >= AiLevel.analysis.index);
 }
 
 // ---------------------------------------------------------------------------

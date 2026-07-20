@@ -3,9 +3,9 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
-import '../../../app/mocks/billing.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/support/incident_types.dart'
     show
@@ -488,20 +488,33 @@ class _IncidentDetailViewState
 
   /// Builds the AI analysis section, billing-gated.
   ///
-  /// When the current tier's AI capability reaches [AiLevel.analysis], the full
+  /// When the team's real tier unlocks [AiLevel.analysis], the full
   /// [AiAnalysisCard] renders; otherwise an [UpgradeNudge] names the cheapest
   /// plan that unlocks it. The nudge renders its own headline and upgrade
   /// button, so it is passed the gated-feature message directly (no teaser
-  /// wrapping).
+  /// wrapping). Wrapped in a [ListenableBuilder] on [EntitlementController] so
+  /// it re-gates when the real plan lands, mirroring the backend's own 403 on
+  /// `GET /incidents/{id}/analysis` below the analysis tier.
   Widget _buildAiAnalysis(IncidentAi ai) {
-    final bool unlocked = currentLimits.ai.index >= AiLevel.analysis.index;
-    if (unlocked) {
-      return AiAnalysisCard(ai: ai, onActionTap: (_) {}, onFeedback: (_) {});
-    }
-    return UpgradeNudge(
-      message: trans('uptizm.incidents.ai_analysis_gated'),
-      requiredPlan: planForAiAnalysis().name,
-      onUpgrade: () => MagicRoute.to('/settings'),
+    return ListenableBuilder(
+      listenable: EntitlementController.instance,
+      builder: (context, _) {
+        final entitlement = EntitlementController.instance;
+        if (entitlement.aiLevelAllows(AiLevel.analysis)) {
+          return AiAnalysisCard(
+            ai: ai,
+            onActionTap: (_) {},
+            onFeedback: (_) {},
+          );
+        }
+        return UpgradeNudge(
+          message: trans('uptizm.incidents.ai_analysis_gated'),
+          requiredPlan: entitlement.planNameUnlocking(
+            (limits) => limits.ai.index >= AiLevel.analysis.index,
+          ),
+          onUpgrade: () => MagicRoute.to('/settings'),
+        );
+      },
     );
   }
 

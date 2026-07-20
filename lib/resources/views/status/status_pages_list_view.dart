@@ -2,9 +2,11 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/enums/domain_mode.dart' show DomainMode;
-import '../../../app/support/status_page_support.dart' show pageUrl, worstStatus;
+import '../../../app/support/status_page_support.dart'
+    show pageUrl, worstStatus;
 import '../../../app/support/status_page_types.dart' show PublicComponent;
 import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';
@@ -43,10 +45,48 @@ class StatusPagesListView extends MagicStatefulView<StatusPageController> {
 
 class _StatusPagesListViewState
     extends MagicStatefulViewState<StatusPageController, StatusPagesListView> {
+  /// Shared billing entitlement driving the New-status-page cap. Listened to so
+  /// the gate re-renders when the real plan and usage land from the backend.
+  final EntitlementController _entitlement = EntitlementController.instance;
+
   @override
   void initState() {
     Magic.findOrPut(StatusPageController.new);
     super.initState();
+    _entitlement.addListener(_onEntitlement);
+  }
+
+  @override
+  void dispose() {
+    _entitlement.removeListener(_onEntitlement);
+    super.dispose();
+  }
+
+  /// Re-render the New-page gate when the real entitlement (plan + usage) lands.
+  void _onEntitlement() {
+    if (mounted) setState(() {});
+  }
+
+  /// Whether the team is below its plan's status-page cap. Uses the loaded list
+  /// count (the freshest source) against the entitlement's limit; unlimited
+  /// (null limit) is always allowed.
+  bool get _canCreateStatusPage {
+    final int? limit = _entitlement.currentLimits.statusPages;
+    return limit == null || controller.statusPages.length < limit;
+  }
+
+  /// Nudges to upgrade when the New-page action is tapped at the cap, mirroring
+  /// the backend's own 422 message so the two never diverge.
+  void _nudgeStatusPageLimit() {
+    final int? limit = _entitlement.currentLimits.statusPages;
+    Magic.error(
+      trans('uptizm.status.list_title'),
+      trans('uptizm.status.limit_nudge', {
+        'plan': _entitlement.planName,
+        'count': '$limit',
+        'noun': limit == 1 ? 'status page' : 'status pages',
+      }),
+    );
   }
 
   @override
@@ -63,7 +103,12 @@ class _StatusPagesListViewState
             subtitle: trans('uptizm.status.list_description'),
             actions: [
               MSButton(
-                onPressed: () => MagicRoute.to('/status/new'),
+                // Proactive cap: below the plan's status-page limit this opens
+                // the create flow; at the cap it nudges to upgrade instead of
+                // letting the create form 422 on save.
+                onPressed: _canCreateStatusPage
+                    ? () => MagicRoute.to('/status/new')
+                    : _nudgeStatusPageLimit,
                 child: WText(trans('uptizm.status.list_new_page_action')),
               ),
             ],
@@ -159,11 +204,7 @@ class _StatusPagesListViewState
   }
 
   /// Footer counts: "N components · Subdomain/Path · N subscribers / Subs off".
-  String _footerText(
-    StatusPage page,
-    int componentCount,
-    int subscriberCount,
-  ) {
+  String _footerText(StatusPage page, int componentCount, int subscriberCount) {
     final String componentsLabel = componentCount == 1
         ? trans('uptizm.status.list_card_component_singular')
         : trans('uptizm.status.list_card_component_plural');
