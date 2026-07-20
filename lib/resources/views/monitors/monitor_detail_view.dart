@@ -11,6 +11,7 @@ import '../../../app/models/monitor.dart';
 import '../../../app/enums/incident_impact.dart' show IncidentImpact;
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
+import '../../../app/support/formatters.dart' show formatCheckedAgo;
 import '../../../app/support/incident_types.dart' show IncidentSummary;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
@@ -114,7 +115,6 @@ enum _DetailTab {
 
 class _MonitorDetailViewState
     extends MagicStatefulViewState<MonitorController, MonitorDetailView> {
-
   /// The currently selected tab index.
   int _tabIndex = _DetailTab.overview.index;
 
@@ -498,22 +498,29 @@ class _MonitorDetailViewState
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_uptime_24h'),
-          value: monitor.uptime,
-          delta: paused ? null : '0.01%',
-          trend: paused ? KpiTrend.neutral : KpiTrend.up,
+          // Real measured 24h uptime from the show endpoint; the em-dash
+          // no-data placeholder (matching the UptimeBar) when the window has
+          // no checks yet. No fabricated delta.
+          value: monitor.uptime24h != null
+              ? '${monitor.uptime24h!.toStringAsFixed(2)}%'
+              : '—',
         ),
         KpiStatCard(
-          label: trans('uptizm.monitors.kpi_avg_response'),
+          // The monitor's latest recorded response time (`last_response_ms`),
+          // not an average, so it is labelled honestly as the last response.
+          label: trans('uptizm.monitors.kpi_last_response'),
           value: avgResponse,
-          hint: paused
-              ? trans('uptizm.monitors.kpi_hint_paused')
-              : trans('uptizm.monitors.kpi_hint_p50'),
+          hint: paused ? trans('uptizm.monitors.kpi_hint_paused') : null,
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_last_check'),
+          // Real time since the last check from `last_checked_at`; the em-dash
+          // placeholder when the monitor has not been checked yet.
           value: paused
               ? trans('uptizm.status.paused')
-              : trans('uptizm.monitors.kpi_last_check_value'),
+              : (monitor.lastCheckedAt != null
+                    ? formatCheckedAgo(monitor.lastCheckedAt!.toDateTime)
+                    : '—'),
           hint: trans('uptizm.monitors.kpi_hint_interval', {
             'interval': monitor.intervalLabel,
           }),
@@ -593,12 +600,47 @@ class _MonitorDetailViewState
   /// Shown only for active monitors with a configured [sloTarget] (the caller
   /// gates on `!paused && sloTarget != null`).
   Widget _buildReliabilitySection(Monitor monitor, double sloTarget) {
-    // 1. Resolve the two uptime windows, mirroring the React fallback chain:
-    //    u30 = sloUptime30d ?? parse(uptime); u7 = sloUptime7d ?? u30.
-    final double u30 = monitor.sloUptime30d ?? _parseUptime(monitor.uptime);
-    final double u7 = monitor.sloUptime7d ?? u30;
+    // Measured uptime windows from the backend show endpoint; null until this
+    // monitor has checks. With no measured data we render a neutral "no data
+    // yet" note instead of fabricating a 0% breach (the removed
+    // `?? _parseUptime(monitor.uptime)` fallback treated an unmeasured monitor
+    // as fully down, so every fresh monitor read as "budget breached").
+    final double? u7 = monitor.sloUptime7d;
+    final double? u30 = monitor.sloUptime30d;
 
-    // 2. Compute both error budgets so the copy variant can compare tones.
+    // Uniform 12px (gap-3) between the heading and the content below it.
+    return WDiv(
+      className: 'flex flex-col gap-3',
+      children: [
+        WText(
+          trans('uptizm.monitors.section_reliability'),
+          className: 'text-sm font-medium text-fg',
+        ),
+        if (u7 == null || u30 == null)
+          WDiv(
+            className: 'rounded-xl border border-dashed border-color-border',
+            child: EmptyState(
+              title: trans('uptizm.monitors.reliability_no_data_title'),
+              description: trans(
+                'uptizm.monitors.reliability_no_data_description',
+              ),
+            ),
+          )
+        else
+          ..._buildReliabilityBudgets(monitor, sloTarget, u7, u30),
+      ],
+    );
+  }
+
+  /// Builds the populated reliability content from measured uptime: the 7-day
+  /// and 30-day error-budget gauges, plus the budget-burn [AiInsight] shown
+  /// only when the 30-day budget is at risk or breached (tone != up).
+  List<Widget> _buildReliabilityBudgets(
+    Monitor monitor,
+    double sloTarget,
+    double u7,
+    double u30,
+  ) {
     final SloErrorBudget budget7 = computeErrorBudget(
       sloTarget,
       u7,
@@ -610,46 +652,29 @@ class _MonitorDetailViewState
       windowDays: 30,
     );
 
-    // Uniform 12px (gap-3) between the heading, the gauge grid, and the
-    // conditional budget-burn insight.
-    return WDiv(
-      className: 'flex flex-col gap-3',
-      children: [
-        // 3. Section heading.
-        WText(
-          trans('uptizm.monitors.section_reliability'),
-          className: 'text-sm font-medium text-fg',
-        ),
-
-        // 4. Responsive 2-col grid of the 7-day + 30-day budget gauges.
-        WDiv(
-          className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
-          children: [
-            SloBudgetCard(
-              target: sloTarget,
-              uptimePct: u7,
-              windowDays: 7,
-              windowLabel: '7-day',
-            ),
-            SloBudgetCard(
-              target: sloTarget,
-              uptimePct: u30,
-              windowDays: 30,
-              windowLabel: '30-day',
-            ),
-          ],
-        ),
-
-        // 5. Budget-burn insight, shown only when the 30-day budget is at risk
-        //    or breached (tone != up).
-        if (budget30.tone != SloBudgetTone.up)
-          AiInsight(
-            child: WText(
-              _budgetBurnCopy(monitor, sloTarget, budget7, budget30),
-            ),
+    return [
+      WDiv(
+        className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
+        children: [
+          SloBudgetCard(
+            target: sloTarget,
+            uptimePct: u7,
+            windowDays: 7,
+            windowLabel: '7-day',
           ),
-      ],
-    );
+          SloBudgetCard(
+            target: sloTarget,
+            uptimePct: u30,
+            windowDays: 30,
+            windowLabel: '30-day',
+          ),
+        ],
+      ),
+      if (budget30.tone != SloBudgetTone.up)
+        AiInsight(
+          child: WText(_budgetBurnCopy(monitor, sloTarget, budget7, budget30)),
+        ),
+    ];
   }
 
   /// Picks the budget-burn copy variant from the 7-day / 30-day budget tones,
@@ -954,15 +979,6 @@ class _MonitorDetailViewState
       if (preset.value == _range) return preset.short;
     }
     return _range;
-  }
-
-  /// Parses a human uptime string (e.g. `"99.94%"`) into a double percentage.
-  ///
-  /// Returns `0` for the em-dash placeholder or any unparseable value, matching
-  /// the React `parseFloat(monitor.uptime)` fallback semantics (the caller only
-  /// reaches this path for monitors that already passed the SLO gate).
-  double _parseUptime(String uptime) {
-    return double.tryParse(uptime.replaceAll('%', '').trim()) ?? 0;
   }
 
   /// Formats an SLO target as a trimmed percentage string (e.g. `99.9` →

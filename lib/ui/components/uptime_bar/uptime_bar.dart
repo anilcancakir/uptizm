@@ -80,7 +80,13 @@ class UptimeBar extends StatelessWidget {
   List<Widget> _buildSegments() {
     return [
       for (final segment in segments)
-        WDiv(className: uptimeBarSegmentClassName(segment.status.name)),
+        // A null status is a no-data day (no check ran): render the neutral
+        // 'nodata' tone instead of defaulting to green.
+        WDiv(
+          className: uptimeBarSegmentClassName(
+            segment.status?.name ?? 'nodata',
+          ),
+        ),
     ];
   }
 }

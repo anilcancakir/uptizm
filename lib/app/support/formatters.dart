@@ -43,6 +43,19 @@ String formatDuration(DateTime startedAt, DateTime until) {
   return '${hours}h ${minutes.toString().padLeft(2, '0')}m';
 }
 
+/// Formats how long ago [checkedAt] was, at the granularity a monitor's check
+/// cadence needs: `"8s ago"`, `"3m ago"`, `"2h ago"`, or `"5d ago"`.
+String formatCheckedAgo(DateTime checkedAt) {
+  final Duration elapsed = DateTime.now().difference(checkedAt);
+  final int seconds = elapsed.inSeconds.abs();
+  if (seconds < 60) return '${seconds}s ago';
+  final int minutes = elapsed.inMinutes.abs();
+  if (minutes < 60) return '${minutes}m ago';
+  final int hours = elapsed.inHours.abs();
+  if (hours < 24) return '${hours}h ago';
+  return '${elapsed.inDays.abs()}d ago';
+}
+
 /// Formats the relative-time meta line (e.g. `"started 14m ago"` or
 /// `"resolved 2h ago"`) from [startedAt]/[resolvedAt].
 String formatRelativeMeta(DateTime startedAt, DateTime? resolvedAt) {

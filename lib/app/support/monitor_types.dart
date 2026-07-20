@@ -9,8 +9,9 @@ import 'formatters.dart' show formatTimeOfDay;
 /// human-readable [label] (e.g. `"7d ago"`) for tooltips.
 @immutable
 class UptimeSegment {
-  /// Health state for this day.
-  final StatusKey status;
+  /// Health state for this day, or `null` when no check ran that day (a
+  /// no-data gap the bar renders as a neutral segment rather than green).
+  final StatusKey? status;
 
   /// Tooltip label, e.g. `"7d ago"`.
   final String label;

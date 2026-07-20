@@ -206,6 +206,22 @@ void main() {
     expect(pausedDiv.className, contains('bg-paused'));
   });
 
+  testWidgets('UptimeBar renders a null (no-data) segment as a neutral tone', (
+    tester,
+  ) async {
+    // A null status is a day with no check: it must render the neutral no-data
+    // surface, never the operational green (bg-up).
+    final segments = [const UptimeSegment(status: null, label: '1d ago')];
+    await tester.pumpWidget(wrap(UptimeBar(segments: segments)));
+
+    final all = tester.widgetList<WDiv>(find.byType(WDiv));
+    final segmentDiv = all.firstWhere(
+      (w) => w.className?.contains('bg-surface-container-high') ?? false,
+    );
+    expect(segmentDiv.className, contains('bg-surface-container-high'));
+    expect(segmentDiv.className, isNot(contains('bg-up')));
+  });
+
   testWidgets('UptimeBar with uptimePercent renders WText label', (
     tester,
   ) async {

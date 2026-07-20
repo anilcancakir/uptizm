@@ -1,8 +1,11 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/dashboard_controller.dart';
+import '../../../app/controllers/entitlement_controller.dart';
+import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/models/incident.dart';
 import '../../../ui/components/ai_inbox_item/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
@@ -72,6 +75,14 @@ class _DashboardViewState
     // `gap-*`, not SizedBox spacers. The outer 32px rhythm (`gap-8`) separates
     // the intro block, the KPI row, and the lower region; the intro block nests
     // its own `gap-6` so the header sits 24px above the fleet-summary banner.
+    // Zero-monitor teams get a single focused hero instead of the full grid.
+    // With no monitors there is no uptime, latency, or incident data to report,
+    // so the KPI row and the (necessarily empty) incident / monitor / AI
+    // sections would only manufacture a "populated" dashboard out of zeros.
+    if (controller.monitorCount == 0) {
+      return PageContainer(child: _buildEmptyDashboard());
+    }
+
     return PageContainer(
       child: WDiv(
         className: 'flex flex-col gap-8',
@@ -81,13 +92,7 @@ class _DashboardViewState
           //    -> KPI row). The inner gap-6 keeps the 24px header rhythm.
           WDiv(
             className: 'flex flex-col gap-6',
-            children: [
-              MSPageHeader(
-                title: trans('uptizm.dashboard.title'),
-                subtitle: trans('uptizm.dashboard.description'),
-              ),
-              _buildFleetSummary(),
-            ],
+            children: [_buildHeader(), _buildFleetSummary()],
           ),
 
           // 2. KPI summary row.
@@ -99,6 +104,43 @@ class _DashboardViewState
           _buildLowerRegion(),
         ],
       ),
+    );
+  }
+
+  /// Builds the page header (title + subtitle), shared by the populated and
+  /// the zero-monitor dashboard.
+  Widget _buildHeader() {
+    return MSPageHeader(
+      title: trans('uptizm.dashboard.title'),
+      subtitle: trans('uptizm.dashboard.description'),
+    );
+  }
+
+  /// Builds the zero-monitor landing: the page header above a single focused
+  /// "add your first monitor" hero in a dashed panel, mirroring the monitors
+  /// list empty state so the two "no monitors" surfaces speak with one voice.
+  ///
+  /// The hero reuses the `uptizm.monitors.*` empty-monitor copy and routes its
+  /// primary action to `/monitors/new`; it deliberately omits the KPI row and
+  /// the incident / monitor / AI sections, which carry no data at this stage.
+  Widget _buildEmptyDashboard() {
+    return WDiv(
+      className: 'flex flex-col gap-6',
+      children: [
+        _buildHeader(),
+        WDiv(
+          className: 'rounded-xl border border-dashed border-color-border',
+          child: EmptyState(
+            icon: Icons.monitor_heart_outlined,
+            title: trans('uptizm.monitors.empty_no_monitors_title'),
+            description: trans('uptizm.monitors.empty_no_monitors_description'),
+            action: MSButton(
+              onPressed: () => MagicRoute.to('/monitors/new'),
+              child: WText(trans('uptizm.monitors.new_monitor')),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -133,10 +175,7 @@ class _DashboardViewState
     return AiInsight(
       tone: 'banner',
       label: trans('uptizm.ai.right_now_label'),
-      child: WText(
-        controller.fleetSummary,
-        className: 'text-sm text-fg',
-      ),
+      child: WText(controller.fleetSummary, className: 'text-sm text-fg'),
     );
   }
 
@@ -161,29 +200,43 @@ class _DashboardViewState
         ),
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_uptime_24h'),
-          value: '99.97%',
-          delta: '0.02%',
-          hint: trans('uptizm.dashboard.kpi_hint_vs_yesterday'),
-          trend: KpiTrend.up,
+          // Real rolling-24h uptime from the backend; the em-dash no-data
+          // placeholder matches MonitorListRow when the window has no checks.
+          value: controller.uptime24h != null
+              ? '${controller.uptime24h!.toStringAsFixed(2)}%'
+              : '—',
+          // Only render a delta when the prior 24h is comparable; a rise is
+          // operational-good (green), a fall is bad (red).
+          delta: controller.uptime24hDelta != null
+              ? '${controller.uptime24hDelta!.abs().toStringAsFixed(2)}%'
+              : null,
+          hint: controller.uptime24hDelta != null
+              ? trans('uptizm.dashboard.kpi_hint_vs_yesterday')
+              : null,
+          trend: _uptimeTrend(controller.uptime24hDelta),
         ),
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_open_incidents'),
           value: '${controller.openIncidentsCount}',
-          delta: trans('uptizm.dashboard.kpi_delta_new', {'count': '1'}),
           hint: trans('uptizm.dashboard.kpi_hint_ai_detected', {
             'count': '${controller.aiActiveCount}',
           }),
-          trend: KpiTrend.down,
         ),
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_avg_response'),
-          value: '${controller.avgResponseMs}ms',
-          delta: '12ms',
-          hint: trans('uptizm.dashboard.kpi_hint_vs_24h'),
-          trend: KpiTrend.down,
+          value: controller.hasAvgResponse
+              ? '${controller.avgResponseMs}ms'
+              : '—',
         ),
       ],
     );
+  }
+
+  /// Maps the uptime delta to a KPI trend tone: a rise is operational-good
+  /// (up/green), a fall is bad (down/red), no change or no data is neutral.
+  KpiTrend _uptimeTrend(double? delta) {
+    if (delta == null || delta == 0) return KpiTrend.neutral;
+    return delta > 0 ? KpiTrend.up : KpiTrend.down;
   }
 
   /// Builds the active-incidents section: a heading and a single-column base
@@ -194,9 +247,7 @@ class _DashboardViewState
       children: [
         _sectionHeading(trans('uptizm.dashboard.section_active_incidents')),
         if (controller.activeIncidents.isEmpty)
-          EmptyState(
-            title: trans('uptizm.dashboard.active_incidents_empty'),
-          )
+          EmptyState(title: trans('uptizm.dashboard.active_incidents_empty'))
         else
           WDiv(
             className: 'grid grid-cols-1 sm:grid-cols-2 gap-3',
@@ -218,16 +269,22 @@ class _DashboardViewState
       className: 'flex flex-col gap-3',
       children: [
         _sectionHeading(trans('uptizm.dashboard.section_monitors')),
-        WDiv(
-          className: 'flex flex-col gap-2',
-          children: [
-            for (final monitor in controller.monitorsSnapshot)
-              MonitorListRow(
-                monitor: monitor,
-                onTap: () => MagicRoute.to('/monitors/${monitor.id}'),
-              ),
-          ],
-        ),
+        // Mirror the active-incidents section: render an empty state rather
+        // than a bare heading when the snapshot is still empty (a transient
+        // window where `stats` has resolved but `monitors-snapshot` has not).
+        if (controller.monitorsSnapshot.isEmpty)
+          EmptyState(title: trans('uptizm.dashboard.monitors_empty'))
+        else
+          WDiv(
+            className: 'flex flex-col gap-2',
+            children: [
+              for (final monitor in controller.monitorsSnapshot)
+                MonitorListRow(
+                  monitor: monitor,
+                  onTap: () => MagicRoute.to('/monitors/${monitor.id}'),
+                ),
+            ],
+          ),
       ],
     );
   }
@@ -268,12 +325,26 @@ class _DashboardViewState
                       }),
                       className: 'font-mono text-xs tabular-nums text-fg-muted',
                     ),
-                    WButton(
-                      onTap: () => MagicRoute.to('/incidents/digest'),
-                      child: WText(
-                        trans('uptizm.dashboard.ai_inbox_weekly_digest'),
-                        className: 'text-xs text-primary',
-                      ),
+                    // The weekly digest is a Business+ (AiLevel.auto) feature;
+                    // the link only appears when the team's real tier unlocks
+                    // it, so a lower tier never taps into the backend's 403.
+                    // Re-resolves via [ListenableBuilder] when the plan lands.
+                    ListenableBuilder(
+                      listenable: EntitlementController.instance,
+                      builder: (context, _) {
+                        if (!EntitlementController.instance.aiLevelAllows(
+                          AiLevel.auto,
+                        )) {
+                          return const SizedBox.shrink();
+                        }
+                        return WButton(
+                          onTap: () => MagicRoute.to('/incidents/digest'),
+                          child: WText(
+                            trans('uptizm.dashboard.ai_inbox_weekly_digest'),
+                            className: 'text-xs text-primary',
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

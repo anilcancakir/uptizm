@@ -3,7 +3,6 @@ import 'package:magic/magic.dart';
 
 import '../models/monitor.dart';
 import '../support/monitor_types.dart' show UptimeSegment;
-import '../mocks/monitors.dart';
 import '../enums/status_key.dart';
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
@@ -439,9 +438,9 @@ class MonitorController extends MagicController {
   /// the WORST status seen that day (down > degraded > everything else maps
   /// to up), mirroring the backend's own bucket-folding precedence
   /// (`CheckAggregateService::responseTimeSamples`). A day with no bucket
-  /// data at all defaults to [StatusKey.up], matching the design-lab
-  /// [uptime90] generator's existing unspecified-day default. A bucket
-  /// falling outside the trailing 90-day window is ignored.
+  /// data at all keeps a null status (rendered as a neutral no-data segment,
+  /// never a fabricated green "up" day). A bucket falling outside the trailing
+  /// 90-day window is ignored.
   ///
   /// Exposed as a public static method (rather than a private instance
   /// method) so the mapping contract is directly unit-testable without a
@@ -473,7 +472,9 @@ class MonitorController extends MagicController {
     return List<UptimeSegment>.generate(90, (i) {
       final int daysAgo = 89 - i;
       return UptimeSegment(
-        status: days[i] ?? StatusKey.up,
+        // A day with no check keeps a null status: the bar renders it as a
+        // neutral no-data segment instead of a fabricated green "up" day.
+        status: days[i],
         label: daysAgo == 0 ? 'today' : '${daysAgo}d ago',
       );
     });

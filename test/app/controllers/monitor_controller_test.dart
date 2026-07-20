@@ -278,11 +278,11 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('mapBucketsToUptime90', () {
-    test('defaults every day with no bucket data to up', () {
+    test('leaves a day with no bucket data as null (no-data, not up)', () {
       final segments = MonitorController.mapBucketsToUptime90(const []);
 
       expect(segments, hasLength(90));
-      expect(segments.every((s) => s.status == StatusKey.up), isTrue);
+      expect(segments.every((s) => s.status == null), isTrue);
     });
 
     test('maps a bucket to the down status on its day offset', () {
@@ -295,10 +295,8 @@ void main() {
       // "90 days ago" (left) / "today" (right) axis labels.
       expect(segments.last.status, equals(StatusKey.down));
       expect(segments.last.label, equals('today'));
-      expect(
-        segments.sublist(0, 89).every((s) => s.status == StatusKey.up),
-        isTrue,
-      );
+      // The other 89 days had no check, so they stay null (no-data), not up.
+      expect(segments.sublist(0, 89).every((s) => s.status == null), isTrue);
     });
 
     test(
@@ -332,7 +330,8 @@ void main() {
         {'checked_at': '2026-01-01T00:00:00.000Z', 'status': 'down'},
       ], now: now);
 
-      expect(segments.every((s) => s.status == StatusKey.up), isTrue);
+      // The out-of-window bucket is ignored, so every day is no-data (null).
+      expect(segments.every((s) => s.status == null), isTrue);
     });
   });
 

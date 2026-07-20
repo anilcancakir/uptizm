@@ -3,7 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/dashboard_controller.dart';
-import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle;
+import 'package:uptizm/app/enums/incident_lifecycle.dart'
+    show IncidentLifecycle;
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/dashboard/dashboard_view.dart';
@@ -50,7 +51,6 @@ class _DashboardLangLoader implements TranslationLoader {
       'uptizm.dashboard.kpi_hint_vs_24h': 'vs. last 24h',
       'uptizm.dashboard.kpi_hint_ai_detected': ':count AI-detected',
       'uptizm.dashboard.kpi_delta_down': ':count down',
-      'uptizm.dashboard.kpi_delta_new': ':count new',
       'uptizm.ai.right_now_label': 'Right now',
       'uptizm.ai.open_incident': 'Open incident',
       'uptizm.ai.dismiss': 'Dismiss',
@@ -182,6 +182,10 @@ void main() {
     // Bind the MagicStarter manager so Card / PageHeader resolve their themes
     // via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind LogManager so the EntitlementController's offline-degradation path
+    // (Log.error on the failed billing fetch this view triggers via
+    // EntitlementController.instance) resolves instead of throwing.
+    Magic.singleton('log', () => LogManager());
 
     // Load the real dashboard prose so trans() returns wrappable text.
     Translator.instance.setLoader(_DashboardLangLoader());
@@ -192,9 +196,11 @@ void main() {
     // and republishes, so the view renders against these fixtures once the
     // async reload resolves (each test pumpAndSettles to let it land):
     //  - stats: one monitor in each of the four status buckets (up/down/
-    //    degraded/paused, total 4) with a 248ms fleet average and 3 open
-    //    incidents, so `upCount / monitorCount` reads `1 / 4`, the avg-response
-    //    KPI reads `248ms`, and the open-incidents KPI reads `3`.
+    //    degraded/paused, total 4) with a 248ms fleet average, 3 open
+    //    incidents, and 99.95% 24h uptime (+0.03 vs the prior 24h), so
+    //    `upCount / monitorCount` reads `1 / 4`, the avg-response KPI reads
+    //    `248ms`, the open-incidents KPI reads `3`, and the uptime KPI reads
+    //    `99.95%`.
     //  - active-incidents: the three non-resolved fixture incidents, so the
     //    active-incidents grid renders exactly three IncidentCards.
     //  - monitors-snapshot: the four fixture monitors (no `last_response_ms`,
@@ -210,6 +216,8 @@ void main() {
           'monitors_paused': 1,
           'avg_response_ms': 248,
           'open_incidents': 3,
+          'uptime_24h': 99.95,
+          'uptime_24h_delta': 0.03,
         },
       }),
       'dashboard/active-incidents': Http.response({
@@ -367,10 +375,50 @@ void main() {
       find.text('${controller.upCount} / ${controller.monitorCount}'),
       findsOneWidget,
     );
-    expect(
-      find.text('${controller.activeIncidents.length}'),
-      findsOneWidget,
-    );
+    expect(find.text('${controller.activeIncidents.length}'), findsOneWidget);
     expect(find.text('${controller.avgResponseMs}ms'), findsOneWidget);
+    // The uptime KPI renders the real backend value and its vs-yesterday
+    // delta, not a fabricated constant.
+    expect(find.text('99.95%'), findsOneWidget);
+    expect(find.textContaining('0.03%'), findsOneWidget);
   });
+
+  testWidgets(
+    'DashboardView shows a no-data placeholder when uptime is unavailable',
+    (tester) async {
+      // A team whose monitors have not been checked yet: `stats` reports a
+      // null uptime, so the KPI shows the "—" placeholder rather than a
+      // fabricated percentage, and no vs-yesterday delta is rendered.
+      Http.fake({
+        'dashboard/stats': Http.response({
+          'data': {
+            'monitors_up': 1,
+            'monitors_down': 0,
+            'monitors_degraded': 0,
+            'monitors_paused': 0,
+            'avg_response_ms': null,
+            'open_incidents': 0,
+            'uptime_24h': null,
+            'uptime_24h_delta': null,
+          },
+        }),
+        'dashboard/active-incidents': Http.response({'data': <dynamic>[]}),
+        'dashboard/monitors-snapshot': Http.response({
+          'data': _monitorsSnapshotPayload,
+        }),
+        'dashboard/ai-inbox': Http.response({'data': <dynamic>[]}),
+      });
+
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const DashboardView()));
+      await tester.pumpAndSettle();
+
+      // Both the uptime and the avg-response KPI have no data, so each shows
+      // the placeholder (two "—" values on the KPI row).
+      expect(find.text('—'), findsWidgets);
+      expect(find.text('vs. yesterday'), findsNothing);
+    },
+  );
 }

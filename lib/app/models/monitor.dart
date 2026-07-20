@@ -104,6 +104,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'auth_config': 'json',
     // Float percentages.
     'slo_target': 'double',
+    'uptime_24h': 'double',
     'slo_uptime_7d': 'double',
     'slo_uptime_30d': 'double',
     // Booleans.
@@ -197,6 +198,12 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// [MonitorSummary.uptime].
   String get uptime => getAttribute('uptime') as String? ?? '—';
 
+  /// Measured uptime percentage over the trailing 24h, or `null` when the
+  /// monitor has no checks in that window yet (the KPI then renders a no-data
+  /// placeholder instead of a fabricated figure). Populated by the monitor
+  /// show endpoint only.
+  double? get uptime24h => getAttribute('uptime_24h') as double?;
+
   /// Human-readable check interval label, e.g. `"30s"` or `"60s"`.
   ///
   /// Computed from `check_interval_sec` so the wire never carries a
@@ -262,8 +269,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   int get checkIntervalSec => getAttribute('check_interval_sec') as int? ?? 0;
 
   /// Set the check interval in seconds.
-  set checkIntervalSec(int value) =>
-      setAttribute('check_interval_sec', value);
+  set checkIntervalSec(int value) => setAttribute('check_interval_sec', value);
 
   /// Get the probe timeout in seconds.
   int get timeoutSec => getAttribute('timeout_sec') as int? ?? 0;
@@ -272,8 +278,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   set timeoutSec(int value) => setAttribute('timeout_sec', value);
 
   /// Get the expected HTTP status code (`null` means any 2xx).
-  int? get expectedStatusCode =>
-      getAttribute('expected_status_code') as int?;
+  int? get expectedStatusCode => getAttribute('expected_status_code') as int?;
 
   /// Set the expected HTTP status code.
   set expectedStatusCode(int? value) =>
@@ -336,8 +341,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   set alertOnDown(bool value) => setAttribute('alert_on_down', value);
 
   /// Whether an alert fires when this monitor recovers.
-  bool get alertOnRecover =>
-      getAttribute('alert_on_recover') as bool? ?? false;
+  bool get alertOnRecover => getAttribute('alert_on_recover') as bool? ?? false;
 
   /// Set the alert-on-recover flag.
   set alertOnRecover(bool value) => setAttribute('alert_on_recover', value);
@@ -388,12 +392,10 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   String? get parentId => getAttribute('parent_id')?.toString();
 
   /// Get the consecutive-failure counter for incident thresholding.
-  int get consecutiveFails =>
-      getAttribute('consecutive_fails') as int? ?? 0;
+  int get consecutiveFails => getAttribute('consecutive_fails') as int? ?? 0;
 
   /// Get the number of consecutive fails that opens an incident.
-  int get incidentThreshold =>
-      getAttribute('incident_threshold') as int? ?? 0;
+  int get incidentThreshold => getAttribute('incident_threshold') as int? ?? 0;
 
   /// Get the timestamp of the most recent probe.
   Carbon? get lastCheckedAt => getAttribute('last_checked_at') as Carbon?;

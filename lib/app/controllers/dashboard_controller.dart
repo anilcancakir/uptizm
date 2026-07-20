@@ -31,6 +31,13 @@ class DashboardController extends MagicController {
   int? _avgResponseMs;
   int _openIncidents = 0;
 
+  /// Cached rolling-24h fleet uptime percentage and its change against the
+  /// prior 24h, per `GET /dashboard/stats`. Null when the window has no checks
+  /// yet (no data), so the KPI renders a no-data placeholder instead of a
+  /// fabricated 100%.
+  double? _uptime24h;
+  double? _uptime24hDelta;
+
   /// Cached `GET /dashboard/active-incidents` result.
   List<Incident> _activeIncidents = [];
 
@@ -73,6 +80,18 @@ class DashboardController extends MagicController {
   /// prior fixture-derived default.
   int get avgResponseMs => _avgResponseMs ?? 0;
 
+  /// Whether `dashboard/stats` reported an average response time. False when
+  /// no monitor has a recorded timing, so the KPI shows a no-data placeholder
+  /// instead of a misleading `0ms`.
+  bool get hasAvgResponse => _avgResponseMs != null;
+
+  /// Rolling 24h fleet uptime percentage, or null when no checks exist yet.
+  double? get uptime24h => _uptime24h;
+
+  /// Change in 24h uptime against the prior 24h (percentage points), or null
+  /// when either window has no data to compare.
+  double? get uptime24hDelta => _uptime24hDelta;
+
   /// Bootstraps every dashboard surface the first time this controller backs
   /// a view.
   @override
@@ -112,6 +131,8 @@ class DashboardController extends MagicController {
       _monitorsPaused = (data['monitors_paused'] as num?)?.toInt() ?? 0;
       _avgResponseMs = (data['avg_response_ms'] as num?)?.toInt();
       _openIncidents = (data['open_incidents'] as num?)?.toInt() ?? 0;
+      _uptime24h = (data['uptime_24h'] as num?)?.toDouble();
+      _uptime24hDelta = (data['uptime_24h_delta'] as num?)?.toDouble();
       refreshUI();
     } catch (_) {
       // Deliberate degradation: a transport failure (including an unregistered
@@ -204,9 +225,7 @@ class DashboardController extends MagicController {
   /// handler).
   Future<void> acceptSuggestion(String suggestionId) async {
     try {
-      final response = await Http.post(
-        '/ai-suggestions/$suggestionId/accept',
-      );
+      final response = await Http.post('/ai-suggestions/$suggestionId/accept');
       if (!response.successful) {
         Log.error(
           '[DashboardController.acceptSuggestion] $suggestionId: '
@@ -239,9 +258,7 @@ class DashboardController extends MagicController {
   /// request fails.
   Future<void> dismissSuggestion(String suggestionId) async {
     try {
-      final response = await Http.post(
-        '/ai-suggestions/$suggestionId/dismiss',
-      );
+      final response = await Http.post('/ai-suggestions/$suggestionId/dismiss');
       if (!response.successful) {
         Log.error(
           '[DashboardController.dismissSuggestion] $suggestionId: '
@@ -291,7 +308,9 @@ class DashboardController extends MagicController {
       return 'All $total monitors are operational. No open incidents.';
     }
 
-    final List<String> parts = <String>['$upCount of $total monitors operational'];
+    final List<String> parts = <String>[
+      '$upCount of $total monitors operational',
+    ];
     if (down.isNotEmpty) parts.add('${_joinNames(down)} down');
     if (degraded.isNotEmpty) parts.add('${_joinNames(degraded)} degraded');
     final String incidentSentence = _openIncidents == 0

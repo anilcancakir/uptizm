@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
+import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/index.dart';
@@ -42,6 +43,10 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.monitors.action_edit': 'Edit',
       'uptizm.monitors.action_delete': 'Delete',
       'uptizm.monitors.section_reliability': 'Reliability',
+      'uptizm.monitors.reliability_no_data_title': 'Not enough data yet',
+      'uptizm.monitors.reliability_no_data_description':
+          'Reliability metrics appear once Uptizm has been checking this '
+          'monitor for a while.',
       'uptizm.monitors.metrics_custom_title': 'Custom metrics',
       'uptizm.monitors.metrics_add': 'Add metric',
       'uptizm.monitors.metrics_create': 'Create metric',
@@ -49,12 +54,10 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_empty_description': 'None yet.',
       'uptizm.monitors.metrics_system_collected_by_default': 'collected',
       'uptizm.monitors.kpi_uptime_24h': 'Uptime 24h',
-      'uptizm.monitors.kpi_avg_response': 'Avg response',
+      'uptizm.monitors.kpi_last_response': 'Last response',
       'uptizm.monitors.kpi_last_check': 'Last check',
-      'uptizm.monitors.kpi_last_check_value': 'Just now',
       'uptizm.monitors.kpi_open_incidents_for_monitor': 'Open incidents',
       'uptizm.monitors.kpi_delta_ongoing': 'ongoing',
-      'uptizm.monitors.kpi_hint_p50': 'p50 baseline',
       'uptizm.monitors.kpi_hint_paused': 'Paused',
       'uptizm.monitors.section_recent_checks': 'Recent checks',
       'uptizm.monitors.section_response_time': 'Response time',
@@ -234,23 +237,20 @@ void main() {
     },
   );
 
-  testWidgets(
-    'MonitorDetailView renders the 90-day uptime bar from the live '
-    'response-times endpoint',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 2200));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('MonitorDetailView renders the 90-day uptime bar from the live '
+      'response-times endpoint', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
-      await settleSkeleton(tester);
+    await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+    await settleSkeleton(tester);
 
-      // The stubbed `*response-times*` fixture (all `status: 'up'`) is bucketed
-      // into 90 daily segments by MonitorController.loadUptime90, so the bar
-      // always renders exactly 90 segments regardless of the source data shape.
-      final UptimeBar bar = tester.widget<UptimeBar>(find.byType(UptimeBar));
-      expect(bar.segments, hasLength(90));
-    },
-  );
+    // The stubbed `*response-times*` fixture (all `status: 'up'`) is bucketed
+    // into 90 daily segments by MonitorController.loadUptime90, so the bar
+    // always renders exactly 90 segments regardless of the source data shape.
+    final UptimeBar bar = tester.widget<UptimeBar>(find.byType(UptimeBar));
+    expect(bar.segments, hasLength(90));
+  });
 
   testWidgets('MonitorDetailView wraps its content in a PageContainer', (
     tester,
@@ -339,6 +339,83 @@ void main() {
       // reliability section renders two SloBudgetCard gauges (7-day + 30-day).
       expect(tester.takeException(), isNull);
       expect(find.byType(SloBudgetCard), findsNWidgets(2));
+    },
+  );
+
+  testWidgets(
+    'MonitorDetailView shows a no-data reliability note when uptime is '
+    'unmeasured',
+    (tester) async {
+      // A fresh monitor: it has an SLO target but no measured uptime yet
+      // (slo_uptime_7d/30d null). The reliability section must show the "no
+      // data yet" note rather than fabricated gauges reading as breached.
+      MonitorController.instance.seedForTest([
+        Monitor.fromMap({
+          'id': 'fresh',
+          'name': 'Fresh Monitor',
+          'url': 'https://fresh.test/health',
+          'type': 'http',
+          'method': 'get',
+          'status': 'active',
+          'last_status': 'up',
+          'slo_target': 99.9,
+          'check_interval_sec': 60,
+          'regions': ['us-east'],
+        }),
+      ]);
+
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          const MonitorDetailView(id: 'fresh'),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await settleSkeleton(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(SloBudgetCard), findsNothing);
+      expect(
+        find.text(trans('uptizm.monitors.reliability_no_data_title')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'MonitorDetailView renders the real measured 24h uptime in the KPI row',
+    (tester) async {
+      // The UPTIME (24h) KPI reads the backend `uptime_24h`, not a hardcoded
+      // constant or the '—' placeholder.
+      MonitorController.instance.seedForTest([
+        Monitor.fromMap({
+          'id': 'measured',
+          'name': 'Measured Monitor',
+          'url': 'https://measured.test/health',
+          'type': 'http',
+          'method': 'get',
+          'status': 'active',
+          'last_status': 'up',
+          'uptime_24h': 99.5,
+          'check_interval_sec': 60,
+          'regions': ['us-east'],
+        }),
+      ]);
+
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          const MonitorDetailView(id: 'measured'),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await settleSkeleton(tester);
+
+      expect(find.text('99.50%'), findsOneWidget);
     },
   );
 

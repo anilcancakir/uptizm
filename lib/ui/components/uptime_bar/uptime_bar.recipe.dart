@@ -46,6 +46,9 @@ Map<String, String> uptimeBarRecipe({
         'paused': {'segment': 'bg-paused'},
         'info': {'segment': 'bg-info'},
         'ai': {'segment': 'bg-ai'},
+        // No check ran that day: a neutral surface segment, distinct from the
+        // operational green so an untracked gap never reads as "up".
+        'nodata': {'segment': 'bg-surface-container-high'},
       },
     },
     defaultVariants: {kUptimeBarSizeAxis: 'md', kUptimeBarStatusAxis: 'up'},
