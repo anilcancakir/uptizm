@@ -11,7 +11,10 @@ use App\Http\Resources\MonitorResource;
 use App\Models\AiSuggestion;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Models\MonitorCheck;
 use App\Services\Ai\LaravelAiTriageGateway;
+use App\Services\StatusPages\ComponentDailyUptimeService;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,8 +31,9 @@ use Illuminate\Support\Collection;
 class DashboardController extends Controller
 {
     /**
-     * Monitor counts by last-seen status, average last response time, and
-     * the count of incidents still open, for the caller's current team.
+     * Monitor counts by last-seen status, average last response time, the
+     * count of incidents still open, and the rolling 24h fleet uptime (with
+     * its change against the prior 24h), for the caller's current team.
      */
     public function stats(Request $request): JsonResponse
     {
@@ -51,6 +55,17 @@ class DashboardController extends Controller
             ->whereIn('lifecycle', $this->activeLifecycleValues())
             ->count();
 
+        // Live rolling-24h fleet uptime from the raw check stream (the daily
+        // rollup lags a day), plus the prior 24h to derive a change. Both are
+        // null when the window has no checks, so the client renders "no data"
+        // rather than a fabricated 100%.
+        $now = now();
+        $uptime24h = $this->uptimePercentForWindow($teamId, $now->copy()->subHours(24), $now);
+        $uptimePrev24h = $this->uptimePercentForWindow($teamId, $now->copy()->subHours(48), $now->copy()->subHours(24));
+        $uptimeDelta = ($uptime24h !== null && $uptimePrev24h !== null)
+            ? round($uptime24h - $uptimePrev24h, 2)
+            : null;
+
         return response()->json([
             'data' => [
                 'monitors_up' => (int) ($statusCounts[MonitorStatus::Up->value] ?? 0),
@@ -59,8 +74,40 @@ class DashboardController extends Controller
                 'monitors_paused' => (int) ($statusCounts[MonitorStatus::Paused->value] ?? 0),
                 'avg_response_ms' => $avgResponseMs !== null ? (int) round($avgResponseMs) : null,
                 'open_incidents' => $openIncidents,
+                'uptime_24h' => $uptime24h,
+                'uptime_24h_delta' => $uptimeDelta,
             ],
         ]);
+    }
+
+    /**
+     * Fleet uptime percentage over [$from, $to] for a team, computed from the
+     * raw check stream as up / (up + down + degraded). Paused checks are
+     * excluded (an administrative pause is not a availability failure),
+     * matching {@see ComponentDailyUptimeService}.
+     *
+     * Returns null when the window holds no counted checks, so the caller can
+     * distinguish "no data" from a real 100%.
+     */
+    protected function uptimePercentForWindow($teamId, CarbonInterface $from, CarbonInterface $to): ?float
+    {
+        $counts = MonitorCheck::query()
+            ->where('team_id', $teamId)
+            ->whereBetween('checked_at', [$from, $to])
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $up = (int) ($counts[MonitorStatus::Up->value] ?? 0);
+        $down = (int) ($counts[MonitorStatus::Down->value] ?? 0);
+        $degraded = (int) ($counts[MonitorStatus::Degraded->value] ?? 0);
+        $total = $up + $down + $degraded;
+
+        if ($total === 0) {
+            return null;
+        }
+
+        return round(($up / $total) * 100, 2);
     }
 
     /**

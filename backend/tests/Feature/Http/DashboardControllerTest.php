@@ -16,6 +16,7 @@ use App\Models\MonitorCheck;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\CheckAggregateService;
+use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -73,6 +74,48 @@ class DashboardControllerTest extends TestCase
         $data = $response->getData(true)['data'];
 
         $this->assertSame(0, $data['monitors_down']);
+    }
+
+    public function test_stats_reports_rolling_24h_uptime_and_its_delta_from_checks(): void
+    {
+        $team = $this->makeTeam();
+        $monitor = $this->makeMonitor($team, MonitorStatus::Up, responseMs: 100);
+
+        // Last 24h: 3 up, 1 down, 1 paused -> 3 / (3 + 1) = 75.00% (paused is
+        // excluded, matching the daily-uptime service definition).
+        $this->makeCheck($monitor, MonitorStatus::Up, responseMs: 100);
+        $this->makeCheck($monitor, MonitorStatus::Up, responseMs: 100);
+        $this->makeCheck($monitor, MonitorStatus::Up, responseMs: 100);
+        $this->makeCheck($monitor, MonitorStatus::Down, responseMs: 0);
+        $this->makeCheck($monitor, MonitorStatus::Paused, responseMs: 0);
+
+        // Prior 24h (~30h ago): all up -> 100.00%, so the delta is 75 - 100.
+        $priorAt = now()->subHours(30);
+        $this->makeCheck($monitor, MonitorStatus::Up, responseMs: 100, at: $priorAt);
+        $this->makeCheck($monitor, MonitorStatus::Up, responseMs: 100, at: $priorAt);
+
+        $response = (new DashboardController)->stats($this->requestFor($team));
+        $data = $response->getData(true)['data'];
+
+        $this->assertEqualsWithDelta(75.0, $data['uptime_24h'], 0.001);
+        $this->assertEqualsWithDelta(-25.0, $data['uptime_24h_delta'], 0.001);
+    }
+
+    public function test_stats_uptime_is_null_without_checks_and_ignores_other_teams(): void
+    {
+        $team = $this->makeTeam();
+        $this->makeMonitor($team, MonitorStatus::Up, responseMs: 100);
+
+        // Another team's fresh check must not bleed into this team's uptime.
+        $otherTeam = $this->makeTeam();
+        $otherMonitor = $this->makeMonitor($otherTeam, MonitorStatus::Up, responseMs: 100);
+        $this->makeCheck($otherMonitor, MonitorStatus::Up, responseMs: 100);
+
+        $response = (new DashboardController)->stats($this->requestFor($team));
+        $data = $response->getData(true)['data'];
+
+        $this->assertNull($data['uptime_24h']);
+        $this->assertNull($data['uptime_24h_delta']);
     }
 
     public function test_active_incidents_excludes_resolved_ones(): void
@@ -195,11 +238,11 @@ class DashboardControllerTest extends TestCase
         ]);
     }
 
-    protected function makeCheck(Monitor $monitor, MonitorStatus $status, int $responseMs): MonitorCheck
+    protected function makeCheck(Monitor $monitor, MonitorStatus $status, int $responseMs, ?CarbonInterface $at = null): MonitorCheck
     {
         return MonitorCheck::query()->create([
             'id' => (string) Str::orderedUuid(),
-            'checked_at' => now(),
+            'checked_at' => $at ?? now(),
             'monitor_id' => $monitor->id,
             'team_id' => $monitor->team_id,
             'region' => 'us-east-1',
