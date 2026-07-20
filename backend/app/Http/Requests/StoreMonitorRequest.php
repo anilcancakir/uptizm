@@ -7,8 +7,11 @@ use App\Enums\HttpMethod;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
 use App\Models\Monitor;
+use App\Models\Team;
+use App\Services\Billing\PlanGate;
 use App\Support\Monitoring\HostGuard;
 use Closure;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -51,6 +54,49 @@ class StoreMonitorRequest extends FormRequest
         if ($this->input('expected_status_code') === null) {
             $this->getInputSource()->remove('expected_status_code');
         }
+    }
+
+    /**
+     * Enforce the team's plan caps after field validation: the monitor-count
+     * quota (create only) and the fastest-check-interval floor (create and
+     * update). Both surface as 422 errors with an upgrade-oriented message the
+     * client shows verbatim, so a Free team cannot silently exceed its tier.
+     *
+     * The count guard is skipped on an update ({@see UpdateMonitorRequest}
+     * inherits this) because editing an existing monitor does not add one; only
+     * the interval floor still applies, so a paid-tier interval cannot survive
+     * a downgrade-then-edit.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $team = Team::find($this->user()?->current_team_id);
+            if ($team === null) {
+                return;
+            }
+
+            $gate = new PlanGate;
+            $isCreate = ! ($this->route('monitor') instanceof Monitor);
+
+            if ($isCreate) {
+                $limit = $gate->monitorLimit($team);
+                if ($limit !== null && $gate->monitorsUsed($team) >= $limit) {
+                    $validator->errors()->add(
+                        'plan',
+                        "Your {$gate->planLabel($team)} plan is limited to {$limit} monitors. Upgrade to add more.",
+                    );
+                }
+            }
+
+            $floor = $gate->minCheckIntervalSec($team);
+            $interval = (int) $this->input('check_interval_sec');
+            if ($interval > 0 && $interval < $floor) {
+                $validator->errors()->add(
+                    'check_interval_sec',
+                    "Your {$gate->planLabel($team)} plan checks at most every {$floor}s. Upgrade for faster checks.",
+                );
+            }
+        });
     }
 
     /**
@@ -153,7 +199,6 @@ class StoreMonitorRequest extends FormRequest
      * to be present-or-null, an edit may omit it entirely).
      *
      * @param  bool  $partial  True for a partial (update) request.
-     *
      * @return array<string, mixed>
      */
     protected function authConfigRules(bool $partial): array
@@ -207,7 +252,6 @@ class StoreMonitorRequest extends FormRequest
      * @param  bool  $partial  True for a partial (update) request; prefixes
      *                         `sometimes` so an edit only validates the key it
      *                         sends.
-     *
      * @return array<int, mixed>
      */
     protected function targetRules(bool $partial): array
@@ -328,6 +372,6 @@ class StoreMonitorRequest extends FormRequest
      */
     protected function hostGuard(): HostGuard
     {
-        return $this->hostGuard ??= new HostGuard();
+        return $this->hostGuard ??= new HostGuard;
     }
 }

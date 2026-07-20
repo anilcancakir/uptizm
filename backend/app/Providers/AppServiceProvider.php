@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Actions\PlanGatedInviteTeamMember;
 use App\Models\Team;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
@@ -15,6 +16,7 @@ use App\Services\Ai\LaravelAiAssistantGateway;
 use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
+use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -49,6 +51,10 @@ class AppServiceProvider extends ServiceProvider
         // Bind the floating-assistant boundary the same way. Tests rebind
         // the FakeAssistantGateway, so no real Anthropic call happens in CI.
         $this->app->bind(AssistantGateway::class, LaravelAiAssistantGateway::class);
+
+        // Wrap the starter's team-invite action with the plan responder cap
+        // (contract-action override), so a team cannot invite past its tier.
+        $this->app->bind(InvitesTeamMembers::class, PlanGatedInviteTeamMember::class);
     }
 
     /**

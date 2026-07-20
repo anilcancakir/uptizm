@@ -11,6 +11,8 @@ use App\Http\Resources\StatusPageSubscriberResource;
 use App\Models\Monitor;
 use App\Models\StatusPage;
 use App\Models\StatusPageSubscriber;
+use App\Models\Team;
+use App\Services\Billing\PlanGate;
 use App\Services\StatusPages\StatusPageCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +21,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -257,6 +260,16 @@ class StatusPageController extends Controller
 
         if ($existing !== null) {
             return StatusPageSubscriberResource::make($existing)->response();
+        }
+
+        // Enforce the plan's per-page subscriber cap for a genuinely new
+        // address (an existing subscriber above is never blocked).
+        $team = Team::find($statusPage->team_id);
+        $limit = $team !== null ? (new PlanGate)->subscriberLimit($team) : null;
+        if ($limit !== null && $statusPage->subscribers()->count() >= $limit) {
+            throw ValidationException::withMessages([
+                'email' => "This status page has reached its {$limit}-subscriber limit. Upgrade the team's plan to add more.",
+            ]);
         }
 
         // 2. Trusted direct-add: create an already-confirmed subscriber with an

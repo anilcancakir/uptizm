@@ -5,6 +5,7 @@ namespace Tests\Feature\Http;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Models\Monitor;
 use App\Models\User;
+use App\Support\Monitoring\HostGuard;
 use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -15,7 +16,7 @@ use Tests\TestCase;
 /**
  * Covers the extended create-monitor validation surface: the full field
  * set (request headers, auth_config credentials, SLO target, SSL tracking)
- * is accepted, the shared {@see \App\Support\Monitoring\HostGuard} still
+ * is accepted, the shared {@see HostGuard} still
  * rejects internal targets, and the auth_config inner-shape guard refuses a
  * credential map that omits its matching secret.
  *
@@ -241,10 +242,12 @@ class StoreMonitorRequestTest extends TestCase
     {
         return [
             'name' => 'API Health',
+            // 180s is the Free tier's fastest allowed interval, so the base
+            // payload is plan-valid for the default (Free) acting team.
             'type' => 'http',
             'url' => 'https://example.com/health',
             'method' => 'get',
-            'check_interval_sec' => 60,
+            'check_interval_sec' => 180,
             'timeout_sec' => 30,
             'regions' => [
                 'us-east',

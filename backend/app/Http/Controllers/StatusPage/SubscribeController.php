@@ -5,10 +5,13 @@ namespace App\Http\Controllers\StatusPage;
 use App\Mail\StatusPageSubscribeConfirmation;
 use App\Models\StatusPage;
 use App\Models\StatusPageSubscriber;
+use App\Models\Team;
+use App\Services\Billing\PlanGate;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * Public, unauthenticated write surface for status-page subscriptions.
@@ -32,7 +35,7 @@ class SubscribeController
     /**
      * Register an unconfirmed subscriber and mail the confirm link.
      *
-     * @throws \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
+     * @throws NotFoundHttpException
      */
     public function store(Request $request, string $slug): View
     {
@@ -66,6 +69,16 @@ class SubscribeController
             return $this->checkInboxView($page);
         }
 
+        // At the plan's per-page subscriber cap, decline silently: the uniform
+        // check-inbox view with no new row, consistent with the page's other
+        // privacy-preserving responses (the cap is never leaked to the visitor;
+        // the owner sees it in the billing usage report and can upgrade).
+        $team = Team::find($page->team_id);
+        $limit = $team !== null ? (new PlanGate)->subscriberLimit($team) : null;
+        if ($limit !== null && $page->subscribers()->count() >= $limit) {
+            return $this->checkInboxView($page);
+        }
+
         // 4. Create an unconfirmed subscriber and mail the confirm link ONLY to
         //    the entered address (double opt-in).
         $subscriber = $page->subscribers()->create([
@@ -84,7 +97,7 @@ class SubscribeController
      * Activate a subscription from its confirm link. Single-use: the token is
      * burned on success so a replay of the same URL is a no-op 404.
      *
-     * @throws \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
+     * @throws NotFoundHttpException
      */
     public function confirm(Request $request, string $slug, string $token): View
     {
@@ -115,7 +128,7 @@ class SubscribeController
      * Remove a subscription from its one-click unsubscribe link. This route
      * carries no slug: it is addressed by the token alone.
      *
-     * @throws \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
+     * @throws NotFoundHttpException
      */
     public function unsubscribe(Request $request, string $token): View
     {
@@ -138,7 +151,7 @@ class SubscribeController
      * Resolve a public page by slug behind the same fail-closed gate the read
      * surface enforces: an unknown slug and a non-public page both 404.
      *
-     * @throws \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
+     * @throws NotFoundHttpException
      */
     protected function resolvePublicPageOrFail(string $slug): StatusPage
     {

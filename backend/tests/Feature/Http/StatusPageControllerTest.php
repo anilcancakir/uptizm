@@ -51,6 +51,60 @@ class StatusPageControllerTest extends TestCase
         $response->assertJsonValidationErrors('slug');
     }
 
+    public function test_free_team_cannot_exceed_its_status_page_quota(): void
+    {
+        $team = $this->actingAsTeamMember();
+        // Free allows a single status page; seed it, then attempt a second.
+        $this->makeStatusPage($team->id, 'existing');
+
+        $response = $this->postJson('/api/v1/status-pages', $this->validPayload());
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('plan');
+    }
+
+    public function test_free_team_cannot_create_a_private_status_page(): void
+    {
+        $this->actingAsTeamMember();
+
+        // Private (is_public=false) pages require the Business+ entitlement.
+        $response = $this->postJson('/api/v1/status-pages', [
+            ...$this->validPayload(),
+            'is_public' => false,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('is_public');
+    }
+
+    public function test_admin_add_subscriber_enforces_the_per_page_plan_cap(): void
+    {
+        // Shrink the Free cap so the test seeds one subscriber, not 100.
+        config()->set('plans.tiers', collect(config('plans.tiers'))->map(function (array $tier): array {
+            if ($tier['id'] === 'free') {
+                $tier['limits']['subscribers'] = 1;
+            }
+
+            return $tier;
+        })->all());
+
+        $team = $this->actingAsTeamMember();
+        $page = $this->makeStatusPage($team->id, 'mine');
+        $page->subscribers()->create([
+            'email' => 'first@example.com',
+            'unsubscribe_token' => Str::random(48),
+            'subscribed_at' => now(),
+            'confirmed_at' => now(),
+        ]);
+
+        $response = $this->postJson("/api/v1/status-pages/{$page->id}/subscribers", [
+            'email' => 'second@example.com',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('email');
+    }
+
     public function test_index_lists_only_the_current_teams_pages(): void
     {
         $team = $this->actingAsTeamMember();
