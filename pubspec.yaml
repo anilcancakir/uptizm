@@ -105,6 +105,7 @@ flutter:
 
   assets:
     - assets/lang/en.json
+    - assets/lang/tr.json
     # Runtime env (API_URL, BROADCAST_CONNECTION, REVERB_*). Must be bundled as
     # an asset so flutter_dotenv can load it on web; without this the app falls
     # back to Env defaults (BROADCAST_CONNECTION=null) and realtime never
