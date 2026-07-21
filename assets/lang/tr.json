@@ -974,7 +974,8 @@
       "language_label": "Dil",
       "timezone_label": "Saat dilimi",
       "confirm": "Devam et",
-      "skip": "Atla"
+      "skip": "Atla",
+      "error_title": "Tercihleriniz kaydedilemedi"
     },
     "welcome": {
       "skip": "Atla",

@@ -974,7 +974,8 @@
       "language_label": "Language",
       "timezone_label": "Timezone",
       "confirm": "Continue",
-      "skip": "Skip"
+      "skip": "Skip",
+      "error_title": "Could not save your preferences"
     },
     "welcome": {
       "skip": "Skip",

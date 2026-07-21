@@ -38,6 +38,11 @@ class LocaleOnboardingView extends StatefulWidget {
 
 class _LocaleOnboardingViewState extends State<LocaleOnboardingView> {
   /// The selected locale code, seeded from the applied (detected) locale.
+  ///
+  /// On a fresh-device login of an existing user the post-login locale sync
+  /// (`_syncLocale`) is unawaited while the router redirects here, so this may
+  /// capture the device-detected locale rather than the user's restored backend
+  /// locale. The user can still adjust it before confirming.
   late String _locale = Lang.current.languageCode;
 
   /// The selected IANA timezone, seeded from the applied (detected) timezone.
@@ -60,33 +65,47 @@ class _LocaleOnboardingViewState extends State<LocaleOnboardingView> {
     ];
   }
 
-  /// Applies + persists the chosen locale/timezone, then continues home.
+  /// Persists the chosen locale/timezone, then applies + continues home.
   Future<void> _confirm() async {
     if (_busy) return;
     setState(() => _busy = true);
 
+    bool persisted = false;
     try {
-      // 1. Apply immediately so the app renders in the chosen language/timezone
-      //    before the dashboard mounts.
-      await Lang.setLocale(Locale(_locale));
-      if (_timezone.isNotEmpty) {
-        DateManager.instance.setTimezone(_timezone);
-      }
-
-      // 2. Persist to the backend profile (canonical `locale`/`timezone` keys).
+      // Persist to the backend profile FIRST (canonical `locale`/`timezone`
+      // keys). Only a confirmed save applies the choice and closes the one-time
+      // gate: applying locally before a failed save would diverge from the
+      // backend (and be reverted by the next Auth.restore via `_syncLocale`),
+      // and marking the gate would burn the one-shot onboarding on a save that
+      // never landed.
       final User user = User.current;
-      await MagicStarterProfileController.instance.doUpdateProfile(
+      persisted = await MagicStarterProfileController.instance.doUpdateProfile(
         name: user.name ?? '',
         email: user.email ?? '',
         language: _locale,
         timezone: _timezone,
       );
-
-      // 3. One-shot: never show onboarding again on this device.
-      await LocaleOnboardingGate.instance.markCompleted();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+
+    if (!persisted) {
+      // `doUpdateProfile` records its error state but shows no toast; surface
+      // the failure here and leave the gate open so the user can retry.
+      MagicFeedback.error(
+        trans('uptizm.onboarding.error_title'),
+        trans('profile.update_failed'),
+      );
+      return;
+    }
+
+    // Apply immediately so the app renders in the chosen language/timezone,
+    // then mark the one-shot gate and continue to the dashboard.
+    await Lang.setLocale(Locale(_locale));
+    if (_timezone.isNotEmpty) {
+      DateManager.instance.setTimezone(_timezone);
+    }
+    await LocaleOnboardingGate.instance.markCompleted();
 
     _continueHome();
   }

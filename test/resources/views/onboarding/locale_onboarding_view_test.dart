@@ -283,4 +283,32 @@ void main() {
       expect(LocaleOnboardingGate.instance.isCompleted, isTrue);
     },
   );
+
+  testWidgets(
+    'confirm keeps the gate open and does not navigate when the persist fails',
+    (tester) async {
+      await tester.pumpWidget(wrapRouted());
+      await tester.pumpAndSettle();
+
+      // Backend rejects the profile update.
+      network.response = MagicResponse(
+        data: {'message': 'nope'},
+        statusCode: 422,
+      );
+
+      final confirm = find.byKey(const ValueKey('onboarding-confirm'));
+      await tester.ensureVisible(confirm);
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      // Drain the MagicFeedback overlay-toast timer (4s) so it does not leak.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      // A failed persist must NOT burn the one-shot gate...
+      expect(LocaleOnboardingGate.instance.isCompleted, isFalse);
+      // ...and must NOT leave the onboarding screen for the dashboard.
+      expect(find.byType(LocaleOnboardingView), findsOneWidget);
+      expect(find.byKey(const ValueKey('home-stub')), findsNothing);
+    },
+  );
 }
