@@ -84,7 +84,11 @@ class _StatusPagesListViewState
       trans('uptizm.status.limit_nudge', {
         'plan': _entitlement.planName,
         'count': '$limit',
-        'noun': limit == 1 ? 'status page' : 'status pages',
+        'noun': trans(
+          limit == 1
+              ? 'uptizm.status.noun_one'
+              : 'uptizm.status.noun_other',
+        ),
       }),
     );
   }

@@ -156,26 +156,21 @@ class _StatusPagePreviewViewState
   /// Builds the graceful not-found state shown when
   /// [StatusPageController.configById] returns null.
   ///
-  /// Mirrors the React `StatusPageNotFound` copy: no i18n key exists for this
-  /// screen's chrome, so the title and description stay literal English (the
-  /// same fallback the sibling `IncidentDetailView._buildNotFound` uses when
-  /// no key is shipped).
+  /// Mirrors the React `StatusPageNotFound` copy, localized through [trans].
   Widget _buildNotFound() {
     return PageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
           MSPageHeader(
-            title: 'Status page not found',
-            backLabel: 'Status pages',
+            title: trans('uptizm.status.not_found_title'),
+            backLabel: trans('uptizm.status.list_title'),
             backFallback: '/status',
           ),
-          const EmptyState(
+          EmptyState(
             icon: Icons.error_outline,
-            title: 'Status page not found',
-            description:
-                "There's no status page at this address. Double-check the "
-                'link, or ask whoever shared it for the current address.',
+            title: trans('uptizm.status.not_found_title'),
+            description: trans('uptizm.status.not_found_description'),
           ),
         ],
       ),

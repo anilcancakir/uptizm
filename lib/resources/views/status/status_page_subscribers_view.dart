@@ -116,7 +116,9 @@ class _StatusPageSubscribersViewState
         children: [
           MSPageHeader(
             title: trans('uptizm.status.subscribers_title'),
-            subtitle: 'People subscribed to $pageName updates.',
+            subtitle: trans('uptizm.status.subscribers_subtitle', {
+              'page': pageName,
+            }),
             backLabel: pageName,
             backFallback: '/status/${page.id}',
             actions: [

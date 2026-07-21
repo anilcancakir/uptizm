@@ -245,15 +245,17 @@ class _EscalationPoliciesViewState
   }
 
   /// Renders a step's target as a single display label: the channel string for
-  /// a `channel` step, `"On-call"` for `on_call`, or `"User <id>"` for a `user`
-  /// step (mirrors the backend's single-target-per-step shape, see the
-  /// controller's class docblock).
+  /// a `channel` step, the localized on-call label for `on_call`, or the
+  /// localized "User :id" for a `user` step (mirrors the backend's
+  /// single-target-per-step shape, see the controller's class docblock).
   String _targetLabel(EscalationStepWire step) {
     switch (step.targetType) {
       case 'on_call':
-        return 'On-call';
+        return trans('uptizm.teams.escalation_target_oncall');
       case 'user':
-        return 'User ${step.targetId ?? ''}'.trim();
+        return trans('uptizm.teams.escalation_target_user', {
+          'id': step.targetId ?? '',
+        }).trim();
       default:
         return step.channel ?? '';
     }

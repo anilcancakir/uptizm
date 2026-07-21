@@ -395,11 +395,9 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
 
   /// Adds [member] to the rotation via
   /// `POST /on-call/schedules/:id/rotations` ([OnCallController.addToRotation]);
-  /// on success, appends an "Unscheduled" span to [_rotation]. "Unscheduled"
-  /// is not localized: it mirrors the React source's plain literal (a
-  /// placeholder span for a newly added, not yet scheduled, responder), the
-  /// same convention as the mock's `escalationDelayLabel` composing plain
-  /// English. Surfaces its own success or error toast (see the controller's
+  /// on success, appends an "Unscheduled" span to [_rotation] (a placeholder
+  /// span for a newly added, not yet scheduled, responder), localized through
+  /// [trans]. Surfaces its own success or error toast (see the controller's
   /// docblock), so this stays silent on either outcome beyond the local
   /// mutation.
   Future<void> _addToRotation(TeamMember member) async {
@@ -410,7 +408,7 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
       memberId: member.id,
       memberName: member.name,
       initials: member.initials,
-      span: 'Unscheduled',
+      span: trans('uptizm.teams.oncall_unscheduled_span'),
       current: false,
     );
 

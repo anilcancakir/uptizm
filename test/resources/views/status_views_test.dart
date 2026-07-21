@@ -32,6 +32,42 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.info': 'Maintenance',
       'uptizm.status.ai': 'AI',
 
+      // Overall-status banner labels (embedded StatusPagePreview). Missing
+      // keys render the long raw token and overflow the fixed banner Row.
+      'uptizm.status.banner_operational': 'All systems operational',
+      'uptizm.status.banner_degraded': 'Degraded performance',
+      'uptizm.status.banner_outage': 'Major outage',
+      'uptizm.status.banner_maintenance': 'Maintenance in progress',
+      'uptizm.status.banner_pending': 'Awaiting first checks',
+      'uptizm.status.banner_paused': 'Some components paused',
+
+      // Embedded StatusPagePreview section copy.
+      'uptizm.status.preview_default_name': 'Status',
+      'uptizm.status.preview_updated_ago': 'updated 2m ago',
+      'uptizm.status.preview_live_metrics_heading': 'Live metrics',
+      'uptizm.status.preview_components_heading': 'Components',
+      'uptizm.status.preview_components_empty':
+          'No components yet. Assign monitors to show their status here.',
+      'uptizm.status.preview_past_incidents_heading': 'Past incidents',
+      'uptizm.status.preview_subscribe_heading': 'Subscribe to updates',
+      'uptizm.status.preview_subscribe_description':
+          'Get notified by email when an incident is opened, updated, or resolved.',
+      'uptizm.status.preview_subscribe_placeholder': 'you@example.com',
+      'uptizm.status.preview_subscribe_button': 'Subscribe',
+      'uptizm.status.preview_powered_by': 'powered by Uptizm',
+
+      // Not-found state, metric-section labels, list nudge noun, subscribers
+      // subtitle.
+      'uptizm.status.not_found_title': 'Status page not found',
+      'uptizm.status.not_found_description':
+          "There's no status page at this address. Double-check the link, or ask whoever shared it for the current address.",
+      'uptizm.status.editor_metrics_system_label': 'System',
+      'uptizm.status.editor_metrics_custom_label': 'Custom',
+      'uptizm.status.subscribers_subtitle':
+          'People subscribed to :page updates.',
+      'uptizm.status.noun_one': 'status page',
+      'uptizm.status.noun_other': 'status pages',
+
       // List.
       'uptizm.status.list_title': 'Status pages',
       'uptizm.status.list_description': 'Public status pages for customers.',
@@ -63,6 +99,10 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.editor_form_name_label': 'Name',
       'uptizm.status.editor_form_name_placeholder': 'Acme Status',
       'uptizm.status.editor_form_how_served_label': 'How is it served?',
+      // Domain-mode segmented-control options (DomainMode.label). Missing keys
+      // render the long raw token and overflow the fixed-width control Row.
+      'uptizm.enums.domain_mode.subdomain': 'Subdomain',
+      'uptizm.enums.domain_mode.path': 'Path',
       'uptizm.status.editor_form_slug_label': 'Slug',
       'uptizm.status.editor_form_slug_placeholder': 'acme',
       'uptizm.status.editor_form_brand_color_label': 'Brand color',

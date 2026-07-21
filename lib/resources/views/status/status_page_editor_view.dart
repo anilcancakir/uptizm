@@ -684,7 +684,7 @@ class _StatusPageEditorViewState
             hint: trans('uptizm.status.editor_section_metrics_hint'),
           ),
           MSFormField(
-            label: 'System',
+            label: trans('uptizm.status.editor_metrics_system_label'),
             child: systemOptions.isNotEmpty
                 ? RegionPicker(
                     regions: systemOptions,
@@ -698,7 +698,7 @@ class _StatusPageEditorViewState
                   ),
           ),
           MSFormField(
-            label: 'Custom',
+            label: trans('uptizm.status.editor_metrics_custom_label'),
             child: customOptions.isNotEmpty
                 ? RegionPicker(
                     regions: customOptions,
