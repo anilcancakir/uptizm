@@ -58,7 +58,7 @@ class User extends Model
     'email',
     'phone',
     'timezone',
-    'language',
+    'locale',
   ];
 
   /// The attributes that should be cast.
@@ -97,11 +97,15 @@ class User extends Model
   /// Set the user's timezone identifier.
   set timezone(String? value) => setAttribute('timezone', value);
 
-  /// Get the user's preferred language code (e.g. `en`, `tr`).
-  String? get language => getAttribute('language') as String?;
+  /// Get the user's preferred locale code (e.g. `en`, `tr`).
+  ///
+  /// The backend `UserResource` sends this under the `locale` key (matching the
+  /// server column and the profile-update wire field), so the accessor reads
+  /// `locale` directly.
+  String? get locale => getAttribute('locale') as String?;
 
-  /// Set the user's preferred language code.
-  set language(String? value) => setAttribute('language', value);
+  /// Set the user's preferred locale code.
+  set locale(String? value) => setAttribute('locale', value);
 
   /// Get the URL of the user's profile photo.
   String? get profilePhotoUrl => getAttribute('profile_photo_url') as String?;
