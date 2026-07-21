@@ -74,7 +74,7 @@ class AppServiceProvider extends ServiceProvider {
     });
 
     // Magic Starter: Supported locale options for profile settings.
-    MagicStarter.useLocaleOptions({'en': 'English'});
+    MagicStarter.useLocaleOptions({'en': 'English', 'tr': 'Türkçe'});
 
     // Magic Starter: Team resolver for sidebar team switcher.
     MagicStarter.useTeamResolver(
