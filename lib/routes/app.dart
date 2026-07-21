@@ -5,6 +5,7 @@ import '../resources/views/incidents/incident_create_view.dart';
 import '../resources/views/incidents/incident_detail_view.dart';
 import '../resources/views/incidents/incidents_list_view.dart';
 import '../resources/views/auth/welcome_view.dart';
+import '../resources/views/onboarding/locale_onboarding_view.dart';
 import '../resources/views/incidents/weekly_digest_view.dart';
 import '../resources/views/monitors/monitor_create_view.dart';
 import '../resources/views/monitors/monitor_detail_view.dart';
@@ -100,7 +101,12 @@ void registerAppRoutes() {
   // rebuild the whole chrome on every navigation (a full-screen flash between,
   // say, Home and Monitors).
   MagicRoute.group(
-    middleware: ['auth'],
+    // 'auth' gates the whole shell (unauthenticated boot → login); 'onboarding'
+    // then sends a freshly authenticated user whose device has not yet seen the
+    // locale onboarding to `/onboarding/locale` BEFORE the dashboard. The
+    // onboarding guard reads a persisted first-run flag, so a later login of an
+    // already-onboarded user passes straight through.
+    middleware: ['auth', 'onboarding'],
     layout: (child) => AppLayout(child: child),
     routes: () {
       // 1. Dashboard: the default landing screen.
@@ -187,24 +193,30 @@ void registerAppRoutes() {
 
       // 11. Status page editor: resolves :id from the path to the fixture.
       MagicRoute.page(
-        '/status/:id',
-        (String id) => StatusPageEditorView(id: id),
-      ).title('uptizm.titles.status_page_edit').transition(RouteTransition.none);
+            '/status/:id',
+            (String id) => StatusPageEditorView(id: id),
+          )
+          .title('uptizm.titles.status_page_edit')
+          .transition(RouteTransition.none);
 
       // 12. Status page preview: /status/:id/preview is distinct from
       //     /status/:id so ordering relative to the editor route does not
       //     matter, but it is placed immediately after for readability.
       MagicRoute.page(
-        '/status/:id/preview',
-        (String id) => StatusPagePreviewView(id: id),
-      ).title('uptizm.titles.status_page_preview').transition(RouteTransition.none);
+            '/status/:id/preview',
+            (String id) => StatusPagePreviewView(id: id),
+          )
+          .title('uptizm.titles.status_page_preview')
+          .transition(RouteTransition.none);
 
       // 13. Status page subscribers: /status/:id/subscribers is distinct
       //     from /status/:id, same ordering note as the preview route above.
       MagicRoute.page(
-        '/status/:id/subscribers',
-        (String id) => StatusPageSubscribersView(id: id),
-      ).title('uptizm.titles.status_page_subscribers').transition(RouteTransition.none);
+            '/status/:id/subscribers',
+            (String id) => StatusPageSubscribersView(id: id),
+          )
+          .title('uptizm.titles.status_page_subscribers')
+          .transition(RouteTransition.none);
 
       // 14. Settings — About & support sub-pages only. The Settings hub index
       //     and its Account / Security / Preferences sub-pages are now owned by
@@ -241,14 +253,15 @@ void registerAppRoutes() {
       //     magic_starter (registerMagicStarterTeamRoutes); uptizm keeps the
       //     domain-specific team-operations pages the starter does not provide.
       MagicRoute.page(
-        '/teams/notifications',
-        () => const NotificationChannelsView(),
-      ).title('uptizm.titles.notification_channels').transition(RouteTransition.none);
+            '/teams/notifications',
+            () => const NotificationChannelsView(),
+          )
+          .title('uptizm.titles.notification_channels')
+          .transition(RouteTransition.none);
 
-      MagicRoute.page(
-        '/teams/escalation',
-        () => const EscalationPoliciesView(),
-      ).title('uptizm.titles.escalation_policies').transition(RouteTransition.none);
+      MagicRoute.page('/teams/escalation', () => const EscalationPoliciesView())
+          .title('uptizm.titles.escalation_policies')
+          .transition(RouteTransition.none);
 
       // 17. New escalation policy: static segment registered BEFORE
       //     /teams/escalation/:id so the literal path /teams/escalation/new
@@ -256,16 +269,20 @@ void registerAppRoutes() {
       //     /monitors/new ordering above. Zero-arg: the editor reads nothing
       //     from the path for a new draft.
       MagicRoute.page(
-        '/teams/escalation/new',
-        () => const EscalationPolicyEditorView(),
-      ).title('uptizm.titles.escalation_policy_new').transition(RouteTransition.none);
+            '/teams/escalation/new',
+            () => const EscalationPolicyEditorView(),
+          )
+          .title('uptizm.titles.escalation_policy_new')
+          .transition(RouteTransition.none);
 
       // 18. Escalation policy editor: resolves :id from the path to the
       //     fixture (edits an existing policy).
       MagicRoute.page(
-        '/teams/escalation/:id',
-        (String id) => EscalationPolicyEditorView(id: id),
-      ).title('uptizm.titles.escalation_policy_edit').transition(RouteTransition.none);
+            '/teams/escalation/:id',
+            (String id) => EscalationPolicyEditorView(id: id),
+          )
+          .title('uptizm.titles.escalation_policy_edit')
+          .transition(RouteTransition.none);
 
       MagicRoute.page(
         '/teams/on-call',
@@ -290,4 +307,17 @@ void registerAppRoutes() {
     '/welcome',
     () => const WelcomeView(),
   ).transition(RouteTransition.none);
+
+  // 20. Locale onboarding: the one-time post-register language + timezone
+  //     screen, registered OUTSIDE the AppLayout group so it renders
+  //     full-screen with no shell chrome (like /welcome). It carries ONLY the
+  //     'auth' guard (an unauthenticated hit falls to login) and deliberately
+  //     NOT the 'onboarding' guard, so it never redirects onto itself. The
+  //     shell group's 'onboarding' guard is what routes a freshly authenticated
+  //     user here; on confirm/skip the view marks the first-run flag and hops
+  //     to the home route.
+  MagicRoute.page(
+    '/onboarding/locale',
+    () => const LocaleOnboardingView(),
+  ).middleware(['auth']).transition(RouteTransition.none);
 }

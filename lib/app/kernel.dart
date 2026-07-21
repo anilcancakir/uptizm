@@ -2,6 +2,7 @@
 import 'package:magic/magic.dart';
 import 'middleware/ensure_authenticated.dart';
 import 'middleware/redirect_if_authenticated.dart';
+import 'middleware/redirect_to_locale_onboarding.dart';
 
 /// The HTTP Kernel.
 ///
@@ -51,5 +52,6 @@ void registerKernel() {
   Kernel.registerAll({
     'auth': () => EnsureAuthenticated(),
     'guest': () => RedirectIfAuthenticated(),
+    'onboarding': () => RedirectToLocaleOnboarding(),
   });
 }

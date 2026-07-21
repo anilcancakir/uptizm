@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 import 'app/services/locale_application_service.dart';
+import 'app/services/locale_onboarding_gate.dart';
 import 'config/app.dart';
 import 'config/routing.dart';
 import 'config/view.dart';
@@ -51,6 +52,12 @@ void main() async {
   // abbreviation, not an IANA identifier), so the `X-Timezone` header magic
   // sends on every request carries a value the backend can actually resolve.
   await LocaleApplicationService().applyDetectedTimezone();
+
+  // Load the one-time locale-onboarding flag from the vault into memory BEFORE
+  // the router first evaluates a redirect: the onboarding middleware reads it
+  // synchronously, so it must be resolved by boot to avoid intercepting an
+  // already-onboarded user on the first navigation.
+  await LocaleOnboardingGate.instance.load();
 
   // Magic integrations wire magic's runtime into dusk + telescope AFTER
   // Magic.init, since their watchers/adapter/enrichers resolve through the IoC
