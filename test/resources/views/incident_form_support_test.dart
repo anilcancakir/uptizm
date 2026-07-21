@@ -1,4 +1,6 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
 import 'package:uptizm/app/support/incident_types.dart'
@@ -11,7 +13,38 @@ import 'package:uptizm/resources/views/incidents/incident_form_support.dart';
 
 import '../../support/incident_fixtures.dart';
 
+/// Feeds the incident draft templates so [trans] substitutes the incident's
+/// name/title/duration into real English prose instead of returning raw keys.
+class _DraftLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.incidents.draft_resolved':
+        'This incident is resolved. :name is back to normal across all regions '
+        'and checks are passing again. Thanks for your patience.',
+    'uptizm.incidents.draft_maintenance':
+        'Scheduled maintenance on :name is underway.',
+    'uptizm.incidents.draft_investigating':
+        "We're investigating :what affecting :name. Uptizm's checks are showing "
+        ":signal. We'll share another update within 30 minutes.",
+    'uptizm.incidents.draft_what_down': 'a major outage',
+    'uptizm.incidents.draft_what_degraded': 'degraded performance',
+    'uptizm.incidents.draft_what_info': 'a service issue',
+    'uptizm.incidents.draft_signal_errors': 'errors across regions',
+    'uptizm.incidents.draft_signal_latency': 'elevated response times',
+    'uptizm.incidents.postmortem':
+        ':title lasted :duration and affected :count :monitorWord. Uptizm first '
+        'detected it via :signal, then saw checks recover before it was '
+        'resolved.',
+    'uptizm.incidents.postmortem_monitor_one': 'monitor',
+    'uptizm.incidents.postmortem_monitor_other': 'monitors',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_DraftLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
   // ---------------------------------------------------------------------------
   // severityFromConfidence
   // ---------------------------------------------------------------------------

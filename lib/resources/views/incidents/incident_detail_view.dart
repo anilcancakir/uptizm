@@ -419,7 +419,10 @@ class _IncidentDetailViewState
   void _onAcknowledge() {
     const String by = _currentUserName;
     setState(() {
-      _ack = const IncidentAcknowledgement(by: by, at: 'just now');
+      _ack = IncidentAcknowledgement(
+        by: by,
+        at: trans('uptizm.common.time_just_now'),
+      );
     });
     controller.acknowledge(by);
   }

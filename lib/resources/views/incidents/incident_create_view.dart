@@ -157,7 +157,9 @@ class _IncidentCreateViewState
     //    severity from the promoted anomaly; otherwise start blank at the React
     //    defaults.
     if (suggestion != null) {
-      _title = 'Investigating anomaly on ${suggestion.monitorName}';
+      _title = trans('uptizm.incidents.form_prefill_title', {
+        'monitor': suggestion.monitorName,
+      });
       final String? monitorId = _resolveMonitorId(suggestion.monitorName);
       _affected = monitorId == null ? <String>[] : <String>[monitorId];
       _severity =

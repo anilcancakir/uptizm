@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
 import 'package:uptizm/app/enums/incident_impact.dart' as mocks;
 import 'package:uptizm/app/enums/incident_lifecycle.dart' as mocks;
@@ -21,36 +23,40 @@ import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 // ---------------------------------------------------------------------------
 
 /// Incident kinds: a real incident, or a scheduled maintenance window.
-/// Matches `KINDS` in IncidentCreatePage.tsx.
-const List<MetricOption> kIncidentKinds = [
-  MetricOption(label: 'Incident', value: 'incident'),
-  MetricOption(label: 'Scheduled maintenance', value: 'maintenance'),
+///
+/// A getter (not a `const`) so each display label resolves through [trans] at
+/// the current locale; the [MetricOption.value] wire tokens stay fixed. Matches
+/// `KINDS` in IncidentCreatePage.tsx.
+List<MetricOption> get kIncidentKinds => [
+  MetricOption(label: trans('uptizm.incidents.form_kind_incident'), value: 'incident'),
+  MetricOption(label: trans('uptizm.incidents.form_kind_maintenance'), value: 'maintenance'),
 ];
 
 /// Operator-side severity tiers offered on the create form. Matches
 /// `SEVERITIES` in IncidentCreatePage.tsx.
-const List<MetricOption> kIncidentSeverities = [
-  MetricOption(label: 'Critical', value: 'critical'),
-  MetricOption(label: 'Warning', value: 'warning'),
-  MetricOption(label: 'Info', value: 'info'),
+List<MetricOption> get kIncidentSeverities => [
+  MetricOption(label: trans('uptizm.incidents.form_severity_critical'), value: 'critical'),
+  MetricOption(label: trans('uptizm.incidents.form_severity_warning'), value: 'warning'),
+  MetricOption(label: trans('uptizm.incidents.form_severity_info'), value: 'info'),
 ];
 
 /// Customer-facing status-page impact levels offered on the create form.
 /// Matches `IMPACTS` in IncidentCreatePage.tsx.
-const List<MetricOption> kIncidentImpacts = [
-  MetricOption(label: 'Major outage', value: 'down'),
-  MetricOption(label: 'Degraded performance', value: 'degraded'),
-  MetricOption(label: 'Maintenance', value: 'info'),
+List<MetricOption> get kIncidentImpacts => [
+  MetricOption(label: trans('uptizm.incidents.form_impact_down'), value: 'down'),
+  MetricOption(label: trans('uptizm.incidents.form_impact_degraded'), value: 'degraded'),
+  MetricOption(label: trans('uptizm.incidents.form_impact_info'), value: 'info'),
 ];
 
 /// Lifecycle stages offered in the detail composer's status Select. Matches
-/// `STATUS_OPTIONS` in IncidentDetailPage.tsx.
-const List<MetricOption> kIncidentStatuses = [
-  MetricOption(label: 'Detected', value: 'Detected'),
-  MetricOption(label: 'Investigating', value: 'Investigating'),
-  MetricOption(label: 'Identified', value: 'Identified'),
-  MetricOption(label: 'Monitoring', value: 'Monitoring'),
-  MetricOption(label: 'Resolved', value: 'Resolved'),
+/// `STATUS_OPTIONS` in IncidentDetailPage.tsx. Labels reuse the detail
+/// composer's status keys; the [MetricOption.value] wire tokens stay fixed.
+List<MetricOption> get kIncidentStatuses => [
+  MetricOption(label: trans('uptizm.incidents.detail_composer_status_detected'), value: 'Detected'),
+  MetricOption(label: trans('uptizm.incidents.detail_composer_status_investigating'), value: 'Investigating'),
+  MetricOption(label: trans('uptizm.incidents.detail_composer_status_identified'), value: 'Identified'),
+  MetricOption(label: trans('uptizm.incidents.detail_composer_status_monitoring'), value: 'Monitoring'),
+  MetricOption(label: trans('uptizm.incidents.detail_composer_status_resolved'), value: 'Resolved'),
 ];
 
 /// An anomaly's AI confidence sets where the operator-side severity starts.
@@ -76,40 +82,47 @@ const Map<mocks.AiConfidence, String> severityFromConfidence = {
 /// maintenance, then falls back to the impact-driven investigating copy.
 String draftUpdate(Incident i) {
   if (i.lifecycle == mocks.IncidentLifecycle.resolved) {
-    return 'This incident is resolved. ${i.monitorName} is back to normal '
-        'across all regions and checks are passing again. Thanks for your '
-        'patience.';
+    return trans('uptizm.incidents.draft_resolved', {'name': i.monitorName});
   }
   if (i.signalSource == mocks.SignalSource.manual &&
       i.impact == mocks.IncidentImpact.info) {
-    return 'Scheduled maintenance on ${i.monitorName} is underway. You may '
-        "notice a brief interruption while we work. We'll post here as soon "
-        "as it's complete.";
+    return trans('uptizm.incidents.draft_maintenance', {'name': i.monitorName});
   }
 
   final String what = switch (i.impact) {
-    mocks.IncidentImpact.down => 'a major outage',
-    mocks.IncidentImpact.degraded => 'degraded performance',
-    mocks.IncidentImpact.info => 'a service issue',
+    mocks.IncidentImpact.down => trans('uptizm.incidents.draft_what_down'),
+    mocks.IncidentImpact.degraded =>
+      trans('uptizm.incidents.draft_what_degraded'),
+    mocks.IncidentImpact.info => trans('uptizm.incidents.draft_what_info'),
   };
   final String signal = i.impact == mocks.IncidentImpact.down
-      ? 'errors across regions'
-      : 'elevated response times';
+      ? trans('uptizm.incidents.draft_signal_errors')
+      : trans('uptizm.incidents.draft_signal_latency');
 
-  return "We're investigating $what affecting ${i.monitorName}. Uptizm's "
-      "checks are showing $signal. We'll share another update within 30 "
-      'minutes.';
+  return trans('uptizm.incidents.draft_investigating', {
+    'what': what,
+    'name': i.monitorName,
+    'signal': signal,
+  });
 }
 
 /// A postmortem draft built only from what Uptizm observed. Ports
 /// `postmortemDraft` from IncidentDetailPage.tsx.
 String postmortemDraft(Incident i) {
-  final String monitorWord = i.affectedCount == 1 ? 'monitor' : 'monitors';
-  return '${i.title} lasted ${i.duration} and affected ${i.affectedCount} '
-      '$monitorWord. Uptizm first detected it via '
-      '${i.signalSource.label.toLowerCase()}, then saw checks recover before '
-      'it was resolved. This draft covers only what Uptizm observed from the '
-      'outside; add the internal root cause before publishing.';
+  // English pluralizes the noun after a count; Turkish does not, so the two
+  // count variants pick the right English wording while sharing one TR value.
+  final String monitorWord = trans(
+    i.affectedCount == 1
+        ? 'uptizm.incidents.postmortem_monitor_one'
+        : 'uptizm.incidents.postmortem_monitor_other',
+  );
+  return trans('uptizm.incidents.postmortem', {
+    'title': i.title,
+    'duration': i.duration,
+    'count': '${i.affectedCount}',
+    'monitorWord': monitorWord,
+    'signal': i.signalSource.label.toLowerCase(),
+  });
 }
 
 /// Maps the [monitors] fixture to [Region] instances expected by

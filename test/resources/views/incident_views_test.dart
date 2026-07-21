@@ -26,6 +26,14 @@ class _IncidentViewsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
     return {
+      // Shared relative-time + count copy.
+      'uptizm.common.time_just_now': 'just now',
+      'uptizm.monitors.kpi_delta_ongoing': 'ongoing',
+      'uptizm.monitors.count_of': ':visible of :total',
+      'uptizm.incidents.affected_count_one': ':count monitor affected',
+      'uptizm.incidents.affected_count_other': ':count monitors affected',
+      'uptizm.incidents.form_prefill_title':
+          'Investigating anomaly on :monitor',
       // List.
       'uptizm.incidents.list_title': 'Incidents',
       'uptizm.incidents.list_description': 'Active and past incidents.',
@@ -108,6 +116,42 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.ai_analysis_gated':
           'AI incident analysis pinpoints '
           'the likely cause.',
+
+      // Create-form option labels (kind / severity / impact), now trans()-driven.
+      'uptizm.incidents.form_kind_incident': 'Incident',
+      'uptizm.incidents.form_kind_maintenance': 'Scheduled maintenance',
+      'uptizm.incidents.form_severity_critical': 'Critical',
+      'uptizm.incidents.form_severity_warning': 'Warning',
+      'uptizm.incidents.form_severity_info': 'Info',
+      'uptizm.incidents.form_impact_down': 'Major outage',
+      'uptizm.incidents.form_impact_degraded': 'Degraded performance',
+      'uptizm.incidents.form_impact_info': 'Maintenance',
+
+      // Detail composer status options (kIncidentStatuses), now trans()-driven.
+      'uptizm.incidents.detail_composer_status_detected': 'Detected',
+      'uptizm.incidents.detail_composer_status_investigating': 'Investigating',
+      'uptizm.incidents.detail_composer_status_identified': 'Identified',
+      'uptizm.incidents.detail_composer_status_monitoring': 'Monitoring',
+      'uptizm.incidents.detail_composer_status_resolved': 'Resolved',
+
+      // AI-draft composer + postmortem templates, now trans()-driven.
+      'uptizm.incidents.draft_resolved':
+          'This incident is resolved. :name is back to normal across all '
+          'regions and checks are passing again. Thanks for your patience.',
+      'uptizm.incidents.draft_maintenance':
+          'Scheduled maintenance on :name is underway.',
+      'uptizm.incidents.draft_investigating':
+          "We're investigating :what affecting :name. Uptizm's checks are "
+          ":signal. We'll share another update within 30 minutes.",
+      'uptizm.incidents.draft_what_down': 'a major outage',
+      'uptizm.incidents.draft_what_degraded': 'degraded performance',
+      'uptizm.incidents.draft_what_info': 'a service issue',
+      'uptizm.incidents.draft_signal_errors': 'errors across regions',
+      'uptizm.incidents.draft_signal_latency': 'elevated response times',
+      'uptizm.incidents.postmortem':
+          ':title lasted :duration and affected :count :monitorWord.',
+      'uptizm.incidents.postmortem_monitor_one': 'monitor',
+      'uptizm.incidents.postmortem_monitor_other': 'monitors',
 
       // Shared status labels (StatusBadge / chip row).
       'uptizm.status.up': 'Operational',

@@ -160,7 +160,9 @@ class _IncidentsListViewState
         KpiStatCard(
           label: trans('uptizm.incidents.count_active'),
           value: '$activeCount',
-          delta: activeCount > 0 ? 'ongoing' : null,
+          delta: activeCount > 0
+              ? trans('uptizm.monitors.kpi_delta_ongoing')
+              : null,
           trend: activeCount > 0 ? KpiTrend.down : KpiTrend.neutral,
         ),
         KpiStatCard(
@@ -225,7 +227,10 @@ class _IncidentsListViewState
         // The count is desktop-only: on mobile it eats width the tabs need, so
         // hide it below the md breakpoint and let the tabs use the full row.
         WText(
-          '${_visible.length} of ${controller.incidents.length}',
+          trans('uptizm.monitors.count_of', {
+            'visible': '${_visible.length}',
+            'total': '${controller.incidents.length}',
+          }),
           className:
               'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
