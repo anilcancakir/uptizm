@@ -292,7 +292,7 @@ class DashboardController extends MagicController {
   String get fleetSummary {
     final int total = monitorCount;
     if (total == 0) {
-      return 'No monitors yet. Add your first monitor to start tracking uptime.';
+      return trans('uptizm.dashboard.fleet_empty');
     }
 
     final List<String> down = _monitorsSnapshot
@@ -305,24 +305,45 @@ class DashboardController extends MagicController {
         .toList();
 
     if (down.isEmpty && degraded.isEmpty && _openIncidents == 0) {
-      return 'All $total monitors are operational. No open incidents.';
+      return trans('uptizm.dashboard.fleet_all_operational', {'count': '$total'});
     }
 
     final List<String> parts = <String>[
-      '$upCount of $total monitors operational',
+      trans('uptizm.dashboard.fleet_operational_ratio', {
+        'up': '$upCount',
+        'total': '$total',
+      }),
     ];
-    if (down.isNotEmpty) parts.add('${_joinNames(down)} down');
-    if (degraded.isNotEmpty) parts.add('${_joinNames(degraded)} degraded');
+    if (down.isNotEmpty) {
+      parts.add(
+        trans('uptizm.dashboard.fleet_down_suffix', {'names': _joinNames(down)}),
+      );
+    }
+    if (degraded.isNotEmpty) {
+      parts.add(
+        trans('uptizm.dashboard.fleet_degraded_suffix', {
+          'names': _joinNames(degraded),
+        }),
+      );
+    }
+    // English needs singular/plural on the noun; Turkish does not, so the two
+    // count variants select the right English wording while sharing one TR value.
     final String incidentSentence = _openIncidents == 0
-        ? 'No open incidents.'
-        : '$_openIncidents open incident${_openIncidents == 1 ? '' : 's'}.';
+        ? trans('uptizm.dashboard.fleet_no_open_incidents')
+        : trans(
+            _openIncidents == 1
+                ? 'uptizm.dashboard.fleet_open_incidents_one'
+                : 'uptizm.dashboard.fleet_open_incidents_other',
+            {'count': '$_openIncidents'},
+          );
     return '${parts.join(', ')}. $incidentSentence';
   }
 
-  /// Joins names as `A`, `A and B`, or `A, B and C`.
+  /// Joins names as `A`, `A and B`, or `A, B and C`, with a localized connector.
   String _joinNames(List<String> names) {
     if (names.length == 1) return names.first;
-    if (names.length == 2) return '${names[0]} and ${names[1]}';
-    return '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+    final String and = trans('uptizm.common.list_and');
+    if (names.length == 2) return '${names[0]} $and ${names[1]}';
+    return '${names.sublist(0, names.length - 1).join(', ')} $and ${names.last}';
   }
 }

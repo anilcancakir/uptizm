@@ -76,6 +76,22 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.monitors.paused_description': 'Checks are paused.',
       'uptizm.monitors.error_load_title': 'Monitor not found',
       'uptizm.monitors.error_load_description': 'No monitor with that id.',
+      // SloBudgetCard (Reliability section), now trans()-driven.
+      'uptizm.slo.error_budget': 'Error budget',
+      'uptizm.slo.status_healthy': 'Healthy',
+      'uptizm.slo.status_at_risk': 'At risk',
+      'uptizm.slo.status_breached': 'Budget breached',
+      'uptizm.slo.budget_left': ':pct% budget left',
+      'uptizm.slo.budget_of': ':used of :allowed',
+      'uptizm.slo.over_budget': 'Over budget by :amount this window.',
+      'uptizm.slo.window_7day': '7-day',
+      'uptizm.slo.window_30day': '30-day',
+      // DateRangePicker (response-time section), now trans()-driven.
+      'uptizm.ranges.custom': 'Custom range',
+      'uptizm.ranges.last_24h': 'Last 24 hours',
+      'uptizm.ranges.last_7d': 'Last 7 days',
+      'uptizm.ranges.last_30d': 'Last 30 days',
+      'uptizm.ranges.last_90d': 'Last 90 days',
     };
   }
 }

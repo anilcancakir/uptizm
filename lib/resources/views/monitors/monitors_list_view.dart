@@ -63,11 +63,14 @@ class _Filter {
 class _MonitorsListViewState
     extends MagicStatefulViewState<MonitorController, MonitorsListView> {
   /// The four filter tabs: All, Operational, Degraded, Down.
-  static const List<_Filter> _filters = [
-    _Filter(label: 'All'),
-    _Filter(label: 'Operational', status: StatusKey.up),
-    _Filter(label: 'Degraded', status: StatusKey.degraded),
-    _Filter(label: 'Down', status: StatusKey.down),
+  ///
+  /// A getter (not a `const`) so each tab label resolves through [trans] at the
+  /// current locale; the [StatusKey] mapping stays fixed.
+  static List<_Filter> get _filters => [
+    _Filter(label: trans('uptizm.monitors.filter_all')),
+    _Filter(label: trans('uptizm.monitors.filter_operational'), status: StatusKey.up),
+    _Filter(label: trans('uptizm.monitors.filter_degraded'), status: StatusKey.degraded),
+    _Filter(label: trans('uptizm.monitors.filter_down'), status: StatusKey.down),
   ];
 
   /// The index of the currently active filter tab (ephemeral, per-screen input).
@@ -116,7 +119,11 @@ class _MonitorsListViewState
       trans('uptizm.monitors.limit_nudge', {
         'plan': _entitlement.planName,
         'count': '$limit',
-        'noun': limit == 1 ? 'monitor' : 'monitors',
+        'noun': trans(
+          limit == 1
+              ? 'uptizm.monitors.noun_one'
+              : 'uptizm.monitors.noun_other',
+        ),
       }),
     );
   }
@@ -216,25 +223,31 @@ class _MonitorsListViewState
               '${allMonitors.length} / ${_entitlement.currentLimits.monitors ?? '∞'}',
           hint: _entitlement.planName.isEmpty
               ? null
-              : '${_entitlement.planName} plan',
+              : trans('uptizm.monitors.kpi_plan_hint', {
+                  'plan': _entitlement.planName,
+                }),
         ),
 
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_operational'),
           value: '$upCount / ${allMonitors.length}',
-          delta: '$downCount down',
+          delta: trans('uptizm.dashboard.kpi_delta_down', {
+            'count': '$downCount',
+          }),
           trend: KpiTrend.down,
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_open_incidents'),
           value: '$openIncidentCount',
-          hint: '$aiActive AI-detected',
+          hint: trans('uptizm.dashboard.kpi_hint_ai_detected', {
+            'count': '$aiActive',
+          }),
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_avg_response'),
           value: '${avgResponse}ms',
           delta: '12ms',
-          hint: 'vs. last 24h',
+          hint: trans('uptizm.dashboard.kpi_hint_vs_24h'),
           trend: KpiTrend.down,
         ),
       ],
@@ -269,7 +282,10 @@ class _MonitorsListViewState
         // The count is desktop-only: on mobile it eats width the tabs need, so
         // hide it below the md breakpoint and let the tabs use the full row.
         WText(
-          '${_visible.length} of ${controller.monitors.length}',
+          trans('uptizm.monitors.count_of', {
+            'visible': '${_visible.length}',
+            'total': '${controller.monitors.length}',
+          }),
           className:
               'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
