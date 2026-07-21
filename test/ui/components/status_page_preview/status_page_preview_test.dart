@@ -7,7 +7,40 @@ import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
 
+/// Feeds the status-page preview copy (banner labels, section headings,
+/// subscribe box, footer) so [trans] returns real English prose instead of the
+/// raw key tokens.
+class _PreviewLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.status.banner_operational': 'All systems operational',
+    'uptizm.status.banner_degraded': 'Degraded performance',
+    'uptizm.status.banner_outage': 'Major outage',
+    'uptizm.status.banner_maintenance': 'Maintenance in progress',
+    'uptizm.status.banner_pending': 'Awaiting first checks',
+    'uptizm.status.banner_paused': 'Some components paused',
+    'uptizm.status.preview_default_name': 'Status',
+    'uptizm.status.preview_updated_ago': 'updated 2m ago',
+    'uptizm.status.preview_live_metrics_heading': 'Live metrics',
+    'uptizm.status.preview_components_heading': 'Components',
+    'uptizm.status.preview_components_empty':
+        'No components yet. Assign monitors to show their status here.',
+    'uptizm.status.preview_past_incidents_heading': 'Past incidents',
+    'uptizm.status.preview_subscribe_heading': 'Subscribe to updates',
+    'uptizm.status.preview_subscribe_description':
+        'Get notified by email when an incident is opened, updated, or resolved.',
+    'uptizm.status.preview_subscribe_placeholder': 'you@example.com',
+    'uptizm.status.preview_subscribe_button': 'Subscribe',
+    'uptizm.status.preview_powered_by': 'powered by Uptizm',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_PreviewLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme] so
   /// W-widgets can resolve Wind styles without a running Magic app, mirroring
   /// `status_dot_test.dart`.

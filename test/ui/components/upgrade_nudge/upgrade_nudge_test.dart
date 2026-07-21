@@ -4,7 +4,22 @@ import 'package:magic/magic.dart';
 import 'package:uptizm/ui/components/upgrade_nudge/index.dart';
 import 'package:uptizm/ui/components/upgrade_nudge/upgrade_nudge.preview.dart';
 
+/// Feeds the upsell copy so [trans] returns real English prose instead of the
+/// raw key tokens.
+class _UpgradeLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.common.upgrade_available_on': 'Available on :plan and up.',
+    'uptizm.common.upgrade': 'Upgrade',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_UpgradeLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   Widget wrap(Widget widget) => MaterialApp(
     home: WindTheme(
       data: WindThemeData(),

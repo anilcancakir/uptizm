@@ -5,8 +5,29 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/ui/components/assistant/assistant.preview.dart';
 import 'package:uptizm/ui/components/assistant/index.dart';
 
+/// Feeds the assistant's greeting, quick-prompt chips, and chrome copy so
+/// [trans] returns real English prose instead of the raw key tokens.
+class _AssistantLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.assistant.greeting':
+        "Hi, I'm Uptizm AI. I reason from your own checks, regions, response "
+            'times, and custom metrics, and I can set things up for you. How '
+            'can I help?',
+    'uptizm.assistant.prompt_slow_monitors': 'Which monitors are slow?',
+    'uptizm.assistant.prompt_create_monitor': 'Create a monitor',
+    'uptizm.assistant.prompt_declare_incident': 'Declare an incident',
+    'uptizm.assistant.prompt_new_status_page': 'New status page',
+    'uptizm.assistant.open_label': 'Open Uptizm AI',
+    'uptizm.assistant.subtitle': 'Ask, or tell me what to set up',
+    'uptizm.assistant.close_label': 'Close assistant',
+    'uptizm.assistant.composer_placeholder': 'Message Uptizm AI…',
+    'uptizm.assistant.send_label': 'Send',
+  };
+}
+
 void main() {
-  setUp(() {
+  setUp(() async {
     MagicApp.reset();
     Magic.flush();
     Magic.singleton('magic_starter', () => MagicStarterManager());
@@ -14,6 +35,8 @@ void main() {
     // service; tests that exercise a live reply override this with a stub
     // seeding the `POST /assistant` envelope before pumping.
     Http.fake();
+    Translator.instance.setLoader(_AssistantLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
   });
 
   tearDown(() {

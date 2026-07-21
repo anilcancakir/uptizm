@@ -74,7 +74,9 @@ class UpgradeNudge extends StatelessWidget {
               children: [
                 WText(message, className: slots['message']),
                 WText(
-                  'Available on $requiredPlan and up.',
+                  trans('uptizm.common.upgrade_available_on', {
+                    'plan': requiredPlan,
+                  }),
                   className: slots['sub'],
                 ),
               ],
@@ -88,7 +90,7 @@ class UpgradeNudge extends StatelessWidget {
               intent: ButtonIntent.primary,
               size: ButtonSize.sm,
               onPressed: onUpgrade,
-              child: WText('Upgrade'),
+              child: WText(trans('uptizm.common.upgrade')),
             ),
           ],
         ],

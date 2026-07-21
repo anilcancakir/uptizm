@@ -189,10 +189,18 @@ List<NotificationItem> notificationItemsFromDatabaseNotifications(
 String _relativeTime(DateTime time) {
   final Duration elapsed = DateTime.now().difference(time);
 
-  if (elapsed.inMinutes < 1) return 'just now';
-  if (elapsed.inHours < 1) return '${elapsed.inMinutes}m ago';
-  if (elapsed.inDays < 1) return '${elapsed.inHours}h ago';
-  return '${elapsed.inDays}d ago';
+  if (elapsed.inMinutes < 1) return trans('uptizm.common.time_just_now');
+  if (elapsed.inHours < 1) {
+    return trans('uptizm.common.time_minutes_ago', {
+      'count': '${elapsed.inMinutes}',
+    });
+  }
+  if (elapsed.inDays < 1) {
+    return trans('uptizm.common.time_hours_ago', {
+      'count': '${elapsed.inHours}',
+    });
+  }
+  return trans('uptizm.common.time_days_ago', {'count': '${elapsed.inDays}'});
 }
 
 /// **The In-App Notification Center**

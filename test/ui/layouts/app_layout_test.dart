@@ -8,7 +8,33 @@ import 'package:uptizm/ui/layouts/mobile_top_bar.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 import 'package:uptizm/ui/layouts/sidebar.dart';
 
+/// Feeds the floating assistant's greeting + chrome so [trans] returns real
+/// English prose instead of the raw key tokens when the shell mounts it.
+class _AppLayoutLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.assistant.greeting':
+        "Hi, I'm Uptizm AI. I reason from your own checks, regions, response "
+            'times, and custom metrics, and I can set things up for you. How '
+            'can I help?',
+    'uptizm.assistant.prompt_slow_monitors': 'Which monitors are slow?',
+    'uptizm.assistant.prompt_create_monitor': 'Create a monitor',
+    'uptizm.assistant.prompt_declare_incident': 'Declare an incident',
+    'uptizm.assistant.prompt_new_status_page': 'New status page',
+    'uptizm.assistant.open_label': 'Open Uptizm AI',
+    'uptizm.assistant.subtitle': 'Ask, or tell me what to set up',
+    'uptizm.assistant.close_label': 'Close assistant',
+    'uptizm.assistant.composer_placeholder': 'Message Uptizm AI…',
+    'uptizm.assistant.send_label': 'Send',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_AppLayoutLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme] so the
   /// W-widgets can resolve Wind styles (and breakpoints) without a running
   /// Magic app or go_router.

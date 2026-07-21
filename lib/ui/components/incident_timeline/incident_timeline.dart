@@ -173,7 +173,9 @@ class IncidentTimeline extends StatelessWidget {
         WText(entry.status, className: classes['status']),
         if (entry.autonomous) _buildAutoModeBadge(),
         WText(
-          entry.isPublic ? 'Public' : 'Internal',
+          entry.isPublic
+              ? trans('uptizm.incidents.timeline_tag_public')
+              : trans('uptizm.incidents.timeline_tag_internal'),
           className: classes['tag'],
         ),
         WText(entry.time, className: classes['time']),
@@ -194,7 +196,7 @@ class IncidentTimeline extends StatelessWidget {
           className: 'text-[11px] text-ai-soft-foreground',
         ),
         WText(
-          'Auto mode',
+          trans('uptizm.incidents.timeline_auto_mode'),
           className: 'text-[11px] font-medium text-ai-soft-foreground',
         ),
       ],

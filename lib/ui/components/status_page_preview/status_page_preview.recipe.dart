@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 import '../../../app/enums/status_key.dart';
 
 /// Root shell className for [StatusPagePreview].
@@ -89,48 +91,52 @@ class StatusPageBannerTone {
 /// `paused-soft` family) so the banner stays token-faithful, and treats `ai`
 /// like `up` (an all-clear page owned by AI reads as operational) exactly as the
 /// source does.
-const Map<StatusKey, StatusPageBannerTone> statusPageBannerTones =
+///
+/// A getter (not a `const`) so each [StatusPageBannerTone.label] resolves
+/// through [trans] at the current locale; the color classNames stay literal
+/// tokens.
+Map<StatusKey, StatusPageBannerTone> get statusPageBannerTones =>
     <StatusKey, StatusPageBannerTone>{
       StatusKey.up: StatusPageBannerTone(
         box: 'bg-up-soft',
         text: 'text-up-soft-foreground',
         dot: 'bg-up',
-        label: 'All systems operational',
+        label: trans('uptizm.status.banner_operational'),
       ),
       StatusKey.degraded: StatusPageBannerTone(
         box: 'bg-degraded-soft',
         text: 'text-degraded-soft-foreground',
         dot: 'bg-degraded',
-        label: 'Degraded performance',
+        label: trans('uptizm.status.banner_degraded'),
       ),
       StatusKey.down: StatusPageBannerTone(
         box: 'bg-down-soft',
         text: 'text-down-soft-foreground',
         dot: 'bg-down',
-        label: 'Major outage',
+        label: trans('uptizm.status.banner_outage'),
       ),
       StatusKey.info: StatusPageBannerTone(
         box: 'bg-info-soft',
         text: 'text-info-soft-foreground',
         dot: 'bg-info',
-        label: 'Maintenance in progress',
+        label: trans('uptizm.status.banner_maintenance'),
       ),
       StatusKey.paused: StatusPageBannerTone(
         box: 'bg-paused-soft',
         text: 'text-paused-soft-foreground',
         dot: 'bg-paused',
-        label: 'Some components paused',
+        label: trans('uptizm.status.banner_paused'),
       ),
       StatusKey.pending: StatusPageBannerTone(
         box: 'bg-paused-soft',
         text: 'text-paused-soft-foreground',
         dot: 'bg-paused',
-        label: 'Awaiting first checks',
+        label: trans('uptizm.status.banner_pending'),
       ),
       StatusKey.ai: StatusPageBannerTone(
         box: 'bg-up-soft',
         text: 'text-up-soft-foreground',
         dot: 'bg-up',
-        label: 'All systems operational',
+        label: trans('uptizm.status.banner_operational'),
       ),
     };

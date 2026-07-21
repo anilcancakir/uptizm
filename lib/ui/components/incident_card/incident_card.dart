@@ -130,7 +130,14 @@ class IncidentCard extends StatelessWidget {
           WText(incident.severity.label),
         ] else
           // Count of affected monitors (mirrors the design lab).
-          WText('${incident.affectedCount} monitors affected'),
+          WText(
+            trans(
+              incident.affectedCount == 1
+                  ? 'uptizm.incidents.affected_count_one'
+                  : 'uptizm.incidents.affected_count_other',
+              {'count': '${incident.affectedCount}'},
+            ),
+          ),
 
         // Separator dot.
         WText('·', className: 'text-fg-disabled'),

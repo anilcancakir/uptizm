@@ -4,7 +4,23 @@ import 'package:magic/magic.dart';
 import 'package:uptizm/ui/components/incident_timeline/incident_timeline.dart';
 import 'package:uptizm/ui/components/incident_timeline/incident_timeline.recipe.dart';
 
+/// Feeds the timeline's visibility tags and Auto-mode flag so [trans] returns
+/// real English prose instead of the raw key tokens.
+class _TimelineLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.incidents.timeline_tag_public': 'Public',
+    'uptizm.incidents.timeline_tag_internal': 'Internal',
+    'uptizm.incidents.timeline_auto_mode': 'Auto mode',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_TimelineLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   Widget wrap(Widget widget) {
     return MaterialApp(
       home: WindTheme(

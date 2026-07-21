@@ -30,20 +30,23 @@ class AssistantMessage {
 }
 
 /// The opening greeting shown when the assistant surface first opens.
-const AssistantMessage _greeting = AssistantMessage(
+///
+/// A getter (not a `const`) so the copy resolves through [trans] at the current
+/// locale.
+AssistantMessage get _greeting => AssistantMessage(
   role: AssistantRole.assistant,
-  text:
-      "Hi, I'm Uptizm AI. I reason from your own checks, regions, response "
-      'times, and custom metrics, and I can set things up for you. How can I '
-      'help?',
+  text: trans('uptizm.assistant.greeting'),
 );
 
 /// The quick-prompt chips offered before the first user message.
-const List<String> _quickPrompts = [
-  'Which monitors are slow?',
-  'Create a monitor',
-  'Declare an incident',
-  'New status page',
+///
+/// A getter (not a `const`) so each chip resolves through [trans] at the
+/// current locale.
+List<String> get _quickPrompts => [
+  trans('uptizm.assistant.prompt_slow_monitors'),
+  trans('uptizm.assistant.prompt_create_monitor'),
+  trans('uptizm.assistant.prompt_declare_incident'),
+  trans('uptizm.assistant.prompt_new_status_page'),
 ];
 
 /// **The Floating Uptizm AI Assistant**
@@ -98,7 +101,7 @@ class _AssistantState extends State<Assistant> {
   /// The running conversation, seeded from [Assistant.initialMessages] or the
   /// greeting.
   late final List<AssistantMessage> _messages = List.of(
-    widget.initialMessages ?? const [_greeting],
+    widget.initialMessages ?? [_greeting],
   );
 
   /// The composer text controller.
@@ -197,7 +200,7 @@ class _AssistantState extends State<Assistant> {
             elevation: 6,
             child: WButton(
               onTap: () => setState(() => _open = true),
-              semanticLabel: 'Open Uptizm AI',
+              semanticLabel: trans('uptizm.assistant.open_label'),
               className: assistantFabRecipe(),
               child: WIcon(
                 Icons.auto_awesome,
@@ -268,7 +271,7 @@ class _AssistantState extends State<Assistant> {
             children: [
               WText('Uptizm AI', className: 'text-sm font-semibold text-fg'),
               WText(
-                'Ask, or tell me what to set up',
+                trans('uptizm.assistant.subtitle'),
                 className: 'text-xs text-fg-muted',
               ),
             ],
@@ -276,7 +279,7 @@ class _AssistantState extends State<Assistant> {
         ),
         WAnchor(
           onTap: () => setState(() => _open = false),
-          semanticLabel: 'Close assistant',
+          semanticLabel: trans('uptizm.assistant.close_label'),
           child: WDiv(
             className: '''
               flex items-center justify-center size-8 shrink-0
@@ -405,7 +408,7 @@ class _AssistantState extends State<Assistant> {
         Expanded(
           child: WInput(
             controller: _input,
-            placeholder: 'Message Uptizm AI…',
+            placeholder: trans('uptizm.assistant.composer_placeholder'),
             // Symmetric vertical padding (not a fixed h-11) so the text sits
             // vertically centered; a fixed height left the text pinned to the
             // top of the field.
@@ -418,7 +421,7 @@ class _AssistantState extends State<Assistant> {
         ),
         WButton(
           onTap: () => _send(_input.text),
-          semanticLabel: 'Send',
+          semanticLabel: trans('uptizm.assistant.send_label'),
           // Padding-based sizing (like the Button component): a WButton ignores
           // size-N and shrink-wraps to its icon, which rendered a tiny circle.
           // px-4 py-3 sizes it to a clear rounded-square ~matching the input

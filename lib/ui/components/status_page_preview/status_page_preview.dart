@@ -110,7 +110,7 @@ class StatusPagePreview extends StatelessWidget {
           child: WText(initials, className: 'text-sm font-bold text-white'),
         ),
         WText(
-          name.isNotEmpty ? name : 'Status',
+          name.isNotEmpty ? name : trans('uptizm.status.preview_default_name'),
           className: 'text-base font-semibold tracking-tight text-fg',
         ),
       ],
@@ -139,7 +139,7 @@ class StatusPagePreview extends StatelessWidget {
         WDiv(
           className: 'flex-1',
           child: WText(
-            'updated 2m ago',
+            trans('uptizm.status.preview_updated_ago'),
             className: 'text-right font-mono text-xs ${tone.text}',
           ),
         ),
@@ -154,7 +154,7 @@ class StatusPagePreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         WText(
-          'Live metrics',
+          trans('uptizm.status.preview_live_metrics_heading'),
           className: statusPagePreviewSectionHeadingClassName,
         ),
         const SizedBox(height: 8),
@@ -196,7 +196,7 @@ class StatusPagePreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         WText(
-          'Components',
+          trans('uptizm.status.preview_components_heading'),
           className: statusPagePreviewSectionHeadingClassName,
         ),
         const SizedBox(height: 8),
@@ -215,7 +215,7 @@ class StatusPagePreview extends StatelessWidget {
           )
         else
           WText(
-            'No components yet. Assign monitors to show their status here.',
+            trans('uptizm.status.preview_components_empty'),
             className: statusPagePreviewEmptyPlaceholderClassName,
           ),
       ],
@@ -229,7 +229,7 @@ class StatusPagePreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         WText(
-          'Past incidents',
+          trans('uptizm.status.preview_past_incidents_heading'),
           className: statusPagePreviewSectionHeadingClassName,
         ),
         const SizedBox(height: 8),
@@ -268,22 +268,22 @@ class StatusPagePreview extends StatelessWidget {
       className: statusPagePreviewSubscribeBoxClassName,
       children: [
         WText(
-          'Subscribe to updates',
+          trans('uptizm.status.preview_subscribe_heading'),
           className: 'text-sm font-semibold text-fg',
         ),
         const SizedBox(height: 4),
         WText(
-          'Get notified by email when an incident is opened, updated, or resolved.',
+          trans('uptizm.status.preview_subscribe_description'),
           className: 'text-sm text-fg-muted',
         ),
         const SizedBox(height: 12),
         WDiv(
           className: 'flex flex-row items-center gap-2',
           children: [
-            const Expanded(
+            Expanded(
               child: MSInput(
                 type: InputType.email,
-                placeholder: 'you@example.com',
+                placeholder: trans('uptizm.status.preview_subscribe_placeholder'),
                 className: 'max-w-xs',
               ),
             ),
@@ -305,7 +305,10 @@ class StatusPagePreview extends StatelessWidget {
       child: WDiv(
         backgroundColor: config.brandColor,
         className: 'rounded-md px-4 py-2 flex items-center justify-center',
-        child: WText('Subscribe', className: 'text-sm font-medium text-white'),
+        child: WText(
+          trans('uptizm.status.preview_subscribe_button'),
+          className: 'text-sm font-medium text-white',
+        ),
       ),
     );
   }
@@ -314,7 +317,7 @@ class StatusPagePreview extends StatelessWidget {
 
   Widget _buildFooter() {
     return WText(
-      '${pageUrl(config)} · powered by Uptizm',
+      '${pageUrl(config)} · ${trans('uptizm.status.preview_powered_by')}',
       className: 'text-center font-mono text-xs text-fg-muted',
     );
   }
