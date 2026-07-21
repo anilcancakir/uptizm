@@ -100,8 +100,10 @@ class _LocaleOnboardingViewState extends State<LocaleOnboardingView> {
     }
 
     // Apply immediately so the app renders in the chosen language/timezone,
-    // then mark the one-shot gate and continue to the dashboard.
-    await Lang.setLocale(Locale(_locale));
+    // then mark the one-shot gate and continue to the dashboard. reload: false
+    // because the root MaterialApp.locale tracks the runtime Translator (see
+    // main.dart), so notifying rebuilds the app without a full remount.
+    await Lang.setLocale(Locale(_locale), reload: false);
     if (_timezone.isNotEmpty) {
       DateManager.instance.setTimezone(_timezone);
     }

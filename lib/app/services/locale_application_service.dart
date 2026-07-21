@@ -60,6 +60,9 @@ class LocaleApplicationService {
     if (locale == null || locale.isEmpty) return;
     if (Lang.current.languageCode == locale) return;
 
-    await Lang.setLocale(Locale(locale));
+    // reload: false because the root MaterialApp.locale is bound to the runtime
+    // Translator (see main.dart), so notifying is enough to rebuild the app in
+    // the new locale; a Magic.reload() remount would be a redundant full reset.
+    await Lang.setLocale(Locale(locale), reload: false);
   }
 }

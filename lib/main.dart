@@ -111,10 +111,21 @@ void main() async {
     ),
   );
 
+  // Bind the root MaterialApp.locale to the runtime Translator. Magic's
+  // MagicApplication otherwise pins MaterialApp.locale to the STATIC config
+  // default, so Flutter's LangDelegate reloads that locale on every build and
+  // reverts any runtime Lang.setLocale (the post-login locale application would
+  // load tr, then immediately get overwritten back to en). Rebuilding on
+  // Translator changes and passing locale: Lang.current keeps the applied
+  // locale stuck.
   runApp(
-    MagicApplication(
-      title: Config.get<String>('app.name', 'Uptizm')!,
-      windTheme: windTheme,
+    ListenableBuilder(
+      listenable: Translator.instance,
+      builder: (context, _) => MagicApplication(
+        title: Config.get<String>('app.name', 'Uptizm')!,
+        windTheme: windTheme,
+        locale: Lang.current,
+      ),
     ),
   );
 }
