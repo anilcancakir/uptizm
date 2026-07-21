@@ -39,7 +39,16 @@ class LocaleOnboardingGate {
   /// before the router first evaluates a redirect. A missing key resolves to
   /// not-completed.
   Future<void> load() async {
-    _completed = (await Vault.get(vaultKey)) != null;
+    try {
+      _completed = (await Vault.get(vaultKey)) != null;
+    } catch (error) {
+      // A vault read failure must not crash boot (every sibling boot hook is
+      // non-throwing); default to not-completed so onboarding still shows.
+      _completed = false;
+      if (Magic.bound('log')) {
+        Log.warning('[LocaleOnboardingGate] vault read failed: $error');
+      }
+    }
   }
 
   /// Marks onboarding as completed for this device.
