@@ -26,11 +26,14 @@ class DateRangePreset {
 }
 
 /// The preset ranges the picker offers, matching the design lab `RANGE_PRESETS`.
-const List<DateRangePreset> kDateRangePresets = [
-  DateRangePreset(label: 'Last 24 hours', short: '24h', value: '24h'),
-  DateRangePreset(label: 'Last 7 days', short: '7d', value: '7d'),
-  DateRangePreset(label: 'Last 30 days', short: '30d', value: '30d'),
-  DateRangePreset(label: 'Last 90 days', short: '90d', value: '90d'),
+///
+/// A getter (not a `const`) so each label resolves through [trans] at the
+/// current locale; `short`/`value` stay as stable technical tokens.
+List<DateRangePreset> get kDateRangePresets => [
+  DateRangePreset(label: trans('uptizm.ranges.last_24h'), short: '24h', value: '24h'),
+  DateRangePreset(label: trans('uptizm.ranges.last_7d'), short: '7d', value: '7d'),
+  DateRangePreset(label: trans('uptizm.ranges.last_30d'), short: '30d', value: '30d'),
+  DateRangePreset(label: trans('uptizm.ranges.last_90d'), short: '90d', value: '90d'),
 ];
 
 /// **Time-range picker for monitor charts.**
@@ -70,7 +73,7 @@ class DateRangePicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final slots = dateRangePickerRecipe(variants: const <String, String>{});
 
-    var activeLabel = 'Custom range';
+    var activeLabel = trans('uptizm.ranges.custom');
     for (final preset in kDateRangePresets) {
       if (preset.value == value) activeLabel = preset.label;
     }

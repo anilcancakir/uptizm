@@ -4,7 +4,23 @@ import 'package:magic/magic.dart';
 import 'package:uptizm/ui/components/key_value_editor/index.dart';
 import 'package:uptizm/ui/components/key_value_editor/key_value_editor.preview.dart';
 
+/// Feeds the key/value editor's default labels so [trans] returns real English
+/// prose instead of the raw key tokens.
+class _KvLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.monitors.kv_add_header': 'Add header',
+    'uptizm.monitors.kv_key_placeholder': 'Header',
+    'uptizm.monitors.kv_value_placeholder': 'Value',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_KvLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   Widget wrap(Widget widget) => MaterialApp(
     home: WindTheme(
       data: WindThemeData(),

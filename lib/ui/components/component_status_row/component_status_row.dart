@@ -82,10 +82,16 @@ class ComponentStatusRow extends StatelessWidget {
           WDiv(
             className: slots['footer'],
             children: [
-              WText('90 days ago', className: slots['footerText']),
+              WText(
+                trans('uptizm.monitors.uptime_90_days_ago'),
+                className: slots['footerText'],
+              ),
               if (uptimeLabel != null)
                 WText(uptimeLabel!, className: slots['footerText']),
-              WText('Today', className: slots['footerText']),
+              WText(
+                trans('uptizm.monitors.uptime_today'),
+                className: slots['footerText'],
+              ),
             ],
           ),
         ],

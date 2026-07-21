@@ -44,14 +44,14 @@ class KeyValueEditor extends StatelessWidget {
   /// Called with a fresh copy whenever a row is edited, added, or removed.
   final ValueChanged<List<KeyValueRow>> onChanged;
 
-  /// Placeholder for the key input.
-  final String keyPlaceholder;
+  /// Placeholder for the key input. Falls back to a localized default.
+  final String? keyPlaceholder;
 
-  /// Placeholder for the value input.
-  final String valuePlaceholder;
+  /// Placeholder for the value input. Falls back to a localized default.
+  final String? valuePlaceholder;
 
-  /// Label of the append button.
-  final String addLabel;
+  /// Label of the append button. Falls back to a localized default.
+  final String? addLabel;
 
   /// Optional extra classNames appended to the root slot.
   final String? className;
@@ -61,9 +61,9 @@ class KeyValueEditor extends StatelessWidget {
     super.key,
     required this.value,
     required this.onChanged,
-    this.keyPlaceholder = 'Header',
-    this.valuePlaceholder = 'Value',
-    this.addLabel = 'Add header',
+    this.keyPlaceholder,
+    this.valuePlaceholder,
+    this.addLabel,
     this.className,
   });
 
@@ -105,7 +105,7 @@ class KeyValueEditor extends StatelessWidget {
           intent: ButtonIntent.secondary,
           size: ButtonSize.sm,
           onPressed: _addRow,
-          child: WText(addLabel),
+          child: WText(addLabel ?? trans('uptizm.monitors.kv_add_header')),
         ),
       ],
     );
@@ -118,7 +118,8 @@ class KeyValueEditor extends StatelessWidget {
         Expanded(
           child: MSInput(
             value: entry.key,
-            placeholder: keyPlaceholder,
+            placeholder:
+                keyPlaceholder ?? trans('uptizm.monitors.kv_key_placeholder'),
             onChanged: (v) => _updateRow(index, key: v),
           ),
         ),
@@ -126,7 +127,9 @@ class KeyValueEditor extends StatelessWidget {
         Expanded(
           child: MSInput(
             value: entry.value,
-            placeholder: valuePlaceholder,
+            placeholder:
+                valuePlaceholder ??
+                trans('uptizm.monitors.kv_value_placeholder'),
             onChanged: (v) => _updateRow(index, value: v),
           ),
         ),

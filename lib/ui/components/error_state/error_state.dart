@@ -60,11 +60,17 @@ class ErrorState extends StatelessWidget {
   static const IconData _defaultIcon = Icons.warning_amber_rounded;
 
   /// Default title when none is supplied.
-  static const String _defaultTitle = "Couldn't load this";
+  ///
+  /// A getter (not a `const`) so it resolves through [trans] at the current
+  /// locale.
+  static String get _defaultTitle => trans('uptizm.common.error_default_title');
 
   /// Default description when none is supplied.
-  static const String _defaultDescription =
-      'Something went wrong on our end. Check your connection and try again.';
+  ///
+  /// A getter (not a `const`) so it resolves through [trans] at the current
+  /// locale.
+  static String get _defaultDescription =>
+      trans('uptizm.common.error_default_description');
 
   @override
   Widget build(BuildContext context) {

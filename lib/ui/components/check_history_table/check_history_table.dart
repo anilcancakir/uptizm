@@ -108,11 +108,23 @@ class CheckHistoryTable extends StatelessWidget {
     return WDiv(
       className: classes['header'],
       children: [
-        WText('Time', className: classes['th']),
-        WText('Region', className: classes['th']),
-        WText('Status', className: classes['thStatus']),
-        WText('Response', className: classes['thResponse']),
-        WText('Code', className: classes['thCode']),
+        WText(trans('uptizm.monitors.check_col_time'), className: classes['th']),
+        WText(
+          trans('uptizm.monitors.check_col_region'),
+          className: classes['th'],
+        ),
+        WText(
+          trans('uptizm.monitors.check_col_status'),
+          className: classes['thStatus'],
+        ),
+        WText(
+          trans('uptizm.monitors.check_col_response'),
+          className: classes['thResponse'],
+        ),
+        WText(
+          trans('uptizm.monitors.check_col_code'),
+          className: classes['thCode'],
+        ),
       ],
     );
   }

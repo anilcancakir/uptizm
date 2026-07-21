@@ -3,7 +3,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/ui/components/slo_budget_card/index.dart';
 
+/// Feeds the SLO card labels so [trans] returns the real English prose the
+/// card renders instead of the raw key tokens.
+class _SloLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.slo.error_budget': 'Error budget',
+    'uptizm.slo.status_healthy': 'Healthy',
+    'uptizm.slo.status_at_risk': 'At risk',
+    'uptizm.slo.status_breached': 'Budget breached',
+    'uptizm.slo.budget_left': ':pct% budget left',
+    'uptizm.slo.budget_of': ':used of :allowed',
+    'uptizm.slo.over_budget': 'Over budget by :amount this window.',
+    'uptizm.slo.window_7day': '7-day',
+    'uptizm.slo.window_30day': '30-day',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_SloLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   Widget wrap(Widget widget) => MaterialApp(
     home: WindTheme(
       data: WindThemeData(),

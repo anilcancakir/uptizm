@@ -4,7 +4,23 @@ import 'package:magic/magic.dart';
 import 'package:uptizm/ui/components/error_state/error_state.dart';
 import 'package:uptizm/ui/components/error_state/error_state.recipe.dart';
 
+/// Feeds the default error-state copy so [trans] returns real English prose
+/// instead of the raw key tokens.
+class _ErrorLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.common.error_default_title': "Couldn't load this",
+    'uptizm.common.error_default_description':
+        'Something went wrong on our end. Check your connection and try again.',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_ErrorLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme].
   Widget wrap(Widget widget) {
     return MaterialApp(

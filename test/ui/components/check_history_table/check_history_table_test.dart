@@ -23,6 +23,11 @@ class _StatusLangLoader implements TranslationLoader {
       'uptizm.status.paused': 'Paused',
       'uptizm.status.info': 'Maintenance',
       'uptizm.status.ai': 'AI',
+      'uptizm.monitors.check_col_time': 'Time',
+      'uptizm.monitors.check_col_region': 'Region',
+      'uptizm.monitors.check_col_status': 'Status',
+      'uptizm.monitors.check_col_response': 'Response',
+      'uptizm.monitors.check_col_code': 'Code',
     };
   }
 }

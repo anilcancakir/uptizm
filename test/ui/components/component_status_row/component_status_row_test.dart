@@ -6,7 +6,22 @@ import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/component_status_row/index.dart';
 import 'package:uptizm/ui/components/component_status_row/component_status_row.preview.dart';
 
+/// Feeds the 90-day footer labels so [trans] returns real English prose
+/// instead of the raw key tokens.
+class _RowLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.monitors.uptime_90_days_ago': '90 days ago',
+    'uptizm.monitors.uptime_today': 'Today',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_RowLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   Widget wrap(Widget widget) => MaterialApp(
     home: WindTheme(
       data: WindThemeData(),

@@ -4,7 +4,25 @@ import 'package:magic/magic.dart';
 import 'package:uptizm/ui/components/date_range_picker/index.dart';
 import 'package:uptizm/ui/components/date_range_picker/date_range_picker.preview.dart';
 
+/// Feeds the range preset labels so [trans] returns the real English prose the
+/// picker renders instead of the raw key tokens.
+class _RangesLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.ranges.custom': 'Custom range',
+    'uptizm.ranges.last_24h': 'Last 24 hours',
+    'uptizm.ranges.last_7d': 'Last 7 days',
+    'uptizm.ranges.last_30d': 'Last 30 days',
+    'uptizm.ranges.last_90d': 'Last 90 days',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_RangesLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   Widget wrap(Widget widget) => MaterialApp(
     home: WindTheme(
       data: WindThemeData(),

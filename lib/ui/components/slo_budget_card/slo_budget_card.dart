@@ -91,8 +91,9 @@ class SloBudgetCard extends StatelessWidget {
   /// Window length in days used for the downtime math.
   final int windowDays;
 
-  /// Window label shown beside the target, e.g. "30-day".
-  final String windowLabel;
+  /// Window label shown beside the target, e.g. "30-day". When null, falls back
+  /// to the localized 30-day label.
+  final String? windowLabel;
 
   /// Optional extra classNames appended to the root slot.
   final String? className;
@@ -103,15 +104,21 @@ class SloBudgetCard extends StatelessWidget {
     required this.target,
     required this.uptimePct,
     this.windowDays = 30,
-    this.windowLabel = '30-day',
+    this.windowLabel,
     this.className,
   });
 
-  static const Map<SloBudgetTone, String> _statusLabel = {
-    SloBudgetTone.up: 'Healthy',
-    SloBudgetTone.degraded: 'At risk',
-    SloBudgetTone.down: 'Budget breached',
-  };
+  /// Localized health-tone label shown in the status badge.
+  String _statusLabelFor(SloBudgetTone tone) {
+    switch (tone) {
+      case SloBudgetTone.up:
+        return trans('uptizm.slo.status_healthy');
+      case SloBudgetTone.degraded:
+        return trans('uptizm.slo.status_at_risk');
+      case SloBudgetTone.down:
+        return trans('uptizm.slo.status_breached');
+    }
+  }
 
   /// Render a minute count as "Xm", "Xh", or "Xh Ym".
   String _formatMinutes(double min) {
@@ -133,6 +140,7 @@ class SloBudgetCard extends StatelessWidget {
       variants: {kSloBudgetToneAxis: budget.tone.name},
     );
     final fillPct = budget.remainingPct.clamp(0.0, 100.0);
+    final String window = windowLabel ?? trans('uptizm.slo.window_30day');
 
     return WDiv(
       className: className == null
@@ -147,11 +155,11 @@ class SloBudgetCard extends StatelessWidget {
               className: 'flex flex-col gap-0.5',
               children: [
                 WText(
-                  'Error budget',
+                  trans('uptizm.slo.error_budget'),
                   className: 'text-sm font-semibold text-fg',
                 ),
                 WText(
-                  'SLO $target% · $windowLabel',
+                  'SLO $target% · $window',
                   className: 'font-mono text-xs tabular-nums text-fg-muted',
                 ),
               ],
@@ -164,7 +172,7 @@ class SloBudgetCard extends StatelessWidget {
                   height: 8,
                   child: WDiv(className: slots['dot']),
                 ),
-                WText(_statusLabel[budget.tone]!, className: slots['status']),
+                WText(_statusLabelFor(budget.tone), className: slots['status']),
               ],
             ),
           ],
@@ -188,11 +196,14 @@ class SloBudgetCard extends StatelessWidget {
           className: 'flex flex-row items-center justify-between',
           children: [
             WText(
-              '${fillPct.round()}% budget left',
+              trans('uptizm.slo.budget_left', {'pct': '${fillPct.round()}'}),
               className: 'font-mono text-xs tabular-nums font-medium text-fg',
             ),
             WText(
-              '${_formatMinutes(math.max(0, budget.remaining))} of ${_formatMinutes(budget.allowed)}',
+              trans('uptizm.slo.budget_of', {
+                'used': _formatMinutes(math.max(0, budget.remaining)),
+                'allowed': _formatMinutes(budget.allowed),
+              }),
               className: 'font-mono text-xs tabular-nums text-fg-muted',
             ),
           ],
@@ -201,7 +212,9 @@ class SloBudgetCard extends StatelessWidget {
         // Over-budget note, shown only once the budget is breached.
         if (budget.tone == SloBudgetTone.down)
           WText(
-            'Over budget by ${_formatMinutes(budget.used - budget.allowed)} this window.',
+            trans('uptizm.slo.over_budget', {
+              'amount': _formatMinutes(budget.used - budget.allowed),
+            }),
             className: 'text-xs text-down-soft-foreground',
           ),
       ],
