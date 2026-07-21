@@ -438,6 +438,7 @@
       "form_url_error_required": "İzlenecek bir hedef girin.",
       "form_url_error_http": "https:// dahil tam bir URL girin",
       "form_url_error_tcp": "Bir sunucu ve port girin, örn. host:5432",
+      "form_name_error_required": "Ad zorunludur.",
       "form_interval_label": "Kontrol aralığı",
       "form_interval_requires": ":plan gerektirir",
       "form_regions_label": "Bölgeler",

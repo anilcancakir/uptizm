@@ -290,26 +290,27 @@ class MonitorController extends MagicController {
   /// mass-assigns them into a fresh [Monitor] and persists it through the ORM
   /// (`POST /monitors`), then reloads the inventory before navigating.
   ///
-  /// [Monitor.save] absorbs transport failures internally and returns `false`
-  /// rather than throwing; on a `false` result the create surfaces the
-  /// save-failed error toast and STAYS on the form so the user can correct and
-  /// retry, instead of being bounced to the list with no monitor created and no
-  /// feedback.
-  Future<void> create([Map<String, dynamic>? fields]) async {
+  /// Returns the backend per-field validation errors (single message per field,
+  /// keyed by the wire field name) so the form can render a server 422 inline;
+  /// an empty map means success (or a navigation-only call). A `false` save that
+  /// carries field errors ([Monitor.validationErrors]) STAYS on the form with no
+  /// toast so the user corrects the flagged fields; a `false` save with NO field
+  /// errors (a transport error / 500) keeps the generic save-failed toast and
+  /// returns an empty map. [Monitor.save] absorbs transport failures internally
+  /// and returns `false` rather than throwing.
+  Future<Map<String, String>> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
       final Monitor monitor = Monitor()..fill(fields);
       final bool ok = await monitor.save();
       if (!ok) {
-        Log.error('[MonitorController.create] save returned false');
-        Magic.error(
-          trans('uptizm.monitors.toast_save_failed_title'),
-          trans('uptizm.monitors.toast_save_failed_description'),
-        );
-        return;
+        final Map<String, String>? fieldErrors = _fieldErrorsOrToast(monitor);
+        if (fieldErrors != null) return fieldErrors;
+        return const {};
       }
       await reload();
     }
     MagicRoute.to('/monitors');
+    return const {};
   }
 
   /// Saves the monitor [id] and returns to its detail route.
@@ -320,28 +321,59 @@ class MonitorController extends MagicController {
   /// edited fields, and persists it (`PUT /monitors/:id`), then reloads the
   /// inventory before navigating.
   ///
-  /// A missing monitor (the id no longer resolves) returns early without
-  /// navigating. [Monitor.save] absorbs transport failures internally and
-  /// returns `false` rather than throwing; on a `false` result the save
-  /// surfaces the save-failed error toast and stays on the form.
-  Future<void> save(String id, [Map<String, dynamic>? fields]) async {
+  /// Returns the backend per-field validation errors (single message per field,
+  /// keyed by the wire field name) so the form can render a server 422 inline;
+  /// an empty map means success, a navigation-only call, or a missing monitor
+  /// (the id no longer resolves). A `false` save that carries field errors
+  /// ([Monitor.validationErrors]) STAYS on the form with no toast; a `false`
+  /// save with NO field errors (a transport error / 500) keeps the generic
+  /// save-failed toast and returns an empty map. [Monitor.save] absorbs
+  /// transport failures internally and returns `false` rather than throwing.
+  Future<Map<String, String>> save(
+    String id, [
+    Map<String, dynamic>? fields,
+  ]) async {
     if (fields != null) {
       final Monitor? monitor = await Monitor.find(id);
-      if (monitor == null) return;
+      if (monitor == null) return const {};
 
       monitor.fill(fields);
       final bool ok = await monitor.save();
       if (!ok) {
-        Log.error('[MonitorController.save] $id: save returned false');
-        Magic.error(
-          trans('uptizm.monitors.toast_save_failed_title'),
-          trans('uptizm.monitors.toast_save_failed_description'),
-        );
-        return;
+        final Map<String, String>? fieldErrors = _fieldErrorsOrToast(monitor);
+        if (fieldErrors != null) return fieldErrors;
+        return const {};
       }
       await reload();
     }
     MagicRoute.to('/monitors/$id');
+    return const {};
+  }
+
+  /// Resolves a failed [monitor] save into either its per-field validation
+  /// errors or a generic toast.
+  ///
+  /// Returns the field errors (single message per field, keyed by the wire
+  /// field name) when the failed save carried the Laravel 422 shape via
+  /// [Monitor.validationErrors], so the caller hands them back to the form for
+  /// inline display and stays put. Returns `null` for a non-field failure (a
+  /// transport error / 500) after surfacing the generic save-failed toast and
+  /// logging the cause, so the caller falls back to its empty-map contract.
+  Map<String, String>? _fieldErrorsOrToast(Monitor monitor) {
+    final Map<String, List<String>> errors = monitor.validationErrors;
+    if (errors.isNotEmpty) {
+      return {
+        for (final MapEntry<String, List<String>> entry in errors.entries)
+          entry.key: entry.value.first,
+      };
+    }
+
+    Log.error('[MonitorController] save returned false with no field errors');
+    Magic.error(
+      trans('uptizm.monitors.toast_save_failed_title'),
+      trans('uptizm.monitors.toast_save_failed_description'),
+    );
+    return null;
   }
 
   /// Runs the AI analyze probe for [url] via `POST /monitors/analyze` and

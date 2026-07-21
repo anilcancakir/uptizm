@@ -438,6 +438,7 @@
       "form_url_error_required": "Enter a target to monitor.",
       "form_url_error_http": "Enter a full URL including https://",
       "form_url_error_tcp": "Enter a host and port, e.g. host:5432",
+      "form_name_error_required": "Name is required.",
       "form_interval_label": "Check interval",
       "form_interval_requires": "Requires :plan",
       "form_regions_label": "Regions",

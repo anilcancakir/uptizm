@@ -18,6 +18,7 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',
       'uptizm.monitors.form_url_placeholder': 'https://example.com/health',
+      'uptizm.monitors.form_name_error_required': 'Name is required.',
       'uptizm.monitors.form_interval_label': 'Check interval',
       'uptizm.monitors.form_regions_label': 'Probe regions',
       'uptizm.monitors.form_regions_hint': 'Select at least one region.',
@@ -97,7 +98,10 @@ void main() {
             initialType: 'http',
             initialInterval: '1m',
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (fields) => captured = fields,
+            onSubmit: (fields) async {
+              captured = fields;
+              return <String, String>{};
+            },
             onCancel: () {},
           ),
         ),
@@ -142,6 +146,89 @@ void main() {
       expect(captured!['ssl_tracking'], isTrue);
     });
 
+    testWidgets('a blank Name blocks submit and shows the inline name error', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      bool submitCalled = false;
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            // A valid target but a blank Name: the client-side required check
+            // must block the round trip on Name before onSubmit fires.
+            initialUrl: 'https://api.example.com/health',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (_) async {
+              submitCalled = true;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder submitButton = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submitButton);
+      await tester.tap(submitButton);
+      await tester.pump();
+
+      expect(
+        submitCalled,
+        isFalse,
+        reason: 'A blank Name must not fire a round trip',
+      );
+      expect(
+        find.text(trans('uptizm.monitors.form_name_error_required')),
+        findsOneWidget,
+        reason: 'The required-name error must render inline under the field',
+      );
+    });
+
+    testWidgets('a server 422 renders the message under the matching field', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      const String serverMessage = 'That name is already taken.';
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            // A fully valid client-side form: the only rejection is the server's
+            // per-field 422, which must land under the Name field.
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (_) async => const {'name': serverMessage},
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder submitButton = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submitButton);
+      await tester.tap(submitButton);
+      await tester.pump();
+
+      expect(
+        find.text(serverMessage),
+        findsOneWidget,
+        reason: 'The server 422 message must render inline under the field',
+      );
+    });
+
     testWidgets('Cancel does not invoke onSubmit', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 1600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -153,7 +240,10 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) => submitCalled = true,
+            onSubmit: (_) async {
+              submitCalled = true;
+              return <String, String>{};
+            },
             onCancel: () => cancelCalled = true,
           ),
         ),

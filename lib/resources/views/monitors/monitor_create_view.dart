@@ -173,9 +173,10 @@ class _MonitorCreateViewState
   /// Creates the monitor with the form's [fields] map (React `done` on
   /// submit, but wired to the real `POST /monitors` instead of a mock).
   /// [MonitorController.create] navigates to the monitors list once the
-  /// request settles.
-  void _submit(Map<String, dynamic> fields) {
-    controller.create(fields);
+  /// request settles, and returns any backend 422 field errors so the form
+  /// renders them inline instead of a generic toast.
+  Future<Map<String, String>> _submit(Map<String, dynamic> fields) {
+    return controller.create(fields);
   }
 
   @override

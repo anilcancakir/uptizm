@@ -33,7 +33,7 @@ import '../../../ui/components/region_picker/region_picker.dart';
 /// ```dart
 /// MonitorForm(
 ///   submitLabel: trans('uptizm.monitors.form_submit_create'),
-///   onSubmit: (fields) => _create(fields),
+///   onSubmit: (fields) => controller.create(fields),
 ///   onCancel: () => Navigator.of(context).pop(),
 /// )
 /// ```
@@ -79,10 +79,19 @@ class MonitorForm extends StatefulWidget {
   /// Label for the primary submit button (e.g. "Create monitor").
   final String submitLabel;
 
-  /// Called when the user taps the primary submit button, with the field map
-  /// assembled by [_MonitorFormState.buildFields] (the backend request
-  /// shape). The caller decides whether that fires a create or a save.
-  final void Function(Map<String, dynamic> fields) onSubmit;
+  /// Called when the user taps the primary submit button (once the client-side
+  /// required checks pass), with the field map assembled by
+  /// [_MonitorFormState.buildFields] (the backend request shape). The caller
+  /// decides whether that fires a create or a save.
+  ///
+  /// Returns the backend field errors keyed by the wire field name the form
+  /// posted (`name`, `url`, `regions`, `check_interval_sec`, `method`,
+  /// `timeout_sec`, ...), single message per field, so a server 422 renders
+  /// inline under the matching field. An empty map means success (the caller
+  /// has already navigated away). Any returned key the form does not own is
+  /// surfaced as a generic failure toast.
+  final Future<Map<String, String>> Function(Map<String, dynamic> fields)
+  onSubmit;
 
   /// Called when the user taps Cancel.
   final VoidCallback onCancel;
@@ -120,6 +129,13 @@ class _MonitorFormState extends State<MonitorForm> {
   /// Monitor name (React `name`).
   late String _name;
 
+  /// Inline validation error for the Name field, or null when it is valid.
+  ///
+  /// Set on submit when the required Name is blank (a check the client can make
+  /// before any round trip), and by a server 422 that rejects `name`. Cleared
+  /// when the user edits the field.
+  String? _nameError;
+
   /// Monitor type token (React `type`).
   late String _type;
 
@@ -137,14 +153,27 @@ class _MonitorFormState extends State<MonitorForm> {
   /// Check-interval token (React `intervalValue`).
   late String _intervalValue;
 
+  /// Inline validation error for the check-interval field, set only by a server
+  /// 422 that rejects `check_interval_sec` (the client cannot pre-check it).
+  /// Cleared when the user picks another interval.
+  String? _intervalError;
+
   /// Selected probe-region values (React `regions`).
   late List<String> _regions;
+
+  /// Inline validation error for the Regions field, set only by a server 422
+  /// that rejects `regions`. Cleared when the user changes the selection.
+  String? _regionsError;
 
   /// Whether the advanced section is expanded (React `advanced`).
   late bool _advanced;
 
   /// HTTP method token for the advanced section (React `method`).
   String _method = 'get';
+
+  /// Inline validation error for the HTTP method field, set only by a server
+  /// 422 that rejects `method`. Cleared when the user picks another method.
+  String? _methodError;
 
   /// Request headers for the advanced section (React `headers`).
   late List<KeyValueRow> _headers;
@@ -154,6 +183,10 @@ class _MonitorFormState extends State<MonitorForm> {
 
   /// Timeout in seconds, kept as a raw string (React `timeoutMs`).
   String _timeoutMs = '30';
+
+  /// Inline validation error for the Timeout field, set only by a server 422
+  /// that rejects `timeout_sec`. Cleared when the user edits the field.
+  String? _timeoutError;
 
   /// Alert when the monitor goes down (React `notifyDown`).
   bool _notifyDown = true;
@@ -240,9 +273,13 @@ class _MonitorFormState extends State<MonitorForm> {
   Widget _buildNameField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_field_name_label'),
+      error: _nameError,
       child: MSInput(
         value: _name,
-        onChanged: (value) => setState(() => _name = value),
+        onChanged: (value) => setState(() {
+          _name = value;
+          _nameError = null;
+        }),
         placeholder: trans('uptizm.monitors.form_field_name_placeholder'),
       ),
     );
@@ -302,6 +339,7 @@ class _MonitorFormState extends State<MonitorForm> {
   Widget _buildIntervalField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_interval_label'),
+      error: _intervalError,
       // Rebuild the options against the live entitlement: until the real plan
       // resolves the floor is 0 (nothing locked), then the sub-tier intervals
       // lock the instant the plan lands.
@@ -311,7 +349,12 @@ class _MonitorFormState extends State<MonitorForm> {
           value: _intervalValue,
           options: kCheckIntervals.map(_intervalOption).toList(),
           onChange: (value) {
-            if (value != null) setState(() => _intervalValue = value);
+            if (value != null) {
+              setState(() {
+                _intervalValue = value;
+                _intervalError = null;
+              });
+            }
           },
         ),
       ),
@@ -343,10 +386,14 @@ class _MonitorFormState extends State<MonitorForm> {
     return MSFormField(
       label: trans('uptizm.monitors.form_regions_label'),
       hint: trans('uptizm.monitors.form_regions_hint'),
+      error: _regionsError,
       child: RegionPicker(
         regions: _regionOptions,
         value: _regions,
-        onChanged: (next) => setState(() => _regions = next),
+        onChanged: (next) => setState(() {
+          _regions = next;
+          _regionsError = null;
+        }),
       ),
     );
   }
@@ -461,11 +508,14 @@ class _MonitorFormState extends State<MonitorForm> {
       if (_isHttp)
         MSFormField(
           label: trans('uptizm.monitors.form_method_label'),
+          error: _methodError,
           child: MSSegmentedControl<String>(
             options: kHttpMethods.map((o) => o.label).toList(),
             selectedIndex: _indexOfValue(kHttpMethods, _method),
-            onChanged: (index) =>
-                setState(() => _method = kHttpMethods[index].value),
+            onChanged: (index) => setState(() {
+              _method = kHttpMethods[index].value;
+              _methodError = null;
+            }),
           ),
         ),
       if (_isHttp)
@@ -489,9 +539,13 @@ class _MonitorFormState extends State<MonitorForm> {
       MSFormField(
         label: trans('uptizm.monitors.form_timeout_label'),
         hint: trans('uptizm.monitors.form_timeout_hint'),
+        error: _timeoutError,
         child: MSInput(
           value: _timeoutMs,
-          onChanged: (value) => setState(() => _timeoutMs = value),
+          onChanged: (value) => setState(() {
+            _timeoutMs = value;
+            _timeoutError = null;
+          }),
           type: InputType.number,
           className: 'max-w-32',
         ),
@@ -520,18 +574,91 @@ class _MonitorFormState extends State<MonitorForm> {
     );
   }
 
-  /// Validates the target field before handing the fields to [onSubmit].
+  /// Validates every client-side required field, then hands the fields to
+  /// [onSubmit] and routes any server 422 back into the inline error slots.
   ///
-  /// A malformed target is the one backend rejection the client can catch up
-  /// front, so it is surfaced inline (via [_urlError]) instead of firing a
-  /// round trip that only bounces back a generic save-failed toast.
-  void _submitIfValid() {
-    final String? error = _targetError();
-    if (error != null) {
-      setState(() => _urlError = error);
-      return;
+  /// The client checks the required Name and the target shape up front so those
+  /// rejections surface inline WITHOUT a round trip. Only when they pass does it
+  /// await [onSubmit]; a non-empty result (a server 422) is a field-error map
+  /// keyed by the posted wire field names, which [_applyServerErrors] paints
+  /// under the matching fields. A returned key the form owns no slot for is a
+  /// global error, surfaced as the generic save-failed toast.
+  Future<void> _submitIfValid() async {
+    if (!_validateClientSide()) return;
+
+    final Map<String, String> serverErrors = await widget.onSubmit(
+      buildFields(),
+    );
+    if (!mounted || serverErrors.isEmpty) return;
+
+    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
+    if (unmapped.isNotEmpty) {
+      Magic.error(
+        trans('uptizm.monitors.toast_save_failed_title'),
+        unmapped.values.first,
+      );
     }
-    widget.onSubmit(buildFields());
+  }
+
+  /// Runs every client-side required check, painting each field's inline error
+  /// slot, and returns whether the form may be submitted.
+  ///
+  /// Currently the required Name and the target shape (via [_targetError]); both
+  /// are checks the client can make before any round trip. Both slots are always
+  /// written (a passing check clears its slot) so a previously shown error never
+  /// lingers after a corrected resubmit.
+  bool _validateClientSide() {
+    final String? nameError = _name.trim().isEmpty
+        ? trans('uptizm.monitors.form_name_error_required')
+        : null;
+    final String? targetError = _targetError();
+
+    setState(() {
+      _nameError = nameError;
+      _urlError = targetError;
+    });
+
+    return nameError == null && targetError == null;
+  }
+
+  /// Routes a backend 422 field-error map (keyed by the wire field names the
+  /// form posts) into the inline error slots, returning the entries that map to
+  /// no known field so the caller can surface them another way.
+  ///
+  /// When a rejected field lives in the advanced section (`method` / `timeout`),
+  /// the section is expanded so the inline error is actually visible rather than
+  /// hidden behind the collapsed toggle.
+  Map<String, String> _applyServerErrors(Map<String, String> errors) {
+    final Map<String, String> unmapped = {};
+    bool expandAdvanced = false;
+
+    setState(() {
+      for (final MapEntry<String, String> entry in errors.entries) {
+        switch (entry.key) {
+          case 'name':
+            _nameError = entry.value;
+          case 'url':
+          case 'target':
+            _urlError = entry.value;
+          case 'regions':
+            _regionsError = entry.value;
+          case 'check_interval_sec':
+            _intervalError = entry.value;
+          case 'method':
+            _methodError = entry.value;
+            expandAdvanced = true;
+          case 'timeout_sec':
+          case 'timeout_ms':
+            _timeoutError = entry.value;
+            expandAdvanced = true;
+          default:
+            unmapped[entry.key] = entry.value;
+        }
+      }
+      if (expandAdvanced) _advanced = true;
+    });
+
+    return unmapped;
   }
 
   /// Validates the target against the selected type, mirroring the backend
