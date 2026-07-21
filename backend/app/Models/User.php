@@ -10,12 +10,13 @@ use FlutterSdk\MagicStarter\Traits\HasTeams;
 use FlutterSdk\MagicStarter\Traits\MustVerifyEmail;
 use FlutterSdk\MagicStarter\Traits\TwoFactorAuthenticatable;
 use Illuminate\Contracts\Auth\MustVerifyEmail as MustVerifyEmailContract;
+use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable implements MustVerifyEmailContract
+class User extends Authenticatable implements HasLocalePreference, MustVerifyEmailContract
 {
     use ConditionallyUsesUuids;
     use HasApiTokens;
@@ -67,5 +68,14 @@ class User extends Authenticatable implements MustVerifyEmailContract
             'password' => 'hashed',
             'is_guest' => 'boolean',
         ];
+    }
+
+    /**
+     * Get the user's preferred locale for queued notifications and
+     * mailables (see {@see HasLocalePreference}).
+     */
+    public function preferredLocale(): ?string
+    {
+        return $this->locale;
     }
 }
