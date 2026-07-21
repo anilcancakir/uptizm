@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 /// Monitor and component health state vocabulary.
 ///
 /// Single source of truth for every status badge, uptime bar, incident impact,
@@ -37,15 +39,19 @@ enum StatusKey {
   /// Handled autonomously by Uptizm AI.
   ai;
 
-  /// Human-readable label shown in badges and detail headers.
+  /// Localized human-readable label shown in badges and detail headers.
+  ///
+  /// Resolves through the shared `uptizm.status.*` keys: those already carry
+  /// the exact status labels (`Operational`, `Major outage`, ...) that views
+  /// render, so the enum label and the view copy stay a single source.
   String get label => switch (this) {
-    StatusKey.up => 'Operational',
-    StatusKey.down => 'Major outage',
-    StatusKey.degraded => 'Degraded',
-    StatusKey.paused => 'Paused',
-    StatusKey.pending => 'Pending',
-    StatusKey.info => 'Maintenance',
-    StatusKey.ai => 'AI',
+    StatusKey.up => trans('uptizm.status.up'),
+    StatusKey.down => trans('uptizm.status.down'),
+    StatusKey.degraded => trans('uptizm.status.degraded'),
+    StatusKey.paused => trans('uptizm.status.paused'),
+    StatusKey.pending => trans('uptizm.status.pending'),
+    StatusKey.info => trans('uptizm.status.info'),
+    StatusKey.ai => trans('uptizm.status.ai'),
   };
 }
 

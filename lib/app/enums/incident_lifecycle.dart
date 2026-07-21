@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 /// Lifecycle stage an incident moves through.
 enum IncidentLifecycle {
   detected,
@@ -6,13 +8,13 @@ enum IncidentLifecycle {
   monitoring,
   resolved;
 
-  /// Display label matching the design source (title-case).
+  /// Localized display label matching the design source (title-case).
   String get label => switch (this) {
-    IncidentLifecycle.detected => 'Detected',
-    IncidentLifecycle.investigating => 'Investigating',
-    IncidentLifecycle.identified => 'Identified',
-    IncidentLifecycle.monitoring => 'Monitoring',
-    IncidentLifecycle.resolved => 'Resolved',
+    IncidentLifecycle.detected => trans('uptizm.enums.incident_lifecycle.detected'),
+    IncidentLifecycle.investigating => trans('uptizm.enums.incident_lifecycle.investigating'),
+    IncidentLifecycle.identified => trans('uptizm.enums.incident_lifecycle.identified'),
+    IncidentLifecycle.monitoring => trans('uptizm.enums.incident_lifecycle.monitoring'),
+    IncidentLifecycle.resolved => trans('uptizm.enums.incident_lifecycle.resolved'),
   };
 }
 

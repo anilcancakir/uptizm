@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 /// A personal notification delivery channel. Mirrors the three `SettingRow`
 /// entries in the React `NotificationsSettingsPage` (in-app, web push,
 /// email); team-wide channels (Slack, SMS, webhook) live elsewhere.
@@ -11,10 +13,10 @@ enum NotificationChannel {
   /// Email delivery to the signed-in account.
   email;
 
-  /// Human-readable display label.
+  /// Localized human-readable display label.
   String get label => switch (this) {
-    NotificationChannel.inApp => 'In-app',
-    NotificationChannel.webPush => 'Web push',
-    NotificationChannel.email => 'Email',
+    NotificationChannel.inApp => trans('uptizm.enums.notification_channel.in_app'),
+    NotificationChannel.webPush => trans('uptizm.enums.notification_channel.web_push'),
+    NotificationChannel.email => trans('uptizm.enums.notification_channel.email'),
   };
 }

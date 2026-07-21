@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 /// How a status page is served to the public.
 ///
 /// - [subdomain]: `slug.uptizm.com`.
@@ -11,9 +13,9 @@ enum DomainMode {
   /// Served under a shared path, e.g. `uptizm.com/status/acme`.
   path;
 
-  /// Human-readable label shown in the editor's domain-mode control.
+  /// Localized label shown in the editor's domain-mode control.
   String get label => switch (this) {
-    DomainMode.subdomain => 'Subdomain',
-    DomainMode.path => 'Path',
+    DomainMode.subdomain => trans('uptizm.enums.domain_mode.subdomain'),
+    DomainMode.path => trans('uptizm.enums.domain_mode.path'),
   };
 }

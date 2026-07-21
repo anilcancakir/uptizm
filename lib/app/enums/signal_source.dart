@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 /// How the incident was first detected.
 enum SignalSource {
   /// A configured numeric threshold was breached.
@@ -9,11 +11,11 @@ enum SignalSource {
   /// Created manually by an operator.
   manual;
 
-  /// Human-readable display label for timeline and filter chips.
+  /// Localized display label for timeline and filter chips.
   String get label => switch (this) {
-    SignalSource.threshold => 'Threshold breach',
-    SignalSource.anomaly => 'AI anomaly',
-    SignalSource.manual => 'Manual',
+    SignalSource.threshold => trans('uptizm.enums.signal_source.threshold'),
+    SignalSource.anomaly => trans('uptizm.enums.signal_source.anomaly'),
+    SignalSource.manual => trans('uptizm.enums.signal_source.manual'),
   };
 }
 

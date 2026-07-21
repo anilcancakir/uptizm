@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 /// Operator-side severity tier, independent of customer-facing incident impact.
 enum IncidentSeverity {
   /// Requires immediate response; business impact is severe.
@@ -9,11 +11,11 @@ enum IncidentSeverity {
   /// Low-risk informational event.
   info;
 
-  /// Human-readable display label.
+  /// Localized human-readable display label.
   String get label => switch (this) {
-    IncidentSeverity.critical => 'Critical',
-    IncidentSeverity.warning => 'Warning',
-    IncidentSeverity.info => 'Info',
+    IncidentSeverity.critical => trans('uptizm.enums.incident_severity.critical'),
+    IncidentSeverity.warning => trans('uptizm.enums.incident_severity.warning'),
+    IncidentSeverity.info => trans('uptizm.enums.incident_severity.info'),
   };
 }
 
