@@ -5,7 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/models/user.dart';
 import 'package:uptizm/app/services/locale_onboarding_gate.dart';
-import 'package:uptizm/resources/views/onboarding/locale_onboarding_view.dart';
+import 'package:uptizm/resources/views/dashboard/locale_prompt_banner.dart';
 
 /// Records the last request the profile controller sends so the confirm test
 /// can assert on the `locale`/`timezone` wire body without a real backend.
@@ -97,7 +97,8 @@ class _MockNetworkDriver implements NetworkDriver {
   }) async => _record('UPLOAD', url, data: data);
 }
 
-/// Minimal guard exposing the authenticated user the view reads for name/email.
+/// Minimal guard exposing the authenticated user the banner reads for
+/// name/email.
 class _MockGuard implements Guard {
   _MockGuard(this._user);
 
@@ -143,10 +144,16 @@ class _MockGuard implements Guard {
   ValueNotifier<int> get stateNotifier => _state;
 }
 
-/// In-memory loader so [Lang] resolves a real locale without asset bundles.
+/// In-memory loader returning the flat, dotted translation keys the banner
+/// reads, so [trans] resolves and interpolates a real detected message.
 class _StubLangLoader implements TranslationLoader {
   @override
-  Future<Map<String, dynamic>> load(Locale locale) async => {};
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.onboarding.banner_detected': ':language ve :timezone algılandı.',
+    'uptizm.onboarding.banner_confirm': 'Onayla',
+    'uptizm.onboarding.banner_change': 'Değiştir',
+    'uptizm.onboarding.banner_dismiss': 'Kapat',
+  };
 }
 
 void main() {
@@ -193,7 +200,7 @@ void main() {
     Magic.singleton('magic_starter', () => MagicStarterManager());
     Magic.put(MagicStarterProfileController());
 
-    // Detected runtime state the view pre-fills from.
+    // Detected runtime state the banner reports.
     Lang.setSupportedLocales([const Locale('en'), const Locale('tr')]);
     Translator.instance.setLoader(_StubLangLoader());
     await Translator.instance.setLocale(const Locale('tr'));
@@ -213,20 +220,15 @@ void main() {
     LocaleOnboardingGate.instance.resetForTesting();
   });
 
-  Widget wrapDirect(Widget child) {
-    return WindTheme(
-      data: WindThemeData(),
-      child: MaterialApp(home: child),
-    );
-  }
-
+  /// Wraps the banner as the `/` route so [MagicRoute.to] navigation and the
+  /// [Magic.toast] overlay both resolve through the real router.
   Widget wrapRouted() {
+    MagicRoute.page('/', () => const LocalePromptBanner());
     MagicRoute.page(
-      '/',
-      () => const SizedBox.shrink(key: ValueKey('home-stub')),
+      '/settings/language',
+      () => const SizedBox.shrink(key: ValueKey('language-stub')),
     );
-    MagicRoute.page('/onboarding/locale', () => const LocaleOnboardingView());
-    MagicRouter.instance.setInitialLocation('/onboarding/locale');
+    MagicRouter.instance.setInitialLocation('/');
     return WindTheme(
       data: WindThemeData(),
       child: MaterialApp.router(
@@ -236,39 +238,36 @@ void main() {
   }
 
   testWidgets(
-    'pre-fills the language and timezone selectors from detected state',
-    (tester) async {
-      await tester.pumpWidget(wrapDirect(const LocaleOnboardingView()));
-      await tester.pumpAndSettle();
-
-      // The language selector is the first WFormSelect in the tree; the
-      // timezone selector nests its own WFormSelect below it.
-      final languageSelect = tester.widget<WFormSelect<String>>(
-        find.byType(WFormSelect<String>).first,
-      );
-      expect(languageSelect.initialValue, 'tr');
-
-      final timezoneSelect = tester.widget<MagicStarterTimezoneSelect>(
-        find.byType(MagicStarterTimezoneSelect),
-      );
-      expect(timezoneSelect.value, 'Europe/Istanbul');
-    },
-  );
-
-  testWidgets(
-    'confirm persists locale + timezone, applies the locale, marks the gate',
+    'shows the first-run banner with the detected language and timezone',
     (tester) async {
       await tester.pumpWidget(wrapRouted());
       await tester.pumpAndSettle();
 
-      final confirm = find.byKey(const ValueKey('onboarding-confirm'));
+      expect(
+        find.byKey(const ValueKey('locale-prompt-banner')),
+        findsOneWidget,
+      );
+      // The message interpolates the current locale's human label (Türkçe) and
+      // the applied timezone.
+      expect(find.textContaining('Türkçe'), findsOneWidget);
+      expect(find.textContaining('Europe/Istanbul'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'confirm persists the applied locale + timezone, marks the gate, hides',
+    (tester) async {
+      await tester.pumpWidget(wrapRouted());
+      await tester.pumpAndSettle();
+
+      final confirm = find.byKey(const ValueKey('locale-banner-confirm'));
       expect(confirm, findsOneWidget);
       await tester.ensureVisible(confirm);
       await tester.tap(confirm);
       await tester.pumpAndSettle();
       // Drain the success-toast timer scheduled by `doUpdateProfile` so it does
       // not leak past the test as a pending timer.
-      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
 
       // 1. Persisted via the profile-update path with the canonical wire keys.
@@ -276,39 +275,72 @@ void main() {
       expect((network.putData as Map)['locale'], 'tr');
       expect((network.putData as Map)['timezone'], 'Europe/Istanbul');
 
-      // 2. Applied to the running localization runtime.
-      expect(Lang.current.languageCode, 'tr');
-
-      // 3. Gate flipped so a later login skips onboarding.
+      // 2. Gate flipped so the banner never reappears on this device.
       expect(LocaleOnboardingGate.instance.isCompleted, isTrue);
+
+      // 3. Banner gone.
+      expect(
+        find.byKey(const ValueKey('locale-prompt-banner')),
+        findsNothing,
+      );
     },
   );
 
   testWidgets(
-    'confirm keeps the gate open and does not navigate when the persist fails',
+    'change marks the gate and navigates to the language settings page',
     (tester) async {
       await tester.pumpWidget(wrapRouted());
       await tester.pumpAndSettle();
 
-      // Backend rejects the profile update.
-      network.response = MagicResponse(
-        data: {'message': 'nope'},
-        statusCode: 422,
+      final change = find.byKey(const ValueKey('locale-banner-change'));
+      expect(change, findsOneWidget);
+      await tester.ensureVisible(change);
+      await tester.tap(change);
+      await tester.pumpAndSettle();
+
+      // 1. Gate flipped.
+      expect(LocaleOnboardingGate.instance.isCompleted, isTrue);
+
+      // 2. Navigated to the EXISTING language settings page (not a new picker).
+      expect(find.byKey(const ValueKey('language-stub')), findsOneWidget);
+
+      // 3. Banner gone (the router left the dashboard route).
+      expect(
+        find.byKey(const ValueKey('locale-prompt-banner')),
+        findsNothing,
       );
+    },
+  );
 
-      final confirm = find.byKey(const ValueKey('onboarding-confirm'));
-      await tester.ensureVisible(confirm);
-      await tester.tap(confirm);
-      await tester.pumpAndSettle();
-      // Drain the MagicFeedback overlay-toast timer (4s) so it does not leak.
-      await tester.pump(const Duration(seconds: 5));
+  testWidgets('dismiss marks the gate and hides the banner', (tester) async {
+    await tester.pumpWidget(wrapRouted());
+    await tester.pumpAndSettle();
+
+    final dismiss = find.byKey(const ValueKey('locale-banner-dismiss'));
+    expect(dismiss, findsOneWidget);
+    await tester.ensureVisible(dismiss);
+    await tester.tap(dismiss);
+    await tester.pumpAndSettle();
+
+    expect(LocaleOnboardingGate.instance.isCompleted, isTrue);
+    expect(
+      find.byKey(const ValueKey('locale-prompt-banner')),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'does not show once the gate is already completed',
+    (tester) async {
+      LocaleOnboardingGate.instance.resetForTesting(completed: true);
+
+      await tester.pumpWidget(wrapRouted());
       await tester.pumpAndSettle();
 
-      // A failed persist must NOT burn the one-shot gate...
-      expect(LocaleOnboardingGate.instance.isCompleted, isFalse);
-      // ...and must NOT leave the onboarding screen for the dashboard.
-      expect(find.byType(LocaleOnboardingView), findsOneWidget);
-      expect(find.byKey(const ValueKey('home-stub')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('locale-prompt-banner')),
+        findsNothing,
+      );
     },
   );
 }

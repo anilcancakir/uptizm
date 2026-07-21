@@ -1104,13 +1104,10 @@
       "error_retry": "Yeniden dene"
     },
     "onboarding": {
-      "title": "Dilinizi ve saat diliminizi seçin",
-      "subtitle": "Bunları cihazınızdan algıladık. Ayarlardan istediğiniz zaman değiştirebilirsiniz.",
-      "language_label": "Dil",
-      "timezone_label": "Saat dilimi",
-      "confirm": "Devam et",
-      "skip": "Atla",
-      "error_title": "Tercihleriniz kaydedilemedi"
+      "banner_detected": ":language ve :timezone algılandı.",
+      "banner_confirm": "Onayla",
+      "banner_change": "Değiştir",
+      "banner_dismiss": "Kapat"
     },
     "welcome": {
       "skip": "Atla",

@@ -5,7 +5,6 @@ import '../resources/views/incidents/incident_create_view.dart';
 import '../resources/views/incidents/incident_detail_view.dart';
 import '../resources/views/incidents/incidents_list_view.dart';
 import '../resources/views/auth/welcome_view.dart';
-import '../resources/views/onboarding/locale_onboarding_view.dart';
 import '../resources/views/incidents/weekly_digest_view.dart';
 import '../resources/views/monitors/monitor_create_view.dart';
 import '../resources/views/monitors/monitor_detail_view.dart';
@@ -101,12 +100,12 @@ void registerAppRoutes() {
   // rebuild the whole chrome on every navigation (a full-screen flash between,
   // say, Home and Monitors).
   MagicRoute.group(
-    // 'auth' gates the whole shell (unauthenticated boot → login); 'onboarding'
-    // then sends a freshly authenticated user whose device has not yet seen the
-    // locale onboarding to `/onboarding/locale` BEFORE the dashboard. The
-    // onboarding guard reads a persisted first-run flag, so a later login of an
-    // already-onboarded user passes straight through.
-    middleware: ['auth', 'onboarding'],
+    // 'auth' gates the whole shell (unauthenticated boot → login). The locale
+    // preference is no longer a blocking pre-dashboard screen: a freshly
+    // authenticated user lands straight on the dashboard, where a first-run,
+    // dismissible banner (gated by [LocaleOnboardingGate]) offers the detected
+    // language + timezone.
+    middleware: ['auth'],
     layout: (child) => AppLayout(child: child),
     routes: () {
       // 1. Dashboard: the default landing screen.
@@ -307,17 +306,4 @@ void registerAppRoutes() {
     '/welcome',
     () => const WelcomeView(),
   ).transition(RouteTransition.none);
-
-  // 20. Locale onboarding: the one-time post-register language + timezone
-  //     screen, registered OUTSIDE the AppLayout group so it renders
-  //     full-screen with no shell chrome (like /welcome). It carries ONLY the
-  //     'auth' guard (an unauthenticated hit falls to login) and deliberately
-  //     NOT the 'onboarding' guard, so it never redirects onto itself. The
-  //     shell group's 'onboarding' guard is what routes a freshly authenticated
-  //     user here; on confirm/skip the view marks the first-run flag and hops
-  //     to the home route.
-  MagicRoute.page(
-    '/onboarding/locale',
-    () => const LocaleOnboardingView(),
-  ).middleware(['auth']).transition(RouteTransition.none);
 }

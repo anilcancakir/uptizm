@@ -14,6 +14,7 @@ import '../../../ui/components/incident_card/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
 import '../../../ui/layouts/page_container.dart';
+import 'locale_prompt_banner.dart';
 
 /// **The Dashboard home screen.**
 ///
@@ -87,12 +88,18 @@ class _DashboardViewState
       child: WDiv(
         className: 'flex flex-col gap-8',
         children: [
-          // 1. Intro block: page header + the "Right now" AI fleet-summary
-          //    banner, matching the React source placement (header -> banner
-          //    -> KPI row). The inner gap-6 keeps the 24px header rhythm.
+          // 1. Intro block: the first-run locale prompt banner (self-hides
+          //    after the first launch / any action), then the page header and
+          //    the "Right now" AI fleet-summary banner, matching the React
+          //    source placement (header -> banner -> KPI row). The inner gap-6
+          //    keeps the 24px header rhythm.
           WDiv(
             className: 'flex flex-col gap-6',
-            children: [_buildHeader(), _buildFleetSummary()],
+            children: [
+              const LocalePromptBanner(),
+              _buildHeader(),
+              _buildFleetSummary(),
+            ],
           ),
 
           // 2. KPI summary row.
