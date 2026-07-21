@@ -1,4 +1,6 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magic/magic.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
@@ -6,7 +8,21 @@ import 'package:uptizm/app/mocks/oncall.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form_support.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
+/// Feeds the one key [aiNameFromUrl] resolves so [trans] returns the real
+/// English fallback instead of the raw key token.
+class _FormSupportLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.monitors.new_monitor': 'New monitor',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_FormSupportLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+  });
+
   // ---------------------------------------------------------------------------
   // aiNameFromUrl
   // ---------------------------------------------------------------------------

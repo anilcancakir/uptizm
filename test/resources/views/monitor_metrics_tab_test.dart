@@ -74,6 +74,32 @@ class _MetricsLangLoader implements TranslationLoader {
           'This cannot be undone.',
       'uptizm.monitors.metrics_confirm_delete_label': 'Delete',
 
+      // MonitorMetricForm option labels (type / source / unit / direction) and
+      // the source-specific path hints, now resolved through trans() by the
+      // getters in monitor_metrics_support.dart.
+      'uptizm.monitors.metrics_type_numeric': 'Numeric',
+      'uptizm.monitors.metrics_type_status': 'Status',
+      'uptizm.monitors.metrics_type_string': 'String',
+      'uptizm.monitors.metrics_source_json': 'JSON path',
+      'uptizm.monitors.metrics_source_regex': 'Regex',
+      'uptizm.monitors.metrics_source_xpath': 'XPath',
+      'uptizm.monitors.metrics_source_header': 'Header',
+      'uptizm.monitors.metrics_source_http_status': 'HTTP status',
+      'uptizm.monitors.metrics_unit_ms': 'Milliseconds (ms)',
+      'uptizm.monitors.metrics_unit_s': 'Seconds (s)',
+      'uptizm.monitors.metrics_unit_percent': 'Percent (%)',
+      'uptizm.monitors.metrics_unit_count': 'Count',
+      'uptizm.monitors.metrics_unit_bytes': 'Bytes',
+      'uptizm.monitors.metrics_unit_req_s': 'Requests / sec',
+      'uptizm.monitors.metrics_unit_custom': 'Custom',
+      'uptizm.monitors.metrics_direction_high': 'Higher is worse',
+      'uptizm.monitors.metrics_direction_low': 'Lower is worse',
+      'uptizm.monitors.metrics_source_hint_json': 'JSON path.',
+      'uptizm.monitors.metrics_source_hint_regex': 'Regex.',
+      'uptizm.monitors.metrics_source_hint_xpath': 'XPath.',
+      'uptizm.monitors.metrics_source_hint_header': 'Header name.',
+      'uptizm.monitors.metrics_source_hint_http_status': 'No path needed.',
+
       // Common.
       'uptizm.common.cancel': 'Cancel',
     };

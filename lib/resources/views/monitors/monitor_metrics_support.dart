@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/enums/metric_direction.dart' show MetricDirection;
 import 'package:uptizm/app/support/metric_types.dart'
@@ -27,37 +28,40 @@ class MetricOption {
 }
 
 /// Extraction rule types. Matches the `TYPES` constant in the React source.
-const List<MetricOption> kMetricTypes = [
-  MetricOption(label: 'Numeric', value: 'numeric'),
-  MetricOption(label: 'Status', value: 'status'),
-  MetricOption(label: 'String', value: 'string'),
+///
+/// A getter (not a `const`) so each display label resolves through [trans] at
+/// the current locale; the [MetricOption.value] wire tokens stay fixed.
+List<MetricOption> get kMetricTypes => [
+  MetricOption(label: trans('uptizm.monitors.metrics_type_numeric'), value: 'numeric'),
+  MetricOption(label: trans('uptizm.monitors.metrics_type_status'), value: 'status'),
+  MetricOption(label: trans('uptizm.monitors.metrics_type_string'), value: 'string'),
 ];
 
 /// Data source formats. Matches the `SOURCES` constant in the React source.
-const List<MetricOption> kMetricSources = [
-  MetricOption(label: 'JSON path', value: 'json'),
-  MetricOption(label: 'Regex', value: 'regex'),
-  MetricOption(label: 'XPath (HTML/XML)', value: 'xpath'),
-  MetricOption(label: 'Header', value: 'header'),
-  MetricOption(label: 'HTTP status', value: 'http_status'),
+List<MetricOption> get kMetricSources => [
+  MetricOption(label: trans('uptizm.monitors.metrics_source_json'), value: 'json'),
+  MetricOption(label: trans('uptizm.monitors.metrics_source_regex'), value: 'regex'),
+  MetricOption(label: trans('uptizm.monitors.metrics_source_xpath'), value: 'xpath'),
+  MetricOption(label: trans('uptizm.monitors.metrics_source_header'), value: 'header'),
+  MetricOption(label: trans('uptizm.monitors.metrics_source_http_status'), value: 'http_status'),
 ];
 
 /// Measurement units. Matches the `UNITS` constant in the React source.
-const List<MetricOption> kMetricUnits = [
-  MetricOption(label: 'Milliseconds (ms)', value: 'ms'),
-  MetricOption(label: 'Seconds (s)', value: 's'),
-  MetricOption(label: 'Percent (%)', value: '%'),
-  MetricOption(label: 'Count', value: 'count'),
-  MetricOption(label: 'Bytes', value: 'bytes'),
-  MetricOption(label: 'Requests / sec', value: 'req_s'),
-  MetricOption(label: 'Custom', value: 'custom'),
+List<MetricOption> get kMetricUnits => [
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_ms'), value: 'ms'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_s'), value: 's'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_percent'), value: '%'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_count'), value: 'count'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_bytes'), value: 'bytes'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_req_s'), value: 'req_s'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_custom'), value: 'custom'),
 ];
 
 /// Threshold directions. Matches the `DIRECTIONS` constant in the React
 /// source.
-const List<MetricOption> kMetricDirections = [
-  MetricOption(label: 'Higher is worse', value: 'high'),
-  MetricOption(label: 'Lower is worse', value: 'low'),
+List<MetricOption> get kMetricDirections => [
+  MetricOption(label: trans('uptizm.monitors.metrics_direction_high'), value: 'high'),
+  MetricOption(label: trans('uptizm.monitors.metrics_direction_low'), value: 'low'),
 ];
 
 // ---------------------------------------------------------------------------
@@ -77,13 +81,14 @@ const Map<String, String> kPathPlaceholder = {
 
 /// Helper hint shown below the path input for each [kMetricSources] value.
 ///
-/// Matches `PATH_HINT` in the React source.
-const Map<String, String> kPathHint = {
-  'json': 'JSON path into the response body.',
-  'regex': 'Regex with one capture group.',
-  'xpath': 'XPath into an HTML/XML body (e.g. a DOM node\'s text).',
-  'header': 'Response header name.',
-  'http_status': 'Uses the HTTP status code; no path needed.',
+/// A getter (not a `const`) so each hint resolves through [trans] at the
+/// current locale. Matches `PATH_HINT` in the React source.
+Map<String, String> get kPathHint => {
+  'json': trans('uptizm.monitors.metrics_source_hint_json'),
+  'regex': trans('uptizm.monitors.metrics_source_hint_regex'),
+  'xpath': trans('uptizm.monitors.metrics_source_hint_xpath'),
+  'header': trans('uptizm.monitors.metrics_source_hint_header'),
+  'http_status': trans('uptizm.monitors.metrics_source_hint_http_status'),
 };
 
 // ---------------------------------------------------------------------------

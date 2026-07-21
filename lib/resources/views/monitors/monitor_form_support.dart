@@ -1,3 +1,5 @@
+import 'package:magic/magic.dart';
+
 import 'package:uptizm/app/support/monitor_types.dart' show ProbeRegion;
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
@@ -34,11 +36,14 @@ const List<MetricOption> kHttpMethods = [
 
 /// Check interval options shown in the interval select. Matches `INTERVALS` in
 /// MonitorForm.tsx.
-const List<MetricOption> kCheckIntervals = [
-  MetricOption(label: 'Every 10 seconds', value: '10s'),
-  MetricOption(label: 'Every 30 seconds', value: '30s'),
-  MetricOption(label: 'Every minute', value: '1m'),
-  MetricOption(label: 'Every 5 minutes', value: '5m'),
+///
+/// A getter (not a `const`) so each display label resolves through [trans] at
+/// the current locale; the [MetricOption.value] wire tokens stay fixed.
+List<MetricOption> get kCheckIntervals => [
+  MetricOption(label: trans('uptizm.monitors.interval_10s'), value: '10s'),
+  MetricOption(label: trans('uptizm.monitors.interval_30s'), value: '30s'),
+  MetricOption(label: trans('uptizm.monitors.interval_1m'), value: '1m'),
+  MetricOption(label: trans('uptizm.monitors.interval_5m'), value: '5m'),
 ];
 
 /// Maps each interval token to its equivalent duration in seconds. Matches
@@ -56,20 +61,20 @@ const Map<String, int> kIntervalSeconds = {
 
 /// SLO target options for the uptime SLO select. Matches `SLO_TARGETS` in
 /// MonitorForm.tsx. An empty [MetricOption.value] means no SLO target is set.
-const List<MetricOption> kSloTargets = [
-  MetricOption(label: 'No SLO target', value: ''),
-  MetricOption(label: '99.9% · ~43m downtime / month', value: '99.9'),
-  MetricOption(label: '99.95% · ~22m downtime / month', value: '99.95'),
-  MetricOption(label: '99.99% · ~4m downtime / month', value: '99.99'),
+List<MetricOption> get kSloTargets => [
+  MetricOption(label: trans('uptizm.monitors.slo_target_none'), value: ''),
+  MetricOption(label: trans('uptizm.monitors.slo_target_999'), value: '99.9'),
+  MetricOption(label: trans('uptizm.monitors.slo_target_9995'), value: '99.95'),
+  MetricOption(label: trans('uptizm.monitors.slo_target_9999'), value: '99.99'),
 ];
 
 /// AI-assist mode options for the monitor form's `ai_mode` control.
 ///
 /// Only `off`/`suggest` ship; `auto` (fully autonomous incident creation) is
 /// deferred, so it is deliberately absent from this list.
-const List<MetricOption> kAiModes = [
-  MetricOption(label: 'Off', value: 'off'),
-  MetricOption(label: 'Suggest', value: 'suggest'),
+List<MetricOption> get kAiModes => [
+  MetricOption(label: trans('uptizm.monitors.ai_mode_off'), value: 'off'),
+  MetricOption(label: trans('uptizm.monitors.ai_mode_suggest'), value: 'suggest'),
 ];
 
 // ---------------------------------------------------------------------------
@@ -78,13 +83,15 @@ const List<MetricOption> kAiModes = [
 // ---------------------------------------------------------------------------
 
 /// Ordered list of status strings shown while the AI probes the endpoint.
-/// Matches `ANALYZE_STEPS` in MonitorCreatePage.tsx.
-const List<String> kAnalyzeSteps = [
-  'Probing the endpoint',
-  'Detecting monitor type',
-  'Measuring baseline latency',
-  'Selecting optimal regions',
-  'Drafting health checks',
+///
+/// A getter (not a `const`) so each step resolves through [trans] at the
+/// current locale. Matches `ANALYZE_STEPS` in MonitorCreatePage.tsx.
+List<String> get kAnalyzeSteps => [
+  trans('uptizm.monitors.create_ai_step_1'),
+  trans('uptizm.monitors.create_ai_step_2'),
+  trans('uptizm.monitors.create_ai_step_3'),
+  trans('uptizm.monitors.create_ai_step_4'),
+  trans('uptizm.monitors.create_ai_step_5'),
 ];
 
 /// A single AI-suggested metric seed carrying label, key, unit, source, path,
@@ -129,9 +136,9 @@ class AiMetricSeed {
 
 /// The three AI-suggested metrics pre-filled in the review step. Matches the
 /// `aiMetrics` array in MonitorCreatePage.tsx.
-const List<AiMetricSeed> kAiMetrics = [
+List<AiMetricSeed> get kAiMetrics => [
   AiMetricSeed(
-    label: 'p95 latency',
+    label: trans('uptizm.monitors.ai_metric_p95_latency'),
     key: 'p95_ms',
     unit: 'ms',
     source: 'json',
@@ -140,7 +147,7 @@ const List<AiMetricSeed> kAiMetrics = [
     critical: '1000',
   ),
   AiMetricSeed(
-    label: 'Error rate',
+    label: trans('uptizm.monitors.ai_metric_error_rate'),
     key: 'error_rate',
     unit: '%',
     source: 'json',
@@ -149,7 +156,7 @@ const List<AiMetricSeed> kAiMetrics = [
     critical: '5',
   ),
   AiMetricSeed(
-    label: 'Active connections',
+    label: trans('uptizm.monitors.ai_metric_active_connections'),
     key: 'active_conns',
     unit: 'count',
     source: 'json',
@@ -180,7 +187,7 @@ const List<AiMetricSeed> kAiMetrics = [
 /// url.replace(/^https?:\/\//, "").replace(/\/.*$/, "")
 /// ```
 String aiNameFromUrl(String url) {
-  if (url.isEmpty) return 'New monitor';
+  if (url.isEmpty) return trans('uptizm.monitors.new_monitor');
 
   // 1. Strip leading scheme (http:// or https://).
   final String withoutScheme = url.replaceFirst(RegExp(r'^https?://'), '');
@@ -188,7 +195,7 @@ String aiNameFromUrl(String url) {
   // 2. Strip path (everything from the first `/` onward).
   final String host = withoutScheme.replaceFirst(RegExp(r'/.*$'), '');
 
-  return host.isEmpty ? 'New monitor' : host;
+  return host.isEmpty ? trans('uptizm.monitors.new_monitor') : host;
 }
 
 /// Maps [src] (a list of [ProbeRegion] mocks) to [Region] instances expected
