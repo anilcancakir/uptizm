@@ -316,6 +316,56 @@
     "date_format": ":day/:month/:year"
   },
   "uptizm": {
+    "enums": {
+      "incident_lifecycle": {
+        "detected": "Detected",
+        "investigating": "Investigating",
+        "identified": "Identified",
+        "monitoring": "Monitoring",
+        "resolved": "Resolved"
+      },
+      "incident_severity": {
+        "critical": "Critical",
+        "warning": "Warning",
+        "info": "Info"
+      },
+      "channel_type": {
+        "email": "Email",
+        "sms": "SMS",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "webhook": "Webhook"
+      },
+      "team_role": {
+        "owner": "Owner",
+        "admin": "Admin",
+        "member": "Member"
+      },
+      "signal_source": {
+        "threshold": "Threshold breach",
+        "anomaly": "AI anomaly",
+        "manual": "Manual"
+      },
+      "notification_channel": {
+        "in_app": "In-app",
+        "web_push": "Web push",
+        "email": "Email"
+      },
+      "change_kind": {
+        "added": "New",
+        "improved": "Improved",
+        "fixed": "Fixed"
+      },
+      "domain_mode": {
+        "subdomain": "Subdomain",
+        "path": "Path"
+      },
+      "invoice_status": {
+        "paid": "Paid",
+        "pending": "Pending",
+        "failed": "Failed"
+      }
+    },
     "nav": {
       "home": "Home",
       "dashboard": "Dashboard",
@@ -358,7 +408,15 @@
       "kpi_hint_vs_yesterday": "vs. yesterday",
       "kpi_hint_vs_24h": "vs. last 24h",
       "kpi_hint_ai_detected": ":count AI-detected",
-      "kpi_delta_down": ":count down"
+      "kpi_delta_down": ":count down",
+      "fleet_empty": "No monitors yet. Add your first monitor to start tracking uptime.",
+      "fleet_all_operational": "All :count monitors are operational. No open incidents.",
+      "fleet_operational_ratio": ":up of :total monitors operational",
+      "fleet_down_suffix": ":names down",
+      "fleet_degraded_suffix": ":names degraded",
+      "fleet_no_open_incidents": "No open incidents.",
+      "fleet_open_incidents_one": ":count open incident.",
+      "fleet_open_incidents_other": ":count open incidents."
     },
     "monitors": {
       "title": "Monitors",
@@ -551,7 +609,36 @@
       "metrics_direction_low": "Lower is worse",
       "metrics_confirm_delete_title": "Delete :name?",
       "metrics_confirm_delete_description": "This removes the custom metric and its recorded history. This can't be undone.",
-      "metrics_confirm_delete_label": "Delete metric"
+      "metrics_confirm_delete_label": "Delete metric",
+      "interval_10s": "Every 10 seconds",
+      "interval_30s": "Every 30 seconds",
+      "interval_1m": "Every minute",
+      "interval_5m": "Every 5 minutes",
+      "slo_target_none": "No SLO target",
+      "slo_target_999": "99.9% · ~43m downtime / month",
+      "slo_target_9995": "99.95% · ~22m downtime / month",
+      "slo_target_9999": "99.99% · ~4m downtime / month",
+      "ai_mode_off": "Off",
+      "ai_mode_suggest": "Suggest",
+      "ai_metric_p95_latency": "p95 latency",
+      "ai_metric_error_rate": "Error rate",
+      "ai_metric_active_connections": "Active connections",
+      "metrics_source_hint_json": "JSON path into the response body.",
+      "metrics_source_hint_regex": "Regex with one capture group.",
+      "metrics_source_hint_xpath": "XPath into an HTML/XML body (e.g. a DOM node's text).",
+      "metrics_source_hint_header": "Response header name.",
+      "metrics_source_hint_http_status": "Uses the HTTP status code; no path needed.",
+      "kpi_plan_hint": ":plan plan",
+      "noun_one": "monitor",
+      "noun_other": "monitors",
+      "kv_add_header": "Add header",
+      "kv_key_placeholder": "Header",
+      "kv_value_placeholder": "Value",
+      "check_col_time": "Time",
+      "check_col_region": "Region",
+      "check_col_status": "Status",
+      "check_col_response": "Response",
+      "check_col_code": "Code"
     },
     "status": {
       "up": "Operational",
@@ -644,7 +731,21 @@
       "subscribers_remove_toast_title": "Removed locally",
       "subscribers_remove_toast_description": ":email is removed from this session only; there is no backend endpoint to persist it yet.",
       "subscribers_no_matches_text": "No subscribers match \":query\".",
-      "subscribers_open_editor_button": "Open editor"
+      "subscribers_open_editor_button": "Open editor",
+      "banner_operational": "All systems operational",
+      "banner_degraded": "Degraded performance",
+      "banner_outage": "Major outage",
+      "banner_maintenance": "Maintenance in progress",
+      "banner_pending": "Awaiting first checks",
+      "banner_paused": "Some components paused",
+      "preview_default_name": "Status",
+      "noun_one": "status page",
+      "noun_other": "status pages",
+      "subscribers_subtitle": "People subscribed to :page updates.",
+      "not_found_title": "Status page not found",
+      "not_found_description": "There's no status page at this address. Double-check the link, or ask whoever shared it for the current address.",
+      "editor_metrics_system_label": "System",
+      "editor_metrics_custom_label": "Custom"
     },
     "ai": {
       "tldr": "TL;DR",
@@ -672,7 +773,16 @@
       "save": "Save",
       "cancel": "Cancel",
       "retry": "Try again",
-      "coming_soon_title": "Coming soon"
+      "coming_soon_title": "Coming soon",
+      "list_and": "and",
+      "time_just_now": "just now",
+      "time_minutes_ago": ":countm ago",
+      "time_hours_ago": ":counth ago",
+      "time_days_ago": ":countd ago",
+      "error_default_title": "Couldn't load this",
+      "error_default_description": "Something went wrong on our end. Check your connection and try again.",
+      "upgrade": "Upgrade",
+      "upgrade_available_on": "Available on :plan and up."
     },
     "incidents": {
       "list_title": "Incidents",
@@ -752,7 +862,32 @@
       "detail_postmortem_edit": "Edit & publish",
       "detail_postmortem_edit_toast_title": "Not yet saved",
       "detail_postmortem_edit_toast_description": "Postmortem editing is local-only for now; there is no backend endpoint to persist it yet.",
-      "ai_analysis_gated": "AI incident analysis pinpoints the likely cause with evidence, confidence, and next steps."
+      "ai_analysis_gated": "AI incident analysis pinpoints the likely cause with evidence, confidence, and next steps.",
+      "form_kind_incident": "Incident",
+      "form_kind_maintenance": "Scheduled maintenance",
+      "form_severity_critical": "Critical",
+      "form_severity_warning": "Warning",
+      "form_severity_info": "Info",
+      "form_impact_down": "Major outage",
+      "form_impact_degraded": "Degraded performance",
+      "form_impact_info": "Maintenance",
+      "draft_resolved": "This incident is resolved. :name is back to normal across all regions and checks are passing again. Thanks for your patience.",
+      "draft_maintenance": "Scheduled maintenance on :name is underway. You may notice a brief interruption while we work. We'll post here as soon as it's complete.",
+      "draft_investigating": "We're investigating :what affecting :name. Uptizm's checks are showing :signal. We'll share another update within 30 minutes.",
+      "draft_what_down": "a major outage",
+      "draft_what_degraded": "degraded performance",
+      "draft_what_info": "a service issue",
+      "draft_signal_errors": "errors across regions",
+      "draft_signal_latency": "elevated response times",
+      "postmortem": ":title lasted :duration and affected :count :monitorWord. Uptizm first detected it via :signal, then saw checks recover before it was resolved. This draft covers only what Uptizm observed from the outside; add the internal root cause before publishing.",
+      "postmortem_monitor_one": "monitor",
+      "postmortem_monitor_other": "monitors",
+      "timeline_tag_public": "Public",
+      "timeline_tag_internal": "Internal",
+      "timeline_auto_mode": "Auto mode",
+      "affected_count_one": ":count monitor affected",
+      "affected_count_other": ":count monitors affected",
+      "form_prefill_title": "Investigating anomaly on :monitor"
     },
     "settings": {
       "hub_title": "Settings",
@@ -1170,7 +1305,10 @@
       "invite_accept_button": "Accept invite",
       "invite_accept_button_joining": "Joining...",
       "invite_accept_decline_button": "Decline",
-      "invite_accepted": "You have joined the team."
+      "invite_accepted": "You have joined the team.",
+      "oncall_unscheduled_span": "Unscheduled",
+      "escalation_target_oncall": "On-call",
+      "escalation_target_user": "User :id"
     },
     "titles": {
       "dashboard": "Dashboard",
@@ -1209,6 +1347,36 @@
       "escalation_policy_edit": "Edit escalation policy",
       "on_call": "On-call",
       "billing": "Plan & billing"
+    },
+    "slo": {
+      "error_budget": "Error budget",
+      "status_healthy": "Healthy",
+      "status_at_risk": "At risk",
+      "status_breached": "Budget breached",
+      "budget_left": ":pct% budget left",
+      "budget_of": ":used of :allowed",
+      "over_budget": "Over budget by :amount this window.",
+      "window_7day": "7-day",
+      "window_30day": "30-day"
+    },
+    "ranges": {
+      "custom": "Custom range",
+      "last_24h": "Last 24 hours",
+      "last_7d": "Last 7 days",
+      "last_30d": "Last 30 days",
+      "last_90d": "Last 90 days"
+    },
+    "assistant": {
+      "greeting": "Hi, I'm Uptizm AI. I reason from your own checks, regions, response times, and custom metrics, and I can set things up for you. How can I help?",
+      "prompt_slow_monitors": "Which monitors are slow?",
+      "prompt_create_monitor": "Create a monitor",
+      "prompt_declare_incident": "Declare an incident",
+      "prompt_new_status_page": "New status page",
+      "open_label": "Open Uptizm AI",
+      "subtitle": "Ask, or tell me what to set up",
+      "close_label": "Close assistant",
+      "composer_placeholder": "Message Uptizm AI…",
+      "send_label": "Send"
     }
   }
 }

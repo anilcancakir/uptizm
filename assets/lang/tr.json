@@ -316,6 +316,56 @@
     "date_format": ":day/:month/:year"
   },
   "uptizm": {
+    "enums": {
+      "incident_lifecycle": {
+        "detected": "Tespit edildi",
+        "investigating": "İnceleniyor",
+        "identified": "Belirlendi",
+        "monitoring": "İzleniyor",
+        "resolved": "Çözüldü"
+      },
+      "incident_severity": {
+        "critical": "Kritik",
+        "warning": "Uyarı",
+        "info": "Bilgi"
+      },
+      "channel_type": {
+        "email": "E-posta",
+        "sms": "SMS",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "webhook": "Webhook"
+      },
+      "team_role": {
+        "owner": "Sahip",
+        "admin": "Yönetici",
+        "member": "Üye"
+      },
+      "signal_source": {
+        "threshold": "Eşik aşımı",
+        "anomaly": "Yapay zeka anomalisi",
+        "manual": "Manuel"
+      },
+      "notification_channel": {
+        "in_app": "Uygulama içi",
+        "web_push": "Web bildirimi",
+        "email": "E-posta"
+      },
+      "change_kind": {
+        "added": "Yeni",
+        "improved": "İyileştirildi",
+        "fixed": "Düzeltildi"
+      },
+      "domain_mode": {
+        "subdomain": "Alt alan adı",
+        "path": "Yol"
+      },
+      "invoice_status": {
+        "paid": "Ödendi",
+        "pending": "Beklemede",
+        "failed": "Başarısız"
+      }
+    },
     "nav": {
       "home": "Ana Sayfa",
       "dashboard": "Panel",
@@ -358,7 +408,15 @@
       "kpi_hint_vs_yesterday": "düne göre",
       "kpi_hint_vs_24h": "son 24 saate göre",
       "kpi_hint_ai_detected": ":count yapay zeka tespiti",
-      "kpi_delta_down": ":count kapalı"
+      "kpi_delta_down": ":count kapalı",
+      "fleet_empty": "Henüz izleyici yok. Çalışma süresini izlemeye başlamak için ilk izleyicinizi ekleyin.",
+      "fleet_all_operational": ":count izleyicinin tümü çalışıyor. Açık olay yok.",
+      "fleet_operational_ratio": ":total izleyiciden :up tanesi çalışıyor",
+      "fleet_down_suffix": ":names çalışmıyor",
+      "fleet_degraded_suffix": ":names kademeli bozuldu",
+      "fleet_no_open_incidents": "Açık olay yok.",
+      "fleet_open_incidents_one": ":count açık olay.",
+      "fleet_open_incidents_other": ":count açık olay."
     },
     "monitors": {
       "title": "İzleyiciler",
@@ -551,7 +609,36 @@
       "metrics_direction_low": "Düşük olması kötü",
       "metrics_confirm_delete_title": ":name silinsin mi?",
       "metrics_confirm_delete_description": "Bu işlem özel metriği ve kayıtlı geçmişini kaldırır. Bu işlem geri alınamaz.",
-      "metrics_confirm_delete_label": "Metriği sil"
+      "metrics_confirm_delete_label": "Metriği sil",
+      "interval_10s": "Her 10 saniyede",
+      "interval_30s": "Her 30 saniyede",
+      "interval_1m": "Her dakika",
+      "interval_5m": "Her 5 dakikada",
+      "slo_target_none": "SLO hedefi yok",
+      "slo_target_999": "%99.9 · ~43dk kesinti / ay",
+      "slo_target_9995": "%99.95 · ~22dk kesinti / ay",
+      "slo_target_9999": "%99.99 · ~4dk kesinti / ay",
+      "ai_mode_off": "Kapalı",
+      "ai_mode_suggest": "Öner",
+      "ai_metric_p95_latency": "p95 gecikme",
+      "ai_metric_error_rate": "Hata oranı",
+      "ai_metric_active_connections": "Aktif bağlantılar",
+      "metrics_source_hint_json": "Yanıt gövdesindeki JSON yolu.",
+      "metrics_source_hint_regex": "Tek yakalama grubu içeren Regex.",
+      "metrics_source_hint_xpath": "HTML/XML gövdesindeki XPath (örneğin bir DOM düğümünün metni).",
+      "metrics_source_hint_header": "Yanıt başlığı adı.",
+      "metrics_source_hint_http_status": "HTTP durum kodunu kullanır; yol gerekmez.",
+      "kpi_plan_hint": ":plan planı",
+      "noun_one": "izleyici",
+      "noun_other": "izleyici",
+      "kv_add_header": "Başlık ekle",
+      "kv_key_placeholder": "Başlık",
+      "kv_value_placeholder": "Değer",
+      "check_col_time": "Zaman",
+      "check_col_region": "Bölge",
+      "check_col_status": "Durum",
+      "check_col_response": "Yanıt",
+      "check_col_code": "Kod"
     },
     "status": {
       "up": "Çalışıyor",
@@ -644,7 +731,21 @@
       "subscribers_remove_toast_title": "Yerel olarak kaldırıldı",
       "subscribers_remove_toast_description": ":email yalnızca bu oturum için kaldırıldı; henüz kalıcı hale getirecek bir backend uç noktası yok.",
       "subscribers_no_matches_text": "\":query\" ile eşleşen abone yok.",
-      "subscribers_open_editor_button": "Düzenleyiciyi aç"
+      "subscribers_open_editor_button": "Düzenleyiciyi aç",
+      "banner_operational": "Tüm sistemler çalışıyor",
+      "banner_degraded": "Performans düşük",
+      "banner_outage": "Büyük kesinti",
+      "banner_maintenance": "Bakım sürüyor",
+      "banner_pending": "İlk kontroller bekleniyor",
+      "banner_paused": "Bazı bileşenler duraklatıldı",
+      "preview_default_name": "Durum",
+      "noun_one": "durum sayfası",
+      "noun_other": "durum sayfası",
+      "subscribers_subtitle": ":page güncellemelerine abone olanlar.",
+      "not_found_title": "Durum sayfası bulunamadı",
+      "not_found_description": "Bu adreste bir durum sayfası yok. Bağlantıyı tekrar kontrol edin veya paylaşan kişiden güncel adresi isteyin.",
+      "editor_metrics_system_label": "Sistem",
+      "editor_metrics_custom_label": "Özel"
     },
     "ai": {
       "tldr": "Özet",
@@ -672,7 +773,16 @@
       "save": "Kaydet",
       "cancel": "İptal",
       "retry": "Tekrar dene",
-      "coming_soon_title": "Yakında geliyor"
+      "coming_soon_title": "Yakında geliyor",
+      "list_and": "ve",
+      "time_just_now": "az önce",
+      "time_minutes_ago": ":count dk önce",
+      "time_hours_ago": ":count sa önce",
+      "time_days_ago": ":count gün önce",
+      "error_default_title": "Bu yüklenemedi",
+      "error_default_description": "Tarafımızda bir sorun oluştu. Bağlantınızı kontrol edip tekrar deneyin.",
+      "upgrade": "Yükselt",
+      "upgrade_available_on": ":plan ve üzeri planlarda kullanılabilir."
     },
     "incidents": {
       "list_title": "Olaylar",
@@ -752,7 +862,32 @@
       "detail_postmortem_edit": "Düzenle ve yayınla",
       "detail_postmortem_edit_toast_title": "Henüz kaydedilmedi",
       "detail_postmortem_edit_toast_description": "Olay sonrası inceleme düzenlemesi şimdilik yalnızca yerel; henüz kalıcı hale getirecek bir backend uç noktası yok.",
-      "ai_analysis_gated": "Yapay zeka olay analizi, kanıt, güven ve sonraki adımlarla birlikte olası nedeni belirler."
+      "ai_analysis_gated": "Yapay zeka olay analizi, kanıt, güven ve sonraki adımlarla birlikte olası nedeni belirler.",
+      "form_kind_incident": "Olay",
+      "form_kind_maintenance": "Planlı bakım",
+      "form_severity_critical": "Kritik",
+      "form_severity_warning": "Uyarı",
+      "form_severity_info": "Bilgi",
+      "form_impact_down": "Büyük kesinti",
+      "form_impact_degraded": "Performans düşüşü",
+      "form_impact_info": "Bakım",
+      "draft_resolved": "Bu olay çözüldü. :name tüm bölgelerde normale döndü ve kontroller yeniden başarılı. Sabrınız için teşekkürler.",
+      "draft_maintenance": ":name üzerinde planlı bakım sürüyor. Çalışırken kısa bir kesinti fark edebilirsiniz. Tamamlanır tamamlanmaz buradan paylaşacağız.",
+      "draft_investigating": ":name servisini etkileyen :what durumunu araştırıyoruz. Uptizm kontrolleri :signal gösteriyor. 30 dakika içinde yeni bir güncelleme paylaşacağız.",
+      "draft_what_down": "büyük bir kesinti",
+      "draft_what_degraded": "performans düşüşü",
+      "draft_what_info": "bir servis sorunu",
+      "draft_signal_errors": "bölgeler genelinde hatalar",
+      "draft_signal_latency": "yükselen yanıt süreleri",
+      "postmortem": ":title :duration sürdü ve :count :monitorWord etkiledi. Uptizm bunu ilk olarak :signal üzerinden tespit etti, ardından çözülmeden önce kontrollerin toparlandığını gördü. Bu taslak yalnızca Uptizm'in dışarıdan gözlemlediklerini kapsar; yayınlamadan önce dahili kök nedeni ekleyin.",
+      "postmortem_monitor_one": "izleyici",
+      "postmortem_monitor_other": "izleyici",
+      "timeline_tag_public": "Herkese açık",
+      "timeline_tag_internal": "Dahili",
+      "timeline_auto_mode": "Otomatik mod",
+      "affected_count_one": ":count izleyici etkilendi",
+      "affected_count_other": ":count izleyici etkilendi",
+      "form_prefill_title": ":monitor üzerindeki anomali araştırılıyor"
     },
     "settings": {
       "hub_title": "Ayarlar",
@@ -1170,7 +1305,10 @@
       "invite_accept_button": "Daveti kabul et",
       "invite_accept_button_joining": "Katılıyor...",
       "invite_accept_decline_button": "Reddet",
-      "invite_accepted": "Takıma katıldınız."
+      "invite_accepted": "Takıma katıldınız.",
+      "oncall_unscheduled_span": "Planlanmadı",
+      "escalation_target_oncall": "Nöbetçi",
+      "escalation_target_user": "Kullanıcı :id"
     },
     "titles": {
       "dashboard": "Panel",
@@ -1209,6 +1347,36 @@
       "escalation_policy_edit": "Yükseltme politikasını düzenle",
       "on_call": "Nöbet",
       "billing": "Plan ve faturalandırma"
+    },
+    "slo": {
+      "error_budget": "Hata bütçesi",
+      "status_healthy": "Sağlıklı",
+      "status_at_risk": "Risk altında",
+      "status_breached": "Bütçe aşıldı",
+      "budget_left": "%:pct bütçe kaldı",
+      "budget_of": ":used / :allowed",
+      "over_budget": "Bu pencerede bütçe :amount aşıldı.",
+      "window_7day": "7 günlük",
+      "window_30day": "30 günlük"
+    },
+    "ranges": {
+      "custom": "Özel aralık",
+      "last_24h": "Son 24 saat",
+      "last_7d": "Son 7 gün",
+      "last_30d": "Son 30 gün",
+      "last_90d": "Son 90 gün"
+    },
+    "assistant": {
+      "greeting": "Merhaba, ben Uptizm AI. Kendi kontrolleriniz, bölgeleriniz, yanıt süreleriniz ve özel metrikleriniz üzerinden akıl yürütürüm ve sizin için kurulum yapabilirim. Size nasıl yardımcı olabilirim?",
+      "prompt_slow_monitors": "Hangi izleyiciler yavaş?",
+      "prompt_create_monitor": "İzleyici oluştur",
+      "prompt_declare_incident": "Olay bildir",
+      "prompt_new_status_page": "Yeni durum sayfası",
+      "open_label": "Uptizm AI'yı aç",
+      "subtitle": "Sorun ya da ne kuracağımı söyleyin",
+      "close_label": "Asistanı kapat",
+      "composer_placeholder": "Uptizm AI'ya mesaj yazın…",
+      "send_label": "Gönder"
     }
   }
 }
