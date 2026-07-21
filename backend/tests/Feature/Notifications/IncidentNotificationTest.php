@@ -11,6 +11,7 @@ use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\Team;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\App;
 use onesignal\client\model\Notification;
 use Tests\TestCase;
 
@@ -113,7 +114,77 @@ class IncidentNotificationTest extends TestCase
 
         $this->assertInstanceOf(Notification::class, $payload);
         $this->assertSame('API Health is down', $payload->getHeadings()['en']);
+        $this->assertSame('API Health kesintide', $payload->getHeadings()['tr']);
         $this->assertSame($incident->title, $payload->getContents()['en']);
+        $this->assertSame($incident->title, $payload->getContents()['tr']);
+    }
+
+    public function test_incident_resolved_toonesignal_builds_a_localized_push_payload(): void
+    {
+        $this->enableOnesignal();
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+        $incident = $this->makeIncident([
+            'lifecycle' => 'resolved',
+        ]);
+        $user = User::factory()->create();
+
+        $payload = (new IncidentResolved($incident))->toOneSignal($user);
+
+        $this->assertInstanceOf(Notification::class, $payload);
+        $this->assertSame('API Health is resolved', $payload->getHeadings()['en']);
+        $this->assertSame('API Health sorunu giderildi', $payload->getHeadings()['tr']);
+        $this->assertSame($incident->title, $payload->getContents()['en']);
+        $this->assertSame($incident->title, $payload->getContents()['tr']);
+    }
+
+    public function test_incident_opened_mail_and_database_render_in_the_notifiables_preferred_locale(): void
+    {
+        $incident = $this->makeIncident();
+        $notification = new IncidentOpened($incident);
+
+        $trUser = User::factory()->create(['locale' => 'tr']);
+        App::setLocale($trUser->preferredLocale());
+        $trMail = $notification->toMail($trUser);
+        $trPayload = $notification->toArray($trUser);
+
+        $this->assertSame('[Uptizm] API Health kesintide', $trMail->subject);
+        $this->assertSame('Olay açıldı', $trMail->greeting);
+        $this->assertSame('API Health kesintide', $trPayload['title']);
+
+        $enUser = User::factory()->create(['locale' => 'en']);
+        App::setLocale($enUser->preferredLocale());
+        $enMail = $notification->toMail($enUser);
+        $enPayload = $notification->toArray($enUser);
+
+        $this->assertSame('[Uptizm] API Health is down', $enMail->subject);
+        $this->assertSame('Incident opened', $enMail->greeting);
+        $this->assertSame('API Health is down', $enPayload['title']);
+    }
+
+    public function test_incident_resolved_mail_and_database_render_in_the_notifiables_preferred_locale(): void
+    {
+        $incident = $this->makeIncident([
+            'lifecycle' => 'resolved',
+        ]);
+        $notification = new IncidentResolved($incident);
+
+        $trUser = User::factory()->create(['locale' => 'tr']);
+        App::setLocale($trUser->preferredLocale());
+        $trMail = $notification->toMail($trUser);
+        $trPayload = $notification->toArray($trUser);
+
+        $this->assertSame('[Uptizm] API Health sorunu giderildi', $trMail->subject);
+        $this->assertSame('Olay çözüldü', $trMail->greeting);
+        $this->assertSame('API Health sorunu giderildi', $trPayload['title']);
+
+        $enUser = User::factory()->create(['locale' => 'en']);
+        App::setLocale($enUser->preferredLocale());
+        $enMail = $notification->toMail($enUser);
+        $enPayload = $notification->toArray($enUser);
+
+        $this->assertSame('[Uptizm] API Health is resolved', $enMail->subject);
+        $this->assertSame('Incident resolved', $enMail->greeting);
+        $this->assertSame('API Health is resolved', $enPayload['title']);
     }
 
     public function test_both_incident_types_are_registered_with_mail_and_database_defaults(): void

@@ -107,16 +107,17 @@ class IncidentOpened extends Notification implements ShouldQueue
      */
     public function toOneSignal(mixed $notifiable): OneSignalNotification
     {
-        $monitorName = $this->monitorName();
-
         $payload = new OneSignalNotification([
             'app_id' => config('magic-starter.onesignal.app_id'),
         ]);
         $payload->setHeadings(new LanguageStringMap([
-            'en' => "{$monitorName} is down",
+            'en' => __('notifications.incident_opened_push_heading', ['monitor' => $this->monitorName('en')], 'en'),
+            'tr' => __('notifications.incident_opened_push_heading', ['monitor' => $this->monitorName('tr')], 'tr'),
         ]));
         $payload->setContents(new LanguageStringMap([
+            // The incident title is user-generated data, not translatable copy.
             'en' => $this->incident->title,
+            'tr' => $this->incident->title,
         ]));
 
         return $payload;
@@ -132,11 +133,14 @@ class IncidentOpened extends Notification implements ShouldQueue
         $monitorName = $this->monitorName();
 
         return (new MailMessage)
-            ->subject("[Uptizm] {$monitorName} is down")
-            ->greeting('Incident opened')
-            ->line("{$monitorName} has entered the \"{$this->incident->lifecycle->value}\" state.")
-            ->line("Severity: {$this->incident->severity->value}.")
-            ->action('View incident', $this->incidentUrl());
+            ->subject(__('notifications.incident_opened_subject', ['monitor' => $monitorName]))
+            ->greeting(__('notifications.incident_opened_greeting'))
+            ->line(__('notifications.incident_opened_state_line', [
+                'monitor' => $monitorName,
+                'lifecycle' => $this->incident->lifecycle->value,
+            ]))
+            ->line(__('notifications.severity_line', ['severity' => $this->incident->severity->value]))
+            ->action(__('notifications.view_incident_action'), $this->incidentUrl());
     }
 
     /**
@@ -163,7 +167,7 @@ class IncidentOpened extends Notification implements ShouldQueue
 
         return [
             'type' => 'incident_opened',
-            'title' => "{$monitorName} is down",
+            'title' => __('notifications.incident_opened_title', ['monitor' => $monitorName]),
             'body' => $this->incident->title,
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
@@ -175,10 +179,14 @@ class IncidentOpened extends Notification implements ShouldQueue
 
     /**
      * Resolve the primary monitor's name for the incident.
+     *
+     * @param  string|null  $locale  Explicit locale for the "unnamed monitor"
+     *                               fallback (needed by {@see toOneSignal()}, which
+     *                               renders both `en` and `tr` outside the app locale).
      */
-    private function monitorName(): string
+    private function monitorName(?string $locale = null): string
     {
-        return $this->incident->primaryMonitor?->name ?? 'A monitor';
+        return $this->incident->primaryMonitor?->name ?? __('notifications.unnamed_monitor', [], $locale);
     }
 
     /**
