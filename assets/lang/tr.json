@@ -968,6 +968,14 @@
       "error_description": "Bu haftanın özetini getirirken bir şeyler ters gitti. Bir süre sonra tekrar deneyin.",
       "error_retry": "Yeniden dene"
     },
+    "onboarding": {
+      "title": "Dilinizi ve saat diliminizi seçin",
+      "subtitle": "Bunları cihazınızdan algıladık. Ayarlardan istediğiniz zaman değiştirebilirsiniz.",
+      "language_label": "Dil",
+      "timezone_label": "Saat dilimi",
+      "confirm": "Devam et",
+      "skip": "Atla"
+    },
     "welcome": {
       "skip": "Atla",
       "slide_monitoring_title": "Her yerden izleme",

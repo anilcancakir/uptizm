@@ -968,6 +968,14 @@
       "error_description": "Something went wrong fetching this week's digest. Try again in a moment.",
       "error_retry": "Retry"
     },
+    "onboarding": {
+      "title": "Set your language and timezone",
+      "subtitle": "We detected these from your device. You can change them any time in settings.",
+      "language_label": "Language",
+      "timezone_label": "Timezone",
+      "confirm": "Continue",
+      "skip": "Skip"
+    },
     "welcome": {
       "skip": "Skip",
       "slide_monitoring_title": "Monitoring from everywhere",
