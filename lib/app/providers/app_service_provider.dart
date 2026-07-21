@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_starter/magic_starter.dart';
 import '../models/user.dart';
+import '../services/locale_application_service.dart';
 import '../services/realtime_service.dart';
 import '../../ui/layouts/app_layout.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
@@ -17,6 +18,10 @@ class AppServiceProvider extends ServiceProvider {
 
   /// The realtime channel subscription service, held for the app's lifetime.
   final RealtimeService _realtime = RealtimeService();
+
+  /// The locale/timezone application service, held for the app's lifetime.
+  final LocaleApplicationService _localeApplication =
+      LocaleApplicationService();
 
   @override
   void register() {
@@ -53,6 +58,22 @@ class AppServiceProvider extends ServiceProvider {
     unawaited(
       _realtime.syncWithAuthState().catchError((Object error) {
         Log.error('[AppServiceProvider] realtime sync failed: $error');
+      }),
+    );
+  }
+
+  /// Re-syncs the applied locale to track [Auth]'s current state.
+  ///
+  /// `Auth.stateNotifier` listeners are synchronous, but
+  /// `LocaleApplicationService.syncLocaleWithAuthState()` is async (it may
+  /// await `Lang.setLocale`), so this wraps the call the same way
+  /// [_syncRealtime] does: `unawaited` fires it without blocking the
+  /// listener, and the `catchError` guard logs a failure instead of letting
+  /// it escape as an unhandled async error.
+  void _syncLocale() {
+    unawaited(
+      _localeApplication.syncLocaleWithAuthState().catchError((Object error) {
+        Log.error('[AppServiceProvider] locale sync failed: $error');
       }),
     );
   }
@@ -117,5 +138,12 @@ class AppServiceProvider extends ServiceProvider {
     // `Auth.stateNotifier`.
     _syncRealtime();
     Auth.stateNotifier.addListener(_syncRealtime);
+
+    // Locale: apply the authenticated user's persisted `locale` immediately
+    // if a session was restored on boot, then keep it in sync with every
+    // future login/restore via `Auth.stateNotifier`. Pre-login, magic's own
+    // `auto_detect_locale` already renders the device locale.
+    _syncLocale();
+    Auth.stateNotifier.addListener(_syncLocale);
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
+import 'app/services/locale_application_service.dart';
 import 'config/app.dart';
 import 'config/routing.dart';
 import 'config/view.dart';
@@ -44,6 +45,12 @@ void main() async {
       () => magicStarterConfig,
     ],
   );
+
+  // Boot DateManager and override its timezone with the device's real IANA
+  // id (magic's own detection reads `DateTime.timeZoneName`, an
+  // abbreviation, not an IANA identifier), so the `X-Timezone` header magic
+  // sends on every request carries a value the backend can actually resolve.
+  await LocaleApplicationService().applyDetectedTimezone();
 
   // Magic integrations wire magic's runtime into dusk + telescope AFTER
   // Magic.init, since their watchers/adapter/enrichers resolve through the IoC
