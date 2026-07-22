@@ -21,6 +21,7 @@ use App\Services\OnCall\EscalationDispatcher;
 use App\Services\OnCall\RotationResolver;
 use FlutterSdk\MagicStarter\Features;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -30,7 +31,9 @@ use Tests\TestCase;
  * Covers {@see EscalationDispatcher}: an open pages the currently on-call
  * responder, each policy step is queued at its cumulative delay, a resolved
  * incident cancels every pending step, a re-dispatch never double-pages, and a
- * channel the notifiable disabled is never paged.
+ * channel the notifiable disabled is never paged. Also covers the data
+ * migration that purges legacy `target_type='channel'` steps so paging never
+ * hits an unhandled match after the enum case is removed.
  */
 class EscalationDispatcherTest extends TestCase
 {
@@ -154,6 +157,46 @@ class EscalationDispatcherTest extends TestCase
         $this->dispatcher()->pageStep($incident->id, $step->id);
 
         Notification::assertSentTo($target, IncidentOpened::class);
+    }
+
+    public function test_the_data_migration_deletes_only_channel_target_steps(): void
+    {
+        [$team] = $this->teamWithOnCall();
+        $policy = $this->makePolicy($team);
+        $onCallStep = $this->makeStep($policy, 0, 0);
+        $channelStep = $this->makeStep($policy, 1, 5);
+
+        // 1. Force the row to the legacy channel target type without the enum
+        //    cast (the case is gone), mirroring a row created before removal.
+        DB::table('escalation_steps')
+            ->where('id', $channelStep->id)
+            ->update([
+                'target_type' => 'channel',
+                'channel' => 'ops-alerts',
+            ]);
+
+        // 2. Re-run the data migration (it already ran empty under
+        //    RefreshDatabase) to purge the seeded channel row.
+        $this->runDropChannelMigration();
+
+        $this->assertDatabaseMissing('escalation_steps', ['id' => $channelStep->id]);
+        $this->assertDatabaseHas('escalation_steps', ['id' => $onCallStep->id]);
+        $this->assertSame(
+            0,
+            DB::table('escalation_steps')->where('target_type', 'channel')->count(),
+        );
+    }
+
+    /**
+     * Re-run the channel-purge data migration's `up()` in isolation.
+     */
+    protected function runDropChannelMigration(): void
+    {
+        $migration = require database_path(
+            'migrations/2026_07_22_000100_drop_channel_escalation_steps.php',
+        );
+
+        $migration->up();
     }
 
     protected function dispatcher(): EscalationDispatcher

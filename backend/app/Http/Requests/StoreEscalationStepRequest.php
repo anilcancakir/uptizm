@@ -10,12 +10,11 @@ use Illuminate\Validation\Rule;
 /**
  * Validation rules for POST /escalation-policies/{policy}/steps.
  *
- * `target_id` and `channel` are conditionally required depending on
- * `target_type` (see {@see EscalationTargetType}): a user id (validated
- * against the routed policy's own team via the `team_user` pivot, mirroring
- * {@see StoreOnCallRotationRequest}'s membership check) for
- * {@see EscalationTargetType::User}, a channel name for
- * {@see EscalationTargetType::Channel}, and neither for
+ * `target_type` accepts only the people-only cases (see
+ * {@see EscalationTargetType}). `target_id` is required for
+ * {@see EscalationTargetType::User} (a user id validated against the routed
+ * policy's own team via the `team_user` pivot, mirroring
+ * {@see StoreOnCallRotationRequest}'s membership check) and unused for
  * {@see EscalationTargetType::OnCall}. Team-scoping the policy itself is
  * handled by the controller's 404-mask, not here.
  */
@@ -57,12 +56,6 @@ class StoreEscalationStepRequest extends FormRequest
                 'string',
                 'required_if:target_type,user',
                 Rule::exists('team_user', 'user_id')->where('team_id', $teamId),
-            ],
-            'channel' => [
-                'nullable',
-                'string',
-                'max:255',
-                'required_if:target_type,channel',
             ],
         ];
     }

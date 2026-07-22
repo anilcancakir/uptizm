@@ -124,7 +124,6 @@ class EscalationDispatcher
         match ($step->target_type) {
             EscalationTargetType::OnCall => $this->pageOnCall($incident),
             EscalationTargetType::User => $this->pageUser($incident, $step),
-            EscalationTargetType::Channel => $this->pageChannel($incident, $step),
         };
     }
 
@@ -165,18 +164,6 @@ class EscalationDispatcher
         }
 
         Notification::send($user, new IncidentOpened($incident));
-    }
-
-    /**
-     * Page the team's users over a single named notification channel.
-     */
-    protected function pageChannel(Incident $incident, EscalationStep $step): void
-    {
-        if ($step->channel === null) {
-            return;
-        }
-
-        Notification::send($incident->team->users, new IncidentOpened($incident, [$step->channel]));
     }
 
     /**
