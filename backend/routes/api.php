@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
+use App\Http\Controllers\Api\V1\NotificationChannelController;
 use App\Http\Controllers\Api\V1\OnCallController;
 use App\Http\Controllers\Api\V1\StatusPageController;
 use Illuminate\Http\JsonResponse;
@@ -230,6 +231,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     ])->name('api.v1.escalation-policies.steps.reorder');
     Route::delete('escalation-policies/{policy}/steps/{step}', [EscalationPolicyController::class, 'removeStep'])
         ->name('api.v1.escalation-policies.steps.destroy');
+
+    Route::get('notification-channels', [NotificationChannelController::class, 'index'])
+        ->name('api.v1.notification-channels.index');
+    Route::post('notification-channels', [NotificationChannelController::class, 'store'])
+        ->name('api.v1.notification-channels.store');
+    Route::get('notification-channels/{channel}', [NotificationChannelController::class, 'show'])
+        ->name('api.v1.notification-channels.show');
+    Route::put('notification-channels/{channel}', [NotificationChannelController::class, 'update'])
+        ->name('api.v1.notification-channels.update');
+    Route::delete('notification-channels/{channel}', [NotificationChannelController::class, 'destroy'])
+        ->name('api.v1.notification-channels.destroy');
+    Route::post('notification-channels/{channel}/test', [NotificationChannelController::class, 'test'])
+        ->name('api.v1.notification-channels.test');
 
     Route::get('billing', [BillingController::class, 'show'])
         ->name('api.v1.billing.show');
