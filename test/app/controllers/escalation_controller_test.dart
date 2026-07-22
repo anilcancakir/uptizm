@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
+import 'package:uptizm/app/support/escalation_support.dart';
 
 void main() {
   setUp(() {
@@ -56,9 +57,9 @@ void main() {
                 'id': 'step-1',
                 'position': 0,
                 'delay_minutes': 0,
-                'target_type': 'channel',
-                'target_id': null,
-                'channel': 'Slack #incidents',
+                'target_type': 'user',
+                'target_id': 'u2',
+                'channel': null,
               },
             ],
           },
@@ -72,8 +73,12 @@ void main() {
       expect(controller.policies.single.name, equals('Standard'));
       expect(controller.policies.single.steps, hasLength(1));
       expect(
-        controller.policies.single.steps.single.channel,
-        equals('Slack #incidents'),
+        controller.policies.single.steps.single.targetType,
+        equals('user'),
+      );
+      expect(
+        controller.policies.single.steps.single.targetId,
+        equals('u2'),
       );
     });
 
@@ -125,7 +130,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('create', () {
-    test('POSTs the policy then one step per rung, in order', () async {
+    test('POSTs the policy then one people-only step per rung, in order', () async {
       final fake = Http.fake({
         'escalation-policies': Http.response({
           'data': {'id': 'new-policy', 'name': 'New policy'},
@@ -138,8 +143,15 @@ void main() {
       final EscalationController controller = EscalationController.instance;
 
       await controller.create('New policy', const [
-        EscalationRungDraft(afterMinutes: 0, targets: ['Slack #incidents']),
-        EscalationRungDraft(afterMinutes: 5, targets: ['On-call engineer']),
+        EscalationRungDraft(
+          afterMinutes: 0,
+          targetType: EscalationTargetType.onCall,
+        ),
+        EscalationRungDraft(
+          afterMinutes: 5,
+          targetType: EscalationTargetType.user,
+          targetUserId: 'u2',
+        ),
       ]);
 
       fake.assertSent(
@@ -158,6 +170,7 @@ void main() {
           )
           .length;
       expect(stepPostCount, equals(2));
+      // On-call rung: target_type on_call, no target_id.
       fake.assertSent(
         (r) =>
             r.method == 'POST' &&
@@ -165,8 +178,23 @@ void main() {
             r.data is Map &&
             (r.data as Map)['position'] == 0 &&
             (r.data as Map)['delay_minutes'] == 0 &&
-            (r.data as Map)['target_type'] == 'channel' &&
-            (r.data as Map)['channel'] == 'Slack #incidents',
+            (r.data as Map)['target_type'] == 'on_call' &&
+            !(r.data as Map).containsKey('target_id'),
+      );
+      // User rung: target_type user + the member id.
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('escalation-policies/new-policy/steps') &&
+            r.data is Map &&
+            (r.data as Map)['position'] == 1 &&
+            (r.data as Map)['delay_minutes'] == 5 &&
+            (r.data as Map)['target_type'] == 'user' &&
+            (r.data as Map)['target_id'] == 'u2',
+      );
+      // Never the removed channel target type.
+      fake.assertNotSent(
+        (r) => r.data is Map && (r.data as Map)['target_type'] == 'channel',
       );
     });
 
@@ -178,7 +206,10 @@ void main() {
 
       await expectLater(
         controller.create('New policy', const [
-          EscalationRungDraft(afterMinutes: 0, targets: ['Slack #incidents']),
+          EscalationRungDraft(
+            afterMinutes: 0,
+            targetType: EscalationTargetType.onCall,
+          ),
         ]),
         completes,
       );
@@ -229,7 +260,7 @@ void main() {
       );
     });
 
-    test('adds a step for a rung with a null id (new or edited)', () async {
+    test('adds a user step for a rung with a null id (new or edited)', () async {
       final fake = Http.fake({
         'escalation-policies/standard': Http.response({
           'data': {'id': 'standard', 'name': 'Standard', 'steps': []},
@@ -239,7 +270,11 @@ void main() {
       final EscalationController controller = EscalationController.instance;
 
       await controller.save('standard', 'Standard', const [
-        EscalationRungDraft(afterMinutes: 10, targets: ['PagerDuty']),
+        EscalationRungDraft(
+          afterMinutes: 10,
+          targetType: EscalationTargetType.user,
+          targetUserId: 'u3',
+        ),
       ], const {});
 
       fake.assertSent(
@@ -249,7 +284,8 @@ void main() {
             r.data is Map &&
             (r.data as Map)['position'] == 0 &&
             (r.data as Map)['delay_minutes'] == 10 &&
-            (r.data as Map)['channel'] == 'PagerDuty',
+            (r.data as Map)['target_type'] == 'user' &&
+            (r.data as Map)['target_id'] == 'u3',
       );
     });
 
@@ -263,8 +299,17 @@ void main() {
       final EscalationController controller = EscalationController.instance;
 
       await controller.save('standard', 'Standard', const [
-        EscalationRungDraft(id: 'step-2', afterMinutes: 5, targets: ['Team admins']),
-        EscalationRungDraft(id: 'step-1', afterMinutes: 0, targets: ['Slack #incidents']),
+        EscalationRungDraft(
+          id: 'step-2',
+          afterMinutes: 5,
+          targetType: EscalationTargetType.user,
+          targetUserId: 'u3',
+        ),
+        EscalationRungDraft(
+          id: 'step-1',
+          afterMinutes: 0,
+          targetType: EscalationTargetType.onCall,
+        ),
       ], {'step-1', 'step-2'});
 
       fake.assertSent((r) {

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
 import '../models/escalation_policy.dart';
+import '../support/escalation_support.dart' show EscalationTargetType;
 
 /// One wire-shaped escalation step, as returned by
 /// `GET /escalation-policies/{id}` (`EscalationPolicyResource::toArray`).
@@ -21,13 +22,15 @@ class EscalationStepWire {
   /// the first step) before this step fires.
   final int delayMinutes;
 
-  /// `on_call` / `user` / `channel`, per `EscalationTargetType`.
+  /// `on_call` / `user`, per `EscalationTargetType` (people-only).
   final String targetType;
 
   /// The targeted user id, present only when [targetType] is `user`.
   final String? targetId;
 
-  /// The targeted channel name, present only when [targetType] is `channel`.
+  /// Legacy channel name field, decoded from the wire for backward
+  /// compatibility with older rows; no longer a rung target (the editor
+  /// reconstructs from [targetType]/[targetId], never this).
   final String? channel;
 
   /// Creates an [EscalationStepWire].
@@ -65,12 +68,10 @@ class EscalationStepWire {
 /// **Divergence from the backend shape.** The backend `EscalationPolicy`
 /// model only persists `name`; it has no `description`/`repeat_last_step`/
 /// `is_default`/`monitor_count` columns, so the list view renders the policy
-/// name plus its step ladder and nothing else. Likewise `EscalationStep` only
-/// carries one `target_type`/`target_id`/`channel` per row (no free-text
-/// multi-target list), so every editor rung maps to exactly one step whose
-/// `channel` holds the rung's targets joined with `", "` and whose
-/// `target_type` is always `channel` (the editor has no on-call/user target
-/// picker yet).
+/// name plus its step ladder and nothing else. Likewise `EscalationStep`
+/// carries one `target_type`/`target_id` per row, so every editor rung maps to
+/// exactly one people-only step: `target_type: on_call` (the shared rotation,
+/// no `target_id`) or `target_type: user` (`target_id` = a team member id).
 class EscalationController extends MagicController {
   /// Singleton accessor, registering the controller on first access.
   static EscalationController get instance =>
@@ -396,24 +397,27 @@ class EscalationController extends MagicController {
   }
 
   /// Adds [rung] to policy [policyId] at [position] via
-  /// `POST /escalation-policies/{policyId}/steps`. Every rung is sent as a
-  /// `channel`-typed step (see the class docblock's divergence note). Returns
-  /// whether the request succeeded; logs and toasts on failure without
-  /// throwing.
+  /// `POST /escalation-policies/{policyId}/steps`. Emits a people-only step:
+  /// `target_type: on_call` (no `target_id`) or `target_type: user` with the
+  /// rung's [EscalationRungDraft.targetUserId]. Returns whether the request
+  /// succeeded; logs and toasts on failure without throwing.
   Future<bool> _addStep(
     String policyId, {
     required int position,
     required EscalationRungDraft rung,
   }) async {
     try {
+      final Map<String, dynamic> data = <String, dynamic>{
+        'position': position,
+        'delay_minutes': rung.afterMinutes,
+        'target_type': rung.targetType.wire,
+      };
+      if (rung.targetType == EscalationTargetType.user) {
+        data['target_id'] = rung.targetUserId;
+      }
       final response = await Http.post(
         '/escalation-policies/$policyId/steps',
-        data: {
-          'position': position,
-          'delay_minutes': rung.afterMinutes,
-          'target_type': 'channel',
-          'channel': rung.targets.join(', '),
-        },
+        data: data,
       );
       if (!response.successful) {
         Log.error(
@@ -449,10 +453,10 @@ class EscalationController extends MagicController {
 /// its previously loaded chain.
 ///
 /// [id] is `null` for a brand-new rung (never persisted) OR a previously
-/// persisted rung whose [afterMinutes]/[targets] were edited in place: since
-/// the backend has no step-update endpoint, an in-place edit clears [id] so
-/// [EscalationController.save] treats it as "remove the old row, add a fresh
-/// one" rather than silently dropping the edit.
+/// persisted rung whose [afterMinutes]/[targetType]/[targetUserId] were edited
+/// in place: since the backend has no step-update endpoint, an in-place edit
+/// clears [id] so [EscalationController.save] treats it as "remove the old row,
+/// add a fresh one" rather than silently dropping the edit.
 @immutable
 class EscalationRungDraft {
   /// The backend step id, or `null` when not (or no longer) persisted.
@@ -461,13 +465,18 @@ class EscalationRungDraft {
   /// Minutes to wait after the previous rung fires. 0 means immediately.
   final int afterMinutes;
 
-  /// Notification targets this rung pages, e.g. `"Slack #incidents"`.
-  final List<String> targets;
+  /// Who this rung pages: the shared on-call rotation, or a specific member.
+  final EscalationTargetType targetType;
+
+  /// The paged member id, present only when [targetType] is
+  /// [EscalationTargetType.user]; `null` for the on-call rotation.
+  final String? targetUserId;
 
   /// Creates an [EscalationRungDraft].
   const EscalationRungDraft({
     this.id,
     required this.afterMinutes,
-    required this.targets,
+    required this.targetType,
+    this.targetUserId,
   });
 }

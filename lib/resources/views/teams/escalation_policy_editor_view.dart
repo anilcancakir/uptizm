@@ -6,9 +6,13 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/escalation_support.dart'
-    show escalationDelayLabel, escalationTargetRegions;
+    show
+        EscalationTargetType,
+        escalationDelayLabel,
+        escalationTargetFromKey,
+        escalationTargetKey,
+        escalationTargetOptions;
 import '../../../ui/components/empty_state/index.dart';
-import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/layouts/page_container.dart';
 
 /// **The Escalation Policy editor screen (`/teams/escalation/new` + `/:id`).**
@@ -26,10 +30,11 @@ import '../../../ui/layouts/page_container.dart';
 ///   repeat/default switches below).
 /// - An escalation-ladder section: each rung is a [Card] carrying its rung
 ///   number, a delay [Select] over the fixed delay options
-///   ([_delayOptions], labelled via [escalationDelayLabel]), a targets
-///   [RegionPicker] over [escalationTargetRegions] bound to that rung's
-///   targets, and a remove-rung ghost [Button] (disabled while only one rung
-///   remains). An "Add rung" [Button] appends a blank rung.
+///   ([_delayOptions], labelled via [escalationDelayLabel]), a target
+///   [Select] over [escalationTargetOptions] (the shared on-call rotation, or
+///   a specific team member) bound to that rung, and a remove-rung ghost
+///   [Button] (disabled while only one rung remains). An "Add rung" [Button]
+///   appends a fresh on-call rung.
 /// - A settings [Card] with the repeat-last-rung and use-as-default [Switch]es
 ///   (local-only inputs; the backend has no matching columns yet).
 ///
@@ -39,8 +44,9 @@ import '../../../ui/layouts/page_container.dart';
 /// `name` and reconciles the step chain against [_originalStepIds] (add/
 /// remove/reorder; see the controller's docblock for why an in-place rung
 /// edit clears its [_RungDraft.id] rather than calling a step-update
-/// endpoint that does not exist). Save is enabled only while [_canSave] (name
-/// non-empty and every rung has at least one target). [didUpdateWidget]
+/// endpoint that does not exist). Save requires a non-empty policy name; every
+/// rung always carries a valid target (the picker defaults to the on-call
+/// rotation), so there is no per-rung required check. [didUpdateWidget]
 /// reseeds on an id change so navigating between policies never carries a
 /// stale draft across (mirrors `status_page_editor_view`).
 ///
@@ -71,9 +77,9 @@ class EscalationPolicyEditorView
 /// Carries the backend step [id] once persisted so
 /// [EscalationController.save] can diff the draft ladder against its
 /// previously loaded chain. [id] is cleared back to `null` whenever
-/// [afterMinutes]/[targets] mutate in place: the backend has no step-update
-/// endpoint, so an edited rung is reconciled as "remove the old row, add a
-/// fresh one" rather than silently dropping the edit (see
+/// [afterMinutes]/[targetType]/[targetUserId] mutate in place: the backend has
+/// no step-update endpoint, so an edited rung is reconciled as "remove the old
+/// row, add a fresh one" rather than silently dropping the edit (see
 /// [EscalationController.save]'s docblock).
 class _RungDraft {
   /// The backend step id, or `null` for a new (or just-edited) rung.
@@ -82,16 +88,19 @@ class _RungDraft {
   /// Minutes to wait after the previous rung fires. 0 means immediately.
   int afterMinutes;
 
-  /// Notification targets this rung pages, e.g. `"Slack #incidents"`.
-  List<String> targets;
+  /// Who this rung pages: the shared on-call rotation, or a specific member.
+  EscalationTargetType targetType;
 
-  /// Inline validation error for this rung's targets picker, or null when it
-  /// is valid. Set on save when the rung has no target; cleared when the
-  /// targets change. Assigned after construction, so it is not a constructor
-  /// parameter.
-  String? targetsError;
+  /// The paged member id, present only when [targetType] is
+  /// [EscalationTargetType.user]; `null` for the on-call rotation.
+  String? targetUserId;
 
-  _RungDraft({this.id, required this.afterMinutes, required this.targets});
+  _RungDraft({
+    this.id,
+    required this.afterMinutes,
+    required this.targetType,
+    this.targetUserId,
+  });
 }
 
 class _EscalationPolicyEditorViewState
@@ -195,7 +204,12 @@ class _EscalationPolicyEditorViewState
       _isEdit = false;
       _nameController.text = '';
       _descriptionController.text = '';
-      _rungs = <_RungDraft>[_RungDraft(afterMinutes: 0, targets: <String>[])];
+      _rungs = <_RungDraft>[
+        _RungDraft(
+          afterMinutes: 0,
+          targetType: EscalationTargetType.onCall,
+        ),
+      ];
       _repeatLastStep = true;
       _isDefault = false;
       _originalStepIds = <String>{};
@@ -209,7 +223,8 @@ class _EscalationPolicyEditorViewState
         _RungDraft(
           id: step.id,
           afterMinutes: step.delayMinutes,
-          targets: <String>[step.channel ?? ''],
+          targetType: EscalationTargetType.fromWire(step.targetType),
+          targetUserId: step.targetId,
         ),
     ];
     _repeatLastStep = true;
@@ -217,10 +232,13 @@ class _EscalationPolicyEditorViewState
     _originalStepIds = existing.steps.map((s) => s.id).toSet();
   }
 
-  /// Appends a fresh blank rung to the ladder (React `addRung`).
+  /// Appends a fresh rung to the ladder, defaulting to the on-call rotation
+  /// target (React `addRung`).
   void _addRung() {
     setState(() {
-      _rungs.add(_RungDraft(afterMinutes: 0, targets: <String>[]));
+      _rungs.add(
+        _RungDraft(afterMinutes: 0, targetType: EscalationTargetType.onCall),
+      );
     });
   }
 
@@ -244,14 +262,17 @@ class _EscalationPolicyEditorViewState
     });
   }
 
-  /// Sets the notification targets of the rung at [index] (React
-  /// `setTargets`). Clears the rung's persisted id for the same reason as
-  /// [_setDelay].
-  void _setTargets(int index, List<String> targets) {
+  /// Sets the target of the rung at [index] from the picked select [key]
+  /// (`on_call` or `user:<id>`). Clears the rung's persisted id for the same
+  /// reason as [_setDelay].
+  void _setTarget(int index, String key) {
+    final (EscalationTargetType type, String? userId) = escalationTargetFromKey(
+      key,
+    );
     setState(() {
-      _rungs[index].targets = targets;
+      _rungs[index].targetType = type;
+      _rungs[index].targetUserId = userId;
       _rungs[index].id = null;
-      _rungs[index].targetsError = null;
     });
   }
 
@@ -259,9 +280,9 @@ class _EscalationPolicyEditorViewState
   /// [EscalationController.save] in edit mode. Both persist through to
   /// `api/v1/escalation-policies` and navigate back to the list on success.
   ///
-  /// Runs the client-side required checks first (a non-empty policy name and at
-  /// least one target on every rung), painting each field's inline error
-  /// without a round trip. Only when they pass does it await the matching
+  /// Runs the client-side required check first (a non-empty policy name),
+  /// painting its inline error without a round trip. Only when it passes does
+  /// it await the matching
   /// controller write; a non-empty result (a server 422) is a field-error map
   /// keyed by the posted wire field names, which [_applyServerErrors] paints
   /// under the matching fields. A returned key the editor owns no slot for is
@@ -276,7 +297,8 @@ class _EscalationPolicyEditorViewState
         EscalationRungDraft(
           id: rung.id,
           afterMinutes: rung.afterMinutes,
-          targets: rung.targets,
+          targetType: rung.targetType,
+          targetUserId: rung.targetUserId,
         ),
     ];
 
@@ -297,30 +319,21 @@ class _EscalationPolicyEditorViewState
     }
   }
 
-  /// Runs every client-side required check, painting each field's inline error
-  /// slot, and returns whether the draft may be saved.
+  /// Runs the client-side required check, painting the name field's inline
+  /// error slot, and returns whether the draft may be saved.
   ///
-  /// Checks the required policy name and that every rung has at least one
-  /// target. Every slot is always written (a passing check clears its slot) so
-  /// a previously shown error never lingers after a corrected resubmit.
+  /// Checks only the required policy name: every rung always carries a valid
+  /// target (the picker defaults to the on-call rotation and can never be
+  /// cleared). The slot is always written (a passing check clears it) so a
+  /// previously shown error never lingers after a corrected resubmit.
   bool _validateClientSide() {
     final String? nameError = _nameController.text.trim().isEmpty
         ? trans('uptizm.teams.form_name_error_required')
         : null;
-    bool anyRungError = false;
 
-    setState(() {
-      _nameError = nameError;
-      for (final _RungDraft rung in _rungs) {
-        final bool empty = rung.targets.isEmpty;
-        rung.targetsError = empty
-            ? trans('uptizm.teams.form_targets_error_required')
-            : null;
-        if (empty) anyRungError = true;
-      }
-    });
+    setState(() => _nameError = nameError);
 
-    return nameError == null && !anyRungError;
+    return nameError == null;
   }
 
   /// Routes a backend 422 field-error map (keyed by the wire field names the
@@ -541,11 +554,18 @@ class _EscalationPolicyEditorViewState
           MSFormField(
             label: trans('uptizm.teams.escalation_editor_targets_label'),
             hint: trans('uptizm.teams.escalation_editor_targets_hint'),
-            error: rung.targetsError,
-            child: RegionPicker(
-              regions: escalationTargetRegions(),
-              value: rung.targets,
-              onChanged: (List<String> next) => _setTargets(index, next),
+            child: MSSelect<String>(
+              value: escalationTargetKey(rung.targetType, rung.targetUserId),
+              options: <SelectOption<String>>[
+                for (final option in escalationTargetOptions())
+                  SelectOption<String>(
+                    value: option.key,
+                    label: option.label,
+                  ),
+              ],
+              onChange: (String? key) {
+                if (key != null) _setTarget(index, key);
+              },
             ),
           ),
         ],

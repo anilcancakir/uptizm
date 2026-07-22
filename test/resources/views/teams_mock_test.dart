@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:uptizm/app/enums/team_role.dart' show TeamRole;
 import 'package:uptizm/app/support/escalation_support.dart'
-    show escalationDelayLabel, escalationTargetRegions;
+    show escalationDelayLabel, escalationTargetOptions;
 import 'package:uptizm/app/support/team_types.dart' show OnCallShift, TeamMember;
 import 'package:uptizm/app/mocks/teams_data.dart';
 
@@ -24,12 +24,12 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // escalationTargetRegions
+  // escalationTargetOptions
   // ---------------------------------------------------------------------------
 
-  group('escalationTargetRegions', () {
+  group('escalationTargetOptions', () {
     test('is non-empty', () {
-      expect(escalationTargetRegions(), isNotEmpty);
+      expect(escalationTargetOptions(), isNotEmpty);
     });
   });
 
@@ -58,10 +58,6 @@ void main() {
 
     test('pendingInvitations is non-empty', () {
       expect(pendingInvitations, isNotEmpty);
-    });
-
-    test('notificationChannels is non-empty', () {
-      expect(notificationChannels, isNotEmpty);
     });
 
     test('onCallRotation is non-empty', () {
