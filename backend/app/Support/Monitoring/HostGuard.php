@@ -104,6 +104,96 @@ class HostGuard
     }
 
     /**
+     * Assert an outbound webhook URL is safe to POST to and return its IPs.
+     *
+     * This is a stricter policy than {@see self::assertUrlAllowed()} (which
+     * governs monitor probes and leaves scheme/port/credentials untouched):
+     * an outbound webhook carries a tenant signing secret and is sent by the
+     * platform itself, so the URL must be plain `https://host/path` with no
+     * embedded credentials and no explicit port, and its host must resolve
+     * entirely outside the SSRF denylist.
+     *
+     * The resolved addresses are returned so the caller can pin the connection
+     * to the exact IP(s) validated here. Pinning (rather than a second check
+     * at connect time) is what actually closes the DNS-rebinding window: a
+     * re-resolution between validation and connect could return a different,
+     * internal address; binding to the validated set cannot.
+     *
+     * @param  string  $url  The tenant-supplied webhook URL.
+     * @return list<string> The validated resolved IPs to pin the connection to.
+     *
+     * @throws ValidationException When the scheme is not https, the URL carries
+     *                             credentials or a port, the host is missing or
+     *                             reserved, cannot be resolved, or any resolved
+     *                             address falls inside a blocked range.
+     */
+    public function resolveAndAssertAllowed(string $url): array
+    {
+        $parts = parse_url($url);
+
+        // 1. A malformed URL has no safe interpretation; reject outright.
+        if (! is_array($parts)) {
+            throw ValidationException::withMessages([
+                'url' => 'The url is malformed.',
+            ]);
+        }
+
+        // 2. Only https: a signing secret must never travel in cleartext, and
+        //    non-http(s) schemes (file, gopher, ...) are classic SSRF vectors.
+        if (($parts['scheme'] ?? null) !== 'https') {
+            throw ValidationException::withMessages([
+                'url' => 'The url must use the https scheme.',
+            ]);
+        }
+
+        // 3. Reject embedded credentials or an explicit port: userinfo
+        //    confusion and non-standard ports are internal-reach vectors.
+        if (isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
+            throw ValidationException::withMessages([
+                'url' => 'The url must not contain credentials or a port.',
+            ]);
+        }
+
+        $host = $parts['host'] ?? null;
+        if (! is_string($host) || $host === '') {
+            throw ValidationException::withMessages([
+                'url' => 'The url must contain a valid host.',
+            ]);
+        }
+
+        $host = strtolower(trim($host, '[]'));
+
+        // 4. Reject reserved names that never front a public host.
+        if ($host === 'localhost' || str_ends_with($host, '.internal')) {
+            throw ValidationException::withMessages([
+                'url' => 'The url host is not allowed.',
+            ]);
+        }
+
+        // 5. Resolve exactly once. An unresolvable host cannot be pinned, so
+        //    (unlike a monitor probe) it is rejected rather than allowed.
+        $ips = $this->resolveHostIps($host);
+
+        if ($ips === []) {
+            throw ValidationException::withMessages([
+                'url' => 'The url host could not be resolved.',
+            ]);
+        }
+
+        // 6. Block when any resolved address is internal, then hand the exact
+        //    validated set back for connection pinning.
+        foreach ($ips as $ip) {
+            if ($this->isBlockedIp($ip)) {
+                throw ValidationException::withMessages([
+                    'url' => 'The url host is not allowed.',
+                ]);
+            }
+        }
+
+        return $ips;
+    }
+
+    /**
      * Resolve a host to its candidate IP addresses.
      *
      * A dotted IPv4 / bracket-stripped IPv6 literal resolves to itself; an
