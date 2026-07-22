@@ -105,6 +105,12 @@ class WebhookChannel
         ])
             ->withOptions([
                 'allow_redirects' => false,
+                // CURLOPT_RESOLVE pins the connection to the validated IP(s), so
+                // connect-time cannot drift from validation-time. It is a
+                // cURL-handler option and assumes Guzzle uses the curl handler
+                // (true under frankenphp/Octane, where ext-curl is present); if
+                // Guzzle ever fell back to the PHP stream handler the pin would
+                // be silently ignored and the rebinding window would reopen.
                 'curl' => [
                     CURLOPT_RESOLVE => [$host.':443:'.implode(',', $pinnedIps)],
                 ],
