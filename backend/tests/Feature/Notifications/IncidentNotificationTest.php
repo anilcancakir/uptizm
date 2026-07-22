@@ -25,14 +25,14 @@ class IncidentNotificationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_incident_opened_notifies_via_mail_and_database(): void
+    public function test_incident_opened_notifies_via_mail_database_and_onesignal(): void
     {
         $incident = $this->makeIncident();
         $user = User::factory()->create();
 
         $notification = new IncidentOpened($incident);
 
-        $this->assertSame(['mail', 'database'], $notification->via($user));
+        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
 
         $payload = $notification->toArray($user);
 
@@ -44,7 +44,7 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('critical', $payload['severity']);
     }
 
-    public function test_incident_resolved_notifies_via_mail_and_database(): void
+    public function test_incident_resolved_notifies_via_mail_database_and_onesignal(): void
     {
         $incident = $this->makeIncident([
             'lifecycle' => 'resolved',
@@ -53,7 +53,7 @@ class IncidentNotificationTest extends TestCase
 
         $notification = new IncidentResolved($incident);
 
-        $this->assertSame(['mail', 'database'], $notification->via($user));
+        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
 
         $payload = $notification->toArray($user);
 
@@ -61,30 +61,6 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('resolved', $payload['kind']);
         $this->assertSame($incident->id, $payload['incident_id']);
         $this->assertSame('API Health', $payload['monitor_name']);
-    }
-
-    public function test_incident_opened_adds_the_onesignal_channel_when_the_feature_is_enabled(): void
-    {
-        $this->enableOnesignal();
-        $incident = $this->makeIncident();
-        $user = User::factory()->create();
-
-        $notification = new IncidentOpened($incident);
-
-        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
-    }
-
-    public function test_incident_resolved_adds_the_onesignal_channel_when_the_feature_is_enabled(): void
-    {
-        $this->enableOnesignal();
-        $incident = $this->makeIncident([
-            'lifecycle' => 'resolved',
-        ]);
-        $user = User::factory()->create();
-
-        $notification = new IncidentResolved($incident);
-
-        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
     }
 
     public function test_a_disabled_channel_setting_removes_that_channel_from_via(): void
@@ -187,17 +163,17 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('API Health is resolved', $enPayload['title']);
     }
 
-    public function test_both_incident_types_are_registered_with_mail_and_database_defaults(): void
+    public function test_both_incident_types_are_registered_with_mail_database_and_push_defaults(): void
     {
         $this->assertTrue(NotificationPreferenceRegistry::has(IncidentOpened::class));
         $this->assertTrue(NotificationPreferenceRegistry::has(IncidentResolved::class));
 
-        $this->assertSame(['mail', 'database'], NotificationPreferenceRegistry::channels(IncidentOpened::class));
-        $this->assertSame(['mail', 'database'], NotificationPreferenceRegistry::defaults(IncidentOpened::class));
+        $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::channels(IncidentOpened::class));
+        $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::defaults(IncidentOpened::class));
         $this->assertSame([], NotificationPreferenceRegistry::locked(IncidentOpened::class));
 
-        $this->assertSame(['mail', 'database'], NotificationPreferenceRegistry::channels(IncidentResolved::class));
-        $this->assertSame(['mail', 'database'], NotificationPreferenceRegistry::defaults(IncidentResolved::class));
+        $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::channels(IncidentResolved::class));
+        $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::defaults(IncidentResolved::class));
 
         // Also reachable by the slug the client's preference matrix uses.
         $this->assertTrue(NotificationPreferenceRegistry::has('incident_opened'));

@@ -78,17 +78,23 @@ class AppServiceProvider extends ServiceProvider
 
         // Register the incident notification types so preference-gating
         // (GateNotificationChannels) and the client preference matrix know
-        // about them.
+        // about them. 'push' is the logical channel name (aliased to the
+        // 'onesignal' driver channel by MagicStarterServiceProvider when the
+        // onesignal feature is enabled); the registry must use the logical
+        // name so GateNotificationChannels resolves the driver channel back
+        // to it and gates on the notifiable's push preference.
         NotificationPreferenceRegistry::register([
             IncidentOpened::class => [
                 'label' => 'Incident opened',
                 'channels' => [
                     'mail',
                     'database',
+                    'push',
                 ],
                 'default' => [
                     'mail',
                     'database',
+                    'push',
                 ],
                 'locked' => [],
             ],
@@ -97,10 +103,12 @@ class AppServiceProvider extends ServiceProvider
                 'channels' => [
                     'mail',
                     'database',
+                    'push',
                 ],
                 'default' => [
                     'mail',
                     'database',
+                    'push',
                 ],
                 'locked' => [],
             ],

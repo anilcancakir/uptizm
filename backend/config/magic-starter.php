@@ -43,7 +43,7 @@ return [
         Features::newsletterSubscription(),
         Features::extendedProfile(),
         Features::notifications(),
-        // \FlutterSdk\MagicStarter\Features::onesignal(),
+        Features::onesignal(),
         // \FlutterSdk\MagicStarter\Features::guestAuth(),
         // \FlutterSdk\MagicStarter\Features::phoneOtp(),
         Features::emailVerification(),
