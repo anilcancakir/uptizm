@@ -183,35 +183,43 @@ class EscalationController extends MagicController {
   /// (`POST /escalation-policies`), then adds [rungs] as its step chain
   /// (`position` = list index) via `POST /escalation-policies/{id}/steps`, one
   /// raw call per rung. On success, reloads the roster, surfaces a success
-  /// toast, and returns to the list. On a `false` save result, a missing id,
-  /// or a failed step write, logs the failure and surfaces an error toast
-  /// without navigating away, so the operator can retry from the still-open
-  /// editor.
-  Future<void> create(String name, List<EscalationRungDraft> rungs) async {
+  /// toast, and returns to the list.
+  ///
+  /// Returns the policy's backend per-field validation errors (single message
+  /// per field, keyed by the wire field name: `name`) so the editor can render
+  /// a server 422 inline; an empty map means success, a missing id, or a step
+  /// write failure (the latter two already toasted). A `false` policy save that
+  /// carries field errors STAYS on the form with no toast; a `false` save with
+  /// no field errors keeps the generic error toast and returns an empty map.
+  Future<Map<String, String>> create(
+    String name,
+    List<EscalationRungDraft> rungs,
+  ) async {
     final EscalationPolicy policy = EscalationPolicy()..name = name;
 
     final bool ok = await policy.save();
     if (!ok) {
-      Log.error('[EscalationController.create] save() returned false');
-      _toastError(null);
-      return;
+      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(policy);
+      if (fieldErrors != null) return fieldErrors;
+      return const {};
     }
 
     final String id = policy.id;
     if (id.isEmpty) {
       Log.error('[EscalationController.create] missing id after save()');
       _toastError(null);
-      return;
+      return const {};
     }
 
     for (int i = 0; i < rungs.length; i++) {
       final bool stepOk = await _addStep(id, position: i, rung: rungs[i]);
-      if (!stepOk) return;
+      if (!stepOk) return const {};
     }
 
     await reload();
     Magic.success(trans('uptizm.teams.escalation_editor_create_button'), name);
     MagicRoute.to('/teams/escalation');
+    return const {};
   }
 
   /// Saves the policy [id]'s [name] through the model's ORM `save()`
@@ -223,10 +231,15 @@ class EscalationController extends MagicController {
   /// (`POST /escalation-policies/{id}/steps`), and every untouched,
   /// still-present rung is bulk-repositioned in one
   /// `PUT /escalation-policies/{id}/steps/reorder` call. On success, reloads
-  /// the roster, surfaces a success toast, and returns to the list. On a
-  /// `false` save result or a failed step write, logs the failure and surfaces
-  /// an error toast without navigating away.
-  Future<void> save(
+  /// the roster, surfaces a success toast, and returns to the list.
+  ///
+  /// Returns the policy's backend per-field validation errors (single message
+  /// per field, keyed by the wire field name: `name`) so the editor can render
+  /// a server 422 inline; an empty map means success or a step write failure
+  /// (already toasted). A `false` policy save that carries field errors STAYS
+  /// on the form with no toast; a `false` save with no field errors keeps the
+  /// generic error toast and returns an empty map.
+  Future<Map<String, String>> save(
     String id,
     String name,
     List<EscalationRungDraft> rungs,
@@ -239,9 +252,9 @@ class EscalationController extends MagicController {
 
     final bool ok = await policy.save();
     if (!ok) {
-      Log.error('[EscalationController.save] $id: save() returned false');
-      _toastError(null);
-      return;
+      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(policy);
+      if (fieldErrors != null) return fieldErrors;
+      return const {};
     }
 
     final Set<String> keptIds = {
@@ -251,7 +264,7 @@ class EscalationController extends MagicController {
     for (final String stepId in originalStepIds) {
       if (keptIds.contains(stepId)) continue;
       final bool stepOk = await removeStep(id, stepId);
-      if (!stepOk) return;
+      if (!stepOk) return const {};
     }
 
     final List<Map<String, dynamic>> reorderOrder = [];
@@ -259,7 +272,7 @@ class EscalationController extends MagicController {
       final EscalationRungDraft rung = rungs[i];
       if (rung.id == null) {
         final bool stepOk = await _addStep(id, position: i, rung: rung);
-        if (!stepOk) return;
+        if (!stepOk) return const {};
       } else {
         reorderOrder.add({'id': rung.id, 'position': i});
       }
@@ -267,12 +280,36 @@ class EscalationController extends MagicController {
 
     if (reorderOrder.isNotEmpty) {
       final bool stepOk = await reorderSteps(id, reorderOrder);
-      if (!stepOk) return;
+      if (!stepOk) return const {};
     }
 
     await reload();
     Magic.success(trans('uptizm.teams.escalation_editor_save_button'), name);
     MagicRoute.to('/teams/escalation');
+    return const {};
+  }
+
+  /// Resolves a failed policy [policy] save into either its per-field
+  /// validation errors or a generic toast.
+  ///
+  /// Returns the field errors (single message per field, keyed by the wire
+  /// field name) when the failed save carried the Laravel 422 shape via
+  /// [EscalationPolicy.validationErrors], so the caller hands them back to the
+  /// editor for inline display and stays put. Returns `null` for a non-field
+  /// failure (a transport error / 500) after surfacing the generic error toast
+  /// and logging the cause, so the caller falls back to its empty-map contract.
+  Map<String, String>? _fieldErrorsOrToast(EscalationPolicy policy) {
+    final Map<String, List<String>> errors = policy.validationErrors;
+    if (errors.isNotEmpty) {
+      return {
+        for (final MapEntry<String, List<String>> entry in errors.entries)
+          entry.key: entry.value.first,
+      };
+    }
+
+    Log.error('[EscalationController] save returned false with no field errors');
+    _toastError(null);
+    return null;
   }
 
   /// Deletes the policy [id] through the model's ORM `delete()`

@@ -85,6 +85,12 @@ class _RungDraft {
   /// Notification targets this rung pages, e.g. `"Slack #incidents"`.
   List<String> targets;
 
+  /// Inline validation error for this rung's targets picker, or null when it
+  /// is valid. Set on save when the rung has no target; cleared when the
+  /// targets change. Assigned after construction, so it is not a constructor
+  /// parameter.
+  String? targetsError;
+
   _RungDraft({this.id, required this.afterMinutes, required this.targets});
 }
 
@@ -133,6 +139,11 @@ class _EscalationPolicyEditorViewState
   /// Save/Create action so a double-tap cannot fire two writes.
   bool _saving = false;
 
+  /// Inline validation error for the policy-name field, or null when it is
+  /// valid. Set on save when the required name is blank, and by a server 422
+  /// that rejects `name`. Cleared when the name is edited.
+  String? _nameError;
+
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -179,6 +190,7 @@ class _EscalationPolicyEditorViewState
   /// Edit mode copies each wire step into a fresh [_RungDraft] (carrying its
   /// backend id) so mutating the draft never touches the cached policy model.
   void _seedFrom(EscalationPolicy? existing) {
+    _nameError = null;
     if (existing == null) {
       _isEdit = false;
       _nameController.text = '';
@@ -204,14 +216,6 @@ class _EscalationPolicyEditorViewState
     _isDefault = false;
     _originalStepIds = existing.steps.map((s) => s.id).toSet();
   }
-
-  /// Whether the draft satisfies the Save-enabled rule: a non-empty name and at
-  /// least one target on every rung (React `canSave`), and no save already in
-  /// flight.
-  bool get _canSave =>
-      !_saving &&
-      _nameController.text.trim().isNotEmpty &&
-      _rungs.every((_RungDraft rung) => rung.targets.isNotEmpty);
 
   /// Appends a fresh blank rung to the ladder (React `addRung`).
   void _addRung() {
@@ -247,15 +251,24 @@ class _EscalationPolicyEditorViewState
     setState(() {
       _rungs[index].targets = targets;
       _rungs[index].id = null;
+      _rungs[index].targetsError = null;
     });
   }
 
   /// Saves the draft: [EscalationController.create] in create mode,
   /// [EscalationController.save] in edit mode. Both persist through to
-  /// `api/v1/escalation-policies` and navigate back to the list on success,
-  /// surfacing an error toast and leaving the editor open on failure (see the
-  /// controller's docblock).
+  /// `api/v1/escalation-policies` and navigate back to the list on success.
+  ///
+  /// Runs the client-side required checks first (a non-empty policy name and at
+  /// least one target on every rung), painting each field's inline error
+  /// without a round trip. Only when they pass does it await the matching
+  /// controller write; a non-empty result (a server 422) is a field-error map
+  /// keyed by the posted wire field names, which [_applyServerErrors] paints
+  /// under the matching fields. A returned key the editor owns no slot for is
+  /// surfaced as the generic error toast.
   Future<void> _save() async {
+    if (!_validateClientSide()) return;
+
     setState(() => _saving = true);
     final String name = _nameController.text.trim();
     final List<EscalationRungDraft> rungs = [
@@ -267,13 +280,65 @@ class _EscalationPolicyEditorViewState
         ),
     ];
 
-    if (_isEdit) {
-      await controller.save(widget.id!, name, rungs, _originalStepIds);
-    } else {
-      await controller.create(name, rungs);
-    }
+    final Map<String, String> serverErrors = _isEdit
+        ? await controller.save(widget.id!, name, rungs, _originalStepIds)
+        : await controller.create(name, rungs);
 
-    if (mounted) setState(() => _saving = false);
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    if (serverErrors.isEmpty) return;
+    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
+    if (unmapped.isNotEmpty) {
+      Magic.error(
+        trans('uptizm.teams.escalation_toast_error_title'),
+        unmapped.values.first,
+      );
+    }
+  }
+
+  /// Runs every client-side required check, painting each field's inline error
+  /// slot, and returns whether the draft may be saved.
+  ///
+  /// Checks the required policy name and that every rung has at least one
+  /// target. Every slot is always written (a passing check clears its slot) so
+  /// a previously shown error never lingers after a corrected resubmit.
+  bool _validateClientSide() {
+    final String? nameError = _nameController.text.trim().isEmpty
+        ? trans('uptizm.teams.form_name_error_required')
+        : null;
+    bool anyRungError = false;
+
+    setState(() {
+      _nameError = nameError;
+      for (final _RungDraft rung in _rungs) {
+        final bool empty = rung.targets.isEmpty;
+        rung.targetsError = empty
+            ? trans('uptizm.teams.form_targets_error_required')
+            : null;
+        if (empty) anyRungError = true;
+      }
+    });
+
+    return nameError == null && !anyRungError;
+  }
+
+  /// Routes a backend 422 field-error map (keyed by the wire field names the
+  /// editor posts) into the inline error slots, returning the entries that map
+  /// to no known field so the caller can surface them another way.
+  Map<String, String> _applyServerErrors(Map<String, String> errors) {
+    final Map<String, String> unmapped = {};
+    setState(() {
+      for (final MapEntry<String, String> entry in errors.entries) {
+        switch (entry.key) {
+          case 'name':
+            _nameError = entry.value;
+          default:
+            unmapped[entry.key] = entry.value;
+        }
+      }
+    });
+    return unmapped;
   }
 
   @override
@@ -331,8 +396,8 @@ class _EscalationPolicyEditorViewState
       backFallback: '/teams/escalation',
       actions: <Widget>[
         MSButton(
-          disabled: !_canSave,
-          onPressed: _canSave ? _save : null,
+          disabled: _saving,
+          onPressed: _saving ? null : _save,
           child: WText(
             _isEdit
                 ? trans('uptizm.teams.escalation_editor_save_button')
@@ -369,14 +434,14 @@ class _EscalationPolicyEditorViewState
         children: <Widget>[
           MSFormField(
             label: trans('uptizm.teams.escalation_editor_name_label'),
+            error: _nameError,
             child: MSInput(
               controller: _nameController,
               placeholder: trans(
                 'uptizm.teams.escalation_editor_name_placeholder',
               ),
-              // Re-evaluate _canSave on every keystroke so the Save button
-              // enables/disables live with the name field.
-              onChanged: (String _) => setState(() {}),
+              // Clear the inline required error as soon as the name is edited.
+              onChanged: (String _) => setState(() => _nameError = null),
             ),
           ),
           MSFormField(
@@ -476,6 +541,7 @@ class _EscalationPolicyEditorViewState
           MSFormField(
             label: trans('uptizm.teams.escalation_editor_targets_label'),
             hint: trans('uptizm.teams.escalation_editor_targets_hint'),
+            error: rung.targetsError,
             child: RegionPicker(
               regions: escalationTargetRegions(),
               value: rung.targets,

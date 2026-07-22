@@ -163,6 +163,8 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.escalation_editor_create_button': 'Create policy',
       'uptizm.teams.escalation_editor_name_label': 'Name',
       'uptizm.teams.escalation_editor_name_placeholder': 'Critical path',
+      'uptizm.teams.form_name_error_required': 'Name is required.',
+      'uptizm.teams.form_targets_error_required': 'Add a target.',
       'uptizm.teams.escalation_editor_desc_label': 'Description',
       'uptizm.teams.escalation_editor_desc_placeholder': 'Aggressive paging.',
       'uptizm.teams.escalation_editor_ladder_header': 'Escalation ladder',
@@ -476,6 +478,44 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'create mode: saving with a blank name shows an inline error and skips '
+      'the write',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 6000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final FakeNetworkDriver fake = Http.fake();
+        MagicRouter.instance.routerConfig;
+
+        await tester.pumpWidget(
+          wrap(const EscalationPolicyEditorView(), size: const Size(1280, 6000)),
+        );
+        await tester.pump();
+
+        // Tap Create with the blank create defaults (empty name, one rung with
+        // no targets): the client-side required check must block before any
+        // round trip.
+        await tester.tap(
+          find.text(trans('uptizm.teams.escalation_editor_create_button')),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.teams.form_name_error_required')),
+          findsOneWidget,
+          reason: 'A blank name must surface its inline required error',
+        );
+        // No round trip: the blank submit never reached the write endpoint.
+        fake.assertNotSent(
+          (r) =>
+              (r.method == 'POST' || r.method == 'PUT') &&
+              r.url.contains('escalation-policies'),
+        );
+      },
+    );
 
     testWidgets('edit mode resolves a known id and renders the edit title', (
       tester,

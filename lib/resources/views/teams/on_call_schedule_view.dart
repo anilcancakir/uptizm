@@ -270,6 +270,15 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
             ],
           ),
         ),
+        // A rotation must keep at least one responder: the last row's Remove is
+        // disabled to enforce it, and this near-field note makes the invariant
+        // visible before the user reaches for a round trip they cannot make
+        // (mirrors the escalation editor's "at least one target" enforcement).
+        if (_rotation.length == 1)
+          WText(
+            trans('uptizm.teams.oncall_min_responder_hint'),
+            className: 'px-1 text-xs text-fg-muted',
+          ),
         _buildAddOrUpgrade(),
         WText('$onCallCadence.', className: 'px-1 text-xs text-fg-muted'),
       ],
