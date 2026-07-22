@@ -43,6 +43,10 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_form_key_hint':
           'Lowercase letters, digits, underscores.',
       'uptizm.monitors.metrics_form_key_error': 'Invalid key.',
+      'uptizm.monitors.form_name_error_required': 'Name required',
+      'uptizm.monitors.metrics_form_key_error_required': 'Key required',
+      'uptizm.monitors.metrics_form_path_error_required': 'Path required',
+      'uptizm.monitors.toast_save_failed_title': "Couldn't save",
       'uptizm.monitors.metrics_form_key_placeholder': 'memory_usage',
       'uptizm.monitors.metrics_form_type_label': 'Type',
       'uptizm.monitors.metrics_form_source_label': 'Source',
@@ -521,7 +525,7 @@ void main() {
           MonitorMetricForm(
             initial: kEmptyMetricForm,
             isEdit: false,
-            onSave: (_) {},
+            onSave: (_) async => <String, String>{},
             onCancel: () {},
           ),
         ),
@@ -551,39 +555,57 @@ void main() {
       );
     });
 
-    testWidgets('Save button is disabled when both label and key are empty', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(600, 3000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets(
+      'tapping Save on a blank form paints inline required errors and does '
+      'not round-trip',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(600, 3000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(
-        wrapForm(
-          MonitorMetricForm(
-            initial: kEmptyMetricForm,
-            isEdit: false,
-            onSave: (_) {},
-            onCancel: () {},
+        bool submitted = false;
+        await tester.pumpWidget(
+          wrapForm(
+            MonitorMetricForm(
+              initial: kEmptyMetricForm,
+              isEdit: false,
+              onSave: (_) async {
+                submitted = true;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      final Finder saveButton = find.widgetWithText(
-        MSButton,
-        trans('uptizm.monitors.metrics_form_save_create'),
-      );
-      expect(saveButton, findsOneWidget);
-      final MSButton btn = tester.widget<MSButton>(saveButton);
-      expect(
-        btn.disabled,
-        isTrue,
-        reason: 'Save must be disabled when label and key are empty',
-      );
-    });
+        await tester.tap(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.monitors.metrics_form_save_create'),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          submitted,
+          isFalse,
+          reason: 'A blank required form must never reach the write path',
+        );
+        expect(
+          find.text(trans('uptizm.monitors.form_name_error_required')),
+          findsOneWidget,
+          reason: 'The blank Name must surface its required error inline',
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_key_error_required')),
+          findsOneWidget,
+          reason: 'The blank Key must surface its required error inline',
+        );
+      },
+    );
 
     testWidgets(
-      'Save button is enabled when label and key are both non-empty',
+      'tapping Save on a valid form hands the form to onSave',
       (tester) async {
         await tester.binding.setSurfaceSize(const Size(600, 3000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -594,29 +616,37 @@ void main() {
           path: r'$.system.memory.used_pct',
         );
 
+        MetricForm? submitted;
         await tester.pumpWidget(
           wrapForm(
             MonitorMetricForm(
               initial: seeded,
               isEdit: false,
-              onSave: (_) {},
+              onSave: (form) async {
+                submitted = form;
+                return <String, String>{};
+              },
               onCancel: () {},
             ),
           ),
         );
         await tester.pump();
 
-        final Finder saveButton = find.widgetWithText(
-          MSButton,
-          trans('uptizm.monitors.metrics_form_save_create'),
+        await tester.tap(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.monitors.metrics_form_save_create'),
+          ),
         );
-        expect(saveButton, findsOneWidget);
-        final MSButton btn = tester.widget<MSButton>(saveButton);
+        await tester.pump();
+
         expect(
-          btn.disabled,
-          isFalse,
-          reason: 'Save must be enabled when label and key are both non-empty',
+          submitted,
+          isNotNull,
+          reason: 'A valid form must reach the write path',
         );
+        expect(submitted!.label, equals('Memory usage'));
+        expect(submitted!.key, equals('memory_usage'));
       },
     );
 
@@ -637,7 +667,7 @@ void main() {
             MonitorMetricForm(
               initial: statusForm,
               isEdit: false,
-              onSave: (_) {},
+              onSave: (_) async => <String, String>{},
               onCancel: () {},
             ),
           ),

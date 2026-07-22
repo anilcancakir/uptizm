@@ -136,9 +136,9 @@ void main() {
         critical: '95',
       );
 
-      final bool ok = await controller.create('api', form);
+      final Map<String, String> result = await controller.create('api', form);
 
-      expect(ok, isTrue);
+      expect(result, isEmpty);
       fake.assertSent(
         (r) => r.method == 'POST' && r.url == '/monitors/api/metrics',
       );
@@ -156,15 +156,44 @@ void main() {
       expect(controller.metricsFor('api'), hasLength(1));
     });
 
-    test('returns false and does not reload on a failed create', () async {
-      Http.fake({'monitors/api/metrics': Http.response({'message': 'Invalid'}, 422)});
+    test('maps a 422 field error inline and does not reload', () async {
+      Http.fake({
+        'monitors/api/metrics': Http.response({
+          'message': 'The key has already been taken.',
+          'errors': {
+            'key': ['The key has already been taken.'],
+          },
+        }, 422),
+      });
       final MonitorMetricsController controller = MonitorMetricsController.instance;
 
-      final bool ok = await controller.create('api', kEmptyMetricForm);
+      final Map<String, String> result = await controller.create(
+        'api',
+        kEmptyMetricForm,
+      );
 
-      expect(ok, isFalse);
+      expect(result, equals({'key': 'The key has already been taken.'}));
       expect(controller.metricsFor('api'), isEmpty);
     });
+
+    test(
+      'returns an empty map on a non-field failure and does not reload',
+      () async {
+        Http.fake({
+          'monitors/api/metrics': Http.response({'message': 'Server error'}, 500),
+        });
+        final MonitorMetricsController controller =
+            MonitorMetricsController.instance;
+
+        final Map<String, String> result = await controller.create(
+          'api',
+          kEmptyMetricForm,
+        );
+
+        expect(result, isEmpty);
+        expect(controller.metricsFor('api'), isEmpty);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -185,23 +214,36 @@ void main() {
         key: 'memory_usage',
       );
 
-      final bool ok = await controller.update('api', 'm1', form);
+      final Map<String, String> result = await controller.update(
+        'api',
+        'm1',
+        form,
+      );
 
-      expect(ok, isTrue);
+      expect(result, isEmpty);
       fake.assertSent(
         (r) => r.method == 'PUT' && r.url == '/monitors/api/metrics/m1',
       );
     });
 
-    test('returns false on a failed update', () async {
+    test('maps a 422 field error inline on a failed update', () async {
       Http.fake({
-        'monitors/api/metrics/m1': Http.response({'message': 'Nope'}, 422),
+        'monitors/api/metrics/m1': Http.response({
+          'message': 'The label field is required.',
+          'errors': {
+            'label': ['The label field is required.'],
+          },
+        }, 422),
       });
       final MonitorMetricsController controller = MonitorMetricsController.instance;
 
-      final bool ok = await controller.update('api', 'm1', kEmptyMetricForm);
+      final Map<String, String> result = await controller.update(
+        'api',
+        'm1',
+        kEmptyMetricForm,
+      );
 
-      expect(ok, isFalse);
+      expect(result, equals({'label': 'The label field is required.'}));
     });
   });
 

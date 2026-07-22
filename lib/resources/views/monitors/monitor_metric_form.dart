@@ -60,8 +60,16 @@ class MonitorMetricForm extends StatefulWidget {
   /// Save label).
   final bool isEdit;
 
-  /// Called with the validated form when the user taps Save.
-  final void Function(MetricForm form) onSave;
+  /// Called with the form when the user taps Save (once the client-side
+  /// required checks pass).
+  ///
+  /// Returns the backend field errors keyed by the wire field name the write
+  /// posts (`label`, `key`, `extraction_path`, `warn_bound`,
+  /// `critical_bound`, ...), single message per field, so a server 422 renders
+  /// inline under the matching field. An empty map means success (the sheet has
+  /// already been closed by [show]). Any returned key the form does not own is
+  /// surfaced as a generic failure toast.
+  final Future<Map<String, String>> Function(MetricForm form) onSave;
 
   /// Called when the user taps Cancel.
   final VoidCallback onCancel;
@@ -85,7 +93,7 @@ class MonitorMetricForm extends StatefulWidget {
     BuildContext context, {
     required MetricForm initial,
     required bool isEdit,
-    required void Function(MetricForm form) onSave,
+    required Future<Map<String, String>> Function(MetricForm form) onSave,
   }) {
     return MSBottomSheet.show<void>(
       context,
@@ -96,9 +104,16 @@ class MonitorMetricForm extends StatefulWidget {
         builder: (sheetContext) => MonitorMetricForm(
           initial: initial,
           isEdit: isEdit,
-          onSave: (form) {
-            onSave(form);
-            Navigator.of(sheetContext).pop();
+          // The sheet closes only on a successful write (an empty error map),
+          // mirroring the monitor form's "navigate only on success"; a server
+          // 422 hands its field errors back so the form keeps the sheet open
+          // and paints them inline.
+          onSave: (form) async {
+            final Map<String, String> errors = await onSave(form);
+            if (errors.isEmpty && sheetContext.mounted) {
+              Navigator.of(sheetContext).pop();
+            }
+            return errors;
           },
           onCancel: () => Navigator.of(sheetContext).pop(),
         ),
@@ -119,6 +134,36 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// Tracks whether the user has manually edited the Key field. Once true, the
   /// Key stops auto-following the Name slug (React `keyEdited`).
   late bool _keyEdited;
+
+  /// Inline validation error for the Name field, or null when it is valid.
+  ///
+  /// Set on submit when the required Name is blank (a check the client can make
+  /// before any round trip), and by a server 422 that rejects `label`. Cleared
+  /// when the user edits the field.
+  String? _labelError;
+
+  /// Inline validation error for the Key field, or null when it is valid.
+  ///
+  /// Set on submit when the required Key is blank or malformed, and by a server
+  /// 422 that rejects `key` (e.g. the per-monitor uniqueness rule). Cleared when
+  /// the user edits the field; while null, the live slug-format check
+  /// ([_keyValid]) still surfaces a malformed key as the user types.
+  String? _keyError;
+
+  /// Inline validation error for the extraction-path field, or null when it is
+  /// valid. Set on submit when a path is required (the source needs one) but
+  /// blank, and by a server 422 that rejects `extraction_path`. Cleared when the
+  /// user edits the field.
+  String? _pathError;
+
+  /// Inline validation error for the Warn threshold field, set only by a server
+  /// 422 that rejects `warn_bound`. Cleared when the user edits the field.
+  String? _warnError;
+
+  /// Inline validation error for the Critical threshold field, set only by a
+  /// server 422 that rejects `critical_bound`. Cleared when the user edits the
+  /// field.
+  String? _criticalError;
 
   /// The simulated extraction-test lifecycle.
   MetricTestStatus _testStatus = MetricTestStatus.idle;
@@ -170,6 +215,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
       final String nextKey = _keyEdited ? _form.key : slugify(value);
       _form = _form.copyWith(label: value, key: nextKey);
       _testStatus = MetricTestStatus.idle;
+      _labelError = null;
+      // A blank/server key error no longer applies once the auto-slug follows a
+      // fresh Name.
+      if (!_keyEdited) _keyError = null;
       if (!_keyEdited && _keyController.text != nextKey) {
         _keyController.text = nextKey;
       }
@@ -182,6 +231,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
       _keyEdited = true;
       _form = _form.copyWith(key: value);
       _testStatus = MetricTestStatus.idle;
+      _keyError = null;
     });
   }
 
@@ -192,6 +242,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     final String critical = suggCrit.toString();
     _warnController.text = warn;
     _criticalController.text = critical;
+    setState(() {
+      _warnError = null;
+      _criticalError = null;
+    });
     _set(_form.copyWith(warn: warn, critical: critical));
   }
 
@@ -215,13 +269,15 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
   bool get _keyValid => _form.key.isEmpty || kKeyRe.hasMatch(_form.key);
 
-  bool get _ruleReady => !_needsPath || _form.path.trim().isNotEmpty;
+  /// The error rendered under the Key field: the submit/server error slot
+  /// ([_keyError]) takes precedence, falling back to the live slug-format check
+  /// so a malformed key still surfaces as the user types.
+  String? get _keyFieldError {
+    if (_keyError != null) return _keyError;
+    return _keyValid ? null : trans('uptizm.monitors.metrics_form_key_error');
+  }
 
-  bool get _canSave =>
-      _form.label.trim().isNotEmpty &&
-      _form.key.trim().isNotEmpty &&
-      _keyValid &&
-      _ruleReady;
+  bool get _ruleReady => !_needsPath || _form.path.trim().isNotEmpty;
 
   num? get _resolved => _form.source == 'json' ? resolveJson(_form.path) : null;
 
@@ -297,6 +353,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   Widget _buildNameField() {
     return MSFormField(
       label: trans('uptizm.monitors.metrics_form_name_label'),
+      error: _labelError,
       child: MSInput(
         value: _form.label,
         onChanged: _onLabel,
@@ -308,18 +365,20 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// Builds the Key field: monospace, with the slugify validation error shown
   /// inline when the key is malformed.
   Widget _buildKeyField() {
+    final String? keyError = _keyFieldError;
+    final InputState keyState = keyError == null
+        ? InputState.normal
+        : InputState.error;
     return MSFormField(
       label: trans('uptizm.monitors.metrics_form_key_label'),
       hint: trans('uptizm.monitors.metrics_form_key_hint'),
-      error: _keyValid ? null : trans('uptizm.monitors.metrics_form_key_error'),
+      error: keyError,
       child: MSInput(
         controller: _keyController,
         onChanged: _onKey,
-        state: _keyValid ? InputState.normal : InputState.error,
+        state: keyState,
         placeholder: trans('uptizm.monitors.metrics_form_key_placeholder'),
-        className: _monoInputClass(
-          _keyValid ? InputState.normal : InputState.error,
-        ),
+        className: _monoInputClass(keyState),
       ),
     );
   }
@@ -375,9 +434,13 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     return MSFormField(
       label: trans('uptizm.monitors.metrics_form_extraction_label'),
       hint: kPathHint[_form.source],
+      error: _pathError,
       child: MSInput(
         value: _form.path,
-        onChanged: (value) => _set(_form.copyWith(path: value)),
+        onChanged: (value) {
+          _pathError = null;
+          _set(_form.copyWith(path: value));
+        },
         placeholder: kPathPlaceholder[_form.source] ?? '',
         className: _monoInputClass(InputState.normal),
       ),
@@ -402,18 +465,26 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
       children: [
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_warn_label'),
+          error: _warnError,
           child: MSInput(
             controller: _warnController,
-            onChanged: (value) => _set(_form.copyWith(warn: value)),
+            onChanged: (value) {
+              _warnError = null;
+              _set(_form.copyWith(warn: value));
+            },
             placeholder: '80',
             className: _monoInputClass(InputState.normal),
           ),
         ),
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_critical_label'),
+          error: _criticalError,
           child: MSInput(
             controller: _criticalController,
-            onChanged: (value) => _set(_form.copyWith(critical: value)),
+            onChanged: (value) {
+              _criticalError = null;
+              _set(_form.copyWith(critical: value));
+            },
             placeholder: '95',
             className: _monoInputClass(InputState.normal),
           ),
@@ -572,8 +643,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
           child: WText(trans('uptizm.common.cancel')),
         ),
         MSButton(
-          disabled: !_canSave,
-          onPressed: _canSave ? () => widget.onSave(_form) : null,
+          onPressed: _submitIfValid,
           child: WText(
             widget.isEdit
                 ? trans('uptizm.monitors.metrics_form_save_edit')
@@ -582,6 +652,101 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
         ),
       ],
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Submit + validation.
+  // ---------------------------------------------------------------------------
+
+  /// Validates every client-side required field, then hands the form to
+  /// [MonitorMetricForm.onSave] and routes any server 422 back into the inline
+  /// error slots.
+  ///
+  /// The client checks the required Name, the required + well-formed Key, and
+  /// (when the source needs one) the required extraction path up front so those
+  /// rejections surface inline WITHOUT a round trip. Only when they pass does it
+  /// await [MonitorMetricForm.onSave]; an empty result means success ([show] has
+  /// already closed the sheet), a non-empty result (a server 422) is a
+  /// field-error map keyed by the posted wire field names, which
+  /// [_applyServerErrors] paints under the matching fields. A returned key the
+  /// form owns no slot for is surfaced as the generic save-failed toast.
+  Future<void> _submitIfValid() async {
+    if (!_validateClientSide()) return;
+
+    final Map<String, String> serverErrors = await widget.onSave(_form);
+    if (!mounted || serverErrors.isEmpty) return;
+
+    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
+    if (unmapped.isNotEmpty) {
+      Magic.error(
+        trans('uptizm.monitors.toast_save_failed_title'),
+        unmapped.values.first,
+      );
+    }
+  }
+
+  /// Runs every client-side required check, painting each field's inline error
+  /// slot, and returns whether the form may be submitted.
+  ///
+  /// Checks the required Name, the required + well-formed Key, and the required
+  /// extraction path (only when the source needs one, mirroring [_ruleReady]);
+  /// all three are checks the client can make before any round trip. Every slot
+  /// is always written (a passing check clears its slot) so a previously shown
+  /// error never lingers after a corrected resubmit.
+  bool _validateClientSide() {
+    final String? labelError = _form.label.trim().isEmpty
+        ? trans('uptizm.monitors.form_name_error_required')
+        : null;
+    final String? keyError = _keyRequiredError();
+    final String? pathError = _needsPath && _form.path.trim().isEmpty
+        ? trans('uptizm.monitors.metrics_form_path_error_required')
+        : null;
+
+    setState(() {
+      _labelError = labelError;
+      _keyError = keyError;
+      _pathError = pathError;
+    });
+
+    return labelError == null && keyError == null && pathError == null;
+  }
+
+  /// Resolves the client-side Key error: the required message when blank, the
+  /// slug-format message when malformed, or null when valid.
+  String? _keyRequiredError() {
+    if (_form.key.trim().isEmpty) {
+      return trans('uptizm.monitors.metrics_form_key_error_required');
+    }
+    if (!kKeyRe.hasMatch(_form.key)) {
+      return trans('uptizm.monitors.metrics_form_key_error');
+    }
+    return null;
+  }
+
+  /// Routes a backend 422 field-error map (keyed by the wire field names the
+  /// write posts) into the inline error slots, returning the entries that map
+  /// to no known field so the caller can surface them another way.
+  Map<String, String> _applyServerErrors(Map<String, String> errors) {
+    final Map<String, String> unmapped = {};
+    setState(() {
+      for (final MapEntry<String, String> entry in errors.entries) {
+        switch (entry.key) {
+          case 'label':
+            _labelError = entry.value;
+          case 'key':
+            _keyError = entry.value;
+          case 'extraction_path':
+            _pathError = entry.value;
+          case 'warn_bound':
+            _warnError = entry.value;
+          case 'critical_bound':
+            _criticalError = entry.value;
+          default:
+            unmapped[entry.key] = entry.value;
+        }
+      }
+    });
+    return unmapped;
   }
 
   // ---------------------------------------------------------------------------

@@ -187,10 +187,20 @@ class MonitorMetricsController extends MagicController {
   // ---------------------------------------------------------------------------
 
   /// Creates a custom metric on [monitorId] via `POST /monitors/:id/metrics`
-  /// and reloads the catalog on success. Returns whether the write
-  /// succeeded; on failure logs + surfaces an error toast (no silent catch)
-  /// and leaves the catalog untouched.
-  Future<bool> create(String monitorId, MetricForm form) async {
+  /// and reloads the catalog on success.
+  ///
+  /// Returns the backend per-field validation errors (single message per field,
+  /// keyed by the wire field name the form posts: `label`, `key`,
+  /// `extraction_path`, `warn_bound`, `critical_bound`, ...) so the metric form
+  /// can render a server 422 inline; an empty map means success (the caller
+  /// closes the sheet). A 422 that carries field errors STAYS on the form with
+  /// no toast so the user corrects the flagged fields; a non-field failure (a
+  /// transport error / 500) keeps the generic save-failed toast and returns an
+  /// empty map. Mirrors `monitor_controller.dart`'s [create] contract, reading
+  /// the errors from [MagicResponse.errors] (this write path is raw `Http.post`,
+  /// not an ORM `Model.save()`, so there is no `model.validationErrors`; both
+  /// resolve the same Laravel 422 shape).
+  Future<Map<String, String>> create(String monitorId, MetricForm form) async {
     try {
       final response = await Http.post(
         '/monitors/$monitorId/metrics',
@@ -200,24 +210,33 @@ class MonitorMetricsController extends MagicController {
         Log.error(
           '[MonitorMetricsController.create] $monitorId: ${response.errorMessage}',
         );
-        _notifySaveFailed(response.errorMessage);
-        return false;
+        return _fieldErrorsOrToast(response);
       }
 
       await reload(monitorId);
-      return true;
+      return const {};
     } catch (error) {
       Log.error(
         '[MonitorMetricsController.create] $monitorId failed: $error',
       );
       _notifySaveFailed(null);
-      return false;
+      return const {};
     }
   }
 
   /// Updates the custom metric [metricId] on [monitorId] via `PUT
   /// /monitors/:id/metrics/:metricId` and reloads the catalog on success.
-  Future<bool> update(String monitorId, String metricId, MetricForm form) async {
+  ///
+  /// Shares the metric form (and therefore its [create] return contract): the
+  /// same [MonitorMetricForm] backs both create and edit, so this returns the
+  /// backend per-field validation errors (empty map on success) too, giving an
+  /// edited metric the same inline-422 handling as a created one instead of a
+  /// lossy `bool`-to-map adapter.
+  Future<Map<String, String>> update(
+    String monitorId,
+    String metricId,
+    MetricForm form,
+  ) async {
     try {
       final response = await Http.put(
         '/monitors/$monitorId/metrics/$metricId',
@@ -228,18 +247,17 @@ class MonitorMetricsController extends MagicController {
           '[MonitorMetricsController.update] $monitorId/$metricId: '
           '${response.errorMessage}',
         );
-        _notifySaveFailed(response.errorMessage);
-        return false;
+        return _fieldErrorsOrToast(response);
       }
 
       await reload(monitorId);
-      return true;
+      return const {};
     } catch (error) {
       Log.error(
         '[MonitorMetricsController.update] $monitorId/$metricId failed: $error',
       );
       _notifySaveFailed(null);
-      return false;
+      return const {};
     }
   }
 
@@ -322,6 +340,30 @@ class MonitorMetricsController extends MagicController {
       'warn_bound': num.tryParse(form.warn),
       'critical_bound': num.tryParse(form.critical),
     };
+  }
+
+  /// Resolves a failed metric write [response] into either its per-field
+  /// validation errors or a generic toast.
+  ///
+  /// Returns the field errors (single message per field, keyed by the wire
+  /// field name) when the failed write carried the Laravel 422 shape via
+  /// [MagicResponse.errors], so the caller hands them back to the form for
+  /// inline display and keeps the sheet open. Returns an empty map for a
+  /// non-field failure (a transport error / 500) after surfacing the generic
+  /// save-failed toast, so the caller closes the sheet on the empty-map
+  /// contract. Mirrors `monitor_controller.dart`'s `_fieldErrorsOrToast`,
+  /// reading [MagicResponse.errors] instead of a model's `validationErrors`.
+  Map<String, String> _fieldErrorsOrToast(MagicResponse response) {
+    final Map<String, List<String>> errors = response.errors;
+    if (errors.isNotEmpty) {
+      return {
+        for (final MapEntry<String, List<String>> entry in errors.entries)
+          entry.key: entry.value.first,
+      };
+    }
+
+    _notifySaveFailed(response.errorMessage);
+    return const {};
   }
 
   /// Surfaces the shared "couldn't save" toast (reusing the monitors
