@@ -26,8 +26,15 @@ use RuntimeException;
  * time through {@see HostGuard::resolveAndAssertAllowed()} and the connection
  * is pinned to the exact IP(s) that validation resolved: validate-at-store
  * alone leaves a DNS-rebinding window, and a second resolution at connect time
- * would reopen it. A blocked target is skipped (logged without the secret),
- * never POSTed, and never followed through a redirect.
+ * would reopen it. A blocked target is reported as a delivery failure and
+ * skipped (logged without the secret), never POSTed, and never followed
+ * through a redirect.
+ *
+ * Every no-delivery outcome (a blocked target, an unconfigured route, a
+ * non-2xx answer including a 3xx redirect) is reported to the exception
+ * handler without being rethrown: the report keeps the synchronous test-send
+ * honest (it reads a reported failure as `delivered:false`) while the
+ * no-throw keeps a queued incident send from poisoning the queue.
  */
 class WebhookChannel
 {
@@ -63,9 +70,15 @@ class WebhookChannel
             return;
         }
 
-        // 2. Resolve the tenant target; nothing to do without a url + secret.
+        // 2. Resolve the tenant target; a missing url + secret is a non-delivery,
+        //    reported (without any credential) so the test-send reads it as a
+        //    failure rather than a false success.
         $route = $this->resolveRoute($notifiable);
         if ($route === null) {
+            report(new RuntimeException(
+                'Webhook delivery skipped: no url and secret configured for the target.',
+            ));
+
             return;
         }
 
@@ -77,9 +90,18 @@ class WebhookChannel
         try {
             $pinnedIps = $this->guard->resolveAndAssertAllowed($url);
         } catch (ValidationException) {
+            $host = parse_url($url, PHP_URL_HOST);
+
             Log::warning('Webhook delivery skipped: target rejected by SSRF guard.', [
-                'host' => parse_url($url, PHP_URL_HOST),
+                'host' => $host,
             ]);
+
+            // Report the skip (host only, never the secret) so the test-send
+            // reads a blocked target as a failure, not a silent success.
+            report(new RuntimeException(sprintf(
+                'Webhook delivery to %s skipped: target rejected by the SSRF guard.',
+                (string) $host,
+            )));
 
             return;
         }
@@ -118,9 +140,11 @@ class WebhookChannel
             ->withBody($body, 'application/json')
             ->post($url);
 
-        // 6. Surface a non-2xx honestly without poisoning the queue: report the
-        //    host + status only, never the secret or the signed body.
-        if ($response->failed()) {
+        // 6. Anything that is not a 2xx is a non-delivery, including a 3xx
+        //    redirect (which the pinned connection refuses to follow). Surface
+        //    it honestly without poisoning the queue: report the host + status
+        //    only, never the secret or the signed body.
+        if (! $response->successful()) {
             report(new RuntimeException(
                 "Webhook delivery to {$host} failed with status {$response->status()}.",
             ));

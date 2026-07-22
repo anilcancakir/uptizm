@@ -7,7 +7,9 @@ use App\Support\Monitoring\HostGuard;
 use App\Support\Monitoring\RelaySigner;
 use Illuminate\Http\Client\Request;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -76,6 +78,66 @@ class WebhookChannelTest extends TestCase
                 && $signature !== ''
                 && (new RelaySigner($secret))->verify($timestamp, $request->body(), $signature);
         });
+    }
+
+    /**
+     * A 3xx redirect answer is a non-delivery: it is reported (with the host
+     * and status, never the secret), so the test-send path reads it as failure.
+     */
+    public function test_it_reports_a_3xx_response_as_a_delivery_failure(): void
+    {
+        Exceptions::fake();
+
+        Http::fake([
+            'example.com/*' => Http::response('', 301),
+        ]);
+
+        $this->sendTo('https://example.com/webhook', 'super-secret-signing-value');
+
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://example.com/webhook');
+
+        Exceptions::assertReported(function (RuntimeException $exception): bool {
+            return str_contains($exception->getMessage(), '301')
+                && ! str_contains($exception->getMessage(), 'super-secret-signing-value');
+        });
+    }
+
+    /**
+     * An SSRF-blocked target is reported as a delivery failure (without the
+     * secret) and never POSTed, so the test-send path reads it as failure.
+     */
+    public function test_it_reports_an_ssrf_blocked_target_without_posting(): void
+    {
+        Exceptions::fake();
+        Http::fake();
+
+        $this->sendTo('https://169.254.169.254/hook', 'super-secret-signing-value');
+
+        Http::assertNothingSent();
+
+        Exceptions::assertReported(
+            fn (RuntimeException $exception): bool => ! str_contains(
+                $exception->getMessage(),
+                'super-secret-signing-value',
+            ),
+        );
+    }
+
+    /**
+     * A route missing its url/secret is a non-delivery: it is reported and no
+     * POST is issued, so an empty-credential channel fails the test-send.
+     */
+    public function test_it_reports_an_empty_credential_route_without_posting(): void
+    {
+        Exceptions::fake();
+        Http::fake();
+
+        // An empty secret makes the route unresolvable (a deliberate no-send).
+        $this->sendTo('https://example.com/hook', '');
+
+        Http::assertNothingSent();
+
+        Exceptions::assertReported(fn (RuntimeException $exception): bool => true);
     }
 
     /**

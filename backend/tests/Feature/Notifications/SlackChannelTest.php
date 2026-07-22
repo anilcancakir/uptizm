@@ -81,6 +81,22 @@ class SlackChannelTest extends TestCase
         });
     }
 
+    public function test_an_empty_team_token_is_reported_without_posting(): void
+    {
+        Exceptions::fake();
+        Http::fake();
+
+        $notifiable = $this->notifiableWithSlackRoute('', '#alerts');
+
+        // An empty team token is a non-delivery: reported, never POSTed, and the
+        // report never carries the (empty) token.
+        (new SlackChannel)->send($notifiable, $this->slackNotification());
+
+        Http::assertNothingSent();
+
+        Exceptions::assertReported(fn (RuntimeException $exception): bool => true);
+    }
+
     /**
      * Build an on-demand notifiable exposing a per-team Slack route.
      */

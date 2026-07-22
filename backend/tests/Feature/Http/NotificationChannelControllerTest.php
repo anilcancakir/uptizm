@@ -309,6 +309,67 @@ class NotificationChannelControllerTest extends TestCase
         $response->assertJsonPath('data.delivered', false);
     }
 
+    public function test_test_send_reports_failure_on_a_webhook_3xx_response(): void
+    {
+        Http::fake([
+            'example.com/*' => Http::response('', 301),
+        ]);
+
+        $team = $this->actingAsTeamMember();
+        $channel = NotificationChannel::factory()->webhook()->create([
+            'team_id' => $team->id,
+            'credentials' => [
+                'url' => 'https://example.com/hook',
+                'secret' => 'top-secret-signing-value',
+            ],
+        ]);
+
+        $response = $this->postJson("/api/v1/notification-channels/{$channel->id}/test");
+
+        $response->assertStatus(502);
+        $response->assertJsonPath('data.delivered', false);
+    }
+
+    public function test_test_send_reports_failure_when_the_webhook_target_is_ssrf_blocked(): void
+    {
+        Http::fake();
+
+        $team = $this->actingAsTeamMember();
+        $channel = NotificationChannel::factory()->webhook()->create([
+            'team_id' => $team->id,
+            'credentials' => [
+                'url' => 'https://169.254.169.254/hook',
+                'secret' => 'top-secret-signing-value',
+            ],
+        ]);
+
+        $response = $this->postJson("/api/v1/notification-channels/{$channel->id}/test");
+
+        $response->assertStatus(502);
+        $response->assertJsonPath('data.delivered', false);
+        Http::assertNothingSent();
+    }
+
+    public function test_test_send_reports_failure_when_credentials_are_empty(): void
+    {
+        Http::fake();
+
+        $team = $this->actingAsTeamMember();
+        $channel = NotificationChannel::factory()->slack()->create([
+            'team_id' => $team->id,
+            'credentials' => [
+                'token' => '',
+                'channel' => '#alerts',
+            ],
+        ]);
+
+        $response = $this->postJson("/api/v1/notification-channels/{$channel->id}/test");
+
+        $response->assertStatus(502);
+        $response->assertJsonPath('data.delivered', false);
+        Http::assertNothingSent();
+    }
+
     public function test_test_send_masks_a_cross_team_channel_as_404(): void
     {
         Http::fake();

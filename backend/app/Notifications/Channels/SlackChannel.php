@@ -17,9 +17,12 @@ use RuntimeException;
  *
  * Two deliberate behaviors:
  *
- * - An empty/absent team token means "do not send". The channel never falls
- *   back to the shared `services.slack.notifications.bot_user_oauth_token`
- *   config value, so one team's token can never leak into another workspace.
+ * - An empty/absent team token is a non-delivery: it is reported to the
+ *   exception handler (never carrying the token) and the send is skipped, so
+ *   the synchronous test-send reads it as `delivered:false` instead of a false
+ *   success. The channel never falls back to the shared
+ *   `services.slack.notifications.bot_user_oauth_token` config value, so one
+ *   team's token can never leak into another workspace.
  * - Slack answers HTTP 200 with `{"ok": false, "error": ...}` on a logical
  *   failure (bad token, unknown channel). That is reported to the exception
  *   handler but NOT rethrown, so a permanent failure does not poison the queue
@@ -45,12 +48,17 @@ class SlackChannel
             return;
         }
 
-        // 2. Resolve the per-team route; a missing token means "do not send"
-        //    and must never fall back to the shared config token.
+        // 2. Resolve the per-team route; a missing token is a non-delivery,
+        //    reported (without the token) so the test-send reads it as a
+        //    failure, and must never fall back to the shared config token.
         $route = $this->resolveRoute($notifiable);
         $token = $route['token'] ?? null;
 
         if (! is_string($token) || trim($token) === '') {
+            report(new RuntimeException(
+                'Slack delivery skipped: no team bot token configured for the channel.',
+            ));
+
             return;
         }
 
