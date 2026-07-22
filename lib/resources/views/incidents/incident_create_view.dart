@@ -95,8 +95,23 @@ class _IncidentCreateViewState
   /// The incident title (React `title`).
   late String _title;
 
+  /// Inline validation error for the Title field, or null when it is valid.
+  ///
+  /// Set on submit when the required title is blank (a check the client can
+  /// make before any round trip), and by a server 422 that rejects `title`.
+  /// Cleared when the user edits the field.
+  String? _titleError;
+
   /// The selected affected-monitor ids (React `affected`).
   late List<String> _affected;
+
+  /// Inline validation error for the Affected-monitors field, or null when it
+  /// is valid.
+  ///
+  /// Set on submit when no monitor is selected (the backend requires a
+  /// `monitor_id`, and [_buildCreateFields] reads `_affected.first`), and by a
+  /// server 422 that rejects `monitor_id`. Cleared when the selection changes.
+  String? _affectedError;
 
   /// The operator-side severity token (React `severity`, default `critical`).
   late String _severity;
@@ -175,10 +190,6 @@ class _IncidentCreateViewState
 
   /// Whether the current kind is scheduled maintenance (React `isMaintenance`).
   bool get _isMaintenance => _kind == _IncidentKind.maintenance;
-
-  /// Whether the form can be submitted (React `canSubmit`): a non-empty title
-  /// and at least one affected monitor.
-  bool get _canSubmit => _title.trim().isNotEmpty && _affected.isNotEmpty;
 
   /// Resolves a monitor display name to its stable id, or `null` when the
   /// suggestion's monitor is not in the fixture (the affected list then stays
@@ -366,9 +377,13 @@ class _IncidentCreateViewState
   Widget _buildTitleField() {
     return MSFormField(
       label: trans('uptizm.incidents.form_title_label'),
+      error: _titleError,
       child: MSInput(
         value: _title,
-        onChanged: (value) => setState(() => _title = value),
+        onChanged: (value) => setState(() {
+          _title = value;
+          _titleError = null;
+        }),
         placeholder: _isMaintenance
             ? trans('uptizm.incidents.form_title_placeholder_maintenance')
             : trans('uptizm.incidents.form_title_placeholder_incident'),
@@ -382,10 +397,14 @@ class _IncidentCreateViewState
     return MSFormField(
       label: trans('uptizm.incidents.form_affected_label'),
       hint: trans('uptizm.incidents.form_affected_hint'),
+      error: _affectedError,
       child: RegionPicker(
         regions: _monitorOptions,
         value: _affected,
-        onChanged: (next) => setState(() => _affected = next),
+        onChanged: (next) => setState(() {
+          _affected = next;
+          _affectedError = null;
+        }),
       ),
     );
   }
@@ -490,8 +509,9 @@ class _IncidentCreateViewState
   /// A Wind `flex flex-row justify-end gap-3` row of AUTO-width buttons. The
   /// buttons carry no `w-full` (a full-width button inside a `flex-row` forces
   /// an unbounded width and aborts the row's layout). The submit label switches
-  /// on kind and is disabled until [_canSubmit]. Both actions navigate to the
-  /// incidents list (mock: nothing persists).
+  /// on kind. The button is always enabled so a blank required field surfaces
+  /// its inline error on submit (via [_onSubmit]) rather than silently locking
+  /// the button. Both actions navigate to the incidents list on success.
   Widget _buildFooter() {
     return WDiv(
       className: 'flex flex-row justify-end gap-3',
@@ -502,8 +522,7 @@ class _IncidentCreateViewState
           child: WText(trans('uptizm.incidents.cancel')),
         ),
         MSButton(
-          disabled: !_canSubmit,
-          onPressed: _canSubmit ? _onSubmit : null,
+          onPressed: _onSubmit,
           child: WText(
             _isMaintenance
                 ? trans('uptizm.incidents.submit_schedule')
@@ -537,12 +556,76 @@ class _IncidentCreateViewState
     return index < 0 ? 0 : index;
   }
 
-  /// Submits the form: the incident kind threads its real field values into
-  /// [IncidentController.create] so `POST /incidents` fires; the maintenance
-  /// kind has no backend counterpart (S5 ships resolve/acknowledge/reopen/
-  /// updates/create only), so it stays the navigation-only mock.
-  void _onSubmit() {
-    controller.create(_isMaintenance ? null : _buildCreateFields());
+  /// Submits the form: runs the client-side required checks first, then threads
+  /// the real field values into [IncidentController.create] so `POST /incidents`
+  /// fires (the maintenance kind has no backend counterpart, so it stays the
+  /// navigation-only mock).
+  ///
+  /// A blank required field surfaces inline via [_validateClientSide] without a
+  /// round trip. Only when the client checks pass does it await
+  /// [IncidentController.create]; a non-empty result (a server 422) is a
+  /// field-error map keyed by the posted wire field names, which
+  /// [_applyServerErrors] paints under the matching fields. A returned key the
+  /// form owns no slot for is surfaced as the generic error toast.
+  Future<void> _onSubmit() async {
+    if (!_validateClientSide()) return;
+
+    final Map<String, String> serverErrors = await controller.create(
+      _isMaintenance ? null : _buildCreateFields(),
+    );
+    if (!mounted || serverErrors.isEmpty) return;
+
+    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
+    if (unmapped.isNotEmpty) {
+      Magic.error(
+        trans('common.error_occurred'),
+        unmapped.values.first,
+      );
+    }
+  }
+
+  /// Runs every client-side required check, painting each field's inline error
+  /// slot, and returns whether the form may be submitted.
+  ///
+  /// Checks the required title and at least one affected monitor; both are
+  /// checks the client can make before any round trip (and the affected check
+  /// guards [_buildCreateFields]'s `_affected.first` read). Both slots are
+  /// always written (a passing check clears its slot) so a previously shown
+  /// error never lingers after a corrected resubmit.
+  bool _validateClientSide() {
+    final String? titleError = _title.trim().isEmpty
+        ? trans('uptizm.incidents.form_title_error_required')
+        : null;
+    final String? affectedError = _affected.isEmpty
+        ? trans('uptizm.incidents.form_affected_error_required')
+        : null;
+
+    setState(() {
+      _titleError = titleError;
+      _affectedError = affectedError;
+    });
+
+    return titleError == null && affectedError == null;
+  }
+
+  /// Routes a backend 422 field-error map (keyed by the wire field names the
+  /// form posts) into the inline error slots, returning the entries that map to
+  /// no known field so the caller can surface them another way.
+  Map<String, String> _applyServerErrors(Map<String, String> errors) {
+    final Map<String, String> unmapped = {};
+    setState(() {
+      for (final MapEntry<String, String> entry in errors.entries) {
+        switch (entry.key) {
+          case 'title':
+            _titleError = entry.value;
+          case 'monitor_id':
+            _affectedError = entry.value;
+          default:
+            unmapped[entry.key] = entry.value;
+        }
+      }
+    });
+    return unmapped;
   }
 
   /// Builds the `POST /incidents` field map (`StoreIncidentRequest`):

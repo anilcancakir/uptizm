@@ -65,6 +65,8 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.form_title_label': 'Title',
       'uptizm.incidents.form_title_placeholder_incident': '503s',
       'uptizm.incidents.form_title_placeholder_maintenance': 'Upgrade',
+      'uptizm.incidents.form_title_error_required': 'Title is required.',
+      'uptizm.incidents.form_affected_error_required': 'Select a monitor.',
       'uptizm.incidents.form_affected_label': 'Affected monitors',
       'uptizm.incidents.form_affected_hint': 'Drives the status page.',
       'uptizm.incidents.form_severity_label': 'Severity',
@@ -397,6 +399,41 @@ void main() {
           find.text(trans('uptizm.incidents.ai_generic_banner')),
           findsNothing,
           reason: 'The AI banner must not render for the maintenance kind',
+        );
+      },
+    );
+
+    testWidgets(
+      'submitting with a blank title shows an inline error and skips the POST',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 3200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // Seed monitors so the affected picker has options and initState does
+        // not fire a mount-time GET /monitors reload.
+        final fake = Http.fake();
+        MonitorController.instance.seedForTest(monitorFixtures);
+        addTearDown(() => MonitorController.instance.seedForTest(const []));
+
+        await tester.pumpWidget(wrap(const IncidentCreateView()));
+        await tester.pump();
+
+        // Submit with an empty title (the default blank-create state): the
+        // client-side required check must block before any request.
+        await tester.tap(
+          find.widgetWithText(MSButton, trans('uptizm.incidents.submit_open')),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.incidents.form_title_error_required')),
+          findsOneWidget,
+          reason: 'A blank title must surface its inline required error',
+        );
+        // No round trip: the blank-title submit never reached POST /incidents.
+        fake.assertNotSent(
+          (r) => r.method == 'POST' && r.url == '/incidents',
         );
       },
     );

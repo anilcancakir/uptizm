@@ -474,25 +474,53 @@ class IncidentController extends MagicController
   /// into a fresh [Incident] and persists it through the ORM (`POST
   /// /incidents`), then reloads the inventory before navigating.
   ///
-  /// [Incident.save] absorbs transport failures internally and returns `false`
-  /// rather than throwing; on a `false` result the create surfaces the
-  /// error toast and STAYS on the form so the user can correct and retry,
-  /// instead of being bounced to the list with no incident created and no
-  /// feedback (mirroring `MonitorController.create`).
-  Future<void> create([Map<String, dynamic>? fields]) async {
+  /// Returns the backend per-field validation errors (single message per field,
+  /// keyed by the wire field name: `title`, `monitor_id`, `severity`,
+  /// `message`) so the form can render a server 422 inline; an empty map means
+  /// success (or a navigation-only call). A `false` save that carries field
+  /// errors ([Incident.validationErrors]) STAYS on the form with no toast so the
+  /// user corrects the flagged fields; a `false` save with NO field errors (a
+  /// transport error / 500) keeps the generic error toast and returns an empty
+  /// map. [Incident.save] absorbs transport failures internally and returns
+  /// `false` rather than throwing.
+  Future<Map<String, String>> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
       final Incident incident = Incident()..fill(fields);
       final bool ok = await incident.save();
       if (!ok) {
-        Log.error('[IncidentController.create] save returned false');
-        Magic.error(
-          trans('common.error_occurred'),
-          trans('common.error_occurred'),
-        );
-        return;
+        final Map<String, String>? fieldErrors = _fieldErrorsOrToast(incident);
+        if (fieldErrors != null) return fieldErrors;
+        return const {};
       }
       await reload();
     }
     MagicRoute.to('/incidents');
+    return const {};
+  }
+
+  /// Resolves a failed [incident] save into either its per-field validation
+  /// errors or a generic toast.
+  ///
+  /// Returns the field errors (single message per field, keyed by the wire
+  /// field name) when the failed save carried the Laravel 422 shape via
+  /// [Incident.validationErrors], so the caller hands them back to the form for
+  /// inline display and stays put. Returns `null` for a non-field failure (a
+  /// transport error / 500) after surfacing the generic error toast and logging
+  /// the cause, so the caller falls back to its empty-map contract.
+  Map<String, String>? _fieldErrorsOrToast(Incident incident) {
+    final Map<String, List<String>> errors = incident.validationErrors;
+    if (errors.isNotEmpty) {
+      return {
+        for (final MapEntry<String, List<String>> entry in errors.entries)
+          entry.key: entry.value.first,
+      };
+    }
+
+    Log.error('[IncidentController.create] save returned false with no errors');
+    Magic.error(
+      trans('common.error_occurred'),
+      trans('common.error_occurred'),
+    );
+    return null;
   }
 }
