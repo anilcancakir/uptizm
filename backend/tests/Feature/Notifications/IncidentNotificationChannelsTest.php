@@ -29,12 +29,27 @@ class IncidentNotificationChannelsTest extends TestCase
 
     public function test_incident_opened_via_includes_onesignal_mail_and_database(): void
     {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
         $incident = $this->makeIncident();
         $user = User::factory()->create();
 
         $channels = (new IncidentOpened($incident))->via($user);
 
         $this->assertSame(['mail', 'database', 'onesignal'], $channels);
+    }
+
+    public function test_via_excludes_onesignal_when_the_push_app_is_unprovisioned(): void
+    {
+        // Feature on but no app_id: OneSignalChannel::send() would throw, so the
+        // driver must not be advertised (it would dead-letter a push job per
+        // recipient on every incident).
+        config(['magic-starter.onesignal.app_id' => null]);
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $this->assertSame(['mail', 'database'], (new IncidentOpened($incident))->via($user));
     }
 
     public function test_push_is_registered_as_a_logical_channel_for_both_incident_types(): void

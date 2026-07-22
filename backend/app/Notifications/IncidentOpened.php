@@ -100,7 +100,13 @@ class IncidentOpened extends Notification implements ShouldQueue
             'database',
         ];
 
-        if (Features::hasOnesignalFeatures()) {
+        // Only advertise the onesignal driver when the push app is actually
+        // provisioned: OneSignalChannel::send() throws on an empty app_id, so
+        // advertising it unprovisioned would dead-letter a push job per
+        // recipient on every incident. The logical `push` preference toggle
+        // stays visible regardless (it is registry-driven, independent of this
+        // driver-name list).
+        if (Features::hasOnesignalFeatures() && filled(config('magic-starter.onesignal.app_id'))) {
             $channels[] = 'onesignal';
         }
 

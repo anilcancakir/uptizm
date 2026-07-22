@@ -27,6 +27,8 @@ class IncidentNotificationTest extends TestCase
 
     public function test_incident_opened_notifies_via_mail_database_and_onesignal(): void
     {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
         $incident = $this->makeIncident();
         $user = User::factory()->create();
 
@@ -46,6 +48,8 @@ class IncidentNotificationTest extends TestCase
 
     public function test_incident_resolved_notifies_via_mail_database_and_onesignal(): void
     {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
         $incident = $this->makeIncident([
             'lifecycle' => 'resolved',
         ]);
@@ -66,6 +70,7 @@ class IncidentNotificationTest extends TestCase
     public function test_a_disabled_channel_setting_removes_that_channel_from_via(): void
     {
         $this->enableOnesignal();
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
         $incident = $this->makeIncident();
         $user = User::factory()->create();
         $user->notificationSettings()->create([

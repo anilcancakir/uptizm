@@ -63,6 +63,8 @@ class ChannelDeliveryTest extends TestCase
 
     public function test_a_user_notifiable_still_resolves_person_channels(): void
     {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
         $incident = $this->makeIncident();
         $user = User::factory()->create();
 
