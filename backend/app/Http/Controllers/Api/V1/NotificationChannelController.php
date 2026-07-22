@@ -36,6 +36,11 @@ class NotificationChannelController extends Controller
 {
     /**
      * List the current team's notification channels, newest first, paginated.
+     *
+     * The response `meta.push_provisioned` flag reports whether the OneSignal
+     * push integration is configured (a non-empty `app_id`), so the client can
+     * surface an honest "push not yet configured" hint without a dedicated
+     * status route.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -44,7 +49,12 @@ class NotificationChannelController extends Controller
             ->orderByDesc('created_at')
             ->paginate();
 
-        return NotificationChannelResource::collection($channels);
+        return NotificationChannelResource::collection($channels)
+            ->additional([
+                'meta' => [
+                    'push_provisioned' => filled(config('magic-starter.onesignal.app_id')),
+                ],
+            ]);
     }
 
     /**

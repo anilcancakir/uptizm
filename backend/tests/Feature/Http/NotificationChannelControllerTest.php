@@ -251,6 +251,30 @@ class NotificationChannelControllerTest extends TestCase
         $this->assertNotContains('Theirs', $names);
     }
 
+    public function test_index_reports_push_as_provisioned_when_an_app_id_is_configured(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'onesignal-app-id']);
+
+        $this->actingAsTeamMember();
+
+        $response = $this->getJson('/api/v1/notification-channels');
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('meta.push_provisioned', true);
+    }
+
+    public function test_index_reports_push_as_not_provisioned_when_the_app_id_is_empty(): void
+    {
+        config(['magic-starter.onesignal.app_id' => null]);
+
+        $this->actingAsTeamMember();
+
+        $response = $this->getJson('/api/v1/notification-channels');
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('meta.push_provisioned', false);
+    }
+
     public function test_show_masks_webhook_credentials(): void
     {
         $team = $this->actingAsTeamMember();
