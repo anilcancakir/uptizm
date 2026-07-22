@@ -330,8 +330,6 @@
         "info": "Bilgi"
       },
       "channel_type": {
-        "email": "E-posta",
-        "sms": "SMS",
         "slack": "Slack",
         "teams": "Microsoft Teams",
         "webhook": "Webhook"
@@ -1183,14 +1181,6 @@
       "members_revoke_confirm_label": "Daveti iptal et",
       "channels_title": "Bildirim kanalları",
       "channels_description": "Uyarılarınızın yönlendirildiği takım düzeyi entegrasyonlar. Cihaz başına teslimat (uygulama içi, web push) hesap bildirimlerinizdedir; hangi izleyicilerin uyaracağı izleyici başına ayarlanır.",
-      "channels_email_name": "E-posta",
-      "channels_email_desc": "Takım üyelerine ve isteğe bağlı olarak diğerlerine uyarı gönder.",
-      "channels_email_recipients_label": "Ek alıcılar",
-      "channels_email_recipients_hint": "Varsayılan olarak her takım üyesine ek olarak.",
-      "channels_email_recipients_placeholder": "oncall@acme.com, sre@acme.com",
-      "channels_sms_name": "SMS",
-      "channels_sms_desc": "Bir telefon numarasına metin ile uyarı al.",
-      "channels_sms_phone_label": "Telefon numarası",
       "channels_slack_name": "Slack",
       "channels_slack_desc": "Bir Slack kanalına uyarı gönder.",
       "channels_slack_workspace_label": "Çalışma alanı",

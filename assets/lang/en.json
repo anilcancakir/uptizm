@@ -330,8 +330,6 @@
         "info": "Info"
       },
       "channel_type": {
-        "email": "Email",
-        "sms": "SMS",
         "slack": "Slack",
         "teams": "Microsoft Teams",
         "webhook": "Webhook"
@@ -1183,14 +1181,6 @@
       "members_revoke_confirm_label": "Revoke invite",
       "channels_title": "Notification channels",
       "channels_description": "Team-level integrations your alerts route to. Per-device delivery (in-app, web push) is in your account notifications; which monitors alert is set per monitor.",
-      "channels_email_name": "Email",
-      "channels_email_desc": "Send alerts to team members and optionally others.",
-      "channels_email_recipients_label": "Additional recipients",
-      "channels_email_recipients_hint": "Plus every team member by default.",
-      "channels_email_recipients_placeholder": "oncall@acme.com, sre@acme.com",
-      "channels_sms_name": "SMS",
-      "channels_sms_desc": "Receive alerts by text to a phone number.",
-      "channels_sms_phone_label": "Phone number",
       "channels_slack_name": "Slack",
       "channels_slack_desc": "Post alerts to a Slack channel.",
       "channels_slack_workspace_label": "Workspace",
