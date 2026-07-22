@@ -72,7 +72,7 @@ class IncidentDispatcher
         if ($outcome['opened'] !== null && $monitor->alert_on_down) {
             $opened = new IncidentOpened($outcome['opened']);
             Notification::send($outcome['opened']->team->users, $opened);
-            $this->dispatchChannels($outcome['opened'], $opened);
+            $this->dispatchChannels($outcome['opened'], $opened, 'opened');
         }
 
         // 2. A recovery clears the page, gated on the recover-alert flag, and
@@ -80,7 +80,7 @@ class IncidentDispatcher
         if ($outcome['resolved'] !== null && $monitor->alert_on_recover) {
             $resolved = new IncidentResolved($outcome['resolved']);
             Notification::send($outcome['resolved']->team->users, $resolved);
-            $this->dispatchChannels($outcome['resolved'], $resolved);
+            $this->dispatchChannels($outcome['resolved'], $resolved, 'resolved');
         }
 
         // 3. Broadcast the incident lifecycle to the team's live dashboard.
@@ -142,8 +142,9 @@ class IncidentDispatcher
      *
      * @param  Incident  $incident  The opened/resolved incident driving the send.
      * @param  NotificationInstance  $notification  The prebuilt lifecycle notification.
+     * @param  string  $event  The lifecycle event (`opened`/`resolved`), scoping the throttle window.
      */
-    protected function dispatchChannels(Incident $incident, NotificationInstance $notification): void
+    protected function dispatchChannels(Incident $incident, NotificationInstance $notification, string $event): void
     {
         $isCritical = $incident->severity === IncidentSeverity::Critical;
 
@@ -161,7 +162,7 @@ class IncidentDispatcher
             // 2. Throttle per channel: `Cache::add` is atomic and returns false
             //    when the key is already held, so a burst inside the window is a
             //    no-op instead of a repeated hit on the endpoint.
-            if (! Cache::add($this->throttleKey($channel), true, now()->addSeconds(self::CHANNEL_THROTTLE_SECONDS))) {
+            if (! Cache::add($this->throttleKey($channel, $event), true, now()->addSeconds(self::CHANNEL_THROTTLE_SECONDS))) {
                 continue;
             }
 
@@ -170,10 +171,13 @@ class IncidentDispatcher
     }
 
     /**
-     * The per-channel throttle cache key.
+     * The per-channel, per-lifecycle-event throttle cache key. Scoping by event
+     * (`opened`/`resolved`) keeps the anti-burst coalescing for repeated opens
+     * while ensuring an incident's `resolved` is never suppressed by its own
+     * `opened` claiming the same window.
      */
-    protected function throttleKey(NotificationChannel $channel): string
+    protected function throttleKey(NotificationChannel $channel, string $event): string
     {
-        return "notification-channel-throttle:{$channel->getKey()}";
+        return "notification-channel-throttle:{$channel->getKey()}:{$event}";
     }
 }

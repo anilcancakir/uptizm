@@ -16,6 +16,7 @@ use App\Models\NotificationChannel;
 use App\Models\Team;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
+use App\Notifications\IncidentResolved;
 use App\Services\Monitoring\IncidentDispatcher;
 use App\Services\StatusPages\StatusPageCache;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -103,6 +104,34 @@ class IncidentChannelDispatchTest extends TestCase
         $this->dispatch($monitor, $incident);
 
         Notification::assertSentToTimes($slackAll, IncidentOpened::class, 1);
+    }
+
+    public function test_a_resolve_is_not_throttled_by_its_own_open_within_the_window(): void
+    {
+        Notification::fake();
+        $this->fakeSideEffects();
+        [$monitor, $team] = $this->makeMonitor();
+
+        $slackAll = $this->channel($team, NotificationChannelSeverity::All);
+        $incident = $this->makeIncident($monitor, IncidentSeverity::Critical);
+
+        // Open then resolve the same incident within the throttle window: the
+        // resolve must NOT be suppressed by the open (the throttle key is scoped
+        // per lifecycle event, not per channel alone).
+        $dispatcher = $this->app->make(IncidentDispatcher::class);
+        $dispatcher->dispatch($monitor, [
+            'opened' => $incident,
+            'resolved' => null,
+            'status_change' => null,
+        ]);
+        $dispatcher->dispatch($monitor, [
+            'opened' => null,
+            'resolved' => $incident,
+            'status_change' => null,
+        ]);
+
+        Notification::assertSentToTimes($slackAll, IncidentOpened::class, 1);
+        Notification::assertSentToTimes($slackAll, IncidentResolved::class, 1);
     }
 
     /**
