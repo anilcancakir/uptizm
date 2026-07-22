@@ -1,0 +1,177 @@
+<?php
+
+namespace App\Notifications\Channels;
+
+use App\Support\Monitoring\HostGuard;
+use Illuminate\Notifications\Notification;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
+
+/**
+ * Custom Microsoft Teams notification channel that POSTs an Adaptive Card to a
+ * tenant-configured Power Automate (Workflows) incoming webhook.
+ *
+ * A notification opts into this channel by exposing `toTeams($notifiable)` (the
+ * Adaptive Card `content` object) and the notifiable by exposing
+ * `routeNotificationForTeams()` returning `{url}`. The channel wraps the card
+ * in the Teams message envelope
+ * (`{type:"message",attachments:[{contentType:"application/vnd.microsoft.card.adaptive",content:...}]}`)
+ * and POSTs it. The legacy O365 connector `MessageCard` format is retired
+ * (~May 2026); only the Workflows Adaptive Card envelope is emitted.
+ *
+ * The Workflows url carries its own SAS token in a `?sig=` query parameter, so
+ * there is no separate signing secret and no Authorization header: the url IS
+ * the credential. Because the url is tenant-controlled, the target is
+ * re-validated at send time through {@see HostGuard::resolveAndAssertAllowed()}
+ * and the connection is pinned to the exact IP(s) that validation resolved:
+ * the store-time gate alone leaves a DNS-rebinding window, and a second
+ * resolution at connect time would reopen it. A blocked target is reported as a
+ * delivery failure and skipped (logged with the host only, never the SAS),
+ * never POSTed, and never followed through a redirect.
+ *
+ * Every no-delivery outcome (a blocked target, an unconfigured route, a non-2xx
+ * answer including a 3xx redirect or a 429 rate-limit) is reported to the
+ * exception handler without being rethrown: the report keeps the synchronous
+ * test-send honest (it reads a reported failure as `delivered:false`) while the
+ * no-throw keeps a queued incident send from poisoning the queue. A 429 backoff
+ * is layered on in a later step; the report keeps the outcome honest until then.
+ */
+class TeamsChannel
+{
+    /**
+     * The Adaptive Card content type Teams expects on the attachment.
+     */
+    private const string CARD_CONTENT_TYPE = 'application/vnd.microsoft.card.adaptive';
+
+    /**
+     * @param  HostGuard  $guard  Shared SSRF guard, reused for send-time checks.
+     */
+    public function __construct(
+        protected HostGuard $guard,
+    ) {}
+
+    /**
+     * Send the notification to the notifiable's Teams webhook target.
+     *
+     * @param  object  $notifiable  The entity exposing `routeNotificationForTeams()`.
+     * @param  Notification  $notification  The notification exposing `toTeams()`.
+     *
+     * @throws \JsonException When the Adaptive Card payload cannot be JSON-encoded.
+     */
+    public function send(object $notifiable, Notification $notification): void
+    {
+        // 1. Skip when the notification cannot build an Adaptive Card.
+        if (! is_callable([$notification, 'toTeams'])) {
+            return;
+        }
+
+        // 2. Resolve the tenant target; a missing url is a non-delivery,
+        //    reported (without the url, so the SAS never leaks) so the
+        //    test-send reads it as a failure rather than a false success.
+        $url = $this->resolveUrl($notifiable);
+        if ($url === null) {
+            report(new RuntimeException(
+                'Teams delivery skipped: no webhook url configured for the target.',
+            ));
+
+            return;
+        }
+
+        // 3. Re-validate the url at send time and capture the exact resolved
+        //    IP(s). A blocked target is skipped deliberately (logged with the
+        //    host only, never the SAS), so a queued job does not retry a denied
+        //    host forever.
+        try {
+            $pinnedIps = $this->guard->resolveAndAssertAllowed($url);
+        } catch (ValidationException) {
+            $host = parse_url($url, PHP_URL_HOST);
+
+            Log::warning('Teams delivery skipped: target rejected by SSRF guard.', [
+                'host' => $host,
+            ]);
+
+            report(new RuntimeException(sprintf(
+                'Teams delivery to %s skipped: target rejected by the SSRF guard.',
+                (string) $host,
+            )));
+
+            return;
+        }
+
+        // 4. Wrap the card in the Teams message envelope and encode it. The
+        //    28KB Workflows limit is a provisioning concern, not enforced here.
+        $body = json_encode(
+            $this->envelope(\call_user_func([$notification, 'toTeams'], $notifiable)),
+            JSON_THROW_ON_ERROR,
+        );
+
+        // 5. Pin the connection to the validated IP(s) and forbid redirects, so
+        //    connect-time cannot drift from validation-time (DNS rebinding) and
+        //    a 3xx cannot bounce the POST to an internal host.
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        $response = Http::withOptions([
+            'allow_redirects' => false,
+            // CURLOPT_RESOLVE pins the connection to the validated IP(s), so
+            // connect-time cannot drift from validation-time. It is a
+            // cURL-handler option and assumes Guzzle uses the curl handler
+            // (true under frankenphp/Octane, where ext-curl is present); if
+            // Guzzle ever fell back to the PHP stream handler the pin would be
+            // silently ignored and the rebinding window would reopen.
+            'curl' => [
+                CURLOPT_RESOLVE => [$host.':443:'.implode(',', $pinnedIps)],
+            ],
+        ])
+            ->withBody($body, 'application/json')
+            ->post($url);
+
+        // 6. Teams answers a 2xx on success. Anything else is a non-delivery,
+        //    including a 3xx redirect (which the pinned connection refuses to
+        //    follow) and a 429 rate-limit. Surface it honestly without
+        //    poisoning the queue: report the host + status only, never the SAS.
+        if (! $response->successful()) {
+            report(new RuntimeException(
+                "Teams delivery to {$host} failed with status {$response->status()}.",
+            ));
+        }
+    }
+
+    /**
+     * Wrap an Adaptive Card `content` object in the Teams message envelope.
+     *
+     * @param  array<string, mixed>  $card  The Adaptive Card content.
+     * @return array<string, mixed>
+     */
+    protected function envelope(array $card): array
+    {
+        return [
+            'type' => 'message',
+            'attachments' => [
+                [
+                    'contentType' => self::CARD_CONTENT_TYPE,
+                    'content' => $card,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Resolve the notifiable's Teams webhook url, or null when absent/empty.
+     *
+     * Returns null when the notifiable exposes no route or the route is missing
+     * the url, so the empty case is a deliberate no-send.
+     */
+    protected function resolveUrl(object $notifiable): ?string
+    {
+        if (! is_callable([$notifiable, 'routeNotificationForTeams'])) {
+            return null;
+        }
+
+        $route = (array) $notifiable->routeNotificationForTeams();
+        $url = $route['url'] ?? null;
+
+        return is_string($url) && trim($url) !== '' ? $url : null;
+    }
+}
