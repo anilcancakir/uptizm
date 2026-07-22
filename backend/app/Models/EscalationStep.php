@@ -11,13 +11,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * One ordered step in an {@see EscalationPolicy}'s paging chain: fires
  * `delay_minutes` after the previous step (or after incident open, for the
- * first step) against `target_type`.
+ * first step) against `target_type`. Escalation is people-only.
  *
- * `target_id` and `channel` are mutually exclusive depending on
- * `target_type`: a user id when targeting {@see EscalationTargetType::User},
- * a channel name when targeting {@see EscalationTargetType::Channel}, and
- * neither when targeting {@see EscalationTargetType::OnCall} (resolved at
- * dispatch time from the team's on-call rotation).
+ * `target_id` names a specific user when targeting
+ * {@see EscalationTargetType::User}; it is unused when targeting
+ * {@see EscalationTargetType::OnCall} (resolved at dispatch time from the
+ * team's on-call rotation).
  *
  * Relationships:
  * - belongs to {@see EscalationPolicy} (the owning paging chain)

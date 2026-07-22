@@ -53,9 +53,9 @@ class EscalationPolicyTest extends TestCase
     public function test_step_target_type_casts_to_enum(): void
     {
         $policy = $this->makePolicy($this->makeTeam());
-        $step = $this->makeStep($policy, position: 0, delayMinutes: 0, targetType: EscalationTargetType::Channel);
+        $step = $this->makeStep($policy, position: 0, delayMinutes: 0, targetType: EscalationTargetType::User);
 
-        $this->assertSame(EscalationTargetType::Channel, $step->target_type);
+        $this->assertSame(EscalationTargetType::User, $step->target_type);
     }
 
     /**

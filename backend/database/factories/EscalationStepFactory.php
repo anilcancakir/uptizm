@@ -37,15 +37,4 @@ class EscalationStepFactory extends Factory
             'target_id' => $userId,
         ]);
     }
-
-    /**
-     * Target a named out-of-band channel instead of the on-call rotation.
-     */
-    public function targetingChannel(string $channel): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'target_type' => EscalationTargetType::Channel,
-            'channel' => $channel,
-        ]);
-    }
 }

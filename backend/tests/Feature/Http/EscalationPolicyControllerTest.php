@@ -205,21 +205,6 @@ class EscalationPolicyControllerTest extends TestCase
         $response->assertJsonValidationErrors('target_id');
     }
 
-    public function test_add_step_targeting_channel_requires_a_channel_name(): void
-    {
-        $team = $this->actingAsTeamMember();
-        $policy = $this->makePolicy($team->id, 'Mine');
-
-        $response = $this->postJson("/api/v1/escalation-policies/{$policy->id}/steps", [
-            'position' => 0,
-            'delay_minutes' => 5,
-            'target_type' => 'channel',
-        ]);
-
-        $response->assertStatus(422);
-        $response->assertJsonValidationErrors('channel');
-    }
-
     public function test_add_step_rejects_an_invalid_target_type(): void
     {
         $team = $this->actingAsTeamMember();
