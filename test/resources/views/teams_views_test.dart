@@ -7,13 +7,12 @@ import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/support/team_types.dart'
-    show NotificationChannelConfig, OnCallShift, PaymentMethod, UsageStat;
+    show OnCallShift, PaymentMethod, UsageStat;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
-import 'package:uptizm/resources/views/teams/notification_channels_view.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
 import 'package:uptizm/resources/views/teams/plan_billing_view.dart';
 
@@ -301,100 +300,6 @@ void main() {
       ),
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // NotificationChannelsView
-  // ---------------------------------------------------------------------------
-
-  group('NotificationChannelsView', () {
-    testWidgets('renders the title and a row for every fixture channel', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 6000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const NotificationChannelsView(), size: const Size(1280, 6000)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.teams.channels_title')), findsOneWidget);
-      for (final NotificationChannelConfig channel in notificationChannels) {
-        expect(find.text(channel.name), findsOneWidget);
-      }
-    });
-
-    testWidgets(
-      'saving a channel surfaces an honest "not yet saved" info toast, '
-      'not a success claim',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1280, 6000));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-
-        await tester.pumpWidget(
-          wrapWithSnackbar(
-            const NotificationChannelsView(),
-            size: const Size(1280, 6000),
-          ),
-        );
-        await tester.pump();
-
-        // Email is connected by fixture, so tapping its row expands the
-        // inline config form and reveals the Save button.
-        await tester.tap(find.text('Email'));
-        await tester.pump();
-        await tester.tap(find.text(trans('uptizm.teams.channels_save_button')));
-        await tester.pump();
-
-        // There is no team channel-integrations backend (S9 gap): the toast
-        // must be the honest info signal, never claim the change persisted.
-        expect(tester.takeException(), isNull);
-        expect(
-          find.text(trans('uptizm.teams.channels_toast_title')),
-          findsOneWidget,
-        );
-        // Flush the overlay toast's auto-dismiss timer so it does not leak past
-        // the test (the framework's !timersPending invariant).
-        await tester.pump(const Duration(seconds: 5));
-        await tester.pumpAndSettle();
-      },
-    );
-
-    testWidgets(
-      'connecting an unconnected channel surfaces the same honest info '
-      'toast instead of a success claim',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1280, 6000));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-
-        await tester.pumpWidget(
-          wrapWithSnackbar(
-            const NotificationChannelsView(),
-            size: const Size(1280, 6000),
-          ),
-        );
-        await tester.pump();
-
-        // Microsoft Teams is unconnected by fixture, so its trailing control
-        // is a "Connect" button rather than a Switch.
-        await tester.tap(
-          find.text(trans('uptizm.teams.channels_connect_button')),
-        );
-        await tester.pump();
-
-        expect(tester.takeException(), isNull);
-        expect(
-          find.text(trans('uptizm.teams.channels_toast_title')),
-          findsOneWidget,
-        );
-        // Flush the overlay toast's auto-dismiss timer so it does not leak past
-        // the test (the framework's !timersPending invariant).
-        await tester.pump(const Duration(seconds: 5));
-        await tester.pumpAndSettle();
-      },
-    );
-  });
 
   // ---------------------------------------------------------------------------
   // EscalationPoliciesView

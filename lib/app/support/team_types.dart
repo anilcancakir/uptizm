@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../enums/channel_type.dart' show ChannelType;
 import '../enums/invoice_status.dart' show InvoiceStatus;
 import '../enums/team_role.dart' show TeamRole;
 
@@ -63,46 +62,6 @@ class TeamInvitation {
     required this.email,
     required this.role,
     required this.invitedAt,
-  });
-}
-
-/// A team-level notification channel: where alerts route to, and how.
-///
-/// Mirrors the `NotificationChannel` interface in the React notifications
-/// mock. [severity] is `"all"` or `"critical"` (kept as a plain string,
-/// matching the React source's minimal severity union).
-@immutable
-class NotificationChannelConfig {
-  /// Stable identifier, one per [ChannelType].
-  final String id;
-
-  /// Which delivery channel this row configures.
-  final ChannelType type;
-
-  /// Human-readable channel name shown as the row title.
-  final String name;
-
-  /// Whether the integration has been set up (connected).
-  final bool connected;
-
-  /// Whether alerts are currently delivered here.
-  final bool enabled;
-
-  /// Minimum severity this channel delivers: `"all"` or `"critical"`.
-  final String severity;
-
-  /// What the channel is pointed at, e.g. a Slack channel, phone number, or
-  /// webhook URL. Empty when not yet connected.
-  final String detail;
-
-  const NotificationChannelConfig({
-    required this.id,
-    required this.type,
-    required this.name,
-    required this.connected,
-    required this.enabled,
-    required this.severity,
-    required this.detail,
   });
 }
 

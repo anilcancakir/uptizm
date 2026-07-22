@@ -1,11 +1,9 @@
 import 'package:flutter/widgets.dart' show Color;
 
-import '../enums/channel_type.dart' show ChannelType;
 import '../enums/team_role.dart' show TeamRole;
 import '../support/team_types.dart'
     show
         Invoice,
-        NotificationChannelConfig,
         OnCallShift,
         PaymentMethod,
         TeamInvitation,
@@ -87,61 +85,6 @@ const List<TeamInvitation> pendingInvitations = [
     email: 'priya@acme.com',
     role: TeamRole.admin,
     invitedAt: '1 week ago',
-  ),
-];
-
-// ---------------------------------------------------------------------------
-// Notification channels
-// ---------------------------------------------------------------------------
-
-/// Team-level notification channels, one per [ChannelType].
-///
-/// Mirrors the `channels` fixture in the React notifications mock.
-const List<NotificationChannelConfig> notificationChannels = [
-  NotificationChannelConfig(
-    id: 'email',
-    type: ChannelType.email,
-    name: 'Email',
-    connected: true,
-    enabled: true,
-    severity: 'all',
-    detail: '4 team members',
-  ),
-  NotificationChannelConfig(
-    id: 'sms',
-    type: ChannelType.sms,
-    name: 'SMS',
-    connected: true,
-    enabled: true,
-    severity: 'critical',
-    detail: '+1 555 0142',
-  ),
-  NotificationChannelConfig(
-    id: 'slack',
-    type: ChannelType.slack,
-    name: 'Slack',
-    connected: true,
-    enabled: true,
-    severity: 'all',
-    detail: '#incidents · Acme',
-  ),
-  NotificationChannelConfig(
-    id: 'teams',
-    type: ChannelType.teams,
-    name: 'Microsoft Teams',
-    connected: false,
-    enabled: false,
-    severity: 'all',
-    detail: '',
-  ),
-  NotificationChannelConfig(
-    id: 'webhook',
-    type: ChannelType.webhook,
-    name: 'Webhook',
-    connected: true,
-    enabled: false,
-    severity: 'all',
-    detail: 'https://hooks.acme.dev/uptizm',
   ),
 ];
 
