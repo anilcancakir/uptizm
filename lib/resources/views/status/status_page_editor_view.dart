@@ -137,6 +137,22 @@ class _StatusPageEditorViewState
   /// (React `aiApplied`).
   bool _aiApplied = false;
 
+  /// Inline validation error for the Name field, or null when it is valid. Set
+  /// on save when the required name is blank, and by a server 422 that rejects
+  /// `name`. Cleared when the name is edited.
+  String? _nameError;
+
+  /// Inline validation error for the Slug field, or null when it is valid. Set
+  /// on save when the required slug is blank (the backend requires a slug), and
+  /// by a server 422 that rejects `slug`. Cleared when the name auto-fills the
+  /// slug or the slug is edited.
+  String? _slugError;
+
+  /// Inline validation error for the Components picker, or null when it is
+  /// valid. Set on save when no monitor is assigned (a page needs at least one
+  /// public component). Cleared when the assigned-monitor selection changes.
+  String? _componentsError;
+
   /// The domain-mode segmented-control options, in [DomainMode] order.
   static const List<DomainMode> _domainModes = <DomainMode>[
     DomainMode.subdomain,
@@ -171,6 +187,9 @@ class _StatusPageEditorViewState
   /// mutates the controller's cached model.
   void _seedFrom(StatusPage? existing) {
     _aiApplied = false;
+    _nameError = null;
+    _slugError = null;
+    _componentsError = null;
     if (existing == null) {
       _isEdit = false;
       _slugEdited = false;
@@ -200,13 +219,6 @@ class _StatusPageEditorViewState
     _subscriptionsEnabled = existing.subscriptionsEnabled;
   }
 
-  /// Whether the draft satisfies the Save-enabled rule (name + slug + at least
-  /// one assigned monitor).
-  bool get _canSave =>
-      _name.trim().isNotEmpty &&
-      _slug.trim().isNotEmpty &&
-      _monitorIds.isNotEmpty;
-
   /// The current draft projected into a [StatusPage], for the read-side helpers
   /// ([pageUrl]), the live [StatusPagePreview], and the controller write
   /// actions.
@@ -233,7 +245,11 @@ class _StatusPageEditorViewState
   void _onNameChanged(String value) {
     setState(() {
       _name = value;
-      if (!_slugEdited) _slug = _slugify(value);
+      _nameError = null;
+      if (!_slugEdited) {
+        _slug = _slugify(value);
+        _slugError = null;
+      }
     });
   }
 
@@ -243,6 +259,7 @@ class _StatusPageEditorViewState
     setState(() {
       _slugEdited = true;
       _slug = _slugify(value);
+      _slugError = null;
     });
   }
 
@@ -267,15 +284,77 @@ class _StatusPageEditorViewState
     });
   }
 
-  /// Commits the draft via the controller and returns to the list (mock:
-  /// nothing persists). Create vs. edit picks the matching toast copy in the
-  /// controller.
-  void _save() {
-    if (_isEdit) {
-      controller.save(_draftPage);
-    } else {
-      controller.create(_draftPage);
+  /// Commits the draft via the controller and returns to the list on success.
+  ///
+  /// Runs the client-side required checks first (name, slug, and at least one
+  /// assigned component), painting each field's inline error without a round
+  /// trip. Only when they pass does it await the matching controller write
+  /// (create vs. edit); a non-empty result (a server 422) is a field-error map
+  /// keyed by the posted wire field names, which [_applyServerErrors] paints
+  /// under the matching fields. A returned key the editor owns no slot for is
+  /// surfaced as the generic error toast.
+  Future<void> _save() async {
+    if (!_validateClientSide()) return;
+
+    final Map<String, String> serverErrors = _isEdit
+        ? await controller.save(_draftPage)
+        : await controller.create(_draftPage);
+    if (!mounted || serverErrors.isEmpty) return;
+
+    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
+    if (unmapped.isNotEmpty) {
+      Magic.error(
+        trans('uptizm.status.list_error_load_title'),
+        unmapped.values.first,
+      );
     }
+  }
+
+  /// Runs every client-side required check, painting each field's inline error
+  /// slot, and returns whether the draft may be saved.
+  ///
+  /// Checks the required name and slug (both backend-required) and that at
+  /// least one component is assigned. Every slot is always written (a passing
+  /// check clears its slot) so a previously shown error never lingers after a
+  /// corrected resubmit.
+  bool _validateClientSide() {
+    final String? nameError = _name.trim().isEmpty
+        ? trans('uptizm.status.form_name_error_required')
+        : null;
+    final String? slugError = _slug.trim().isEmpty
+        ? trans('uptizm.status.form_slug_error_required')
+        : null;
+    final String? componentsError = _monitorIds.isEmpty
+        ? trans('uptizm.status.form_components_error_required')
+        : null;
+
+    setState(() {
+      _nameError = nameError;
+      _slugError = slugError;
+      _componentsError = componentsError;
+    });
+
+    return nameError == null && slugError == null && componentsError == null;
+  }
+
+  /// Routes a backend 422 field-error map (keyed by the wire field names the
+  /// editor posts) into the inline error slots, returning the entries that map
+  /// to no known field so the caller can surface them another way.
+  Map<String, String> _applyServerErrors(Map<String, String> errors) {
+    final Map<String, String> unmapped = {};
+    setState(() {
+      for (final MapEntry<String, String> entry in errors.entries) {
+        switch (entry.key) {
+          case 'name':
+            _nameError = entry.value;
+          case 'slug':
+            _slugError = entry.value;
+          default:
+            unmapped[entry.key] = entry.value;
+        }
+      }
+    });
+    return unmapped;
   }
 
   /// Navigates to the public preview of the saved page (edit mode only).
@@ -363,7 +442,9 @@ class _StatusPageEditorViewState
 
   /// Builds the header action row: a "View public page" secondary button
   /// (disabled in create mode until the page is saved) and the Create/Save
-  /// button (disabled until [_canSave]). Auto-width: never `w-full` in the row.
+  /// button. The Save button is always enabled so a blank required field
+  /// surfaces its inline error on save (via [_save]) rather than silently
+  /// locking the button. Auto-width: never `w-full` in the row.
   List<Widget> _buildHeaderActions() {
     return <Widget>[
       MSButton(
@@ -373,8 +454,7 @@ class _StatusPageEditorViewState
         child: WText(trans('uptizm.status.editor_form_view_public_page')),
       ),
       MSButton(
-        disabled: !_canSave,
-        onPressed: _canSave ? _save : null,
+        onPressed: _save,
         child: WText(
           _isEdit
               ? trans('uptizm.status.editor_form_save')
@@ -501,6 +581,7 @@ class _StatusPageEditorViewState
   Widget _buildNameField() {
     return MSFormField(
       label: trans('uptizm.status.editor_form_name_label'),
+      error: _nameError,
       child: MSInput(
         value: _name,
         onChanged: _onNameChanged,
@@ -529,6 +610,7 @@ class _StatusPageEditorViewState
     return MSFormField(
       label: trans('uptizm.status.editor_form_slug_label'),
       hint: pageUrl(_draftPage),
+      error: _slugError,
       child: MSInput(
         value: _slug,
         onChanged: _onSlugChanged,
@@ -654,11 +736,16 @@ class _StatusPageEditorViewState
             trans('uptizm.status.editor_section_components'),
             hint: trans('uptizm.status.editor_section_components_hint'),
           ),
-          RegionPicker(
-            regions: monitorRegions(),
-            value: _monitorIds,
-            onChanged: (List<String> next) =>
-                setState(() => _monitorIds = next),
+          MSFormField(
+            error: _componentsError,
+            child: RegionPicker(
+              regions: monitorRegions(),
+              value: _monitorIds,
+              onChanged: (List<String> next) => setState(() {
+                _monitorIds = next;
+                _componentsError = null;
+              }),
+            ),
           ),
         ],
       ),

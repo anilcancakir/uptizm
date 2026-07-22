@@ -98,6 +98,9 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.editor_section_branding': 'Branding',
       'uptizm.status.editor_form_name_label': 'Name',
       'uptizm.status.editor_form_name_placeholder': 'Acme Status',
+      'uptizm.status.form_name_error_required': 'Name is required.',
+      'uptizm.status.form_slug_error_required': 'Slug is required.',
+      'uptizm.status.form_components_error_required': 'Add a component.',
       'uptizm.status.editor_form_how_served_label': 'How is it served?',
       // Domain-mode segmented-control options (DomainMode.label). Missing keys
       // render the long raw token and overflow the fixed-width control Row.
@@ -310,6 +313,42 @@ void main() {
       expect(find.byType(EmptyState), findsOneWidget);
       expect(find.text(trans('uptizm.status.list_empty_title')), findsWidgets);
     });
+
+    testWidgets(
+      'create mode: saving with a blank name shows an inline error and skips '
+      'the write',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final FakeNetworkDriver fake = Http.fake();
+
+        await tester.pumpWidget(
+          wrap(const StatusPageEditorView(), size: const Size(1280, 4000)),
+        );
+        await tester.pump();
+
+        // Tap Create with the blank create defaults (empty name/slug/monitors):
+        // the client-side required check must block before any round trip.
+        await tester.tap(
+          find.text(trans('uptizm.status.editor_form_create_page')),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.status.form_name_error_required')),
+          findsOneWidget,
+          reason: 'A blank name must surface its inline required error',
+        );
+        // No round trip: the blank submit never reached the write endpoint.
+        fake.assertNotSent(
+          (r) =>
+              (r.method == 'POST' || r.method == 'PUT') &&
+              r.url.contains('status-pages'),
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

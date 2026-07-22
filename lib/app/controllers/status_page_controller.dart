@@ -195,22 +195,29 @@ class StatusPageController extends MagicController {
   /// Maps the editor's value-object draft to a persistence model marked as
   /// already existing (so `save()` issues an update, not a create), then checks
   /// the bool result: on success, refreshes the bound view, surfaces a success
-  /// toast, and returns to the list; on a false result (non-2xx or a swallowed
-  /// transport failure), logs it and surfaces an error toast without navigating
-  /// away, so the operator can retry from the still-open editor.
-  Future<void> save(StatusPage draft) async {
+  /// toast, and returns to the list; on a false result, hands any 422 field
+  /// errors back for inline display (staying put, no toast) or surfaces the
+  /// generic error toast for a non-field failure, so the operator can retry
+  /// from the still-open editor.
+  ///
+  /// Returns the backend per-field validation errors (single message per field,
+  /// keyed by the wire field name: `name`, `slug`, `domain_mode`, ...) so the
+  /// editor can render a server 422 inline; an empty map means success or a
+  /// non-field failure (already toasted).
+  Future<Map<String, String>> save(StatusPage draft) async {
     final StatusPage page = _modelFrom(draft, existing: true);
 
     final bool ok = await page.save();
     if (!ok) {
-      Log.error('[StatusPageController.save] ${draft.id}: save() returned false');
-      _toastError(null);
-      return;
+      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(page);
+      if (fieldErrors != null) return fieldErrors;
+      return const {};
     }
 
     refreshUI();
     Magic.success(trans('uptizm.status.editor_form_save'), draft.name ?? '');
     MagicRoute.to('/status');
+    return const {};
   }
 
   /// Creates a new status page from [draft] via the ORM `StatusPage.save()`
@@ -219,15 +226,21 @@ class StatusPageController extends MagicController {
   /// Maps the value-object draft to a fresh (non-existing) model so `save()`
   /// issues a create, then checks the bool result: on success, refreshes the
   /// bound view, surfaces a success toast, and returns to the list; on a false
-  /// result, logs it and surfaces an error toast without navigating away.
-  Future<void> create(StatusPage draft) async {
+  /// result, hands any 422 field errors back for inline display (staying put,
+  /// no toast) or surfaces the generic error toast for a non-field failure.
+  ///
+  /// Returns the backend per-field validation errors (single message per field,
+  /// keyed by the wire field name) so the editor can render a server 422
+  /// inline; an empty map means success or a non-field failure (already
+  /// toasted).
+  Future<Map<String, String>> create(StatusPage draft) async {
     final StatusPage page = _modelFrom(draft, existing: false);
 
     final bool ok = await page.save();
     if (!ok) {
-      Log.error('[StatusPageController.create] save() returned false');
-      _toastError(null);
-      return;
+      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(page);
+      if (fieldErrors != null) return fieldErrors;
+      return const {};
     }
 
     refreshUI();
@@ -236,6 +249,30 @@ class StatusPageController extends MagicController {
       draft.name ?? '',
     );
     MagicRoute.to('/status');
+    return const {};
+  }
+
+  /// Resolves a failed [page] save into either its per-field validation errors
+  /// or a generic toast.
+  ///
+  /// Returns the field errors (single message per field, keyed by the wire
+  /// field name) when the failed save carried the Laravel 422 shape via
+  /// [StatusPage.validationErrors], so the caller hands them back to the editor
+  /// for inline display and stays put. Returns `null` for a non-field failure
+  /// (a transport error / 500) after surfacing the generic error toast and
+  /// logging the cause, so the caller falls back to its empty-map contract.
+  Map<String, String>? _fieldErrorsOrToast(StatusPage page) {
+    final Map<String, List<String>> errors = page.validationErrors;
+    if (errors.isNotEmpty) {
+      return {
+        for (final MapEntry<String, List<String>> entry in errors.entries)
+          entry.key: entry.value.first,
+      };
+    }
+
+    Log.error('[StatusPageController] save returned false with no field errors');
+    _toastError(null);
+    return null;
   }
 
   /// Attaches [monitorId] to the page [pageId]'s public component list via
