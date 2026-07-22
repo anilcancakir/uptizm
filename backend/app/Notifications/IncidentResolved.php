@@ -2,7 +2,11 @@
 
 namespace App\Notifications;
 
+use App\Enums\NotificationChannelType;
 use App\Models\Incident;
+use App\Models\NotificationChannel;
+use App\Notifications\Channels\SlackChannel;
+use App\Notifications\Channels\WebhookChannel;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\NotificationSetting;
 use Illuminate\Bus\Queueable;
@@ -36,17 +40,51 @@ class IncidentResolved extends Notification implements ShouldQueue
     /**
      * Get the notification's delivery channels.
      *
-     * The base set is `mail`/`database`, plus `onesignal` when the push feature
-     * is active. Any channel the notifiable disabled in its
-     * {@see NotificationSetting} rows is dropped
-     * so a disabled channel is never paged.
+     * A team-scoped {@see NotificationChannel} notifiable resolves to its single
+     * custom channel class (Slack or webhook), or to nothing when the required
+     * credential is absent. Any other notifiable (a person) gets the base set:
+     * `mail`/`database`, plus `onesignal` when the push feature is active, minus
+     * any channel it disabled in its {@see NotificationSetting} rows.
      *
      * @param  mixed  $notifiable  The entity receiving the notification.
      * @return array<int, string>
      */
     public function via(mixed $notifiable): array
     {
+        if ($notifiable instanceof NotificationChannel) {
+            return self::channelVia($notifiable);
+        }
+
         return self::withoutDisabledChannels($notifiable, self::defaultChannels(), 'incident_resolved');
+    }
+
+    /**
+     * Resolve the delivery channel for a team-scoped {@see NotificationChannel}:
+     * the matching custom channel class, or an empty array (a deliberate
+     * no-send that Laravel silently skips) when the required credential is empty.
+     *
+     * @return array<int, string>
+     */
+    private static function channelVia(NotificationChannel $channel): array
+    {
+        return match ($channel->channel_type) {
+            NotificationChannelType::Slack => self::hasCredential($channel, 'token')
+                ? [SlackChannel::class]
+                : [],
+            NotificationChannelType::Webhook => self::hasCredential($channel, 'url')
+                ? [WebhookChannel::class]
+                : [],
+        };
+    }
+
+    /**
+     * Whether the channel carries a non-empty value for the given credential key.
+     */
+    private static function hasCredential(NotificationChannel $channel, string $key): bool
+    {
+        $value = $channel->credentials[$key] ?? null;
+
+        return is_string($value) && trim($value) !== '';
     }
 
     /**
@@ -114,6 +152,46 @@ class IncidentResolved extends Notification implements ShouldQueue
         ]));
 
         return $payload;
+    }
+
+    /**
+     * Build the Slack `chat.postMessage` text payload for a team channel; the
+     * channel merges in the target `channel` from the route. The copy reuses the
+     * same localized incident lines as {@see toMail()}.
+     *
+     * @param  mixed  $notifiable  The entity receiving the notification.
+     * @return array<string, mixed>
+     */
+    public function toSlack(mixed $notifiable): array
+    {
+        $monitorName = $this->monitorName();
+
+        return [
+            'text' => __('notifications.incident_resolved_subject', ['monitor' => $monitorName])."\n"
+                .__('notifications.severity_line', ['severity' => $this->incident->severity->value])."\n"
+                .$this->incidentUrl(),
+        ];
+    }
+
+    /**
+     * Build the machine-readable webhook payload: monitor name, state, severity,
+     * and the incident URL, HMAC-signed by the channel.
+     *
+     * @param  mixed  $notifiable  The entity receiving the notification.
+     * @return array<string, mixed>
+     */
+    public function toWebhook(mixed $notifiable): array
+    {
+        return [
+            'event' => 'incident.resolved',
+            'incident_id' => $this->incident->id,
+            'monitor_id' => $this->incident->primary_monitor_id,
+            'monitor_name' => $this->monitorName(),
+            'state' => $this->incident->lifecycle->value,
+            'severity' => $this->incident->severity->value,
+            'title' => $this->incident->title,
+            'incident_url' => $this->incidentUrl(),
+        ];
     }
 
     /**
