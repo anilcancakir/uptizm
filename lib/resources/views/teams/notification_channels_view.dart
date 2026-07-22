@@ -10,12 +10,12 @@ import '../../../ui/layouts/page_container.dart';
 /// **The team notification channels screen (`/teams/notifications`).**
 ///
 /// The team-level integrations a team's monitoring and incident alerts route
-/// to: Slack and a generic webhook (email/push are per-user preferences at
-/// `/settings/notifications`; Microsoft Teams and SMS are phase 2, see
-/// `docs/uptizm-system/`). One [MSCard] holds a row per [ChannelType] (Slack,
-/// webhook): a channel icon tile, its name (with a severity summary [MSBadge]
-/// once connected), the masked detail line, and a trailing [MSSwitch] once
-/// connected or a "Connect" [MSButton] otherwise.
+/// to: Slack, a generic webhook, PagerDuty, and Microsoft Teams (email/push are
+/// per-user preferences at `/settings/notifications`; SMS is an opt-in per-user
+/// preference, see `docs/uptizm-system/`). One [MSCard] holds a row per
+/// [ChannelType]: a channel icon tile, its name (with a severity summary
+/// [MSBadge] once connected), the masked detail line, and a trailing [MSSwitch]
+/// once connected or a "Connect" [MSButton] otherwise.
 ///
 /// Live-wired against S9's `api/v1/notification-channels/*` endpoints through
 /// [NotificationChannelController]: the widget wraps the card in a
@@ -66,11 +66,16 @@ class _ChannelDraft {
   /// Typed Slack channel name (optional).
   String channel = '';
 
-  /// Typed webhook endpoint URL (never pre-filled; the backend masks it).
+  /// Typed webhook / Microsoft Teams endpoint URL (never pre-filled; the
+  /// backend masks it). Reused across the webhook and Teams drafts, which each
+  /// hold their own [_ChannelDraft] instance.
   String url = '';
 
   /// Typed webhook signing secret (optional).
   String secret = '';
+
+  /// Typed PagerDuty routing key (never pre-filled; the backend masks it).
+  String routingKey = '';
 
   /// Severity pick before the first connect. `'all'` or `'critical'`.
   String severity = 'all';
@@ -78,15 +83,20 @@ class _ChannelDraft {
   /// Inline validation error for the Slack token field, or `null`.
   String? tokenError;
 
-  /// Inline validation error for the webhook URL field, or `null`.
+  /// Inline validation error for the webhook / Teams URL field, or `null`.
   String? urlError;
+
+  /// Inline validation error for the PagerDuty routing key field, or `null`.
+  String? routingKeyError;
 }
 
 class _NotificationChannelsViewState extends State<NotificationChannelsView> {
-  /// The two channel types this screen configures, in display order.
+  /// The channel types this screen configures, in display order.
   static const List<ChannelType> _types = [
     ChannelType.slack,
     ChannelType.webhook,
+    ChannelType.pagerduty,
+    ChannelType.teams,
   ];
 
   /// The two severity options, in [MSSegmentedControl] display order. Index 0
@@ -98,24 +108,62 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     for (final ChannelType type in _types) type: _ChannelDraft(),
   };
 
+  /// Whether the backend reports the OneSignal push integration as provisioned
+  /// (a non-empty `app_id`), read from the notification-channels index
+  /// `meta.push_provisioned`. Starts optimistically `true` so the
+  /// not-configured hint never flashes before the status resolves; flipped by
+  /// [_loadPushStatus].
+  bool _pushProvisioned = true;
+
   @override
   void initState() {
     super.initState();
     // Warms the controller's roster cache so the first build already reflects
     // any already-configured channel, without blocking this build.
     NotificationChannelController.instance;
+    _loadPushStatus();
+  }
+
+  /// Reads the `meta.push_provisioned` flag off the notification-channels index
+  /// so the view can show an honest "push not yet configured" heads-up when the
+  /// backend has no OneSignal `app_id`. Push is a per-user preference at
+  /// `/settings/notifications`, so this team-level screen only surfaces the
+  /// heads-up, never a toggle. Degrades to the optimistic default (hint hidden)
+  /// on any failure rather than crying wolf; the failure is logged, not
+  /// swallowed.
+  Future<void> _loadPushStatus() async {
+    try {
+      final MagicResponse response = await Http.get('/notification-channels');
+      if (!response.successful || response.data is! Map<String, dynamic>) {
+        return;
+      }
+
+      final Object? meta = (response.data as Map<String, dynamic>)['meta'];
+      if (meta is! Map<String, dynamic>) return;
+
+      final bool provisioned = meta['push_provisioned'] == true;
+      if (!mounted || provisioned == _pushProvisioned) return;
+
+      setState(() => _pushProvisioned = provisioned);
+    } catch (error) {
+      Log.error('[NotificationChannelsView._loadPushStatus] failed: $error');
+    }
   }
 
   /// Resolves the leading icon for [type].
   IconData _iconFor(ChannelType type) => switch (type) {
     ChannelType.slack => Icons.tag,
     ChannelType.webhook => Icons.webhook,
+    ChannelType.pagerduty => Icons.crisis_alert,
+    ChannelType.teams => Icons.groups,
   };
 
   /// Resolves the localized description line for [type].
   String _descriptionFor(ChannelType type) => switch (type) {
     ChannelType.slack => trans('uptizm.teams.channels_slack_desc'),
     ChannelType.webhook => trans('uptizm.teams.channels_webhook_desc'),
+    ChannelType.pagerduty => trans('uptizm.teams.channels_pagerduty_desc'),
+    ChannelType.teams => trans('uptizm.teams.channels_teams_desc'),
   };
 
   /// Resolves the localized severity summary label for [severity].
@@ -136,7 +184,15 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           ),
           const SizedBox(height: 24),
 
-          // 2. One full-bleed card with a divided row per channel type,
+          // 2. Push-not-provisioned heads-up: rendered only when the backend
+          // reports no OneSignal app_id, so a team lead knows the per-user push
+          // channel cannot deliver yet.
+          if (!_pushProvisioned) ...[
+            _buildPushHint(),
+            const SizedBox(height: 16),
+          ],
+
+          // 3. One full-bleed card with a divided row per channel type,
           // rebuilding whenever the controller's roster changes.
           ListenableBuilder(
             listenable: NotificationChannelController.instance,
@@ -159,6 +215,30 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
             _buildChannel(_types[index], index < _types.length - 1),
         ],
       ),
+    );
+  }
+
+  /// Builds the subtle info hint shown when OneSignal push is not provisioned
+  /// (empty `app_id`). Uses the monitoring `info` status family tokens for a
+  /// calm, non-alarming heads-up.
+  Widget _buildPushHint() {
+    return WDiv(
+      className:
+          'flex flex-row items-center gap-2 rounded-lg px-4 py-3 '
+          'bg-info-soft dark:bg-info-soft',
+      children: [
+        WIcon(
+          Icons.info_outline,
+          className: 'text-[18px] text-info dark:text-info',
+        ),
+        WText(
+          // The channels lang namespace has no push-hint copy and the lang
+          // assets are out of this step's file scope; see `### Deviations`.
+          'Push not yet configured',
+          className:
+              'text-sm text-info-soft-foreground dark:text-info-soft-foreground',
+        ),
+      ],
     );
   }
 
@@ -308,7 +388,8 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   }
 
   /// Resolves the type-conditional credential fields for [type], one arm per
-  /// channel shape (Slack: bot token + channel; webhook: URL + secret).
+  /// channel shape (Slack: bot token + channel; webhook: URL + secret;
+  /// PagerDuty: routing key; Teams: Workflows webhook URL).
   List<Widget> _buildTypeFields(ChannelType type, _ChannelDraft draft) {
     return switch (type) {
       ChannelType.slack => [
@@ -357,6 +438,35 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
             value: draft.secret,
             onChanged: (value) => setState(() => draft.secret = value),
             type: InputType.password,
+          ),
+        ),
+      ],
+      ChannelType.pagerduty => [
+        MSFormField(
+          label: trans('uptizm.teams.channels_pagerduty_routing_key_label'),
+          error: draft.routingKeyError,
+          child: MSInput(
+            value: draft.routingKey,
+            onChanged: (value) => setState(() {
+              draft.routingKey = value;
+              draft.routingKeyError = null;
+            }),
+            type: InputType.password,
+          ),
+        ),
+      ],
+      ChannelType.teams => [
+        MSFormField(
+          label: trans('uptizm.teams.channels_teams_webhook_label'),
+          hint: trans('uptizm.teams.channels_teams_webhook_hint'),
+          error: draft.urlError,
+          child: MSInput(
+            value: draft.url,
+            onChanged: (value) => setState(() {
+              draft.url = value;
+              draft.urlError = null;
+            }),
+            placeholder: trans('uptizm.teams.channels_teams_webhook_placeholder'),
           ),
         ),
       ],
@@ -422,12 +532,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   }
 
   /// Validates the client-side required field for [type] (a fresh Slack
-  /// token / webhook URL is required only when connecting for the first
-  /// time; an already-connected channel may resave with the credential
-  /// fields left blank), then creates or updates the channel through
-  /// [NotificationChannelController]. A server 422 maps its
-  /// `credentials.token`/`credentials.url` key back onto the matching inline
-  /// error slot.
+  /// token / webhook URL / PagerDuty routing key / Teams URL is required only
+  /// when connecting for the first time; an already-connected channel may
+  /// resave with the credential fields left blank), then creates or updates
+  /// the channel through [NotificationChannelController]. A server 422 maps
+  /// its `credentials.token`/`credentials.url`/`credentials.routing_key` key
+  /// back onto the matching inline error slot.
   Future<void> _save(ChannelType type, NotificationChannelRecord? record) async {
     final _ChannelDraft draft = _drafts[type]!;
     if (!_validate(type, draft, isNew: record == null)) return;
@@ -445,6 +555,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     setState(() {
       draft.tokenError = errors['credentials.token'];
       draft.urlError = errors['credentials.url'];
+      draft.routingKeyError = errors['credentials.routing_key'];
     });
   }
 
@@ -452,24 +563,48 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// painting its inline error slot, and returns whether the form may be
   /// submitted. Only enforced when [isNew] (connecting for the first time);
   /// an already-connected channel may resave with blank credential fields
-  /// (the stored credential stays untouched).
+  /// (the stored credential stays untouched). One arm per type so a new
+  /// channel shape is a compile error, never a silently skipped check.
   bool _validate(ChannelType type, _ChannelDraft draft, {required bool isNew}) {
     if (!isNew) return true;
 
-    if (type == ChannelType.slack) {
-      final String? error = draft.token.trim().isEmpty
-          ? trans('validation.required', {'attribute': 'Bot token'})
-          : null;
-      setState(() => draft.tokenError = error);
-      return error == null;
-    }
+    return switch (type) {
+      ChannelType.slack => _requireCredential(
+        draft.token,
+        'Bot token',
+        (String? error) => setState(() => draft.tokenError = error),
+      ),
+      ChannelType.webhook => _requireCredential(
+        draft.url,
+        trans('uptizm.teams.channels_webhook_url_label'),
+        (String? error) => setState(() => draft.urlError = error),
+      ),
+      ChannelType.pagerduty => _requireCredential(
+        draft.routingKey,
+        trans('uptizm.teams.channels_pagerduty_routing_key_label'),
+        (String? error) => setState(() => draft.routingKeyError = error),
+      ),
+      ChannelType.teams => _requireCredential(
+        draft.url,
+        trans('uptizm.teams.channels_teams_webhook_label'),
+        (String? error) => setState(() => draft.urlError = error),
+      ),
+    };
+  }
 
-    final String? error = draft.url.trim().isEmpty
-        ? trans('validation.required', {
-            'attribute': trans('uptizm.teams.channels_webhook_url_label'),
-          })
+  /// Runs the client-side required check on [value], painting [paintError]
+  /// with a localized "required" message (or `null` when present) and
+  /// returning whether the field is filled. [attribute] is the human field
+  /// name interpolated into the `validation.required` copy.
+  bool _requireCredential(
+    String value,
+    String attribute,
+    void Function(String?) paintError,
+  ) {
+    final String? error = value.trim().isEmpty
+        ? trans('validation.required', {'attribute': attribute})
         : null;
-    setState(() => draft.urlError = error);
+    paintError(error);
     return error == null;
   }
 
@@ -488,20 +623,30 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       'severity': record?.severity ?? draft.severity,
     };
 
-    if (type == ChannelType.slack) {
-      if (draft.token.trim().isNotEmpty) {
-        fields['credentials'] = {
-          'token': draft.token.trim(),
-          if (draft.channel.trim().isNotEmpty) 'channel': draft.channel.trim(),
-        };
-      }
-    } else if (type == ChannelType.webhook) {
-      if (draft.url.trim().isNotEmpty) {
-        fields['credentials'] = {
-          'url': draft.url.trim(),
-          if (draft.secret.trim().isNotEmpty) 'secret': draft.secret.trim(),
-        };
-      }
+    switch (type) {
+      case ChannelType.slack:
+        if (draft.token.trim().isNotEmpty) {
+          fields['credentials'] = {
+            'token': draft.token.trim(),
+            if (draft.channel.trim().isNotEmpty)
+              'channel': draft.channel.trim(),
+          };
+        }
+      case ChannelType.webhook:
+        if (draft.url.trim().isNotEmpty) {
+          fields['credentials'] = {
+            'url': draft.url.trim(),
+            if (draft.secret.trim().isNotEmpty) 'secret': draft.secret.trim(),
+          };
+        }
+      case ChannelType.pagerduty:
+        if (draft.routingKey.trim().isNotEmpty) {
+          fields['credentials'] = {'routing_key': draft.routingKey.trim()};
+        }
+      case ChannelType.teams:
+        if (draft.url.trim().isNotEmpty) {
+          fields['credentials'] = {'url': draft.url.trim()};
+        }
     }
 
     return fields;

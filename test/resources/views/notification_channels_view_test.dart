@@ -19,10 +19,17 @@ class _NotificationChannelsLangLoader implements TranslationLoader {
       'common.error_occurred': 'An unexpected error occurred.',
       'uptizm.enums.channel_type.slack': 'Slack',
       'uptizm.enums.channel_type.webhook': 'Webhook',
+      'uptizm.enums.channel_type.pagerduty': 'PagerDuty',
+      'uptizm.enums.channel_type.teams': 'Microsoft Teams',
       'uptizm.teams.channels_title': 'Notification channels',
       'uptizm.teams.channels_description': 'Team-level integrations.',
       'uptizm.teams.channels_slack_desc': 'Post alerts to Slack.',
       'uptizm.teams.channels_webhook_desc': 'POST alerts to an endpoint.',
+      'uptizm.teams.channels_pagerduty_desc': 'Trigger PagerDuty incidents.',
+      'uptizm.teams.channels_pagerduty_routing_key_label': 'Routing key',
+      'uptizm.teams.channels_teams_desc': 'Post alerts to a Teams channel.',
+      'uptizm.teams.channels_teams_webhook_label': 'Incoming webhook URL',
+      'uptizm.teams.channels_teams_webhook_hint': 'Paste your Workflows URL.',
       'uptizm.teams.channels_severity_critical': 'Critical only',
       'uptizm.teams.channels_severity_all': 'All alerts',
       'uptizm.teams.channels_connect_button': 'Connect',
@@ -78,7 +85,7 @@ void main() {
     );
   }
 
-  testWidgets('renders the title and a row for Slack and webhook only', (
+  testWidgets('renders the title and a row for all four team channel types', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 4000));
@@ -91,11 +98,33 @@ void main() {
     expect(find.text('Notification channels'), findsOneWidget);
     expect(find.text('Slack'), findsOneWidget);
     expect(find.text('Webhook'), findsOneWidget);
-    // No email/SMS/Microsoft Teams cards.
+    expect(find.text('PagerDuty'), findsOneWidget);
+    expect(find.text('Microsoft Teams'), findsOneWidget);
+    // Email/SMS stay per-user preferences, never team channels.
     expect(find.text('Email'), findsNothing);
     expect(find.text('SMS'), findsNothing);
-    expect(find.text('Microsoft Teams'), findsNothing);
   });
+
+  testWidgets(
+    'connecting PagerDuty reveals a routing key field and Teams a url field',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const NotificationChannelsView()));
+      await tester.pump();
+
+      // Connect buttons render in _types order: slack, webhook, pagerduty,
+      // teams. Index 2 is PagerDuty, index 3 is Teams.
+      await tester.tap(find.text('Connect').at(2));
+      await tester.pump();
+      expect(find.text('Routing key'), findsOneWidget);
+
+      await tester.tap(find.text('Connect').at(3));
+      await tester.pump();
+      expect(find.text('Incoming webhook URL'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'connecting Slack and saving with an empty token shows an inline '
@@ -131,15 +160,66 @@ void main() {
       await tester.pumpWidget(wrap(const NotificationChannelsView()));
       await tester.pump();
 
-      await tester.tap(find.text('Connect').last);
+      // Index 1 is the webhook row (order: slack, webhook, pagerduty, teams).
+      await tester.tap(find.text('Connect').at(1));
       await tester.pump();
-      await tester.tap(find.text('Save').last);
+      await tester.tap(find.text('Save'));
       await tester.pump();
 
       expect(
         find.text('The Endpoint URL field is required.'),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'shows the push-not-provisioned hint when the backend reports app_id empty',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Http.fake().stub(
+        '/notification-channels',
+        MagicResponse(
+          data: <String, dynamic>{
+            'data': <dynamic>[],
+            'meta': <String, dynamic>{'push_provisioned': false},
+          },
+          statusCode: 200,
+        ),
+      );
+
+      await tester.pumpWidget(wrap(const NotificationChannelsView()));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Push not yet configured'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'hides the push-not-provisioned hint when push is provisioned',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Http.fake().stub(
+        '/notification-channels',
+        MagicResponse(
+          data: <String, dynamic>{
+            'data': <dynamic>[],
+            'meta': <String, dynamic>{'push_provisioned': true},
+          },
+          statusCode: 200,
+        ),
+      );
+
+      await tester.pumpWidget(wrap(const NotificationChannelsView()));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Push not yet configured'), findsNothing);
     },
   );
 
@@ -168,7 +248,8 @@ void main() {
 
       expect(find.text('Critical only'), findsOneWidget);
       expect(find.text('#incidents'), findsOneWidget);
-      expect(find.text('Connect'), findsOneWidget); // webhook still offers it.
+      // Webhook, PagerDuty, and Teams remain unconnected and still offer it.
+      expect(find.text('Connect'), findsNWidgets(3));
 
       await tester.tap(find.text('Slack'));
       await tester.pump();
