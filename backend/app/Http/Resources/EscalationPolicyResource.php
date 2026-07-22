@@ -38,7 +38,6 @@ class EscalationPolicyResource extends JsonResource
                         'delay_minutes' => $step->delay_minutes,
                         'target_type' => $step->target_type->value,
                         'target_id' => $step->target_id,
-                        'channel' => $step->channel,
                     ])
                     ->all();
             }),

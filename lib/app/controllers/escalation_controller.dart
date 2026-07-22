@@ -28,11 +28,6 @@ class EscalationStepWire {
   /// The targeted user id, present only when [targetType] is `user`.
   final String? targetId;
 
-  /// Legacy channel name field, decoded from the wire for backward
-  /// compatibility with older rows; no longer a rung target (the editor
-  /// reconstructs from [targetType]/[targetId], never this).
-  final String? channel;
-
   /// Creates an [EscalationStepWire].
   const EscalationStepWire({
     required this.id,
@@ -40,7 +35,6 @@ class EscalationStepWire {
     required this.delayMinutes,
     required this.targetType,
     this.targetId,
-    this.channel,
   });
 }
 

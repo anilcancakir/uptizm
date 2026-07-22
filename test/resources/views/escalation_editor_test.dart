@@ -102,7 +102,6 @@ void main() {
               'delay_minutes': 0,
               'target_type': 'user',
               'target_id': 'u2',
-              'channel': null,
             },
           ],
         }),

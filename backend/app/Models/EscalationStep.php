@@ -35,7 +35,6 @@ class EscalationStep extends Model
         'delay_minutes',
         'target_type',
         'target_id',
-        'channel',
     ];
 
     /**

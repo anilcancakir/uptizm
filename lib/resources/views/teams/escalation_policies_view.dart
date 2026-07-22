@@ -244,10 +244,11 @@ class _EscalationPoliciesViewState
     );
   }
 
-  /// Renders a step's target as a single display label: the channel string for
-  /// a `channel` step, the localized on-call label for `on_call`, or the
-  /// localized "User :id" for a `user` step (mirrors the backend's
-  /// single-target-per-step shape, see the controller's class docblock).
+  /// Renders a step's target as a single display label: the localized on-call
+  /// label for an `on_call` step, or the localized "User :id" for a `user`
+  /// step (mirrors the backend's people-only, single-target-per-step shape;
+  /// see the controller's class docblock). The default arm is an unreachable
+  /// safety net now that the wire only carries `on_call`/`user`.
   String _targetLabel(EscalationStepWire step) {
     switch (step.targetType) {
       case 'on_call':
@@ -257,7 +258,7 @@ class _EscalationPoliciesViewState
           'id': step.targetId ?? '',
         }).trim();
       default:
-        return step.channel ?? '';
+        return '';
     }
   }
 

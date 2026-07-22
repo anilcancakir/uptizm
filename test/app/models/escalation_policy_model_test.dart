@@ -33,7 +33,7 @@ void main() {
         'id': 'p1',
         'name': 'Standard',
         'steps': [
-          {'id': 's1', 'position': 0, 'delay_minutes': 0, 'target_type': 'channel', 'channel': '#incidents'},
+          {'id': 's1', 'position': 0, 'delay_minutes': 0, 'target_type': 'on_call'},
           {'id': 's2', 'position': 1, 'delay_minutes': 5, 'target_type': 'on_call'},
           {'id': 's3', 'position': 2, 'delay_minutes': 15, 'target_type': 'user', 'target_id': 'u9'},
         ],
@@ -42,8 +42,7 @@ void main() {
       expect(steps.length, 3);
       expect(steps[0].id, 's1');
       expect(steps[0].delayMinutes, 0);
-      expect(steps[0].targetType, 'channel');
-      expect(steps[0].channel, '#incidents');
+      expect(steps[0].targetType, 'on_call');
       expect(steps[1].id, 's2');
       expect(steps[1].delayMinutes, 5);
       expect(steps[1].targetType, 'on_call');
@@ -88,7 +87,7 @@ void main() {
             'id': 'p1',
             'name': 'Standard',
             'steps': [
-              {'id': 's1', 'position': 0, 'delay_minutes': 0, 'target_type': 'channel', 'channel': '#incidents'},
+              {'id': 's1', 'position': 0, 'delay_minutes': 0, 'target_type': 'on_call'},
             ],
           },
         }),
@@ -114,7 +113,7 @@ void main() {
 
     test('fromJson round-trips the wire shape', () {
       final policy = EscalationPolicy.fromJson(
-        '{"id":"p1","name":"Standard","steps":[{"id":"s1","position":0,"delay_minutes":0,"target_type":"channel","channel":"#incidents"}]}',
+        '{"id":"p1","name":"Standard","steps":[{"id":"s1","position":0,"delay_minutes":0,"target_type":"on_call"}]}',
       );
       expect(policy.id, 'p1');
       expect(policy.name, 'Standard');

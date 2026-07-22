@@ -86,9 +86,8 @@ class EscalationPolicy extends Model
       id: m['id'] as String,
       position: (m['position'] as num?)?.toInt() ?? 0,
       delayMinutes: (m['delay_minutes'] as num?)?.toInt() ?? 0,
-      targetType: (m['target_type'] as String?) ?? 'channel',
+      targetType: (m['target_type'] as String?) ?? 'on_call',
       targetId: m['target_id'] as String?,
-      channel: m['channel'] as String?,
     );
   }
 
