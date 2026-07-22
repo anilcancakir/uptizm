@@ -90,7 +90,12 @@ class AppServiceProvider extends ServiceProvider
                     'mail',
                     'database',
                     'push',
+                    'sms',
                 ],
+                // 'sms' is advertised (a toggle shows on /settings/notifications)
+                // but deliberately omitted from 'default': SMS is opt-in, so a
+                // member is only texted after explicitly enabling it. A default-on
+                // sms would text every member on every incident (10DLC cost + spam).
                 'default' => [
                     'mail',
                     'database',
@@ -104,7 +109,9 @@ class AppServiceProvider extends ServiceProvider
                     'mail',
                     'database',
                     'push',
+                    'sms',
                 ],
+                // See IncidentOpened: 'sms' is advertised but never default-on.
                 'default' => [
                     'mail',
                     'database',

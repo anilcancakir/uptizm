@@ -12,4 +12,6 @@ enum NotificationChannelType: string
 {
     case Slack = 'slack';
     case Webhook = 'webhook';
+    case PagerDuty = 'pagerduty';
+    case Teams = 'teams';
 }

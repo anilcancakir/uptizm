@@ -49,8 +49,10 @@ class NotificationChannelResource extends JsonResource
      * Slack exposes whether a bot token is stored and the (non-secret) target
      * channel name; webhook exposes whether a url + signing secret are stored
      * and the url's host only (never the full url, which could carry a token
-     * in its query string). No branch ever returns a token, secret, or full
-     * url.
+     * in its query string); PagerDuty exposes only whether a routing key is
+     * stored; Teams exposes whether a url is stored and its host only (the
+     * Workflows url carries a `?sig=` SAS token that must never travel back).
+     * No branch ever returns a token, secret, full url, or routing key.
      *
      * @return array<string, mixed>
      */
@@ -67,6 +69,13 @@ class NotificationChannelResource extends JsonResource
                 'has_url' => $this->hasValue($credentials['url'] ?? null),
                 'url_host' => $this->hostOf($credentials['url'] ?? null),
                 'has_secret' => $this->hasValue($credentials['secret'] ?? null),
+            ],
+            NotificationChannelType::PagerDuty => [
+                'has_routing_key' => $this->hasValue($credentials['routing_key'] ?? null),
+            ],
+            NotificationChannelType::Teams => [
+                'has_url' => $this->hasValue($credentials['url'] ?? null),
+                'url_host' => $this->hostOf($credentials['url'] ?? null),
             ],
         };
     }

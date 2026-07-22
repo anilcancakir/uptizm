@@ -173,11 +173,12 @@ class IncidentNotificationTest extends TestCase
         $this->assertTrue(NotificationPreferenceRegistry::has(IncidentOpened::class));
         $this->assertTrue(NotificationPreferenceRegistry::has(IncidentResolved::class));
 
-        $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::channels(IncidentOpened::class));
+        // 'sms' is an advertised channel (opt-in toggle) but never a default.
+        $this->assertSame(['mail', 'database', 'push', 'sms'], NotificationPreferenceRegistry::channels(IncidentOpened::class));
         $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::defaults(IncidentOpened::class));
         $this->assertSame([], NotificationPreferenceRegistry::locked(IncidentOpened::class));
 
-        $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::channels(IncidentResolved::class));
+        $this->assertSame(['mail', 'database', 'push', 'sms'], NotificationPreferenceRegistry::channels(IncidentResolved::class));
         $this->assertSame(['mail', 'database', 'push'], NotificationPreferenceRegistry::defaults(IncidentResolved::class));
 
         // Also reachable by the slug the client's preference matrix uses.

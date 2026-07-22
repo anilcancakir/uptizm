@@ -49,6 +49,11 @@ class UpdateNotificationChannelRequest extends StoreNotificationChannelRequest
                 'string',
                 'max:200',
             ],
+            'credentials.routing_key' => [
+                'nullable',
+                'string',
+                'max:64',
+            ],
             'credentials.url' => [
                 'nullable',
                 'string',

@@ -16,8 +16,11 @@ use Illuminate\Validation\ValidationException;
  *
  * The `credentials` map is shape-checked per `channel_type`: a Slack channel
  * needs a `token` (`channel` is optional, Slack posts to the app default when
- * absent), a webhook channel needs a `url` and a signing `secret`. The webhook
- * `url` runs through the same SSRF guard as a monitor target, only stricter:
+ * absent), a webhook channel needs a `url` and a signing `secret`, a PagerDuty
+ * channel needs an Events API v2 `routing_key`, and a Microsoft Teams channel
+ * needs a Workflows webhook `url` (whose own `?sig=` SAS is the credential, so
+ * no separate secret). Both the webhook and Teams `url` run through the same
+ * SSRF guard as a monitor target, only stricter:
  * {@see HostGuard::resolveAndAssertAllowed()} rejects a non-https scheme,
  * embedded credentials/ports, and any host that resolves into the internal
  * denylist, so a private/loopback/metadata URL is refused with a 422 and never
@@ -69,7 +72,7 @@ class StoreNotificationChannelRequest extends FormRequest
                 'max:200',
             ],
             'credentials.url' => [
-                'required_if:channel_type,webhook',
+                'required_if:channel_type,webhook,teams',
                 'nullable',
                 'string',
                 'max:2048',
@@ -80,6 +83,12 @@ class StoreNotificationChannelRequest extends FormRequest
                 'nullable',
                 'string',
                 'max:255',
+            ],
+            'credentials.routing_key' => [
+                'required_if:channel_type,pagerduty',
+                'nullable',
+                'string',
+                'max:64',
             ],
             'is_enabled' => [
                 'sometimes',
@@ -93,20 +102,38 @@ class StoreNotificationChannelRequest extends FormRequest
     }
 
     /**
-     * Build the SSRF guard closure for the webhook `credentials.url` field.
+     * The channel types whose `credentials.url` runs through the SSRF guard.
      *
-     * The check only runs for a webhook channel that actually carries a url;
-     * a Slack channel (or an update that omits the url) skips it. The guard
-     * throws a {@see ValidationException} keyed on `url`; its message is
-     * surfaced on the nested `credentials.url` attribute so the client can
-     * bind the error to the right field.
+     * Both the generic webhook and Microsoft Teams carry a platform-sent,
+     * tenant-supplied url, so both must resolve outside the internal denylist;
+     * a Slack or PagerDuty channel has no url to guard.
+     *
+     * @return list<string>
+     */
+    protected static function urlGuardedTypes(): array
+    {
+        return [
+            NotificationChannelType::Webhook->value,
+            NotificationChannelType::Teams->value,
+        ];
+    }
+
+    /**
+     * Build the SSRF guard closure for the `credentials.url` field.
+     *
+     * The check only runs for a channel whose type carries a platform-sent url
+     * (webhook or Teams) that actually supplies one; a Slack/PagerDuty channel
+     * (or an update that omits the url) skips it. The guard throws a
+     * {@see ValidationException} keyed on `url`; its message is surfaced on the
+     * nested `credentials.url` attribute so the client can bind the error to
+     * the right field.
      *
      * @return Closure(string, mixed, Closure): void
      */
     protected function webhookUrlRule(): Closure
     {
         return function (string $attribute, mixed $value, Closure $fail): void {
-            if ($this->effectiveChannelType() !== NotificationChannelType::Webhook->value) {
+            if (! in_array($this->effectiveChannelType(), self::urlGuardedTypes(), true)) {
                 return;
             }
 

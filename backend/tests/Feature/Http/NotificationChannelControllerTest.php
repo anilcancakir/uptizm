@@ -149,6 +149,86 @@ class NotificationChannelControllerTest extends TestCase
         ]);
     }
 
+    public function test_store_creates_a_teams_channel_and_masks_the_url_to_the_host(): void
+    {
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/notification-channels', [
+            'name' => 'Ops Teams',
+            'channel_type' => 'teams',
+            'credentials' => [
+                'url' => 'https://example.com/webhookb2/abc?sig=super-secret-sas',
+            ],
+            'severity' => 'all',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.channel_type', 'teams');
+
+        // The Workflows url carries a ?sig= SAS secret: only the host may travel
+        // back, never the full url.
+        $this->assertStringNotContainsString('super-secret-sas', $response->getContent());
+        $response->assertJsonMissingPath('data.credentials.url');
+        $response->assertJsonPath('data.credentials.has_url', true);
+        $response->assertJsonPath('data.credentials.url_host', 'example.com');
+
+        $this->assertDatabaseHas('notification_channels', [
+            'team_id' => $team->id,
+            'name' => 'Ops Teams',
+            'channel_type' => 'teams',
+        ]);
+    }
+
+    public function test_store_rejects_a_teams_url_that_targets_an_internal_host(): void
+    {
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/notification-channels', [
+            'name' => 'Bad Teams',
+            'channel_type' => 'teams',
+            'credentials' => [
+                'url' => 'https://169.254.169.254/webhook',
+            ],
+            'severity' => 'all',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('credentials.url');
+        $this->assertDatabaseCount('notification_channels', 0);
+    }
+
+    public function test_store_rejects_a_teams_channel_missing_its_url(): void
+    {
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/notification-channels', [
+            'name' => 'Urlless Teams',
+            'channel_type' => 'teams',
+            'credentials' => [],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('credentials.url');
+    }
+
+    public function test_show_masks_teams_credentials_to_the_host_only(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $channel = NotificationChannel::factory()->teams()->create([
+            'team_id' => $team->id,
+            'credentials' => [
+                'url' => 'https://example.com/webhookb2/abc?sig=super-secret-sas',
+            ],
+        ]);
+
+        $response = $this->getJson("/api/v1/notification-channels/{$channel->id}");
+
+        $response->assertStatus(200);
+        $this->assertStringNotContainsString('super-secret-sas', $response->getContent());
+        $response->assertJsonPath('data.credentials.url_host', 'example.com');
+        $response->assertJsonMissingPath('data.credentials.url');
+    }
+
     public function test_index_lists_only_the_current_teams_channels(): void
     {
         $team = $this->actingAsTeamMember();
@@ -368,6 +448,27 @@ class NotificationChannelControllerTest extends TestCase
         $response->assertStatus(502);
         $response->assertJsonPath('data.delivered', false);
         Http::assertNothingSent();
+    }
+
+    public function test_test_send_delivers_a_teams_adaptive_card(): void
+    {
+        Http::fake([
+            'example.com/*' => Http::response('', 200),
+        ]);
+
+        $team = $this->actingAsTeamMember();
+        $channel = NotificationChannel::factory()->teams()->create([
+            'team_id' => $team->id,
+            'credentials' => [
+                'url' => 'https://example.com/webhookb2/abc?sig=super-secret-sas',
+            ],
+        ]);
+
+        $response = $this->postJson("/api/v1/notification-channels/{$channel->id}/test");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.delivered', true);
+        Http::assertSent(fn ($request): bool => $request['type'] === 'message');
     }
 
     public function test_test_send_masks_a_cross_team_channel_as_404(): void

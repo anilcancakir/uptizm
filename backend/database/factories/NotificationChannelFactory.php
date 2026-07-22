@@ -62,4 +62,33 @@ class NotificationChannelFactory extends Factory
             ],
         ]);
     }
+
+    /**
+     * Configure as a PagerDuty channel with an Events API v2 routing key.
+     */
+    public function pagerduty(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'channel_type' => NotificationChannelType::PagerDuty,
+            'credentials' => [
+                'routing_key' => Str::random(32),
+            ],
+        ]);
+    }
+
+    /**
+     * Configure as a Microsoft Teams channel with a Workflows webhook url.
+     *
+     * The url carries its own `?sig=` SAS token, so it is both the target and
+     * the credential (there is no separate signing secret).
+     */
+    public function teams(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'channel_type' => NotificationChannelType::Teams,
+            'credentials' => [
+                'url' => 'https://example.com/webhookb2/'.Str::random(16).'?sig='.Str::random(24),
+            ],
+        ]);
+    }
 }

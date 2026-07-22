@@ -9,6 +9,7 @@ use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use FlutterSdk\MagicStarter\Models\Team;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
+use FlutterSdk\MagicStarter\Support\OneSignalSubscriptions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
@@ -106,6 +107,130 @@ class IncidentNotificationChannelsTest extends TestCase
         );
 
         Notification::send($user, new IncidentOpened($incident));
+    }
+
+    public function test_sms_is_registered_as_available_but_not_default_for_both_incident_types(): void
+    {
+        // SMS is opt-in: it must be an advertised channel (so the preference
+        // matrix surfaces a toggle) but MUST NOT be default-enabled (a default-on
+        // sms would text every member on every incident).
+        $this->assertContains('sms', NotificationPreferenceRegistry::channels(IncidentOpened::class));
+        $this->assertNotContains('sms', NotificationPreferenceRegistry::defaults(IncidentOpened::class));
+        $this->assertContains('sms', NotificationPreferenceRegistry::channels(IncidentResolved::class));
+        $this->assertNotContains('sms', NotificationPreferenceRegistry::defaults(IncidentResolved::class));
+    }
+
+    public function test_via_excludes_sms_for_a_user_without_an_explicit_sms_preference(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create(['phone' => '+15551234567']);
+
+        // A phone and a provisioned app are not enough: without an explicit
+        // enabled sms row the channel stays off (opt-out default preserved).
+        $this->assertSame(['mail', 'database', 'onesignal'], (new IncidentOpened($incident))->via($user));
+    }
+
+    public function test_via_includes_sms_for_a_user_who_enabled_sms_with_phone_and_app_id(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
+        $incident = $this->makeIncident();
+        $user = $this->userOptedIntoSms('incident_opened');
+
+        $this->assertContains('onesignal-sms', (new IncidentOpened($incident))->via($user));
+    }
+
+    public function test_incident_resolved_via_includes_sms_for_an_opted_in_user(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
+        $incident = $this->makeIncident();
+        $user = $this->userOptedIntoSms('incident_resolved');
+
+        $this->assertContains('onesignal-sms', (new IncidentResolved($incident))->via($user));
+    }
+
+    public function test_via_excludes_sms_when_the_push_app_is_unprovisioned(): void
+    {
+        config(['magic-starter.onesignal.app_id' => null]);
+
+        $incident = $this->makeIncident();
+        $user = $this->userOptedIntoSms('incident_opened');
+
+        $this->assertNotContains('onesignal-sms', (new IncidentOpened($incident))->via($user));
+    }
+
+    public function test_via_excludes_sms_when_the_user_has_no_phone(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+        $user->notificationSettings()->create([
+            'type' => 'incident_opened',
+            'channel' => 'sms',
+            'is_enabled' => true,
+        ]);
+
+        $this->assertNotContains('onesignal-sms', (new IncidentOpened($incident))->via($user));
+    }
+
+    public function test_sms_send_registers_the_subscription_on_demand_once(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+        Mail::fake();
+
+        $incident = $this->makeIncident();
+        $user = $this->userOptedIntoSms('incident_opened');
+
+        // Step 7's contract on the SMS path is to trigger the on-demand
+        // registration exactly once before building the payload. The
+        // idempotency/persistence itself is Step 4's (magic-starter-laravel)
+        // tested responsibility, so mock the helper at the wiring seam.
+        $subscriptions = Mockery::mock(OneSignalSubscriptions::class);
+        $subscriptions->shouldReceive('ensureSmsSubscription')->once()->andReturn(true);
+        $this->app->instance(OneSignalSubscriptions::class, $subscriptions);
+
+        $client = Mockery::mock(DefaultApi::class);
+        // Both the push and the sms driver deliver through createNotification.
+        $client->shouldReceive('createNotification')->andReturn(new CreateNotificationSuccessResponse);
+        $this->app->instance(DefaultApi::class, $client);
+
+        Notification::send($user, new IncidentOpened($incident));
+    }
+
+    public function test_person_mail_and_database_channels_are_unchanged_by_the_sms_path(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
+        $incident = $this->makeIncident();
+        $user = $this->userOptedIntoSms('incident_opened');
+
+        // Opting into sms adds the sms driver without disturbing the base set.
+        $channels = (new IncidentOpened($incident))->via($user);
+
+        $this->assertSame(
+            ['mail', 'database', 'onesignal', 'onesignal-sms'],
+            $channels,
+        );
+    }
+
+    /**
+     * Create a person who opted into SMS for the given incident type: a phone
+     * plus an explicit enabled `sms` {@see NotificationSetting} row.
+     */
+    private function userOptedIntoSms(string $type): User
+    {
+        $user = User::factory()->create(['phone' => '+15551234567']);
+        $user->notificationSettings()->create([
+            'type' => $type,
+            'channel' => 'sms',
+            'is_enabled' => true,
+        ]);
+
+        return $user;
     }
 
     /**

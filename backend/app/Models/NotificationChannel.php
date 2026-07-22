@@ -81,4 +81,30 @@ class NotificationChannel extends Model
     {
         return $this->credentials ?? [];
     }
+
+    /**
+     * Route notifications for the PagerDuty channel: the decrypted
+     * `{routing_key}` credentials, resolved at send time (see
+     * {@see self::routeNotificationForSlack()} for the decrypt-on-worker
+     * guarantee). The routing key rides in the Events API v2 body.
+     *
+     * @return array<string, mixed>
+     */
+    public function routeNotificationForPagerduty(): array
+    {
+        return $this->credentials ?? [];
+    }
+
+    /**
+     * Route notifications for the Microsoft Teams channel: the decrypted `{url}`
+     * credentials, resolved at send time (see {@see self::routeNotificationForSlack()}
+     * for the decrypt-on-worker guarantee). The url carries its own `?sig=` SAS
+     * token, so it is both the target and the credential.
+     *
+     * @return array<string, mixed>
+     */
+    public function routeNotificationForTeams(): array
+    {
+        return $this->credentials ?? [];
+    }
 }

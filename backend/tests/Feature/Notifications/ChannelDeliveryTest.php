@@ -2,11 +2,14 @@
 
 namespace Tests\Feature\Notifications;
 
+use App\Http\Resources\NotificationChannelResource;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\NotificationChannel;
 use App\Models\User;
+use App\Notifications\Channels\PagerDutyChannel;
 use App\Notifications\Channels\SlackChannel;
+use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
@@ -14,6 +17,7 @@ use App\Support\Monitoring\RelaySigner;
 use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
@@ -58,6 +62,175 @@ class ChannelDeliveryTest extends TestCase
         $this->assertSame(
             [SlackChannel::class],
             (new IncidentResolved($incident))->via($channel),
+        );
+    }
+
+    public function test_a_pagerduty_channel_notifiable_resolves_the_pagerduty_channel(): void
+    {
+        $incident = $this->makeIncident();
+        $channel = $this->pagerDutyChannel($incident, 'R0UT1NGK3Y0000000000000000000000');
+
+        $this->assertSame(
+            [PagerDutyChannel::class],
+            (new IncidentOpened($incident))->via($channel),
+        );
+    }
+
+    public function test_a_pagerduty_channel_with_an_empty_routing_key_yields_an_empty_via(): void
+    {
+        $incident = $this->makeIncident();
+        $channel = $this->pagerDutyChannel($incident, '');
+
+        $this->assertSame([], (new IncidentOpened($incident))->via($channel));
+        $this->assertSame([], (new IncidentResolved($incident))->via($channel));
+    }
+
+    public function test_opening_a_critical_incident_posts_a_pagerduty_trigger(): void
+    {
+        Http::fake([
+            'events.pagerduty.com/v2/enqueue' => Http::response(['status' => 'success'], 202),
+        ]);
+
+        $incident = $this->makeIncident();
+        $channel = $this->pagerDutyChannel($incident, 'R0UT1NGK3Y0000000000000000000000');
+
+        Notification::send($channel, new IncidentOpened($incident));
+
+        Http::assertSent(function (Request $request) use ($incident): bool {
+            return $request->url() === 'https://events.pagerduty.com/v2/enqueue'
+                && $request['routing_key'] === 'R0UT1NGK3Y0000000000000000000000'
+                && $request['event_action'] === 'trigger'
+                && $request['dedup_key'] === 'uptizm-incident-'.$incident->id
+                && $request['payload']['severity'] === 'critical'
+                && is_array($request['payload']['custom_details']);
+        });
+    }
+
+    public function test_resolving_posts_a_pagerduty_resolve_with_the_same_dedup_key(): void
+    {
+        Http::fake([
+            'events.pagerduty.com/v2/enqueue' => Http::response(['status' => 'success'], 202),
+        ]);
+
+        $incident = $this->makeIncident();
+        $channel = $this->pagerDutyChannel($incident, 'R0UT1NGK3Y0000000000000000000000');
+
+        Notification::send($channel, new IncidentResolved($incident));
+
+        Http::assertSent(function (Request $request) use ($incident): bool {
+            return $request['event_action'] === 'resolve'
+                && $request['dedup_key'] === 'uptizm-incident-'.$incident->id
+                && $request['routing_key'] === 'R0UT1NGK3Y0000000000000000000000';
+        });
+    }
+
+    public function test_pagerduty_severity_maps_the_incident_severity(): void
+    {
+        $incident = $this->makeIncident(['severity' => 'warn']);
+
+        $trigger = (new IncidentOpened($incident))->toPagerDuty($this->pagerDutyChannel($incident, 'key'));
+
+        $this->assertSame('warning', $trigger['payload']['severity']);
+
+        $info = $this->makeIncident(['severity' => 'info']);
+
+        $this->assertSame(
+            'info',
+            (new IncidentOpened($info))->toPagerDuty($this->pagerDutyChannel($info, 'key'))['payload']['severity'],
+        );
+    }
+
+    public function test_the_resource_masks_the_pagerduty_routing_key(): void
+    {
+        $incident = $this->makeIncident();
+        $channel = $this->pagerDutyChannel($incident, 'R0UT1NGK3Y0000000000000000000000');
+
+        $masked = (new NotificationChannelResource($channel))->toArray(HttpRequest::create('/'));
+
+        $this->assertTrue($masked['credentials']['has_routing_key']);
+        $this->assertArrayNotHasKey('routing_key', $masked['credentials']);
+    }
+
+    public function test_a_teams_channel_notifiable_resolves_the_teams_channel(): void
+    {
+        $incident = $this->makeIncident();
+        $channel = $this->teamsChannel($incident, 'https://example.com/webhookb2/abc?sig=sas');
+
+        $this->assertSame(
+            [TeamsChannel::class],
+            (new IncidentOpened($incident))->via($channel),
+        );
+
+        $this->assertSame(
+            [TeamsChannel::class],
+            (new IncidentResolved($incident))->via($channel),
+        );
+    }
+
+    public function test_a_teams_channel_with_an_empty_url_yields_an_empty_via(): void
+    {
+        $incident = $this->makeIncident();
+        $channel = $this->teamsChannel($incident, '');
+
+        $this->assertSame([], (new IncidentOpened($incident))->via($channel));
+        $this->assertSame([], (new IncidentResolved($incident))->via($channel));
+    }
+
+    public function test_opening_an_incident_posts_a_teams_adaptive_card(): void
+    {
+        Http::fake([
+            'example.com/*' => Http::response('', 200),
+        ]);
+
+        $incident = $this->makeIncident();
+        $channel = $this->teamsChannel($incident, 'https://example.com/webhookb2/abc?sig=sas');
+
+        Notification::send($channel, new IncidentOpened($incident));
+
+        Http::assertSent(function (Request $request): bool {
+            $attachment = $request['attachments'][0] ?? [];
+
+            return str_starts_with($request->url(), 'https://example.com/webhookb2/abc')
+                && $request['type'] === 'message'
+                && $attachment['contentType'] === 'application/vnd.microsoft.card.adaptive'
+                && $attachment['content']['type'] === 'AdaptiveCard'
+                && is_array($attachment['content']['body'])
+                && is_array($attachment['content']['actions']);
+        });
+    }
+
+    public function test_resolving_posts_a_teams_adaptive_card(): void
+    {
+        Http::fake([
+            'example.com/*' => Http::response('', 200),
+        ]);
+
+        $incident = $this->makeIncident();
+        $channel = $this->teamsChannel($incident, 'https://example.com/webhookb2/abc?sig=sas');
+
+        Notification::send($channel, new IncidentResolved($incident));
+
+        Http::assertSent(function (Request $request): bool {
+            $attachment = $request['attachments'][0] ?? [];
+
+            return $request['type'] === 'message'
+                && $attachment['content']['type'] === 'AdaptiveCard';
+        });
+    }
+
+    public function test_the_resource_masks_the_teams_url_to_the_host_only(): void
+    {
+        $incident = $this->makeIncident();
+        $channel = $this->teamsChannel($incident, 'https://example.com/webhookb2/abc?sig=super-secret-sas');
+
+        $masked = (new NotificationChannelResource($channel))->toArray(HttpRequest::create('/'));
+
+        $this->assertTrue($masked['credentials']['has_url']);
+        $this->assertSame('example.com', $masked['credentials']['url_host']);
+        $this->assertArrayNotHasKey('url', $masked['credentials']);
+        $this->assertStringNotContainsString(
+            'super-secret-sas',
+            json_encode($masked, JSON_THROW_ON_ERROR),
         );
     }
 
@@ -153,6 +326,32 @@ class ChannelDeliveryTest extends TestCase
             'credentials' => [
                 'url' => $url,
                 'secret' => $secret,
+            ],
+        ]);
+    }
+
+    /**
+     * Persist a PagerDuty channel on the incident's team with an explicit key.
+     */
+    private function pagerDutyChannel(Incident $incident, ?string $routingKey): NotificationChannel
+    {
+        return NotificationChannel::factory()->pagerduty()->create([
+            'team_id' => $incident->team_id,
+            'credentials' => [
+                'routing_key' => $routingKey,
+            ],
+        ]);
+    }
+
+    /**
+     * Persist a Teams channel on the incident's team with an explicit url.
+     */
+    private function teamsChannel(Incident $incident, string $url): NotificationChannel
+    {
+        return NotificationChannel::factory()->teams()->create([
+            'team_id' => $incident->team_id,
+            'credentials' => [
+                'url' => $url,
             ],
         ]);
     }

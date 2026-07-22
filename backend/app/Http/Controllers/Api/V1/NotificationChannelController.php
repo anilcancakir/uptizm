@@ -8,7 +8,9 @@ use App\Http\Requests\StoreNotificationChannelRequest;
 use App\Http\Requests\UpdateNotificationChannelRequest;
 use App\Http\Resources\NotificationChannelResource;
 use App\Models\NotificationChannel;
+use App\Notifications\Channels\PagerDutyChannel;
 use App\Notifications\Channels\SlackChannel;
+use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\JsonResponse;
@@ -161,6 +163,8 @@ class NotificationChannelController extends Controller
                 return match ($notifiable->channel_type) {
                     NotificationChannelType::Slack => [SlackChannel::class],
                     NotificationChannelType::Webhook => [WebhookChannel::class],
+                    NotificationChannelType::PagerDuty => [PagerDutyChannel::class],
+                    NotificationChannelType::Teams => [TeamsChannel::class],
                 };
             }
 
@@ -182,6 +186,42 @@ class NotificationChannelController extends Controller
                 return [
                     'event' => 'test',
                     'message' => 'Uptizm test notification: this channel is connected.',
+                ];
+            }
+
+            /**
+             * @return array<string, mixed>
+             */
+            public function toPagerDuty(object $notifiable): array
+            {
+                return [
+                    'event_action' => 'trigger',
+                    'dedup_key' => 'uptizm-test-'.$notifiable->id,
+                    'payload' => [
+                        'summary' => 'Uptizm test notification: this channel is connected.',
+                        'source' => 'uptizm',
+                        'severity' => 'info',
+                    ],
+                ];
+            }
+
+            /**
+             * @return array<string, mixed>
+             */
+            public function toTeams(object $notifiable): array
+            {
+                return [
+                    '$schema' => 'http://adaptivecards.io/schemas/adaptive-card.json',
+                    'type' => 'AdaptiveCard',
+                    'version' => '1.2',
+                    'body' => [
+                        [
+                            'type' => 'TextBlock',
+                            'text' => 'Uptizm test notification: this channel is connected.',
+                            'wrap' => true,
+                        ],
+                    ],
+                    'actions' => [],
                 ];
             }
         };
