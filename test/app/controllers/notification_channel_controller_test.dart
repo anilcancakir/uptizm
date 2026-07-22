@@ -107,6 +107,55 @@ void main() {
     );
 
     test(
+      'decodes pagerduty and teams rows with the correct masked shape',
+      () async {
+        Http.fake({
+          'notification-channels': Http.response({
+            'data': [
+              {
+                'id': 'nc3',
+                'team_id': 't1',
+                'name': 'PagerDuty',
+                'channel_type': 'pagerduty',
+                'is_enabled': true,
+                'severity': 'critical',
+                'credentials': {'has_routing_key': true},
+              },
+              {
+                'id': 'nc4',
+                'team_id': 't1',
+                'name': 'Microsoft Teams',
+                'channel_type': 'teams',
+                'is_enabled': true,
+                'severity': 'all',
+                'credentials': {
+                  'has_url': true,
+                  'url_host': 'acme.webhook.office.com',
+                },
+              },
+            ],
+          }),
+        });
+        final NotificationChannelController controller =
+            NotificationChannelController.instance;
+
+        await controller.reload();
+
+        expect(controller.channels, hasLength(2));
+        final pagerduty = controller.channelOfType(ChannelType.pagerduty)!;
+        expect(pagerduty.id, equals('nc3'));
+        expect(pagerduty.hasCredentials, isTrue);
+        // PagerDuty exposes only a presence boolean, never a display hint.
+        expect(pagerduty.detail, isNull);
+
+        final teams = controller.channelOfType(ChannelType.teams)!;
+        expect(teams.id, equals('nc4'));
+        expect(teams.hasCredentials, isTrue);
+        expect(teams.detail, equals('acme.webhook.office.com'));
+      },
+    );
+
+    test(
       'reload degrades to the last-known-good roster when the network is '
       'unavailable',
       () async {

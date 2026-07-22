@@ -5,12 +5,17 @@ import '../enums/channel_type.dart' show ChannelType;
 
 /// Resolves the wire `channel_type` string into a [ChannelType].
 ///
-/// Only `slack` and `webhook` are backend-registered channel types (email/SMS
-/// are per-user preferences at `/settings/notifications`, Microsoft Teams is
-/// phase 2); an unrecognized wire value falls back to [ChannelType.slack]
-/// rather than throwing out of a decode path.
+/// The backend-registered channel types are `slack`, `webhook`, `pagerduty`,
+/// and `teams` (email/SMS are per-user preferences at
+/// `/settings/notifications`). Each known value gets its own arm so a new
+/// backend type never silently decodes as the wrong channel; an unrecognized
+/// wire value falls back to [ChannelType.slack] rather than throwing out of a
+/// decode path.
 ChannelType _typeFromWire(String? wire) => switch (wire) {
+  'slack' => ChannelType.slack,
   'webhook' => ChannelType.webhook,
+  'pagerduty' => ChannelType.pagerduty,
+  'teams' => ChannelType.teams,
   _ => ChannelType.slack,
 };
 
@@ -40,13 +45,13 @@ class NotificationChannelRecord {
   final String severity;
 
   /// Whether the channel already has its required credential on file
-  /// (Slack: a bot token; webhook: an endpoint URL), derived from the masked
-  /// `credentials` presence booleans.
+  /// (Slack: a bot token; webhook/Teams: an endpoint URL; PagerDuty: a routing
+  /// key), derived from the masked `credentials` presence booleans.
   final bool hasCredentials;
 
   /// A non-secret hint of what the channel is pointed at (the Slack channel
-  /// name, or the webhook's URL host), or `null` when [hasCredentials] is
-  /// false or the backend omitted the hint.
+  /// name, or the webhook/Teams URL host; PagerDuty carries none), or `null`
+  /// when [hasCredentials] is false or the backend omitted the hint.
   final String? detail;
 
   /// Creates a [NotificationChannelRecord].
@@ -75,12 +80,19 @@ class NotificationChannelRecord {
       name: (map['name'] as String?) ?? '',
       isEnabled: (map['is_enabled'] as bool?) ?? true,
       severity: (map['severity'] as String?) ?? 'all',
-      hasCredentials: type == ChannelType.slack
-          ? credentials['has_token'] == true
-          : credentials['has_url'] == true,
-      detail: type == ChannelType.slack
-          ? credentials['channel'] as String?
-          : credentials['url_host'] as String?,
+      hasCredentials: switch (type) {
+        ChannelType.slack => credentials['has_token'] == true,
+        ChannelType.webhook => credentials['has_url'] == true,
+        ChannelType.pagerduty => credentials['has_routing_key'] == true,
+        ChannelType.teams => credentials['has_url'] == true,
+      },
+      detail: switch (type) {
+        ChannelType.slack => credentials['channel'] as String?,
+        ChannelType.webhook => credentials['url_host'] as String?,
+        // PagerDuty exposes only a presence boolean, never a display hint.
+        ChannelType.pagerduty => null,
+        ChannelType.teams => credentials['url_host'] as String?,
+      },
     );
   }
 }
