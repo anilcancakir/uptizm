@@ -224,19 +224,17 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   Widget _buildPushHint() {
     return WDiv(
       className:
-          'flex flex-row items-center gap-2 rounded-lg px-4 py-3 '
-          'bg-info-soft dark:bg-info-soft',
+          'flex flex-row items-center gap-2 rounded-lg px-4 py-3 bg-info-soft',
       children: [
         WIcon(
           Icons.info_outline,
-          className: 'text-[18px] text-info dark:text-info',
+          className: 'text-[18px] text-info',
         ),
         WText(
           // The channels lang namespace has no push-hint copy and the lang
           // assets are out of this step's file scope; see `### Deviations`.
           'Push not yet configured',
-          className:
-              'text-sm text-info-soft-foreground dark:text-info-soft-foreground',
+          className: 'text-sm text-info-soft-foreground',
         ),
       ],
     );
@@ -252,7 +250,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
 
     return WDiv(
       className: hasDivider
-          ? 'flex flex-col border-b border-color-border dark:border-color-border'
+          ? 'flex flex-col border-b border-color-border'
           : 'flex flex-col',
       children: [
         _buildRow(type, record),
@@ -284,14 +282,14 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     return WDiv(
       className: enabled
           ? 'size-9 shrink-0 rounded-lg flex items-center justify-center '
-                'bg-ai-soft dark:bg-ai-soft'
+                'bg-ai-soft'
           : 'size-9 shrink-0 rounded-lg flex items-center justify-center '
-                'bg-surface-container-high dark:bg-surface-container-high',
+                'bg-surface-container-high',
       child: WIcon(
         _iconFor(type),
         className: enabled
-            ? 'text-[18px] text-ai dark:text-ai'
-            : 'text-[18px] text-fg-muted dark:text-fg-muted',
+            ? 'text-[18px] text-ai'
+            : 'text-[18px] text-fg-muted',
       ),
     );
   }
@@ -308,20 +306,19 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           children: [
             WText(
               type.label,
-              className: 'text-sm font-medium text-fg dark:text-fg',
+              className: 'text-sm font-medium text-fg',
             ),
             if (record != null) MSBadge(_severityLabel(record.severity)),
           ],
         ),
         WText(
           _descriptionFor(type),
-          className: 'text-xs text-fg-muted dark:text-fg-muted',
+          className: 'text-xs text-fg-muted',
         ),
         if (record != null && (record.detail ?? '').isNotEmpty)
           WText(
             record.detail!,
-            className:
-                'truncate font-mono text-xs text-fg-muted dark:text-fg-muted',
+            className: 'truncate font-mono text-xs text-fg-muted',
           ),
       ],
     );
@@ -377,8 +374,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   ) {
     return WDiv(
       className:
-          'flex flex-col gap-4 border-t border-color-border '
-          'dark:border-color-border px-5 py-4',
+          'flex flex-col gap-4 border-t border-color-border px-5 py-4',
       children: [
         ..._buildTypeFields(type, draft),
         _buildSeverityField(type, record, draft),
@@ -401,7 +397,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           error: draft.tokenError,
           child: MSInput(
             value: draft.token,
-            onChanged: (value) => setState(() {
+            onChanged: (String value) => setState(() {
               draft.token = value;
               draft.tokenError = null;
             }),
@@ -413,7 +409,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           label: trans('uptizm.teams.channels_slack_channel_label'),
           child: MSInput(
             value: draft.channel,
-            onChanged: (value) => setState(() => draft.channel = value),
+            onChanged: (String value) => setState(() => draft.channel = value),
             placeholder: trans('uptizm.teams.channels_slack_channel_placeholder'),
           ),
         ),
@@ -424,7 +420,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           error: draft.urlError,
           child: MSInput(
             value: draft.url,
-            onChanged: (value) => setState(() {
+            onChanged: (String value) => setState(() {
               draft.url = value;
               draft.urlError = null;
             }),
@@ -436,7 +432,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           hint: trans('uptizm.teams.channels_webhook_secret_hint'),
           child: MSInput(
             value: draft.secret,
-            onChanged: (value) => setState(() => draft.secret = value),
+            onChanged: (String value) => setState(() => draft.secret = value),
             type: InputType.password,
           ),
         ),
@@ -447,7 +443,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           error: draft.routingKeyError,
           child: MSInput(
             value: draft.routingKey,
-            onChanged: (value) => setState(() {
+            onChanged: (String value) => setState(() {
               draft.routingKey = value;
               draft.routingKeyError = null;
             }),
@@ -462,7 +458,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           error: draft.urlError,
           child: MSInput(
             value: draft.url,
-            onChanged: (value) => setState(() {
+            onChanged: (String value) => setState(() {
               draft.url = value;
               draft.urlError = null;
             }),
