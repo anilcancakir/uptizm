@@ -205,7 +205,8 @@
     "no_preferences": "Kullanılabilir bildirim tercihi yok.",
     "channel_email": "E-posta",
     "channel_in_app": "Uygulama İçi",
-    "channel_push": "Anlık Bildirim"
+    "channel_push": "Anlık Bildirim",
+    "channel_push_unconfigured": "Anlık bildirim henüz yapılandırılmadı"
   },
   "profile": {
     "browser_sessions": "Tarayıcı Oturumları",
