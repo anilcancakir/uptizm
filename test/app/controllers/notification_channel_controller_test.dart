@@ -168,6 +168,76 @@ void main() {
         expect(controller.channels, isEmpty);
       },
     );
+
+    test('pushProvisioned is optimistically true before any reload', () {
+      final NotificationChannelController controller =
+          NotificationChannelController.instance;
+
+      expect(controller.pushProvisioned, isTrue);
+    });
+
+    test(
+      'reload publishes meta.push_provisioned off the same index request',
+      () async {
+        final FakeNetworkDriver fake = Http.fake({
+          'notification-channels': Http.response({
+            'data': <dynamic>[],
+            'meta': {'push_provisioned': false},
+          }),
+        });
+        final NotificationChannelController controller =
+            NotificationChannelController.instance;
+
+        await controller.reload();
+
+        expect(controller.pushProvisioned, isFalse);
+        // The roster and the push flag ride ONE index request; no view may
+        // fetch the flag a second time.
+        fake.assertSentCount(1);
+      },
+    );
+
+    test(
+      'reload keeps the last known push flag when the payload carries no meta',
+      () async {
+        Http.fake({
+          'notification-channels': Http.response({
+            'data': <dynamic>[],
+            'meta': {'push_provisioned': false},
+          }),
+        });
+        final NotificationChannelController controller =
+            NotificationChannelController.instance;
+        await controller.reload();
+        expect(controller.pushProvisioned, isFalse);
+
+        // A payload without `meta` is a degradation, not a claim that push
+        // became provisioned; the last known value has to survive it.
+        Http.fake({
+          'notification-channels': Http.response({'data': <dynamic>[]}),
+        });
+        await controller.reload();
+
+        expect(controller.pushProvisioned, isFalse);
+      },
+    );
+
+    test('reload notifies listeners once the index response lands', () async {
+      Http.fake({
+        'notification-channels': Http.response({
+          'data': <dynamic>[],
+          'meta': {'push_provisioned': false},
+        }),
+      });
+      final NotificationChannelController controller =
+          NotificationChannelController.instance;
+      int notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.reload();
+
+      expect(notifications, equals(1));
+    });
   });
 
   // ---------------------------------------------------------------------------

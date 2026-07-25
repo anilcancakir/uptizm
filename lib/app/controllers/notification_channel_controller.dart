@@ -105,6 +105,9 @@ class NotificationChannelRecord {
 /// resource): [reload] fetches the roster through `GET /notification-channels`
 /// and caches it in [_channels], degrading to the last-known-good cache on any
 /// failure; [channels]/[channelOfType] answer synchronously from that cache.
+/// That same index response also carries `meta.push_provisioned`, published as
+/// [pushProvisioned], so a view surfaces the honest push heads-up off this one
+/// request instead of fetching the flag itself.
 /// [create]/[update] return the backend per-field validation errors (single
 /// message per field, keyed by the wire field name, e.g. `credentials.token`)
 /// so the view can render a server 422 inline, reading them from
@@ -125,6 +128,22 @@ class NotificationChannelController extends MagicController {
   /// The team's notification channels, sourced from `GET
   /// /notification-channels` via [reload].
   List<NotificationChannelRecord> get channels => _channels;
+
+  /// Whether the backend reports its push integration as provisioned, read
+  /// from the index's `meta.push_provisioned`. Optimistically `true` until the
+  /// first index response resolves.
+  bool _pushProvisioned = true;
+
+  /// Whether the backend has its OneSignal `app_id` configured, per the last
+  /// index response that actually carried `meta.push_provisioned`.
+  ///
+  /// `true` while the first fetch is still in flight and after any response
+  /// that omitted the flag, so a consumer only ever renders the
+  /// "push not configured" heads-up on a CONFIRMED `false`, never on a
+  /// degraded payload. Push delivery itself is a per-user preference
+  /// (`/settings/notifications`); this flag only says whether that channel can
+  /// deliver at all.
+  bool get pushProvisioned => _pushProvisioned;
 
   /// Resolves the cached channel of [type], or `null` when the team has not
   /// configured one yet.
@@ -151,10 +170,13 @@ class NotificationChannelController extends MagicController {
     reload();
   }
 
-  /// Non-destructive roster refresh: fetches `GET /notification-channels` and
-  /// republishes the roster on success. Preserves the previously loaded
-  /// roster on any failure (network error, non-2xx, or a malformed payload)
-  /// so the view never flickers into an empty state between reloads.
+  /// Non-destructive refresh of both the roster and the push-provisioning
+  /// flag: fetches `GET /notification-channels` once and republishes whatever
+  /// that single response actually carried (`data` for the roster,
+  /// `meta.push_provisioned` for [pushProvisioned]). Preserves the previously
+  /// loaded value of each on any failure (network error, non-2xx, or a
+  /// malformed payload) so the view never flickers into an empty state, nor
+  /// into a false "push not configured" claim, between reloads.
   Future<void> reload() async {
     try {
       final response = await Http.get('/notification-channels');
@@ -165,15 +187,28 @@ class NotificationChannelController extends MagicController {
         return;
       }
 
-      final Object? raw = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (raw is! List) return;
+      final Map<String, dynamic> body = response.data is Map<String, dynamic>
+          ? response.data as Map<String, dynamic>
+          : const {};
 
-      _channels = raw
-          .whereType<Map<String, dynamic>>()
-          .map(NotificationChannelRecord.fromMap)
-          .toList();
+      // 1. Republish the push-provisioning flag, but only when the payload
+      // truly carries it: a missing or malformed `meta` is a degradation, not
+      // a statement that push is unconfigured.
+      final Object? meta = body['meta'];
+      if (meta is Map<String, dynamic> && meta['push_provisioned'] is bool) {
+        _pushProvisioned = meta['push_provisioned'] as bool;
+      }
+
+      // 2. Republish the roster, keeping the last-known-good one when `data`
+      // is absent or not a list.
+      final Object? raw = body['data'];
+      if (raw is List) {
+        _channels = raw
+            .whereType<Map<String, dynamic>>()
+            .map(NotificationChannelRecord.fromMap)
+            .toList();
+      }
+
       refreshUI();
     } catch (error) {
       Log.error('[NotificationChannelController.reload] failed: $error');
