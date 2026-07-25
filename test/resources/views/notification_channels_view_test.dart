@@ -11,6 +11,11 @@ import 'package:uptizm/resources/views/teams/notification_channels_view.dart';
 /// [NotificationChannelsView] exercises. Scoped to this test file so it does
 /// not have to reuse or extend the shared `teams_views_test.dart` loader
 /// (which still backs the now-obsolete mock-view assertions elsewhere).
+///
+/// Every value below is the VERBATIM `assets/lang/en.json` copy, not a
+/// shortened stand-in: the phone-width group measures real layout pressure, so
+/// a paraphrased (shorter) string would silently weaken that gate the same way
+/// a missing loader would exaggerate it by rendering raw i18n keys.
 class _NotificationChannelsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
@@ -23,14 +28,23 @@ class _NotificationChannelsLangLoader implements TranslationLoader {
       'uptizm.enums.channel_type.pagerduty': 'PagerDuty',
       'uptizm.enums.channel_type.teams': 'Microsoft Teams',
       'uptizm.teams.channels_title': 'Notification channels',
-      'uptizm.teams.channels_description': 'Team-level integrations.',
-      'uptizm.teams.channels_slack_desc': 'Post alerts to Slack.',
-      'uptizm.teams.channels_webhook_desc': 'POST alerts to an endpoint.',
-      'uptizm.teams.channels_pagerduty_desc': 'Trigger PagerDuty incidents.',
+      'uptizm.teams.channels_description':
+          'Team-level integrations your alerts route to. Per-device delivery '
+          '(in-app, web push) is in your account notifications; which monitors '
+          'alert is set per monitor.',
+      'uptizm.teams.channels_slack_desc': 'Post alerts to a Slack channel.',
+      'uptizm.teams.channels_webhook_desc':
+          'POST alerts to your own HTTP endpoint.',
+      'uptizm.teams.channels_pagerduty_desc':
+          'Trigger and resolve PagerDuty incidents.',
       'uptizm.teams.channels_pagerduty_routing_key_label': 'Routing key',
-      'uptizm.teams.channels_teams_desc': 'Post alerts to a Teams channel.',
+      'uptizm.teams.channels_teams_desc':
+          'Post alerts to a Microsoft Teams channel.',
       'uptizm.teams.channels_teams_webhook_label': 'Incoming webhook URL',
-      'uptizm.teams.channels_teams_webhook_hint': 'Paste your Workflows URL.',
+      'uptizm.teams.channels_teams_webhook_hint':
+          'Create a Workflows incoming webhook in Teams and paste its URL.',
+      'uptizm.teams.channels_teams_webhook_placeholder':
+          'https://prod-00.westus.logic.azure.com/workflows/...',
       'uptizm.teams.channels_severity_critical': 'Critical only',
       'uptizm.teams.channels_severity_all': 'All alerts',
       'uptizm.teams.channels_connect_button': 'Connect',
@@ -40,9 +54,14 @@ class _NotificationChannelsLangLoader implements TranslationLoader {
       'uptizm.teams.channels_slack_channel_placeholder': '#incidents',
       'uptizm.teams.channels_webhook_url_label': 'Endpoint URL',
       'uptizm.teams.channels_webhook_secret_label': 'Signing secret',
-      'uptizm.teams.channels_webhook_secret_hint': 'Sent as a header.',
+      'uptizm.teams.channels_webhook_secret_hint':
+          'Sent as the X-Uptizm-Signature header.',
       'uptizm.teams.channels_severity_label': 'Deliver',
-      'uptizm.teams.channels_severity_hint': 'Which alerts this channel gets.',
+      'uptizm.teams.channels_severity_hint':
+          'Which alerts this channel receives.',
+      'uptizm.teams.channels_slack_token_label': 'Bot token',
+      'uptizm.teams.channels_slack_token_placeholder': 'xoxb-...',
+      'uptizm.teams.channels_webhook_url_placeholder': 'https://...',
     };
   }
 }
@@ -267,4 +286,103 @@ void main() {
       expect(find.text('Send test'), findsOneWidget);
     },
   );
+
+  /// The phone-width regression gate: this view used to blow past a 390px
+  /// viewport, which no desktop-sized test could catch. Two flexes overflowed
+  /// (the push heads-up row, and the severity segmented control inside the
+  /// inline config form) because neither had a shrinkable child, so every case
+  /// below pumps at the narrowest supported phone width and asserts on the
+  /// absence of a `RenderFlex overflowed` layout exception.
+  group('at a 390px phone width', () {
+    const Size phone = Size(390, 1600);
+
+    /// Pumps the view at [phone] with the index request stubbed to report
+    /// [pushProvisioned] and hydrate [channels], so both the heads-up above the
+    /// card and the connected/unconnected row shape are deterministic.
+    Future<void> pumpAtPhoneWidth(
+      WidgetTester tester, {
+      required bool pushProvisioned,
+      List<Map<String, dynamic>> channels = const [],
+    }) async {
+      await tester.binding.setSurfaceSize(phone);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Http.fake().stub(
+        '/notification-channels',
+        MagicResponse(
+          data: <String, dynamic>{
+            'data': channels,
+            'meta': <String, dynamic>{'push_provisioned': pushProvisioned},
+          },
+          statusCode: 200,
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrap(const NotificationChannelsView(), size: phone),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('renders every channel row without overflow, hint visible', (
+      tester,
+    ) async {
+      await pumpAtPhoneWidth(tester, pushProvisioned: false);
+
+      expect(find.text('Push not yet configured'), findsOneWidget);
+      expect(find.text('Microsoft Teams'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('renders every channel row without overflow, hint hidden', (
+      tester,
+    ) async {
+      await pumpAtPhoneWidth(tester, pushProvisioned: true);
+
+      expect(find.text('Push not yet configured'), findsNothing);
+      expect(find.text('Microsoft Teams'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'renders a connected row with a long detail line without overflow',
+      (tester) async {
+        await pumpAtPhoneWidth(
+          tester,
+          pushProvisioned: true,
+          channels: [
+            <String, dynamic>{
+              'id': 'nc1',
+              'channel_type': 'teams',
+              'name': 'Microsoft Teams',
+              'is_enabled': true,
+              'severity': 'critical',
+              'credentials': <String, dynamic>{
+                'has_url': true,
+                'url_host':
+                    'prod-00.westus.logic.azure.com/workflows/'
+                    '4f2c9a1b8d3e4f5a6b7c8d9e0f1a2b3c/triggers/manual/invoke',
+              },
+            },
+          ],
+        );
+
+        expect(find.text('Critical only'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('renders the inline config form without overflow', (
+      tester,
+    ) async {
+      await pumpAtPhoneWidth(tester, pushProvisioned: true);
+
+      await tester.tap(find.text('Connect').first);
+      await tester.pump();
+
+      expect(find.text('Bot token'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
 }
