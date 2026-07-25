@@ -213,6 +213,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// Builds the subtle info hint shown when OneSignal push is not provisioned
   /// (empty `app_id`). Uses the monitoring `info` status family tokens for a
   /// calm, non-alarming heads-up.
+  ///
+  /// The icon keeps its intrinsic size (`shrink-0`) while the copy is the only
+  /// shrinkable child (`flex-1 min-w-0`), so on a phone the sentence wraps
+  /// instead of pushing the row past the viewport. Without the flex pair the
+  /// text is measured at its natural single-line width and a locale with
+  /// longer copy (or a narrower device) overflows the row.
   Widget _buildPushHint() {
     return WDiv(
       className:
@@ -220,13 +226,13 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       children: [
         WIcon(
           Icons.info_outline,
-          className: 'text-[18px] text-info',
+          className: 'shrink-0 text-[18px] text-info',
         ),
         WText(
           // Shared with magic_starter's notification-preferences view, which
           // surfaces the same heads-up under its push channel row.
           trans('notifications.channel_push_unconfigured'),
-          className: 'text-sm text-info-soft-foreground',
+          className: 'flex-1 min-w-0 text-sm text-info-soft-foreground',
         ),
       ],
     );
@@ -382,10 +388,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     return switch (type) {
       ChannelType.slack => [
         MSFormField(
-          // The channels namespace has no dedicated Slack-token label string
-          // and the lang assets are out of this step's file scope; see
-          // `### Deviations`.
-          label: 'Bot token',
+          label: trans('uptizm.teams.channels_slack_token_label'),
           error: draft.tokenError,
           child: MSInput(
             value: draft.token,
@@ -394,7 +397,8 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
               draft.tokenError = null;
             }),
             type: InputType.password,
-            placeholder: 'xoxb-...',
+            // The Slack token prefix itself, identical in every locale.
+            placeholder: trans('uptizm.teams.channels_slack_token_placeholder'),
           ),
         ),
         MSFormField(
@@ -416,7 +420,8 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
               draft.url = value;
               draft.urlError = null;
             }),
-            placeholder: 'https://...',
+            // A bare URL scheme, identical in every locale.
+            placeholder: trans('uptizm.teams.channels_webhook_url_placeholder'),
           ),
         ),
         MSFormField(
@@ -478,6 +483,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       hint: trans('uptizm.teams.channels_severity_hint'),
       child: MSSegmentedControl(
         size: SegmentedControlSize.sm,
+        // The two option labels are the row's only content and no segment may
+        // shrink, so on a phone (or in a locale with longer copy) the pair
+        // cannot always fit one line. `wrap` lets the second segment fall to a
+        // second run instead of overflowing; it never triggers while the pair
+        // fits, so the desktop rendering is unchanged.
+        classNames: const {'root': 'wrap'},
         options: [
           trans('uptizm.teams.channels_severity_all'),
           trans('uptizm.teams.channels_severity_critical'),
@@ -559,7 +570,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     return switch (type) {
       ChannelType.slack => _requireCredential(
         draft.token,
-        'Bot token',
+        trans('uptizm.teams.channels_slack_token_label'),
         (String? error) => setState(() => draft.tokenError = error),
       ),
       ChannelType.webhook => _requireCredential(
