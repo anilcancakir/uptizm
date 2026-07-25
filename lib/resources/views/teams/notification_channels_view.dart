@@ -18,10 +18,13 @@ import '../../../ui/layouts/page_container.dart';
 /// once connected or a "Connect" [MSButton] otherwise.
 ///
 /// Live-wired against S9's `api/v1/notification-channels/*` endpoints through
-/// [NotificationChannelController]: the widget wraps the card in a
+/// [NotificationChannelController]: the widget wraps the body in a
 /// [ListenableBuilder] on the controller singleton, so a create/update/delete
 /// write's internal reload rebuilds the roster directly, with no local mirror
-/// state. Tapping a row expands an inline config form (type-conditional
+/// state. The push-not-provisioned heads-up above the card reads the same
+/// controller's [NotificationChannelController.pushProvisioned], hydrated by
+/// the very index request that loads the roster; this view issues no HTTP call
+/// of its own. Tapping a row expands an inline config form (type-conditional
 /// credential fields, resolved by a switch on [ChannelType]) plus a severity
 /// [MSSegmentedControl] and Save/Send-test actions; enabling/disabling and
 /// changing severity on an already-connected channel fire immediately
@@ -108,46 +111,18 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     for (final ChannelType type in _types) type: _ChannelDraft(),
   };
 
-  /// Whether the backend reports the OneSignal push integration as provisioned
-  /// (a non-empty `app_id`), read from the notification-channels index
-  /// `meta.push_provisioned`. Starts optimistically `true` so the
-  /// not-configured hint never flashes before the status resolves; flipped by
-  /// [_loadPushStatus].
-  bool _pushProvisioned = true;
-
   @override
   void initState() {
     super.initState();
-    // Warms the controller's roster cache so the first build already reflects
-    // any already-configured channel, without blocking this build.
-    NotificationChannelController.instance;
-    _loadPushStatus();
-  }
-
-  /// Reads the `meta.push_provisioned` flag off the notification-channels index
-  /// so the view can show an honest "push not yet configured" heads-up when the
-  /// backend has no OneSignal `app_id`. Push is a per-user preference at
-  /// `/settings/notifications`, so this team-level screen only surfaces the
-  /// heads-up, never a toggle. Degrades to the optimistic default (hint hidden)
-  /// on any failure rather than crying wolf; the failure is logged, not
-  /// swallowed.
-  Future<void> _loadPushStatus() async {
-    try {
-      final MagicResponse response = await Http.get('/notification-channels');
-      if (!response.successful || response.data is! Map<String, dynamic>) {
-        return;
-      }
-
-      final Object? meta = (response.data as Map<String, dynamic>)['meta'];
-      if (meta is! Map<String, dynamic>) return;
-
-      final bool provisioned = meta['push_provisioned'] == true;
-      if (!mounted || provisioned == _pushProvisioned) return;
-
-      setState(() => _pushProvisioned = provisioned);
-    } catch (error) {
-      Log.error('[NotificationChannelsView._loadPushStatus] failed: $error');
-    }
+    // Fires the controller's single index fetch, which hydrates BOTH the
+    // roster and the push-provisioning flag this screen renders. The
+    // controller is never a MagicView's backing controller (this is a plain
+    // StatefulWidget consulting it through a ListenableBuilder), so magic's
+    // `onInit` hook never runs for it and the load is triggered here instead
+    // (the precedent `MonitorMetricsController` sets in
+    // `monitor_metrics_tab.dart`). Not awaited: the first build renders the
+    // last-known-good cache and the ListenableBuilder picks up the response.
+    NotificationChannelController.instance.reload();
   }
 
   /// Resolves the leading icon for [type].
@@ -184,22 +159,39 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           ),
           const SizedBox(height: 24),
 
-          // 2. Push-not-provisioned heads-up: rendered only when the backend
-          // reports no OneSignal app_id, so a team lead knows the per-user push
-          // channel cannot deliver yet.
-          if (!_pushProvisioned) ...[
-            _buildPushHint(),
-            const SizedBox(height: 16),
-          ],
-
-          // 3. One full-bleed card with a divided row per channel type,
-          // rebuilding whenever the controller's roster changes.
+          // 2. The push heads-up and the channels card both read controller
+          // state hydrated by one index response, so a single
+          // ListenableBuilder rebuilds them together.
           ListenableBuilder(
             listenable: NotificationChannelController.instance,
-            builder: (context, _) => _buildChannelsCard(),
+            builder: (context, _) => _buildBody(),
           ),
         ],
       ),
+    );
+  }
+
+  /// Builds the controller-backed body: the push-not-provisioned heads-up
+  /// above the channels card.
+  ///
+  /// The heads-up renders only while the backend reports no OneSignal
+  /// `app_id` ([NotificationChannelController.pushProvisioned] `false`), so a
+  /// team lead knows the per-user push channel cannot deliver yet. Push stays
+  /// a per-user preference at `/settings/notifications`; this team-level
+  /// screen only surfaces the heads-up, never a toggle.
+  Widget _buildBody() {
+    final NotificationChannelController controller =
+        NotificationChannelController.instance;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!controller.pushProvisioned) ...[
+          _buildPushHint(),
+          const SizedBox(height: 16),
+        ],
+        _buildChannelsCard(),
+      ],
     );
   }
 
@@ -231,9 +223,9 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           className: 'text-[18px] text-info',
         ),
         WText(
-          // The channels lang namespace has no push-hint copy and the lang
-          // assets are out of this step's file scope; see `### Deviations`.
-          'Push not yet configured',
+          // Shared with magic_starter's notification-preferences view, which
+          // surfaces the same heads-up under its push channel row.
+          trans('notifications.channel_push_unconfigured'),
           className: 'text-sm text-info-soft-foreground',
         ),
       ],

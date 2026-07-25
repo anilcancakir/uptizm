@@ -17,6 +17,7 @@ class _NotificationChannelsLangLoader implements TranslationLoader {
     return {
       'validation.required': 'The :attribute field is required.',
       'common.error_occurred': 'An unexpected error occurred.',
+      'notifications.channel_push_unconfigured': 'Push not yet configured',
       'uptizm.enums.channel_type.slack': 'Slack',
       'uptizm.enums.channel_type.webhook': 'Webhook',
       'uptizm.enums.channel_type.pagerduty': 'PagerDuty',
@@ -174,12 +175,13 @@ void main() {
   );
 
   testWidgets(
-    'shows the push-not-provisioned hint when the backend reports app_id empty',
+    'shows the localized push-not-provisioned hint when the backend reports '
+    'app_id empty, off the controller index request alone',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      Http.fake().stub(
+      final FakeNetworkDriver fake = Http.fake().stub(
         '/notification-channels',
         MagicResponse(
           data: <String, dynamic>{
@@ -195,6 +197,13 @@ void main() {
       await tester.pump();
 
       expect(find.text('Push not yet configured'), findsOneWidget);
+      expect(
+        NotificationChannelController.instance.pushProvisioned,
+        isFalse,
+      );
+      // The view reads the flag off the controller; it must never fetch the
+      // index a second time of its own.
+      fake.assertSentCount(1);
     },
   );
 
@@ -220,6 +229,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Push not yet configured'), findsNothing);
+      expect(NotificationChannelController.instance.pushProvisioned, isTrue);
     },
   );
 
