@@ -45,6 +45,19 @@ class DashboardController extends Controller
             ->groupBy('last_status')
             ->pluck('total', 'last_status');
 
+        // A monitor awaiting its first check has a null last_status, so it lands
+        // in NONE of the four status buckets. Count it explicitly and report a
+        // real total: a client deriving "how many monitors do I have" from the
+        // bucket sum read a brand-new team as having zero and offered to add
+        // their first endpoint after they had already added several.
+        $monitorCounts = Monitor::query()
+            ->where('team_id', $teamId)
+            ->selectRaw('count(*) as total, count(last_status) as with_status')
+            ->first();
+
+        $monitorsTotal = (int) ($monitorCounts->total ?? 0);
+        $monitorsPending = $monitorsTotal - (int) ($monitorCounts->with_status ?? 0);
+
         $avgResponseMs = Monitor::query()
             ->where('team_id', $teamId)
             ->whereNotNull('last_response_ms')
@@ -72,6 +85,8 @@ class DashboardController extends Controller
                 'monitors_down' => (int) ($statusCounts[MonitorStatus::Down->value] ?? 0),
                 'monitors_degraded' => (int) ($statusCounts[MonitorStatus::Degraded->value] ?? 0),
                 'monitors_paused' => (int) ($statusCounts[MonitorStatus::Paused->value] ?? 0),
+                'monitors_pending' => $monitorsPending,
+                'monitors_total' => $monitorsTotal,
                 'avg_response_ms' => $avgResponseMs !== null ? (int) round($avgResponseMs) : null,
                 'open_incidents' => $openIncidents,
                 'uptime_24h' => $uptime24h,

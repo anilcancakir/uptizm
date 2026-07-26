@@ -59,8 +59,30 @@ class DashboardControllerTest extends TestCase
         $this->assertSame(1, $data['monitors_down']);
         $this->assertSame(1, $data['monitors_degraded']);
         $this->assertSame(0, $data['monitors_paused']);
+        $this->assertSame(0, $data['monitors_pending']);
+        $this->assertSame(4, $data['monitors_total']);
         $this->assertSame(200, $data['avg_response_ms']);
         $this->assertSame(1, $data['open_incidents']);
+    }
+
+    public function test_stats_counts_a_monitor_awaiting_its_first_check(): void
+    {
+        $team = $this->makeTeam();
+
+        // A monitor created moments ago has no last_status, so it lands in none
+        // of the four status buckets. Without its own count plus a real total, a
+        // client summing those buckets reads this team as having zero monitors.
+        $this->makeMonitor($team, MonitorStatus::Up, responseMs: 120);
+        $this->makePendingMonitor($team);
+        $this->makePendingMonitor($team);
+
+        $response = (new DashboardController)->stats($this->requestFor($team));
+        $data = $response->getData(true)['data'];
+
+        $this->assertSame(1, $data['monitors_up']);
+        $this->assertSame(0, $data['monitors_down']);
+        $this->assertSame(2, $data['monitors_pending']);
+        $this->assertSame(3, $data['monitors_total']);
     }
 
     public function test_stats_never_leaks_another_teams_monitors(): void
@@ -235,6 +257,20 @@ class DashboardControllerTest extends TestCase
             'check_interval_sec' => 60,
             'last_status' => $lastStatus,
             'last_response_ms' => $responseMs,
+        ]);
+    }
+
+    /**
+     * A monitor that has never been checked: no last_status, no timing.
+     */
+    protected function makePendingMonitor(Team $team): Monitor
+    {
+        return Monitor::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Pending '.Str::random(6),
+            'type' => MonitorType::Http,
+            'url' => 'https://example.com/health',
+            'check_interval_sec' => 60,
         ]);
     }
 
