@@ -15,6 +15,10 @@ import 'package:magic/magic.dart';
 ///   corner. The bottom inset is left to the shell (the fixed `BottomNav`
 ///   already clears the home indicator), so this container only guards the
 ///   left / right / top edges.
+/// - A `pb-24` bottom pad (96px) so the last row can always scroll clear of the
+///   `Assistant` FAB, which the shell floats bottom-right OVER this content. Without
+///   it the FAB covered the trailing list row (its status badge, most visibly on
+///   a phone).
 ///
 /// ### Example
 /// ```dart
@@ -51,7 +55,7 @@ class PageContainer extends StatelessWidget {
             '''
           w-full max-w-6xl mx-auto
           px-4 sm:px-5 lg:px-8
-          py-6 sm:py-8
+          pt-6 sm:pt-8 pb-24
           ${className ?? ''}
         ''',
         child: child,
