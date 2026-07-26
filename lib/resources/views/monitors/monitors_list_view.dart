@@ -231,10 +231,14 @@ class _MonitorsListViewState
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_operational'),
           value: '$upCount / ${allMonitors.length}',
-          delta: trans('uptizm.dashboard.kpi_delta_down', {
-            'count': '$downCount',
-          }),
-          trend: KpiTrend.down,
+          // A down count of zero is good news: rendering it as a red downward
+          // trend made a healthy fleet read as degraded.
+          delta: downCount > 0
+              ? trans('uptizm.dashboard.kpi_delta_down', {
+                  'count': '$downCount',
+                })
+              : null,
+          trend: downCount > 0 ? KpiTrend.down : KpiTrend.neutral,
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_open_incidents'),
@@ -244,11 +248,11 @@ class _MonitorsListViewState
           }),
         ),
         KpiStatCard(
+          // No monitor reporting a timing is a no-data state, not 0ms, and
+          // there is no prior-window average to compare against: the delta and
+          // its "vs. last 24h" hint were a hardcoded 12ms literal.
           label: trans('uptizm.monitors.kpi_avg_response'),
-          value: '${avgResponse}ms',
-          delta: '12ms',
-          hint: trans('uptizm.dashboard.kpi_hint_vs_24h'),
-          trend: KpiTrend.down,
+          value: responders.isEmpty ? '—' : '${avgResponse}ms',
         ),
       ],
     );

@@ -122,6 +122,50 @@ void main() {
     expect(find.byType(KpiStatCard), findsNWidgets(4));
   });
 
+  testWidgets('the avg-response KPI claims no trend it cannot measure', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+    await tester.pump();
+
+    final KpiStatCard avgResponse = tester
+        .widgetList<KpiStatCard>(find.byType(KpiStatCard))
+        .firstWhere((KpiStatCard card) => card.label == 'Avg response');
+
+    // The delta and its "vs. last 24h" hint were a hardcoded 12ms literal: no
+    // prior-window average is fetched, so no comparison may be shown. The value
+    // reads a real average, or the no-data em-dash when no monitor timed a
+    // check (never a 0ms that looks like an instantaneous fleet).
+    expect(avgResponse.delta, isNull);
+    expect(avgResponse.hint, isNull);
+    expect(
+      avgResponse.value == '—' || avgResponse.value.endsWith('ms'),
+      isTrue,
+      reason: 'expected a measured average or the no-data placeholder',
+    );
+    expect(avgResponse.value, isNot(equals('0ms')));
+  });
+
+  testWidgets('the operational KPI only trends down when something is down', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+    await tester.pump();
+
+    final KpiStatCard operational = tester
+        .widgetList<KpiStatCard>(find.byType(KpiStatCard))
+        .firstWhere((KpiStatCard card) => card.label == 'Operational');
+
+    // A red downward trend on "0 down" made a healthy fleet read as degraded,
+    // so the delta and the down trend now travel together: either a real down
+    // count is shown as a down trend, or neither is rendered.
+    expect(
+      operational.delta == null,
+      equals(operational.trend == KpiTrend.neutral),
+      reason: 'a down trend must come with a down count, and vice versa',
+    );
+  });
+
   testWidgets('renders a PageHeader with New monitor action', (tester) async {
     await tester.pumpWidget(wrap(const MonitorsListView()));
     await tester.pump();

@@ -200,10 +200,21 @@ class _DashboardViewState
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_monitors_up'),
           value: '${controller.upCount} / ${controller.monitorCount}',
-          delta: trans('uptizm.dashboard.kpi_delta_down', {
-            'count': '${controller.downCount}',
-          }),
-          trend: KpiTrend.down,
+          // Nothing down is good news: a red downward trend on "0 down" made a
+          // healthy fleet read as degraded. Pending monitors get their own
+          // hint, since 0 up out of 3 is otherwise indistinguishable from an
+          // outage.
+          delta: controller.downCount > 0
+              ? trans('uptizm.dashboard.kpi_delta_down', {
+                  'count': '${controller.downCount}',
+                })
+              : null,
+          hint: controller.pendingCount > 0
+              ? trans('uptizm.dashboard.fleet_pending_suffix', {
+                  'count': '${controller.pendingCount}',
+                })
+              : null,
+          trend: controller.downCount > 0 ? KpiTrend.down : KpiTrend.neutral,
         ),
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_uptime_24h'),
