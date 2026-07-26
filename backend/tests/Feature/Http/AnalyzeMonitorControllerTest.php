@@ -52,12 +52,80 @@ class AnalyzeMonitorControllerTest extends TestCase
         $response->assertJsonPath('data.url', 'https://example.com/health');
     }
 
-    public function test_analyze_requires_the_analysis_ai_tier(): void
+    public function test_analyze_is_open_on_free_for_the_metered_allowance(): void
     {
         $this->fakeRelay(MonitorStatus::Up);
         $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
-        // A Free team (ai=inbox) cannot use AI monitor analysis.
-        $this->actingAsTeamMember('free');
+        $team = $this->actingAsTeamMember('free');
+        $allowance = (int) config('plans.tiers.0.limits.ai_analysis_trials');
+
+        $this->assertGreaterThan(0, $allowance, 'Free must grant AI setups.');
+
+        // Every granted setup succeeds and counts down.
+        for ($spent = 1; $spent <= $allowance; $spent++) {
+            $this->postJson('/api/v1/monitors/analyze', [
+                'url' => 'https://example.com/health',
+            ])
+                ->assertStatus(200)
+                ->assertJsonPath(
+                    'meta.ai_analysis_trials_remaining',
+                    $allowance - $spent,
+                );
+        }
+
+        $this->assertSame($allowance, (int) $team->fresh()->ai_analysis_trials_used);
+
+        // The next one hits the wall, and says why in those terms.
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(403);
+        $response->assertJsonPath('upgrade.required_plan', 'pro');
+        $this->assertStringContainsString(
+            "used all {$allowance} free AI monitor setups",
+            (string) $response->json('message'),
+        );
+    }
+
+    public function test_analyze_does_not_spend_an_allowance_on_a_rejected_url(): void
+    {
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $team = $this->actingAsTeamMember('free');
+
+        // A validation failure never reaches the probe, so it must not cost the
+        // user one of their setups.
+        $this->postJson('/api/v1/monitors/analyze', ['url' => 'not-a-url'])
+            ->assertStatus(422);
+
+        $this->assertSame(0, (int) $team->fresh()->ai_analysis_trials_used);
+    }
+
+    public function test_analyze_does_not_meter_a_tier_that_entitles_it(): void
+    {
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $team = $this->actingAsTeamMember('pro');
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ])
+            ->assertStatus(200)
+            // Null, not a number: there is no allowance to count down.
+            ->assertJsonPath('meta.ai_analysis_trials_remaining', null);
+
+        $this->assertSame(0, (int) $team->fresh()->ai_analysis_trials_used);
+    }
+
+    public function test_analyze_walls_a_free_team_that_spent_its_allowance(): void
+    {
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $team = $this->actingAsTeamMember('free');
+        $team->forceFill([
+            'ai_analysis_trials_used' => (int) config('plans.tiers.0.limits.ai_analysis_trials'),
+        ])->save();
 
         $response = $this->postJson('/api/v1/monitors/analyze', [
             'url' => 'https://example.com/health',
@@ -65,6 +133,10 @@ class AnalyzeMonitorControllerTest extends TestCase
 
         $response->assertStatus(403);
         $this->assertStringContainsString('Pro plan', (string) $response->json('message'));
+        // The tier also travels machine-readably, so the client can offer an
+        // upgrade action for exactly this plan instead of parsing the sentence.
+        $response->assertJsonPath('upgrade.required_plan', 'pro');
+        $response->assertJsonPath('upgrade.feature', 'AI monitor analysis');
     }
 
     public function test_analyze_rejects_a_cloud_metadata_ssrf_host(): void
