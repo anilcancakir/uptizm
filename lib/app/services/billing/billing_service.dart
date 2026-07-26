@@ -62,7 +62,12 @@ class BillingCheckoutSession {
 /// decoded payload so a caller can read additional `SubscriptionResource`
 /// fields without this value object needing to enumerate every one of them.
 class BillingEntitlement {
-  const BillingEntitlement({required this.plan, required this.status, required this.raw});
+  const BillingEntitlement({
+    required this.plan,
+    required this.status,
+    required this.aiAnalysisTrialsRemaining,
+    required this.raw,
+  });
 
   /// The active plan identifier (e.g. `'pro'`), or `null` when absent.
   final String? plan;
@@ -70,6 +75,10 @@ class BillingEntitlement {
   /// The Stripe subscription status (e.g. `'active'`, `'canceled'`), or `null`
   /// when absent.
   final String? status;
+
+  /// Metered AI monitor setups the team has left, or `null` when the tier
+  /// entitles AI analysis outright (nothing to count down).
+  final int? aiAnalysisTrialsRemaining;
 
   /// The full decoded `GET /billing` payload.
   final Map<String, dynamic> raw;
@@ -80,6 +89,8 @@ class BillingEntitlement {
     return BillingEntitlement(
       plan: map['plan'] as String?,
       status: map['status'] as String?,
+      aiAnalysisTrialsRemaining:
+          (map['ai_analysis_trials_remaining'] as num?)?.toInt(),
       raw: map,
     );
   }

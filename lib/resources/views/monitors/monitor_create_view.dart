@@ -10,6 +10,7 @@ import '../../../app/enums/ai_confidence.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
 import '../../../ui/layouts/page_container.dart';
+import '../../../app/controllers/entitlement_controller.dart';
 
 /// The setup mode: AI-assisted or manual hand configuration.
 ///
@@ -125,6 +126,12 @@ class _MonitorCreateViewState
   /// used as a fallback until [_analysis] resolves.
   String get _aiName => aiNameFromUrl(_url);
 
+  /// Metered AI monitor setups the team has left, or `null` when its tier
+  /// entitles AI analysis (nothing to count down) or the entitlement has not
+  /// loaded yet, in which case the card shows no allowance line at all.
+  int? get _trialsRemaining =>
+      EntitlementController.instance.aiAnalysisTrialsRemaining;
+
   /// Runs the live AI probe: flips to [_AiStep.analyzing], awaits
   /// [MonitorController.analyze], then flips to [_AiStep.review] pre-filled
   /// from the response. A failed analyze (the controller already surfaced the
@@ -141,7 +148,12 @@ class _MonitorCreateViewState
     if (result == null) {
       setState(() {
         _step = _AiStep.input;
-        _analyzeError = trans('uptizm.monitors.create_ai_analyze_failed');
+        // A plan wall already showed its own upgrade dialog, and the URL is
+        // fine: telling the user to check that it is reachable would be a wrong
+        // diagnosis, so only a real failure gets the input-card error.
+        _analyzeError = controller.lastAnalyzeWasGated
+            ? null
+            : trans('uptizm.monitors.create_ai_analyze_failed');
       });
       return;
     }
@@ -266,6 +278,29 @@ class _MonitorCreateViewState
         WText(
           trans('uptizm.monitors.create_ai_card_description'),
           className: 'mt-3 text-sm text-fg-muted',
+        ),
+        // Metered allowance: a tier that entitles AI analysis reports null and
+        // shows nothing, so only a Free team sees a countdown, and it says so
+        // BEFORE the button rather than after the wall. Listens to the
+        // entitlement controller because the count arrives with the `GET
+        // /billing` read (after this card first paints) and drops by one after
+        // every setup.
+        ListenableBuilder(
+          listenable: EntitlementController.instance,
+          builder: (context, _) {
+            final int? remaining = _trialsRemaining;
+            if (remaining == null) return const SizedBox.shrink();
+
+            return WText(
+              trans(
+                remaining == 0
+                    ? 'uptizm.monitors.create_ai_trials_spent'
+                    : 'uptizm.monitors.create_ai_trials_left',
+                {'count': '$remaining'},
+              ),
+              className: 'mt-2 text-xs text-ai',
+            );
+          },
         ),
         // Visible failure affordance: when the last analyze bounced back to the
         // input step (unreachable URL, down relay, non-2xx), show why instead

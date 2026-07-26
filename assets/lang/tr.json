@@ -476,6 +476,8 @@
       "create_ai_url_placeholder": "https://api.ornek.com",
       "create_ai_analyze_button": "Yapay zeka ile analiz et",
       "create_ai_analyze_failed": "Bu URL analiz edilemedi. Erişilebilir olduğundan emin olup tekrar deneyin veya elle kurmak için Manuel'e geçin.",
+      "create_ai_trials_left": "Planınızda :count ücretsiz AI kurulumu kaldı.",
+      "create_ai_trials_spent": "Ücretsiz AI kurulumu kalmadı. AI kurulumunu kullanmaya devam etmek için yükseltin.",
       "create_ai_analyzing_title": "Uç nokta analiz ediliyor…",
       "create_ai_step_1": "Uç nokta yoklanıyor",
       "create_ai_step_2": "İzleyici türü tespit ediliyor",
@@ -789,7 +791,8 @@
       "error_default_title": "Bu yüklenemedi",
       "error_default_description": "Tarafımızda bir sorun oluştu. Bağlantınızı kontrol edip tekrar deneyin.",
       "upgrade": "Yükselt",
-      "upgrade_available_on": ":plan ve üzeri planlarda kullanılabilir."
+      "upgrade_available_on": ":plan ve üzeri planlarda kullanılabilir.",
+      "upgrade_dialog_not_now": "Şimdi değil"
     },
     "incidents": {
       "list_title": "Olaylar",

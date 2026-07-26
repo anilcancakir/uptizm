@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
+import 'entitlement_controller.dart';
 import '../models/monitor.dart';
 import '../support/monitor_types.dart' show UptimeSegment;
+import '../support/upgrade_prompt.dart';
 import '../enums/status_key.dart';
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
@@ -376,6 +378,16 @@ class MonitorController extends MagicController {
     return null;
   }
 
+  /// Whether the last [analyze] was refused by a plan wall rather than failing.
+  ///
+  /// The prompt is already shown by [analyze]; this lets the view skip its own
+  /// "check that the URL is reachable" hint, which misdiagnoses a reachable URL
+  /// the plan simply does not cover.
+  bool _lastAnalyzeWasGated = false;
+
+  /// Whether the last [analyze] hit a plan wall (see [_lastAnalyzeWasGated]).
+  bool get lastAnalyzeWasGated => _lastAnalyzeWasGated;
+
   /// Runs the AI analyze probe for [url] via `POST /monitors/analyze` and
   /// returns the [MonitorAnalysis] prefill for the AI-flow review step, or
   /// `null` on failure.
@@ -386,6 +398,7 @@ class MonitorController extends MagicController {
   /// no dedicated analyze-failed string yet) and logs via [Log.error], never
   /// a silent swallow.
   Future<MonitorAnalysis?> analyze(String url, {String? region}) async {
+    _lastAnalyzeWasGated = false;
     try {
       final response = await Http.post(
         '/monitors/analyze',
@@ -393,6 +406,14 @@ class MonitorController extends MagicController {
       );
       if (!response.successful) {
         Log.error('[MonitorController.analyze] $url: ${response.errorMessage}');
+        // A plan wall is not a failure the user can retry: surface it with the
+        // upgrade action instead of an error toast that names the tier and
+        // leaves them to find billing themselves. The flag lets the view skip
+        // its own "check the URL is reachable" hint, which would be a wrong
+        // diagnosis of a perfectly reachable URL.
+        _lastAnalyzeWasGated = UpgradePrompt.showIfGated(response);
+        if (_lastAnalyzeWasGated) return null;
+
         Magic.error(
           trans('uptizm.monitors.toast_save_failed_title'),
           response.errorMessage ??
@@ -401,9 +422,8 @@ class MonitorController extends MagicController {
         return null;
       }
 
-      final Object? data = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
+      final Object? body = response.data;
+      final Object? data = body is Map<String, dynamic> ? body['data'] : null;
       if (data is! Map<String, dynamic>) {
         Log.error('[MonitorController.analyze] $url: malformed response');
         Magic.error(
@@ -411,6 +431,15 @@ class MonitorController extends MagicController {
           trans('uptizm.monitors.toast_save_failed_description'),
         );
         return null;
+      }
+
+      // A metered team just spent one setup: republish what the backend says is
+      // left so the allowance the user sees counts down without another read.
+      final Object? meta = body is Map<String, dynamic> ? body['meta'] : null;
+      if (meta is Map<String, dynamic>) {
+        EntitlementController.instance.noteAiAnalysisTrialsRemaining(
+          (meta['ai_analysis_trials_remaining'] as num?)?.toInt(),
+        );
       }
 
       return MonitorAnalysis.fromMap(data);

@@ -476,6 +476,8 @@
       "create_ai_url_placeholder": "https://api.example.com",
       "create_ai_analyze_button": "Analyze with AI",
       "create_ai_analyze_failed": "Couldn't analyze that URL. Check that it's reachable and try again, or switch to Manual to set it up by hand.",
+      "create_ai_trials_left": ":count free AI setups left on your plan.",
+      "create_ai_trials_spent": "No free AI setups left. Upgrade to keep using AI setup.",
       "create_ai_analyzing_title": "Analyzing endpoint…",
       "create_ai_step_1": "Probing the endpoint",
       "create_ai_step_2": "Detecting monitor type",
@@ -789,7 +791,8 @@
       "error_default_title": "Couldn't load this",
       "error_default_description": "Something went wrong on our end. Check your connection and try again.",
       "upgrade": "Upgrade",
-      "upgrade_available_on": "Available on :plan and up."
+      "upgrade_available_on": "Available on :plan and up.",
+      "upgrade_dialog_not_now": "Not now"
     },
     "incidents": {
       "list_title": "Incidents",

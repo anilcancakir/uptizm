@@ -37,6 +37,7 @@ class _FakeBilling implements BillingService {
     return BillingEntitlement(
       plan: entitlementPlan,
       status: 'active',
+      aiAnalysisTrialsRemaining: null,
       raw: {'plan': entitlementPlan, 'status': 'active'},
     );
   }
