@@ -710,14 +710,14 @@ packages:
       path: "../magic"
       relative: true
     source: path
-    version: "0.0.4"
+    version: "0.0.5"
   magic_deeplink:
     dependency: "direct main"
     description:
       path: "../magic_deeplink"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.0.2"
   magic_devtools:
     dependency: "direct main"
     description:
@@ -731,21 +731,21 @@ packages:
       path: "../magic_notifications"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.0.2"
   magic_social_auth:
     dependency: "direct main"
     description:
       path: "../magic_social_auth"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.0.2"
   magic_starter:
     dependency: "direct main"
     description:
       path: "../magic_starter"
       relative: true
     source: path
-    version: "0.0.1-alpha.15"
+    version: "0.0.1-alpha.16"
   matcher:
     dependency: transitive
     description:
