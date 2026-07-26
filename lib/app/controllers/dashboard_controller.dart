@@ -28,8 +28,13 @@ class DashboardController extends MagicController {
   int _monitorsDown = 0;
   int _monitorsDegraded = 0;
   int _monitorsPaused = 0;
+  int _monitorsPending = 0;
   int? _avgResponseMs;
   int _openIncidents = 0;
+
+  /// The team's real monitor count per `dashboard/stats`, or null against a
+  /// backend that does not report `monitors_total` yet (see [monitorCount]).
+  int? _monitorsTotal;
 
   /// Cached rolling-24h fleet uptime percentage and its change against the
   /// prior 24h, per `GET /dashboard/stats`. Null when the window has no checks
@@ -64,9 +69,23 @@ class DashboardController extends MagicController {
   /// Count of monitors currently down.
   int get downCount => _monitorsDown;
 
-  /// Total number of monitors (sum of every last-known status bucket).
+  /// Count of monitors awaiting their first check (no last-known status yet).
+  int get pendingCount => _monitorsPending;
+
+  /// Total number of monitors the team owns.
+  ///
+  /// Reads the backend's `monitors_total`, which counts every monitor including
+  /// the ones still awaiting a first check. Summing the four status buckets is
+  /// only the fallback for a backend that predates that field: a monitor with a
+  /// null `last_status` sits in none of those buckets, so the sum reads a team
+  /// that just created its first monitors as having zero.
   int get monitorCount =>
-      _monitorsUp + _monitorsDown + _monitorsDegraded + _monitorsPaused;
+      _monitorsTotal ??
+      (_monitorsUp +
+          _monitorsDown +
+          _monitorsDegraded +
+          _monitorsPaused +
+          _monitorsPending);
 
   /// Count of active incidents currently owned by the AI.
   ///
@@ -129,6 +148,8 @@ class DashboardController extends MagicController {
       _monitorsDown = (data['monitors_down'] as num?)?.toInt() ?? 0;
       _monitorsDegraded = (data['monitors_degraded'] as num?)?.toInt() ?? 0;
       _monitorsPaused = (data['monitors_paused'] as num?)?.toInt() ?? 0;
+      _monitorsPending = (data['monitors_pending'] as num?)?.toInt() ?? 0;
+      _monitorsTotal = (data['monitors_total'] as num?)?.toInt();
       _avgResponseMs = (data['avg_response_ms'] as num?)?.toInt();
       _openIncidents = (data['open_incidents'] as num?)?.toInt() ?? 0;
       _uptime24h = (data['uptime_24h'] as num?)?.toDouble();
@@ -304,7 +325,13 @@ class DashboardController extends MagicController {
         .map((Monitor m) => m.name ?? '')
         .toList();
 
-    if (down.isEmpty && degraded.isEmpty && _openIncidents == 0) {
+    // "All operational" may only be claimed when every monitor has actually
+    // reported up. A monitor awaiting its first check has reported nothing, so
+    // counting it as operational would assert a state the backend never sent.
+    if (down.isEmpty &&
+        degraded.isEmpty &&
+        _openIncidents == 0 &&
+        _monitorsPending == 0) {
       return trans('uptizm.dashboard.fleet_all_operational', {'count': '$total'});
     }
 
@@ -314,6 +341,13 @@ class DashboardController extends MagicController {
         'total': '$total',
       }),
     ];
+    if (_monitorsPending > 0) {
+      parts.add(
+        trans('uptizm.dashboard.fleet_pending_suffix', {
+          'count': '$_monitorsPending',
+        }),
+      );
+    }
     if (down.isNotEmpty) {
       parts.add(
         trans('uptizm.dashboard.fleet_down_suffix', {'names': _joinNames(down)}),

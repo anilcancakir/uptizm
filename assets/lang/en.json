@@ -412,6 +412,7 @@
       "fleet_empty": "No monitors yet. Add your first monitor to start tracking uptime.",
       "fleet_all_operational": "All :count monitors are operational. No open incidents.",
       "fleet_operational_ratio": ":up of :total monitors operational",
+      "fleet_pending_suffix": ":count awaiting a first check",
       "fleet_down_suffix": ":names down",
       "fleet_degraded_suffix": ":names degraded",
       "fleet_no_open_incidents": "No open incidents.",

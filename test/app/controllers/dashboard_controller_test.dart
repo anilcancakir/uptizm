@@ -99,10 +99,74 @@ void main() {
 
     expect(controller.upCount, equals(7));
     expect(controller.downCount, equals(2));
-    // monitorCount sums every last-known status bucket (7 + 2 + 1 + 3).
+    // No monitors_total in this payload, so monitorCount falls back to the
+    // bucket sum plus pending (7 + 2 + 1 + 3 + 0).
     expect(controller.monitorCount, equals(13));
     expect(controller.avgResponseMs, equals(214));
     expect(controller.openIncidentsCount, equals(5));
+  });
+
+  test('monitorCount reads monitors_total, so pending monitors count', () async {
+    // A team that just created three monitors: none checked yet, so every
+    // status bucket is zero and only the total and pending counts carry them.
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 0,
+          'monitors_down': 0,
+          'monitors_degraded': 0,
+          'monitors_paused': 0,
+          'monitors_pending': 3,
+          'monitors_total': 3,
+          'avg_response_ms': null,
+          'open_incidents': 0,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': []}),
+      'dashboard/monitors-snapshot': Http.response({'data': []}),
+      'dashboard/ai-inbox': Http.response({'data': []}),
+    });
+    final DashboardController controller = DashboardController.instance;
+
+    await controller.reload();
+
+    // Summing the buckets would read 0 here and fire the "add your first
+    // monitor" empty state at a team that already has three.
+    expect(controller.monitorCount, equals(3));
+    expect(controller.pendingCount, equals(3));
+    expect(controller.upCount, equals(0));
+    expect(controller.hasAvgResponse, isFalse);
+  });
+
+  test('fleetSummary never calls an unchecked monitor operational', () async {
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 0,
+          'monitors_down': 0,
+          'monitors_degraded': 0,
+          'monitors_paused': 0,
+          'monitors_pending': 3,
+          'monitors_total': 3,
+          'open_incidents': 0,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': []}),
+      'dashboard/monitors-snapshot': Http.response({'data': []}),
+      'dashboard/ai-inbox': Http.response({'data': []}),
+    });
+    final DashboardController controller = DashboardController.instance;
+
+    await controller.reload();
+
+    // Nothing is down and no incident is open, but three monitors have reported
+    // nothing at all: claiming "All 3 monitors are operational" would assert a
+    // state the backend never sent. No lang loader runs here, so the summary
+    // carries raw keys and the assertion reads which sentence was chosen.
+    final String summary = controller.fleetSummary;
+    expect(summary, contains('fleet_operational_ratio'));
+    expect(summary, contains('fleet_pending_suffix'));
+    expect(summary, isNot(contains('fleet_all_operational')));
   });
 
   test(
