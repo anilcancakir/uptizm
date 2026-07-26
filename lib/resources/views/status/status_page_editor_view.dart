@@ -8,7 +8,9 @@ import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/domain_mode.dart' show DomainMode;
+import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/status_page_support.dart' show pageUrl;
+import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/empty_state/index.dart';
@@ -517,15 +519,22 @@ class _StatusPageEditorViewState
       builder: (context, _) {
         final entitlement = EntitlementController.instance;
         if (!entitlement.aiLevelAllows(AiLevel.analysis)) {
+          bool unlocksAnalysis(PlanLimits limits) =>
+              limits.ai.index >= AiLevel.analysis.index;
           final String requiredPlan = entitlement.planNameUnlocking(
-            (limits) => limits.ai.index >= AiLevel.analysis.index,
+            unlocksAnalysis,
           );
           return UpgradeNudge(
             message: trans('uptizm.status.editor_ai_draft_gated', {
               'plan': requiredPlan,
             }),
             requiredPlan: requiredPlan,
-            onUpgrade: () => MagicRoute.to('/settings'),
+            // Billing with the tier intent, so Upgrade starts the purchase for
+            // the plan this nudge just named instead of dropping the user on
+            // the settings hub to go find it.
+            onUpgrade: () => UpgradePrompt.startUpgrade(
+              entitlement.planIdUnlocking(unlocksAnalysis),
+            ),
           );
         }
         return AiInsight(

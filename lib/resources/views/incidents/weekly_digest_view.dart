@@ -10,6 +10,9 @@ import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/error_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/layouts/page_container.dart';
+import '../../../app/support/plan_upgrade.dart';
+import '../../../app/support/upgrade_prompt.dart';
+import '../../../ui/components/upgrade_nudge/index.dart';
 
 /// **The Weekly AI digest screen at `/incidents/digest`.**
 ///
@@ -37,11 +40,18 @@ class WeeklyDigestView extends StatefulWidget {
 }
 
 /// The four render phases of the digest fetch.
-enum _DigestPhase { loading, ready, empty, error }
+enum _DigestPhase { loading, ready, empty, error, gated }
 
 class _WeeklyDigestViewState extends State<WeeklyDigestView> {
   _DigestPhase _phase = _DigestPhase.loading;
   WeeklyDigest? _digest;
+
+  /// The plan wall the digest read hit, when it did.
+  ///
+  /// A plan refusal is not a read failure: the generic error state offered a
+  /// Retry that could never succeed, so [_DigestPhase.gated] renders the wall
+  /// with its upgrade action instead.
+  PlanUpgradeRequirement? _gate;
 
   @override
   void initState() {
@@ -69,7 +79,13 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
       } else if (response.statusCode == 404) {
         setState(() => _phase = _DigestPhase.empty);
       } else {
-        setState(() => _phase = _DigestPhase.error);
+        final PlanUpgradeRequirement? gate = PlanUpgradeRequirement.fromResponse(
+          response,
+        );
+        setState(() {
+          _gate = gate;
+          _phase = gate != null ? _DigestPhase.gated : _DigestPhase.error;
+        });
       }
     } catch (e, stackTrace) {
       Log.error('[WeeklyDigestView._load] $e\n$stackTrace');
@@ -135,6 +151,15 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
               onPressed: _load,
               child: WText(trans('uptizm.digest.error_retry')),
             ),
+          ),
+        ];
+      case _DigestPhase.gated:
+        final PlanUpgradeRequirement gate = _gate!;
+        return [
+          UpgradeNudge(
+            message: gate.message,
+            requiredPlan: gate.planLabel,
+            onUpgrade: () => UpgradePrompt.startUpgrade(gate.requiredPlan),
           ),
         ];
       case _DigestPhase.ready:

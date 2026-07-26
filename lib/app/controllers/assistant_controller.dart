@@ -1,5 +1,7 @@
 import 'package:magic/magic.dart';
 
+import '../support/upgrade_prompt.dart';
+
 /// Controller backing the floating Assistant widget's live Q&A round-trip.
 ///
 /// Fires `POST /assistant` with the operator's question and returns the
@@ -26,6 +28,10 @@ class AssistantController extends MagicController {
       );
       if (!response.successful) {
         Log.error('[AssistantController.ask] ${response.errorMessage}');
+        // The assistant is an AI-tier feature: a plan wall gets the upgrade
+        // action, not a "please try again" toast about a retry that cannot work.
+        if (UpgradePrompt.showIfGated(response)) return null;
+
         _toastFailed(response.errorMessage);
         return null;
       }

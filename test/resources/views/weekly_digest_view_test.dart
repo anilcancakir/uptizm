@@ -5,6 +5,8 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/resources/views/incidents/weekly_digest_view.dart';
 import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
+import 'package:uptizm/ui/components/error_state/index.dart';
+import 'package:uptizm/ui/components/upgrade_nudge/index.dart';
 
 /// In-memory loader feeding the digest labels so [trans] returns real wrappable
 /// strings instead of raw dot-separated i18n keys (which render as long
@@ -119,6 +121,45 @@ void main() {
     expect(find.text('No digest yet'), findsOneWidget);
     // No KPI cards render in the empty state.
     expect(find.byType(KpiStatCard), findsNothing);
+  });
+
+  testWidgets('offers an upgrade, not a retry, when the plan gates it', (
+    tester,
+  ) async {
+    Http.fake({
+      '*incidents/digest': Http.response({
+        'message':
+            'The AI weekly digest is available on the Business plan and up. '
+            'Upgrade to use it.',
+        'upgrade': {
+          'required_plan': 'business',
+          'feature': 'The AI weekly digest',
+        },
+      }, 403),
+    });
+
+    await tester.pumpWidget(wrap(const WeeklyDigestView()));
+    await settle(tester);
+
+    // The generic error state offered a Retry that could never succeed on this
+    // plan, so a refusal renders the wall with its upgrade action instead.
+    expect(find.byType(UpgradeNudge), findsOneWidget);
+    expect(find.byType(ErrorState), findsNothing);
+    expect(find.textContaining('Business plan'), findsOneWidget);
+  });
+
+  testWidgets('still shows the retryable error state for a real failure', (
+    tester,
+  ) async {
+    // A 403 with no upgrade marker is an authorization denial no purchase
+    // fixes, and a 500 is a failure: neither may offer to sell a plan.
+    Http.fake({'*incidents/digest': Http.response(<String, dynamic>{}, 500)});
+
+    await tester.pumpWidget(wrap(const WeeklyDigestView()));
+    await settle(tester);
+
+    expect(find.byType(ErrorState), findsOneWidget);
+    expect(find.byType(UpgradeNudge), findsNothing);
   });
 
   testWidgets('renders the back-aware header in every phase', (tester) async {

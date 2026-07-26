@@ -4,6 +4,8 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/entitlement_controller.dart';
+import '../../../app/support/billing_types.dart' show PlanLimits;
+import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
@@ -510,12 +512,17 @@ class _IncidentDetailViewState
             onFeedback: (_) {},
           );
         }
+        bool unlocksAnalysis(PlanLimits limits) =>
+            limits.ai.index >= AiLevel.analysis.index;
+
         return UpgradeNudge(
           message: trans('uptizm.incidents.ai_analysis_gated'),
-          requiredPlan: entitlement.planNameUnlocking(
-            (limits) => limits.ai.index >= AiLevel.analysis.index,
+          requiredPlan: entitlement.planNameUnlocking(unlocksAnalysis),
+          // Billing with the tier intent, so Upgrade starts the purchase for
+          // the plan this nudge just named.
+          onUpgrade: () => UpgradePrompt.startUpgrade(
+            entitlement.planIdUnlocking(unlocksAnalysis),
           ),
-          onUpgrade: () => MagicRoute.to('/settings'),
         );
       },
     );

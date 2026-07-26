@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/entitlement_controller.dart';
+import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/controllers/on_call_controller.dart';
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/team_types.dart' show OnCallShift, TeamMember;
@@ -359,15 +360,18 @@ class _OnCallScheduleViewState extends State<OnCallScheduleView> {
 
     if (atLimit) {
       final int cappedLimit = limit;
-      final String requiredPlan = EntitlementController.instance
-          .planNameUnlocking(
-            (PlanLimits l) =>
-                l.responders == null || l.responders! > cappedLimit,
-          );
+      bool liftsResponderCap(PlanLimits l) =>
+          l.responders == null || l.responders! > cappedLimit;
+      final EntitlementController entitlement = EntitlementController.instance;
 
       return UpgradeNudge(
         message: trans('uptizm.teams.oncall_add_button'),
-        requiredPlan: requiredPlan,
+        requiredPlan: entitlement.planNameUnlocking(liftsResponderCap),
+        // This nudge had no action at all: it named the tier and stopped. Now
+        // Upgrade lands on billing and starts the purchase for that tier.
+        onUpgrade: () => UpgradePrompt.startUpgrade(
+          entitlement.planIdUnlocking(liftsResponderCap),
+        ),
       );
     }
 
