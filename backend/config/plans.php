@@ -29,22 +29,27 @@ return [
             'monthly' => 0,
             'annual' => 0,
             'currency' => 'usd',
-            'ai_line' => 'AI anomaly inbox — see what Uptizm flags from its own checks.',
+            'ai_line' => 'AI anomaly inbox, plus 3 free AI monitor setups.',
             'features' => [
-                '10 monitors · 3-minute checks',
+                '1 monitor · 3-minute checks',
                 '1 status page · 100 subscribers',
                 '1 responder · email & Slack alerts',
                 '3-day history',
+                '3 AI monitor setups, then Pro',
             ],
             'responder_add_on' => null,
             'recommended' => false,
             'limits' => [
-                'monitors' => 10,
+                'monitors' => 1,
                 'check_interval_sec' => 180,
                 'status_pages' => 1,
                 'subscribers' => 100,
                 'responders' => 1,
                 'ai' => 'inbox',
+                // AI monitor analysis is open on Free, but metered: this many
+                // successful setups, then the plan wall. Paid tiers entitle it
+                // through `ai` and are never metered (see PlanGate).
+                'ai_analysis_trials' => 3,
                 'white_label' => false,
                 'private_pages' => false,
                 'sso' => false,

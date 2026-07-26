@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\Team;
+use App\Services\Billing\PlanGate;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -27,9 +28,17 @@ class SubscriptionResource extends JsonResource
     {
         $subscription = $this->resource->subscription('default');
 
+        $gate = new PlanGate;
+
         return [
             'plan' => $this->resource->entitledPlan()->value,
             'plan_status' => $this->resource->plan_status,
+            // Metered AI monitor setups left, or null on a tier that entitles
+            // AI analysis outright, so the client can show the allowance before
+            // the user spends the first one.
+            'ai_analysis_trials_remaining' => $gate->aiAnalysisTrialsRemaining(
+                $this->resource,
+            ),
             'subscribed' => $subscription !== null && $subscription->active(),
             'on_grace_period' => $subscription?->onGracePeriod() ?? false,
             'stripe_price' => $subscription?->stripe_price,

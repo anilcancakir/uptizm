@@ -199,9 +199,13 @@ class MonitorController extends Controller
         AnalysisGateway $gateway,
         AiBudget $budget,
     ): JsonResponse {
+        $gate = new PlanGate;
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
-            (new PlanGate)->assertAiLevel($team, 'analysis', 'AI monitor analysis');
+            // Open on Free for a metered number of setups, entitled outright on
+            // the AI tiers. The meter is spent below, only once a setup actually
+            // produced a result, so a failed probe never costs the user a try.
+            $gate->assertAiAnalysisAllowed($team);
         }
 
         $url = (string) $request->validated('url');
@@ -235,6 +239,13 @@ class MonitorController extends Controller
             ? $gateway->analyze($this->analysisPayload($url, $region, $probe, $candidate))
             : $this->deterministicSuggestion($probe, $region);
 
+        // 4. The setup produced a result, so spend one metered try (a no-op on a
+        //    tier that entitles AI analysis) and report what is left, so the
+        //    client can count the allowance down without a second request.
+        if ($team !== null) {
+            $gate->consumeAiAnalysisTrial($team);
+        }
+
         return response()->json([
             'data' => [
                 'url' => $url,
@@ -245,6 +256,11 @@ class MonitorController extends Controller
                     'status_code' => $probe->statusCode,
                     'response_ms' => $probe->responseMs,
                 ],
+            ],
+            'meta' => [
+                'ai_analysis_trials_remaining' => $team !== null
+                    ? $gate->aiAnalysisTrialsRemaining($team)
+                    : null,
             ],
         ]);
     }

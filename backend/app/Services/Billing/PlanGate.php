@@ -2,6 +2,7 @@
 
 namespace App\Services\Billing;
 
+use App\Exceptions\PlanUpgradeRequiredException;
 use App\Models\Monitor;
 use App\Models\StatusPage;
 use App\Models\Team;
@@ -117,6 +118,81 @@ class PlanGate
         };
     }
 
+    /**
+     * How many metered AI monitor setups the plan grants, or 0 when the tier
+     * does not meter them (either it entitles the feature or grants none).
+     */
+    public function aiAnalysisTrialLimit(Team $team): int
+    {
+        return (int) ($this->limits($team)['ai_analysis_trials'] ?? 0);
+    }
+
+    /**
+     * Metered AI monitor setups left for [$team], or `null` when the tier
+     * entitles AI analysis outright (nothing to count down).
+     */
+    public function aiAnalysisTrialsRemaining(Team $team): ?int
+    {
+        if ($this->aiLevelAllows($team, 'analysis')) {
+            return null;
+        }
+
+        $remaining = $this->aiAnalysisTrialLimit($team) - (int) $team->ai_analysis_trials_used;
+
+        return max(0, $remaining);
+    }
+
+    /**
+     * Ensure [$team] may run AI monitor analysis, else abort with the upgrade
+     * target attached.
+     *
+     * Two ways to pass: the tier entitles the feature through its `ai` level,
+     * or the tier meters it and the team has a setup left. A metered pass is
+     * NOT consumed here: {@see consumeAiAnalysisTrial} runs after a setup
+     * actually succeeds, so a failed probe never costs the user a try.
+     */
+    public function assertAiAnalysisAllowed(Team $team): void
+    {
+        if ($this->aiLevelAllows($team, 'analysis')) {
+            return;
+        }
+
+        $remaining = $this->aiAnalysisTrialsRemaining($team);
+        if ($remaining !== null && $remaining > 0) {
+            return;
+        }
+
+        $limit = $this->aiAnalysisTrialLimit($team);
+
+        throw new PlanUpgradeRequiredException(
+            'pro',
+            'AI monitor analysis',
+            $limit > 0
+                ? sprintf(
+                    'You have used all %d free AI monitor setups. AI monitor analysis is available on the Pro plan and up.',
+                    $limit,
+                )
+                : null,
+        );
+    }
+
+    /**
+     * Spend one metered AI monitor setup, after one succeeded.
+     *
+     * No-op for a tier that entitles AI analysis outright, so an upgrade stops
+     * the meter without resetting it.
+     */
+    public function consumeAiAnalysisTrial(Team $team): void
+    {
+        if ($this->aiLevelAllows($team, 'analysis')) {
+            return;
+        }
+
+        $team->forceFill([
+            'ai_analysis_trials_used' => (int) $team->ai_analysis_trials_used + 1,
+        ])->save();
+    }
+
     /** Live monitor count for the team. */
     public function monitorsUsed(Team $team): int
     {
@@ -152,13 +228,15 @@ class PlanGate
             return;
         }
 
+        // The plan catalog id, not a display label: the client turns it into an
+        // upgrade action that starts checkout for exactly this tier.
         $plan = match ($required) {
-            'auto' => 'Business',
-            'custom' => 'Enterprise',
-            default => 'Pro',
+            'auto' => 'business',
+            'custom' => 'enterprise',
+            default => 'pro',
         };
 
-        abort(403, "{$feature} is available on the {$plan} plan and up. Upgrade to use it.");
+        throw new PlanUpgradeRequiredException($plan, $feature);
     }
 
     /** Human label for the team's plan, e.g. "Free". */
