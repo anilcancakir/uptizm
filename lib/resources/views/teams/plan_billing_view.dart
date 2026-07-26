@@ -11,6 +11,7 @@ import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
 import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
 import '../../../ui/layouts/page_container.dart';
+import '../../../app/support/plan_upgrade.dart';
 
 /// The billing cycle a plan's price is shown for.
 enum BillingCycle {
@@ -137,6 +138,20 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// (last-known state) on a fetch failure.
   List<Plan> _plans = const [];
 
+  /// Whether the live entitlement read resolved, so [_currentPlanId] is the
+  /// team's real plan rather than the seeded fixture id.
+  bool _entitlementLoaded = false;
+
+  /// Whether this mount has already acted on a `?upgrade=<plan>` deep link, so
+  /// a second resolving fetch cannot reopen checkout.
+  bool _upgradeRequestHandled = false;
+
+  /// The upgrade-intent token already acted on, shared across mounts.
+  ///
+  /// Static because one arrival mounts this screen more than once (see
+  /// [_startRequestedUpgrade]); a per-instance flag cannot dedupe across them.
+  static String? _consumedUpgradeIntent;
+
   /// The team's current-cycle usage stats from `GET /billing/usage`. Empty
   /// until [_loadUsage] resolves; the meter grid simply renders no rows
   /// instead of crashing on a fetch failure.
@@ -188,7 +203,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           .currentEntitlement();
       final String? plan = entitlement.plan;
       if (plan == null || !mounted) return;
-      setState(() => _currentPlanId = plan);
+      setState(() {
+        _currentPlanId = plan;
+        _entitlementLoaded = true;
+      });
+      _startRequestedUpgrade();
     } catch (_) {
       // Deliberate degradation: keeps the fixture plan id as last-known
       // state (see the docblock above) instead of throwing.
@@ -206,9 +225,54 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       final List<Plan> plans = await _billing.getPlans();
       if (!mounted) return;
       setState(() => _plans = plans);
+      _startRequestedUpgrade();
     } catch (_) {
       // Deliberate degradation: see the docblock above.
     }
+  }
+
+  /// Starts checkout for the plan named in the `?upgrade=<plan>` query, so a
+  /// gated action elsewhere in the app can hand the user straight into the
+  /// purchase instead of dropping them on the grid to find the tier themselves.
+  ///
+  /// Runs once per mount, only for a tier the catalog actually serves and only
+  /// when it is above the current plan (an `?upgrade=free` or a stale link to
+  /// the tier the team already pays for must not open a checkout). Silently
+  /// does nothing otherwise: the grid is still there to pick from by hand.
+  ///
+  /// Both the catalog and the live entitlement have to be in before it fires:
+  /// the plan id is seeded from a fixture, so acting on the seed could open a
+  /// downgrade checkout for a team whose real plan had not arrived yet. Called
+  /// from both loaders, whichever resolves last wins.
+  void _startRequestedUpgrade() {
+    if (_upgradeRequestHandled) return;
+    if (_plans.isEmpty || !_entitlementLoaded) return;
+
+    final Map<String, String> query = MagicRouter.instance.queryParameters;
+    final String? requested = query[PlanUpgradeRequirement.planQueryKey];
+    if (requested == null || requested.isEmpty) return;
+
+    // The token is consumed process-wide, not per mount: this screen mounts
+    // twice per arrival and both mounts resolve their fetches at about the same
+    // instant, so a per-mount guard (and clearing the query, which the second
+    // mount had already read) let one arrival open two checkout sessions. A
+    // hand-typed URL with no token falls back to the plan id, so it still
+    // fires once. A later Upgrade tap mints a new token and fires again.
+    final String token =
+        query[PlanUpgradeRequirement.intentQueryKey] ?? requested;
+    if (_consumedUpgradeIntent == token) return;
+
+    final Plan? target = _plans
+        .where((Plan plan) => plan.id == requested)
+        .firstOrNull;
+    if (target == null || _direction(target) <= 0) return;
+
+    _upgradeRequestHandled = true;
+    _consumedUpgradeIntent = token;
+    // Also drop the query from the URL, so a reload of what the user now sees
+    // in the address bar does not read as a fresh purchase intent.
+    MagicRoute.replace(PlanUpgradeRequirement.billingPath);
+    _selectPlan(target);
   }
 
   /// Reads the team's usage stats from `GET /billing/usage` via

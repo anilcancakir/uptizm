@@ -56,6 +56,11 @@ class EntitlementController extends MagicController {
   List<UsageStat> _usage = const [];
   bool _loaded = false;
 
+  /// Metered AI monitor setups left per `GET /billing`, or null when the tier
+  /// entitles AI analysis outright. Null before the first load too, so a view
+  /// must treat null as "no allowance to display" rather than "none left".
+  int? _aiAnalysisTrialsRemaining;
+
   /// Guards the one-shot initial load kicked off by [instance].
   bool _loadStarted = false;
 
@@ -85,6 +90,7 @@ class EntitlementController extends MagicController {
       if (entitlement.plan != null) {
         _planId = entitlement.plan;
       }
+      _aiAnalysisTrialsRemaining = entitlement.aiAnalysisTrialsRemaining;
     } catch (error) {
       // Deliberate degradation: a transport failure leaves the last-known plan
       // (or the permissive pre-load default) so gating never crashes a view.
@@ -206,6 +212,39 @@ class EntitlementController extends MagicController {
   String planNameUnlocking(bool Function(PlanLimits limits) pred) {
     for (final plan in _plans) {
       if (pred(plan.limits)) return plan.name;
+    }
+    return '';
+  }
+
+  /// Metered AI monitor setups the team has left, or `null` when the tier
+  /// entitles AI analysis outright (and before the first entitlement load).
+  ///
+  /// Republished by [reload] from `GET /billing`; a client that just spent one
+  /// can also pass the fresher count from the analyze response through
+  /// [noteAiAnalysisTrialsRemaining] instead of re-reading the entitlement.
+  int? get aiAnalysisTrialsRemaining => _aiAnalysisTrialsRemaining;
+
+  /// Records the allowance an analyze response reported, so the counter the
+  /// user sees counts down without a second entitlement read.
+  void noteAiAnalysisTrialsRemaining(int? remaining) {
+    if (_aiAnalysisTrialsRemaining == remaining) return;
+
+    _aiAnalysisTrialsRemaining = remaining;
+    refreshUI();
+  }
+
+  /// The catalog id of the cheapest plan whose limits satisfy [pred]
+  /// (`pro`, `business`, `enterprise`), for an upgrade action that has to name
+  /// the tier to the billing endpoints rather than to the user.
+  ///
+  /// The id counterpart of [planNameUnlocking], resolved from the same
+  /// cheapest-first walk so the label a nudge shows and the tier its Upgrade
+  /// button buys can never disagree. Empty until the catalog loads or when no
+  /// tier satisfies [pred]; an empty id means "no upgrade target", so a caller
+  /// must not route on it.
+  String planIdUnlocking(bool Function(PlanLimits limits) pred) {
+    for (final plan in _plans) {
+      if (pred(plan.limits)) return plan.id;
     }
     return '';
   }
