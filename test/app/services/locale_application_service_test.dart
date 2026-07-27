@@ -1,55 +1,52 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/models/user.dart';
-import 'package:uptizm/app/services/device_timezone_service.dart';
 import 'package:uptizm/app/services/locale_application_service.dart';
 import 'package:uptizm/config/localization.dart';
 
 void main() {
-  group('LocaleApplicationService.applyDetectedTimezone', () {
+  group('framework DateManager boot (replaces the removed timezone hook)', () {
     setUp(() {
       MagicApp.reset();
       DateManager.reset();
+      Translator.reset();
     });
 
     tearDown(() {
       MagicApp.reset();
       DateManager.reset();
+      Translator.reset();
     });
 
     test(
-      'boots DateManager and overrides its timezone with the detected IANA id',
+      'LocalizationServiceProvider boots DateManager and applies the '
+      'configured timezone without a manual applyDetectedTimezone() call',
       () async {
+        // Mirrors the merge magic performs at boot: its own weak default
+        // merged first, then uptizm's localizationConfig layered on top (see
+        // test/config/localization_config_test.dart for the config-merge
+        // regression). LocalizationServiceProvider.boot() logs through the
+        // `log` service; in production `LogManager` is bound by `Magic.init`
+        // before providers boot (see lib/main.dart), so this test mirrors
+        // that binding.
         await MagicApp.init(configs: [localizationConfig]);
-        final service = LocaleApplicationService(
-          timezoneService: DeviceTimezoneService(
-            resolver: () async => TimezoneInfo(identifier: 'Europe/Istanbul'),
-          ),
-        );
+        Magic.singleton('log', () => LogManager());
+        Magic.register(LocalizationServiceProvider(Magic.app));
 
-        await service.applyDetectedTimezone();
+        expect(DateManager.instance.isBooted, isFalse);
 
-        expect(DateManager.instance.timezoneName, 'Europe/Istanbul');
-      },
-    );
+        await Magic.boot();
 
-    test(
-      'leaves DateManager on its own booted default when detection fails',
-      () async {
-        await MagicApp.init(configs: [localizationConfig]);
-        final service = LocaleApplicationService(
-          timezoneService: DeviceTimezoneService(
-            resolver: () async =>
-                throw StateError('platform channel unavailable'),
-          ),
-        );
-
-        await service.applyDetectedTimezone();
-
+        // Plain widget tests have no `flutter_timezone` platform channel, so
+        // platform detection resolves to null and the configured
+        // `localization.timezone` ('UTC') stays authoritative. This is the
+        // behaviour the deleted `applyDetectedTimezone()` used to force by
+        // hand; asserting the boot completed and the configured zone landed
+        // proves `Magic.init` alone now boots DateManager.
         expect(DateManager.instance.isBooted, isTrue);
         expect(DateManager.instance.timezoneName, isNotEmpty);
+        expect(DateManager.instance.timezoneName, 'UTC');
       },
     );
   });

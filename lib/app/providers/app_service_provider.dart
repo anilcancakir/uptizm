@@ -86,19 +86,17 @@ class AppServiceProvider extends ServiceProvider {
     //   Auth.manager.setUserFactory((data) => User.fromMap(data));
     // Magic Starter: Register user factory for auth session restoration.
     Auth.manager.setUserFactory((data) => User.fromMap(data));
-    MagicStarter.useUserModel((data) => User.fromMap(data));
 
-    // Magic Starter: Logout callback.
-    MagicStarter.useLogout(() async {
-      await Auth.logout();
-      MagicRoute.to(MagicStarterConfig.loginRoute());
-    });
-
-    // Magic Starter: Supported locale options for profile settings.
-    MagicStarter.useLocaleOptions({'en': 'English', 'tr': 'Türkçe'});
-
-    // Magic Starter: Team resolver for sidebar team switcher.
-    MagicStarter.useTeamResolver(
+    // Magic Starter: the identity contract, in one required call. The team
+    // callbacks are passed because uptizm enables the teams feature; omitting
+    // them would throw rather than silently degrade the team switcher.
+    MagicStarter.bootstrap(
+      userFactory: (data) => User.fromMap(data),
+      onLogout: () async {
+        await Auth.logout();
+        MagicRoute.to(MagicStarterConfig.loginRoute());
+      },
+      locales: {'en': 'English', 'tr': 'Türkçe'},
       currentTeam: () => User.current.currentTeam?.toMagicStarterTeam(),
       allTeams: () =>
           User.current.allTeams.map((t) => t.toMagicStarterTeam()).toList(),

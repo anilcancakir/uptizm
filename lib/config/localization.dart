@@ -27,11 +27,11 @@ Map<String, dynamic> get localizationConfig => {
     /// disabled or fails.
     'timezone': 'UTC',
 
-    /// Auto-detect timezone from device on app start. Magic's own detection
-    /// (`DateTime.timeZoneName`) is weak (an abbreviation, not an IANA id),
-    /// so the reliable IANA id is fed in separately via `DeviceTimezoneService`
-    /// + `DateManager.setTimezone` at boot (see Step 4 of the localization
-    /// plan).
+    /// Auto-detect timezone from device on app start. Magic reads the real
+    /// platform IANA identifier (through `flutter_timezone`) and its
+    /// `LocalizationServiceProvider` boots `DateManager` itself, so nothing
+    /// needs feeding in by hand. When no valid zone resolves, the `timezone`
+    /// above stays in effect rather than a guess.
     'auto_detect_timezone': true,
 
     /// Default date format pattern.

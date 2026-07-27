@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
-import 'app/services/locale_application_service.dart';
 import 'app/services/locale_onboarding_gate.dart';
 import 'config/app.dart';
 import 'config/routing.dart';
@@ -46,12 +45,6 @@ void main() async {
       () => magicStarterConfig,
     ],
   );
-
-  // Boot DateManager and override its timezone with the device's real IANA
-  // id (magic's own detection reads `DateTime.timeZoneName`, an
-  // abbreviation, not an IANA identifier), so the `X-Timezone` header magic
-  // sends on every request carries a value the backend can actually resolve.
-  await LocaleApplicationService().applyDetectedTimezone();
 
   // Load the one-time locale-onboarding flag from the vault into memory BEFORE
   // the router first evaluates a redirect: the onboarding middleware reads it
@@ -111,21 +104,10 @@ void main() async {
     ),
   );
 
-  // Bind the root MaterialApp.locale to the runtime Translator. Magic's
-  // MagicApplication otherwise pins MaterialApp.locale to the STATIC config
-  // default, so Flutter's LangDelegate reloads that locale on every build and
-  // reverts any runtime Lang.setLocale (the post-login locale application would
-  // load tr, then immediately get overwritten back to en). Rebuilding on
-  // Translator changes and passing locale: Lang.current keeps the applied
-  // locale stuck.
   runApp(
-    ListenableBuilder(
-      listenable: Translator.instance,
-      builder: (context, _) => MagicApplication(
-        title: Config.get<String>('app.name', 'Uptizm')!,
-        windTheme: windTheme,
-        locale: Lang.current,
-      ),
+    MagicApplication(
+      title: Config.get<String>('app.name', 'Uptizm')!,
+      windTheme: windTheme,
     ),
   );
 }
