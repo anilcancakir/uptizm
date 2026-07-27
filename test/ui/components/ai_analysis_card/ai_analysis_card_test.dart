@@ -89,6 +89,38 @@ void main() {
     );
   });
 
+  testWidgets('states that no counter-evidence was found, rather than hiding '
+      'the column', (tester) async {
+    // Honesty invariant (docs/uptizm-system/ai-design.md): an empty "against"
+    // list is itself surfaced, not silently accepted. Omitting the column left
+    // a "high confidence" verdict backed only by supporting evidence, which
+    // reads as more rigorous than it is. A real live analysis returned three
+    // supporting items and zero against, so this is the common case.
+    final IncidentAi oneSided = IncidentAi(
+      trigger: sampleAi.trigger,
+      confidence: sampleAi.confidence,
+      tldr: sampleAi.tldr,
+      evidenceFor: sampleAi.evidenceFor,
+      evidenceAgainst: const [],
+      suggestedActions: sampleAi.suggestedActions,
+      similarIncidents: sampleAi.similarIncidents,
+    );
+
+    await tester.pumpWidget(wrap(AiAnalysisCard(ai: oneSided)));
+    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+
+    expect(
+      texts.any((w) => w.data == trans('uptizm.ai.evidence_against')),
+      isTrue,
+      reason: 'the against heading must stay visible',
+    );
+    expect(
+      texts.any((w) => w.data == trans('uptizm.ai.evidence_against_none')),
+      isTrue,
+      reason: 'the absence of counter-evidence must be stated',
+    );
+  });
+
   testWidgets('renders suggested-action titles', (tester) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();

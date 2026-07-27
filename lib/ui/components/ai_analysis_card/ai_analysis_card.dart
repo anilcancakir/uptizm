@@ -123,14 +123,22 @@ class AiAnalysisCard extends StatelessWidget {
             AiEvidenceSide.forSide,
             ai.evidenceFor,
           );
+    // An empty counter-evidence list is STATED, never omitted. Dropping the
+    // column left a confident-looking verdict backed only by supporting
+    // evidence, which reads as more rigorous than it is: the reader could not
+    // tell whether the model weighed contradicting signals and found none, or
+    // never looked. Live, a real analysis came back with three supporting items,
+    // zero against, and "high" confidence, so this is the common case, not an
+    // edge one. See docs/uptizm-system/ai-design.md: an empty "against" list is
+    // itself surfaced, not silently accepted.
     final againstColumn = ai.evidenceAgainst.isEmpty
-        ? null
+        ? _buildEmptyEvidenceColumn(trans('uptizm.ai.evidence_against'))
         : _buildEvidenceColumn(
             trans('uptizm.ai.evidence_against'),
             AiEvidenceSide.against,
             ai.evidenceAgainst,
           );
-    final columns = [?forColumn, ?againstColumn];
+    final columns = [?forColumn, againstColumn];
 
     // Two columns side by side on wide screens, stacked on mobile.
     if (wScreenIs(context, 'sm') && columns.length == 2) {
@@ -150,6 +158,26 @@ class AiAnalysisCard extends StatelessWidget {
           if (i > 0) const SizedBox(height: 16),
           columns[i],
         ],
+      ],
+    );
+  }
+
+  /// Builds an evidence column that STATES the absence of items instead of
+  /// hiding the heading, so a one-sided verdict reads as one-sided.
+  Widget _buildEmptyEvidenceColumn(String label) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        WText(
+          label,
+          className:
+              'text-xs font-medium uppercase tracking-wide text-fg-muted',
+        ),
+        const SizedBox(height: 8),
+        WText(
+          trans('uptizm.ai.evidence_against_none'),
+          className: 'text-sm text-fg-muted',
+        ),
       ],
     );
   }
