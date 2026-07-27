@@ -31,6 +31,21 @@ String formatTimeOfDay(String? raw) {
   return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
 }
 
+/// Formats [value] as a local `MM-DD HH:mm` stamp (e.g. `'07-27 14:00'`).
+/// Returns `'—'` when [value] is `null`.
+///
+/// Numeric on purpose: a multi-day window (an on-call override routinely spans
+/// two calendar days) needs the date, and month NAMES would leak untranslated
+/// English into every non-English locale. Render it with the mono +
+/// `tabular-nums` utilities, like every other timestamp column.
+String formatMonthDayTime(DateTime? value) {
+  if (value == null) return '—';
+  final DateTime local = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
+}
+
 /// Formats the elapsed time between [startedAt] and [until] (`resolvedAt` or
 /// now) as `"Xm"` when under an hour, or `"Xh YYm"` otherwise. Matches the
 /// fixture duration convention (e.g. `'14m'`, `'1h 06m'`).

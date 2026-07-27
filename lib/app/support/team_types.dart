@@ -65,36 +65,245 @@ class TeamInvitation {
   });
 }
 
-/// A block of rotation time a member is the responder.
+/// Two-letter uppercase avatar initials for [name].
 ///
-/// Denormalized from [TeamMember] (id/name/initials copied in) so the
-/// on-call schedule view does not need to join against `teamMembers` to
-/// render a row. Mirrors the `OnCallShift` interface in the React oncall
-/// mock, flattened onto the member fields the view actually renders.
+/// Takes the first letter of up to the first two words, falling back to `'?'`
+/// when [name] is null or blank. Shared by every on-call value object below so
+/// an avatar tile never has to be fed a pre-baked `initials` wire field (the
+/// backend does not send one).
+String teamInitials(String? name) {
+  final String trimmed = name?.trim() ?? '';
+  if (trimmed.isEmpty) return '?';
+
+  final List<String> words = trimmed.split(RegExp(r'\s+'));
+  final String first = words[0][0];
+  final String second = words.length > 1 && words[1].isNotEmpty
+      ? words[1][0]
+      : '';
+  return (first + second).toUpperCase();
+}
+
+/// A real team member, decoded from the `GET /teams/{team}/members` payload
+/// that `MagicStarterTeamController.members` caches.
+///
+/// Distinct from the fixture-shaped [TeamMember]: the wire roster carries only
+/// `id`/`name`/`email`/`profile_photo_url`/`role`, so there is no `joinedAt` or
+/// `isSelf` to fill and [role] stays nullable rather than defaulting to a level
+/// the server never claimed.
 @immutable
-class OnCallShift {
-  /// The responder's [TeamMember.id].
-  final String memberId;
+class TeamResponder {
+  /// The member's user id (the `user_id` every on-call write posts).
+  final String id;
+
+  /// Full display name.
+  final String name;
+
+  /// Access level within the team; `null` when the roster omits it or sends a
+  /// value this client does not know.
+  final TeamRole? role;
+
+  /// Creates a [TeamResponder].
+  const TeamResponder({
+    required this.id,
+    required this.name,
+    this.role,
+  });
+
+  /// Decodes one entry of the team-members roster.
+  ///
+  /// The id is stringified because the backend is UUID-optional (an integer
+  /// key is just as valid as a UUID), and every on-call route path and
+  /// `user_id` body field is a string on the wire.
+  factory TeamResponder.fromMemberMap(Map<String, dynamic> map) {
+    return TeamResponder(
+      id: map['id']?.toString() ?? '',
+      name: (map['name'] as String?) ?? '',
+      role: _teamRoleFromWire(map['role'] as String?),
+    );
+  }
+
+  /// Decodes the whole roster `MagicStarterTeamController.members` publishes,
+  /// dropping any entry without both an id and a name.
+  ///
+  /// An unusable entry is skipped rather than rendered as a blank row: a picker
+  /// offering a nameless responder invites paging nobody. Shared by every
+  /// surface that targets a real person (the on-call rotation and override
+  /// pickers, the escalation-rung target picker).
+  static List<TeamResponder> listFromMemberMaps(
+    List<Map<String, dynamic>> members,
+  ) {
+    final List<TeamResponder> responders = [];
+    for (final Map<String, dynamic> member in members) {
+      final TeamResponder responder = TeamResponder.fromMemberMap(member);
+      if (responder.id.isEmpty || responder.name.isEmpty) continue;
+      responders.add(responder);
+    }
+
+    return responders;
+  }
+
+  /// Avatar initials for the member's [name].
+  String get initials => teamInitials(name);
+}
+
+/// Decodes a team-membership `role` wire string into a [TeamRole].
+///
+/// Returns `null` (rather than defaulting to [TeamRole.member]) for an absent
+/// or unrecognized value, so a role badge is omitted instead of asserting an
+/// access level the server never sent.
+TeamRole? _teamRoleFromWire(String? wire) {
+  return switch (wire) {
+    'owner' => TeamRole.owner,
+    'admin' => TeamRole.admin,
+    'member' => TeamRole.member,
+    _ => null,
+  };
+}
+
+/// One responder slot in a schedule's rotation ring, as returned by
+/// `GET /on-call/schedules` (`OnCallScheduleResource`'s `rotations` array).
+///
+/// The backend models a slot as a position plus a shift LENGTH
+/// (`shift_hours`), not a wall-clock span: the actual window a responder holds
+/// is derived server-side by `RotationResolver` from the schedule anchor, so
+/// this object never carries (or invents) a `"Mon 09:00 - Wed 09:00"` label.
+@immutable
+class OnCallRotationSlot {
+  /// The backend rotation row id (the `DELETE`/reorder target).
+  final String id;
+
+  /// The responder's user id.
+  final String userId;
+
+  /// The responder's display name; `null` when the server could not resolve
+  /// the user behind the slot.
+  final String? userName;
+
+  /// Ascending order within the ring.
+  final int position;
+
+  /// How many hours this responder holds the pager per cycle.
+  final int shiftHours;
+
+  /// Creates an [OnCallRotationSlot].
+  const OnCallRotationSlot({
+    required this.id,
+    required this.userId,
+    required this.userName,
+    required this.position,
+    required this.shiftHours,
+  });
+
+  /// Decodes one `rotations[]` wire entry.
+  factory OnCallRotationSlot.fromMap(Map<String, dynamic> map) {
+    return OnCallRotationSlot(
+      id: map['id']?.toString() ?? '',
+      userId: map['user_id']?.toString() ?? '',
+      userName: map['user_name'] as String?,
+      position: (map['position'] as num?)?.toInt() ?? 0,
+      shiftHours: (map['shift_hours'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Avatar initials for the slot's responder.
+  String get initials => teamInitials(userName);
+}
+
+/// A temporary responder swap layered over the ring, as returned by
+/// `GET /on-call/schedules` (`OnCallScheduleResource`'s `overrides` array).
+@immutable
+class OnCallOverrideWindow {
+  /// The backend override row id (the `DELETE` target).
+  final String id;
+
+  /// The overriding responder's user id.
+  final String userId;
+
+  /// The overriding responder's display name; `null` when the server could
+  /// not resolve the user behind the override.
+  final String? userName;
+
+  /// When the override starts holding the pager; `null` when the wire omits
+  /// or malforms it.
+  final DateTime? startsAt;
+
+  /// When the override hands the pager back; `null` when the wire omits or
+  /// malforms it.
+  final DateTime? endsAt;
+
+  /// Creates an [OnCallOverrideWindow].
+  const OnCallOverrideWindow({
+    required this.id,
+    required this.userId,
+    required this.userName,
+    required this.startsAt,
+    required this.endsAt,
+  });
+
+  /// Decodes one `overrides[]` wire entry.
+  factory OnCallOverrideWindow.fromMap(Map<String, dynamic> map) {
+    return OnCallOverrideWindow(
+      id: map['id']?.toString() ?? '',
+      userId: map['user_id']?.toString() ?? '',
+      userName: map['user_name'] as String?,
+      startsAt: DateTime.tryParse((map['starts_at'] as String?) ?? ''),
+      endsAt: DateTime.tryParse((map['ends_at'] as String?) ?? ''),
+    );
+  }
+
+  /// Avatar initials for the overriding responder.
+  String get initials => teamInitials(userName);
+
+  /// Whether this window contains [moment] (inclusive on both ends, matching
+  /// the backend `RotationResolver`'s `betweenIncluded` comparison).
+  ///
+  /// Used ONLY to label the hero card ("override until ..." versus "shift"):
+  /// WHO holds the pager is resolved server-side by `GET /on-call/current` and
+  /// is never recomputed here. A window missing either bound covers nothing.
+  bool covers(DateTime moment) {
+    final DateTime? start = startsAt;
+    final DateTime? end = endsAt;
+    if (start == null || end == null) return false;
+
+    return !moment.isBefore(start) && !moment.isAfter(end);
+  }
+}
+
+/// The responder `GET /on-call/current` resolved for a schedule.
+///
+/// A `null` [OnCallResponder] (rather than an instance with a blank name) is
+/// how "nobody is on call" travels: the endpoint answers `user: null` for an
+/// empty ring with no covering override, and that must never be softened into
+/// a placeholder person.
+@immutable
+class OnCallResponder {
+  /// The responder's user id.
+  final String id;
 
   /// The responder's display name.
-  final String memberName;
+  final String name;
 
-  /// The responder's avatar initials.
-  final String initials;
+  /// The responder's account email; `null` when the wire omits it.
+  final String? email;
 
-  /// Span label for the rotation list, e.g. `"Mon 09:00 - Wed 09:00"`.
-  final String span;
-
-  /// True for the shift covering "now".
-  final bool current;
-
-  const OnCallShift({
-    required this.memberId,
-    required this.memberName,
-    required this.initials,
-    required this.span,
-    required this.current,
+  /// Creates an [OnCallResponder].
+  const OnCallResponder({
+    required this.id,
+    required this.name,
+    this.email,
   });
+
+  /// Decodes the `data.user` object of a `GET /on-call/current` response.
+  factory OnCallResponder.fromMap(Map<String, dynamic> map) {
+    return OnCallResponder(
+      id: map['id']?.toString() ?? '',
+      name: (map['name'] as String?) ?? '',
+      email: map['email'] as String?,
+    );
+  }
+
+  /// Avatar initials for the responder's [name].
+  String get initials => teamInitials(name);
 }
 
 /// One row in the team's billing history.

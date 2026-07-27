@@ -7,9 +7,8 @@ import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/support/team_types.dart'
-    show OnCallShift, PaymentMethod, UsageStat;
+    show PaymentMethod, UsageStat;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
-import 'package:uptizm/app/mocks/teams_data.dart';
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
@@ -192,6 +191,9 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.oncall_remove_confirm_title': 'Remove :name?',
       'uptizm.teams.oncall_remove_confirm_description': "They'll stop shifts.",
       'uptizm.teams.oncall_remove_confirm_label': 'Remove',
+      'uptizm.teams.oncall_empty_title': 'No on-call schedule yet',
+      'uptizm.teams.oncall_empty_description': 'Create one to page someone.',
+      'uptizm.teams.oncall_create_button': 'Create schedule',
 
       // Plan & billing.
       'uptizm.teams.billing_title': 'Plan & billing',
@@ -465,24 +467,32 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('OnCallScheduleView', () {
-    testWidgets('renders the title and the current-shift member name', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 6000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets(
+      'renders the title and the honest empty state when the API has no '
+      'schedule',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 6000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(
-        wrap(const OnCallScheduleView(), size: const Size(1280, 6000)),
-      );
-      await tester.pump();
+        // The bare `Http.fake()` from setUp answers every read with an empty
+        // envelope, i.e. this team has no on-call schedule.
+        await tester.pumpWidget(
+          wrap(const OnCallScheduleView(), size: const Size(1280, 6000)),
+        );
+        await tester.pump();
 
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.teams.oncall_title')), findsOneWidget);
-      final OnCallShift current = onCallRotation.firstWhere(
-        (OnCallShift shift) => shift.current,
-      );
-      expect(find.text(current.memberName), findsWidgets);
-    });
+        expect(tester.takeException(), isNull);
+        expect(find.text(trans('uptizm.teams.oncall_title')), findsOneWidget);
+        expect(
+          find.text(trans('uptizm.teams.oncall_empty_title')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.teams.oncall_create_button')),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

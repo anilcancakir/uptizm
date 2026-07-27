@@ -40,11 +40,18 @@ class OnCallController extends Controller
 
     /**
      * List the current team's on-call schedules, newest first, paginated.
+     *
+     * The rotation ring and the overrides are eager-loaded so one call returns
+     * a complete schedule list: the on-call screen renders who is in the ring
+     * and which overrides are live straight from this payload, and a client
+     * that had to follow up with a `show()` per row would either fan out N+1
+     * requests or fall back to inventing a ring it never received.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
         $schedules = OnCallSchedule::query()
             ->where('team_id', $request->user()->current_team_id)
+            ->with(['rotations.user', 'overrides.user'])
             ->orderByDesc('created_at')
             ->paginate();
 

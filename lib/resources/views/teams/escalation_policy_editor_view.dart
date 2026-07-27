@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
@@ -5,6 +7,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
+import '../../../app/support/team_types.dart' show TeamResponder;
 import '../../../app/support/escalation_support.dart'
     show
         EscalationTargetType,
@@ -112,6 +115,12 @@ class _EscalationPolicyEditorViewState
   /// The remove-rung glyph (a trash can, matching the React source).
   static const IconData _removeIcon = Icons.delete_outline;
 
+  /// The starter's team controller, read for the REAL member roster the rung
+  /// target picker offers. The picker used to list a fixture, so a rung could
+  /// be pointed at a person who does not exist and the ladder would page
+  /// nobody during an outage.
+  final MagicStarterTeamController _team = MagicStarterTeamController.instance;
+
   /// The fixed rung-delay options, in ascending order. Mirrors the React
   /// `DELAY_OPTIONS`; each value is labelled through [escalationDelayLabel].
   static const List<int> _delayOptions = <int>[0, 3, 5, 10, 15, 30];
@@ -169,6 +178,9 @@ class _EscalationPolicyEditorViewState
     if (id != null) {
       controller.refreshDetail(id);
     }
+    // Warm the real member roster for the target picker. It publishes through
+    // its own ValueNotifier, so the picker fills in as soon as it lands.
+    unawaited(_team.loadMembersAndInvitations());
   }
 
   @override
@@ -554,18 +566,23 @@ class _EscalationPolicyEditorViewState
           MSFormField(
             label: trans('uptizm.teams.escalation_editor_targets_label'),
             hint: trans('uptizm.teams.escalation_editor_targets_hint'),
-            child: MSSelect<String>(
-              value: escalationTargetKey(rung.targetType, rung.targetUserId),
-              options: <SelectOption<String>>[
-                for (final option in escalationTargetOptions())
-                  SelectOption<String>(
-                    value: option.key,
-                    label: option.label,
-                  ),
-              ],
-              onChange: (String? key) {
-                if (key != null) _setTarget(index, key);
-              },
+            child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+              valueListenable: _team.members,
+              builder: (context, members, _) => MSSelect<String>(
+                value: escalationTargetKey(rung.targetType, rung.targetUserId),
+                options: <SelectOption<String>>[
+                  for (final option in escalationTargetOptions(
+                    TeamResponder.listFromMemberMaps(members),
+                  ))
+                    SelectOption<String>(
+                      value: option.key,
+                      label: option.label,
+                    ),
+                ],
+                onChange: (String? key) {
+                  if (key != null) _setTarget(index, key);
+                },
+              ),
             ),
           ),
         ],

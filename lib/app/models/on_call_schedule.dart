@@ -21,12 +21,14 @@ import 'package:magic/magic.dart';
 ///
 /// ## Sub-resources
 ///
-/// The eager-loaded `rotations` and `overrides` rings travel on the detail
-/// payload and are stored as raw attributes by [fromMap]. They are NOT
-/// exposed as typed accessors here: rotations and overrides are sub-resources
-/// (created/deleted via `POST/DELETE /on-call/schedules/:id/{rotations|overrides}`),
-/// deliberately kept out of the ORM, and their boundary is owned by the
-/// controller migration rather than the schedule's own scalar surface.
+/// The eager-loaded `rotations` and `overrides` rings travel on both the index
+/// and the detail payload and are stored as raw attributes by [fromMap]. They
+/// are exposed as RAW row lists, not typed accessors: rotations and overrides
+/// are sub-resources (created/deleted via
+/// `POST/DELETE /on-call/schedules/:id/{rotations|overrides}`), deliberately
+/// kept out of the ORM. [OnCallController] decodes the rows into
+/// `OnCallRotationSlot`/`OnCallOverrideWindow` value objects, so the typed
+/// boundary lives there rather than on the schedule's own scalar surface.
 ///
 /// ## Usage
 ///
@@ -102,15 +104,27 @@ class OnCallSchedule extends Model
   /// Set the schedule's timezone.
   set timezone(String? value) => setAttribute('timezone', value);
 
-  /// The eager-loaded rotation rows from the detail payload, as raw maps.
+  /// The eager-loaded rotation rows, as raw maps.
   ///
-  /// Each row carries at least `id` (rotation row id) and `user_id` (the
-  /// member key), which [OnCallController] reduces into its
-  /// member-to-rotation-row lookup. Returns an empty list when the wire omits
-  /// the `rotations` array (e.g. an index-row payload). Kept as raw maps
-  /// because rotations are a sub-resource the ORM does not model directly.
-  List<Map<String, dynamic>> get rotations {
-    final Object? raw = getAttribute('rotations');
+  /// Each row carries `id` (rotation row id), `user_id`, `user_name`,
+  /// `position` and `shift_hours`, which [OnCallController] decodes into
+  /// [OnCallRotationSlot]s. Returns an empty list when the wire omits the
+  /// `rotations` array (a `store`/`update` response, whose relations were
+  /// never loaded). Kept as raw maps because rotations are a sub-resource the
+  /// ORM does not model directly.
+  List<Map<String, dynamic>> get rotations => _rawRows('rotations');
+
+  /// The eager-loaded override rows, as raw maps.
+  ///
+  /// Each row carries `id`, `user_id`, `user_name`, `starts_at` and `ends_at`,
+  /// which [OnCallController] decodes into [OnCallOverrideWindow]s. Empty when
+  /// the wire omits the `overrides` array, on the same terms as [rotations].
+  List<Map<String, dynamic>> get overrides => _rawRows('overrides');
+
+  /// The raw sub-resource rows stored under [key] by [fromMap], or an empty
+  /// list when the attribute is absent or not a list.
+  List<Map<String, dynamic>> _rawRows(String key) {
+    final Object? raw = getAttribute(key);
     if (raw is! List) return const [];
     return raw.whereType<Map<String, dynamic>>().toList();
   }

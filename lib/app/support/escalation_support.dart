@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
 
-import '../mocks/teams_data.dart' show teamMembers;
-import '../support/team_types.dart' show TeamMember;
+import 'package:magic/magic.dart' show trans;
+
+import '../support/team_types.dart' show TeamResponder;
 
 /// The kind of recipient an escalation rung pages, mirroring the backend
 /// `EscalationTargetType`.
@@ -84,37 +85,47 @@ String escalationTargetKey(EscalationTargetType type, String? userId) {
 /// Builds the escalation-rung target choices: the shared on-call rotation
 /// first, then one entry per team member.
 ///
-/// Sourced from the same [teamMembers] fixture the on-call schedule reads
-/// (there is no backend team-member roster read on the client yet, mirroring
-/// `on_call_schedule_view.dart`). The on-call entry maps to
-/// `target_type: on_call` (no id); each member entry maps to
-/// `target_type: user` with that member's id.
-List<EscalationTargetOption> escalationTargetOptions() {
+/// [responders] is the team's REAL member roster, supplied by the caller (the
+/// editor reads `MagicStarterTeamController.members`). It used to be sourced
+/// from the `teamMembers` fixture, so a rung could be pointed at a person who
+/// does not exist: the ladder would then page nobody during an outage, which is
+/// the failure mode escalation exists to prevent. Passing the roster in keeps
+/// this function pure and leaves the fetch with the view.
+///
+/// The on-call entry maps to `target_type: on_call` (no id); each member entry
+/// maps to `target_type: user` with that member's id.
+List<EscalationTargetOption> escalationTargetOptions(
+  List<TeamResponder> responders,
+) {
   return [
-    const EscalationTargetOption(
+    EscalationTargetOption(
       type: EscalationTargetType.onCall,
-      label: 'On-call rotation',
+      label: trans('uptizm.teams.escalation_target_on_call'),
     ),
-    for (final TeamMember member in teamMembers)
+    for (final TeamResponder responder in responders)
       EscalationTargetOption(
         type: EscalationTargetType.user,
-        userId: member.id,
-        label: member.name,
+        userId: responder.id,
+        label: responder.name,
       ),
   ];
 }
 
 /// Turns a rung delay into its display label.
 ///
-/// `0` minutes reads as "Immediately"; anything else composes "After :n min".
-/// Mirrors `escalationDelayLabel` in the React oncall mock. No i18n: the
-/// label is assembled directly, matching the source's plain template string.
+/// `0` minutes reads as "immediately"; anything else composes the delay. Goes
+/// through [trans] like every other user-facing string: the label was assembled
+/// from English literals, so a Turkish operator read "After 5 min" inside an
+/// otherwise translated ladder.
 ///
 /// ```dart
 /// escalationDelayLabel(0); // "Immediately"
 /// escalationDelayLabel(5); // "After 5 min"
 /// ```
 String escalationDelayLabel(int afterMinutes) {
-  if (afterMinutes == 0) return 'Immediately';
-  return 'After $afterMinutes min';
+  if (afterMinutes == 0) {
+    return trans('uptizm.teams.escalation_delay_immediate');
+  }
+
+  return trans('uptizm.teams.escalation_delay_after', {'n': '$afterMinutes'});
 }

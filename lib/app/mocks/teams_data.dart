@@ -2,23 +2,21 @@ import 'package:flutter/widgets.dart' show Color;
 
 import '../enums/team_role.dart' show TeamRole;
 import '../support/team_types.dart'
-    show
-        Invoice,
-        OnCallShift,
-        PaymentMethod,
-        TeamInvitation,
-        TeamMember,
-        UsageStat;
+    show Invoice, PaymentMethod, TeamInvitation, TeamMember, UsageStat;
 import '../enums/invoice_status.dart' show InvoiceStatus;
 
 /// **Teams-domain mock fixtures.**
 ///
-/// Ported from the design lab's `src/lib/teams.ts` (members/invites),
-/// `src/lib/notifications.ts` (channels), `src/lib/oncall.ts` (rotation), and
+/// Ported from the design lab's `src/lib/teams.ts` (members/invites) and
 /// `src/lib/billing.ts` (invoices, payment method, usage). Feeds the
-/// members/notifications/on-call/billing pages under
-/// `lib/resources/views/teams/`. The value-object types live in
-/// `lib/app/support/team_types.dart`; this file holds only their fixtures.
+/// members/billing pages under `lib/resources/views/teams/`. The value-object
+/// types live in `lib/app/support/team_types.dart`; this file holds only their
+/// fixtures.
+///
+/// The on-call rotation fixtures that used to live here are GONE: the on-call
+/// screen reads the real `api/v1/on-call/*` surface through
+/// `OnCallController`, and a fixture rotation on a paging screen names people
+/// who may not exist.
 ///
 /// [kTeamColors] is content data (a per-team/avatar brand-color palette), the
 /// direct analogue of `Team.color`/`StatusPageConfig.brandColor`, so it lives
@@ -87,42 +85,6 @@ const List<TeamInvitation> pendingInvitations = [
     invitedAt: '1 week ago',
   ),
 ];
-
-// ---------------------------------------------------------------------------
-// On-call rotation
-// ---------------------------------------------------------------------------
-
-/// The team's on-call rotation. Exactly one shift is [OnCallShift.current].
-///
-/// Mirrors the `onCallRotation` fixture in the React oncall mock.
-const List<OnCallShift> onCallRotation = [
-  OnCallShift(
-    memberId: 'u2',
-    memberName: 'Mara Pohl',
-    initials: 'MP',
-    span: 'Mon 09:00 - Wed 09:00',
-    current: true,
-  ),
-  OnCallShift(
-    memberId: 'u3',
-    memberName: 'Ravi Shah',
-    initials: 'RS',
-    span: 'Wed 09:00 - Fri 09:00',
-    current: false,
-  ),
-  OnCallShift(
-    memberId: 'u4',
-    memberName: 'Ada Lovelace',
-    initials: 'AL',
-    span: 'Fri 09:00 - Mon 09:00',
-    current: false,
-  ),
-];
-
-/// Rotation cadence, shown on the on-call schedule screen.
-///
-/// Mirrors the `onCallCadence` fixture in the React oncall mock.
-const String onCallCadence = 'Weekly handoff, Mondays at 09:00';
 
 // ---------------------------------------------------------------------------
 // Billing: invoices, payment method, usage

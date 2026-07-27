@@ -57,6 +57,34 @@ class OnCallControllerTest extends TestCase
         $this->assertNotContains('Theirs', $names);
     }
 
+    public function test_index_carries_each_schedules_rotation_ring_and_overrides(): void
+    {
+        [$team, $user] = $this->actingAsTeamMemberWithMember();
+        $schedule = $this->makeSchedule($team->id, 'Mine');
+        $rotation = OnCallRotation::create([
+            'schedule_id' => $schedule->id,
+            'user_id' => $user->id,
+            'position' => 0,
+            'shift_hours' => 24,
+        ]);
+        $override = OnCallOverride::create([
+            'schedule_id' => $schedule->id,
+            'user_id' => $user->id,
+            'starts_at' => now(),
+            'ends_at' => now()->addHours(4),
+        ]);
+
+        $response = $this->getJson('/api/v1/on-call/schedules');
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.0.rotations.0.id', $rotation->id);
+        $response->assertJsonPath('data.0.rotations.0.user_id', $user->id);
+        $response->assertJsonPath('data.0.rotations.0.user_name', $user->name);
+        $response->assertJsonPath('data.0.rotations.0.shift_hours', 24);
+        $response->assertJsonPath('data.0.overrides.0.id', $override->id);
+        $response->assertJsonPath('data.0.overrides.0.user_name', $user->name);
+    }
+
     public function test_show_returns_the_schedule_with_its_rotations_and_overrides(): void
     {
         [$team, $user] = $this->actingAsTeamMemberWithMember();

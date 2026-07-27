@@ -30,6 +30,9 @@ class _EscalationEditorLangLoader implements TranslationLoader {
       'uptizm.teams.escalation_editor_delay_label': 'Delay',
       'uptizm.teams.escalation_editor_targets_label': 'Notify',
       'uptizm.teams.escalation_editor_targets_hint': 'Who this rung pages.',
+      'uptizm.teams.escalation_target_on_call': 'On-call rotation',
+      'uptizm.teams.escalation_delay_immediate': 'Immediately',
+      'uptizm.teams.escalation_delay_after': 'After :n min',
       'uptizm.teams.escalation_editor_add_rung_button': 'Add rung',
       'uptizm.teams.escalation_editor_repeat_label': 'Repeat last rung',
       'uptizm.teams.escalation_editor_default_label': 'Use as default',
@@ -107,12 +110,20 @@ void main() {
         }),
       ]);
 
+      // The rung's target must resolve against the team's REAL roster. This
+      // used to assert a fixture name ('u2' was Mara Pohl in the mock), so the
+      // test passed while the picker offered people who do not exist: a rung
+      // pointed at one of them would page nobody during an outage.
+      MagicStarterTeamController.instance.members.value = [
+        {'id': 'u1', 'name': 'Real Owner', 'role': 'owner'},
+        {'id': 'u2', 'name': 'Real Responder', 'role': 'member'},
+      ];
+
       await tester.pumpWidget(wrap(const EscalationPolicyEditorView(id: 'p1')));
       await tester.pump();
 
-      // 'u2' is Mara Pohl in the team fixture: the user rung reconstructs to
-      // her name as the selected target, not a channel free-string.
-      expect(find.text('Mara Pohl'), findsOneWidget);
+      expect(find.text('Real Responder'), findsOneWidget);
+      expect(find.text('Mara Pohl'), findsNothing);
       expect(find.text('Slack #incidents'), findsNothing);
       expect(find.text('PagerDuty'), findsNothing);
     },

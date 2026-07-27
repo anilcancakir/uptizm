@@ -12,9 +12,13 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * schedule screen.
  *
  * The `rotations` and `overrides` arrays are only populated when their
- * relations were eager-loaded (see {@see OnCallController::show()}),
- * so `index` stays a single query while `show` and the mutating
- * rotation/override actions can carry the full ring + override list.
+ * relations were eager-loaded. Every endpoint that returns a schedule does
+ * eager-load them ({@see OnCallController::index()}, {@see OnCallController::show()},
+ * and the mutating rotation/override actions), so the client always receives a
+ * complete ring; the guards stay in place because `store()` and `update()`
+ * answer with a freshly written model whose relations were never loaded, and
+ * emitting `rotations: []` there would read as "the ring is empty" rather than
+ * "the ring was not part of this response".
  *
  * @property OnCallSchedule $resource
  */
