@@ -97,6 +97,18 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Pin the session time zone to UTC. Laravel binds a datetime as a
+            // NAIVE string ("2026-07-27 00:28:29") in the app timezone (UTC),
+            // and PostgreSQL resolves a naive literal written to a `timestamptz`
+            // column using the SESSION time zone. On a server whose zone is not
+            // UTC (a developer machine inherits the OS zone, e.g.
+            // Europe/Istanbul) every such write was silently shifted by the
+            // offset: an instant stamped 00:28:29Z came back as
+            // "00:28:29+03" = 21:28:29Z, three hours in the past. That reaches
+            // the product as wrong check times, wrong uptime windows, wrong
+            // incident durations and a wrong on-call responder, so the session
+            // zone is configuration, never inherited.
+            'timezone' => env('DB_TIMEZONE', 'UTC'),
         ],
 
         'sqlsrv' => [
