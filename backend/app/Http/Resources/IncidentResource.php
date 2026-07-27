@@ -7,9 +7,15 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * JSON shape for a single incident. Ships the affected-component pivot and
- * the unified update timeline when those relations are eager-loaded (see
- * IncidentController::index()/show()).
+ * JSON shape for a single incident. Ships the affected-component pivot, the
+ * assigned responder, and the unified update timeline when those relations are
+ * eager-loaded (see IncidentController::index()/show()).
+ *
+ * `assignee` is a deliberately minimal `{id, name}` object (or null): the
+ * client renders an owner label and posts the id back, so no other user field
+ * belongs on an incident payload. The postmortem ships flat as
+ * `postmortem_body` + `postmortem_published_at`; a body with a null stamp is an
+ * internal draft the public status page never renders.
  *
  * @property Incident $resource
  */
@@ -33,6 +39,15 @@ class IncidentResource extends JsonResource
             'trigger_metric_key' => $this->resource->trigger_metric_key,
             'started_at' => $this->resource->started_at?->toIso8601String(),
             'resolved_at' => $this->resource->resolved_at?->toIso8601String(),
+            'postmortem_body' => $this->resource->postmortem_body,
+            'postmortem_published_at' => $this->resource->postmortem_published_at?->toIso8601String(),
+            // `whenLoaded` yields null for a loaded-but-empty relation, so an
+            // unassigned incident ships an explicit `assignee: null` while a
+            // payload that never loaded the relation omits the key entirely.
+            'assignee' => $this->whenLoaded('assignee', fn () => [
+                'id' => $this->resource->assignee->id,
+                'name' => $this->resource->assignee->name,
+            ]),
             'monitors' => $this->whenLoaded(
                 'monitors',
                 fn () => $this->resource->monitors->map(fn ($monitor) => [

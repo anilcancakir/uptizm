@@ -174,6 +174,60 @@ class IncidentWriteServiceTest extends TestCase
         Notification::assertSentTo($user, IncidentOpened::class);
     }
 
+    public function test_assign_notes_a_change_once_and_no_ops_on_the_same_owner(): void
+    {
+        Notification::fake();
+        [$monitor, $user] = $this->makeMonitor();
+        $incident = $this->makeActiveIncident($monitor);
+        $service = $this->service();
+
+        // 1. The first assign records the owner and an internal timeline note.
+        $service->assign($incident, $user, author: 'Operator');
+        $incident->refresh();
+        $this->assertSame((string) $user->id, (string) $incident->assigned_to_user_id);
+        $this->assertSame(1, $incident->updates()->count());
+        $this->assertFalse($incident->updates()->sole()->is_public);
+
+        // 2. Re-assigning the same owner is a no-op: no second note.
+        $service->assign($incident, $user, author: 'Operator');
+        $this->assertSame(1, $incident->fresh()->updates()->count());
+
+        // 3. Clearing the owner records the unassignment.
+        $service->assign($incident, null, author: 'Operator');
+        $this->assertNull($incident->fresh()->assigned_to_user_id);
+        $this->assertSame(2, $incident->fresh()->updates()->count());
+    }
+
+    public function test_a_postmortem_publishes_once_and_keeps_its_original_stamp(): void
+    {
+        Notification::fake();
+        [$monitor] = $this->makeMonitor();
+        $incident = $this->makeActiveIncident($monitor);
+        $service = $this->service();
+
+        // 1. A draft save stores the body without publishing it.
+        $service->savePostmortem($incident, 'Draft body.', publish: false, author: 'Operator');
+        $incident->refresh();
+        $this->assertSame('Draft body.', $incident->postmortem_body);
+        $this->assertNull($incident->postmortem_published_at);
+        $this->assertFalse($incident->postmortemIsPublished());
+
+        // 2. Publishing stamps the publication time.
+        $service->savePostmortem($incident, 'Published body.', publish: true, author: 'Operator');
+        $incident->refresh();
+        $publishedAt = $incident->postmortem_published_at;
+        $this->assertNotNull($publishedAt);
+        $this->assertTrue($incident->postmortemIsPublished());
+
+        // 3. A later edit of a published postmortem keeps the ORIGINAL stamp:
+        //    "published at" is when customers could first read it.
+        $this->travel(5)->minutes();
+        $service->savePostmortem($incident, 'Corrected body.', publish: true, author: 'Operator');
+        $incident->refresh();
+        $this->assertSame('Corrected body.', $incident->postmortem_body);
+        $this->assertTrue($publishedAt->equalTo($incident->postmortem_published_at));
+    }
+
     /**
      * Resolve the service with its real collaborators from the container.
      */

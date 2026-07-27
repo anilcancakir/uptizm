@@ -141,6 +141,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.incidents.acknowledge');
     Route::post('incidents/{incident}/reopen', [IncidentController::class, 'reopen'])
         ->name('api.v1.incidents.reopen');
+    Route::post('incidents/{incident}/assign', [IncidentController::class, 'assign'])
+        ->name('api.v1.incidents.assign');
+    Route::post('incidents/{incident}/postmortem', [IncidentController::class, 'postmortem'])
+        ->name('api.v1.incidents.postmortem');
     Route::post('incidents/{incident}/updates', [IncidentController::class, 'postUpdate'])
         ->name('api.v1.incidents.updates.store');
     Route::get('incidents/{incident}/analysis', [IncidentAnalysisController::class, 'show'])

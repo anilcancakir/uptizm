@@ -12,6 +12,13 @@ import 'formatters.dart' show formatHourMinute;
 /// A monitor affected by an incident, with its status at open time and now.
 @immutable
 class AffectedMonitor {
+  /// The affected monitor's id, or `''` when the pivot entry omits it.
+  ///
+  /// Carried so a caller can match an incident to a monitor by IDENTITY rather
+  /// than by display name: two monitors may share a name, and a rename would
+  /// silently break a name match.
+  final String id;
+
   /// Display name of the monitor.
   final String name;
 
@@ -22,6 +29,7 @@ class AffectedMonitor {
   final StatusKey statusCurrent;
 
   const AffectedMonitor({
+    this.id = '',
     required this.name,
     required this.statusAtStart,
     required this.statusCurrent,
@@ -32,6 +40,7 @@ class AffectedMonitor {
   /// keys), with a safe fallback for unknown status values.
   factory AffectedMonitor.fromMap(Map<String, dynamic> map) {
     return AffectedMonitor(
+      id: map['monitor_id']?.toString() ?? '',
       name: (map['name'] as String?) ?? '',
       statusAtStart: statusKeyFromWire(
         map['component_status_at_start'] as String?,
@@ -79,14 +88,19 @@ class TimelineEntry {
   });
 
   /// Builds a [TimelineEntry] from a backend `updates[]` payload
-  /// (`message`/`is_public`/`autonomous`/`actor`/`status` snake_case keys).
+  /// (`message`/`is_public`/`autonomous`/`actor`/`author`/`status` snake_case
+  /// keys).
   ///
-  /// The resource does not carry a named author field, so [author] stays
-  /// `null` for a backend-decoded entry (the UI already renders a `null`
-  /// author for system entries).
+  /// [author] carries the real persisted attribution the backend wrote from
+  /// the acting user (`IncidentUpdateResource.author`); a blank or absent value
+  /// decodes to `null`, which the UI already renders as an unattributed system
+  /// entry. The client never substitutes a name of its own here.
   factory TimelineEntry.fromMap(Map<String, dynamic> map) {
+    final String author = (map['author'] as String?)?.trim() ?? '';
+
     return TimelineEntry(
       actor: timelineActorFromWire(map['actor'] as String?),
+      author: author.isEmpty ? null : author,
       status: (map['status'] as String?) ?? '',
       message: (map['message'] as String?) ?? '',
       time: formatHourMinute(
@@ -193,22 +207,14 @@ class IncidentAi {
   });
 }
 
-/// Assignee for an incident: the engineer currently driving it.
-@immutable
-class IncidentAssignee {
-  /// Full display name.
-  final String name;
-
-  /// Two-letter initials for avatar fallback rendering.
-  final String initials;
-
-  const IncidentAssignee({required this.name, required this.initials});
-}
-
 /// Acknowledgement record: a human confirmed they are on the incident.
+///
+/// Only ever built from a PERSISTED timeline entry (see
+/// `Incident.acknowledgement`): both fields come from what the backend stamped,
+/// so this type can never carry a client-invented responder.
 @immutable
 class IncidentAcknowledgement {
-  /// Name of the engineer who acknowledged.
+  /// Name of the engineer who acknowledged, as the backend recorded it.
   final String by;
 
   /// Wall-clock time of acknowledgement, e.g. `"14:33"`.
@@ -221,10 +227,15 @@ class IncidentAcknowledgement {
 ///
 /// Fixture-only design-lab DTO. The wire-decode role moved to the `Incident`
 /// ORM model; this shape survives solely to carry the design-lab `incidents`
-/// fixtures, which hold richer data than any backend endpoint emits (per-item
-/// [assignee]/[acknowledged], and the full [IncidentAi] evidence lists) for the
-/// design-lab-only surfaces: the weekly AI digest, the public status-page
-/// preview, the monitor-detail incidents tab, and the AI analysis card preview.
+/// fixtures, which hold richer data than any backend endpoint emits (the full
+/// [IncidentAi] evidence lists) for the design-lab-only surfaces: the weekly AI
+/// digest, the public status-page preview, the monitor-detail incidents tab, and
+/// the AI analysis card preview.
+///
+/// It deliberately carries NO assignee and NO acknowledgement: both are real
+/// persisted state now, read off the live [IncidentAcknowledgement] /
+/// `Incident.assigneeId` path, and a fixture field for either would only be a
+/// place for an invented responder to live.
 @immutable
 class IncidentSummary {
   /// Stable identifier used for routing, e.g. `'checkout-503'`.
@@ -266,12 +277,6 @@ class IncidentSummary {
   /// Chronological (newest-first) activity log.
   final List<TimelineEntry> timeline;
 
-  /// Assignee, or `null` when the incident is unassigned.
-  final IncidentAssignee? assignee;
-
-  /// Acknowledgement record, or `null` when not yet acknowledged.
-  final IncidentAcknowledgement? acknowledged;
-
   /// Attached AI analysis, or `null` when AI analysis is absent.
   final IncidentAi? ai;
 
@@ -289,8 +294,6 @@ class IncidentSummary {
     required this.monitorName,
     required this.affectedMonitors,
     required this.timeline,
-    this.assignee,
-    this.acknowledged,
     this.ai,
   });
 }

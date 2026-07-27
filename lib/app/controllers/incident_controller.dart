@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:magic/magic.dart';
 
+import 'session_scoped_controller.dart';
 import '../models/incident.dart';
 import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
@@ -11,25 +14,41 @@ import '../support/incident_types.dart'
 ///
 /// Reads the incident list and detail from the live `api/v1` backend
 /// (`GET /incidents`, `GET /incidents/{id}`), and drives the incident-write
-/// actions ([resolve], [reopen], [acknowledge], [postUpdate], [create])
-/// against the matching write endpoints, following the
-/// `monitor_controller.dart` action pattern: `Http.post` -> [reload] on
-/// success -> success toast; error toast + stay on failure, no silent
-/// swallow. [editPostmortem] has no backend counterpart (there is no
-/// postmortem-write endpoint and no postmortem content available at its call
-/// site) and stays a mock toast; see its docblock. All transient compose
-/// state (the detail composer + lifecycle / assignee toggles, the create
-/// form, the list filter / query) stays local to its own view.
+/// actions ([resolve], [reopen], [acknowledge], [postUpdate], [assign],
+/// [savePostmortem], [create]) against the matching write endpoints,
+/// following the `monitor_controller.dart` action pattern: `Http.post` ->
+/// [reload] on success -> success toast; error toast + stay on failure, no
+/// silent swallow.
+///
+/// Two of those writes are persisted STATE, not compose state, so they are
+/// deliberately not mirrored in view-local fields: the assignment
+/// ([assign] -> `POST /incidents/{id}/assign`) and the postmortem
+/// ([savePostmortem] -> `POST /incidents/{id}/postmortem`) both reload and
+/// re-render from the incident the backend returns. Likewise [acknowledge]
+/// posts NO composed message: the backend stamps the acknowledging author from
+/// the request user and supplies its own default note, and the detail screen
+/// renders the acknowledgement off the persisted timeline entry
+/// ([Incident.acknowledgement]). The remaining transient compose state (the
+/// detail composer text + lifecycle toggle, the create form, the list filter /
+/// query) stays local to its own view.
 ///
 /// [activeIncidents] derives from the fetched [incidents] list, so it (and
 /// anything reading it, e.g. `DashboardController`) reflects live data once
 /// [load] resolves. [aiSuggestions] stays empty: AI analysis attachment is a
 /// separate, not-yet-wired concern.
 class IncidentController extends MagicController
-    with MagicStateMixin<List<Incident>> {
-  /// Singleton accessor, registering the controller on first access.
+    with MagicStateMixin<List<Incident>>
+    implements SessionScopedController {
+  /// Singleton accessor, registering the controller and kicking off its
+  /// one-shot initial load on first access.
+  ///
+  /// The load is self-triggered for the same reason [DashboardController] does
+  /// it: `onInit` fires only for a view's BACKING controller, and the monitor
+  /// detail reads this one as a secondary to answer "which incidents touch this
+  /// monitor". Without it that screen saw an empty list and reported zero open
+  /// incidents on a monitor that was actively down.
   static IncidentController get instance =>
-      Magic.findOrPut(IncidentController.new);
+      Magic.findOrPut(IncidentController.new).._ensureLoading();
 
   /// The incident currently resolved by [incidentById], keyed by [_detailId]
   /// so a stale in-flight fetch never overwrites a later selection.
@@ -53,7 +72,23 @@ class IncidentController extends MagicController
   @override
   void onInit() {
     super.onInit();
-    load();
+    unawaited(_ensureLoading());
+  }
+
+  /// Guards the one-shot initial [load] so whichever entry point comes first,
+  /// this controller backing a view ([onInit]) or another view resolving
+  /// [instance], fetches exactly once and the other is a no-op.
+  bool _loadStarted = false;
+
+  /// Kicks off the initial [load] the first time the data is needed, and
+  /// returns the in-flight future so [resetForSession] can re-arm the guard and
+  /// then await the very load it claimed.
+  Future<void> _ensureLoading() {
+    if (_loadStarted) return Future<void>.value();
+
+    _loadStarted = true;
+
+    return load();
   }
 
   // ---------------------------------------------------------------------------
@@ -144,6 +179,31 @@ class IncidentController extends MagicController
   /// Re-runs [load] with the same (no) filters. Non-destructive: safe to call
   /// from a pull-to-refresh or a manual retry action.
   Future<void> reload() => load();
+
+  /// Drops the previous session's incident list, cached detail, and AI analysis
+  /// cache, publishes the cleared state, then refetches for the identity that
+  /// is now authenticated.
+  ///
+  /// Clears BEFORE refetching (see [SessionScopedController]): [load] keeps the
+  /// last-known-good list on an empty fetch, so across an identity change a
+  /// failed refetch would otherwise leave the previous team's incidents listed
+  /// and its detail still resolvable through [incidentById]. The rx state goes
+  /// back to the mixin's initial dataless-empty status with `notify: false`, so
+  /// the single [refreshUI] below publishes the whole cleared shape at once.
+  /// [load] is the refetch entry point here ([reload] delegates to it).
+  @override
+  Future<void> resetForSession() async {
+    _detail = null;
+    _detailId = null;
+    _analysisById.clear();
+    setState(null, status: const RxStatus.empty(), notify: false);
+    refreshUI();
+
+    // Re-arm the one-shot guard: the previous identity's load already claimed
+    // it, and without this the new identity would never fetch.
+    _loadStarted = false;
+    await _ensureLoading();
+  }
 
   /// Resolves an incident by [id] for the detail screen.
   ///
@@ -361,23 +421,26 @@ class IncidentController extends MagicController
   }
 
   /// Acknowledges the incident currently in view (tracked by [_detailId] via
-  /// [incidentById]), naming the responder [by], via `POST
-  /// /incidents/{id}/acknowledge`. Reloads on success and surfaces the
-  /// acknowledgement toast. No-ops (logged) when no detail incident is
-  /// tracked yet, matching `MonitorController`'s "no cached target" guard;
-  /// the detail view always resolves one via `build()` before this fires.
-  Future<void> acknowledge(String by) async {
+  /// [incidentById]) via `POST /incidents/{id}/acknowledge`. Reloads on
+  /// success and surfaces the acknowledgement toast. No-ops (logged) when no
+  /// detail incident is tracked yet, matching `MonitorController`'s "no cached
+  /// target" guard; the detail view always resolves one via `build()` before
+  /// this fires.
+  ///
+  /// Sends NO payload, deliberately. The acknowledging identity belongs to the
+  /// backend: `IncidentWriteService.acknowledge` stamps the timeline note's
+  /// `author` from `$request->user()->name` and falls back to its own default
+  /// message when none is given. A client-composed "Acknowledged by X" would be
+  /// the client asserting who responded to an outage, which it cannot know.
+  Future<void> acknowledge() async {
     final String? id = _detailId;
     if (id == null) {
-      Log.error('[IncidentController.acknowledge] no incident in view for $by');
+      Log.error('[IncidentController.acknowledge] no incident in view');
       return;
     }
 
     try {
-      final response = await Http.post(
-        '/incidents/$id/acknowledge',
-        data: {'message': 'Acknowledged by $by'},
-      );
+      final response = await Http.post('/incidents/$id/acknowledge');
       if (!response.successful) {
         Log.error(
           '[IncidentController.acknowledge] $id: ${response.errorMessage}',
@@ -392,12 +455,53 @@ class IncidentController extends MagicController
       await reload();
       Magic.success(
         trans('uptizm.incidents.detail_acknowledged_toast_title'),
-        trans('uptizm.incidents.detail_acknowledged_toast_description', {
-          'name': by,
-        }),
+        trans('uptizm.incidents.detail_acknowledged_toast_description'),
       );
     } catch (error) {
       Log.error('[IncidentController.acknowledge] $id failed: $error');
+      Magic.error(
+        trans('common.error_occurred'),
+        trans('common.error_occurred'),
+      );
+    }
+  }
+
+  /// Assigns [incident] to the team member [assigneeId], or clears the
+  /// assignment when [assigneeId] is `null`, via
+  /// `POST /incidents/{id}/assign`. Reloads on success so the rendered owner
+  /// comes from the persisted incident, then surfaces the toast.
+  ///
+  /// The roster is the team's REAL membership (the detail view reads
+  /// `MagicStarterTeamController.members`); the backend re-validates the id
+  /// against that same roster and answers 422 for anyone else, so a stale
+  /// client cannot assign an outsider. Errors surface a toast and leave the
+  /// assignment as-is (no silent swallow).
+  Future<void> assign(Incident incident, String? assigneeId) async {
+    try {
+      final response = await Http.post(
+        '/incidents/${incident.id}/assign',
+        data: {'assignee_id': assigneeId},
+      );
+      if (!response.successful) {
+        Log.error(
+          '[IncidentController.assign] ${incident.id}: ${response.errorMessage}',
+        );
+        Magic.error(
+          trans('common.error_occurred'),
+          response.errorMessage ?? trans('common.error_occurred'),
+        );
+        return;
+      }
+
+      await reload();
+      Magic.success(
+        assigneeId == null
+            ? trans('uptizm.incidents.detail_unassigned_toast_title')
+            : trans('uptizm.incidents.detail_assigned_toast_title'),
+        incident.title,
+      );
+    } catch (error) {
+      Log.error('[IncidentController.assign] ${incident.id} failed: $error');
       Magic.error(
         trans('common.error_occurred'),
         trans('common.error_occurred'),
@@ -453,17 +557,68 @@ class IncidentController extends MagicController
     }
   }
 
-  /// Surfaces the postmortem-edit toast (resolved incidents only). Mock:
-  /// nothing persists. There is no backend postmortem-write endpoint (S5
-  /// ships resolve/acknowledge/reopen/updates/create only), and the call
-  /// site carries neither an incident nor postmortem content to post, so
-  /// this stays a mock action rather than inventing either. The toast is an
-  /// honest info signal, not a success claim, since no write actually happens.
-  void editPostmortem() {
-    MagicFeedback.info(
-      trans('uptizm.incidents.detail_postmortem_edit_toast_title'),
-      trans('uptizm.incidents.detail_postmortem_edit_toast_description'),
-    );
+  /// Saves [body] as [incident]'s postmortem via
+  /// `POST /incidents/{id}/postmortem`, publishing it to the public status
+  /// page when [publish] is set. Reloads on success so the stored body (not a
+  /// regenerated draft) is what renders afterwards, then surfaces a toast whose
+  /// copy distinguishes the two outcomes: a saved draft is explicitly internal,
+  /// a publish explicitly customer-visible.
+  ///
+  /// Returns `true` when the write landed, so the caller can close its composer
+  /// only on success and keep the operator's text on screen otherwise. A blank
+  /// body is rejected client-side (the backend requires one) without a request.
+  Future<bool> savePostmortem(
+    Incident incident,
+    String body, {
+    required bool publish,
+  }) async {
+    if (body.trim().isEmpty) {
+      Magic.error(
+        trans('common.error_occurred'),
+        trans('uptizm.incidents.detail_postmortem_error_empty'),
+      );
+      return false;
+    }
+
+    try {
+      final response = await Http.post(
+        '/incidents/${incident.id}/postmortem',
+        data: {'body': body.trim(), 'publish': publish},
+      );
+      if (!response.successful) {
+        Log.error(
+          '[IncidentController.savePostmortem] ${incident.id}: '
+          '${response.errorMessage}',
+        );
+        Magic.error(
+          trans('common.error_occurred'),
+          response.errorMessage ?? trans('common.error_occurred'),
+        );
+        return false;
+      }
+
+      await reload();
+      Magic.success(
+        publish
+            ? trans('uptizm.incidents.detail_postmortem_publish_toast_title')
+            : trans('uptizm.incidents.detail_postmortem_save_toast_title'),
+        publish
+            ? trans(
+                'uptizm.incidents.detail_postmortem_publish_toast_description',
+              )
+            : trans('uptizm.incidents.detail_postmortem_save_toast_description'),
+      );
+      return true;
+    } catch (error) {
+      Log.error(
+        '[IncidentController.savePostmortem] ${incident.id} failed: $error',
+      );
+      Magic.error(
+        trans('common.error_occurred'),
+        trans('common.error_occurred'),
+      );
+      return false;
+    }
   }
 
   /// Creates a manual incident and returns to the incidents list.

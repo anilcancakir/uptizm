@@ -157,9 +157,13 @@ class StatusPageAssembler
             ->whereHas('monitors', fn (Builder $query) => $query->whereIn('monitors.id', $monitorIds))
             ->where('started_at', '>=', $since)
             ->where(function (Builder $query): void {
-                // Public when it either carries a public update or is still active.
+                // Public when it carries a public update, is still active, or has
+                // a published postmortem (publishing IS the act of making the
+                // incident's write-up customer-visible, so it must list the
+                // incident even when no public update was ever posted).
                 $query->whereHas('updates', fn (Builder $updates) => $updates->where('is_public', true))
-                    ->orWhere('lifecycle', '!=', IncidentStatus::Resolved->value);
+                    ->orWhere('lifecycle', '!=', IncidentStatus::Resolved->value)
+                    ->orWhereNotNull('postmortem_published_at');
             })
             ->with(['updates' => fn (Relation $updates) => $updates->where('is_public', true)])
             ->orderByDesc('started_at')
@@ -196,6 +200,11 @@ class StatusPageAssembler
     /**
      * Allowlisted shape for a single incident and its public updates.
      *
+     * The postmortem is gated on its PUBLICATION STAMP, not on the body: an
+     * operator's internal draft (body set, `postmortem_published_at` null) is
+     * omitted entirely, so "publish" is the single switch that makes it
+     * customer-visible and an unpublished draft can never reach the page.
+     *
      * @return array<string, mixed>
      */
     protected function buildIncidentEntry(Incident $incident): array
@@ -205,6 +214,12 @@ class StatusPageAssembler
             'lifecycle' => $incident->lifecycle->value,
             'impact' => $incident->impact->value,
             'startedAt' => $incident->started_at->toIso8601String(),
+            'postmortem' => $incident->postmortemIsPublished()
+                ? [
+                    'body' => $incident->postmortem_body,
+                    'publishedAt' => $incident->postmortem_published_at->toIso8601String(),
+                ]
+                : null,
             'updates' => $incident->updates
                 ->map(static fn (IncidentUpdate $update): array => [
                     'message' => $update->message,

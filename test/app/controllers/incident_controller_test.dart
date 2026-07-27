@@ -160,11 +160,11 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // Business actions: live-wired writes against the S5 incident-write
-  // endpoints, following the monitor_controller.dart action pattern
-  // (`Http.post` -> reload on success -> toast; error toast + stay on
-  // failure). `assign` stays out of scope: it was NOT moved to the
-  // controller (the assignee toggle remains view-local `setState`).
+  // Business actions: live-wired writes against the incident-write endpoints,
+  // following the monitor_controller.dart action pattern (`Http.post` ->
+  // reload on success -> toast; error toast + stay on failure). `assign` and
+  // `savePostmortem` are live here too: both persist state the detail view
+  // reads back off the incident, so neither has a view-local mirror.
   // ---------------------------------------------------------------------------
 
   group('business actions', () {
@@ -253,7 +253,7 @@ void main() {
         fake.reset();
         seedIncidents(fake);
 
-        await controller.acknowledge('Jordan Lee');
+        await controller.acknowledge();
 
         fake.assertSent(
           (r) =>
@@ -263,13 +263,150 @@ void main() {
         fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
       });
 
+      test('sends NO client-authored message: the acknowledging identity is '
+          'the backend request user', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        controller.incidentById(incident.id);
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.acknowledge();
+
+        // The former behaviour composed `{'message': 'Acknowledged by <name>'}`
+        // from a hardcoded client name, persisting a person who did not exist.
+        // The acknowledge POST must now carry no message at all, leaving the
+        // author and the default note to the backend.
+        fake.assertNotSent(
+          (r) =>
+              r.url == '/incidents/${incident.id}/acknowledge' &&
+              r.data is Map &&
+              (r.data as Map).containsKey('message'),
+        );
+      });
+
       test('is a no-op when no incident is currently in view', () async {
         final fake = seedIncidents();
         controller = Magic.findOrPut(IncidentController.new);
 
-        await controller.acknowledge('Jordan Lee');
+        await controller.acknowledge();
 
         fake.assertNothingSent();
+      });
+    });
+
+    group('assign', () {
+      test('POSTs /incidents/{id}/assign with the member id and reloads', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.assign(incident, 'user-7');
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/${incident.id}/assign' &&
+              (r.data as Map)['assignee_id'] == 'user-7',
+        );
+        fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
+      });
+
+      test('POSTs a null assignee_id to unassign', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.assign(incident, null);
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/${incident.id}/assign' &&
+              (r.data as Map)['assignee_id'] == null,
+        );
+      });
+
+      test('surfaces an error toast and does not reload on failure', () async {
+        Http.fake({'incidents/${incident.id}/assign': Http.response({}, 422)});
+        controller = Magic.findOrPut(IncidentController.new);
+
+        await expectLater(controller.assign(incident, 'nope'), completes);
+      });
+    });
+
+    group('savePostmortem', () {
+      test('POSTs /incidents/{id}/postmortem with the body and publish flag',
+          () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        final bool saved = await controller.savePostmortem(
+          incident,
+          '  The origin pool starved under release traffic.  ',
+          publish: true,
+        );
+
+        expect(saved, isTrue);
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/${incident.id}/postmortem' &&
+              (r.data as Map)['body'] ==
+                  'The origin pool starved under release traffic.' &&
+              (r.data as Map)['publish'] == true,
+        );
+        fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
+      });
+
+      test('saves a draft with publish false', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.savePostmortem(incident, 'Draft.', publish: false);
+
+        fake.assertSent(
+          (r) =>
+              r.url == '/incidents/${incident.id}/postmortem' &&
+              (r.data as Map)['publish'] == false,
+        );
+      });
+
+      test('refuses a blank body without a request', () async {
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+
+        final bool saved = await controller.savePostmortem(
+          incident,
+          '   ',
+          publish: true,
+        );
+
+        expect(saved, isFalse);
+        fake.assertNothingSent();
+      });
+
+      test('reports failure without closing the caller composer', () async {
+        Http.fake({
+          'incidents/${incident.id}/postmortem': Http.response({}, 500),
+        });
+        controller = Magic.findOrPut(IncidentController.new);
+
+        expect(
+          await controller.savePostmortem(incident, 'Body.', publish: false),
+          isFalse,
+        );
       });
     });
 
@@ -304,14 +441,6 @@ void main() {
         fake.assertNothingSent();
       });
     });
-
-    test(
-      'editPostmortem surfaces the postmortem-edit toast without throwing',
-      () {
-        controller = Magic.findOrPut(IncidentController.new);
-        expect(() => controller.editPostmortem(), returnsNormally);
-      },
-    );
 
     group('create', () {
       test('POSTs /incidents with the given fields and reloads', () async {
@@ -422,6 +551,102 @@ void main() {
         expect(ai.evidenceFor, isEmpty);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear the previous identity's list + detail + analysis,
+  // then refetch through `load` (the entry point `reload` delegates to).
+  // ---------------------------------------------------------------------------
+
+  group('resetForSession', () {
+    test('clears the list, detail, and analysis cache on a failed refetch', () async {
+      final fake = seedIncidents();
+      // `inc-9` is deliberately outside the list envelope, so it can only be
+      // resolved through the single-incident detail fetch + `_detail` cache.
+      fake.stub(
+        'incidents/inc-9',
+        Http.response({
+          'data': {
+            'id': 'inc-9',
+            'title': 'Region failover',
+            'lifecycle': 'investigating',
+            'started_at': '2026-07-11T08:00:00Z',
+          },
+        }),
+      );
+      fake.stub(
+        'incidents/inc-9/analysis',
+        Http.response({
+          'data': {
+            'summary': 'A region failed over.',
+            'confidence': 'high',
+            'evidence_for': [
+              {'label': 'Region down', 'detail': 'eu-west failed', 'source': 'check'},
+            ],
+            'evidence_against': [],
+            'suggested_actions': [],
+          },
+        }),
+      );
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.load();
+      expect(controller.incidents, isNotEmpty);
+      // First call kicks off the detail fetch and returns null; pump until the
+      // cached detail resolves.
+      expect(controller.incidentById('inc-9'), isNull);
+      for (var i = 0; i < 50 && controller.incidentById('inc-9') == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(controller.incidentById('inc-9'), isNotNull);
+      final Incident detail = controller.incidentById('inc-9')!;
+      await controller.loadAnalysis('inc-9');
+      expect(controller.analysisFor(detail)!.evidenceFor, hasLength(1));
+
+      // The new identity's refetch resolves nothing. `load` alone keeps the
+      // last-known-good list on an empty fetch, which would leave the previous
+      // team's incidents (and its cached detail) readable.
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+
+      await controller.resetForSession();
+
+      expect(controller.incidents, isEmpty);
+      expect(controller.activeIncidents, isEmpty);
+      expect(controller.isEmpty, isTrue);
+      expect(controller.incidentById('inc-9'), isNull);
+      expect(controller.analysisFor(detail), isNull);
+    });
+
+    test('refetches the incidents of the new identity', () async {
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+      seedIncidents();
+      await controller.load();
+
+      Http.fake({
+        'incidents': Http.response({
+          'data': [
+            {
+              'id': 'other-team-inc',
+              'title': 'Queue backlog',
+              'lifecycle': 'investigating',
+              'started_at': '2026-07-12T09:00:00Z',
+            },
+          ],
+        }),
+      });
+
+      await controller.resetForSession();
+
+      expect(
+        controller.incidents.map((Incident i) => i.id).toList(),
+        equals(['other-team-inc']),
+      );
+      expect(controller.isSuccess, isTrue);
+    });
   });
 
   group('create()', () {

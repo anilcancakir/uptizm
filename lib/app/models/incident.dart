@@ -7,9 +7,15 @@ import '../enums/incident_impact.dart' show IncidentImpact, impactFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle, lifecycleFromWire;
 import '../enums/incident_severity.dart' show IncidentSeverity, severityFromWire;
 import '../enums/signal_source.dart' show SignalSource, signalSourceFromWire;
+import '../enums/timeline_actor.dart' show TimelineActor;
 import '../support/formatters.dart' show formatDuration, formatRelativeMeta;
 import '../support/incident_types.dart'
-    show AffectedMonitor, IncidentAi, IncidentSummary, TimelineEntry;
+    show
+        AffectedMonitor,
+        IncidentAcknowledgement,
+        IncidentAi,
+        IncidentSummary,
+        TimelineEntry;
 
 /// Incident model.
 ///
@@ -70,7 +76,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
 
   /// The attributes that should be cast.
   ///
-  /// `ai_owned`/`is_public`/`autonomous` decode as `bool`; the four timestamp
+  /// `ai_owned`/`is_public`/`autonomous` decode as `bool`; the five timestamp
   /// columns decode as [Carbon] datetimes; and the four wire-bridge enums
   /// (`severity`/`impact`/`signal_source`/`lifecycle`) decode through the
   /// matching public helper in `lib/app/enums/`, so this model
@@ -84,6 +90,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
     'updated_at': 'datetime',
     'started_at': 'datetime',
     'resolved_at': 'datetime',
+    'postmortem_published_at': 'datetime',
   };
 
   /// No relations this wave: `monitors` and `updates` stay decoded as DTOs
@@ -128,6 +135,35 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   /// threshold-based; `null` for anomaly or manual sources.
   String? get triggerMetricKey =>
       getAttribute('trigger_metric_key') as String?;
+
+  /// The id of the team member currently driving the response, or `null` when
+  /// the incident is unassigned.
+  ///
+  /// Decoded from the resource's `assignee` sub-object (`{id, name}`), which the
+  /// backend emits from the persisted `assigned_to_user_id`. This is the ONLY
+  /// source of the assignment: the detail screen renders and posts against it
+  /// rather than keeping a local selection.
+  String? get assigneeId => _assigneeField('id');
+
+  /// The display name of the assigned team member, or `null` when unassigned.
+  String? get assigneeName => _assigneeField('name');
+
+  /// The stored postmortem body, or `null` when none has been written yet.
+  ///
+  /// A non-null body with a `null` [postmortemPublishedAt] is an INTERNAL
+  /// draft: the public status page does not render it.
+  String? get postmortemBody {
+    final String body = (getAttribute('postmortem_body') as String?) ?? '';
+    return body.trim().isEmpty ? null : body;
+  }
+
+  /// When the postmortem was published to the public status page, or `null`
+  /// while it is still an internal draft (or absent entirely).
+  DateTime? get postmortemPublishedAt => _readDateTime('postmortem_published_at');
+
+  /// Whether the stored postmortem is live on the public status page.
+  bool get postmortemIsPublished =>
+      postmortemBody != null && postmortemPublishedAt != null;
 
   // ---------------------------------------------------------------------------
   // Typed accessors: wire-bridge enum fields
@@ -247,6 +283,33 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   List<TimelineEntry> get timeline =>
       _updateMaps.map(TimelineEntry.fromMap).toList();
 
+  /// The persisted acknowledgement, or `null` while nobody has acknowledged.
+  ///
+  /// Derived from the timeline and nothing else: the client never authors an
+  /// acknowledging identity. `IncidentWriteService.acknowledge` is the write
+  /// that moves a `detected` incident to `investigating`, stamping the note's
+  /// `author` from the acting backend user, so the acknowledgement is the FIRST
+  /// human-authored entry carrying the `investigating` status. The backend
+  /// returns `updates` ordered by `display_at` ascending, so "first match" is
+  /// the earliest such entry; a later reopen (which also writes
+  /// `investigating`) therefore cannot shadow the original acknowledgement.
+  ///
+  /// The status comparison is against the WIRE token
+  /// ([IncidentLifecycle.investigating]'s name) rather than through
+  /// [lifecycleFromWire], whose unknown-value fallback would silently answer
+  /// `detected` for an unrelated status.
+  IncidentAcknowledgement? get acknowledgement {
+    for (final TimelineEntry entry in timeline) {
+      final String? author = entry.author;
+      if (entry.actor != TimelineActor.human || author == null) continue;
+      if (entry.status != IncidentLifecycle.investigating.name) continue;
+
+      return IncidentAcknowledgement(by: author, at: entry.time);
+    }
+
+    return null;
+  }
+
   /// Attached AI analysis, or `null` when AI analysis is absent.
   ///
   /// Decoded from the `ai` sub-object the `GET /dashboard/ai-inbox` shape
@@ -332,6 +395,18 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
     return null;
+  }
+
+  /// Reads one field off the resource's `assignee` sub-object, tolerating an
+  /// absent or non-map value (an unassigned incident, or a payload whose
+  /// `assignee` relation was never eager-loaded) as `null`. A blank string
+  /// reads as `null` too, so an empty name never renders as an owner.
+  String? _assigneeField(String key) {
+    final Object? raw = getAttribute('assignee');
+    if (raw is! Map) return null;
+
+    final String value = raw[key]?.toString().trim() ?? '';
+    return value.isEmpty ? null : value;
   }
 
   /// The raw `monitors` pivot list as typed maps, or an empty list when the

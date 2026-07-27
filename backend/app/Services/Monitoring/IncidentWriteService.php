@@ -8,6 +8,8 @@ use App\Enums\SignalSource;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
+use App\Models\User;
+use App\Services\StatusPages\StatusPageCache;
 use Closure;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -17,9 +19,10 @@ use RuntimeException;
 /**
  * Operator-facing incident authoring seam: the human counterpart to the
  * automated {@see ThresholdEvaluator} persist path. It creates manual incidents,
- * drives the lifecycle (resolve / acknowledge / reopen), and appends timeline
- * updates, then hands the side effects to the shared {@see IncidentDispatcher}
- * exactly like the automated path does.
+ * drives the lifecycle (resolve / acknowledge / reopen), records ownership
+ * ({@see self::assign}) and the postmortem ({@see self::savePostmortem}), and
+ * appends timeline updates, then hands the side effects to the shared
+ * {@see IncidentDispatcher} exactly like the automated path does.
  *
  * Concurrency is the load-bearing invariant. Every lifecycle mutation races the
  * automated evaluator (a probe landing at the same instant) and any other
@@ -36,6 +39,15 @@ use RuntimeException;
  * both release: every notification the dispatcher fires is `ShouldQueue` and its
  * events are `ShouldDispatchAfterCommit`, so nothing may enqueue while the
  * critical section is held.
+ *
+ * {@see self::assign} and {@see self::savePostmortem} deliberately do NOT take
+ * the per-monitor lock: they write no lifecycle field, so they race neither the
+ * evaluator nor an automated recovery, and the lock would (a) serialize an
+ * operator note behind an in-flight probe for nothing and (b) fail outright on
+ * an incident whose primary monitor was deleted (there would be nothing to lock
+ * on). They keep the rest of the contract: a `lockForUpdate` row re-read plus a
+ * transaction, so the column change and its timeline note land atomically and
+ * two parallel operators cannot interleave.
  */
 class IncidentWriteService
 {
@@ -58,9 +70,16 @@ class IncidentWriteService
 
     protected const string DEFAULT_REOPEN_MESSAGE = 'Incident reopened by operator.';
 
+    protected const string UNASSIGN_MESSAGE = 'Incident unassigned.';
+
+    protected const string POSTMORTEM_SAVED_MESSAGE = 'Postmortem draft saved (internal, not published).';
+
+    protected const string POSTMORTEM_PUBLISHED_MESSAGE = 'Postmortem published to the public status page.';
+
     public function __construct(
         protected ThresholdEvaluator $evaluator,
         protected IncidentDispatcher $incidentDispatcher,
+        protected StatusPageCache $statusPageCache,
     ) {}
 
     /**
@@ -317,6 +336,102 @@ class IncidentWriteService
             $author,
             $isPublic,
         );
+    }
+
+    /**
+     * Assign the incident to a team member, or clear the assignment when
+     * `$assignee` is null, appending an internal timeline note either way.
+     * Idempotent: re-assigning the same user (or clearing an already-unassigned
+     * incident) returns the incident unchanged and adds no note, so a UI that
+     * echoes its own state back never litters the timeline.
+     *
+     * The CALLER owns the membership check (the assign FormRequest validates the
+     * id against the team roster); this service only persists the decision.
+     *
+     * @param  Incident  $incident  The incident to (un)assign.
+     * @param  User|null  $assignee  The responder taking ownership, or null to clear.
+     * @param  string  $author  Display label for the assignment timeline note.
+     * @return Incident The incident in its post-call state.
+     */
+    public function assign(Incident $incident, ?User $assignee, string $author): Incident
+    {
+        return DB::transaction(function () use ($incident, $assignee, $author): Incident {
+            $fresh = Incident::query()->lockForUpdate()->findOrFail($incident->getKey());
+            $next = $assignee?->getKey();
+
+            // Idempotency gate: an unchanged owner is a no-op, not a note.
+            if ((string) $fresh->assigned_to_user_id === (string) $next) {
+                return $fresh;
+            }
+
+            $fresh->update(['assigned_to_user_id' => $next]);
+            $this->appendUpdate(
+                $fresh,
+                $fresh->lifecycle,
+                $assignee === null
+                    ? self::UNASSIGN_MESSAGE
+                    : "Incident assigned to {$assignee->name}.",
+                $author,
+                isPublic: false,
+            );
+
+            return $fresh;
+        });
+    }
+
+    /**
+     * Save the incident's postmortem body and, when `$publish` is set, stamp its
+     * publication time so the public status page starts rendering it.
+     *
+     * The publication stamp is written ONCE: publishing an already-published
+     * postmortem edits the body but keeps the original `postmortem_published_at`,
+     * so "published at" stays the moment customers could first read it rather
+     * than the moment of the latest typo fix.
+     *
+     * @param  Incident  $incident  The incident the postmortem belongs to.
+     * @param  string  $body  The postmortem body (Markdown, rendered downstream).
+     * @param  bool  $publish  Whether this save also publishes it publicly.
+     * @param  string  $author  Display label for the postmortem timeline note.
+     * @return Incident The incident in its post-call state.
+     */
+    public function savePostmortem(Incident $incident, string $body, bool $publish, string $author): Incident
+    {
+        $current = DB::transaction(function () use ($incident, $body, $publish, $author): Incident {
+            $fresh = Incident::query()->lockForUpdate()->findOrFail($incident->getKey());
+            $alreadyPublished = $fresh->postmortem_published_at !== null;
+
+            $fresh->update([
+                'postmortem_body' => $body,
+                'postmortem_published_at' => $publish && ! $alreadyPublished
+                    ? now()
+                    : $fresh->postmortem_published_at,
+            ]);
+
+            // The note is internal on purpose: the postmortem reaches customers
+            // through the status page's own postmortem block, not as a timeline
+            // update that would duplicate the whole body on the public page.
+            $this->appendUpdate(
+                $fresh,
+                $fresh->lifecycle,
+                $publish ? self::POSTMORTEM_PUBLISHED_MESSAGE : self::POSTMORTEM_SAVED_MESSAGE,
+                $author,
+                isPublic: false,
+            );
+
+            return $fresh;
+        });
+
+        // Bust the containing pages' cached read models OFF-transaction whenever
+        // the postmortem is publicly visible after this write, so a publish (or
+        // an edit of a published body) shows up immediately instead of after the
+        // 60s TTL. Mirrors the lifecycle bust in IncidentDispatcher.
+        if ($current->postmortemIsPublished()) {
+            $this->statusPageCache->invalidateForMonitors(
+                $current->monitors()->pluck('monitors.id')->all(),
+            );
+        }
+
+        return $current;
     }
 
     /**

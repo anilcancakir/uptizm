@@ -5,18 +5,15 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/incident_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
-import '../../../app/enums/incident_impact.dart' show IncidentImpact;
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
-import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
 import '../../../app/support/formatters.dart' show formatCheckedAgo;
-import '../../../app/support/incident_types.dart' show IncidentSummary;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
 import '../../../app/support/monitor_types.dart' show CheckRow, UptimeSegment;
-import '../../../app/mocks/incidents.dart';
 import '../../../app/enums/chart_tone.dart' show ChartTone;
 import '../../../app/mocks/monitors.dart';
 import '../../../app/enums/status_key.dart';
@@ -143,6 +140,14 @@ class _MonitorDetailViewState
     MetricSeries(key: 'response', label: 'Response', tone: ChartTone.up),
   ];
 
+  /// The shared incident roster this screen reads to answer "which incidents
+  /// touch this monitor". Listened to because it is NOT this view's backing
+  /// controller: resolving `.instance` self-triggers its first fetch, but
+  /// without the listener the open-incident KPI and the Incidents tab would
+  /// keep rendering the pre-fetch empty roster, reporting zero open incidents
+  /// on a monitor that is down.
+  final IncidentController _incidents = IncidentController.instance;
+
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -150,6 +155,18 @@ class _MonitorDetailViewState
     Magic.findOrPut(MonitorController.new);
     super.initState();
     _startLoading();
+    _incidents.addListener(_onIncidents);
+  }
+
+  @override
+  void dispose() {
+    _incidents.removeListener(_onIncidents);
+    super.dispose();
+  }
+
+  /// Re-render the incident-derived surfaces when the roster lands or changes.
+  void _onIncidents() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -338,8 +355,12 @@ class _MonitorDetailViewState
   // Header actions
   // ---------------------------------------------------------------------------
 
-  /// Builds the trailing header actions: Pause-Resume, Edit, and Delete.
+  /// Builds the trailing header actions: Check now, Pause-Resume, Edit, Delete.
   ///
+  /// - **Check now**: a secondary [Button] that queues an out-of-schedule check
+  ///   across every configured region. Hidden while the monitor is paused,
+  ///   because a paused monitor is deliberately not being checked and offering
+  ///   the action there would contradict the state next to it.
   /// - **Pause/Resume**: a secondary [Button]. A paused monitor shows "Resume"
   ///   and surfaces a resumed toast immediately; an active monitor shows
   ///   "Pause" and opens a pause [MagicStarterConfirmDialog].
@@ -356,6 +377,13 @@ class _MonitorDetailViewState
       WDiv(
         className: 'wrap items-center gap-2',
         children: [
+          if (!paused)
+            MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              onPressed: () => controller.runCheckNow(monitor.id),
+              child: WText(trans('uptizm.monitors.action_check_now')),
+            ),
           MSButton(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
@@ -484,9 +512,9 @@ class _MonitorDetailViewState
   /// so the grid never forces a multi-column layout onto a narrow phone.
   Widget _buildKpiRow(Monitor monitor, bool paused) {
     // 1. Derive the headline metrics directly from the fixtures.
-    final int openIncidents = incidentsForMonitor(
-      monitor.name ?? '',
-    ).where((i) => i.lifecycle != IncidentLifecycle.resolved).length;
+    final int openIncidents = _incidentsFor(monitor)
+        .where((i) => i.lifecycle != IncidentLifecycle.resolved)
+        .length;
     final String avgResponse = monitor.responseMs != null
         ? '${monitor.responseMs}ms'
         : '-';
@@ -848,12 +876,31 @@ class _MonitorDetailViewState
     );
   }
 
+  /// The team's live incidents that touch [monitor], newest-first as the API
+  /// returned them.
+  ///
+  /// Filters the shared [IncidentController] roster by monitor IDENTITY: the
+  /// incident's denormalized primary monitor, or any entry in its affected
+  /// component pivot. This screen used to read the design-lab
+  /// `incidentsForMonitor` fixture keyed by monitor NAME, so a real monitor
+  /// showed five invented incidents (and a fabricated open-incident count)
+  /// while its actual outage was missing.
+  List<Incident> _incidentsFor(Monitor monitor) {
+    final String id = monitor.id;
+    if (id.isEmpty) return const [];
+
+    return [
+      for (final Incident incident in IncidentController.instance.incidents)
+        if (incident.primaryMonitorId == id ||
+            incident.affectedMonitors.any((m) => m.id == id))
+          incident,
+    ];
+  }
+
   /// Builds the Incidents panel: a responsive grid of [IncidentCard]s for the
   /// incidents that touch this monitor, or a graceful [EmptyState] when none.
   Widget _buildIncidentsTab(Monitor monitor) {
-    final List<IncidentSummary> monitorIncidents = incidentsForMonitor(
-      monitor.name ?? '',
-    );
+    final List<Incident> monitorIncidents = _incidentsFor(monitor);
 
     if (monitorIncidents.isEmpty) {
       return WDiv(
@@ -869,57 +916,15 @@ class _MonitorDetailViewState
     return WDiv(
       className: 'grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4',
       children: [
-        for (final incident in monitorIncidents)
+        for (final Incident incident in monitorIncidents)
           IncidentCard(
-            incident: _asIncidentCardModel(incident),
+            incident: incident,
             onTap: () => MagicRoute.to('/incidents/${incident.id}'),
           ),
       ],
     );
   }
 
-  /// Projects a design-lab [IncidentSummary] onto an [Incident] model so the
-  /// migrated [IncidentCard] (which now takes the ORM model) renders the
-  /// design-lab incidents that touch this monitor.
-  ///
-  /// This screen still sources its incidents from the [incidentsForMonitor]
-  /// fixtures (no per-monitor incident endpoint is wired yet); the projection
-  /// only bridges the DTO onto the card's new model type. It is a type-only
-  /// cascade from the incident-model migration, mapping the DTO enums back to
-  /// their backend wire values so the model's wire-bridge decode reproduces the
-  /// same impact / severity / lifecycle the DTO carried.
-  Incident _asIncidentCardModel(IncidentSummary summary) {
-    final int primaryIndex = summary.affectedMonitors.indexWhere(
-      (m) => m.name == summary.monitorName,
-    );
-    return Incident.fromMap(<String, dynamic>{
-      'id': summary.id,
-      'title': summary.title,
-      'impact': switch (summary.impact) {
-        IncidentImpact.down => 'critical',
-        IncidentImpact.degraded => 'minor',
-        IncidentImpact.info => 'none',
-      },
-      'severity': switch (summary.severity) {
-        IncidentSeverity.critical => 'critical',
-        IncidentSeverity.warning => 'warn',
-        IncidentSeverity.info => 'info',
-      },
-      'lifecycle': summary.lifecycle.name,
-      'ai_owned': summary.aiOwned,
-      'started_at': '2026-07-11T14:00:00Z',
-      if (summary.lifecycle == IncidentLifecycle.resolved)
-        'resolved_at': '2026-07-11T15:00:00Z',
-      'primary_monitor_id': primaryIndex >= 0 ? 'm$primaryIndex' : 'm0',
-      'monitors': <Map<String, dynamic>>[
-        for (int i = 0; i < summary.affectedMonitors.length; i++)
-          <String, dynamic>{
-            'monitor_id': 'm$i',
-            'name': summary.affectedMonitors[i].name,
-          },
-      ],
-    });
-  }
 
   // ---------------------------------------------------------------------------
   // Not-found

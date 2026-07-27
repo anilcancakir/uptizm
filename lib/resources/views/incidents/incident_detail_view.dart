@@ -9,14 +9,9 @@ import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
+import '../../../app/support/formatters.dart' show formatMonthDayTime;
 import '../../../app/support/incident_types.dart'
-    show
-        AffectedMonitor,
-        IncidentAcknowledgement,
-        IncidentAi,
-        IncidentAssignee,
-        TimelineEntry;
-import '../../../app/mocks/incidents.dart';
+    show AffectedMonitor, IncidentAcknowledgement, IncidentAi, TimelineEntry;
 import '../../../app/models/incident.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_analysis_card/index.dart';
@@ -31,45 +26,51 @@ import 'incident_form_support.dart';
 
 /// **The Incident Detail screen.**
 ///
-/// A faithful Flutter port of the React `IncidentDetailPage`: the read + write
-/// surface for a single incident. It resolves an incident [id] to a fixture via
-/// [findIncident] and renders, in the React section order:
+/// The read + write surface for a single incident. It resolves an incident [id]
+/// through [IncidentController.incidentById] and renders:
 ///
 /// 1. **Header**: the incident title, a chip row ([StatusBadge] impact +
 ///    lifecycle / signal-source pills + an AI-owned badge), the monitor / start
 ///    meta line, and a trailing Resolve / Reopen [Button].
 /// 2. **Responder strip** (open incidents only): an "Assigned to" assignee
-///    [Select] over the [responders] roster and an Acknowledge [Button].
+///    [Select] over the team's REAL members and an Acknowledge [Button] (or the
+///    persisted acknowledgement line once someone has acknowledged).
 /// 3. **Affected monitors**: each affected monitor with its
 ///    `statusAtStart -> statusCurrent` transition badges.
 /// 4. **AI analysis**: the signature surface, billing-gated: an
 ///    [AiAnalysisCard] when the current tier unlocks [AiLevel.analysis],
 ///    otherwise an [UpgradeNudge] naming the cheapest plan that does.
-/// 5. **Postmortem** (resolved incidents only): an [AiInsight] banner carrying
-///    the [postmortemDraft].
+/// 5. **Postmortem** (resolved incidents only): the STORED postmortem when one
+///    exists (with its published-or-draft state), otherwise the generated
+///    [postmortemDraft] in an [AiInsight] banner, plus an editable composer
+///    that saves or publishes it.
 /// 6. **Timeline**: a Public / All [SegmentedControl] filtering the entries,
-///    mapped through [toComponentTimeline] into the [IncidentTimeline].
+///    mapped through [toComponentTimeline] into the [IncidentTimeline], each
+///    entry carrying its persisted `author`.
 /// 7. **Update composer**: a status [Select], an update [Textarea], a publish
 ///    [Switch], an "AI draft" [Button] that fills the message with
 ///    [draftUpdate], and a "Post update" [Button].
 ///
-/// When [findIncident] returns `null` it renders a graceful not-found state
-/// (mirroring [MonitorDetailView]'s `_buildNotFound`) rather than crashing when
-/// the route passes an id with no fixture behind it.
+/// An unresolvable [id] renders a graceful not-found state (mirroring
+/// [MonitorDetailView]'s `_buildNotFound`) rather than crashing.
 ///
-/// Resolve / Reopen, Acknowledge, and Post update are live [IncidentController]
-/// business actions against the backend (`POST /incidents/{id}/resolve`
-/// `.../reopen` `.../acknowledge` `.../updates`); Assign and postmortem-edit
-/// stay local mocks (there is no assignee-write or postmortem-write endpoint
-/// yet). The AI analysis section is live too: `initState` fires a one-shot
-/// [IncidentController.loadAnalysis] (`GET /incidents/{id}/analysis`) and
-/// [IncidentController.analysisFor] renders the fast first-paint
+/// Every write here is a live [IncidentController] business action against the
+/// backend: Resolve / Reopen (`POST /incidents/{id}/resolve` `.../reopen`),
+/// Acknowledge (`.../acknowledge`, sending no client-authored identity), Post
+/// update (`.../updates`), Assign (`.../assign`) and the postmortem
+/// (`.../postmortem`). The AI analysis section is live too: `initState` fires a
+/// one-shot [IncidentController.loadAnalysis] (`GET /incidents/{id}/analysis`)
+/// and [IncidentController.analysisFor] renders the fast first-paint
 /// trigger/confidence/tldr from `GET /incidents/{id}` immediately, enriching
 /// with evidence/suggested-actions once the analysis fetch resolves;
-/// `similarIncidents` stays empty (deferred). The transient compose state
-/// (lifecycle, assignee, composer body) stays local to this view regardless.
-/// The body is a Wind flex column (`gap-*` carries the section rhythm); the
-/// shared [PageContainer] bounds the width.
+/// `similarIncidents` stays empty (deferred).
+///
+/// Ownership, acknowledgement, and the postmortem are PERSISTED state read back
+/// off the incident, never mirrored locally; only the genuinely transient
+/// compose state (the lifecycle toggle, the update composer body, and the
+/// postmortem editor's open/dirty text) lives in this view. The body is a Wind
+/// flex column (`gap-*` carries the section rhythm); the shared [PageContainer]
+/// bounds the width.
 ///
 /// ### Example
 /// ```dart
@@ -120,12 +121,16 @@ class _IncidentDetailViewState
   /// "drafted by AI" [AiInsight] hint (React `aiDrafted`).
   bool _aiDrafted = false;
 
-  /// The selected assignee name, or `null` for Unassigned (React `assigneeId`).
-  String? _assigneeName;
+  /// Whether the postmortem editor is open. Transient: the postmortem itself
+  /// lives on the incident ([Incident.postmortemBody]).
+  bool _editingPostmortem = false;
 
-  /// The acknowledgement record, or `null` when not yet acknowledged (React
-  /// `ack`).
-  IncidentAcknowledgement? _ack;
+  /// The postmortem editor's working text while [_editingPostmortem] is set.
+  String _postmortemBody = '';
+
+  /// Whether [_postmortemBody] was seeded from the generated draft rather than
+  /// a stored body, gating the AI-provenance hint inside the editor.
+  bool _postmortemFromDraft = false;
 
   /// The public timeline view value.
   static const String _viewPublic = 'public';
@@ -146,6 +151,11 @@ class _IncidentDetailViewState
     if (widget.id != null) {
       controller.loadAnalysis(widget.id!);
     }
+    // Load the team's real roster once for the assignee Select. Reuses the
+    // starter's own team controller (the single owner of `/teams/{id}/members`)
+    // instead of adding a parallel members fetch; it self-guards against a
+    // concurrent in-flight load and against a null active team.
+    MagicStarterTeamController.instance.loadMembersAndInvitations();
   }
 
   @override
@@ -172,19 +182,19 @@ class _IncidentDetailViewState
   /// Runs from [initState] and [didUpdateWidget]; both schedule their own build,
   /// so state is assigned directly rather than through [setState].
   ///
-  /// [_assigneeName] and [_ack] always start empty: the [Incident] ORM model
-  /// carries no assignee/acknowledgement (the backend `IncidentResource` has
-  /// no counterpart for them, so an `Incident.fromMap` never hydrates one).
-  /// Assignment and acknowledgement are wired locally from here (the responder
-  /// strip + the Acknowledge button), matching the previous behaviour on a
-  /// backend-decoded incident, which also had both fields null.
+  /// Only genuinely transient compose state is seeded here. The assignment, the
+  /// acknowledgement, and the postmortem are PERSISTED on the incident
+  /// ([Incident.assigneeId], [Incident.acknowledgement],
+  /// [Incident.postmortemBody]) and read straight off it at render time, so
+  /// there is nothing to seed and nothing that can drift from the backend.
   void _seedFrom(Incident? incident) {
     _view = _viewPublic;
     _message = '';
     _publish = true;
     _aiDrafted = false;
-    _assigneeName = null;
-    _ack = null;
+    _editingPostmortem = false;
+    _postmortemBody = '';
+    _postmortemFromDraft = false;
     if (incident == null) {
       _lifecycle = IncidentLifecycle.investigating;
       _reopenTo = IncidentLifecycle.investigating;
@@ -336,12 +346,23 @@ class _IncidentDetailViewState
   // ---------------------------------------------------------------------------
 
   /// Builds the responder strip: an "Assigned to" assignee [Select] over the
-  /// [responders] roster and, on the trailing edge, either the acknowledgement
-  /// line or an Acknowledge [Button].
+  /// team's real members and, on the trailing edge, either the persisted
+  /// acknowledgement line or an Acknowledge [Button].
   ///
   /// Shown only while the incident is open (the caller gates on `!resolved`);
   /// once resolved, ownership lives in the timeline and postmortem.
+  ///
+  /// The trailing edge mirrors the backend exactly. `IncidentWriteService`
+  /// acknowledges ONLY a still-`detected` incident (anything further along is a
+  /// no-op that writes no note), so the button appears only then; a persisted
+  /// acknowledgement shows the line instead; and an incident already moved on
+  /// without one shows neither, rather than a button whose success toast would
+  /// claim a write that never happened.
   Widget _buildResponderStrip(Incident incident) {
+    final IncidentAcknowledgement? ack = incident.acknowledgement;
+    final bool canAcknowledge =
+        ack == null && incident.lifecycle == IncidentLifecycle.detected;
+
     return WDiv(
       className:
           'flex flex-col gap-3 rounded-lg border border-color-border '
@@ -356,38 +377,89 @@ class _IncidentDetailViewState
               className:
                   'text-xs font-medium uppercase tracking-wide text-fg-muted',
             ),
-            Expanded(child: _buildAssigneeSelect()),
+            Expanded(child: _buildAssigneeSelect(incident)),
           ],
         ),
-        if (_ack != null) _buildAckLine(_ack!) else _buildAcknowledgeButton(),
+        if (ack != null)
+          _buildAckLine(ack)
+        else if (canAcknowledge)
+          _buildAcknowledgeButton(),
       ],
     );
   }
 
-  /// Builds the assignee [Select]: an "Unassigned" sentinel plus the roster.
+  /// Builds the assignee [Select]: an "Unassigned" sentinel plus the team's
+  /// real members.
+  ///
+  /// The roster comes from [MagicStarterTeamController.members] (the starter's
+  /// own `/teams/{id}/members` read, loaded once from `initState`), wrapped in a
+  /// [ValueListenableBuilder] so the options appear as soon as that fetch lands.
+  /// The rendered value comes from [Incident.assigneeId], never from local
+  /// state, so what the Select shows is what the backend stored. A change posts
+  /// through [IncidentController.assign] and the reload re-renders from the
+  /// persisted incident.
   ///
   /// [Select] carries a controlled non-null value, so the empty-string sentinel
-  /// stands in for "no assignee"; it maps to `null` on change.
-  Widget _buildAssigneeSelect() {
-    return MSSelect<String>(
-      value: _assigneeName ?? '',
-      options: [
-        SelectOption<String>(
-          value: '',
-          label: trans('uptizm.incidents.detail_unassigned'),
-        ),
-        for (final IncidentAssignee r in responders)
-          SelectOption<String>(value: r.name, label: r.name),
-      ],
-      onChange: (value) {
-        setState(
-          () => _assigneeName = (value == null || value.isEmpty) ? null : value,
+  /// stands in for "no assignee"; it maps to `null` on change. A stored
+  /// assignee who is not in the loaded roster yet (the fetch is still in
+  /// flight, or they have since left the team) still gets an option of their
+  /// own, so the Select never silently renders "Unassigned" over a real owner.
+  Widget _buildAssigneeSelect(Incident incident) {
+    return ValueListenableBuilder<List<Map<String, dynamic>>>(
+      valueListenable: MagicStarterTeamController.instance.members,
+      builder: (context, members, _) {
+        final String? assigneeId = incident.assigneeId;
+        final List<SelectOption<String>> options = [
+          SelectOption<String>(
+            value: '',
+            label: trans('uptizm.incidents.detail_unassigned'),
+          ),
+          for (final Map<String, dynamic> member in members)
+            if (_memberId(member) case final String id)
+              SelectOption<String>(value: id, label: _memberName(member, id)),
+        ];
+
+        if (assigneeId != null &&
+            !options.any((option) => option.value == assigneeId)) {
+          options.add(
+            SelectOption<String>(
+              value: assigneeId,
+              label: incident.assigneeName ?? assigneeId,
+            ),
+          );
+        }
+
+        return MSSelect<String>(
+          value: assigneeId ?? '',
+          options: options,
+          onChange: (value) => controller.assign(
+            incident,
+            (value == null || value.isEmpty) ? null : value,
+          ),
         );
       },
     );
   }
 
-  /// Builds the acknowledgement line shown once someone is on the incident.
+  /// The member's id as a string, or `null` when the payload carries none.
+  String? _memberId(Map<String, dynamic> member) {
+    final String id = member['id']?.toString() ?? '';
+    return id.isEmpty ? null : id;
+  }
+
+  /// The member's display name, falling back to their email and then their id
+  /// so an option is never blank.
+  String _memberName(Map<String, dynamic> member, String id) {
+    final String name = (member['name'] as String?)?.trim() ?? '';
+    if (name.isNotEmpty) return name;
+
+    final String email = (member['email'] as String?)?.trim() ?? '';
+    return email.isNotEmpty ? email : id;
+  }
+
+  /// Builds the acknowledgement line from the PERSISTED timeline entry: the
+  /// author the backend stamped from the acting user, at the time it recorded.
+  /// Nothing here is client-authored.
   Widget _buildAckLine(IncidentAcknowledgement ack) {
     return WDiv(
       className: 'flex flex-row items-center gap-1.5',
@@ -404,35 +476,16 @@ class _IncidentDetailViewState
     );
   }
 
-  /// Builds the Acknowledge [Button]: records the current user as on the
-  /// incident and surfaces the acknowledgement toast.
+  /// Builds the Acknowledge [Button]: asks the backend to record the acting
+  /// user as on the incident.
   Widget _buildAcknowledgeButton() {
     return MSButton(
       intent: ButtonIntent.secondary,
       size: ButtonSize.sm,
-      onPressed: _onAcknowledge,
+      onPressed: () => controller.acknowledge(),
       child: WText(trans('uptizm.incidents.detail_acknowledge')),
     );
   }
-
-  /// Records the acknowledgement locally and surfaces the toast. The current
-  /// user is the fixed mock responder [_currentUserName]; the time is "just now"
-  /// (mirroring the React source's inline `{ by: currentUser.name, at: "just now" }`).
-  void _onAcknowledge() {
-    const String by = _currentUserName;
-    setState(() {
-      _ack = IncidentAcknowledgement(
-        by: by,
-        at: trans('uptizm.common.time_just_now'),
-      );
-    });
-    controller.acknowledge(by);
-  }
-
-  /// The current mock responder who acknowledges an incident. The React source
-  /// reads `currentUser.name` from a teams fixture; no such fixture is wired
-  /// into uptizm, so the roster lead stands in as the acting user.
-  static const String _currentUserName = 'Ada Lovelace';
 
   // ---------------------------------------------------------------------------
   // Affected monitors
@@ -532,25 +585,183 @@ class _IncidentDetailViewState
   // Postmortem
   // ---------------------------------------------------------------------------
 
-  /// Builds the postmortem section (resolved incidents only): an [AiInsight]
-  /// banner carrying the [postmortemDraft] with an "Edit & publish" action.
+  /// Builds the postmortem section (resolved incidents only), in one of three
+  /// states:
+  ///
+  /// 1. **Editing** ([_editingPostmortem]): the composer, seeded with the stored
+  ///    body or, when there is none yet, the generated [postmortemDraft].
+  /// 2. **Stored** ([Incident.postmortemBody] present): the persisted body in a
+  ///    plain card, with an honest published-or-draft-only state line. A human
+  ///    owns this text, so it carries no AI framing.
+  /// 3. **Nothing stored**: the generated [postmortemDraft] in an [AiInsight]
+  ///    banner, labelled a draft, as the starting point for a human.
   Widget _buildPostmortem(Incident incident) {
+    if (_editingPostmortem) {
+      return _buildPostmortemEditor(incident);
+    }
+
+    final String? stored = incident.postmortemBody;
+    if (stored != null) {
+      return _buildStoredPostmortem(incident, stored);
+    }
+
     return AiInsight(
       tone: 'banner',
       label: trans('uptizm.incidents.detail_postmortem_heading'),
-      action: MSButton(
-        intent: ButtonIntent.secondary,
-        size: ButtonSize.sm,
-        onPressed: _onEditPostmortem,
-        child: WText(trans('uptizm.incidents.detail_postmortem_edit')),
-      ),
+      action: _buildPostmortemEditButton(incident),
       child: WText(postmortemDraft(incident)),
     );
   }
 
-  /// Surfaces the postmortem-edit toast. Local mock: the draft is not persisted.
-  void _onEditPostmortem() {
-    controller.editPostmortem();
+  /// Builds the stored-postmortem card: the persisted body, its publication
+  /// state, and the edit action.
+  Widget _buildStoredPostmortem(Incident incident, String body) {
+    return MSCard(
+      variant: CardVariant.surface,
+      child: WDiv(
+        className: 'flex flex-col gap-3',
+        children: [
+          WDiv(
+            className: 'wrap items-center justify-between gap-3',
+            children: [
+              WText(
+                trans('uptizm.incidents.detail_postmortem_heading_saved'),
+                className: 'text-sm font-semibold text-fg',
+              ),
+              _buildPostmortemEditButton(incident),
+            ],
+          ),
+          WText(body, className: 'text-sm leading-relaxed text-fg-muted'),
+          _buildPostmortemState(incident),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the honest publication-state line: published (naming when, from the
+  /// backend's own stamp) or an explicit "internal draft, not published".
+  Widget _buildPostmortemState(Incident incident) {
+    final DateTime? publishedAt = incident.postmortemPublishedAt;
+    if (publishedAt == null) {
+      return WText(
+        trans('uptizm.incidents.detail_postmortem_state_draft'),
+        className: 'text-xs font-medium text-degraded-soft-foreground',
+      );
+    }
+
+    return WText(
+      trans('uptizm.incidents.detail_postmortem_state_published', {
+        // Numeric, locale-safe timestamp (the shared formatter avoids leaking
+        // untranslated English month names), driven by the backend's own stamp.
+        'time': formatMonthDayTime(publishedAt),
+      }),
+      className: 'text-xs font-medium text-up-soft-foreground',
+    );
+  }
+
+  /// Builds the "Edit & publish" [Button], which opens the composer seeded with
+  /// the stored body or the generated draft.
+  Widget _buildPostmortemEditButton(Incident incident) {
+    return MSButton(
+      intent: ButtonIntent.secondary,
+      size: ButtonSize.sm,
+      onPressed: () => _onEditPostmortem(incident),
+      child: WText(trans('uptizm.incidents.detail_postmortem_edit')),
+    );
+  }
+
+  /// Builds the postmortem composer: the body [Textarea], the AI-provenance hint
+  /// while the text is still the generated draft, and the Cancel / Save draft /
+  /// Publish actions.
+  Widget _buildPostmortemEditor(Incident incident) {
+    return MSCard(
+      variant: CardVariant.surface,
+      child: WDiv(
+        className: 'flex flex-col gap-3',
+        children: [
+          WText(
+            trans('uptizm.incidents.detail_postmortem_heading_edit'),
+            className: 'text-sm font-semibold text-fg',
+          ),
+          MSTextarea(
+            value: _postmortemBody,
+            minLines: 6,
+            maxLines: 14,
+            placeholder: trans('uptizm.incidents.detail_postmortem_placeholder'),
+            onChanged: (value) => setState(() => _postmortemBody = value),
+          ),
+          // The seeded text is Uptizm's outside-in observation, not a finished
+          // analysis; say so for as long as it is still the generated draft.
+          if (_postmortemFromDraft)
+            AiInsight(
+              child: WText(
+                trans('uptizm.incidents.detail_postmortem_ai_seeded'),
+              ),
+            ),
+          WDiv(
+            className: 'wrap items-center justify-end gap-3',
+            children: [
+              MSButton(
+                intent: ButtonIntent.ghost,
+                size: ButtonSize.sm,
+                onPressed: () => setState(() => _editingPostmortem = false),
+                child: WText(trans('uptizm.incidents.detail_postmortem_cancel')),
+              ),
+              MSButton(
+                intent: ButtonIntent.secondary,
+                size: ButtonSize.sm,
+                onPressed: _postmortemBody.trim().isEmpty
+                    ? null
+                    : () => _onSavePostmortem(incident, publish: false),
+                child: WText(
+                  trans('uptizm.incidents.detail_postmortem_save_draft'),
+                ),
+              ),
+              MSButton(
+                size: ButtonSize.sm,
+                onPressed: _postmortemBody.trim().isEmpty
+                    ? null
+                    : () => _onSavePostmortem(incident, publish: true),
+                child: WText(
+                  trans('uptizm.incidents.detail_postmortem_publish'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Opens the composer, seeded with the stored body when one exists and with
+  /// the generated draft otherwise (flagging the AI provenance in that case).
+  void _onEditPostmortem(Incident incident) {
+    final String? stored = incident.postmortemBody;
+    setState(() {
+      _editingPostmortem = true;
+      _postmortemBody = stored ?? postmortemDraft(incident);
+      _postmortemFromDraft = stored == null;
+    });
+  }
+
+  /// Persists the composer text through [IncidentController.savePostmortem] and
+  /// closes the composer only once the write landed, so a failed save keeps the
+  /// operator's text on screen instead of discarding it.
+  Future<void> _onSavePostmortem(
+    Incident incident, {
+    required bool publish,
+  }) async {
+    final bool saved = await controller.savePostmortem(
+      incident,
+      _postmortemBody,
+      publish: publish,
+    );
+    if (!saved || !mounted) return;
+
+    setState(() {
+      _editingPostmortem = false;
+      _postmortemFromDraft = false;
+    });
   }
 
   // ---------------------------------------------------------------------------

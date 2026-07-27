@@ -38,6 +38,7 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.monitors.tab_overview': 'Overview',
       'uptizm.monitors.tab_metrics': 'Metrics',
       'uptizm.monitors.tab_incidents': 'Incidents',
+      'uptizm.monitors.action_check_now': 'Check now',
       'uptizm.monitors.action_pause': 'Pause',
       'uptizm.monitors.action_resume': 'Resume',
       'uptizm.monitors.action_edit': 'Edit',
@@ -125,6 +126,38 @@ void main() {
             'response_ms': 195,
             'checked_at': '2026-07-11T19:20:00.000000Z',
             'status': 'up',
+          },
+        ],
+      }),
+      // The Incidents tab and the open-incident KPI read the REAL roster
+      // (`GET /incidents`) filtered by monitor identity. `inc-api` names the
+      // 'api' monitor both as its primary and in its component pivot; `inc-other`
+      // belongs to a different monitor and must never appear on this screen.
+      'incidents': Http.response({
+        'data': [
+          {
+            'id': 'inc-api',
+            'title': 'API gateway returning 503s',
+            'lifecycle': 'investigating',
+            'severity': 'critical',
+            'impact': 'critical',
+            'started_at': '2026-07-11T14:00:00Z',
+            'primary_monitor_id': 'api',
+            'monitors': [
+              {'monitor_id': 'api', 'name': 'API gateway'},
+            ],
+          },
+          {
+            'id': 'inc-other',
+            'title': 'Marketing site slow',
+            'lifecycle': 'investigating',
+            'severity': 'warning',
+            'impact': 'minor',
+            'started_at': '2026-07-11T13:00:00Z',
+            'primary_monitor_id': 'marketing',
+            'monitors': [
+              {'monitor_id': 'marketing', 'name': 'Marketing site'},
+            ],
           },
         ],
       }),
@@ -454,10 +487,14 @@ void main() {
       await tester.tap(find.text(trans('uptizm.monitors.tab_incidents')));
       await tester.pump();
 
-      // The API gateway has incidents on record, so the tab renders cards
-      // rather than the empty state.
+      // This used to read the design-lab `incidentsForMonitor` fixture keyed by
+      // monitor NAME, so the tab listed five invented incidents. It now filters
+      // the real roster by monitor identity: exactly the one incident that
+      // names this monitor, and never another monitor's.
       expect(tester.takeException(), isNull);
-      expect(find.byType(IncidentCard), findsWidgets);
+      expect(find.byType(IncidentCard), findsOneWidget);
+      expect(find.text('API gateway returning 503s'), findsOneWidget);
+      expect(find.text('Marketing site slow'), findsNothing);
     },
   );
 }

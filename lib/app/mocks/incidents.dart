@@ -11,9 +11,7 @@ import '../support/incident_types.dart'
         AiEvidence,
         AiSimilarIncident,
         AiSuggestedAction,
-        IncidentAcknowledgement,
         IncidentAi,
-        IncidentAssignee,
         IncidentSummary,
         TimelineEntry;
 
@@ -37,8 +35,6 @@ const List<IncidentSummary> incidents = [
     affectedCount: 1,
     aiOwned: true,
     monitorName: 'Checkout service',
-    assignee: IncidentAssignee(name: 'Ada Lovelace', initials: 'AL'),
-    acknowledged: IncidentAcknowledgement(by: 'Ada Lovelace', at: '14:33'),
     affectedMonitors: [
       AffectedMonitor(
         name: 'Checkout service',
@@ -146,8 +142,6 @@ const List<IncidentSummary> incidents = [
     affectedCount: 1,
     aiOwned: true,
     monitorName: 'API gateway',
-    assignee: IncidentAssignee(name: 'Ravi Shah', initials: 'RS'),
-    acknowledged: IncidentAcknowledgement(by: 'Ravi Shah', at: '13:35'),
     affectedMonitors: [
       AffectedMonitor(
         name: 'API gateway',

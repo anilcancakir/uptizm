@@ -20,9 +20,9 @@ use Tests\TestCase;
 /**
  * Locks the operator incident-write HTTP surface added on top of
  * {@see IncidentWriteService}: create/resolve/
- * acknowledge/reopen/post-update each delegate to the service, are
- * team-scoped via `authorizeTeam` (404-mask, never 403), and validate their
- * payload via a dedicated FormRequest.
+ * acknowledge/reopen/post-update/assign/postmortem each delegate to the
+ * service, are team-scoped via `authorizeTeam` (404-mask, never 403), and
+ * validate their payload via a dedicated FormRequest.
  */
 class IncidentWriteControllerTest extends TestCase
 {
@@ -182,6 +182,144 @@ class IncidentWriteControllerTest extends TestCase
         $response->assertStatus(404);
     }
 
+    public function test_assign_sets_the_assignee_and_appends_a_timeline_entry(): void
+    {
+        [$team, $monitor] = $this->actingAsTeamMemberWithMonitor();
+        $incident = $this->makeIncident($monitor, IncidentStatus::Investigating);
+        $responder = $this->makeTeamMember($team, 'Ravi Shah');
+
+        $response = $this->postJson("/api/v1/incidents/{$incident->id}/assign", [
+            'assignee_id' => $responder->id,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.assignee.id', $responder->id);
+        $response->assertJsonPath('data.assignee.name', 'Ravi Shah');
+        $this->assertSame((string) $responder->id, (string) $incident->fresh()->assigned_to_user_id);
+        $this->assertSame(1, $incident->updates()->count());
+        $this->assertStringContainsString('Ravi Shah', $incident->updates()->sole()->message);
+    }
+
+    public function test_assign_clears_the_assignee_when_the_id_is_null(): void
+    {
+        [$team, $monitor] = $this->actingAsTeamMemberWithMonitor();
+        $incident = $this->makeIncident($monitor, IncidentStatus::Investigating);
+        $responder = $this->makeTeamMember($team, 'Ravi Shah');
+        $incident->forceFill(['assigned_to_user_id' => $responder->id])->save();
+
+        $response = $this->postJson("/api/v1/incidents/{$incident->id}/assign", [
+            'assignee_id' => null,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.assignee', null);
+        $this->assertNull($incident->fresh()->assigned_to_user_id);
+        $this->assertSame(1, $incident->updates()->count());
+    }
+
+    public function test_assign_rejects_a_user_outside_the_incidents_team(): void
+    {
+        [, $monitor] = $this->actingAsTeamMemberWithMonitor();
+        $incident = $this->makeIncident($monitor, IncidentStatus::Investigating);
+        $outsider = User::factory()->create();
+
+        $response = $this->postJson("/api/v1/incidents/{$incident->id}/assign", [
+            'assignee_id' => $outsider->id,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('assignee_id');
+        $this->assertNull($incident->fresh()->assigned_to_user_id);
+    }
+
+    public function test_assign_masks_a_foreign_teams_incident_as_404(): void
+    {
+        $this->actingAsTeamMemberWithMonitor();
+
+        $foreignTeam = Team::create([
+            'user_id' => User::factory()->create()->id,
+            'name' => 'Foreign Team',
+            'personal_team' => true,
+        ]);
+        $foreignMonitor = $this->makeMonitor($foreignTeam->id);
+        $foreignIncident = $this->makeIncident($foreignMonitor, IncidentStatus::Investigating);
+
+        $response = $this->postJson("/api/v1/incidents/{$foreignIncident->id}/assign", [
+            'assignee_id' => null,
+        ]);
+
+        $response->assertStatus(404);
+    }
+
+    public function test_postmortem_saves_a_draft_without_publishing_it(): void
+    {
+        [, $monitor] = $this->actingAsTeamMemberWithMonitor();
+        $incident = $this->makeIncident($monitor, IncidentStatus::Resolved);
+
+        $response = $this->postJson("/api/v1/incidents/{$incident->id}/postmortem", [
+            'body' => 'The origin pool ran out of workers under the release traffic.',
+            'publish' => false,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath(
+            'data.postmortem_body',
+            'The origin pool ran out of workers under the release traffic.',
+        );
+        $response->assertJsonPath('data.postmortem_published_at', null);
+        $this->assertNull($incident->fresh()->postmortem_published_at);
+        $this->assertSame(1, $incident->updates()->count());
+    }
+
+    public function test_postmortem_stamps_published_at_when_publishing(): void
+    {
+        [, $monitor] = $this->actingAsTeamMemberWithMonitor();
+        $incident = $this->makeIncident($monitor, IncidentStatus::Resolved);
+
+        $response = $this->postJson("/api/v1/incidents/{$incident->id}/postmortem", [
+            'body' => 'Root cause: the release doubled the connection pool wait.',
+            'publish' => true,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath(
+            'data.postmortem_body',
+            'Root cause: the release doubled the connection pool wait.',
+        );
+        $this->assertNotNull($response->json('data.postmortem_published_at'));
+        $this->assertNotNull($incident->fresh()->postmortem_published_at);
+    }
+
+    public function test_postmortem_requires_a_body(): void
+    {
+        [, $monitor] = $this->actingAsTeamMemberWithMonitor();
+        $incident = $this->makeIncident($monitor, IncidentStatus::Resolved);
+
+        $response = $this->postJson("/api/v1/incidents/{$incident->id}/postmortem", []);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('body');
+    }
+
+    public function test_postmortem_masks_a_foreign_teams_incident_as_404(): void
+    {
+        $this->actingAsTeamMemberWithMonitor();
+
+        $foreignTeam = Team::create([
+            'user_id' => User::factory()->create()->id,
+            'name' => 'Foreign Team',
+            'personal_team' => true,
+        ]);
+        $foreignMonitor = $this->makeMonitor($foreignTeam->id);
+        $foreignIncident = $this->makeIncident($foreignMonitor, IncidentStatus::Resolved);
+
+        $response = $this->postJson("/api/v1/incidents/{$foreignIncident->id}/postmortem", [
+            'body' => 'Should never land.',
+        ]);
+
+        $response->assertStatus(404);
+    }
+
     /**
      * Authenticate as a user whose current team owns a freshly created
      * monitor, mirroring {@see MonitorControllerTest::actingAsTeamMember()}.
@@ -203,6 +341,18 @@ class IncidentWriteControllerTest extends TestCase
         Sanctum::actingAs($user);
 
         return [$team, $this->makeMonitor($team->id)];
+    }
+
+    /**
+     * Attach a freshly created user to the team as a member (the pivot half of
+     * the owner + `team_user` roster the assignee rule validates against).
+     */
+    protected function makeTeamMember(Team $team, string $name): User
+    {
+        $member = User::factory()->create(['name' => $name]);
+        $team->users()->attach($member->id, ['role' => 'editor']);
+
+        return $member;
     }
 
     /**

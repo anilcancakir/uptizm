@@ -39,6 +39,7 @@ void main() {
       expect(incident.casts['updated_at'], 'datetime');
       expect(incident.casts['started_at'], 'datetime');
       expect(incident.casts['resolved_at'], 'datetime');
+      expect(incident.casts['postmortem_published_at'], 'datetime');
     });
   });
 
@@ -68,7 +69,8 @@ void main() {
         'updates': <Map<String, dynamic>>[
           <String, dynamic>{
             'actor': 'human',
-            'status': 'Investigating',
+            'author': 'Ada Byron',
+            'status': 'investigating',
             'message': 'Rolling back the latest release now.',
             'is_public': true,
             'autonomous': false,
@@ -105,6 +107,9 @@ void main() {
         'Rolling back the latest release now.',
       );
       expect(incident.timeline.single.isPublic, isTrue);
+      // The resource DOES carry `author`; it is the real persisted attribution
+      // the backend stamped, so the timeline surfaces it rather than dropping it.
+      expect(incident.timeline.single.author, 'Ada Byron');
       expect(incident.ai, isNotNull);
       expect(incident.ai!.trigger, 'AI anomaly');
       expect(incident.ai!.confidence, AiConfidence.high);
@@ -240,6 +245,179 @@ void main() {
       });
 
       expect(incident.duration, '14m');
+    });
+  });
+
+  group('Incident assignee', () {
+    test('decodes the resource assignee sub-object', () {
+      final Incident incident = Incident.fromMap(<String, dynamic>{
+        'id': 'assigned',
+        'title': 'Assigned',
+        'started_at': '2026-07-09T14:20:00.000Z',
+        'assignee': <String, dynamic>{'id': 'u2', 'name': 'Ravi Shah'},
+      });
+
+      expect(incident.assigneeId, 'u2');
+      expect(incident.assigneeName, 'Ravi Shah');
+    });
+
+    test('reads as unassigned for a null, absent, or blank assignee', () {
+      Incident withAssignee(Object? assignee) => Incident.fromMap({
+        'id': 'x',
+        'title': 'X',
+        'started_at': '2026-07-09T14:20:00.000Z',
+        'assignee': ?assignee,
+      });
+
+      expect(withAssignee(null).assigneeId, isNull);
+      expect(withAssignee(null).assigneeName, isNull);
+      expect(
+        withAssignee(<String, dynamic>{'id': '', 'name': '  '}).assigneeId,
+        isNull,
+      );
+      expect(
+        withAssignee(<String, dynamic>{'id': 'u3', 'name': '  '}).assigneeName,
+        isNull,
+      );
+    });
+  });
+
+  group('Incident postmortem', () {
+    test('a body with a publication stamp reads as published', () {
+      final Incident incident = Incident.fromMap(<String, dynamic>{
+        'id': 'pm',
+        'title': 'PM',
+        'started_at': '2026-07-09T14:20:00.000Z',
+        'postmortem_body': 'Root cause: pool starvation.',
+        'postmortem_published_at': '2026-07-09T16:00:00.000Z',
+      });
+
+      expect(incident.postmortemBody, 'Root cause: pool starvation.');
+      expect(incident.postmortemPublishedAt, isNotNull);
+      expect(incident.postmortemIsPublished, isTrue);
+    });
+
+    test('a body without a stamp is an internal draft, never published', () {
+      final Incident incident = Incident.fromMap(<String, dynamic>{
+        'id': 'pm-draft',
+        'title': 'PM draft',
+        'started_at': '2026-07-09T14:20:00.000Z',
+        'postmortem_body': 'Internal draft.',
+      });
+
+      expect(incident.postmortemBody, 'Internal draft.');
+      expect(incident.postmortemPublishedAt, isNull);
+      expect(incident.postmortemIsPublished, isFalse);
+    });
+
+    test('a blank or absent body reads as no postmortem at all', () {
+      final Incident blank = Incident.fromMap(<String, dynamic>{
+        'id': 'pm-blank',
+        'title': 'PM blank',
+        'started_at': '2026-07-09T14:20:00.000Z',
+        'postmortem_body': '   ',
+        'postmortem_published_at': '2026-07-09T16:00:00.000Z',
+      });
+      final Incident absent = Incident.fromMap(<String, dynamic>{
+        'id': 'pm-absent',
+        'title': 'PM absent',
+        'started_at': '2026-07-09T14:20:00.000Z',
+      });
+
+      expect(blank.postmortemBody, isNull);
+      expect(blank.postmortemIsPublished, isFalse);
+      expect(absent.postmortemBody, isNull);
+      expect(absent.postmortemIsPublished, isFalse);
+    });
+  });
+
+  group('Incident acknowledgement', () {
+    /// Builds an incident whose timeline is [updates], in wire order (the
+    /// backend returns `updates` ordered by `display_at` ascending).
+    Incident withTimeline(List<Map<String, dynamic>> updates) {
+      return Incident.fromMap(<String, dynamic>{
+        'id': 'ack',
+        'title': 'Ack',
+        'started_at': '2026-07-09T14:20:00.000Z',
+        'updates': updates,
+      });
+    }
+
+    test('derives from the persisted human investigating entry', () {
+      final Incident incident = withTimeline([
+        <String, dynamic>{
+          'actor': 'ai',
+          'author': 'Uptizm AI',
+          'status': 'detected',
+          'message': 'Anomaly band crossed.',
+          'display_at': '2026-07-09T14:32:00.000Z',
+        },
+        <String, dynamic>{
+          'actor': 'human',
+          'author': 'Demo',
+          'status': 'investigating',
+          'message': 'Incident acknowledged; investigation in progress.',
+          'display_at': '2026-07-09T14:33:00.000Z',
+        },
+      ]);
+
+      expect(incident.acknowledgement, isNotNull);
+      expect(incident.acknowledgement!.by, 'Demo');
+      expect(
+        incident.acknowledgement!.at,
+        formatHourMinute('2026-07-09T14:33:00.000Z'),
+      );
+    });
+
+    test('takes the EARLIEST such entry, so a reopen cannot shadow it', () {
+      final Incident incident = withTimeline([
+        <String, dynamic>{
+          'actor': 'human',
+          'author': 'Demo',
+          'status': 'investigating',
+          'message': 'Incident acknowledged; investigation in progress.',
+          'display_at': '2026-07-09T14:33:00.000Z',
+        },
+        <String, dynamic>{
+          'actor': 'human',
+          'author': 'Someone Else',
+          'status': 'investigating',
+          'message': 'Incident reopened by operator.',
+          'display_at': '2026-07-09T18:00:00.000Z',
+        },
+      ]);
+
+      expect(incident.acknowledgement!.by, 'Demo');
+    });
+
+    test('is null with no human investigating entry, and never invents an '
+        'author', () {
+      expect(withTimeline(const []).acknowledgement, isNull);
+      expect(
+        withTimeline([
+          <String, dynamic>{
+            'actor': 'system',
+            'status': 'investigating',
+            'message': 'Auto-escalated.',
+            'display_at': '2026-07-09T14:33:00.000Z',
+          },
+        ]).acknowledgement,
+        isNull,
+        reason: 'A system entry has no acknowledging human',
+      );
+      expect(
+        withTimeline([
+          <String, dynamic>{
+            'actor': 'human',
+            'author': '  ',
+            'status': 'investigating',
+            'message': 'Unattributed.',
+            'display_at': '2026-07-09T14:33:00.000Z',
+          },
+        ]).acknowledgement,
+        isNull,
+        reason: 'A blank author is not a person; nothing is substituted',
+      );
     });
   });
 

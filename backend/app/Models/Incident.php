@@ -25,11 +25,17 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * distinguishes AI-driven incidents from user-threshold ones for badging
  * and filtering.
  *
+ * The postmortem lives on the row as `postmortem_body` +
+ * `postmortem_published_at`: the body alone is an internal draft, and only a
+ * non-null publication stamp makes it customer-visible on the public status
+ * page.
+ *
  * Relationships:
  * - belongs to {@see Team} (tenant boundary)
  * - belongs to {@see Monitor} (primary monitor hint)
  * - belongs to many {@see Monitor} via `incident_monitors` (affected components)
  * - has many {@see IncidentUpdate} (unified public + internal timeline)
+ * - belongs to {@see User} (the assigned responder, nullable)
  */
 class Incident extends Model
 {
@@ -52,7 +58,19 @@ class Incident extends Model
         'ai_owned' => 'boolean',
         'started_at' => 'immutable_datetime',
         'resolved_at' => 'immutable_datetime',
+        'postmortem_published_at' => 'immutable_datetime',
     ];
+
+    /**
+     * Whether the postmortem has been published to the public status page.
+     * A body with no publication stamp is an internal draft.
+     */
+    public function postmortemIsPublished(): bool
+    {
+        return $this->postmortem_published_at !== null
+            && $this->postmortem_body !== null
+            && trim($this->postmortem_body) !== '';
+    }
 
     /**
      * Owning team (tenant boundary).
@@ -90,6 +108,18 @@ class Incident extends Model
                 'component_status_current',
             ])
             ->withTimestamps();
+    }
+
+    /**
+     * The team member currently driving the response, or null when the
+     * incident is unassigned. Set through the operator assign endpoint, which
+     * enforces that the user belongs to the incident's team.
+     *
+     * @return BelongsTo<User, self>
+     */
+    public function assignee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to_user_id');
     }
 
     /**

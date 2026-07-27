@@ -6,7 +6,7 @@ import 'package:uptizm/app/enums/incident_lifecycle.dart' as mocks;
 import 'package:uptizm/app/enums/signal_source.dart' as mocks;
 import 'package:uptizm/app/support/incident_types.dart'
     as mocks
-    show IncidentAssignee, TimelineEntry;
+    show TimelineEntry;
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/app/models/monitor.dart';
@@ -166,18 +166,7 @@ List<TimelineEntry> toComponentTimeline(List<mocks.TimelineEntry> src) {
   ];
 }
 
-// ---------------------------------------------------------------------------
-// Assignee roster.
-// ---------------------------------------------------------------------------
-
-/// A minimal responder roster for the detail assignee Select.
-///
-/// No assignee roster exists elsewhere in the codebase (`oncall.dart` /
-/// `teams.dart` expose escalation policies, not a roster; `incidents.dart`
-/// only carries inline per-incident assignees), so this module defines one.
-const List<mocks.IncidentAssignee> responders = [
-  mocks.IncidentAssignee(name: 'Ada Lovelace', initials: 'AL'),
-  mocks.IncidentAssignee(name: 'Ravi Shah', initials: 'RS'),
-  mocks.IncidentAssignee(name: 'Mara Chen', initials: 'MC'),
-  mocks.IncidentAssignee(name: 'Platform team', initials: 'PT'),
-];
+// The assignee roster lives nowhere in this module on purpose: the detail
+// screen's assignee Select reads the team's REAL members from
+// `MagicStarterTeamController.members` (`GET /teams/{id}/members`). An invented
+// roster here would offer people who do not exist.

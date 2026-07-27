@@ -43,6 +43,7 @@ readonly class StatusPageViewModel
      *         lifecycle: string,
      *         impact: string,
      *         startedAt: string,
+     *         postmortem: array{body: string, publishedAt: string}|null,
      *         updates: array<int, array{
      *             message: string,
      *             actor: string,

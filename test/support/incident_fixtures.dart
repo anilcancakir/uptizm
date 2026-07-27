@@ -21,9 +21,11 @@ import 'package:uptizm/app/models/incident.dart';
 ///
 /// The wire-value inverses (`down` -> `critical`, `warning` -> `warn`,
 /// `threshold` -> `user_threshold`, ...) round-trip the DTO enums back to the
-/// backend vocabulary the model's wire-bridge helpers decode. `assignee` and
-/// `acknowledged` have no wire counterpart (an `Incident.fromMap` never
-/// hydrates them), matching a real backend-decoded incident.
+/// backend vocabulary the model's wire-bridge helpers decode. The design-lab
+/// DTO's `assignee` / `acknowledged` fields are deliberately NOT projected: the
+/// live model derives ownership from the resource's `assignee` object and the
+/// acknowledgement from the persisted timeline, so a projected fixture must not
+/// hand it either through a side door.
 Incident asIncident(IncidentSummary summary) {
   final bool resolved = summary.lifecycle == IncidentLifecycle.resolved;
 
@@ -62,6 +64,9 @@ Incident asIncident(IncidentSummary summary) {
       for (final TimelineEntry e in summary.timeline)
         <String, dynamic>{
           'actor': e.actor.name,
+          // The resource carries `author`, so the projection does too: a
+          // backend-decoded entry surfaces its real persisted attribution.
+          'author': e.author,
           'status': e.status,
           'message': e.message,
           'is_public': e.isPublic,

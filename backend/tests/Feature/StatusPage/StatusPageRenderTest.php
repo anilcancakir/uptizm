@@ -57,6 +57,44 @@ class StatusPageRenderTest extends TestCase
         $response->assertDontSee('SUPER-SECRET-TOKEN');
     }
 
+    public function test_it_renders_a_published_postmortem_for_a_resolved_incident(): void
+    {
+        $page = $this->makePageWithMonitor('render-postmortem', isPublic: true);
+        $monitor = $page->monitors()->first();
+
+        $incident = $this->seedPublicIncident($page->team, $monitor, 'Checkout outage');
+        $incident->forceFill([
+            'lifecycle' => IncidentStatus::Resolved,
+            'resolved_at' => now(),
+            'postmortem_body' => 'The origin pool ran out of workers under release traffic.',
+            'postmortem_published_at' => now(),
+        ])->save();
+
+        $response = $this->get('/s/render-postmortem');
+
+        $response->assertOk();
+        $response->assertSee('The origin pool ran out of workers under release traffic.');
+    }
+
+    public function test_it_never_renders_an_unpublished_postmortem(): void
+    {
+        $page = $this->makePageWithMonitor('render-draft-only', isPublic: true);
+        $monitor = $page->monitors()->first();
+
+        $incident = $this->seedPublicIncident($page->team, $monitor, 'Checkout outage');
+        $incident->forceFill([
+            'lifecycle' => IncidentStatus::Resolved,
+            'resolved_at' => now(),
+            'postmortem_body' => 'INTERNAL DRAFT, not for customers yet.',
+            'postmortem_published_at' => null,
+        ])->save();
+
+        $response = $this->get('/s/render-draft-only');
+
+        $response->assertOk();
+        $response->assertDontSee('INTERNAL DRAFT, not for customers yet.');
+    }
+
     /**
      * Creates a status page for a fresh team with one attached, shown monitor
      * plus a daily-uptime row, so the assembler has real data to render.

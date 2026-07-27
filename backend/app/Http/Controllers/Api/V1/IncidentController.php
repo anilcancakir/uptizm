@@ -5,13 +5,16 @@ namespace App\Http\Controllers\Api\V1;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AssignIncidentRequest;
 use App\Http\Requests\IncidentNoteRequest;
 use App\Http\Requests\PostIncidentUpdateRequest;
+use App\Http\Requests\SaveIncidentPostmortemRequest;
 use App\Http\Requests\StoreIncidentRequest;
 use App\Http\Resources\IncidentResource;
 use App\Http\Resources\IncidentUpdateResource;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Models\User;
 use App\Services\Monitoring\IncidentWriteService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,13 +24,29 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 /**
  * Team-scoped incident API: the read-only list/show surface plus the
  * operator incident-write actions (create, resolve, acknowledge, reopen,
- * post-update), each a thin delegation onto {@see IncidentWriteService}. The
+ * post-update, assign, postmortem), each a thin delegation onto
+ * {@see IncidentWriteService}. The
  * automated path still opens/resolves incidents via {@see
  * \App\Services\Monitoring\ThresholdEvaluator}; this controller only exposes
  * the human counterpart.
  */
 class IncidentController extends Controller
 {
+    /**
+     * Relations every single-incident payload eager-loads. `assignee` is in the
+     * set because {@see IncidentResource} omits the key entirely when the
+     * relation is unloaded, and the client reads the assignment from the
+     * incident (never from local state), so an unloaded relation would read as
+     * "unassigned".
+     *
+     * @var array<int, string>
+     */
+    protected const array DETAIL_RELATIONS = [
+        'monitors',
+        'updates',
+        'assignee',
+    ];
+
     public function __construct(
         protected IncidentWriteService $incidentWriteService,
     ) {}
@@ -36,7 +55,7 @@ class IncidentController extends Controller
     {
         $query = Incident::query()
             ->where('team_id', $request->user()->current_team_id)
-            ->with(['monitors', 'updates']);
+            ->with(self::DETAIL_RELATIONS);
 
         // Filter by the affected monitor, matching either the denormalized
         // primary hint or the full affected-component pivot.
@@ -69,6 +88,7 @@ class IncidentController extends Controller
 
         $incident->load([
             'monitors',
+            'assignee',
             'updates' => fn ($q) => $q->orderBy('display_at'),
         ]);
 
@@ -90,7 +110,7 @@ class IncidentController extends Controller
             message: $request->validated('message'),
         );
 
-        return IncidentResource::make($incident->load(['monitors', 'updates']))
+        return IncidentResource::make($incident->load(self::DETAIL_RELATIONS))
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
     }
@@ -108,7 +128,7 @@ class IncidentController extends Controller
             message: $request->validated('message'),
         );
 
-        return IncidentResource::make($incident->load(['monitors', 'updates']));
+        return IncidentResource::make($incident->load(self::DETAIL_RELATIONS));
     }
 
     /**
@@ -124,7 +144,7 @@ class IncidentController extends Controller
             message: $request->validated('message'),
         );
 
-        return IncidentResource::make($incident->load(['monitors', 'updates']));
+        return IncidentResource::make($incident->load(self::DETAIL_RELATIONS));
     }
 
     /**
@@ -140,7 +160,45 @@ class IncidentController extends Controller
             message: $request->validated('message'),
         );
 
-        return IncidentResource::make($incident->load(['monitors', 'updates']));
+        return IncidentResource::make($incident->load(self::DETAIL_RELATIONS));
+    }
+
+    /**
+     * Hand the incident to a team member, or clear the assignment when
+     * `assignee_id` is null. The request rule guarantees the id belongs to the
+     * team's roster, so a non-member is rejected as a 422 field error.
+     */
+    public function assign(AssignIncidentRequest $request, Incident $incident): IncidentResource
+    {
+        $this->authorizeTeam($request, $incident);
+
+        $assigneeId = $request->validated('assignee_id');
+
+        $incident = $this->incidentWriteService->assign(
+            $incident,
+            assignee: $assigneeId === null ? null : User::query()->findOrFail($assigneeId),
+            author: $request->user()->name,
+        );
+
+        return IncidentResource::make($incident->load(self::DETAIL_RELATIONS));
+    }
+
+    /**
+     * Store the incident's postmortem body and, when `publish` is set, stamp it
+     * as published so the public status page renders it.
+     */
+    public function postmortem(SaveIncidentPostmortemRequest $request, Incident $incident): IncidentResource
+    {
+        $this->authorizeTeam($request, $incident);
+
+        $incident = $this->incidentWriteService->savePostmortem(
+            $incident,
+            body: $request->validated('body'),
+            publish: (bool) $request->validated('publish', false),
+            author: $request->user()->name,
+        );
+
+        return IncidentResource::make($incident->load(self::DETAIL_RELATIONS));
     }
 
     /**

@@ -1,8 +1,8 @@
 {{--
     Recent public incidents, grouped by the day they started. Each entry shows
-    its title, a lifecycle badge, when it started, and its public updates
-    (internal-only updates never reach this view, they are filtered out by
-    the assembler).
+    its title, a lifecycle badge, when it started, its public updates, and a
+    published postmortem when one exists (internal-only updates and UNPUBLISHED
+    postmortems never reach this view, the assembler filters both out).
 --}}
 @php
     $lifecycleBadgeClass = static fn (string $lifecycle): string => match ($lifecycle) {
@@ -54,6 +54,19 @@
                                             </li>
                                         @endforeach
                                     </ul>
+                                @endif
+
+                                @if (($entry['postmortem'] ?? null) !== null)
+                                    <div class="mt-3 rounded-md bg-gray-50 px-4 py-3">
+                                        <h4 class="text-xs font-semibold text-gray-500 uppercase">Postmortem</h4>
+                                        <p class="mt-1 text-sm whitespace-pre-line text-gray-700">{{ $entry['postmortem']['body'] }}</p>
+                                        <p class="mt-1 text-xs text-gray-500">
+                                            published
+                                            <time datetime="{{ $entry['postmortem']['publishedAt'] }}">
+                                                {{ \Illuminate\Support\Carbon::parse($entry['postmortem']['publishedAt'])->diffForHumans() }}
+                                            </time>
+                                        </p>
+                                    </div>
                                 @endif
                             </li>
                         @endforeach

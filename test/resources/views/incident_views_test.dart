@@ -101,7 +101,9 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.detail_acknowledged_toast_title':
           'Incident acknowledged',
       'uptizm.incidents.detail_acknowledged_toast_description':
-          ':name is on it.',
+          'The timeline records who acknowledged it.',
+      'uptizm.incidents.detail_assigned_toast_title': 'Incident assigned',
+      'uptizm.incidents.detail_unassigned_toast_title': 'Incident unassigned',
       'uptizm.incidents.detail_affected_monitors_label': 'Affected monitors',
       'uptizm.incidents.detail_timeline_public': 'Public updates',
       'uptizm.incidents.detail_timeline_all': 'All activity',
@@ -115,6 +117,28 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.detail_composer_post': 'Post update',
       'uptizm.incidents.detail_postmortem_heading': 'Postmortem draft',
       'uptizm.incidents.detail_postmortem_edit': 'Edit & publish',
+      'uptizm.incidents.detail_postmortem_heading_saved': 'Postmortem',
+      'uptizm.incidents.detail_postmortem_heading_edit':
+          'Edit the postmortem',
+      'uptizm.incidents.detail_postmortem_placeholder': 'What happened?',
+      'uptizm.incidents.detail_postmortem_ai_seeded':
+          'Still an outside-in observation. Add the root cause.',
+      'uptizm.incidents.detail_postmortem_cancel': 'Cancel',
+      'uptizm.incidents.detail_postmortem_save_draft': 'Save draft',
+      'uptizm.incidents.detail_postmortem_publish': 'Publish',
+      'uptizm.incidents.detail_postmortem_state_draft':
+          'Internal draft, not published.',
+      'uptizm.incidents.detail_postmortem_state_published':
+          'Published on :time.',
+      'uptizm.incidents.detail_postmortem_error_empty': 'Write it first.',
+      'uptizm.incidents.detail_postmortem_save_toast_title':
+          'Postmortem saved',
+      'uptizm.incidents.detail_postmortem_save_toast_description':
+          'Stored, still internal.',
+      'uptizm.incidents.detail_postmortem_publish_toast_title':
+          'Postmortem published',
+      'uptizm.incidents.detail_postmortem_publish_toast_description':
+          'Readable on the status page.',
       'uptizm.incidents.ai_analysis_gated':
           'AI incident analysis pinpoints '
           'the likely cause.',
@@ -718,6 +742,460 @@ void main() {
           find.byType(MSTextarea),
         );
         expect(after.value, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'renders the acknowledgement from the PERSISTED timeline entry, never a '
+      'client-authored name',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // A wire-shaped incident whose acknowledgement exists only as the
+        // backend-stamped timeline entry (author `Demo`, the acting user), which
+        // is the exact shape `POST /incidents/{id}/acknowledge` leaves behind.
+        final Incident incident = Incident.fromMap(<String, dynamic>{
+          'id': 'ack-1',
+          'title': 'Checkout returning 503s',
+          'lifecycle': 'investigating',
+          'impact': 'critical',
+          'started_at': '2026-07-11T14:00:00Z',
+          'monitors': [
+            {'monitor_id': 'm1', 'name': 'Checkout'},
+          ],
+          'updates': [
+            {
+              'actor': 'human',
+              'author': 'Demo',
+              'status': 'investigating',
+              'message': 'Incident acknowledged; investigation in progress.',
+              'is_public': false,
+              'autonomous': false,
+              'display_at': '2026-07-11T14:33:00Z',
+            },
+          ],
+        });
+        IncidentController.instance.setSuccess([incident]);
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'ack-1'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException(); // see the header chip-row overflow note above
+
+        expect(
+          find.textContaining('Acknowledged by Demo'),
+          findsOneWidget,
+          reason:
+              'The acknowledgement line must read the persisted entry author',
+        );
+        expect(
+          find.textContaining('Ada Lovelace'),
+          findsNothing,
+          reason: 'No client-side responder name may reach the screen',
+        );
+        expect(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.incidents.detail_acknowledge'),
+          ),
+          findsNothing,
+          reason:
+              'An already-acknowledged incident shows the line, not the button',
+        );
+      },
+    );
+
+    testWidgets(
+      'the Acknowledge button POSTs with no client-composed message',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake();
+        fake.stub('incidents', Http.response({'data': <dynamic>[]}));
+
+        IncidentController.instance.setSuccess([
+          Incident.fromMap(<String, dynamic>{
+            'id': 'ack-2',
+            'title': 'Checkout returning 503s',
+            'lifecycle': 'detected',
+            'impact': 'critical',
+            'started_at': '2026-07-11T14:00:00Z',
+            'monitors': [
+              {'monitor_id': 'm1', 'name': 'Checkout'},
+            ],
+            'updates': <dynamic>[],
+          }),
+        ]);
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'ack-2'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException();
+
+        final Finder ackButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.incidents.detail_acknowledge'),
+        );
+        await tester.ensureVisible(ackButton);
+        await tester.tap(ackButton);
+        await tester.pump();
+        tester.takeException();
+
+        fake.assertSent(
+          (r) => r.method == 'POST' && r.url == '/incidents/ack-2/acknowledge',
+        );
+        fake.assertNotSent(
+          (r) =>
+              r.url == '/incidents/ack-2/acknowledge' &&
+              r.data is Map &&
+              (r.data as Map).containsKey('message'),
+        );
+      },
+    );
+
+    testWidgets(
+      'offers no Acknowledge button once the incident moved past detected '
+      'without one (the backend would no-op)',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        IncidentController.instance.setSuccess([
+          Incident.fromMap(<String, dynamic>{
+            'id': 'ack-3',
+            'title': 'Checkout returning 503s',
+            'lifecycle': 'identified',
+            'impact': 'critical',
+            'started_at': '2026-07-11T14:00:00Z',
+            'monitors': [
+              {'monitor_id': 'm1', 'name': 'Checkout'},
+            ],
+            'updates': <dynamic>[],
+          }),
+        ]);
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'ack-3'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException();
+
+        // The strip itself still renders (its assignee Select, identified by
+        // the "Unassigned" sentinel option, is present); only the button that
+        // would no-op is gone. The label is matched structurally rather than by
+        // text because Wind's `uppercase` utility rewrites the rendered string.
+        expect(
+          tester
+              .widgetList<MSSelect<String>>(find.byType(MSSelect<String>))
+              .where(
+                (select) =>
+                    select.options.any((option) => option.value == ''),
+              ),
+          hasLength(1),
+          reason: 'The responder strip still renders for an open incident',
+        );
+        expect(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.incidents.detail_acknowledge'),
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'the assignee Select lists the team\'s real members, persists the choice, '
+      'and renders it back off the incident',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake();
+        // The assign reload returns the incident WITH the persisted assignee,
+        // which is what the Select must then render (never local state).
+        fake.stub(
+          'incidents',
+          Http.response({
+            'data': [
+              {
+                'id': 'assign-1',
+                'title': 'Checkout returning 503s',
+                'lifecycle': 'investigating',
+                'impact': 'critical',
+                'started_at': '2026-07-11T14:00:00Z',
+                'assignee': {'id': 'u2', 'name': 'Ravi Shah'},
+                'monitors': [
+                  {'monitor_id': 'm1', 'name': 'Checkout'},
+                ],
+                'updates': <dynamic>[],
+              },
+            ],
+          }),
+        );
+
+        // The roster is the starter team controller's REAL members list (the
+        // owner of `GET /teams/{id}/members`); no parallel fetch is added.
+        MagicStarterTeamController.instance.members.value = [
+          {'id': 'u1', 'name': 'Demo Owner', 'email': 'demo@uptizm.test'},
+          {'id': 'u2', 'name': 'Ravi Shah', 'email': 'ravi@uptizm.test'},
+        ];
+
+        IncidentController.instance.setSuccess([
+          Incident.fromMap(<String, dynamic>{
+            'id': 'assign-1',
+            'title': 'Checkout returning 503s',
+            'lifecycle': 'investigating',
+            'impact': 'critical',
+            'started_at': '2026-07-11T14:00:00Z',
+            'assignee': null,
+            'monitors': [
+              {'monitor_id': 'm1', 'name': 'Checkout'},
+            ],
+            'updates': <dynamic>[],
+          }),
+        ]);
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'assign-1'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException();
+
+        // The assignee Select is the one carrying the "Unassigned" sentinel
+        // (the composer's status Select is the other MSSelect<String> here).
+        MSSelect<String> assigneeSelect() {
+          return tester
+              .widgetList<MSSelect<String>>(find.byType(MSSelect<String>))
+              .firstWhere(
+                (select) => select.options.any(
+                  (option) => option.value == '',
+                ),
+              );
+        }
+
+        expect(
+          assigneeSelect().options.map((option) => option.label).toList(),
+          equals([
+            trans('uptizm.incidents.detail_unassigned'),
+            'Demo Owner',
+            'Ravi Shah',
+          ]),
+          reason: 'The roster is the real team membership, in its own order',
+        );
+        expect(assigneeSelect().value, isEmpty);
+
+        // Selecting a member persists through POST /incidents/{id}/assign.
+        assigneeSelect().onChange?.call('u2');
+        await tester.pump();
+        await tester.pump();
+        tester.takeException();
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/assign-1/assign' &&
+              (r.data as Map)['assignee_id'] == 'u2',
+        );
+
+        // The reloaded incident carries the assignment, so the Select renders
+        // it back from the incident rather than from a local selection.
+        expect(assigneeSelect().value, equals('u2'));
+      },
+    );
+
+    testWidgets(
+      'the postmortem composer saves the body and re-renders the STORED text',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        const String stored =
+            'The origin pool starved under the release traffic.';
+
+        final fake = Http.fake();
+        fake.stub(
+          'incidents',
+          Http.response({
+            'data': [
+              {
+                'id': 'pm-1',
+                'title': 'EU packet loss',
+                'lifecycle': 'resolved',
+                'impact': 'minor',
+                'started_at': '2026-07-10T10:00:00Z',
+                'resolved_at': '2026-07-10T11:00:00Z',
+                'postmortem_body': stored,
+                'postmortem_published_at': null,
+                'monitors': [
+                  {'monitor_id': 'm2', 'name': 'API'},
+                ],
+                'updates': <dynamic>[],
+              },
+            ],
+          }),
+        );
+
+        IncidentController.instance.setSuccess([
+          Incident.fromMap(<String, dynamic>{
+            'id': 'pm-1',
+            'title': 'EU packet loss',
+            'lifecycle': 'resolved',
+            'impact': 'minor',
+            'started_at': '2026-07-10T10:00:00Z',
+            'resolved_at': '2026-07-10T11:00:00Z',
+            'monitors': [
+              {'monitor_id': 'm2', 'name': 'API'},
+            ],
+            'updates': <dynamic>[],
+          }),
+        ]);
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'pm-1'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException();
+
+        // 1. Nothing stored yet: the generated draft renders with its AI framing.
+        expect(
+          find.textContaining(
+            trans('uptizm.incidents.detail_postmortem_heading'),
+          ),
+          findsOneWidget,
+        );
+
+        final Finder editButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.incidents.detail_postmortem_edit'),
+        );
+        await tester.ensureVisible(editButton);
+        await tester.tap(editButton);
+        await tester.pump();
+        tester.takeException();
+
+        // 2. The composer opens seeded with the generated draft plus the
+        //    AI-provenance hint (never presented as a finished analysis).
+        expect(
+          find.text(trans('uptizm.incidents.detail_postmortem_ai_seeded')),
+          findsOneWidget,
+        );
+        // The postmortem editor's Textarea precedes the update composer's in
+        // the section column, so it is the first of the two.
+        final Finder postmortemField = find.byType(MSTextarea).first;
+        expect(
+          tester.widget<MSTextarea>(postmortemField).value,
+          isNotEmpty,
+          reason: 'The composer seeds from the generated draft',
+        );
+
+        // 3. Saving the edited body persists it as an internal draft.
+        await tester.enterText(postmortemField, stored);
+        await tester.pump();
+
+        final Finder saveButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.incidents.detail_postmortem_save_draft'),
+        );
+        await tester.ensureVisible(saveButton);
+        await tester.tap(saveButton);
+        await tester.pump();
+        await tester.pump();
+        tester.takeException();
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/pm-1/postmortem' &&
+              (r.data as Map)['body'] == stored &&
+              (r.data as Map)['publish'] == false,
+        );
+
+        // 4. The reloaded incident's STORED body is what renders now, under the
+        //    saved heading, flagged honestly as not-yet-published.
+        expect(find.text(stored), findsOneWidget);
+        expect(
+          find.text(trans('uptizm.incidents.detail_postmortem_heading_saved')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.incidents.detail_postmortem_state_draft')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'a published postmortem renders its publication state, not the draft '
+      'framing',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        const String stored = 'Root cause: the release doubled the pool wait.';
+
+        IncidentController.instance.setSuccess([
+          Incident.fromMap(<String, dynamic>{
+            'id': 'pm-2',
+            'title': 'EU packet loss',
+            'lifecycle': 'resolved',
+            'impact': 'minor',
+            'started_at': '2026-07-10T10:00:00Z',
+            'resolved_at': '2026-07-10T11:00:00Z',
+            'postmortem_body': stored,
+            'postmortem_published_at': '2026-07-10T12:00:00Z',
+            'monitors': [
+              {'monitor_id': 'm2', 'name': 'API'},
+            ],
+            'updates': <dynamic>[],
+          }),
+        ]);
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'pm-2'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException();
+
+        expect(find.text(stored), findsOneWidget);
+        expect(
+          find.textContaining('Published on'),
+          findsOneWidget,
+          reason: 'A published postmortem states when it went live',
+        );
+        expect(
+          find.text(trans('uptizm.incidents.detail_postmortem_state_draft')),
+          findsNothing,
+        );
+        expect(
+          find.textContaining(
+            trans('uptizm.incidents.detail_postmortem_heading'),
+          ),
+          findsNothing,
+          reason: 'A human-owned stored postmortem carries no AI draft framing',
+        );
       },
     );
 
