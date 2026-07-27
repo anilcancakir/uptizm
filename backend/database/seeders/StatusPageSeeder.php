@@ -113,21 +113,36 @@ class StatusPageSeeder extends Seeder
      */
     private function createDemoMonitors(Team $team): Collection
     {
+        // One REACHABLE target so the seeded fleet has a genuinely healthy
+        // monitor with real latency and a real uptime curve, and two that cannot
+        // resolve so the incident pipeline has something to open. Every url used
+        // to be `*.acme.test`, which resolves nowhere, so the first scheduler
+        // tick marked the whole fleet down and a fresh demo opened on an
+        // all-outage dashboard.
+        //
+        // The reachable one is this app's own health endpoint rather than an
+        // external site: a seeded demo must not depend on somebody else's
+        // uptime. `wrangler dev` runs on the same host, so the worker reaches it.
+        $healthUrl = rtrim((string) config('app.url'), '/').'/up';
+
         $monitors = collect([
             [
                 'name' => 'API',
-                'url' => 'https://api.acme.test/health',
+                'url' => $healthUrl,
                 'last_status' => MonitorStatus::Up,
+                'interval' => 180,
             ],
             [
                 'name' => 'Website',
                 'url' => 'https://www.acme.test',
                 'last_status' => MonitorStatus::Up,
+                'interval' => 180,
             ],
             [
                 'name' => 'Checkout',
                 'url' => 'https://checkout.acme.test/health',
                 'last_status' => MonitorStatus::Degraded,
+                'interval' => 180,
             ],
         ])->map(fn (array $attributes): Monitor => Monitor::create([
             'team_id' => $team->id,
@@ -135,7 +150,10 @@ class StatusPageSeeder extends Seeder
             'type' => MonitorType::Http,
             'method' => HttpMethod::Get,
             'url' => $attributes['url'],
-            'check_interval_sec' => 60,
+            // Seeded at the Free plan's interval floor: the demo team is on
+            // `free`, and a 60s seed contradicted the plan the billing screen
+            // advertises (and could not be saved back from the edit form).
+            'check_interval_sec' => $attributes['interval'],
             // Probe regions are required by the monitor write contract; a
             // monitor seeded without them cannot be edited (the PUT 422s on the
             // empty `regions` field). Use valid App\Enums\MonitorRegion values.
