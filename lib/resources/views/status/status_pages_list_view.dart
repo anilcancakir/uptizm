@@ -10,6 +10,8 @@ import '../../../app/support/status_page_support.dart'
 import '../../../app/support/status_page_types.dart' show PublicComponent;
 import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';
+import '../../../app/support/plan_upgrade.dart';
+import '../../../app/support/upgrade_prompt.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_badge/index.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -79,17 +81,28 @@ class _StatusPagesListViewState
   /// the backend's own 422 message so the two never diverge.
   void _nudgeStatusPageLimit() {
     final int? limit = _entitlement.currentLimits.statusPages;
-    Magic.error(
-      trans('uptizm.status.list_title'),
-      trans('uptizm.status.limit_nudge', {
-        'plan': _entitlement.planName,
-        'count': '$limit',
-        'noun': trans(
-          limit == 1
-              ? 'uptizm.status.noun_one'
-              : 'uptizm.status.noun_other',
-        ),
-      }),
+    // Same resolution as the monitors cap: the refusal is known client-side, so
+    // the entitling tier comes from the catalog rather than from a gated
+    // response. A blank id lands on billing without a purchase intent.
+    final int used = controller.statusPages.length;
+    final String requiredPlan = _entitlement.planIdUnlocking(
+      (limits) => limits.statusPages == null || limits.statusPages! > used,
+    );
+
+    UpgradePrompt.show(
+      PlanUpgradeRequirement(
+        message: trans('uptizm.status.limit_nudge', {
+          'plan': _entitlement.planName,
+          'count': '$limit',
+          'noun': trans(
+            limit == 1
+                ? 'uptizm.status.noun_one'
+                : 'uptizm.status.noun_other',
+          ),
+        }),
+        requiredPlan: requiredPlan,
+        feature: trans('uptizm.status.list_title'),
+      ),
     );
   }
 
