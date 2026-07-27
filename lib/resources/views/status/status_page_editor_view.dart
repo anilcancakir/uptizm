@@ -166,6 +166,13 @@ class _StatusPageEditorViewState
     Magic.findOrPut(StatusPageController.new);
     super.initState();
     _seedFrom(controller.configById(widget.id));
+    controller.addListener(_seedOnceResolved);
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_seedOnceResolved);
+    super.dispose();
   }
 
   @override
@@ -177,6 +184,25 @@ class _StatusPageEditorViewState
     if (oldWidget.id != widget.id) {
       _seedFrom(controller.configById(widget.id));
     }
+  }
+
+  /// Seeds the draft the first time the routed page resolves out of the roster.
+  ///
+  /// [initState] can only read what is already cached, and on a direct load of
+  /// `/status/<id>` (a reload, or a link someone shared) the roster fetch is
+  /// still in flight, so the editor seeded an EMPTY draft and rendered "New
+  /// status page" with a Create button for a page that already exists. Saving
+  /// from there would have created a duplicate. Once the roster lands this
+  /// reseeds, and it stops listening after the first hit so it can never
+  /// clobber edits the operator has since typed.
+  void _seedOnceResolved() {
+    if (!mounted || _isEdit || widget.id == null) return;
+
+    final StatusPage? resolved = controller.configById(widget.id);
+    if (resolved == null) return;
+
+    controller.removeListener(_seedOnceResolved);
+    setState(() => _seedFrom(resolved));
   }
 
   /// Seeds the draft fields from [existing] (edit) or the React create defaults.
@@ -224,11 +250,30 @@ class _StatusPageEditorViewState
   /// The current draft projected into a [StatusPage], for the read-side helpers
   /// ([pageUrl]), the live [StatusPagePreview], and the controller write
   /// actions.
+  /// The live public URL of the SAVED page, but only while the draft slug still
+  /// matches the saved one.
+  ///
+  /// The URL is the backend's fact (resolved from its own public route), so it
+  /// is the address to show and to open. It is deliberately dropped the moment
+  /// the operator edits the slug: the saved URL would then point at the old
+  /// handle while the form shows the new one, and [pageUrl] falls back to the
+  /// host-less `/s/<slug>` shape, which reads as "this is what it will be"
+  /// rather than as a link that works right now.
+  String? get _savedPublicUrl {
+    final StatusPage? saved = controller.configById(widget.id);
+    if (saved == null || saved.slug != _slug) return null;
+
+    final String? url = saved.publicUrl;
+
+    return (url == null || url.isEmpty) ? null : url;
+  }
+
   StatusPage get _draftPage {
     return StatusPage.fromMap(<String, dynamic>{
       'id': _draftId,
       'name': _name,
       'slug': _slug,
+      'public_url': _savedPublicUrl,
       'domain_mode': _domainMode.name,
       'brand_color':
           '#${_brandColor.toARGB32().toRadixString(16).substring(2)}',
@@ -360,8 +405,30 @@ class _StatusPageEditorViewState
   }
 
   /// Navigates to the public preview of the saved page (edit mode only).
-  void _viewPublicPage() {
-    MagicRoute.to('/status/$_draftId/preview');
+  /// Opens the page the public actually sees.
+  ///
+  /// This used to route to the in-app mockup at `/status/:id/preview`, so a
+  /// button labelled "View public page" never showed the public page, and the
+  /// real address was unreachable from anywhere in the app: an operator had no
+  /// way to obtain the link they must hand to customers. The mockup is already
+  /// rendered inline beside the form, so nothing is lost by sending this to the
+  /// live page; it stays the fallback for a draft that has no URL yet.
+  Future<void> _viewPublicPage() async {
+    final String? url = _savedPublicUrl;
+    if (url == null) {
+      MagicRoute.to('/status/$_draftId/preview');
+
+      return;
+    }
+
+    final bool opened = await Launch.url(url);
+    if (opened) return;
+
+    Log.error('[StatusPageEditorView._viewPublicPage] could not open $url');
+    Magic.error(
+      trans('uptizm.status.editor_form_view_public_page'),
+      trans('uptizm.status.editor_open_failed_description', {'url': url}),
+    );
   }
 
   /// Slugifies [value] to a URL-safe, hyphen-separated handle capped at 40

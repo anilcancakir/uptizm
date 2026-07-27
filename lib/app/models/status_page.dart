@@ -108,6 +108,14 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// Set the description.
   set description(String? value) => setAttribute('description', value);
 
+  /// The URL this page is actually served at, as resolved by the backend from
+  /// its own public route, or null for a draft the backend has not seen yet.
+  ///
+  /// Read-only: the public URL is the backend's fact, not an editable field.
+  /// The client used to compose it from the slug and a hardcoded host, which
+  /// produced an address no route answered.
+  String? get publicUrl => getAttribute('public_url') as String?;
+
   /// Whether the page is publicly visible.
   bool get isPublic => (getAttribute('is_public') as bool?) ?? false;
 

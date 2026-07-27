@@ -37,6 +37,14 @@ class StatusPageResource extends JsonResource
             'logo_path' => $this->resource->logo_path,
             'logo_text' => $this->resource->logo_text,
             'description' => $this->resource->description,
+            // The URL the page is actually served at, resolved from the route
+            // itself. The client used to compose this string ("uptizm.com/
+            // status/<slug>"), which no route answers: an operator who copied
+            // it handed their customers a 404. The public URL is the backend's
+            // fact, so the backend states it.
+            'public_url' => $this->resource->slug === null
+                ? null
+                : route('status.show', ['slug' => $this->resource->slug]),
             'is_public' => (bool) $this->resource->is_public,
             'subscriptions_enabled' => (bool) $this->resource->subscriptions_enabled,
             'monitors' => $this->whenLoaded('monitors', function (): array {

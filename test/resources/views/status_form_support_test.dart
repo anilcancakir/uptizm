@@ -92,22 +92,37 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('pageUrl', () {
-    test('subdomain mode renders slug.uptizm.com', () {
+    test('a saved page reads the URL the backend resolved', () {
+      // The backend answers with the address its own public route serves
+      // (`/s/<slug>`), and that is what the operator must be shown: the value
+      // is copied into customer emails, so a composed guess is a 404 in
+      // someone else's inbox.
+      final config = cloneStatusPage(statusPages.first, slug: 'acme');
+      config.setAttribute('public_url', 'https://uptizm.test/s/acme');
+
+      expect(pageUrl(config), 'https://uptizm.test/s/acme');
+    });
+
+    test('the resolved URL wins over anything derivable from the slug', () {
+      // Domain mode must not re-enter the composition: only the backend knows
+      // whether a page is served on a path, a subdomain or a custom domain.
       final config = cloneStatusPage(
         statusPages.first,
         slug: 'acme',
         domainMode: DomainMode.subdomain,
       );
-      expect(pageUrl(config), 'acme.uptizm.com');
+      config.setAttribute('public_url', 'https://uptizm.test/s/acme');
+
+      expect(pageUrl(config), 'https://uptizm.test/s/acme');
     });
 
-    test('path mode renders uptizm.com/status/slug', () {
-      final config = cloneStatusPage(
-        statusPages.first,
-        slug: 'acme',
-        domainMode: DomainMode.path,
-      );
-      expect(pageUrl(config), 'uptizm.com/status/acme');
+    test('an unsaved draft previews the path shape, host-less', () {
+      // No backend answer exists yet. The preview shows the shape of the
+      // address without a host, so it cannot be mistaken for a working link.
+      final config = cloneStatusPage(statusPages.first, slug: 'acme');
+      config.setAttribute('public_url', null);
+
+      expect(pageUrl(config), '/s/acme');
     });
 
     test('an empty slug falls back to your-page', () {
@@ -116,7 +131,9 @@ void main() {
         slug: '',
         domainMode: DomainMode.path,
       );
-      expect(pageUrl(config), 'uptizm.com/status/your-page');
+      config.setAttribute('public_url', null);
+
+      expect(pageUrl(config), '/s/your-page');
     });
   });
 

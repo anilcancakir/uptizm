@@ -271,6 +271,57 @@ void main() {
       );
     });
 
+    testWidgets('a direct load reseeds into edit mode once the roster lands', (
+      tester,
+    ) async {
+      // Regression: on a direct load of `/status/<id>` (a reload, or a shared
+      // link) the roster fetch is still in flight when initState runs, so the
+      // editor seeded an empty draft and rendered "New status page" with a
+      // Create button for a page that already exists. Saving from there would
+      // have created a duplicate.
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final StatusPage page = findStatusPage('acme')!;
+      // Start with a cold cache, exactly as a fresh page load does.
+      StatusPageController.instance.seedForTest(const <StatusPage>[]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: 'acme'),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await tester.pump();
+
+      // Nothing resolved yet: the id is treated as a broken link, so neither
+      // form is offered.
+      expect(
+        find.text(trans('uptizm.status.editor_form_save')),
+        findsNothing,
+      );
+
+      // The roster lands.
+      StatusPageController.instance.seedForTest(<StatusPage>[page]);
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.status.editor_form_save')),
+        findsOneWidget,
+        reason: 'the resolved page must flip the editor into edit mode',
+      );
+      expect(
+        find.text(trans('uptizm.status.editor_form_create_page')),
+        findsNothing,
+        reason: 'offering Create for an existing page invites a duplicate',
+      );
+      expect(
+        find.text(page.name!),
+        findsWidgets,
+        reason: 'the resolved page must prefill the form',
+      );
+    });
+
     testWidgets('edit mode prefills the header with the fixture name', (
       tester,
     ) async {

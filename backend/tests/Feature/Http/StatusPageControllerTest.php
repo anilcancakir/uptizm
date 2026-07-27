@@ -134,6 +134,29 @@ class StatusPageControllerTest extends TestCase
         $response->assertJsonPath('data.monitors.0.id', $monitor->id);
     }
 
+    public function test_show_states_the_url_the_public_route_actually_serves(): void
+    {
+        // The client used to compose this from the slug plus a hardcoded host
+        // ("uptizm.com/status/<slug>"), an address no route answers: an
+        // operator who copied it handed their customers a 404. The public URL
+        // is resolved from the route itself, and it must be the URL that
+        // route serves, so a rename of the public path can never silently
+        // diverge from what the editor shows.
+        $team = $this->actingAsTeamMember();
+        $page = $this->makeStatusPage($team->id, 'mine');
+
+        $response = $this->getJson("/api/v1/status-pages/{$page->id}");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath(
+            'data.public_url',
+            route('status.show', ['slug' => 'mine']),
+        );
+
+        // And that URL resolves: a 200 from the public, unauthenticated page.
+        $this->get($response->json('data.public_url'))->assertStatus(200);
+    }
+
     public function test_show_masks_cross_team_page_as_404(): void
     {
         $this->actingAsTeamMember();

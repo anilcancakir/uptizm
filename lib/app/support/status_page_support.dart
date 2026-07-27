@@ -5,22 +5,31 @@ import '../enums/status_key.dart' show StatusKey;
 import '../models/status_page.dart';
 import 'status_page_types.dart' show PublicComponent;
 
-/// Public URL a status page is served at, by domain mode.
+/// The URL a status page is served at.
 ///
-/// Falls back to `your-page` when the slug is empty or absent (live-preview
-/// state in the editor). Mirrors `pageUrl` in the React status mock. Reads the
-/// [StatusPage] ORM model (the `slug` accessor is nullable).
+/// Prefers [StatusPage.publicUrl], the address the backend resolved from its
+/// own public route, so what the operator reads is what their customers can
+/// open. This used to be composed here as `uptizm.com/status/<slug>`, which no
+/// route answers: the real page is served at `/s/<slug>`, so every URL the
+/// editor showed was a 404 waiting to be pasted into a customer email.
+///
+/// The composed form survives only as the UNSAVED-DRAFT preview, where there is
+/// no backend answer yet: the editor shows a shape of the address while the
+/// operator is still typing the slug. It is deliberately host-less so it cannot
+/// be mistaken for a working link.
 ///
 /// ```dart
-/// pageUrl(page); // "uptizm.com/status/acme"
+/// pageUrl(saved);   // "http://localhost:8000/s/acme"
+/// pageUrl(draft);   // "/s/your-page"
 /// ```
 String pageUrl(StatusPage c) {
+  final String? resolved = c.publicUrl;
+  if (resolved != null && resolved.isNotEmpty) return resolved;
+
   final String? raw = c.slug;
   final String slug = (raw == null || raw.isEmpty) ? 'your-page' : raw;
-  return switch (c.domainMode) {
-    DomainMode.subdomain => '$slug.uptizm.com',
-    DomainMode.path => 'uptizm.com/status/$slug',
-  };
+
+  return '/s/$slug';
 }
 
 /// Clones [page] into a fresh [StatusPage], replacing only the fields named in
