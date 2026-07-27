@@ -83,6 +83,67 @@ export class RegionalProbe {
     }
 }
 
+/**
+ * Turn a thrown probe failure into a message an operator can act on.
+ *
+ * The raw message used to travel verbatim, and the Workers runtime reports any
+ * connection-level failure (an unresolvable host, a refused port, a TLS
+ * rejection) as `internal error; reference = <opaque id>`. That reached the UI
+ * as the check's error, so a customer whose DNS was wrong read it as UPTIZM
+ * being broken and had nothing to chase.
+ *
+ * The classification deliberately stops at what is actually known. Workers does
+ * not expose which phase failed, so this never claims "DNS lookup failed": it
+ * says the target could not be reached, names the target, and leaves any
+ * message that IS specific (a TLS or certificate error) untouched.
+ */
+export function describeProbeFailure(error: unknown, probe: ProbeRequest): string {
+    const target = probeTarget(probe);
+
+    // AbortSignal.timeout() rejects with a TimeoutError DOMException; some
+    // runtimes surface a plain AbortError instead.
+    const name = error instanceof Error ? error.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+        return `No response within ${probe.timeout_seconds}s (${target})`;
+    }
+
+    if (!(error instanceof Error) || error.message.trim() === "") {
+        return `Could not reach ${target}`;
+    }
+
+    // The opaque runtime wrapper carries no information beyond "the connection
+    // did not happen", so it is replaced rather than appended to.
+    if (/^internal error/i.test(error.message)) {
+        return `Could not reach ${target}`;
+    }
+
+    return error.message;
+}
+
+/**
+ * The host (and port, for TCP) a probe was aiming at, for the failure message.
+ *
+ * Only the host is named: an HTTP url can carry a token in its query string,
+ * and this string is stored on the check and rendered in the UI.
+ */
+function probeTarget(probe: ProbeRequest): string {
+    if (probe.type === "tcp") {
+        try {
+            const { hostname, port } = parseTcpTarget(probe.url);
+
+            return `${hostname}:${port}`;
+        } catch {
+            return probe.url;
+        }
+    }
+
+    try {
+        return new URL(probe.url).host;
+    } catch {
+        return probe.url;
+    }
+}
+
 async function executeProbe(
     probe: ProbeRequest,
 ): Promise<{ result: CheckResultPayload; colo: string }> {
@@ -103,7 +164,7 @@ async function executeProbe(
                 status: "down",
                 status_code: null,
                 response_ms: null,
-                error_message: error instanceof Error ? error.message : "probe failed",
+                error_message: describeProbeFailure(error, probe),
                 timing: emptyTiming(),
                 response_headers: {},
                 response_body_preview: null,
