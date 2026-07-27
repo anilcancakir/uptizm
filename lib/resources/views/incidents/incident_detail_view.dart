@@ -8,7 +8,8 @@ import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
-import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
+import '../../../app/enums/incident_lifecycle.dart'
+    show IncidentLifecycle, lifecycleFromWire;
 import '../../../app/support/formatters.dart' show formatMonthDayTime;
 import '../../../app/support/incident_types.dart'
     show AffectedMonitor, IncidentAcknowledgement, IncidentAi, TimelineEntry;
@@ -187,6 +188,15 @@ class _IncidentDetailViewState
   /// ([Incident.assigneeId], [Incident.acknowledgement],
   /// [Incident.postmortemBody]) and read straight off it at render time, so
   /// there is nothing to seed and nothing that can drift from the backend.
+  /// Whether [_seedFrom] has run against a RESOLVED incident.
+  ///
+  /// The composer's default stage has to come from the incident, but this screen
+  /// can mount before the roster carries it (arriving straight from the AI
+  /// inbox's "Open incident", or on a direct load). Tracking this lets the
+  /// composer reseed once the real incident lands, without ever overwriting a
+  /// stage the operator has since picked.
+  bool _seededFromIncident = false;
+
   void _seedFrom(Incident? incident) {
     _view = _viewPublic;
     _message = '';
@@ -196,10 +206,12 @@ class _IncidentDetailViewState
     _postmortemBody = '';
     _postmortemFromDraft = false;
     if (incident == null) {
+      _seededFromIncident = false;
       _lifecycle = IncidentLifecycle.investigating;
       _reopenTo = IncidentLifecycle.investigating;
       return;
     }
+    _seededFromIncident = true;
     _lifecycle = incident.lifecycle;
     // If the incident is already resolved, reopening should land on a live stage.
     _reopenTo = incident.lifecycle == IncidentLifecycle.resolved
@@ -216,7 +228,22 @@ class _IncidentDetailViewState
       return _buildNotFound();
     }
 
-    final bool resolved = _lifecycle == IncidentLifecycle.resolved;
+    // Reseed the composer's default stage the first time the real incident
+    // lands. This screen can mount before the roster carries it (arriving from
+    // the AI inbox's "Open incident", or a direct load), and without this the
+    // composer would keep offering the placeholder stage.
+    if (!_seededFromIncident) {
+      _seededFromIncident = true;
+      _lifecycle = incident.lifecycle;
+      _reopenTo = incident.lifecycle == IncidentLifecycle.resolved
+          ? IncidentLifecycle.investigating
+          : incident.lifecycle;
+    }
+
+    // Read the PERSISTED stage, not the composer's pending choice: picking
+    // "Resolved" in the composer used to flip this header to Reopen before
+    // anything was posted.
+    final bool resolved = incident.lifecycle == IncidentLifecycle.resolved;
 
     // 2. The page body is a Wind flex column: the outer `gap-6` (24px) sits
     //    between the header block and the body sections; the header block nests
@@ -280,7 +307,13 @@ class _IncidentDetailViewState
       className: 'wrap items-center gap-2',
       children: [
         StatusBadge(incident.impact.statusKey),
-        _buildPill(_lifecycle.label),
+        // The PERSISTED stage, not the composer's pending choice. This read
+        // `_lifecycle`, the composer select's local value, so two things went
+        // wrong: picking a status in the composer relabelled the header before
+        // anything was posted, and an incident that resolved into the roster
+        // after this screen mounted kept the seed value. Live, a freshly
+        // promoted `detected` incident announced itself as "Investigating".
+        _buildPill(incident.lifecycle.label),
         _buildPill(incident.signalSource.label),
         // The React source labels this "AI-owned"; no i18n key exists for that
         // copy, so the badge falls back to its own `uptizm.status.ai` label.
@@ -905,14 +938,18 @@ class _IncidentDetailViewState
   /// label and maps the chosen label back to the enum via [_lifecycleForLabel].
   Widget _buildStatusSelect() {
     return MSSelect<String>(
-      value: _lifecycle.label,
+      // Keyed by the lifecycle's WIRE token, never its display label: the
+      // options carried English title-case values while this mapped a pick back
+      // through the translated label, so on a Turkish UI the select showed no
+      // selection and every pick was dropped.
+      value: _lifecycle.name,
       options: kIncidentStatuses
           .map((o) => SelectOption<String>(value: o.value, label: o.label))
           .toList(),
       onChange: (value) {
         if (value == null) return;
-        final IncidentLifecycle? next = _lifecycleForLabel(value);
-        if (next != null) setState(() => _lifecycle = next);
+
+        setState(() => _lifecycle = lifecycleFromWire(value));
       },
     );
   }
@@ -958,13 +995,6 @@ class _IncidentDetailViewState
   }
 
   /// Maps a title-case status [label] (e.g. `"Investigating"`) back to its
-  /// [IncidentLifecycle], or `null` when no stage matches.
-  IncidentLifecycle? _lifecycleForLabel(String label) {
-    for (final IncidentLifecycle stage in IncidentLifecycle.values) {
-      if (stage.label == label) return stage;
-    }
-    return null;
-  }
 
   // ---------------------------------------------------------------------------
   // Not-found

@@ -1200,6 +1200,81 @@ void main() {
     );
 
     testWidgets(
+      'the header stage is the persisted one, not the composer selection',
+      (tester) async {
+        // Regression: the header pill and the Resolve/Reopen button both read
+        // the COMPOSER's local stage. Picking a status in the composer
+        // relabelled the header before anything was posted, and an incident
+        // that landed in the roster after this screen mounted (arriving from the
+        // AI inbox's "Open incident") kept the placeholder stage: live, a freshly
+        // promoted `detected` incident announced itself as "Investigating".
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake();
+        fake.stub('incidents', Http.response({'data': <dynamic>[]}));
+
+        IncidentController.instance.setSuccess([
+          Incident.fromMap(<String, dynamic>{
+            'id': 'stage-1',
+            'title': 'Anomaly detected on API',
+            'lifecycle': 'detected',
+            'impact': 'major',
+            'started_at': '2026-07-11T14:00:00Z',
+            'monitors': [
+              {'monitor_id': 'm1', 'name': 'API'},
+            ],
+            'updates': <dynamic>[],
+          }),
+        ]);
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'stage-1'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+        tester.takeException();
+
+        // The header states the persisted stage.
+        expect(
+          find.text(trans('uptizm.enums.incident_lifecycle.detected')),
+          findsWidgets,
+        );
+
+        // Moving the composer's stage must not restate the incident: it is a
+        // choice about the update being drafted, not a transition that happened.
+        // The composer's status Select is the one currently holding a lifecycle
+        // label (the other Select on this screen is the assignee roster).
+        final Iterable<MSSelect<String>> selects = tester
+            .widgetList<MSSelect<String>>(find.byType(MSSelect<String>));
+        final MSSelect<String> statusSelect = selects.firstWhere(
+          (MSSelect<String> s) => s.value == IncidentLifecycle.detected.name,
+        );
+        // The select is keyed by the wire token, so a pick travels as
+        // `resolved`, not as a display label.
+        statusSelect.onChange?.call(IncidentLifecycle.resolved.name);
+        await tester.pump();
+        tester.takeException();
+
+        expect(
+          find.text(trans('uptizm.enums.incident_lifecycle.detected')),
+          findsWidgets,
+          reason: 'the header must still read the persisted stage',
+        );
+        // And the header action still offers Resolve, not Reopen.
+        expect(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.incidents.detail_resolve'),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
       'fetches the AI analysis and enriches the card with evidence + '
       'suggested actions, keeping similar-incidents empty',
       (tester) async {

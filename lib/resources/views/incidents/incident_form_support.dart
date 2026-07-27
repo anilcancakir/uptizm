@@ -48,15 +48,19 @@ List<MetricOption> get kIncidentImpacts => [
   MetricOption(label: trans('uptizm.incidents.form_impact_info'), value: 'info'),
 ];
 
-/// Lifecycle stages offered in the detail composer's status Select. Matches
-/// `STATUS_OPTIONS` in IncidentDetailPage.tsx. Labels reuse the detail
-/// composer's status keys; the [MetricOption.value] wire tokens stay fixed.
+/// Lifecycle stages offered in the detail composer's status Select.
+///
+/// The value is the lifecycle's WIRE token, not its display label. The values
+/// used to be hardcoded English title-case strings ('Detected', ...) while the
+/// consumer mapped a pick back by comparing against the TRANSLATED enum label,
+/// so the two only lined up in English: on a Turkish UI the select showed no
+/// current selection and every status pick was silently dropped.
 List<MetricOption> get kIncidentStatuses => [
-  MetricOption(label: trans('uptizm.incidents.detail_composer_status_detected'), value: 'Detected'),
-  MetricOption(label: trans('uptizm.incidents.detail_composer_status_investigating'), value: 'Investigating'),
-  MetricOption(label: trans('uptizm.incidents.detail_composer_status_identified'), value: 'Identified'),
-  MetricOption(label: trans('uptizm.incidents.detail_composer_status_monitoring'), value: 'Monitoring'),
-  MetricOption(label: trans('uptizm.incidents.detail_composer_status_resolved'), value: 'Resolved'),
+  for (final mocks.IncidentLifecycle stage in mocks.IncidentLifecycle.values)
+    MetricOption(
+      label: trans('uptizm.incidents.detail_composer_status_${stage.name}'),
+      value: stage.name,
+    ),
 ];
 
 /// An anomaly's AI confidence sets where the operator-side severity starts.
