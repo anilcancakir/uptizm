@@ -59,9 +59,6 @@ dependencies:
   # Charting for the uptizm dashboards.
   fl_chart: ^1.1.1
 
-  # Device IANA timezone detection (auto-detect + onboarding timezone default).
-  # NOT `intl`: flutter_localizations pins that transitively.
-  flutter_timezone: ^5.1.0
 
 # Force every reference (root and transitive) to the local workspace source so
 # the plugins' own hosted magic constraints do not clash with the path links above.

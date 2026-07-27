@@ -797,9 +797,7 @@
       "time_just_now": "just now",
       "time_minutes_ago": ":countm ago",
       "time_hours_ago": ":counth ago",
-      "time_days_ago": ":countd ago",
-      "error_default_title": "Couldn't load this",
-      "error_default_description": "Something went wrong on our end. Check your connection and try again."
+      "time_days_ago": ":countd ago"
     },
     "incidents": {
       "list_title": "Incidents",

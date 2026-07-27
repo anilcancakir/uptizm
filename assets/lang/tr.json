@@ -797,9 +797,7 @@
       "time_just_now": "az önce",
       "time_minutes_ago": ":count dk önce",
       "time_hours_ago": ":count sa önce",
-      "time_days_ago": ":count gün önce",
-      "error_default_title": "Bu yüklenemedi",
-      "error_default_description": "Tarafımızda bir sorun oluştu. Bağlantınızı kontrol edip tekrar deneyin."
+      "time_days_ago": ":count gün önce"
     },
     "incidents": {
       "list_title": "Olaylar",
