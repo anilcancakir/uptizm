@@ -261,3 +261,58 @@ future change re-litigating them.
 - The AI analysis cites only Uptizm-owned signals (`source: "check"`), hedges its
   language, and suggests advisory actions with no one-click remediation and no
   claim about deploys, logs or traces (INC-11).
+
+
+---
+
+## Live pass 2 (2026-07-27, post-upstreaming refactor)
+
+Run after the magic/magic_starter upstreaming refactor (27 files deleted from
+uptizm, ~150 call sites rebound, `main.dart` and `AppServiceProvider` rewritten),
+on a `migrate:fresh --seed` database, driven through Chrome with dusk at 1440x900
+and 390x844.
+
+### Verified working
+
+| Area | Evidence |
+|------|----------|
+| Boot after the refactor | app boots, zero exceptions at rest |
+| AUTH-1 guest redirect | unauthenticated boot lands on login, no shell chrome |
+| AUTH-3 bad password | "Invalid credentials", no navigation, no crash |
+| AUTH-2 login | 10/10 boot requests 200, including `POST /broadcasting/auth` (Reverb authenticated) |
+| AUTH-4 revoked token | wiped tokens server-side; app returned to login, no half-authenticated shell |
+| DASH-2 KPI honesty | every rendered number equals `/dashboard/stats` exactly (`1/3`, `65.08%`, `2`, `19ms`) |
+| DASH-3 no-data | `uptime_24h_delta: null` renders nothing, not a fabricated `0` |
+| DASH-4 fleet banner | names the actual down monitors, never "all operational" |
+| DASH-5 / DASH-7 | active-incident and AI-inbox counts and titles match their payloads |
+| DASH-8 accept suggestion | incidents 2 -> 3, new incident `ai_owned=true` `signal_source=ai_anomaly`, suggestion `accepted` |
+| Monitoring pipeline (live) | 63 probes/monitor since reset -> checks -> consecutive fails -> incident auto-created -> dashboard reflects it |
+| Worker error text | unreachable host reports "Could not reach checkout.acme.test", not an opaque internal error |
+| MON list honesty | down monitors show an em-dash placeholder for response time; "MONITORS USED 3 / 1 · Free plan" states the over-cap truth |
+| PLAN gate (full flow) | at cap -> upgrade dialog with the real cap sentence + "Available on Pro and up." -> "Upgrade" -> Plan & billing |
+| ACCT `layout.app` override | starter settings/profile/2FA routes render inside uptizm's own chrome (no dual shell) |
+| STAT public URL | status page shows an absolute `http://localhost:8000/s/acme` |
+| CHAN push hint | "Push not yet configured" renders from the backend flag |
+| Mobile 390x844 | shell swaps to the mobile chrome; ZERO overflow across monitors, incidents, status, on-call |
+
+### Defects found and fixed
+
+| ID | Severity | Defect | Fix |
+|----|----------|--------|-----|
+| P2-D1 | high (product honesty) | The demo AI suggestion attached to the HEALTHIEST monitor and carried invented evidence (`observed 842` / `baseline 210`) that its own checks contradicted (real median 234ms, live 19-72ms). The AI inbox therefore shipped a confident claim the data denied, which is the one thing the product's AI boundary forbids. | `AiSuggestionSeeder` now measures each monitor's own recent-vs-baseline medians, attaches the suggestion to the monitor whose data supports it, derives every number in the prose and evidence from those rows, and writes NOTHING when no monitor qualifies. `StatusPageSeeder` gives the degraded monitor a real ramp so the fixture contains a true anomaly instead of a higher flat line. Pinned by `tests/Feature/AiSuggestionSeederHonestyTest.php` (red-phase verified). |
+
+### Open, not fixed
+
+| ID | Severity | Finding |
+|----|----------|---------|
+| P2-O1 | low (cosmetic) | A deep-link web load logs Flutter's non-fatal "Could not navigate to initial route" from `Navigator.defaultGenerateInitialRoutes`. Functionally harmless (the app lands correctly every time) but it pollutes the exception buffer, which can mask real defects during a QA pass. Pinning `initialRoute: '/'` on magic's two pre-router placeholder `MaterialApp`s was expected to silence it and did not, so the emitter is still unidentified. |
+| P2-O2 | low | Navigating to an unregistered route silently no-ops rather than showing a not-found view. Observed via `dusk:navigate`, which drives the app's own Navigator, so this needs confirming against a real URL visit before it counts as a product defect. |
+
+### False defects, and what caused them
+
+Recorded because each one nearly shipped as a bug report:
+
+1. **"Tapping New monitor logs the user out."** Reproduced four times, including after a clean re-login. It was a STALE `e`-ref: dusk's `e<N>` handles are snapshot-frozen and resolve by index, so after several navigations `e104` no longer pointed at the button (plausibly the user dropdown's Logout). Instrumenting `EnsureAuthenticated` proved `redirectTarget` was never called at the tap, and with a freshly resolved ref the upgrade dialog appears correctly. **Use `dusk:find` q-refs for anything after a navigation.**
+2. **"The UI invents incident lifecycle labels."** The payload had `status: null` while the screen read "Detected". The real field is `lifecycle`, which I had not read. Two more false signals came from the same habit (`MonitorCheck.ok`/`error` and `Monitor.target` do not exist; the columns are `status`/`error_message`/`url`).
+3. **"A logout on tapping a nudge."** An earlier instance was caused by MY OWN edit to a magic source file mid-session triggering a reload. **Do not edit source while a live QA session is in flight.**
+4. **`telescope:clear` does not empty the buffer `dusk:exceptions` reads**, so a single boot-time warning read as a per-route error on seven routes. Correct the earlier note that said otherwise.

@@ -44,6 +44,13 @@ class StatusPageSeeder extends Seeder
     private const UPTIME_DAYS = 14;
 
     /**
+     * How many of the degraded monitor's most recent checks ramp above its own
+     * baseline, so its history contains a real trend for the response-time
+     * anomaly detector to find rather than a higher flat line.
+     */
+    private const DEGRADED_RAMP_CHECKS = 12;
+
+    /**
      * Seed the demo public status page.
      */
     public function run(): void
@@ -219,6 +226,19 @@ class StatusPageSeeder extends Seeder
             // Deterministic jitter so the chart is not a flat line; the degraded
             // monitor spikes higher.
             $responseMs = $baseMs + ($i % 7) * ($isDegraded ? 45 : 18);
+
+            // The degraded monitor RAMPS over its most recent window instead of
+            // sitting on a higher but stationary band. A flat history is not
+            // what "degraded" means, and it left the response-time anomaly
+            // detector with nothing true to find: comparing a monitor's recent
+            // window against its own baseline is the signal that feature uses,
+            // so a stationary fixture could only ever produce a false claim.
+            if ($isDegraded && $i < self::DEGRADED_RAMP_CHECKS) {
+                $ramp = 1.0 + (self::DEGRADED_RAMP_CHECKS - $i)
+                    / self::DEGRADED_RAMP_CHECKS;
+                $responseMs = (int) round($responseMs * $ramp);
+            }
+
             if ($i === 0) {
                 $latestMs = $responseMs;
             }
