@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
+import 'package:uptizm/app/controllers/dashboard_controller.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/enums/status_key.dart';
@@ -120,6 +121,65 @@ void main() {
     // Mirrors the React grid: monitors used, operational, open incidents, avg
     // response — four cards always present regardless of the active filter.
     expect(find.byType(KpiStatCard), findsNWidgets(4));
+  });
+
+  testWidgets('the open-incidents KPI catches up once the dashboard resolves', (
+    tester,
+  ) async {
+    // Regression: OPEN INCIDENTS read a flat 0 on this page while the API
+    // reported 2, because the count comes from [DashboardController], which is
+    // NOT this view's backing controller. Resolving `.instance` self-triggers
+    // its first fetch, but the row only re-renders if the view listens to it,
+    // and a stale 0 here reads as "nothing is wrong" during a live outage.
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 1,
+          'monitors_down': 2,
+          'monitors_total': 3,
+          'monitors_pending': 0,
+          'open_incidents': 2,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': <dynamic>[]}),
+      'dashboard/monitors-snapshot': Http.response({'data': <dynamic>[]}),
+      'dashboard/ai-inbox': Http.response({'data': <dynamic>[]}),
+    });
+
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+    await tester.pumpAndSettle();
+
+    KpiStatCard openIncidents() => tester
+        .widgetList<KpiStatCard>(find.byType(KpiStatCard))
+        .firstWhere((KpiStatCard card) => card.label == 'Open incidents');
+
+    expect(openIncidents().value, equals('2'));
+
+    // Now move ONLY the dashboard: re-stub the count and reload it without
+    // touching MonitorController. That isolation is the whole point. This
+    // view's backing controller is MonitorController, so its own notifications
+    // repaint the row for free and would mask a missing listener; a dashboard
+    // that lands a new count on its own must still reach the screen. Live, the
+    // monitors fetch resolved first (326ms) and the stats fetch second (384ms),
+    // so the row painted the pre-fetch zeros and never heard about the 2.
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 1,
+          'monitors_down': 2,
+          'monitors_total': 3,
+          'monitors_pending': 0,
+          'open_incidents': 5,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': <dynamic>[]}),
+      'dashboard/monitors-snapshot': Http.response({'data': <dynamic>[]}),
+      'dashboard/ai-inbox': Http.response({'data': <dynamic>[]}),
+    });
+    await DashboardController.instance.reload();
+    await tester.pump();
+
+    expect(openIncidents().value, equals('5'));
   });
 
   testWidgets('the avg-response KPI claims no trend it cannot measure', (

@@ -322,4 +322,49 @@ void main() {
       expect(ok, isFalse);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear every monitor's cached catalog. There is nothing to
+  // refetch (reload is per monitor id, and the cached ids belong to the
+  // previous session's monitors).
+  // ---------------------------------------------------------------------------
+
+  group('resetForSession', () {
+    test('clears every cached catalog and notifies, without refetching', () async {
+      final fake = Http.fake();
+      final MonitorMetricsController controller =
+          MonitorMetricsController.instance;
+      controller.seedForTest('api', [
+        MonitorMetricRecord(
+          id: 'm1',
+          form: kEmptyMetricForm.copyWith(
+            label: 'Cart items',
+            key: 'cart_items',
+          ),
+        ),
+      ]);
+      controller.seedForTest('web', [
+        MonitorMetricRecord(
+          id: 'm2',
+          form: kEmptyMetricForm.copyWith(
+            label: 'Queue depth',
+            key: 'queue_depth',
+          ),
+        ),
+      ]);
+      expect(controller.metricsFor('api'), hasLength(1));
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.resetForSession();
+
+      expect(notifications, equals(1));
+      expect(controller.metricsFor('api'), isEmpty);
+      expect(controller.metricsFor('web'), isEmpty);
+      // Refetching the cached ids would probe the previous team's monitors and
+      // collect a masked 404 per id; the metrics tab reloads per monitor when
+      // it mounts instead.
+      fake.assertNothingSent();
+    });
+  });
 }

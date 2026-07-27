@@ -6,6 +6,8 @@ import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
+import '../../../app/support/plan_upgrade.dart';
+import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
@@ -114,17 +116,30 @@ class _MonitorsListViewState
   /// mirroring the backend's own 422 message so the two never diverge.
   void _nudgeMonitorLimit() {
     final int? limit = _entitlement.currentLimits.monitors;
-    Magic.error(
-      trans('uptizm.monitors.title'),
-      trans('uptizm.monitors.limit_nudge', {
-        'plan': _entitlement.planName,
-        'count': '$limit',
-        'noun': trans(
-          limit == 1
-              ? 'uptizm.monitors.noun_one'
-              : 'uptizm.monitors.noun_other',
-        ),
-      }),
+    // The cap is known client-side, so there is no gated response to read the
+    // tier off: resolve the cheapest plan whose monitor cap is above what this
+    // team already uses. An empty id means the catalog has not loaded, and
+    // [UpgradePrompt] then lands on billing without naming a tier rather than
+    // starting checkout for one nobody chose.
+    final int used = controller.monitors.length;
+    final String requiredPlan = _entitlement.planIdUnlocking(
+      (limits) => limits.monitors == null || limits.monitors! > used,
+    );
+
+    UpgradePrompt.show(
+      PlanUpgradeRequirement(
+        message: trans('uptizm.monitors.limit_nudge', {
+          'plan': _entitlement.planName,
+          'count': '$limit',
+          'noun': trans(
+            limit == 1
+                ? 'uptizm.monitors.noun_one'
+                : 'uptizm.monitors.noun_other',
+          ),
+        }),
+        requiredPlan: requiredPlan,
+        feature: trans('uptizm.monitors.title'),
+      ),
     );
   }
 
@@ -167,7 +182,18 @@ class _MonitorsListViewState
               ),
               // KPI summary row: monitors used, operational, open incidents,
               // average response time. Mirrors the React grid above the filter.
-              _buildKpiRow(),
+              //
+              // Wrapped in a ListenableBuilder because two of the four cards
+              // read [DashboardController], which is NOT this view's backing
+              // controller: resolving `.instance` self-triggers its first
+              // fetch, but without this listener the row would keep rendering
+              // the pre-fetch zeros after that fetch lands, and "OPEN
+              // INCIDENTS 0" reads as a fact rather than as data not yet in.
+              ListenableBuilder(
+                listenable: DashboardController.instance,
+                builder: (BuildContext context, Widget? child) =>
+                    _buildKpiRow(),
+              ),
             ],
           ),
 
@@ -189,7 +215,7 @@ class _MonitorsListViewState
   /// lg:grid-cols-4 gap-4` row: monitors used, operational, open incidents,
   /// and average response time.
   Widget _buildKpiRow() {
-    // 1. Derive headline metrics from the mock fixtures.
+    // 1. Derive headline metrics from the live monitor roster.
     final List<Monitor> allMonitors = controller.monitors;
     final int upCount = allMonitors
         .where((m) => m.status == StatusKey.up)

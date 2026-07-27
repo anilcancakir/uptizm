@@ -453,4 +453,57 @@ void main() {
       expect(ok, isFalse);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear the previous identity's policy cache, then refetch.
+  // ---------------------------------------------------------------------------
+
+  group('resetForSession', () {
+    test('clears the cached policies even when the refetch fails', () async {
+      final EscalationController controller = EscalationController.instance;
+      controller.seedForTest([
+        EscalationPolicy.fromMap({'id': 'standard', 'name': 'Standard'}),
+      ]);
+      expect(controller.policies, hasLength(1));
+
+      // The new identity's refetch resolves nothing. `reload` alone reads an
+      // empty roster as "nothing new to publish", which would leave the
+      // previous team's policies listed and openable in the editor.
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.resetForSession();
+
+      expect(notifications, greaterThan(0));
+      expect(controller.policies, isEmpty);
+      expect(controller.detailById('standard'), isNull);
+    });
+
+    test('refetches the policies of the new identity', () async {
+      final EscalationController controller = EscalationController.instance;
+      controller.seedForTest([
+        EscalationPolicy.fromMap({'id': 'standard', 'name': 'Standard'}),
+      ]);
+
+      Http.fake({
+        'escalation-policies/other-team': Http.response({
+          'data': {'id': 'other-team', 'name': 'Northwind ladder', 'steps': []},
+        }, 200),
+        'escalation-policies': Http.response({
+          'data': [
+            {'id': 'other-team', 'name': 'Northwind ladder'},
+          ],
+        }, 200),
+      });
+
+      await controller.resetForSession();
+
+      expect(
+        controller.policies.map((EscalationPolicy p) => p.id).toList(),
+        equals(['other-team']),
+      );
+      expect(controller.detailById('standard'), isNull);
+    });
+  });
 }

@@ -1,5 +1,6 @@
 import 'package:magic/magic.dart';
 
+import 'session_scoped_controller.dart';
 import '../enums/ai_level.dart' show AiLevel;
 import '../services/billing/billing_service.dart';
 import '../support/billing_types.dart' show Plan, PlanLimits;
@@ -24,7 +25,8 @@ import '../support/team_types.dart' show UsageStat;
 /// A [ChangeNotifier]; wrap a gated widget in a `ListenableBuilder` on
 /// [EntitlementController.instance] so it re-gates the moment the real plan or
 /// usage lands.
-class EntitlementController extends MagicController {
+class EntitlementController extends MagicController
+    implements SessionScopedController {
   /// Creates the controller. [billing] is injectable for tests; production
   /// resolves the platform [BillingService] singleton.
   EntitlementController({BillingService? billing})
@@ -70,10 +72,42 @@ class EntitlementController extends MagicController {
   /// consult it as a secondary via [instance]), so magic's `onInit` lifecycle
   /// hook, which fires only for a view's backing controller, never runs for it.
   /// The load is therefore triggered here on first access instead.
-  void _ensureLoading() {
-    if (_loadStarted) return;
+  ///
+  /// Returns the in-flight load so [resetForSession] can await the refetch it
+  /// re-arms the guard for; [instance] fires it and does not wait.
+  Future<void> _ensureLoading() {
+    if (_loadStarted) return Future<void>.value();
+
     _loadStarted = true;
-    reload();
+    return reload();
+  }
+
+  /// Drops the previous session's plan, catalog, usage, and AI allowance,
+  /// publishes the cleared (permissive) state, then refetches the entitlement
+  /// of the identity that is now authenticated.
+  ///
+  /// Clears BEFORE refetching (see [SessionScopedController]): each [reload]
+  /// leg keeps its last-known-good value on failure, so a failed refetch across
+  /// an identity change would otherwise gate the new team by the previous
+  /// team's plan. The cleared state is the permissive [_loadingLimits] one, so
+  /// nothing is wrongly locked while the new plan is in flight. [_loadStarted]
+  /// is re-armed as part of the reset and immediately claimed again by
+  /// [_ensureLoading], so the awaited refetch IS the new session's one-shot
+  /// load and a later [instance] read does not fire a second one.
+  ///
+  /// [_billing] is an injected collaborator, not session data, and is left
+  /// untouched.
+  @override
+  Future<void> resetForSession() async {
+    _planId = null;
+    _plans = const [];
+    _usage = const [];
+    _loaded = false;
+    _aiAnalysisTrialsRemaining = null;
+    _loadStarted = false;
+    refreshUI();
+
+    await _ensureLoading();
   }
 
   /// Non-destructive refresh of plan id + catalog + usage in parallel; each

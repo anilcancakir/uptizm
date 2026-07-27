@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
+import 'session_scoped_controller.dart';
 import '../models/escalation_policy.dart';
 import '../support/escalation_support.dart' show EscalationTargetType;
 
@@ -66,7 +67,8 @@ class EscalationStepWire {
 /// carries one `target_type`/`target_id` per row, so every editor rung maps to
 /// exactly one people-only step: `target_type: on_call` (the shared rotation,
 /// no `target_id`) or `target_type: user` (`target_id` = a team member id).
-class EscalationController extends MagicController {
+class EscalationController extends MagicController
+    implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static EscalationController get instance =>
       Magic.findOrPut(EscalationController.new);
@@ -131,6 +133,23 @@ class EscalationController extends MagicController {
       ..clear()
       ..addEntries(details.map((p) => MapEntry(p.id, p)));
     refreshUI();
+  }
+
+  /// Drops the previous session's policy cache (roster and hydrated step
+  /// chains, which share [_details]), publishes the cleared state, then
+  /// refetches for the identity that is now authenticated.
+  ///
+  /// Clears BEFORE refetching (see [SessionScopedController]): [reload] keeps
+  /// the last-known-good cache on an empty roster or a failed detail
+  /// hydration, so across an identity change a failed refetch would otherwise
+  /// leave the previous team's policies listed and still openable in the editor
+  /// through [detailById].
+  @override
+  Future<void> resetForSession() async {
+    _details.clear();
+    refreshUI();
+
+    await reload();
   }
 
   /// Resolves a policy by [id] from the cached map, or `null` when none

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
+import 'session_scoped_controller.dart';
 import '../../resources/views/monitors/monitor_metrics_support.dart';
 
 // ---------------------------------------------------------------------------
@@ -131,7 +132,8 @@ class MonitorMetricRecord {
 /// user-defined; see `backend/app/Models/MonitorMetric.php`), so this
 /// controller owns only the custom metrics catalog; the metrics tab's
 /// system section stays a separate, client-derived concern.
-class MonitorMetricsController extends MagicController {
+class MonitorMetricsController extends MagicController
+    implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static MonitorMetricsController get instance =>
       Magic.findOrPut(MonitorMetricsController.new);
@@ -180,6 +182,23 @@ class MonitorMetricsController extends MagicController {
       // payload keeps the last-known-good catalog (empty before the first
       // successful fetch) instead of throwing out of the tab's `initState`.
     }
+  }
+
+  /// Drops every monitor's cached metric catalog and publishes the cleared
+  /// state. There is nothing to refetch here.
+  ///
+  /// [reload] is per monitor (`reload(String monitorId)`), and after an identity
+  /// change this controller holds no id worth refetching: the cached ids belong
+  /// to the previous session's monitors, and the new session's monitor ids are
+  /// not known here (only [MonitorController] fetches those). Refetching the
+  /// cached ids would probe another team's monitors and get a masked 404 for
+  /// each. The metrics tab issues its own `reload(monitorId)` from `initState`
+  /// when it mounts for a monitor, so the new session's catalog lands there;
+  /// clearing plus [refreshUI] is the whole reset.
+  @override
+  Future<void> resetForSession() async {
+    _byMonitor.clear();
+    refreshUI();
   }
 
   // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import 'package:magic/magic.dart';
 
+import 'session_scoped_controller.dart';
 import '../models/incident.dart';
 import '../models/monitor.dart';
 import '../enums/status_key.dart';
@@ -15,12 +16,15 @@ import '../enums/status_key.dart';
 /// renders the existing empty state).
 ///
 /// Data-only: the dashboard has no mutable state and no mock actions, so this
-/// controller only exposes reads over the fetched data, refreshed once via
-/// [onInit] and re-fetchable via the non-destructive [reload].
-class DashboardController extends MagicController {
-  /// Singleton accessor, registering the controller on first access.
+/// controller only exposes reads over the fetched data, loaded once through
+/// [_ensureLoading] (whichever of [onInit] / [instance] comes first) and
+/// re-fetchable via the non-destructive [reload].
+class DashboardController extends MagicController
+    implements SessionScopedController {
+  /// Singleton accessor, registering the controller and kicking off its
+  /// one-shot initial load on first access.
   static DashboardController get instance =>
-      Magic.findOrPut(DashboardController.new);
+      Magic.findOrPut(DashboardController.new).._ensureLoading();
 
   /// Cached `GET /dashboard/stats` counters. Empty (all-zero) defaults until
   /// the first successful fetch resolves.
@@ -111,12 +115,36 @@ class DashboardController extends MagicController {
   /// when either window has no data to compare.
   double? get uptime24hDelta => _uptime24hDelta;
 
+  /// Guards the one-shot initial load, shared by [onInit] and [instance] so
+  /// the two entry points never fetch twice.
+  bool _loadStarted = false;
+
   /// Bootstraps every dashboard surface the first time this controller backs
   /// a view.
   @override
   void onInit() {
     super.onInit();
-    reload();
+    _ensureLoading();
+  }
+
+  /// Kicks off the initial [reload] the first time the data is needed, from
+  /// whichever entry point comes first: this controller backing a view
+  /// ([onInit]) or another view resolving [instance].
+  ///
+  /// magic's `onInit` hook only fires for a [MagicView]'s BACKING controller,
+  /// so a view that consults this one as a secondary never triggered the load.
+  /// The monitors list does exactly that (it sources its OPEN INCIDENTS and
+  /// AI-active KPIs from [openIncidentsCount]/[aiActiveCount] so they agree
+  /// with the dashboard), and rendered the untouched all-zero counters: a
+  /// fabricated `0 open incidents` on a team that has some, which reads as a
+  /// fact rather than as missing data. Both paths now go through this one-shot
+  /// guard, so a secondary reader warms the counters and the dashboard view
+  /// itself still fetches exactly once.
+  Future<void> _ensureLoading() {
+    if (_loadStarted) return Future<void>.value();
+
+    _loadStarted = true;
+    return reload();
   }
 
   /// Non-destructive refresh: fetches the four dashboard aggregate endpoints
@@ -131,6 +159,37 @@ class DashboardController extends MagicController {
       _reloadMonitorsSnapshot(),
       _reloadAiInbox(),
     ]);
+  }
+
+  /// Drops every counter and panel the previous session loaded, publishes the
+  /// cleared state, then refetches for the identity that is now authenticated.
+  ///
+  /// Clears BEFORE refetching (see [SessionScopedController]): [reload]'s legs
+  /// deliberately keep their last-known-good data on failure, which across an
+  /// identity change would leave another team's incidents and monitors on the
+  /// dashboard. Re-arms [_loadStarted] as part of the reset and immediately
+  /// claims it again through [_ensureLoading], so the refetch this awaits is
+  /// also the new session's one-shot load and a later [instance] read does not
+  /// fire a second one.
+  @override
+  Future<void> resetForSession() async {
+    _monitorsUp = 0;
+    _monitorsDown = 0;
+    _monitorsDegraded = 0;
+    _monitorsPaused = 0;
+    _monitorsPending = 0;
+    _monitorsTotal = null;
+    _avgResponseMs = null;
+    _openIncidents = 0;
+    _uptime24h = null;
+    _uptime24hDelta = null;
+    _activeIncidents = [];
+    _monitorsSnapshot = [];
+    _aiInbox = [];
+    _loadStarted = false;
+    refreshUI();
+
+    await _ensureLoading();
   }
 
   /// Refreshes the `GET /dashboard/stats` counters.

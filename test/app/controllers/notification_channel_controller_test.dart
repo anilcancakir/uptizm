@@ -515,4 +515,94 @@ void main() {
       },
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear the previous identity's roster + push flag, then
+  // refetch.
+  // ---------------------------------------------------------------------------
+
+  group('resetForSession', () {
+    test('clears the roster and re-optimizes the push flag on a failed refetch', () async {
+      Http.fake({
+        'notification-channels': Http.response({
+          'data': [
+            {
+              'id': 'nc1',
+              'channel_type': 'slack',
+              'name': 'Slack',
+              'is_enabled': true,
+              'severity': 'all',
+              'credentials': {'has_token': true, 'channel': '#alerts'},
+            },
+          ],
+          'meta': {'push_provisioned': false},
+        }),
+      });
+      final NotificationChannelController controller =
+          NotificationChannelController.instance;
+      await controller.reload();
+      expect(controller.channels, hasLength(1));
+      expect(controller.pushProvisioned, isFalse);
+
+      // The new identity's refetch fails. `reload` alone keeps both values,
+      // which would show the previous team's Slack wiring (and its channel
+      // hint) to another team.
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.resetForSession();
+
+      expect(notifications, greaterThan(0));
+      expect(controller.channels, isEmpty);
+      expect(controller.channelOfType(ChannelType.slack), isNull);
+      // Back to the optimistic pre-fetch default: a cleared state must not
+      // claim push is unconfigured for the new team.
+      expect(controller.pushProvisioned, isTrue);
+    });
+
+    test('refetches the roster of the new identity', () async {
+      Http.fake({
+        'notification-channels': Http.response({
+          'data': [
+            {
+              'id': 'nc1',
+              'channel_type': 'slack',
+              'name': 'Slack',
+              'is_enabled': true,
+              'severity': 'all',
+              'credentials': {'has_token': true, 'channel': '#alerts'},
+            },
+          ],
+        }),
+      });
+      final NotificationChannelController controller =
+          NotificationChannelController.instance;
+      await controller.reload();
+
+      Http.fake({
+        'notification-channels': Http.response({
+          'data': [
+            {
+              'id': 'nc9',
+              'channel_type': 'webhook',
+              'name': 'Webhook',
+              'is_enabled': true,
+              'severity': 'critical',
+              'credentials': {'has_url': true, 'url_host': 'hooks.northwind.io'},
+            },
+          ],
+        }),
+      });
+
+      await controller.resetForSession();
+
+      expect(
+        controller.channels.map((NotificationChannelRecord c) => c.id).toList(),
+        equals(['nc9']),
+      );
+      expect(controller.channelOfType(ChannelType.slack), isNull);
+      expect(controller.channelOfType(ChannelType.webhook)?.id, equals('nc9'));
+    });
+  });
 }

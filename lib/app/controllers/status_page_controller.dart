@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:flutter/widgets.dart' show Color, visibleForTesting;
 import 'package:magic/magic.dart';
 
+import 'session_scoped_controller.dart';
 import '../models/status_page.dart';
 import '../enums/domain_mode.dart' show DomainMode;
 import '../support/status_page_types.dart' show Subscriber;
@@ -26,7 +27,8 @@ import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 /// synchronous signature while the underlying data is now real. [addSubscriber]
 /// and [removeSubscriber] persist through `POST`/`DELETE` on the same
 /// sub-resource.
-class StatusPageController extends MagicController {
+class StatusPageController extends MagicController
+    implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static StatusPageController get instance =>
       Magic.findOrPut(StatusPageController.new);
@@ -95,6 +97,25 @@ class StatusPageController extends MagicController {
 
     _pages = pages;
     refreshUI();
+  }
+
+  /// Drops the previous session's status-page roster and its per-page
+  /// subscriber caches, publishes the cleared state, then refetches for the
+  /// identity that is now authenticated.
+  ///
+  /// Clears BEFORE refetching (see [SessionScopedController]): [reload] keeps
+  /// the last-known-good roster on an empty fetch, so across an identity change
+  /// a failed refetch would otherwise leave the previous team's pages listed.
+  /// The [_subscribers] cache is dropped whole rather than refetched: it is
+  /// lazily filled per page id by [subscribersFor], which refetches on the next
+  /// build of a subscribers view.
+  @override
+  Future<void> resetForSession() async {
+    _pages = [];
+    _subscribers.clear();
+    refreshUI();
+
+    await reload();
   }
 
   /// The working subscriber roster for the page with [id]; empty for a `null`

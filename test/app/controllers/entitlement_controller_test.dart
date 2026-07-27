@@ -24,16 +24,24 @@ class _FakeBilling implements BillingService {
 
   /// The plan id `currentEntitlement` resolves to; `null` mirrors an absent
   /// entitlement field (mid-load).
-  final String? entitlementPlan;
+  ///
+  /// Mutable so a test can model the identity behind the fake CHANGING (the
+  /// `resetForSession` case) without building a second controller.
+  String? entitlementPlan;
 
   /// The usage stats `getUsage` returns.
-  final List<UsageStat> usage;
+  List<UsageStat> usage;
 
   /// When true, `getPlans` throws to exercise a degraded leg.
-  final bool throwOnPlans;
+  bool throwOnPlans;
+
+  /// How many times `currentEntitlement` was called, so a test can assert the
+  /// one-shot load guard fires exactly once per identity.
+  int entitlementCalls = 0;
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
+    entitlementCalls++;
     return BillingEntitlement(
       plan: entitlementPlan,
       status: 'active',
@@ -318,5 +326,85 @@ void main() {
         expect(controller.canCreateMonitor, isFalse);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear the previous identity's entitlement, then refetch.
+  // ---------------------------------------------------------------------------
+
+  group('EntitlementController.resetForSession', () {
+    test('drops the previous plan even when the refetch resolves none', () async {
+      final fake = _FakeBilling(
+        entitlementPlan: 'free',
+        usage: _usage(monitors: 10, responders: 1),
+      );
+      final controller = EntitlementController(billing: fake);
+      await controller.reload();
+      expect(controller.canCreateMonitor, isFalse);
+
+      // The identity changed and the new team's entitlement does not resolve.
+      // Each `reload` leg keeps its last-known-good value, so without the
+      // clear the new team would be gated by the PREVIOUS team's Free caps.
+      fake.entitlementPlan = null;
+      fake.throwOnPlans = true;
+      fake.usage = const [];
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      await controller.resetForSession();
+
+      expect(notified, greaterThan(0));
+      expect(controller.planName, isEmpty);
+      expect(controller.monitorsUsed, 0);
+      expect(controller.respondersUsed, 0);
+      expect(controller.aiAnalysisTrialsRemaining, isNull);
+      // Cleared means permissive, never the previous team's caps: the backend
+      // stays the true enforcer while the new plan is unknown.
+      expect(controller.canCreateMonitor, isTrue);
+      expect(controller.minCheckIntervalSec, 0);
+    });
+
+    test('refetches the plan of the identity that is now authenticated', () async {
+      final fake = _FakeBilling(
+        entitlementPlan: 'free',
+        usage: _usage(monitors: 10, responders: 1),
+      );
+      final controller = EntitlementController(billing: fake);
+      await controller.reload();
+
+      fake.entitlementPlan = 'business';
+      fake.usage = _usage(monitors: 5, responders: 2);
+
+      await controller.resetForSession();
+
+      expect(controller.planName, 'Business');
+      expect(controller.canCreateMonitor, isTrue);
+      expect(controller.canUsePrivatePages, isTrue);
+      expect(controller.monitorsUsed, 5);
+    });
+
+    test('re-arms the one-shot guard without firing a second load', () async {
+      final fake = _FakeBilling(
+        entitlementPlan: 'free',
+        usage: _usage(monitors: 10, responders: 1),
+      );
+      Magic.findOrPut(() => EntitlementController(billing: fake));
+      final controller = EntitlementController.instance;
+      for (var i = 0; i < 50 && !controller.isLoaded; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+
+      await controller.resetForSession();
+      final int callsAfterReset = fake.entitlementCalls;
+
+      // The reset re-arms the guard and immediately claims it for the refetch
+      // it awaited, so the next `.instance` read must not load again.
+      final resolved = EntitlementController.instance;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(identical(resolved, controller), isTrue);
+      expect(callsAfterReset, equals(2));
+      expect(fake.entitlementCalls, equals(callsAfterReset));
+    });
   });
 }

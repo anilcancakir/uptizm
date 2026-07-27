@@ -14,12 +14,13 @@ void main() {
     Magic.flush();
   });
 
-  /// Binds a fake network driver seeding every dashboard aggregate endpoint
-  /// with a canned `{data: ...}` envelope and returns the controller. The
-  /// controller decodes these via the wired `reload`; the assertions below
-  /// exercise that wiring in place of the removed fixture-derivation logic.
-  DashboardController seedDashboard() {
-    Http.fake({
+  /// The canned `{data: ...}` envelope for every dashboard aggregate endpoint.
+  ///
+  /// Exposed separately from [seedDashboard] so a test that needs the
+  /// [FakeNetworkDriver] itself (to count recorded requests) can bind the same
+  /// stubs and keep the returned driver.
+  Map<String, MagicResponse> dashboardStubs() {
+    return {
       'dashboard/stats': Http.response({
         'data': {
           'monitors_up': 7,
@@ -81,7 +82,15 @@ void main() {
           },
         ],
       }),
-    });
+    };
+  }
+
+  /// Binds a fake network driver seeding every dashboard aggregate endpoint
+  /// with a canned `{data: ...}` envelope and returns the controller. The
+  /// controller decodes these via the wired `reload`; the assertions below
+  /// exercise that wiring in place of the removed fixture-derivation logic.
+  DashboardController seedDashboard() {
+    Http.fake(dashboardStubs());
     return DashboardController.instance;
   }
 
@@ -226,4 +235,120 @@ void main() {
       expect(controller.aiSuggestions, isEmpty);
     },
   );
+
+  // ---------------------------------------------------------------------------
+  // .instance: the one-shot initial load, shared with onInit.
+  // ---------------------------------------------------------------------------
+
+  group('DashboardController.instance', () {
+    test('resolving the singleton kicks off the load on its own', () async {
+      // Regression guard: magic's `onInit` fires only for a MagicView's
+      // BACKING controller, so a view consulting this one as a secondary (the
+      // monitors list sources its OPEN INCIDENTS + AI-active KPIs here so they
+      // agree with the dashboard) never triggered the load, and the KPI
+      // rendered the untouched `0` as if the team had no open incident.
+      final DashboardController controller = seedDashboard();
+
+      // The load is async and fire-and-forget; pump until it settles.
+      for (var i = 0; i < 50 && controller.openIncidentsCount == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+
+      expect(
+        controller.openIncidentsCount,
+        equals(5),
+        reason: 'resolving .instance must start the load on its own',
+      );
+      expect(controller.aiActiveCount, equals(1));
+    });
+
+    test('onInit shares the guard, so a mounted view does not refetch', () async {
+      final fake = Http.fake(dashboardStubs());
+      final DashboardController controller = DashboardController.instance;
+
+      for (var i = 0; i < 50 && controller.openIncidentsCount == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      final int afterFirstLoad = fake.recorded.length;
+
+      // The dashboard view mounting afterwards runs `onInit`; both paths share
+      // the one-shot guard, so the four aggregates must not be fetched twice.
+      controller.onInit();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(afterFirstLoad, equals(4));
+      expect(fake.recorded.length, equals(afterFirstLoad));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear the previous identity's data, then refetch.
+  // ---------------------------------------------------------------------------
+
+  group('resetForSession', () {
+    test('clears every counter and panel even when the refetch fails', () async {
+      final DashboardController controller = seedDashboard();
+      await controller.reload();
+      expect(controller.openIncidentsCount, equals(5));
+      expect(controller.activeIncidents, isNotEmpty);
+
+      // The new identity's refetch cannot reach the backend. `reload` alone
+      // would keep the previous team's counters and incidents on screen; the
+      // reset must leave the dashboard empty instead.
+      Http.unfake();
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      await controller.resetForSession();
+
+      expect(notified, greaterThan(0));
+      expect(controller.upCount, equals(0));
+      expect(controller.downCount, equals(0));
+      expect(controller.pendingCount, equals(0));
+      expect(controller.monitorCount, equals(0));
+      expect(controller.openIncidentsCount, equals(0));
+      expect(controller.hasAvgResponse, isFalse);
+      expect(controller.uptime24h, isNull);
+      expect(controller.uptime24hDelta, isNull);
+      expect(controller.activeIncidents, isEmpty);
+      expect(controller.monitorsSnapshot, isEmpty);
+      expect(controller.aiSuggestions, isEmpty);
+    });
+
+    test('refetches for the identity that is now authenticated', () async {
+      final DashboardController controller = seedDashboard();
+      await controller.reload();
+
+      Http.fake({
+        'dashboard/stats': Http.response({
+          'data': {
+            'monitors_up': 1,
+            'monitors_down': 0,
+            'monitors_degraded': 0,
+            'monitors_paused': 0,
+            'monitors_pending': 0,
+            'monitors_total': 1,
+            'open_incidents': 0,
+          },
+        }),
+        'dashboard/active-incidents': Http.response({'data': []}),
+        'dashboard/monitors-snapshot': Http.response({
+          'data': [
+            {'id': 'other-team-api', 'name': 'API', 'last_status': 'up'},
+          ],
+        }),
+        'dashboard/ai-inbox': Http.response({'data': []}),
+      });
+
+      await controller.resetForSession();
+
+      expect(controller.monitorCount, equals(1));
+      expect(controller.openIncidentsCount, equals(0));
+      expect(controller.activeIncidents, isEmpty);
+      expect(
+        controller.monitorsSnapshot.map((m) => m.id).toList(),
+        equals(['other-team-api']),
+      );
+    });
+  });
 }

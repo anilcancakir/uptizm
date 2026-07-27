@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
+import 'session_scoped_controller.dart';
 import '../enums/channel_type.dart' show ChannelType;
 
 /// Resolves the wire `channel_type` string into a [ChannelType].
@@ -115,7 +116,8 @@ class NotificationChannelRecord {
 /// [delete] and [sendTest] are bool-checked write actions with an honest
 /// toast: a failed test-send (Slack `{ok:false}` / webhook non-2xx, surfaced
 /// by the backend as a 502) is reported as a failure, never a false success.
-class NotificationChannelController extends MagicController {
+class NotificationChannelController extends MagicController
+    implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static NotificationChannelController get instance =>
       Magic.findOrPut(NotificationChannelController.new);
@@ -213,6 +215,26 @@ class NotificationChannelController extends MagicController {
     } catch (error) {
       Log.error('[NotificationChannelController.reload] failed: $error');
     }
+  }
+
+  /// Drops the previous session's channel roster and the push-provisioning
+  /// flag, publishes the cleared state, then refetches for the identity that is
+  /// now authenticated.
+  ///
+  /// Clears BEFORE refetching (see [SessionScopedController]): [reload] keeps
+  /// both values on any failure, so across an identity change a failed refetch
+  /// would otherwise show the previous team's Slack/webhook/PagerDuty/Teams
+  /// wiring (with its credential hints) to another team. [_pushProvisioned]
+  /// returns to its optimistic `true` default, the same "not yet answered"
+  /// value it holds before the first fetch, so a cleared state never claims
+  /// push is unconfigured.
+  @override
+  Future<void> resetForSession() async {
+    _channels = [];
+    _pushProvisioned = true;
+    refreshUI();
+
+    await reload();
   }
 
   // ---------------------------------------------------------------------------

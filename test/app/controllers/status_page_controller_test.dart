@@ -598,4 +598,80 @@ void main() {
       expect(notifications, equals(1));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear the previous identity's roster + subscriber caches,
+  // then refetch.
+  // ---------------------------------------------------------------------------
+
+  group('resetForSession', () {
+    test('clears the roster and the subscriber caches on a failed refetch', () async {
+      Http.fake({
+        ...pagesEnvelope(),
+        'status-pages/acme/subscribers': Http.response({
+          'data': [
+            {
+              'id': 'sub-1',
+              'email': 'devops@northwind.io',
+              'confirmed': true,
+              'newsletter_opt_in': true,
+            },
+          ],
+        }, 200),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
+      // First access primes the per-page cache in the background; pump until
+      // the roster lands.
+      controller.subscribersFor('acme');
+      for (var i = 0; i < 50 && controller.subscribersFor('acme').isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(controller.statusPages, hasLength(2));
+      expect(controller.subscribersFor('acme'), hasLength(1));
+
+      // The new identity's refetch fails. `reload` alone keeps the
+      // last-known-good roster, which would leave the previous team's pages
+      // listed (and its subscriber emails cached).
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.resetForSession();
+
+      expect(notifications, greaterThan(0));
+      expect(controller.statusPages, isEmpty);
+      expect(controller.configById('acme'), isNull);
+      // The dropped cache key makes the next read a fresh (background) fetch,
+      // so it answers empty rather than with the previous team's roster.
+      expect(controller.subscribersFor('acme'), isEmpty);
+    });
+
+    test('refetches the roster of the new identity', () async {
+      Http.fake(pagesEnvelope());
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
+
+      Http.fake({
+        'status-pages': Http.response({
+          'data': [
+            {
+              'id': 'other-team',
+              'name': 'Northwind Status',
+              'slug': 'northwind',
+              'domain_mode': 'path',
+            },
+          ],
+        }, 200),
+      });
+
+      await controller.resetForSession();
+
+      expect(
+        controller.statusPages.map((StatusPage p) => p.id).toList(),
+        equals(['other-team']),
+      );
+      expect(controller.configById('acme'), isNull);
+    });
+  });
 }
