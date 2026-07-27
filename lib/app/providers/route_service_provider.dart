@@ -55,11 +55,7 @@ class RouteServiceProvider extends ServiceProvider {
       final List<PreviewEntry> entries = <PreviewEntry>[
         ...previewEntries(),
         for (final p in starter_previews.starterComponentPreviews())
-          // uptizm ships its own design-faithful EmptyState + ErrorState (in
-          // previewEntries above); drop the magic_starter duplicates so the
-          // catalog has one of each.
-          if (p.slug != 'empty_state' && p.slug != 'error_state')
-            PreviewEntry(label: p.label, slug: p.slug, builder: p.builder),
+          PreviewEntry(label: p.label, slug: p.slug, builder: p.builder),
       ]..sort((a, b) => a.label.compareTo(b.label));
       MagicPreview.register(entries);
       MagicPreview.registerRoutes();

@@ -7,7 +7,6 @@ import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_edit_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
-import 'package:uptizm/ui/components/empty_state/index.dart';
 
 import '../../support/monitor_fixtures.dart';
 
@@ -737,7 +736,9 @@ void main() {
       );
     });
 
-    testWidgets('unknown id renders the not-found EmptyState', (tester) async {
+    testWidgets('unknown id renders the not-found MSEmptyState', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -748,9 +749,9 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(
-        find.byType(EmptyState),
+        find.byType(MSEmptyState),
         findsOneWidget,
-        reason: 'EmptyState must be rendered for an unknown monitor id',
+        reason: 'MSEmptyState must be rendered for an unknown monitor id',
       );
       expect(
         find.byType(MonitorForm),
@@ -775,7 +776,7 @@ void main() {
       );
     });
 
-    testWidgets('null id renders the not-found EmptyState', (tester) async {
+    testWidgets('null id renders the not-found MSEmptyState', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -784,9 +785,9 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(
-        find.byType(EmptyState),
+        find.byType(MSEmptyState),
         findsOneWidget,
-        reason: 'EmptyState must be rendered when no id is provided',
+        reason: 'MSEmptyState must be rendered when no id is provided',
       );
     });
   });

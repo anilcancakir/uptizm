@@ -3,10 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/resources/views/incidents/weekly_digest_view.dart';
-import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
-import 'package:uptizm/ui/components/error_state/index.dart';
-import 'package:uptizm/ui/components/upgrade_nudge/index.dart';
 
 /// In-memory loader feeding the digest labels so [trans] returns real wrappable
 /// strings instead of raw dot-separated i18n keys (which render as long
@@ -117,7 +114,7 @@ void main() {
     await tester.pumpWidget(wrap(const WeeklyDigestView()));
     await settle(tester);
 
-    expect(find.byType(EmptyState), findsOneWidget);
+    expect(find.byType(MSEmptyState), findsOneWidget);
     expect(find.text('No digest yet'), findsOneWidget);
     // No KPI cards render in the empty state.
     expect(find.byType(KpiStatCard), findsNothing);
@@ -143,8 +140,8 @@ void main() {
 
     // The generic error state offered a Retry that could never succeed on this
     // plan, so a refusal renders the wall with its upgrade action instead.
-    expect(find.byType(UpgradeNudge), findsOneWidget);
-    expect(find.byType(ErrorState), findsNothing);
+    expect(find.byType(MSUpgradeNudge), findsOneWidget);
+    expect(find.byType(MSErrorState), findsNothing);
     expect(find.textContaining('Business plan'), findsOneWidget);
   });
 
@@ -158,8 +155,8 @@ void main() {
     await tester.pumpWidget(wrap(const WeeklyDigestView()));
     await settle(tester);
 
-    expect(find.byType(ErrorState), findsOneWidget);
-    expect(find.byType(UpgradeNudge), findsNothing);
+    expect(find.byType(MSErrorState), findsOneWidget);
+    expect(find.byType(MSUpgradeNudge), findsNothing);
   });
 
   testWidgets('renders the back-aware header in every phase', (tester) async {

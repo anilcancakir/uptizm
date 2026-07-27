@@ -5,7 +5,6 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/layouts/page_container.dart';
 import 'monitor_form.dart';
 
@@ -13,7 +12,8 @@ import 'monitor_form.dart';
 ///
 /// A faithful Flutter port of the React `MonitorFormPage.tsx`. Resolves the
 /// given [id] to a fixture via [findMonitor]; when no monitor matches (or [id]
-/// is null) it renders a graceful not-found [EmptyState] rather than crashing.
+/// is null) it renders a graceful not-found [MSEmptyState] rather than
+/// crashing.
 ///
 /// When a monitor is found the screen renders a [MonitorForm] prefilled with
 /// the monitor's [Monitor.name], [Monitor.url], and
@@ -117,7 +117,7 @@ class _MonitorEditViewState
   /// Builds the graceful not-found state shown when [MonitorController.monitorById]
   /// returns null.
   ///
-  /// Reuses the same error-load copy and [EmptyState] idiom as
+  /// Reuses the same error-load copy and [MSEmptyState] idiom as
   /// [MonitorDetailView] so the two screens behave consistently on an unknown
   /// route id.
   Widget _buildNotFound() {
@@ -130,7 +130,7 @@ class _MonitorEditViewState
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: '/monitors',
           ),
-          EmptyState(
+          MSEmptyState(
             icon: Icons.search_off,
             title: trans('uptizm.monitors.error_load_title'),
             description: trans('uptizm.monitors.error_load_description'),

@@ -6,7 +6,6 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/support/status_page_support.dart' show pageUrl;
 import '../../../app/models/status_page.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_page_preview/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
@@ -21,7 +20,7 @@ import '../../../ui/layouts/page_container.dart';
 /// public page rather than a live route.
 ///
 /// When [StatusPageController.configById] returns `null` it renders a graceful
-/// not-found [EmptyState] (mirroring the React `StatusPageNotFound` copy)
+/// not-found [MSEmptyState] (mirroring the React `StatusPageNotFound` copy)
 /// instead of crashing on an unknown route id.
 ///
 /// This is a mock screen: nothing here calls the network, and no `/s/:slug`
@@ -43,7 +42,7 @@ class StatusPagePreviewView extends MagicStatefulView<StatusPageController> {
   /// The status-page identifier resolved against the fixtures via
   /// [StatusPageController.configById].
   ///
-  /// `null` or an unknown id renders a graceful not-found [EmptyState].
+  /// `null` or an unknown id renders a graceful not-found [MSEmptyState].
   final String? id;
 
   /// Creates the [StatusPagePreviewView] for the given status page [id].
@@ -167,7 +166,7 @@ class _StatusPagePreviewViewState
             backLabel: trans('uptizm.status.list_title'),
             backFallback: '/status',
           ),
-          EmptyState(
+          MSEmptyState(
             icon: Icons.error_outline,
             title: trans('uptizm.status.not_found_title'),
             description: trans('uptizm.status.not_found_description'),

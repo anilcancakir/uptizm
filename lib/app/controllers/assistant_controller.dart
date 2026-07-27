@@ -1,6 +1,6 @@
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import '../support/upgrade_prompt.dart';
 
 /// Controller backing the floating Assistant widget's live Q&A round-trip.
 ///

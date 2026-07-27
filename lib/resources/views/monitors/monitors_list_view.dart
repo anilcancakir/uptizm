@@ -6,10 +6,7 @@ import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
-import '../../../app/support/plan_upgrade.dart';
-import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/enums/status_key.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -19,8 +16,8 @@ import '../../../ui/layouts/page_container.dart';
 /// Renders the full monitor inventory from design-lab mock fixtures (no
 /// controller, no network): a page header with a "New monitor" action, a KPI
 /// summary row, a [SegmentedControl] status filter, and a scrollable list of
-/// [MonitorListRow] cards. An [EmptyState] placeholder is shown when the active
-/// filter produces zero results.
+/// [MonitorListRow] cards. An [MSEmptyState] placeholder is shown when the
+/// active filter produces zero results.
 ///
 /// Layout follows the same discipline as [DashboardView]: a plain Flutter
 /// [Column] scaffolds the page so leaf components receive a bounded
@@ -327,7 +324,7 @@ class _MonitorsListViewState
   // Monitor list
   // ---------------------------------------------------------------------------
 
-  /// Builds the scrollable monitor list, or an [EmptyState] when the active
+  /// Builds the scrollable monitor list, or an [MSEmptyState] when the active
   /// filter matches no monitors.
   Widget _buildList() {
     final visible = _visible;
@@ -352,7 +349,7 @@ class _MonitorsListViewState
   // Empty state
   // ---------------------------------------------------------------------------
 
-  /// Builds the appropriate [EmptyState] for the current situation:
+  /// Builds the appropriate [MSEmptyState] for the current situation:
   ///   - No monitors at all: invite the user to add their first endpoint.
   ///   - Filter active with no matches: invite the user to clear the filter.
   ///
@@ -363,7 +360,7 @@ class _MonitorsListViewState
 
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
-      child: EmptyState(
+      child: MSEmptyState(
         title: noMonitorsAtAll
             ? trans('uptizm.monitors.empty_no_monitors_title')
             : trans('uptizm.monitors.empty_no_match_title'),

@@ -11,7 +11,6 @@ import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
 import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
 import 'package:uptizm/resources/views/status/status_page_subscribers_view.dart';
 import 'package:uptizm/resources/views/status/status_pages_list_view.dart';
-import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 
@@ -361,7 +360,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.byType(MSEmptyState), findsOneWidget);
       expect(find.text(trans('uptizm.status.list_empty_title')), findsWidgets);
     });
 
@@ -474,7 +473,7 @@ void main() {
         await tester.pump();
 
         expect(tester.takeException(), isNull);
-        expect(find.byType(EmptyState), findsOneWidget);
+        expect(find.byType(MSEmptyState), findsOneWidget);
         expect(
           find.text(
             trans('uptizm.status.subscribers_empty_subs_disabled_title'),
@@ -520,7 +519,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.byType(MSEmptyState), findsOneWidget);
       expect(find.text('Status page not found'), findsWidgets);
     });
   });

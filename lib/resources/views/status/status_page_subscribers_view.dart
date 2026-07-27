@@ -6,7 +6,6 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/support/status_page_types.dart' show Subscriber;
 import '../../../app/models/status_page.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
@@ -25,14 +24,14 @@ import '../../../ui/layouts/page_container.dart';
 /// 3. **KPI row** — total subscriber count and the page's subscriptions
 ///    on/off state.
 /// 4. **Body** — when subscriptions are off or there are no subscribers, a
-///    dashed-border [EmptyState] (message branches on
+///    dashed-border [MSEmptyState] (message branches on
 ///    [StatusPage.subscriptionsEnabled]) with an "Open editor" action
 ///    back to `/status/<id>`. Otherwise a search [Input] over a striped
 ///    [Card] of subscriber rows, each with a Remove [Button] that opens a
 ///    [MagicStarterConfirmDialog] before mutating local state.
 ///
 /// When [StatusPageController.configById] returns `null` it renders a graceful
-/// not-found [EmptyState] rather than crashing on an unknown route id.
+/// not-found [MSEmptyState] rather than crashing on an unknown route id.
 ///
 /// The subscriber roster is live: [StatusPageController.subscribersFor] fetches
 /// it from `GET /status-pages/<id>/subscribers`, and Remove delegates to
@@ -56,7 +55,7 @@ class StatusPageSubscribersView
   /// The status-page identifier resolved against the fixtures via
   /// [StatusPageController.configById].
   ///
-  /// `null` or an unknown id renders a graceful not-found [EmptyState].
+  /// `null` or an unknown id renders a graceful not-found [MSEmptyState].
   final String? id;
 
   /// Creates the [StatusPageSubscribersView] for the given page [id].
@@ -184,7 +183,7 @@ class _StatusPageSubscribersViewState
   Widget _buildEmptyState(StatusPage page) {
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
-      child: EmptyState(
+      child: MSEmptyState(
         icon: Icons.mail_outline,
         title: page.subscriptionsEnabled
             ? trans('uptizm.status.subscribers_empty_subs_enabled_title')
@@ -344,7 +343,7 @@ class _StatusPageSubscribersViewState
             backLabel: trans('uptizm.status.subscribers_open_editor_button'),
             backFallback: '/status',
           ),
-          EmptyState(
+          MSEmptyState(
             title: trans('uptizm.status.subscribers_empty_subs_enabled_title'),
             description: trans(
               'uptizm.status.subscribers_empty_subs_enabled_description',

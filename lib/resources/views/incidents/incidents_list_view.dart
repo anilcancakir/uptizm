@@ -6,7 +6,6 @@ import '../../../app/controllers/incident_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/incident_card/incident_card.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -16,7 +15,7 @@ import '../../../ui/layouts/page_container.dart';
 /// Renders the full incident history from the design-lab mock fixtures (no
 /// controller, no network): a page header with a "New incident" action, a
 /// counts row, a search + [SegmentedControl] filter, and a scrollable list of
-/// [IncidentCard] rows. An [EmptyState] placeholder is shown when the active
+/// [IncidentCard] rows. An [MSEmptyState] placeholder is shown when the active
 /// filter + search query yields zero matches.
 ///
 /// Reads the incident fixtures through [IncidentController]; this is a mock
@@ -242,7 +241,7 @@ class _IncidentsListViewState
   // Incident list
   // ---------------------------------------------------------------------------
 
-  /// Builds the scrollable incident list, or an [EmptyState] when the active
+  /// Builds the scrollable incident list, or an [MSEmptyState] when the active
   /// filter + query matches no incidents.
   Widget _buildList() {
     final visible = _visible;
@@ -267,7 +266,7 @@ class _IncidentsListViewState
   // Empty state
   // ---------------------------------------------------------------------------
 
-  /// Builds the appropriate [EmptyState] for the current situation:
+  /// Builds the appropriate [MSEmptyState] for the current situation:
   ///   - No incidents at all: mirrors "No incidents yet" from React.
   ///   - Filter/query active with no matches: "All clear" + a clear action.
   ///
@@ -278,7 +277,7 @@ class _IncidentsListViewState
 
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
-      child: EmptyState(
+      child: MSEmptyState(
         title: neverHadIncidents
             ? trans('uptizm.incidents.empty_never_had_title')
             : trans('uptizm.incidents.empty_filtered_title'),

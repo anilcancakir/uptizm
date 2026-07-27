@@ -5,7 +5,6 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/support/billing_types.dart' show PlanLimits;
-import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/incident_lifecycle.dart'
@@ -17,11 +16,9 @@ import '../../../app/models/incident.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_analysis_card/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/incident_timeline/index.dart'
     show IncidentTimeline;
 import '../../../ui/components/status_badge/index.dart';
-import '../../../ui/components/upgrade_nudge/index.dart';
 import '../../../ui/layouts/page_container.dart';
 import 'incident_form_support.dart';
 
@@ -40,7 +37,7 @@ import 'incident_form_support.dart';
 ///    `statusAtStart -> statusCurrent` transition badges.
 /// 4. **AI analysis**: the signature surface, billing-gated: an
 ///    [AiAnalysisCard] when the current tier unlocks [AiLevel.analysis],
-///    otherwise an [UpgradeNudge] naming the cheapest plan that does.
+///    otherwise an [MSUpgradeNudge] naming the cheapest plan that does.
 /// 5. **Postmortem** (resolved incidents only): the STORED postmortem when one
 ///    exists (with its published-or-draft state), otherwise the generated
 ///    [postmortemDraft] in an [AiInsight] banner, plus an editable composer
@@ -86,7 +83,7 @@ class IncidentDetailView extends MagicStatefulView<IncidentController> {
   /// The incident identifier resolved against the fixtures via
   /// [IncidentController.incidentById].
   ///
-  /// `null` or an unknown id renders a graceful not-found [EmptyState].
+  /// `null` or an unknown id renders a graceful not-found [MSEmptyState].
   final String? id;
 
   /// Creates the [IncidentDetailView] for the given incident [id].
@@ -580,7 +577,7 @@ class _IncidentDetailViewState
   /// Builds the AI analysis section, billing-gated.
   ///
   /// When the team's real tier unlocks [AiLevel.analysis], the full
-  /// [AiAnalysisCard] renders; otherwise an [UpgradeNudge] names the cheapest
+  /// [AiAnalysisCard] renders; otherwise an [MSUpgradeNudge] names the cheapest
   /// plan that unlocks it. The nudge renders its own headline and upgrade
   /// button, so it is passed the gated-feature message directly (no teaser
   /// wrapping). Wrapped in a [ListenableBuilder] on [EntitlementController] so
@@ -601,7 +598,7 @@ class _IncidentDetailViewState
         bool unlocksAnalysis(PlanLimits limits) =>
             limits.ai.index >= AiLevel.analysis.index;
 
-        return UpgradeNudge(
+        return MSUpgradeNudge(
           message: trans('uptizm.incidents.ai_analysis_gated'),
           requiredPlan: entitlement.planNameUnlocking(unlocksAnalysis),
           // Billing with the tier intent, so Upgrade starts the purchase for
@@ -1014,7 +1011,7 @@ class _IncidentDetailViewState
             backLabel: trans('uptizm.incidents.detail_back'),
             backFallback: '/incidents',
           ),
-          EmptyState(
+          MSEmptyState(
             title: trans('uptizm.incidents.error_load_title'),
             description: trans('uptizm.incidents.error_load_description'),
           ),

@@ -11,7 +11,6 @@ import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
 import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
 import '../../../ui/layouts/page_container.dart';
-import '../../../app/support/plan_upgrade.dart';
 
 /// The billing cycle a plan's price is shown for.
 enum BillingCycle {
@@ -271,7 +270,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     _consumedUpgradeIntent = token;
     // Also drop the query from the URL, so a reload of what the user now sees
     // in the address bar does not read as a fresh purchase intent.
-    MagicRoute.replace(PlanUpgradeRequirement.billingPath);
+    MagicRoute.replace(MagicStarterConfig.billingRoute());
     _selectPlan(target);
   }
 

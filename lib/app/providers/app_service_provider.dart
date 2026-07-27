@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_starter/magic_starter.dart';
-import '../controllers/session_scoped_controller.dart';
 import '../models/user.dart';
 import '../services/locale_application_service.dart';
 import '../services/realtime_service.dart';
@@ -61,59 +60,6 @@ class AppServiceProvider extends ServiceProvider {
         Log.error('[AppServiceProvider] realtime sync failed: $error');
       }),
     );
-  }
-
-  /// The authenticated identity the registered controllers currently hold data
-  /// for, as `<userId>:<teamId>`, or null while nobody is signed in.
-  String? _sessionIdentity;
-
-  /// Reads the identity that owns the data now in scope: the authenticated
-  /// user together with their active team, since every domain endpoint is
-  /// scoped to the current team, not just to the user.
-  static String? _readSessionIdentity() {
-    if (!Auth.check()) return null;
-
-    final User user = User.current;
-
-    return '${user.id}:${user.currentTeam?.id}';
-  }
-
-  /// Clears and refetches every registered [SessionScopedController] whenever
-  /// the authenticated identity changes.
-  ///
-  /// magic caches controllers as Type-keyed singletons and runs `onInit` once
-  /// per instance lifetime, so a logout followed by a login, or a team switch,
-  /// leaves the previous session's rows on screen. On a team-scoped product
-  /// that shows one tenant's monitors to another, so this is a correctness and
-  /// privacy guard, not a freshness nicety.
-  ///
-  /// Only a change to a NON-NULL identity resets: on logout there is no
-  /// identity to refetch for, and a reset would fire a wave of requests that
-  /// can only 401 from the login screen. The stale rows stay unreachable in
-  /// memory and the next login resets them before any domain view renders,
-  /// because `Auth.login` bumps `Auth.stateNotifier` before the post-login
-  /// navigation. The identity is recorded either way, so signing back in as
-  /// the same user still counts as a change and still refetches.
-  void _syncSessionScope() {
-    final String? identity = _readSessionIdentity();
-    if (identity == _sessionIdentity) return;
-
-    _sessionIdentity = identity;
-    if (identity == null) return;
-
-    // Snapshot first: a reset may resolve another controller and register it,
-    // which would otherwise mutate the registry mid-iteration.
-    final List<SessionScopedController> scoped = Magic.controllers
-        .whereType<SessionScopedController>()
-        .toList();
-
-    for (final SessionScopedController controller in scoped) {
-      unawaited(
-        controller.resetForSession().catchError((Object error) {
-          Log.error('[AppServiceProvider] session reset failed: $error');
-        }),
-      );
-    }
   }
 
   /// Re-syncs the applied locale to track [Auth]'s current state.
@@ -203,9 +149,8 @@ class AppServiceProvider extends ServiceProvider {
     // Session scope: record the identity a restored session boots with, then
     // clear + refetch every registered domain controller on each subsequent
     // login / team switch so no screen keeps the previous identity's rows.
-    // Registered last on purpose: polling, realtime and locale should already
-    // be pointed at the new session before its data is refetched.
-    _syncSessionScope();
-    Auth.stateNotifier.addListener(_syncSessionScope);
+    // Attached last on purpose: polling, realtime and locale should already be
+    // pointed at the new session before its data is refetched.
+    SessionScopeSync.attach();
   }
 }

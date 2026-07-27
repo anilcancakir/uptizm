@@ -15,7 +15,6 @@ import '../../../app/support/escalation_support.dart'
         escalationTargetFromKey,
         escalationTargetKey,
         escalationTargetOptions;
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
 /// **The Escalation Policy editor screen (`/teams/escalation/new` + `/:id`).**
@@ -23,7 +22,7 @@ import '../../../ui/layouts/page_container.dart';
 /// A Flutter port of the React `EscalationPolicyEditor.tsx`: one screen serving
 /// both create and edit. In edit mode it resolves [id] to
 /// [EscalationController.detailById] (an unknown id falls back to a graceful
-/// [EmptyState]); in create mode ([id] `null`) it seeds a single blank rung.
+/// [MSEmptyState]); in create mode ([id] `null`) it seeds a single blank rung.
 ///
 /// The body is a single stacked column:
 ///
@@ -392,7 +391,7 @@ class _EscalationPolicyEditorViewState
   /// Builds the graceful not-found state for an unknown policy id.
   Widget _buildNotFound() {
     return PageContainer(
-      child: EmptyState(
+      child: MSEmptyState(
         icon: Icons.route_outlined,
         title: trans('uptizm.teams.escalation_editor_title_edit'),
         description: trans('uptizm.teams.escalation_editor_description'),

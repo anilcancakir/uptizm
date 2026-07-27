@@ -10,9 +10,6 @@ import '../../../app/support/status_page_support.dart'
 import '../../../app/support/status_page_types.dart' show PublicComponent;
 import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';
-import '../../../app/support/plan_upgrade.dart';
-import '../../../app/support/upgrade_prompt.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_badge/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
@@ -21,7 +18,7 @@ import '../../../ui/layouts/page_container.dart';
 /// Renders every configured public status page from the design-lab mock
 /// fixtures (no controller, no network): a page header with a "New status
 /// page" action and a responsive card grid, one card per [StatusPage].
-/// An [EmptyState] placeholder is shown when [statusPages] is empty.
+/// An [MSEmptyState] placeholder is shown when [statusPages] is empty.
 ///
 /// Layout follows the same discipline as [IncidentsListView]: a plain Flutter
 /// [Column] scaffolds the page body so leaf components receive a bounded
@@ -142,7 +139,7 @@ class _StatusPagesListViewState
   // Card grid
   // ---------------------------------------------------------------------------
 
-  /// Builds the responsive card grid, or an [EmptyState] when [statusPages]
+  /// Builds the responsive card grid, or an [MSEmptyState] when [statusPages]
   /// is empty.
   Widget _buildBody() {
     if (controller.statusPages.isEmpty) {
@@ -240,13 +237,13 @@ class _StatusPagesListViewState
   // Empty state
   // ---------------------------------------------------------------------------
 
-  /// Builds the "never had a status page" [EmptyState] with a New-status-page
+  /// Builds the "never had a status page" [MSEmptyState] with a New-status-page
   /// action. The dashed-border container mirrors
   /// `rounded-xl border-dashed border-border` from the React source.
   Widget _buildEmptyState() {
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
-      child: EmptyState(
+      child: MSEmptyState(
         title: trans('uptizm.status.list_empty_title'),
         description: trans('uptizm.status.list_empty_description'),
         action: MSButton(

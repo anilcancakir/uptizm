@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import 'session_scoped_controller.dart';
 import '../models/incident.dart';
 import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle;

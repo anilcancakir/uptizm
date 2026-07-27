@@ -47,8 +47,9 @@ void main() {
   setUp(() async {
     MagicApp.reset();
     Magic.flush();
-    // Bind the MagicStarter manager so PageHeader / SegmentedControl / EmptyState
-    // resolve their themes via MagicStarter.* without a full app boot.
+    // Bind the MagicStarter manager so PageHeader / SegmentedControl /
+    // MSEmptyState resolve their themes via MagicStarter.* without a full app
+    // boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
     // Bind LogManager so the EntitlementController's offline-degradation path
     // (Log.error on the failed billing fetch this view triggers via

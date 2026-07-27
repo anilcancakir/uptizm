@@ -1,7 +1,6 @@
 // Import Magic to access Kernel, middleware base classes, etc.:
 import 'package:magic/magic.dart';
-import 'middleware/ensure_authenticated.dart';
-import 'middleware/redirect_if_authenticated.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 /// The HTTP Kernel.
 ///

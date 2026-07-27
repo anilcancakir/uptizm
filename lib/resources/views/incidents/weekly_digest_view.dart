@@ -6,13 +6,8 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/enums/ai_confidence.dart';
 import '../../../app/support/digest_types.dart';
 import '../../../ui/components/ai_insight/index.dart';
-import '../../../ui/components/empty_state/index.dart';
-import '../../../ui/components/error_state/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/layouts/page_container.dart';
-import '../../../app/support/plan_upgrade.dart';
-import '../../../app/support/upgrade_prompt.dart';
-import '../../../ui/components/upgrade_nudge/index.dart';
 
 /// **The Weekly AI digest screen at `/incidents/digest`.**
 ///
@@ -20,8 +15,9 @@ import '../../../ui/components/upgrade_nudge/index.dart';
 /// server-composed [WeeklyDigest]) and renders it: a "this week" [AiInsight]
 /// banner carrying the AI summary, a KPI row (uptime, incidents, confidence),
 /// and the AI highlights. A 404 (no digest generated yet) shows an honest
-/// [EmptyState]; a transport/parse failure shows an [ErrorState] with retry, so
-/// a read failure is never swallowed into a misleading "no digest" claim.
+/// [MSEmptyState]; a transport/parse failure shows an [MSErrorState] with
+/// retry, so a read failure is never swallowed into a misleading "no digest"
+/// claim.
 ///
 /// Rendered INSIDE [AppLayout]; reached from the dashboard AI inbox's "Weekly
 /// digest" link.
@@ -135,7 +131,7 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
         ];
       case _DigestPhase.empty:
         return [
-          EmptyState(
+          MSEmptyState(
             icon: Icons.auto_awesome_outlined,
             title: trans('uptizm.digest.empty_title'),
             description: trans('uptizm.digest.empty_description'),
@@ -143,7 +139,7 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
         ];
       case _DigestPhase.error:
         return [
-          ErrorState(
+          MSErrorState(
             title: trans('uptizm.digest.error_title'),
             description: trans('uptizm.digest.error_description'),
             action: MSButton(
@@ -156,7 +152,7 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
       case _DigestPhase.gated:
         final PlanUpgradeRequirement gate = _gate!;
         return [
-          UpgradeNudge(
+          MSUpgradeNudge(
             message: gate.message,
             requiredPlan: gate.planLabel,
             onUpgrade: () => UpgradePrompt.startUpgrade(gate.requiredPlan),

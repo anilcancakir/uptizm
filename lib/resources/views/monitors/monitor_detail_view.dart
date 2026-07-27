@@ -20,7 +20,6 @@ import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/check_history_table/index.dart';
 import '../../../ui/components/date_range_picker/index.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/incident_card/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/metric_chart/index.dart';
@@ -44,10 +43,10 @@ import 'monitor_metrics_tab.dart';
 ///   the chart, and the recent [CheckHistoryTable].
 /// - **Metrics** hosts the full [MonitorMetricsTab] orchestrator.
 /// - **Incidents** lists the monitor's [IncidentCard]s, or a graceful
-///   [EmptyState] when none touch it.
+///   [MSEmptyState] when none touch it.
 ///
 /// It resolves a monitor [id] to a fixture via [findMonitor]; when no monitor
-/// matches it renders a graceful [EmptyState] rather than crashing (the route
+/// matches it renders a graceful [MSEmptyState] rather than crashing (the route
 /// supplies the id at the routing layer).
 ///
 /// A brief loading state mirrors the React source: on mount (and whenever [id]
@@ -84,7 +83,7 @@ class MonitorDetailView extends MagicStatefulView<MonitorController> {
   /// The monitor identifier resolved against the fixtures via
   /// [MonitorController.monitorById].
   ///
-  /// `null` or an unknown id renders a graceful not-found [EmptyState].
+  /// `null` or an unknown id renders a graceful not-found [MSEmptyState].
   final String? id;
 
   /// Creates the [MonitorDetailView] for the given monitor [id].
@@ -647,7 +646,7 @@ class _MonitorDetailViewState
         if (u7 == null || u30 == null)
           WDiv(
             className: 'rounded-xl border border-dashed border-color-border',
-            child: EmptyState(
+            child: MSEmptyState(
               title: trans('uptizm.monitors.reliability_no_data_title'),
               description: trans(
                 'uptizm.monitors.reliability_no_data_description',
@@ -826,8 +825,8 @@ class _MonitorDetailViewState
   ///
   /// Renders the [MetricChart] plus a response [AiInsight] (anomaly copy when
   /// anomalies are present, otherwise no-anomaly copy) when the monitor reports
-  /// a response series; shows a paused or no-data [EmptyState] otherwise so the
-  /// section never renders an empty chart frame.
+  /// a response series; shows a paused or no-data [MSEmptyState] otherwise so
+  /// the section never renders an empty chart frame.
   Widget _buildResponseSurface(
     Monitor monitor,
     bool paused,
@@ -898,14 +897,14 @@ class _MonitorDetailViewState
   }
 
   /// Builds the Incidents panel: a responsive grid of [IncidentCard]s for the
-  /// incidents that touch this monitor, or a graceful [EmptyState] when none.
+  /// incidents that touch this monitor, or a graceful [MSEmptyState] when none.
   Widget _buildIncidentsTab(Monitor monitor) {
     final List<Incident> monitorIncidents = _incidentsFor(monitor);
 
     if (monitorIncidents.isEmpty) {
       return WDiv(
         className: 'pt-4',
-        child: EmptyState(
+        child: MSEmptyState(
           icon: Icons.check_circle_outline,
           title: trans('uptizm.monitors.no_incidents_title'),
           description: trans('uptizm.monitors.no_incidents_description'),
@@ -944,7 +943,7 @@ class _MonitorDetailViewState
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: '/monitors',
           ),
-          EmptyState(
+          MSEmptyState(
             title: trans('uptizm.monitors.error_load_title'),
             description: trans('uptizm.monitors.error_load_description'),
           ),
@@ -998,7 +997,7 @@ class _MonitorDetailViewState
   Widget _buildBorderedState(String title, String description) {
     return WDiv(
       className: 'rounded-lg border border-color-border',
-      child: EmptyState(title: title, description: description),
+      child: MSEmptyState(title: title, description: description),
     );
   }
 }

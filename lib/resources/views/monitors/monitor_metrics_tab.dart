@@ -10,7 +10,6 @@ import '../../../app/enums/metric_direction.dart' show MetricDirection;
 import '../../../app/enums/metric_kind.dart' show MetricKind;
 import '../../../app/support/metric_types.dart' show MonitorMetric;
 import '../../../app/enums/status_key.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 import 'monitor_metric_detail.dart';
 import 'monitor_metric_form.dart';
@@ -284,7 +283,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   Widget _buildEmptyState() {
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
-      child: EmptyState(
+      child: MSEmptyState(
         icon: Icons.show_chart,
         title: trans('uptizm.monitors.metrics_empty_title'),
         description: trans('uptizm.monitors.metrics_empty_description'),

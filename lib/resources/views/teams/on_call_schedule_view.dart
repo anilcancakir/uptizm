@@ -17,11 +17,7 @@ import '../../../app/support/team_types.dart'
         OnCallResponder,
         OnCallRotationSlot,
         TeamResponder;
-import '../../../app/support/upgrade_prompt.dart';
-import '../../../ui/components/empty_state/index.dart';
-import '../../../ui/components/error_state/index.dart';
 import '../../../ui/components/status_dot/index.dart';
-import '../../../ui/components/upgrade_nudge/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
 /// **On-call schedule screen (`/teams/on-call`).**
@@ -33,10 +29,10 @@ import '../../../ui/layouts/page_container.dart';
 /// client-side rotation math.
 ///
 /// - **Phases**: the body renders the controller's [OnCallPhase]. `loading` is
-///   a spinner, `error` is an [ErrorState] with a retry (never an empty state:
-///   a failed read must not read as "nobody is on call"), `empty` is an
-///   [EmptyState] offering to create the team's first schedule, `ready` is the
-///   screen below.
+///   a spinner, `error` is an [MSErrorState] with a retry (never an empty
+///   state: a failed read must not read as "nobody is on call"), `empty` is an
+///   [MSEmptyState] offering to create the team's first schedule, `ready` is
+///   the screen below.
 /// - **Hero card**: the responder `GET /on-call/current` resolved. When the
 ///   backend resolves nobody (an empty ring with no covering override), the
 ///   card says so in a neutral [StatusKey.paused] tone instead of promoting a
@@ -48,7 +44,7 @@ import '../../../ui/layouts/page_container.dart';
 ///   overrides; each row can be lifted (`DELETE .../overrides/:id`).
 /// - **Member picker**: [MagicStarterTeamController.members], the real team
 ///   roster, minus whoever is already in the ring. Once the plan's responder
-///   cap fills the ring it becomes an [UpgradeNudge] naming the cheapest plan
+///   cap fills the ring it becomes an [MSUpgradeNudge] naming the cheapest plan
 ///   that lifts the cap.
 ///
 /// Every write (create schedule, add to rotation, remove, reorder, add
@@ -128,7 +124,7 @@ class _OnCallScheduleViewState
           child: CircularProgressIndicator(),
         );
       case OnCallPhase.error:
-        return ErrorState(
+        return MSErrorState(
           title: trans('uptizm.teams.oncall_load_error_title'),
           description: trans('uptizm.teams.oncall_load_error_description'),
           action: MSButton(
@@ -149,14 +145,14 @@ class _OnCallScheduleViewState
   // Empty state: the team has no schedule at all
   // ---------------------------------------------------------------------------
 
-  /// Builds the "no schedule yet" [EmptyState] with a create action.
+  /// Builds the "no schedule yet" [MSEmptyState] with a create action.
   ///
   /// This is what a team with no rotation sees: an honest offer to create one,
   /// never a rotation of people who were never configured.
   Widget _buildScheduleEmptyState() {
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
-      child: EmptyState(
+      child: MSEmptyState(
         icon: Icons.notifications_active_outlined,
         title: trans('uptizm.teams.oncall_empty_title'),
         description: trans('uptizm.teams.oncall_empty_description'),
@@ -428,7 +424,7 @@ class _OnCallScheduleViewState
   Widget _buildRotationEmptyState() {
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
-      child: EmptyState(
+      child: MSEmptyState(
         icon: Icons.person_add_alt_outlined,
         title: trans('uptizm.teams.oncall_rotation_empty_title'),
         description: trans('uptizm.teams.oncall_rotation_empty_description'),
@@ -550,7 +546,7 @@ class _OnCallScheduleViewState
   // ---------------------------------------------------------------------------
 
   /// Builds the add-to-rotation picker or, once the team's responder cap is
-  /// reached, an [UpgradeNudge] naming the cheapest plan that lifts it.
+  /// reached, an [MSUpgradeNudge] naming the cheapest plan that lifts it.
   ///
   /// Wrapped in a [ListenableBuilder] on [EntitlementController] so the cap
   /// re-resolves the moment the real plan lands, mirroring the backend's own
@@ -572,7 +568,7 @@ class _OnCallScheduleViewState
           l.responders == null || l.responders! > cappedLimit;
       final EntitlementController entitlement = EntitlementController.instance;
 
-      return UpgradeNudge(
+      return MSUpgradeNudge(
         message: trans('uptizm.teams.oncall_add_button'),
         requiredPlan: entitlement.planNameUnlocking(liftsResponderCap),
         onUpgrade: () => UpgradePrompt.startUpgrade(

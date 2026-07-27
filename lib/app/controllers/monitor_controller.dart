@@ -1,11 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import 'entitlement_controller.dart';
-import 'session_scoped_controller.dart';
 import '../models/monitor.dart';
 import '../support/monitor_types.dart' show UptimeSegment;
-import '../support/upgrade_prompt.dart';
 import '../enums/status_key.dart';
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.

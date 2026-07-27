@@ -8,7 +8,6 @@ import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/index.dart';
 import 'package:uptizm/ui/components/check_history_table/index.dart';
-import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/metric_chart/index.dart';
@@ -314,13 +313,13 @@ void main() {
   });
 
   testWidgets(
-    'MonitorDetailView renders a graceful EmptyState for an unknown id',
+    'MonitorDetailView renders a graceful MSEmptyState for an unknown id',
     (tester) async {
       await tester.pumpWidget(wrap(const MonitorDetailView(id: 'nope')));
       await tester.pump();
 
       // No monitor surfaces (no KPI cards, no chart); just the not-found body.
-      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.byType(MSEmptyState), findsOneWidget);
       expect(find.byType(KpiStatCard), findsNothing);
       expect(find.byType(MetricChart), findsNothing);
     },

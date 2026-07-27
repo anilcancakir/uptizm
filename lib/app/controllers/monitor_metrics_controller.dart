@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import 'session_scoped_controller.dart';
 import '../../resources/views/monitors/monitor_metrics_support.dart';
 
 // ---------------------------------------------------------------------------

@@ -17,7 +17,10 @@
     "user": "User",
     "done": "Done",
     "error_occurred": "An unexpected error occurred. Please try again.",
-    "page_of": ":current / :total"
+    "page_of": ":current / :total",
+    "upgrade": "Upgrade",
+    "upgrade_available_on": "Available on :plan and up.",
+    "upgrade_dialog_not_now": "Not now"
   },
   "validation": {
     "required": "The :attribute field is required.",
@@ -796,10 +799,7 @@
       "time_hours_ago": ":counth ago",
       "time_days_ago": ":countd ago",
       "error_default_title": "Couldn't load this",
-      "error_default_description": "Something went wrong on our end. Check your connection and try again.",
-      "upgrade": "Upgrade",
-      "upgrade_available_on": "Available on :plan and up.",
-      "upgrade_dialog_not_now": "Not now"
+      "error_default_description": "Something went wrong on our end. Check your connection and try again."
     },
     "incidents": {
       "list_title": "Incidents",

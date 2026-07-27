@@ -1,6 +1,6 @@
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import 'session_scoped_controller.dart';
 import '../enums/ai_level.dart' show AiLevel;
 import '../services/billing/billing_service.dart';
 import '../support/billing_types.dart' show Plan, PlanLimits;

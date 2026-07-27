@@ -17,7 +17,10 @@
     "user": "Kullanıcı",
     "done": "Tamam",
     "error_occurred": "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
-    "page_of": ":current / :total"
+    "page_of": ":current / :total",
+    "upgrade": "Yükselt",
+    "upgrade_available_on": ":plan ve üzeri planlarda kullanılabilir.",
+    "upgrade_dialog_not_now": "Şimdi değil"
   },
   "validation": {
     "required": ":attribute alanı zorunludur.",
@@ -796,10 +799,7 @@
       "time_hours_ago": ":count sa önce",
       "time_days_ago": ":count gün önce",
       "error_default_title": "Bu yüklenemedi",
-      "error_default_description": "Tarafımızda bir sorun oluştu. Bağlantınızı kontrol edip tekrar deneyin.",
-      "upgrade": "Yükselt",
-      "upgrade_available_on": ":plan ve üzeri planlarda kullanılabilir.",
-      "upgrade_dialog_not_now": "Şimdi değil"
+      "error_default_description": "Tarafımızda bir sorun oluştu. Bağlantınızı kontrol edip tekrar deneyin."
     },
     "incidents": {
       "list_title": "Olaylar",

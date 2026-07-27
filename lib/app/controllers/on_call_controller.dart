@@ -1,6 +1,6 @@
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import 'session_scoped_controller.dart';
 import '../models/on_call_schedule.dart';
 import '../support/team_types.dart'
     show

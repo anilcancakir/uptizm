@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import 'session_scoped_controller.dart';
 import '../models/escalation_policy.dart';
 import '../support/escalation_support.dart' show EscalationTargetType;
 

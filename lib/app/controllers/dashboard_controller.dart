@@ -1,6 +1,6 @@
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import 'session_scoped_controller.dart';
 import '../models/incident.dart';
 import '../models/monitor.dart';
 import '../enums/status_key.dart';

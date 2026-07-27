@@ -11,7 +11,6 @@ import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
 import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
 import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
-import 'package:uptizm/ui/components/empty_state/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 
@@ -329,7 +328,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(IncidentCard), findsNothing);
-      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.byType(MSEmptyState), findsOneWidget);
     });
   });
 
@@ -584,7 +583,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.byType(MSEmptyState), findsOneWidget);
       expect(
         find.text(trans('uptizm.incidents.error_load_title')),
         findsWidgets,

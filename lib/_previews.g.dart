@@ -16,8 +16,6 @@ import 'ui/components/assistant/assistant.preview.dart';
 import 'ui/components/check_history_table/check_history_table.preview.dart';
 import 'ui/components/component_status_row/component_status_row.preview.dart';
 import 'ui/components/date_range_picker/date_range_picker.preview.dart';
-import 'ui/components/empty_state/empty_state.preview.dart';
-import 'ui/components/error_state/error_state.preview.dart';
 import 'ui/components/incident_card/incident_card.preview.dart';
 import 'ui/components/incident_timeline/incident_timeline.preview.dart';
 import 'ui/components/key_value_editor/key_value_editor.preview.dart';
@@ -30,8 +28,6 @@ import 'ui/components/slo_budget_card/slo_budget_card.preview.dart';
 import 'ui/components/status_badge/status_badge.preview.dart';
 import 'ui/components/status_dot/status_dot.preview.dart';
 import 'ui/components/status_page_preview/status_page_preview.preview.dart';
-import 'ui/components/upgrade_dialog/upgrade_dialog.preview.dart';
-import 'ui/components/upgrade_nudge/upgrade_nudge.preview.dart';
 import 'ui/components/uptime_bar/uptime_bar.preview.dart';
 import 'ui/components/usage_meter/usage_meter.preview.dart';
 
@@ -81,16 +77,6 @@ List<PreviewEntry> previewEntries() {
       label: 'DateRangePicker',
       slug: 'date_range_picker',
       builder: (_) => const DateRangePickerPreview(),
-    ),
-    PreviewEntry(
-      label: 'EmptyState',
-      slug: 'empty_state',
-      builder: (_) => const EmptyStatePreview(),
-    ),
-    PreviewEntry(
-      label: 'ErrorState',
-      slug: 'error_state',
-      builder: (_) => const ErrorStatePreview(),
     ),
     PreviewEntry(
       label: 'Foundations',
@@ -166,16 +152,6 @@ List<PreviewEntry> previewEntries() {
       label: 'StatusPagePreview',
       slug: 'status_page_preview',
       builder: (_) => const StatusPagePreviewPreview(),
-    ),
-    PreviewEntry(
-      label: 'UpgradeDialog',
-      slug: 'upgrade_dialog',
-      builder: (_) => const UpgradeDialogPreview(),
-    ),
-    PreviewEntry(
-      label: 'UpgradeNudge',
-      slug: 'upgrade_nudge',
-      builder: (_) => const UpgradeNudgePreview(),
     ),
     PreviewEntry(
       label: 'UptimeBar',

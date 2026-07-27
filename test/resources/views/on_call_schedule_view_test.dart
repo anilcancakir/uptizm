@@ -359,7 +359,13 @@ void main() {
 
     await tester.pumpWidget(wrap(const OnCallScheduleView()));
     await tester.pump();
-    await tester.tap(find.text('+ Add to rotation'));
+    // The rotation is empty here, so the add button sits under the taller
+    // magic_starter empty state, past the 600px test surface. Scroll it in
+    // before tapping (the same guard the incident and monitor view tests use).
+    final Finder addButton = find.text('+ Add to rotation');
+    await tester.ensureVisible(addButton);
+    await tester.pump();
+    await tester.tap(addButton);
     await tester.pump();
     await tester.tap(find.text('Free Agent'));
     await tester.pumpAndSettle();

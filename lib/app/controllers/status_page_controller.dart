@@ -2,8 +2,8 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/widgets.dart' show Color, visibleForTesting;
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
-import 'session_scoped_controller.dart';
 import '../models/status_page.dart';
 import '../enums/domain_mode.dart' show DomainMode;
 import '../support/status_page_types.dart' show Subscriber;

@@ -9,7 +9,6 @@ import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/models/incident.dart';
 import '../../../ui/components/ai_inbox_item/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/incident_card/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
@@ -137,7 +136,7 @@ class _DashboardViewState
         _buildHeader(),
         WDiv(
           className: 'rounded-xl border border-dashed border-color-border',
-          child: EmptyState(
+          child: MSEmptyState(
             icon: Icons.monitor_heart_outlined,
             title: trans('uptizm.monitors.empty_no_monitors_title'),
             description: trans('uptizm.monitors.empty_no_monitors_description'),
@@ -265,7 +264,7 @@ class _DashboardViewState
       children: [
         _sectionHeading(trans('uptizm.dashboard.section_active_incidents')),
         if (controller.activeIncidents.isEmpty)
-          EmptyState(title: trans('uptizm.dashboard.active_incidents_empty'))
+          MSEmptyState(title: trans('uptizm.dashboard.active_incidents_empty'))
         else
           WDiv(
             className: 'grid grid-cols-1 sm:grid-cols-2 gap-3',
@@ -291,7 +290,7 @@ class _DashboardViewState
         // than a bare heading when the snapshot is still empty (a transient
         // window where `stats` has resolved but `monitors-snapshot` has not).
         if (controller.monitorsSnapshot.isEmpty)
-          EmptyState(title: trans('uptizm.dashboard.monitors_empty'))
+          MSEmptyState(title: trans('uptizm.dashboard.monitors_empty'))
         else
           WDiv(
             className: 'flex flex-col gap-2',
@@ -308,7 +307,7 @@ class _DashboardViewState
   }
 
   /// Builds the AI inbox section: heading + pending count, a subtitle, then the
-  /// suggestion list (or an [EmptyState] when the inbox is clear).
+  /// suggestion list (or an [MSEmptyState] when the inbox is clear).
   Widget _buildAiInbox() {
     final List<Incident> suggestions = controller.aiSuggestions;
 
@@ -378,7 +377,7 @@ class _DashboardViewState
         // 2. Suggestions list, or the empty state when inbox-zero. The list
         //    carries its own 12px item rhythm (gap-3).
         if (suggestions.isEmpty)
-          EmptyState(title: trans('uptizm.dashboard.ai_inbox_empty'))
+          MSEmptyState(title: trans('uptizm.dashboard.ai_inbox_empty'))
         else
           WDiv(
             className: 'flex flex-col gap-3',

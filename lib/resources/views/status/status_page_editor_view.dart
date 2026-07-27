@@ -10,13 +10,10 @@ import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/domain_mode.dart' show DomainMode;
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/status_page_support.dart' show pageUrl;
-import '../../../app/support/upgrade_prompt.dart';
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/ai_insight/index.dart';
-import '../../../ui/components/empty_state/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/components/status_page_preview/index.dart';
-import '../../../ui/components/upgrade_nudge/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Page editor screen (`/status/new` + `/status/:id`).**
@@ -24,7 +21,7 @@ import '../../../ui/layouts/page_container.dart';
 /// A faithful Flutter port of the React `StatusPageEditor.tsx`: one screen that
 /// serves both create and edit. In edit mode it resolves [id] to a fixture via
 /// [StatusPageController.configById] (an unknown id falls back to a graceful
-/// [EmptyState]); in
+/// [MSEmptyState]); in
 /// create mode ([id] `null` or unknown) it starts from the React defaults.
 ///
 /// The body is a two-column responsive split (stacking to one column below the
@@ -33,8 +30,9 @@ import '../../../ui/layouts/page_container.dart';
 /// - **LEFT** — the configuration column. In create mode it leads with the
 ///   "Draft with AI" banner, billing-gated exactly like the incident-detail AI
 ///   surface: when the team's real tier unlocks [AiLevel.analysis] the banner
-///   offers a Generate action ([aiDraftFor]); otherwise an [UpgradeNudge] names
-///   the cheapest plan that does (via [EntitlementController.planNameUnlocking]).
+///   offers a Generate action ([aiDraftFor]); otherwise an [MSUpgradeNudge]
+///   names the cheapest plan that does (via
+///   [EntitlementController.planNameUnlocking]).
 ///   Below it: a Branding [Card]
 ///   (name, domain mode, slug, the eight-swatch brand-color grid, fallback
 ///   initials, description), a Components [Card] ([RegionPicker] over
@@ -464,7 +462,7 @@ class _StatusPageEditorViewState
   /// Builds the graceful not-found state for an unknown status-page id.
   Widget _buildNotFound() {
     return PageContainer(
-      child: EmptyState(
+      child: MSEmptyState(
         icon: Icons.public_off_outlined,
         title: trans('uptizm.status.list_empty_title'),
         description: trans('uptizm.status.list_empty_description'),
@@ -577,7 +575,7 @@ class _StatusPageEditorViewState
   ///
   /// Mirrors the incident-detail AI gate exactly: when the team's real tier
   /// reaches [AiLevel.analysis] the Generate banner shows; otherwise an
-  /// [UpgradeNudge] names the cheapest plan that unlocks AI drafting (via
+  /// [MSUpgradeNudge] names the cheapest plan that unlocks AI drafting (via
   /// [EntitlementController.planNameUnlocking]). Wrapped in a [ListenableBuilder]
   /// so it re-gates the moment the real plan lands.
   Widget _buildAiBanner() {
@@ -591,7 +589,7 @@ class _StatusPageEditorViewState
           final String requiredPlan = entitlement.planNameUnlocking(
             unlocksAnalysis,
           );
-          return UpgradeNudge(
+          return MSUpgradeNudge(
             message: trans('uptizm.status.editor_ai_draft_gated', {
               'plan': requiredPlan,
             }),
