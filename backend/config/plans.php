@@ -63,7 +63,7 @@ return [
             'monthly' => 34,
             'annual' => 29,
             'currency' => 'usd',
-            'ai_line' => 'Full AI incident analysis — evidence, confidence, citations, drafted updates.',
+            'ai_line' => 'Full AI incident analysis: evidence, confidence, citations, drafted updates.',
             'features' => [
                 '50 monitors · 30-second checks · all regions',
                 '3 status pages · 1,000 subscribers · custom domain',
