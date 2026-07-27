@@ -55,6 +55,37 @@ class NotificationChannelControllerTest extends TestCase
         ]);
     }
 
+    public function test_store_returns_the_schema_defaults_when_severity_is_omitted(): void
+    {
+        // Regression: `severity` and `is_enabled` are `sometimes` in the request
+        // and default in the SCHEMA, so a create that omits them left those
+        // attributes absent on the in-memory model. The resource reads
+        // `severity->value`, so the response raised a 500 on a channel that HAD
+        // been created: the client reported a failed save for a channel that
+        // then showed up in its own list. Every other store test sends both
+        // fields explicitly, which is exactly why this went unnoticed.
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/notification-channels', [
+            'name' => 'Defaults Slack',
+            'channel_type' => 'slack',
+            'credentials' => [
+                'token' => 'xoxb-super-secret-token',
+                'channel' => '#alerts',
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.severity', 'all');
+        $response->assertJsonPath('data.is_enabled', true);
+
+        $this->assertDatabaseHas('notification_channels', [
+            'team_id' => $team->id,
+            'name' => 'Defaults Slack',
+            'severity' => 'all',
+        ]);
+    }
+
     public function test_store_rejects_a_channel_type_outside_the_enum(): void
     {
         $this->actingAsTeamMember();

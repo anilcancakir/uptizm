@@ -67,7 +67,14 @@ class NotificationChannelController extends Controller
             'team_id' => $request->user()->current_team_id,
         ]);
 
-        return NotificationChannelResource::make($channel)
+        // Refresh before serializing: `severity` and `is_enabled` are optional
+        // in the request and carry their defaults in the SCHEMA, so a create
+        // that omits them leaves those attributes absent on the in-memory
+        // model. The resource reads `severity->value`, so serializing the
+        // unrefreshed model raised a 500 on a channel that had in fact been
+        // created, and the client reported a failed save for a channel it then
+        // found in the list. Mirrors OnCallController's `refresh()` on create.
+        return NotificationChannelResource::make($channel->refresh())
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
     }
