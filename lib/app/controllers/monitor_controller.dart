@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 
 import 'entitlement_controller.dart';
+import 'session_scoped_controller.dart';
 import '../models/monitor.dart';
 import '../support/monitor_types.dart' show UptimeSegment;
 import '../support/upgrade_prompt.dart';
@@ -84,7 +85,8 @@ class MonitorAnalysis {
 /// real `POST`/`PUT`, while Cancel calls `create()`/`save(id)` with no
 /// arguments and stays navigation-only; firing the same write on Cancel as
 /// on Submit would silently persist stale field values.
-class MonitorController extends MagicController {
+class MonitorController extends MagicController
+    implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static MonitorController get instance =>
       Magic.findOrPut(MonitorController.new);
@@ -137,6 +139,24 @@ class MonitorController extends MagicController {
 
     _monitors = fetched;
     refreshUI();
+  }
+
+  /// Drops the previous session's monitor inventory, publishes the cleared
+  /// state, then refetches for the identity that is now authenticated.
+  ///
+  /// Clears BEFORE refetching (see [SessionScopedController]): [reload] treats
+  /// an empty fetch as "keep the last-known-good inventory", which across an
+  /// identity change would leave the previous team's monitors listed (and
+  /// resolvable through [monitorById]) even when the refetch fails outright.
+  /// [_lastAnalyzeWasGated] belongs to the previous session's plan wall, so it
+  /// is cleared with the rest.
+  @override
+  Future<void> resetForSession() async {
+    _monitors = [];
+    _lastAnalyzeWasGated = false;
+    refreshUI();
+
+    await reload();
   }
 
   /// Resolves a monitor by [id] from the cached inventory, or `null` when
@@ -246,6 +266,54 @@ class MonitorController extends MagicController {
       );
     } catch (error) {
       Log.error('[MonitorController.resume] $id failed: $error');
+    }
+  }
+
+  /// Runs an out-of-schedule check for the monitor [id] via
+  /// `POST /monitors/:id/test`, then refreshes that monitor.
+  ///
+  /// The endpoint answers `202 Accepted` with no body: the probe is queued for
+  /// every configured region and runs at the edge, so the result does not exist
+  /// yet when this returns. The toast therefore says the check was QUEUED
+  /// rather than claiming a result, and [refreshOne] picks up whatever has
+  /// landed by the time it resolves; anything later arrives over the team's
+  /// realtime channel like any scheduled check.
+  ///
+  /// No-op when [id] resolves to no cached monitor. A failed request logs and
+  /// surfaces an error toast rather than silently doing nothing, since the
+  /// operator explicitly asked for a check.
+  Future<void> runCheckNow(String id) async {
+    final Monitor? monitor = _cachedById(id);
+    if (monitor == null) return;
+
+    try {
+      final response = await Http.post('/monitors/$id/test');
+      if (!response.successful) {
+        Log.error(
+          '[MonitorController.runCheckNow] $id: ${response.errorMessage}',
+        );
+        Magic.error(
+          trans('uptizm.monitors.toast_check_failed_title'),
+          response.errorMessage ??
+              trans('uptizm.monitors.toast_check_failed_description'),
+        );
+
+        return;
+      }
+
+      Magic.success(
+        trans('uptizm.monitors.toast_check_queued_title'),
+        trans('uptizm.monitors.toast_check_queued_description', {
+          'name': monitor.name,
+        }),
+      );
+      await refreshOne(id);
+    } catch (error) {
+      Log.error('[MonitorController.runCheckNow] $id failed: $error');
+      Magic.error(
+        trans('uptizm.monitors.toast_check_failed_title'),
+        trans('uptizm.monitors.toast_check_failed_description'),
+      );
     }
   }
 

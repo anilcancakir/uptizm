@@ -128,6 +128,55 @@ void main() {
   // completes without throwing, AND it does not notify listeners.
   // ---------------------------------------------------------------------------
 
+  group('runCheckNow', () {
+    /// Seeds one cached monitor so the action has something to resolve, and
+    /// returns the fake so a test can assert what went over the wire.
+    Future<FakeNetworkDriver> seedOne() async {
+      final FakeNetworkDriver fake = Http.fake({
+        'monitors': Http.response({
+          'data': [
+            {
+              'id': 'api',
+              'name': 'API',
+              'url': 'https://api.uptizm.com',
+              'last_status': 'up',
+              'check_interval_sec': 30,
+              'regions': ['us-east'],
+            },
+          ],
+        }),
+      });
+      await MonitorController.instance.reload();
+      fake.reset();
+
+      return fake;
+    }
+
+    test('POSTs the out-of-schedule check and refreshes that monitor', () async {
+      // The endpoint exists and answers 202, but nothing in the UI reached it:
+      // an operator had no way to ask "check this right now" and had to wait
+      // out the interval.
+      final FakeNetworkDriver fake = await seedOne();
+
+      await MonitorController.instance.runCheckNow('api');
+
+      fake.assertSent(
+        (r) => r.method == 'POST' && r.url == '/monitors/api/test',
+      );
+      // 202 carries no result, so the refresh is how anything that already
+      // landed reaches the screen.
+      fake.assertSent((r) => r.method == 'GET' && r.url == '/monitors/api');
+    });
+
+    test('an unknown id sends nothing', () async {
+      final FakeNetworkDriver fake = await seedOne();
+
+      await MonitorController.instance.runCheckNow('does-not-exist');
+
+      fake.assertNothingSent();
+    });
+  });
+
   group('business actions do not mutate state or notify listeners', () {
     test('pause does not throw and does not notify listeners', () {
       final MonitorController controller = MonitorController.instance;
@@ -365,6 +414,58 @@ void main() {
       final segments = await controller.loadUptime90('api');
 
       expect(segments, isEmpty);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // resetForSession: clear the previous identity's inventory, then refetch.
+  // ---------------------------------------------------------------------------
+
+  group('resetForSession', () {
+    test('clears the cached inventory even when the refetch fails', () async {
+      final MonitorController controller = MonitorController.instance;
+      controller.seedForTest([
+        Monitor.fromMap({'id': 'api', 'name': 'API', 'last_status': 'up'}),
+      ]);
+      expect(controller.monitors, isNotEmpty);
+
+      // The new identity's refetch resolves nothing (`Monitor.all` absorbs the
+      // failure and returns []). `reload` alone reads that as "keep the
+      // last-known-good inventory", which would leave the PREVIOUS team's
+      // monitors on screen; the reset must leave the list empty.
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      await controller.resetForSession();
+
+      expect(notified, greaterThan(0));
+      expect(controller.monitors, isEmpty);
+      expect(controller.monitorById('api'), isNull);
+      expect(controller.lastAnalyzeWasGated, isFalse);
+    });
+
+    test('refetches the inventory of the new identity', () async {
+      final MonitorController controller = MonitorController.instance;
+      controller.seedForTest([
+        Monitor.fromMap({'id': 'api', 'name': 'API', 'last_status': 'up'}),
+      ]);
+
+      Http.fake({
+        'monitors': Http.response({
+          'data': [
+            {'id': 'other-team-web', 'name': 'Web', 'last_status': 'down'},
+          ],
+        }),
+      });
+
+      await controller.resetForSession();
+
+      expect(
+        controller.monitors.map((Monitor m) => m.id).toList(),
+        equals(['other-team-web']),
+      );
+      expect(controller.monitorById('api'), isNull);
     });
   });
 }
