@@ -144,6 +144,20 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.editor_form_subscribers_hint': 'People notified by email.',
       'uptizm.status.editor_form_view_subscribers_button': 'View subscribers',
       'uptizm.status.editor_preview_live_heading': 'Live preview',
+      'uptizm.status.editor_preview_draft_heading': 'Draft preview',
+      'uptizm.status.editor_preview_rendered_heading': 'What customers see',
+      'uptizm.status.editor_preview_rendered_at': 'Rendered :time',
+      'uptizm.status.editor_preview_may_be_stale':
+          'This preview may be out of date',
+      'uptizm.status.editor_preview_refresh_action': 'Refresh',
+      'uptizm.status.editor_preview_never_rendered_title': 'No preview yet',
+      'uptizm.status.editor_preview_generate_action': 'Generate preview',
+      'uptizm.status.editor_preview_render_failed_title':
+          'Failed to generate preview',
+      'uptizm.status.editor_preview_retry_action': 'Try again',
+      'uptizm.status.editor_preview_check_again':
+          'Still generating. Check again in a moment.',
+      'uptizm.status.editor_preview_open_fullscreen': 'View full page',
 
       // Subscribers.
       'uptizm.status.subscribers_title': 'Subscribers',
@@ -172,6 +186,36 @@ class _StatusViewsLangLoader implements TranslationLoader {
           'Remove :email from :page?',
     };
   }
+}
+
+/// Builds a [StatusPage] carrying the given preview-render wire fields, on
+/// top of the same branding shape as the `acme` fixture, for the editor's
+/// hybrid-pane tests (D8). [updatedAtOverride] stands in for the render job's
+/// own `save()` timestamp bump, which [StatusPageController.isPreviewRenderStale]
+/// reads to judge a `rendering` row as stuck.
+StatusPage _previewPage({
+  String id = 'preview-acme',
+  String? previewRenderStatus,
+  String? previewImageUrl,
+  DateTime? previewRenderedAt,
+  DateTime? updatedAtOverride,
+}) {
+  return StatusPage.fromMap(<String, dynamic>{
+    'id': id,
+    'name': 'Acme Status',
+    'slug': 'acme',
+    'domain_mode': 'path',
+    'brand_color': '#16A34A',
+    'logo_text': 'A',
+    'description': "Real-time status of Acme's services.",
+    'subscriptions_enabled': true,
+    'monitors': const <Map<String, dynamic>>[],
+    'metric_keys': const <String>[],
+    'preview_render_status': ?previewRenderStatus,
+    'preview_image_url': ?previewImageUrl,
+    'preview_rendered_at': ?previewRenderedAt?.toIso8601String(),
+    'updated_at': (updatedAtOverride ?? DateTime.now()).toIso8601String(),
+  });
 }
 
 void main() {
@@ -457,6 +501,323 @@ void main() {
           (r) =>
               (r.method == 'POST' || r.method == 'PUT') &&
               r.url.contains('status-pages'),
+        );
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // The D2/D8 hybrid preview pane.
+    // -------------------------------------------------------------------------
+
+    testWidgets(
+      'no render yet: shows the empty state and a generate action, and '
+      'never the customer-view heading',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final StatusPage page = _previewPage();
+        StatusPageController.instance.seedForTest(<StatusPage>[page]);
+        // The GET show route is faked as an immediate `completed` so the
+        // poll started by the tap below stops on its very first tick,
+        // leaving no pending Timer once the test tears down.
+        final FakeNetworkDriver fake = Http.fake({
+          'status-pages/${page.id}/preview': Http.response(null, 202),
+          'status-pages/${page.id}': Http.response({
+            'data': {
+              'id': page.id,
+              'preview_render_status': 'completed',
+              'preview_image_url': 'https://api.uptizm.test/preview/acme.png',
+            },
+          }, 200),
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            StatusPageEditorView(id: page.id),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.status.editor_preview_never_rendered_title')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.status.editor_preview_generate_action')),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.text(trans('uptizm.status.editor_preview_generate_action')),
+        );
+        // Advance the fake clock past the poll's 2s interval so the loop's
+        // single tick fires and resolves (to `completed`) before the test
+        // tears down; otherwise its Timer is still pending at disposal.
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pump();
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url.contains('status-pages/${page.id}/preview'),
+        );
+      },
+    );
+
+    testWidgets('rendering: shows visible skeleton bars', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final StatusPage page = _previewPage(previewRenderStatus: 'rendering');
+      StatusPageController.instance.seedForTest(<StatusPage>[page]);
+
+      await tester.pumpWidget(
+        wrap(StatusPageEditorView(id: page.id), size: const Size(1280, 4000)),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(MSSkeleton), findsWidgets);
+      expectVisibleSkeletons(tester);
+      expect(
+        find.text(trans('uptizm.status.editor_preview_render_failed_title')),
+        findsNothing,
+        reason: 'a fresh rendering row must not read as failed',
+      );
+    });
+
+    testWidgets(
+      'rendering but stale: shows the failed affordance, not a skeleton',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final StatusPage page = _previewPage(
+          previewRenderStatus: 'rendering',
+          updatedAtOverride: DateTime.now().subtract(
+            const Duration(minutes: 10),
+          ),
+        );
+        StatusPageController.instance.seedForTest(<StatusPage>[page]);
+
+        await tester.pumpWidget(
+          wrap(
+            StatusPageEditorView(id: page.id),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.status.editor_preview_render_failed_title')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.status.editor_preview_retry_action')),
+          findsOneWidget,
+        );
+        expect(
+          find.byType(MSSkeleton),
+          findsNothing,
+          reason: 'a lost job must not pin the pane on a skeleton forever',
+        );
+      },
+    );
+
+    testWidgets(
+      'rendering, poll capped: shows the check-again affordance, not failed',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final StatusPage page = _previewPage(previewRenderStatus: 'rendering');
+        StatusPageController.instance.seedForTest(<StatusPage>[page]);
+        Http.fake({
+          'status-pages/${page.id}/preview': Http.response(null, 202),
+          'status-pages/${page.id}': Http.response({
+            'data': {'id': page.id, 'preview_render_status': 'rendering'},
+          }, 200),
+        });
+
+        // Force the poll cap in a single tick so the controller marks this
+        // page's poll as capped without a real render ever landing. Run
+        // through `runAsync` so the real `Future.delayed` inside the poll
+        // loop actually elapses: `testWidgets`'s fake async zone never lets a
+        // real timer fire on its own.
+        await tester.runAsync(
+          () => StatusPageController.instance.requestPreviewRender(
+            page.id,
+            pollInterval: const Duration(milliseconds: 1),
+            maxAttempts: 1,
+          ),
+        );
+        expect(
+          StatusPageController.instance.hasPreviewPollCapped(page.id),
+          isTrue,
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            StatusPageEditorView(id: page.id),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.status.editor_preview_check_again')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.status.editor_preview_render_failed_title')),
+          findsNothing,
+          reason: 'the render may still succeed; a poll cap is not a failure',
+        );
+      },
+    );
+
+    testWidgets(
+      'completed, fresh: shows the PNG, the rendered-at stamp, a refresh '
+      'action, and no age chip',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final StatusPage page = _previewPage(
+          previewRenderStatus: 'completed',
+          previewImageUrl: 'https://api.uptizm.test/preview/acme.png',
+          previewRenderedAt: DateTime.now().subtract(
+            const Duration(minutes: 2),
+          ),
+        );
+        StatusPageController.instance.seedForTest(<StatusPage>[page]);
+
+        await tester.pumpWidget(
+          wrap(StatusPageEditorView(id: page.id), size: const Size(1280, 4000)),
+        );
+        await tester.pump();
+
+        expect(find.byType(WImage), findsOneWidget);
+        expect(
+          find.text(trans('uptizm.status.editor_preview_refresh_action')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.status.editor_preview_may_be_stale')),
+          findsNothing,
+          reason: 'a two-minute-old render is not out of date yet',
+        );
+      },
+    );
+
+    testWidgets(
+      'completed, old: shows the may-be-out-of-date chip',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final StatusPage page = _previewPage(
+          previewRenderStatus: 'completed',
+          previewImageUrl: 'https://api.uptizm.test/preview/acme.png',
+          previewRenderedAt: DateTime.now().subtract(
+            const Duration(minutes: 20),
+          ),
+        );
+        StatusPageController.instance.seedForTest(<StatusPage>[page]);
+
+        await tester.pumpWidget(
+          wrap(StatusPageEditorView(id: page.id), size: const Size(1280, 4000)),
+        );
+        await tester.pump();
+
+        expect(
+          find.text(trans('uptizm.status.editor_preview_may_be_stale')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('failed: shows the error and a retry action', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final StatusPage page = _previewPage(previewRenderStatus: 'failed');
+      StatusPageController.instance.seedForTest(<StatusPage>[page]);
+
+      await tester.pumpWidget(
+        wrap(StatusPageEditorView(id: page.id), size: const Size(1280, 4000)),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.status.editor_preview_render_failed_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.status.editor_preview_retry_action')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'a dirty draft cannot show the customer-view heading',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final StatusPage page = _previewPage(
+          previewRenderStatus: 'completed',
+          previewImageUrl: 'https://api.uptizm.test/preview/acme.png',
+          previewRenderedAt: DateTime.now().subtract(
+            const Duration(minutes: 2),
+          ),
+        );
+        StatusPageController.instance.seedForTest(<StatusPage>[page]);
+
+        await tester.pumpWidget(
+          wrap(StatusPageEditorView(id: page.id), size: const Size(1280, 4000)),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+
+        // The heading className applies an `uppercase` transform, so the
+        // rendered `Text` carries the upper-cased string, not the raw trans()
+        // value.
+        final String renderedHeadingText = trans(
+          'uptizm.status.editor_preview_rendered_heading',
+        ).toUpperCase();
+        final String draftHeadingText = trans(
+          'uptizm.status.editor_preview_draft_heading',
+        ).toUpperCase();
+
+        // Clean: the saved PNG's label is the customer-view one.
+        expect(find.text(renderedHeadingText), findsOneWidget);
+        expect(find.text(draftHeadingText), findsNothing);
+
+        // Edit the name: the draft now differs from the saved page.
+        await tester.enterText(
+          find.byType(MSInput).first,
+          'Acme Status Renamed',
+        );
+        await tester.pump();
+
+        expect(
+          find.text(draftHeadingText),
+          findsOneWidget,
+          reason: 'an unsaved edit must render under the draft label',
+        );
+        expect(
+          find.text(renderedHeadingText),
+          findsNothing,
+          reason:
+              'the customer-view label must never show while the form is dirty',
         );
       },
     );

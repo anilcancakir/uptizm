@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/status_page_controller.dart';
+import 'package:uptizm/app/enums/status_page_preview_status.dart'
+    show StatusPagePreviewStatus;
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/app/support/status_page_types.dart' show Subscriber;
 import 'package:uptizm/app/mocks/status_pages.dart';
@@ -650,6 +652,298 @@ void main() {
       ]);
 
       expect(notifications, equals(1));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // requestPreviewRender: POSTs the trigger, then polls
+  // `GET /status-pages/{id}` (show) on a bounded interval. Stops on
+  // `completed`/`failed`; on a cap the state stays `rendering` with a
+  // check-again signal, it must never write a client-side `failed`.
+  // ---------------------------------------------------------------------------
+
+  group('requestPreviewRender', () {
+    /// Wires a fake GET show response for [pageId] returning [status] (and,
+    /// for `completed`, an image URL), keyed so `Http.fake`'s map routing
+    /// matches the controller's `StatusPage.find` request.
+    Map<String, MagicResponse> showEnvelope(
+      String pageId,
+      String? status, {
+      String? imageUrl,
+    }) => {
+      'status-pages/$pageId': Http.response({
+        'data': {
+          'id': pageId,
+          'name': 'Acme Status',
+          'preview_render_status': ?status,
+          'preview_image_url': ?imageUrl,
+        },
+      }, 200),
+    };
+
+    test('POSTs /status-pages/{id}/preview before polling', () async {
+      final fake = Http.fake({
+        'status-pages/acme/preview': Http.response(null, 202),
+        ...showEnvelope('acme', 'completed', imageUrl: 'https://x/acme.png'),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+      );
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url.contains('status-pages/acme/preview'),
+      );
+    });
+
+    test('polls show and stops once the server reports completed', () async {
+      int getCalls = 0;
+      Http.fake((r) {
+        if (r.method == 'POST' && r.url.contains('status-pages/acme/preview')) {
+          return Http.response(null, 202);
+        }
+        if (r.method == 'GET' && r.url.contains('status-pages/acme')) {
+          getCalls++;
+          final String status = getCalls < 3 ? 'rendering' : 'completed';
+          return Http.response({
+            'data': {
+              'id': 'acme',
+              'preview_render_status': status,
+              if (status == 'completed')
+                'preview_image_url': 'https://x/acme.png?v=2',
+            },
+          }, 200);
+        }
+        return Http.response({'message': 'unexpected request'}, 404);
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+        maxAttempts: 10,
+      );
+
+      expect(getCalls, 3, reason: 'stops polling as soon as completed lands');
+      expect(
+        controller.configById('acme')?.previewRenderStatus,
+        StatusPagePreviewStatus.completed,
+      );
+    });
+
+    test('polls show and stops once the server reports failed', () async {
+      Http.fake({
+        'status-pages/acme/preview': Http.response(null, 202),
+        ...showEnvelope('acme', 'failed'),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+      );
+
+      expect(
+        controller.configById('acme')?.previewRenderStatus,
+        StatusPagePreviewStatus.failed,
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // The honesty pin: a naive implementation that gives up by writing
+    // `failed` client-side would pass every OTHER test in this group, since
+    // `failed` also stops the poll. This is the one test that would catch it:
+    // the server never once says `failed`, it just keeps saying `rendering`
+    // past the cap, so a correct client must still be reporting `rendering`
+    // once polling gives up, with a distinct "still working" signal.
+    // -------------------------------------------------------------------------
+    test(
+      'on cap: stays rendering (never writes failed) and signals check-again',
+      () async {
+        Http.fake({
+          'status-pages/acme/preview': Http.response(null, 202),
+          ...showEnvelope('acme', 'rendering'),
+        });
+        final StatusPageController controller = StatusPageController.instance;
+
+        await controller.requestPreviewRender(
+          'acme',
+          pollInterval: const Duration(milliseconds: 1),
+          maxAttempts: 3,
+        );
+
+        expect(
+          controller.configById('acme')?.previewRenderStatus,
+          StatusPagePreviewStatus.rendering,
+          reason:
+              'the render may still succeed server-side; the cap must not '
+              'contradict a server state the client has no authority over',
+        );
+        expect(
+          controller.hasPreviewPollCapped('acme'),
+          isTrue,
+          reason: 'a distinct signal the view can render as check-again',
+        );
+      },
+    );
+
+    test('a fresh poll clears an earlier capped signal', () async {
+      Http.fake({
+        'status-pages/acme/preview': Http.response(null, 202),
+        ...showEnvelope('acme', 'rendering'),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+        maxAttempts: 2,
+      );
+      expect(controller.hasPreviewPollCapped('acme'), isTrue);
+
+      Http.fake({
+        'status-pages/acme/preview': Http.response(null, 202),
+        ...showEnvelope('acme', 'completed', imageUrl: 'https://x/acme.png'),
+      });
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+      );
+
+      expect(controller.hasPreviewPollCapped('acme'), isFalse);
+    });
+
+    test('a second poll for the same page does not stack a duplicate loop', () async {
+      int getCalls = 0;
+      Http.fake((r) {
+        if (r.method == 'POST' && r.url.contains('status-pages/acme/preview')) {
+          return Http.response(null, 202);
+        }
+        if (r.method == 'GET' && r.url.contains('status-pages/acme')) {
+          getCalls++;
+          return Http.response({
+            'data': {'id': 'acme', 'preview_render_status': 'completed'},
+          }, 200);
+        }
+        return Http.response({'message': 'unexpected request'}, 404);
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      // Fire two polls back to back without awaiting the first: the second
+      // must supersede the first's loop rather than let both run.
+      final Future<void> first = controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+        maxAttempts: 50,
+      );
+      final Future<void> second = controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+      );
+      await Future.wait([first, second]);
+
+      // Both resolve, but only ONE loop should have been live at a time: the
+      // superseded first loop must stop reading/writing state once the
+      // second starts, not keep ticking in the background forever.
+      expect(getCalls, lessThan(50));
+    });
+
+    test('does not keep polling once the controller is disposed', () async {
+      int getCalls = 0;
+      Http.fake((r) {
+        if (r.method == 'POST' && r.url.contains('status-pages/acme/preview')) {
+          return Http.response(null, 202);
+        }
+        if (r.method == 'GET' && r.url.contains('status-pages/acme')) {
+          getCalls++;
+          return Http.response({
+            'data': {'id': 'acme', 'preview_render_status': 'rendering'},
+          }, 200);
+        }
+        return Http.response({'message': 'unexpected request'}, 404);
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      final Future<void> pending = controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 2),
+        maxAttempts: 200,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      controller.dispose();
+
+      final int callsAtDispose = getCalls;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(
+        getCalls,
+        callsAtDispose,
+        reason: 'a disposed controller must not keep firing requests',
+      );
+      // The in-flight Future still completes (it does not hang forever); it
+      // just stops making progress once disposed.
+      await expectLater(pending, completes);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // isPreviewRenderStale: a server `rendering` status is treated as stale
+  // once it has sat past 2x the backend job's uniqueness window (120s), so a
+  // lost job cannot pin the pane on a skeleton forever.
+  // ---------------------------------------------------------------------------
+
+  group('isPreviewRenderStale', () {
+    test('false when the page has never been rendered', () {
+      final StatusPage page = StatusPage.fromMap({'id': 'acme'});
+      expect(
+        StatusPageController.instance.isPreviewRenderStale(page),
+        isFalse,
+      );
+    });
+
+    test('false when completed, regardless of age', () {
+      final StatusPage page = StatusPage.fromMap({
+        'id': 'acme',
+        'preview_render_status': 'completed',
+        'updated_at': DateTime.now()
+            .subtract(const Duration(hours: 2))
+            .toIso8601String(),
+      });
+      expect(
+        StatusPageController.instance.isPreviewRenderStale(page),
+        isFalse,
+      );
+    });
+
+    test('false while rendering and within the 240s threshold', () {
+      final StatusPage page = StatusPage.fromMap({
+        'id': 'acme',
+        'preview_render_status': 'rendering',
+        'updated_at': DateTime.now()
+            .subtract(const Duration(seconds: 30))
+            .toIso8601String(),
+      });
+      expect(
+        StatusPageController.instance.isPreviewRenderStale(page),
+        isFalse,
+      );
+    });
+
+    test('true once rendering has sat past 240s (2x the 120s uniqueness window)', () {
+      final StatusPage page = StatusPage.fromMap({
+        'id': 'acme',
+        'preview_render_status': 'rendering',
+        'updated_at': DateTime.now()
+            .subtract(const Duration(seconds: 300))
+            .toIso8601String(),
+      });
+      expect(
+        StatusPageController.instance.isPreviewRenderStale(page),
+        isTrue,
+      );
     });
   });
 

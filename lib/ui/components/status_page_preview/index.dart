@@ -12,7 +12,5 @@ export 'status_page_preview.recipe.dart'
         statusPagePreviewShellClassName,
         statusPagePreviewSectionHeadingClassName,
         statusPagePreviewComponentsBoxClassName,
-        statusPagePreviewMetricCellClassName,
-        statusPagePreviewIncidentRowClassName,
         statusPagePreviewEmptyPlaceholderClassName,
         statusPagePreviewSubscribeBoxClassName;

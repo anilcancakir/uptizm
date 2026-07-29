@@ -5,6 +5,8 @@ import 'package:magic/magic.dart';
 
 import '../enums/domain_mode.dart' show DomainMode;
 import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
+import '../enums/status_page_preview_status.dart'
+    show StatusPagePreviewStatus, statusPagePreviewStatusFromWire;
 import '../support/status_page_types.dart' show PublicComponent;
 
 /// **A public status page.**
@@ -42,6 +44,15 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
 
   /// Mass-assignable attributes (the writable columns; the monitor pivot is a
   /// sub-resource, not mass-assigned).
+  ///
+  /// `preview_image_url` / `preview_rendered_at` / `preview_render_status` are
+  /// deliberately ABSENT: they are server-written and read-only, and a magic
+  /// model strips any key not listed here from an outgoing write before it is
+  /// sent, with no error anywhere. Adding a read-only field here would not
+  /// make it writable, it would just silently keep working by accident until
+  /// the day it stops; the two earlier production-severity defects this
+  /// codebase already had from that exact silent strip are why the omission
+  /// is deliberate, not an oversight.
   @override
   List<String> get fillable => [
     'name',
@@ -64,6 +75,7 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
     'subscriptions_enabled': 'bool',
     'created_at': 'datetime',
     'updated_at': 'datetime',
+    'preview_rendered_at': 'datetime',
   };
 
   // ---------------------------------------------------------------------------
@@ -241,6 +253,37 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
     if (raw is! List) return const [];
     return raw.map((e) => e.toString()).toList();
   }
+
+  // ---------------------------------------------------------------------------
+  // Headless PNG preview render (read-only; see [fillable])
+  // ---------------------------------------------------------------------------
+
+  /// Signed absolute URL of the most recent headless-rendered PNG of this
+  /// page, or `null` before the first render.
+  ///
+  /// Emitted by `StatusPageResource` from `show` only, never from the list
+  /// envelope, so a wire payload from `GET /status-pages` omits the key
+  /// entirely; that absence and an explicit `null` both read as "not
+  /// available here", not "never rendered" (only [previewRenderStatus] means
+  /// the latter). The URL is stable across a poll and changes only when the
+  /// image itself changes, so it must never be normalized or have its query
+  /// stripped: that query is what keys Flutter's `ImageCache`.
+  String? get previewImageUrl => getAttribute('preview_image_url') as String?;
+
+  /// When the current [previewImageUrl] (or the most recent render attempt)
+  /// completed, or `null` before the first render.
+  Carbon? get previewRenderedAt =>
+      getAttribute('preview_rendered_at') as Carbon?;
+
+  /// Lifecycle of the most recent preview render, or `null` when this page
+  /// has never had one requested.
+  ///
+  /// There is no `pending` case: `null` on the wire IS "never rendered" (see
+  /// [StatusPagePreviewStatus]).
+  StatusPagePreviewStatus? get previewRenderStatus =>
+      statusPagePreviewStatusFromWire(
+        getAttribute('preview_render_status') as String?,
+      );
 
   // ---------------------------------------------------------------------------
   // Static retrieval + hydration

@@ -24,18 +24,6 @@ const String statusPagePreviewSectionHeadingClassName =
 const String statusPagePreviewComponentsBoxClassName =
     'rounded-xl border border-color-border bg-surface px-6 py-2';
 
-/// Metric-cell className in the live-metrics grid.
-///
-/// Mirrors `rounded-xl border border-border bg-surface p-4`.
-const String statusPagePreviewMetricCellClassName =
-    'rounded-xl border border-color-border bg-surface p-4';
-
-/// Single past-incident row className.
-///
-/// Mirrors `flex items-center gap-3 rounded-lg border border-border bg-surface p-4`.
-const String statusPagePreviewIncidentRowClassName =
-    'flex flex-row items-center gap-3 rounded-lg border border-color-border bg-surface p-4';
-
 /// Dashed empty placeholder className when no components are assigned.
 ///
 /// Mirrors

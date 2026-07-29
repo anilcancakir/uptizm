@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
@@ -10,6 +11,8 @@ import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/domain_mode.dart' show DomainMode;
+import '../../../app/enums/status_page_preview_status.dart'
+    show StatusPagePreviewStatus;
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/status_page_support.dart' show pageUrl;
 import '../../../app/models/monitor.dart';
@@ -87,6 +90,10 @@ class _StatusPageEditorViewState
 
   /// The lock icon standing in for the (mocked) logo-upload affordance.
   static const IconData _uploadIcon = Icons.image_outlined;
+
+  /// Age past which a `completed` render's rendered-at stamp pairs with the
+  /// may-be-out-of-date chip (D4/D9: "beyond roughly 15 minutes").
+  static const int _previewAgeChipThresholdMinutes = 15;
 
   // ---------------------------------------------------------------------------
   // Draft fields.
@@ -289,6 +296,31 @@ class _StatusPageEditorViewState
     final String? url = saved.publicUrl;
 
     return (url == null || url.isEmpty) ? null : url;
+  }
+
+  /// Whether the draft differs from the saved page, or there is no saved page
+  /// at all yet (create mode has nothing to be clean against).
+  ///
+  /// Gates D2's hybrid: while dirty, the preview pane renders the Flutter
+  /// approximation fed by [_draftPage] under an explicit DRAFT label; the
+  /// customer-view label (paired with the real backend-rendered PNG) never
+  /// shows while dirty, so an in-progress edit can never be mistaken for what
+  /// customers actually see.
+  bool get _isDirty {
+    if (!_isEdit) return true;
+
+    final StatusPage? saved = controller.configById(widget.id);
+    if (saved == null) return true;
+
+    return _name != (saved.name ?? '') ||
+        _slug != (saved.slug ?? '') ||
+        _domainMode != saved.domainMode ||
+        _brandColor.toARGB32() != saved.brandColor.toARGB32() ||
+        _logoText != (saved.logoText ?? '') ||
+        _description != (saved.description ?? '') ||
+        !listEquals(_monitorIds, saved.monitorIds) ||
+        !listEquals(_metricKeys, saved.metricKeys) ||
+        _subscriptionsEnabled != saved.subscriptionsEnabled;
   }
 
   StatusPage get _draftPage {
@@ -941,38 +973,276 @@ class _StatusPageEditorViewState
   // RIGHT: live preview column.
   // ---------------------------------------------------------------------------
 
-  /// Builds the live-preview column: a "Live preview" label above a browser-
-  /// framed [StatusPagePreview] that re-renders as the draft mutates.
+  /// Builds the live-preview column: a heading above a browser-framed pane
+  /// spanning all six D8 states.
+  ///
+  /// The heading itself is the honesty gate: [_isDirty] picks between the
+  /// DRAFT label and the customer-view label, so a dirty form can never read
+  /// as what customers see (D2). Every clean sub-state (never rendered,
+  /// rendering, stale, completed, failed) shares the customer-view heading,
+  /// since they are all states of the one real, backend-rendered artefact.
   List<Widget> _buildPreviewColumn() {
+    final bool dirty = _isDirty;
     return <Widget>[
       WText(
-        trans('uptizm.status.editor_preview_live_heading'),
+        trans(
+          dirty
+              ? 'uptizm.status.editor_preview_draft_heading'
+              : 'uptizm.status.editor_preview_rendered_heading',
+        ),
         className: 'text-xs font-medium uppercase tracking-wide text-fg-muted',
       ),
-      _buildBrowserFrame(),
+      _buildBrowserFrame(dirty),
     ];
   }
 
-  /// Builds the browser frame: a title bar (three dots + the mono live URL) over
-  /// a bounded, scrollable preview surface.
-  Widget _buildBrowserFrame() {
+  /// Builds the browser frame: a title bar (three dots + the mono live URL)
+  /// over the state-dependent body from [_buildPreviewBody].
+  Widget _buildBrowserFrame(bool dirty) {
     return WDiv(
       className:
           'rounded-xl border border-color-border overflow-hidden '
           'bg-surface-container',
       children: <Widget>[
         _buildBrowserBar(),
-        WDiv(
-          className: 'bg-surface p-5',
-          child: SizedBox(
-            height: 600,
-            child: SingleChildScrollView(
-              child: StatusPagePreview(config: _draftPage),
-            ),
-          ),
+        WDiv(className: 'bg-surface p-5', child: _buildPreviewBody(dirty)),
+      ],
+    );
+  }
+
+  /// Dispatches to the right D8 state builder.
+  ///
+  /// Dirty always wins (D2): the draft is shown regardless of what the
+  /// backend last rendered. Otherwise the saved page's
+  /// [StatusPage.previewRenderStatus] selects among never-rendered,
+  /// rendering (or stale-rendering, treated as failed so a lost job cannot
+  /// pin the pane on a skeleton forever), completed, and failed.
+  Widget _buildPreviewBody(bool dirty) {
+    if (dirty) return _buildDraftBody();
+
+    // `dirty` is false only when `_isEdit` is true and the saved page
+    // resolved (see `_isDirty`), so this is never null here.
+    final StatusPage saved = controller.configById(widget.id)!;
+    final StatusPagePreviewStatus? status = saved.previewRenderStatus;
+
+    if (status == null) return _buildNeverRenderedBody(saved);
+
+    if (status == StatusPagePreviewStatus.rendering) {
+      if (controller.isPreviewRenderStale(saved)) {
+        return _buildFailedBody(saved);
+      }
+      return _buildRenderingBody(saved);
+    }
+
+    if (status == StatusPagePreviewStatus.failed) {
+      return _buildFailedBody(saved);
+    }
+
+    return _buildCompletedBody(saved);
+  }
+
+  /// Builds the dirty-state body: the live Flutter approximation fed by
+  /// [_draftPage], bounded and scrollable exactly as the pane always was.
+  Widget _buildDraftBody() {
+    return SizedBox(
+      height: 600,
+      child: SingleChildScrollView(child: StatusPagePreview(config: _draftPage)),
+    );
+  }
+
+  /// Builds the never-rendered state: an explicit empty state with a generate
+  /// action that kicks off [StatusPageController.requestPreviewRender].
+  Widget _buildNeverRenderedBody(StatusPage saved) {
+    return MSEmptyState(
+      icon: Icons.image_outlined,
+      title: trans('uptizm.status.editor_preview_never_rendered_title'),
+      action: MSButton(
+        intent: ButtonIntent.primary,
+        size: ButtonSize.sm,
+        onPressed: () => controller.requestPreviewRender(saved.id),
+        child: WText(trans('uptizm.status.editor_preview_generate_action')),
+      ),
+    );
+  }
+
+  /// Builds the `rendering` (and not stale) state: sized skeleton bars.
+  ///
+  /// When [StatusPageController.hasPreviewPollCapped] is true for this page,
+  /// a check-again row is appended: the render may still succeed server-side
+  /// even though the client's own poll gave up watching, so this is
+  /// deliberately NOT the failed affordance (see the controller's own
+  /// docblock on `_previewPollCapped`).
+  Widget _buildRenderingBody(StatusPage saved) {
+    final bool capped = controller.hasPreviewPollCapped(saved.id);
+    return WDiv(
+      className: 'flex flex-col gap-3',
+      children: <Widget>[
+        MSSkeleton(height: 220),
+        MSSkeleton(height: 20, width: 160),
+        if (capped) _buildCheckAgainRow(saved),
+      ],
+    );
+  }
+
+  /// Builds the check-again row for a poll-capped `rendering` state: the
+  /// honest "still generating" message plus a button that re-triggers
+  /// [StatusPageController.requestPreviewRender], which also clears the
+  /// capped signal and starts a fresh poll.
+  Widget _buildCheckAgainRow(StatusPage saved) {
+    return WDiv(
+      className: 'flex flex-row items-center justify-between gap-2',
+      children: <Widget>[
+        WText(
+          trans('uptizm.status.editor_preview_check_again'),
+          className: 'min-w-0 text-xs text-fg-muted',
+        ),
+        MSButton(
+          intent: ButtonIntent.secondary,
+          size: ButtonSize.sm,
+          onPressed: () => controller.requestPreviewRender(saved.id),
+          child: WText(trans('uptizm.status.editor_preview_refresh_action')),
         ),
       ],
     );
+  }
+
+  /// Builds the `failed` state (and the stale-`rendering` state, which is
+  /// treated identically per D8): an explicit error plus a retry action. A
+  /// previous PNG may still show beneath it, but only under its own visibly
+  /// old rendered-at stamp, so it never reads as a currently-succeeding
+  /// render.
+  Widget _buildFailedBody(StatusPage saved) {
+    final String? url = saved.previewImageUrl;
+    final Carbon? renderedAt = saved.previewRenderedAt;
+
+    return WDiv(
+      className: 'flex flex-col gap-4',
+      children: <Widget>[
+        MSEmptyState(
+          icon: Icons.error_outline,
+          title: trans('uptizm.status.editor_preview_render_failed_title'),
+          action: MSButton(
+            intent: ButtonIntent.primary,
+            size: ButtonSize.sm,
+            onPressed: () => controller.requestPreviewRender(saved.id),
+            child: WText(trans('uptizm.status.editor_preview_retry_action')),
+          ),
+        ),
+        if (url != null && renderedAt != null)
+          WDiv(
+            className: 'flex flex-col gap-2',
+            children: <Widget>[
+              _buildPreviewImage(url, saved.name),
+              WText(
+                trans('uptizm.status.editor_preview_rendered_at', {
+                  'time': renderedAt.diffForHumans(),
+                }),
+                className: 'text-xs text-fg-muted',
+              ),
+              MSBadge(
+                trans('uptizm.status.editor_preview_may_be_stale'),
+                tone: BadgeTone.warning,
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  /// Builds the `completed` state: the PNG, its rendered-at stamp, a refresh
+  /// action, the tap-to-open-full affordance (D9), and, past
+  /// [_previewAgeChipThresholdMinutes], the may-be-out-of-date chip.
+  Widget _buildCompletedBody(StatusPage saved) {
+    final String? url = saved.previewImageUrl;
+    final Carbon? renderedAt = saved.previewRenderedAt;
+    final bool aged =
+        renderedAt != null &&
+        Carbon.now().diffInMinutes(renderedAt) > _previewAgeChipThresholdMinutes;
+
+    return WDiv(
+      className: 'flex flex-col gap-3',
+      children: <Widget>[
+        if (url != null) _buildPreviewImage(url, saved.name, onTap: url),
+        WDiv(
+          className: 'flex flex-row items-start justify-between gap-2',
+          children: <Widget>[
+            WDiv(
+              className: 'min-w-0 flex flex-col gap-1',
+              children: <Widget>[
+                if (renderedAt != null)
+                  WText(
+                    trans('uptizm.status.editor_preview_rendered_at', {
+                      'time': renderedAt.diffForHumans(),
+                    }),
+                    className: 'text-xs text-fg-muted',
+                  ),
+                if (aged)
+                  MSBadge(
+                    trans('uptizm.status.editor_preview_may_be_stale'),
+                    tone: BadgeTone.warning,
+                  ),
+              ],
+            ),
+            MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              onPressed: () => controller.requestPreviewRender(saved.id),
+              child: WText(
+                trans('uptizm.status.editor_preview_refresh_action'),
+              ),
+            ),
+          ],
+        ),
+        if (url != null)
+          MSButton(
+            intent: ButtonIntent.secondary,
+            size: ButtonSize.sm,
+            onPressed: () => _openFullPreview(url),
+            child: WText(
+              trans('uptizm.status.editor_preview_open_fullscreen'),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Builds the rendered PNG via [WImage], with an error fallback for a
+  /// signed URL that has since expired or failed to load. When [onTap] is
+  /// given the image itself is wrapped as the tap-to-open-full affordance
+  /// (D9: the PNG is legible at full size, not at ~32% in a 380px column).
+  Widget _buildPreviewImage(String url, String? alt, {String? onTap}) {
+    final Widget image = WImage(
+      src: url,
+      alt: alt ?? '',
+      className: 'w-full rounded-lg border border-color-border object-cover',
+      errorBuilder: (context, error, stackTrace) => _buildImageLoadError(),
+    );
+    if (onTap == null) return image;
+    return WButton(onTap: () => _openFullPreview(onTap), child: image);
+  }
+
+  /// Builds the fallback shown in place of a PNG that failed to load (e.g. an
+  /// expired signed URL).
+  Widget _buildImageLoadError() {
+    return WDiv(
+      className:
+          'w-full h-40 rounded-lg border border-color-border '
+          'bg-surface-container-high flex items-center justify-center',
+      child: WIcon(
+        Icons.broken_image_outlined,
+        className: 'text-fg-muted text-2xl',
+      ),
+    );
+  }
+
+  /// Opens the rendered PNG at full size in the platform's default handler
+  /// (D9's tap-to-open-full affordance). Logs on failure without throwing,
+  /// mirroring [_viewPublicPage]'s own open-failure handling.
+  Future<void> _openFullPreview(String url) async {
+    final bool opened = await Launch.url(url);
+    if (opened) return;
+
+    Log.error('[StatusPageEditorView._openFullPreview] could not open $url');
   }
 
   /// Builds the browser title bar: three muted dots and the mono live URL pill.

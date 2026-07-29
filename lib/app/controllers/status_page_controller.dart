@@ -7,6 +7,8 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../models/status_page.dart';
 import '../enums/domain_mode.dart' show DomainMode;
+import '../enums/status_page_preview_status.dart'
+    show StatusPagePreviewStatus;
 import '../support/status_page_types.dart' show Subscriber;
 import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 
@@ -50,6 +52,29 @@ class StatusPageController extends MagicController
   /// empty entry the moment it fires the fetch (that entry IS the fetch-once
   /// guard), so a present key means "asked", not "answered".
   final Set<String> _resolvedSubscribers = {};
+
+  /// Monotonically increasing per-page poll generation, keyed by page id.
+  ///
+  /// [requestPreviewRender] stamps its own poll loop with the CURRENT
+  /// generation for the page before it starts running; a later call for the
+  /// SAME page bumps the generation again, so the earlier loop's next tick
+  /// notices it has been superseded and stops itself without doing further
+  /// work. This one counter is what both guarantees rest on: a second poll
+  /// for the same page never runs two loops at once, and a disposed
+  /// controller (every tick also checks [isDisposed]) cannot keep polling in
+  /// the background.
+  final Map<String, int> _previewPollGeneration = {};
+
+  /// Page ids whose [requestPreviewRender] poll hit its cap while the server
+  /// still reported `rendering`.
+  ///
+  /// The render may still succeed server-side after the client gives up
+  /// watching, so this is a distinct "keep checking" signal for the editor's
+  /// check-again affordance, never a client-written `failed`: a client-side
+  /// failure the server contradicts is the anti-pattern this repo has
+  /// already fixed three times (dashboard KPIs, monitor-detail SLO, the
+  /// pending-monitor "zero monitors" state).
+  final Set<String> _previewPollCapped = {};
 
   /// In-memory cache of the status-page roster, populated by [reload]. Empty
   /// until the first successful fetch resolves.
@@ -524,6 +549,153 @@ class StatusPageController extends MagicController
       Log.error('[StatusPageController.reorderMonitors] $pageId failed: $error');
       _toastError(null);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Preview render: trigger + bounded poll against `api/v1/status-pages`.
+  // ---------------------------------------------------------------------------
+
+  /// Poll cadence for [requestPreviewRender]: how often `GET
+  /// /status-pages/{id}` (show) is re-fetched while the server still reports
+  /// `rendering`. Exposed as a parameter default (rather than hardcoded)
+  /// purely as a test seam: production callers use the default.
+  static const Duration _defaultPreviewPollInterval = Duration(seconds: 2);
+
+  /// Poll cap for [requestPreviewRender]: 45 attempts at the default 2s
+  /// cadence is 90s, matching `retry_after` (`backend/config/queue.php`), the
+  /// ceiling Laravel itself documents for a queued job to finish before being
+  /// considered lost. Exposed as a parameter default for the same test-seam
+  /// reason as [_defaultPreviewPollInterval].
+  static const int _defaultPreviewPollMaxAttempts = 45;
+
+  /// 2x [RenderStatusPagePreview]'s 120s uniqueness window
+  /// (`backend/app/Jobs/RenderStatusPagePreview.php`): see
+  /// [isPreviewRenderStale].
+  static const int _previewRenderStaleAfterSeconds = 240;
+
+  /// Whether [pageId]'s most recent [requestPreviewRender] poll hit its cap
+  /// while the server still reported `rendering`.
+  ///
+  /// This is the check-again affordance's signal, and it is deliberately
+  /// distinct from a `failed` status: see [_previewPollCapped].
+  bool hasPreviewPollCapped(String pageId) =>
+      _previewPollCapped.contains(pageId);
+
+  /// Whether [page]'s server-reported `rendering` status has been open long
+  /// enough that a lost job, not real progress, is the more honest read.
+  ///
+  /// Reads [StatusPage.updatedAt] (bumped by the render job's own `save()`
+  /// when it flips the row to `rendering`) rather than any client-side poll
+  /// clock, so a page whose editor is opened fresh, with no poll in flight,
+  /// reports the same stale verdict a polling one would: a lost job must not
+  /// be able to pin the pane on a skeleton forever just because nobody
+  /// happens to be watching it right now.
+  bool isPreviewRenderStale(StatusPage page) {
+    if (page.previewRenderStatus != StatusPagePreviewStatus.rendering) {
+      return false;
+    }
+    final Carbon? updatedAt = page.updatedAt;
+    if (updatedAt == null) return false;
+    return Carbon.now().diffInSeconds(updatedAt) >
+        _previewRenderStaleAfterSeconds;
+  }
+
+  /// Triggers a headless PNG render of page [pageId] via `POST
+  /// /status-pages/{pageId}/preview` (202, no body: the row still holds its
+  /// pre-render state at that moment), then polls `GET
+  /// /status-pages/{pageId}` (show) every [pollInterval] until the server
+  /// reports `completed` or `failed`, updating the cached page and notifying
+  /// listeners after every poll.
+  ///
+  /// [pollInterval] and [maxAttempts] default to the production cadence
+  /// ([_defaultPreviewPollInterval] / [_defaultPreviewPollMaxAttempts]) and
+  /// exist as parameters purely as a test seam, matching the `capture()` seam
+  /// pattern the backend renderer uses.
+  ///
+  /// **The cap does not write `failed`.** When [maxAttempts] is reached with
+  /// the server still reporting `rendering`, the render may yet succeed
+  /// server-side, so the poll simply stops and marks [pageId] in
+  /// [hasPreviewPollCapped] for a check-again affordance; it never fabricates
+  /// a terminal state the server has not itself reached. Writing a
+  /// client-side failure the server contradicts is the anti-pattern this
+  /// repo has already fixed three times (dashboard KPIs, monitor-detail SLO,
+  /// the pending-monitor "zero monitors" state).
+  ///
+  /// A fresh call for a page already being polled bumps that page's poll
+  /// generation, so the earlier loop stops itself on its next tick rather
+  /// than running alongside the new one; a disposed controller stops every
+  /// loop the same way, via [isDisposed]. This is what keeps a page's poll
+  /// bounded to at most one live loop and unable to keep firing past
+  /// disposal, without needing an explicit `Timer` to cancel.
+  Future<void> requestPreviewRender(
+    String pageId, {
+    Duration pollInterval = _defaultPreviewPollInterval,
+    int maxAttempts = _defaultPreviewPollMaxAttempts,
+  }) async {
+    try {
+      final response = await Http.post('/status-pages/$pageId/preview');
+      if (!response.successful) {
+        Log.error(
+          '[StatusPageController.requestPreviewRender] $pageId: '
+          '${response.errorMessage}',
+        );
+        _toastError(response.errorMessage);
+        return;
+      }
+    } catch (error) {
+      Log.error(
+        '[StatusPageController.requestPreviewRender] $pageId failed: $error',
+      );
+      _toastError(null);
+      return;
+    }
+
+    // A fresh trigger supersedes any earlier loop for this page (see the
+    // class docblock on [_previewPollGeneration]) and clears a stale
+    // check-again signal: the operator asking to render again is exactly
+    // the recovery path that signal exists to offer.
+    final int generation = (_previewPollGeneration[pageId] ?? 0) + 1;
+    _previewPollGeneration[pageId] = generation;
+    _previewPollCapped.remove(pageId);
+
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      await Future<void>.delayed(pollInterval);
+
+      // Superseded (a newer requestPreviewRender call for this page started)
+      // or disposed: stop making progress without touching state further.
+      if (isDisposed || _previewPollGeneration[pageId] != generation) return;
+
+      final StatusPage? page = await StatusPage.find(pageId);
+
+      if (isDisposed || _previewPollGeneration[pageId] != generation) return;
+
+      if (page != null) _replaceCachedPage(page);
+
+      final StatusPagePreviewStatus? status = page?.previewRenderStatus;
+      if (status == StatusPagePreviewStatus.completed ||
+          status == StatusPagePreviewStatus.failed) {
+        refreshUI();
+        return;
+      }
+
+      if (attempt == maxAttempts) {
+        _previewPollCapped.add(pageId);
+      }
+      refreshUI();
+    }
+  }
+
+  /// Publishes [page]'s fresh poll read into the cached roster: overwrites
+  /// the existing entry sharing its id, or appends it when the roster has
+  /// not (yet) loaded it, so [statusPages]/[configById] reflect a poll tick
+  /// without needing a full [reload].
+  void _replaceCachedPage(StatusPage page) {
+    final int index = _pages.indexWhere((StatusPage p) => p.id == page.id);
+    if (index == -1) {
+      _pages.add(page);
+      return;
+    }
+    _pages[index] = page;
   }
 
   /// Removes [subscriber] from the page [pageId] roster via `DELETE
