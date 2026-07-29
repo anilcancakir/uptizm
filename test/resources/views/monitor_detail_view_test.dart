@@ -17,6 +17,7 @@ import 'package:uptizm/ui/components/uptime_bar/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 
 import '../../support/monitor_fixtures.dart';
+import '../../support/skeleton_matchers.dart';
 
 /// In-memory loader feeding the monitor-detail prose so [trans] returns short,
 /// wrappable strings instead of raw key tokens. Without it the StatusBadge and
@@ -222,6 +223,24 @@ void main() {
   Future<void> settleSkeleton(WidgetTester tester) async {
     await tester.pumpAndSettle();
   }
+
+  testWidgets('MonitorDetailView shows skeleton bars that occupy real height '
+      'on the pending first frame', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // A single pump leaves the initState fetch unsettled, so `_loading` is
+    // still true and the body is the skeleton scaffold rather than content.
+    await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+
+    expect(find.byType(MSSkeleton), findsWidgets);
+    expectVisibleSkeletons(tester);
+
+    // Once the fetch settles the skeleton is replaced outright, so a leftover
+    // placeholder can never sit alongside real data.
+    await settleSkeleton(tester);
+    expect(find.byType(MSSkeleton), findsNothing);
+  });
 
   testWidgets('MonitorDetailView renders the header with a StatusBadge', (
     tester,

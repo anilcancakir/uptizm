@@ -285,7 +285,47 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
               ),
           ],
         ),
-        if (_metrics.isEmpty) _buildEmptyState() else _buildMetricsList(),
+        // Loading is not emptiness: without this branch a monitor WITH custom
+        // metrics showed the "no custom metrics" empty state until the catalog
+        // read answered.
+        if (_controller.isFirstLoad(widget.monitorId))
+          _buildSkeleton()
+        else if (_metrics.isEmpty)
+          _buildEmptyState()
+        else
+          _buildMetricsList(),
+      ],
+    );
+  }
+
+  /// Builds the first-load placeholder: three metric rows in skeletons.
+  ///
+  /// Mirrors [_buildMetricRow]'s frame and internal rhythm (label + key/path on
+  /// the left, dot + value on the right) so the list does not jump when the
+  /// catalog lands.
+  Widget _buildSkeleton() {
+    return WDiv(
+      className:
+          'flex flex-col divide-y divide-color-border rounded-xl border '
+          'border-color-border',
+      children: [for (int i = 0; i < 3; i++) _buildSkeletonRow()],
+    );
+  }
+
+  /// One skeleton metric row.
+  Widget _buildSkeletonRow() {
+    return WDiv(
+      className: 'flex flex-row items-center gap-3 px-4 py-3',
+      children: const [
+        WDiv(
+          className: 'flex flex-col flex-1 min-w-0 gap-1.5',
+          children: [
+            MSSkeleton(shape: SkeletonShape.text, width: 120, height: 20),
+            MSSkeleton(shape: SkeletonShape.text, width: 180, height: 16),
+          ],
+        ),
+        MSSkeleton(shape: SkeletonShape.circle, width: 8, height: 8),
+        MSSkeleton(shape: SkeletonShape.text, width: 56, height: 20),
       ],
     );
   }

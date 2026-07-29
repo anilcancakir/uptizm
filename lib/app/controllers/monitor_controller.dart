@@ -98,6 +98,21 @@ class MonitorController extends MagicController
   /// The monitor inventory, sourced from `GET /monitors` via [Monitor.all].
   List<Monitor> get monitors => _monitors;
 
+  /// Whether a [reload] has completed at least once, successfully or not.
+  bool _resolvedOnce = false;
+
+  /// Whether the FIRST inventory read is still in flight.
+  ///
+  /// Separates "we have not asked yet" from "we asked and there are none". The
+  /// list view renders a skeleton while this is true instead of asserting an
+  /// empty inventory before the first answer arrives, which is what made a
+  /// populated account flash "No monitors yet" on every cold open.
+  ///
+  /// Only the FIRST read counts: a later refetch (the view reloads on every
+  /// route entry) leaves this false so the rows stay on screen rather than
+  /// flashing a skeleton over data the operator is already reading.
+  bool get isFirstLoad => !_resolvedOnce;
+
   /// Seeds the in-memory inventory directly for a widget/controller test,
   /// bypassing the network.
   ///
@@ -110,6 +125,9 @@ class MonitorController extends MagicController
   @visibleForTesting
   void seedForTest(List<Monitor> seed) {
     _monitors = List<Monitor>.from(seed);
+    // Seeded state is a resolved state, so a bound view renders the rows rather
+    // than a skeleton waiting for a fetch the test never makes.
+    _resolvedOnce = true;
     refreshUI();
   }
 
@@ -132,9 +150,21 @@ class MonitorController extends MagicController
   /// mirrors the pre-ORM decode, which returned early on a malformed or
   /// failed payload: `onInit`/`reload` never throws, and an explicit removal
   /// still updates the cache through [delete] rather than a reload.
+  ///
+  /// Resolving flips [isFirstLoad] false either way, so the view swaps its
+  /// skeleton for the rows or for the honest empty state.
   Future<void> reload() async {
+    final bool firstLoad = isFirstLoad;
     final List<Monitor> fetched = await Monitor.all();
-    if (fetched.isEmpty) return;
+    _resolvedOnce = true;
+
+    if (fetched.isEmpty) {
+      // The cache stands, but a first read that came back empty still has to
+      // repaint: the view is showing a skeleton and needs to hear that the
+      // answer arrived.
+      if (firstLoad) refreshUI();
+      return;
+    }
 
     _monitors = fetched;
     refreshUI();
@@ -153,6 +183,9 @@ class MonitorController extends MagicController
   Future<void> resetForSession() async {
     _monitors = [];
     _lastAnalyzeWasGated = false;
+    // Back to "not asked yet": the incoming identity must get a skeleton, not
+    // the previous tenant's conclusion that there are no monitors.
+    _resolvedOnce = false;
     refreshUI();
 
     await reload();

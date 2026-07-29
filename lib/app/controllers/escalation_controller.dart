@@ -84,6 +84,22 @@ class EscalationController extends MagicController
   /// the insertion order of the last [reload]/[seedForTest].
   List<EscalationPolicy> get policies => _details.values.toList();
 
+  /// Whether a [reload] has completed at least once, successfully or not.
+  bool _resolvedOnce = false;
+
+  /// Whether the FIRST roster read is still in flight.
+  ///
+  /// Separates "we have not asked yet" from "we asked and there are none". The
+  /// list view renders a skeleton while this is true instead of rendering a
+  /// bare page with no policy cards before the first answer arrives, which is
+  /// what made a team with a configured ladder open the screen as if it had
+  /// none until the round trip landed.
+  ///
+  /// Only the FIRST read counts: a later refetch (the view reloads on every
+  /// route entry) leaves this false so the cards stay on screen rather than
+  /// flashing a skeleton over data the operator is already reading.
+  bool get isFirstLoad => !_resolvedOnce;
+
   /// Seeds the in-memory cache directly for a widget/controller test,
   /// bypassing the network. Notifies listeners so an already-mounted view
   /// rebuilds against the seeded data.
@@ -92,6 +108,9 @@ class EscalationController extends MagicController
     _details
       ..clear()
       ..addEntries(seed.map((p) => MapEntry(p.id, p)));
+    // Seeded state is a resolved state, so a bound view renders the cards
+    // rather than a skeleton waiting for a fetch the test never makes.
+    _resolvedOnce = true;
     refreshUI();
   }
 
@@ -117,9 +136,22 @@ class EscalationController extends MagicController
   /// publish" and leaves the last-known-good cache in place (empty before the
   /// first success). The list view therefore never flickers into an empty
   /// state between reloads.
+  ///
+  /// Resolving flips [isFirstLoad] false either way (an empty roster and a
+  /// failed hydration are both answers), so the view swaps its skeleton for the
+  /// cards or for a page that honestly has none.
   Future<void> reload() async {
+    final bool firstLoad = isFirstLoad;
     final List<EscalationPolicy> summaries = await EscalationPolicy.all();
-    if (summaries.isEmpty) return;
+    _resolvedOnce = true;
+
+    if (summaries.isEmpty) {
+      // The cache stands, but a first read that came back empty still has to
+      // repaint: the view is showing a skeleton and needs to hear that the
+      // answer arrived.
+      if (firstLoad) refreshUI();
+      return;
+    }
 
     final List<EscalationPolicy?> fetched = await Future.wait(
       summaries.map((p) => EscalationPolicy.find(p.id)),
@@ -127,7 +159,10 @@ class EscalationController extends MagicController
     final List<EscalationPolicy> details = fetched
         .whereType<EscalationPolicy>()
         .toList();
-    if (details.isEmpty) return;
+    if (details.isEmpty) {
+      if (firstLoad) refreshUI();
+      return;
+    }
 
     _details
       ..clear()
@@ -147,6 +182,9 @@ class EscalationController extends MagicController
   @override
   Future<void> resetForSession() async {
     _details.clear();
+    // Back to "not asked yet": the incoming identity must get a skeleton, not
+    // the previous tenant's conclusion that there are no policies.
+    _resolvedOnce = false;
     refreshUI();
 
     await reload();

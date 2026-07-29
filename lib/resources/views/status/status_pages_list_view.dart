@@ -150,9 +150,17 @@ class _StatusPagesListViewState
   // Card grid
   // ---------------------------------------------------------------------------
 
-  /// Builds the responsive card grid, or an [MSEmptyState] when the
-  /// controller's roster is empty.
+  /// Builds the responsive card grid, a skeleton while the first read is in
+  /// flight, or an [MSEmptyState] once the roster is known to be empty.
   Widget _buildBody() {
+    // Loading is not emptiness. Without this branch a populated account opened
+    // the page on "No status pages yet" and only swapped to its rows when the
+    // fetch landed, which reads as "you have none" for as long as the round trip
+    // takes.
+    if (controller.isFirstLoad) {
+      return _buildSkeleton();
+    }
+
     if (controller.statusPages.isEmpty) {
       return _buildEmptyState();
     }
@@ -260,6 +268,45 @@ class _StatusPagesListViewState
   /// Builds the "never had a status page" [MSEmptyState] with a New-status-page
   /// action. The dashed-border container mirrors
   /// `rounded-xl border-dashed border-border` from the React source.
+  /// Builds the first-load placeholder: the card grid's own shape, in skeletons.
+  ///
+  /// It mirrors the real card (logo tile, name line, mono URL line, footer line)
+  /// at the same grid and spacing, so the layout does not jump when the rows
+  /// arrive. Two placeholders, because the grid is 2-up from `sm` and one lone
+  /// card would imply the account has exactly one page.
+  Widget _buildSkeleton() {
+    return WDiv(
+      className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
+      children: [for (int i = 0; i < 2; i++) _buildSkeletonCard()],
+    );
+  }
+
+  /// One skeleton card, matching [_buildCard]'s frame and internal rhythm.
+  Widget _buildSkeletonCard() {
+    return WDiv(
+      className:
+          'flex flex-col gap-3 rounded-xl border border-color-border '
+          'bg-surface p-4',
+      children: const [
+        WDiv(
+          className: 'flex flex-row items-center gap-2.5',
+          children: [
+            MSSkeleton(width: 32, height: 32),
+            WDiv(
+              className: 'flex flex-col flex-1 gap-1.5',
+              children: [
+                MSSkeleton(shape: SkeletonShape.text, width: 140, height: 20),
+                MSSkeleton(shape: SkeletonShape.text, width: 200, height: 16),
+              ],
+            ),
+            MSSkeleton(width: 72, height: 20),
+          ],
+        ),
+        MSSkeleton(shape: SkeletonShape.text, width: 220, height: 16),
+      ],
+    );
+  }
+
   Widget _buildEmptyState() {
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',

@@ -7,6 +7,8 @@ import 'package:uptizm/app/controllers/notification_channel_controller.dart';
 import 'package:uptizm/app/enums/channel_type.dart' show ChannelType;
 import 'package:uptizm/resources/views/teams/notification_channels_view.dart';
 
+import '../../support/skeleton_matchers.dart';
+
 /// In-memory language loader supplying every [trans] key the live
 /// [NotificationChannelsView] exercises. Scoped to this test file so it does
 /// not have to reuse or extend the shared `teams_views_test.dart` loader
@@ -123,6 +125,51 @@ void main() {
     // Email/SMS stay per-user preferences, never team channels.
     expect(find.text('Email'), findsNothing);
     expect(find.text('SMS'), findsNothing);
+  });
+
+  testWidgets('shows a skeleton before the first read resolves, not four '
+      'unconfigured rows', (tester) async {
+    // The regression this pins: every row decides between "Connect" and a live
+    // switch purely on whether the roster holds a record for its type, so a
+    // pending read rendered four Connect buttons and told a team with Slack
+    // already wired that it had no integrations at all.
+    await tester.binding.setSurfaceSize(const Size(1280, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // Deliberately NOT pumped again: the first frame is painted before the
+    // initState fetch resolves, which is exactly the moment the operator used to
+    // be told nothing was connected.
+    await tester.pumpWidget(wrap(const NotificationChannelsView()));
+
+    expect(find.byType(MSSkeleton), findsWidgets);
+    expectVisibleSkeletons(tester);
+    expect(
+      find.text('Connect'),
+      findsNothing,
+      reason: 'a pending read must never claim a channel is unconfigured',
+    );
+
+    // Once it resolves (the fake answers nothing), the skeleton gives way to the
+    // honest four unconnected rows.
+    await tester.pump();
+    expect(find.byType(MSSkeleton), findsNothing);
+    expect(find.text('Connect'), findsNWidgets(4));
+  });
+
+  testWidgets('a resolved empty roster shows the connect rows, not a skeleton', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // Seeding is a resolved state, so an empty seed is a known-empty roster.
+    NotificationChannelController.instance.seedForTest(const []);
+
+    await tester.pumpWidget(wrap(const NotificationChannelsView()));
+    await tester.pump();
+
+    expect(find.byType(MSSkeleton), findsNothing);
+    expect(find.text('Connect'), findsNWidgets(4));
   });
 
   testWidgets(

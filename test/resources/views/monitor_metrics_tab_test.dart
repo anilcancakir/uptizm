@@ -13,6 +13,7 @@ import 'package:uptizm/resources/views/monitors/monitor_metric_form.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/metric_chart/index.dart';
+import '../../support/skeleton_matchers.dart';
 
 /// Language loader for all trans() keys exercised by the metrics widgets.
 ///
@@ -1075,6 +1076,59 @@ void main() {
       );
 
       expect(find.text('185 ms'), findsOneWidget);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // First-load skeleton: a pending catalog read is not an empty catalog.
+  // ---------------------------------------------------------------------------
+
+  group('MonitorMetricsTab first load', () {
+    testWidgets('shows a skeleton before the catalog read resolves', (
+      tester,
+    ) async {
+      // The regression this pins: a monitor WITH custom metrics rendered the
+      // "no custom metrics" empty state until its catalog read answered.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      MagicApp.reset();
+      Magic.flush();
+      Magic.singleton('magic_starter', () => MagicStarterManager());
+      Magic.singleton('log', () => LogManager());
+      Http.fake();
+
+      // Deliberately NOT pumped again: the first frame paints before the tab's
+      // own catalog fetch resolves.
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'api')));
+
+      expect(find.byType(MSSkeleton), findsWidgets);
+      expectVisibleSkeletons(tester);
+      expect(
+        find.text(trans('uptizm.monitors.metrics_empty_title')),
+        findsNothing,
+        reason: 'a pending read must not claim the monitor has no metrics',
+      );
+
+      // Once it resolves (the fake answers nothing) the honest empty state shows.
+      await tester.pump();
+      expect(
+        find.text(trans('uptizm.monitors.metrics_empty_title')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a seeded catalog renders rows, never a skeleton', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pump();
+
+      // The suite's setUp seeds this monitor, which counts as resolved.
+      expect(find.byType(MSSkeleton), findsNothing);
     });
   });
 }

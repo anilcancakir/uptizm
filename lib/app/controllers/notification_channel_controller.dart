@@ -131,6 +131,25 @@ class NotificationChannelController extends MagicController
   /// /notification-channels` via [reload].
   List<NotificationChannelRecord> get channels => _channels;
 
+  /// Whether a [reload] has completed at least once, successfully or not.
+  bool _resolvedOnce = false;
+
+  /// Whether the FIRST roster read is still in flight.
+  ///
+  /// Separates "we have not asked yet" from "we asked and nothing is
+  /// configured". [NotificationChannelsView] renders one row per channel type
+  /// and decides between a Connect button and a live switch purely on whether
+  /// the roster holds a record for that type, so before the first answer
+  /// arrived every row claimed the integration was not set up; a team with
+  /// Slack wired opened the screen on four Connect buttons and only flipped to
+  /// its switches when the round trip landed. The view renders a skeleton while
+  /// this is true instead.
+  ///
+  /// Only the FIRST read counts: a later refetch (every create/update/delete
+  /// reloads) leaves this false so the configured rows stay on screen rather
+  /// than flashing a skeleton over what the operator is already reading.
+  bool get isFirstLoad => !_resolvedOnce;
+
   /// Whether the backend reports its push integration as provisioned, read
   /// from the index's `meta.push_provisioned`. Optimistically `true` until the
   /// first index response resolves.
@@ -162,6 +181,9 @@ class NotificationChannelController extends MagicController
   @visibleForTesting
   void seedForTest(List<NotificationChannelRecord> seed) {
     _channels = List<NotificationChannelRecord>.from(seed);
+    // Seeded state is a resolved state, so a bound view renders the rows rather
+    // than a skeleton waiting for a fetch the test never makes.
+    _resolvedOnce = true;
     refreshUI();
   }
 
@@ -179,13 +201,22 @@ class NotificationChannelController extends MagicController
   /// loaded value of each on any failure (network error, non-2xx, or a
   /// malformed payload) so the view never flickers into an empty state, nor
   /// into a false "push not configured" claim, between reloads.
+  ///
+  /// Resolving flips [isFirstLoad] false however it turns out (a non-2xx and a
+  /// thrown request are answers too), so the view swaps its skeleton for the
+  /// real rows rather than skeletoning forever on a failed first read.
   Future<void> reload() async {
+    final bool firstLoad = isFirstLoad;
     try {
       final response = await Http.get('/notification-channels');
+      _resolvedOnce = true;
       if (!response.successful) {
         Log.error(
           '[NotificationChannelController.reload] ${response.errorMessage}',
         );
+        // The cache stands, but a first read that failed still has to repaint:
+        // the view is showing a skeleton and needs to hear that it is over.
+        if (firstLoad) refreshUI();
         return;
       }
 
@@ -214,6 +245,9 @@ class NotificationChannelController extends MagicController
       refreshUI();
     } catch (error) {
       Log.error('[NotificationChannelController.reload] failed: $error');
+      // A thrown request is an answered one as far as the screen is concerned.
+      _resolvedOnce = true;
+      if (firstLoad) refreshUI();
     }
   }
 
@@ -232,6 +266,9 @@ class NotificationChannelController extends MagicController
   Future<void> resetForSession() async {
     _channels = [];
     _pushProvisioned = true;
+    // Back to "not asked yet": the incoming identity must get a skeleton, not
+    // the previous tenant's conclusion that nothing is wired up.
+    _resolvedOnce = false;
     refreshUI();
 
     await reload();

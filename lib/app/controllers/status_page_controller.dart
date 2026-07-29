@@ -43,9 +43,32 @@ class StatusPageController extends MagicController
   /// controller's lifetime.
   final Map<String, List<Subscriber>> _subscribers = {};
 
+  /// The page ids whose subscriber roster has come back at least once,
+  /// successfully or not.
+  ///
+  /// [_subscribers] cannot answer this on its own: [subscribersFor] plants an
+  /// empty entry the moment it fires the fetch (that entry IS the fetch-once
+  /// guard), so a present key means "asked", not "answered".
+  final Set<String> _resolvedSubscribers = {};
+
   /// In-memory cache of the status-page roster, populated by [reload]. Empty
   /// until the first successful fetch resolves.
   List<StatusPage> _pages = [];
+
+  /// Whether a [reload] has completed at least once, successfully or not.
+  bool _resolvedOnce = false;
+
+  /// Whether the FIRST roster read is still in flight.
+  ///
+  /// Separates "we have not asked yet" from "we asked and there are none". The
+  /// list view renders a skeleton while this is true instead of asserting an
+  /// empty roster before the first answer arrives, which is what made a
+  /// populated account flash "No status pages yet" on every cold open.
+  ///
+  /// Only the FIRST read counts: a later refetch (the view reloads on every
+  /// route entry) leaves this false so the rows stay on screen rather than
+  /// flashing a skeleton over data the operator is already reading.
+  bool get isFirstLoad => !_resolvedOnce;
 
   /// Every configured status page, sourced from `GET /status-pages` via
   /// [reload]. Reads straight from the cache (no I/O), so a view's `build()`
@@ -73,6 +96,9 @@ class StatusPageController extends MagicController
   @visibleForTesting
   void seedForTest(List<StatusPage> seed) {
     _pages = List<StatusPage>.from(seed);
+    // Seeded state is a resolved state, so a bound view renders the rows rather
+    // than a skeleton waiting for a fetch the test never makes.
+    _resolvedOnce = true;
     refreshUI();
   }
 
@@ -92,9 +118,21 @@ class StatusPageController extends MagicController
   /// `StatusPage.all()` swallows transport failures and returns an empty list,
   /// so an empty result is treated as "nothing new to publish" and leaves the
   /// last-known-good cache in place (it is empty before the first success).
+  ///
+  /// Resolving flips [isFirstLoad] false either way, so the view swaps its
+  /// skeleton for the rows or for the honest empty state.
   Future<void> reload() async {
+    final bool firstLoad = isFirstLoad;
     final List<StatusPage> pages = await StatusPage.all();
-    if (pages.isEmpty) return;
+    _resolvedOnce = true;
+
+    if (pages.isEmpty) {
+      // The cache stands, but a first read that came back empty still has to
+      // repaint: the view is showing a skeleton and needs to hear that the
+      // answer arrived.
+      if (firstLoad) refreshUI();
+      return;
+    }
 
     _pages = pages;
     refreshUI();
@@ -114,6 +152,12 @@ class StatusPageController extends MagicController
   Future<void> resetForSession() async {
     _pages = [];
     _subscribers.clear();
+    // Every per-page roster is unasked again, so the incoming identity gets a
+    // skeleton rather than the previous tenant's subscriber counts.
+    _resolvedSubscribers.clear();
+    // Back to "not asked yet": the incoming identity must get a skeleton, not
+    // the previous tenant's conclusion that there are no status pages.
+    _resolvedOnce = false;
     refreshUI();
 
     await reload();
@@ -136,6 +180,21 @@ class StatusPageController extends MagicController
     return _subscribers[id] ?? const [];
   }
 
+  /// Whether the subscriber roster of the page [pageId] has been answered at
+  /// least once.
+  ///
+  /// The subscriber-roster equivalent of [isFirstLoad], but per page id, since
+  /// [_subscribers] is a lazy per-page cache: one controller-wide flag would
+  /// call page B resolved because page A had already loaded. The subscribers
+  /// view renders a skeleton while this is false instead of asserting "No
+  /// subscribers yet" (and a Total of zero) before the first answer for THAT
+  /// page arrives.
+  ///
+  /// A `null` id has no roster to resolve and never will; the view renders its
+  /// not-found state for it, so it reports as unresolved.
+  bool hasResolvedSubscribers(String? pageId) =>
+      pageId != null && _resolvedSubscribers.contains(pageId);
+
   /// Fetches the subscriber roster for [pageId] via `GET
   /// /status-pages/{pageId}/subscribers` and decodes the envelope into
   /// [Subscriber]s, publishing the result and notifying listeners.
@@ -143,21 +202,33 @@ class StatusPageController extends MagicController
   /// Degrades to the last-known-good cache on any failure (network error,
   /// non-2xx, or an empty payload) so a view never flickers into an empty
   /// state after a genuine earlier load.
+  ///
+  /// However it turns out, the page is marked resolved (see
+  /// [hasResolvedSubscribers]) and, when that resolution is this page's first,
+  /// listeners are notified even on the degraded paths: a subscribers view is
+  /// sitting on a skeleton waiting to hear that the answer arrived, and would
+  /// otherwise skeleton forever on an empty or failed first read.
   Future<void> _refreshSubscribers(String pageId) async {
+    final bool firstLoad = !_resolvedSubscribers.contains(pageId);
     try {
       final response = await Http.get('/status-pages/$pageId/subscribers');
+      _resolvedSubscribers.add(pageId);
       if (!response.successful) {
         Log.error(
           '[StatusPageController._refreshSubscribers] $pageId: '
           '${response.errorMessage}',
         );
+        if (firstLoad) refreshUI();
         return;
       }
 
       final Object? raw = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (raw is! List || raw.isEmpty) return;
+      if (raw is! List || raw.isEmpty) {
+        if (firstLoad) refreshUI();
+        return;
+      }
 
       _subscribers[pageId] = raw
           .whereType<Map<String, dynamic>>()
@@ -168,6 +239,9 @@ class StatusPageController extends MagicController
       Log.error(
         '[StatusPageController._refreshSubscribers] $pageId failed: $error',
       );
+      // A thrown request is an answered one as far as the screen is concerned.
+      _resolvedSubscribers.add(pageId);
+      if (firstLoad) refreshUI();
     }
   }
 

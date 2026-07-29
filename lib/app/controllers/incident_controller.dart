@@ -99,6 +99,21 @@ class IncidentController extends MagicController
   /// [load] resolves.
   List<Incident> get incidents => rxState ?? const [];
 
+  /// Whether the FIRST list read is still in flight.
+  ///
+  /// Separates "we have not asked yet" from "we asked and there are none". The
+  /// list view renders a skeleton while this is true instead of asserting an
+  /// empty history before the first answer arrives, which is what made a team
+  /// with open incidents flash "No incidents yet" on every cold open.
+  ///
+  /// Derived from the `MagicStateMixin` state this controller already
+  /// publishes, deliberately NOT from a second bookkeeping flag: `rxState` is
+  /// `null` only while no read has answered yet, because a resolved-empty read
+  /// publishes an empty LIST rather than a null (see [_publishResolvedEmpty]).
+  /// An errored read has answered too, so it stops counting as a first load and
+  /// the view falls back to its empty state rather than skeletoning forever.
+  bool get isFirstLoad => rxState == null && !isError;
+
   /// Fetches the incident list, optionally scoped to a monitor or lifecycle
   /// stage (`monitor_id`/`lifecycle` query filters), and publishes it through
   /// the `MagicStateMixin` rx shape.
@@ -135,8 +150,23 @@ class IncidentController extends MagicController
     // surface the empty state. Never throws out of `onInit`/`reload`.
     final List<Incident>? current = rxState;
     if (current == null || current.isEmpty) {
-      setEmpty();
+      _publishResolvedEmpty();
     }
+  }
+
+  /// Publishes a resolved-empty read: the `RxStatus.empty()` status the mixin
+  /// helper [setEmpty] would set, but carrying an empty LIST instead of a
+  /// `null` state.
+  ///
+  /// The distinction is what makes [isFirstLoad] derivable without a parallel
+  /// "have we resolved yet" flag. `MagicStateMixin` starts life at
+  /// `RxStatus.empty()` with a `null` state, so a pristine controller and one
+  /// whose fetch came back with zero incidents are otherwise the same value,
+  /// and the list view cannot tell a pending read from a genuinely empty
+  /// history. An empty list is a real answer ("zero incidents"), so `rxState ==
+  /// null` keeps its narrower meaning: nothing has answered yet.
+  void _publishResolvedEmpty() {
+    setState(const <Incident>[], status: const RxStatus.empty());
   }
 
   /// Fetches a monitor-/lifecycle-scoped incident list via a raw
@@ -160,7 +190,7 @@ class IncidentController extends MagicController
     final Object? payload = response.data;
     final Object? raw = payload is Map<String, dynamic> ? payload['data'] : null;
     if (raw is! List) {
-      setEmpty();
+      _publishResolvedEmpty();
       return;
     }
 
@@ -169,7 +199,7 @@ class IncidentController extends MagicController
         .map(Incident.fromMap)
         .toList();
     if (incidents.isEmpty) {
-      setEmpty();
+      _publishResolvedEmpty();
       return;
     }
 

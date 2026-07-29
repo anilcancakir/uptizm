@@ -13,6 +13,7 @@ import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
+import '../../support/skeleton_matchers.dart';
 
 /// In-memory loader feeding the dashboard's prose so [trans] resolves the real
 /// English strings (which wrap on multiple words) instead of falling back to
@@ -41,6 +42,9 @@ class _DashboardLangLoader implements TranslationLoader {
           'incidents. Your call.',
       'uptizm.dashboard.ai_inbox_pending': ':count pending',
       'uptizm.dashboard.ai_inbox_weekly_digest': 'Weekly digest',
+      'uptizm.monitors.empty_no_monitors_title': 'No monitors yet',
+      'uptizm.monitors.empty_no_monitors_description': 'Add your first monitor.',
+      'uptizm.monitors.new_monitor': 'New monitor',
       'uptizm.dashboard.ai_inbox_empty':
           'Inbox zero. No anomalies need your attention.',
       'uptizm.dashboard.kpi_monitors_up': 'Monitors up',
@@ -419,6 +423,36 @@ void main() {
       // the placeholder (two "—" values on the KPI row).
       expect(find.text('—'), findsWidgets);
       expect(find.text('vs. yesterday'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a pending first read shows a skeleton, never the zero-monitor hero',
+    (tester) async {
+      // The regression this pins, and the sharpest instance of loading-vs-empty
+      // in the product: every dashboard counter starts at 0, so before the first
+      // read `monitorCount == 0` held and a POPULATED team landed on the
+      // create-your-first-monitor onboarding hero until the fetch answered.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      MagicApp.reset();
+      Magic.flush();
+      Magic.singleton('magic_starter', () => MagicStarterManager());
+      Magic.singleton('log', () => LogManager());
+      Http.fake();
+
+      // Deliberately NOT pumped again: the first frame paints before the
+      // controller's four aggregate reads resolve.
+      await tester.pumpWidget(wrap(const DashboardView()));
+
+      expect(find.byType(MSSkeleton), findsWidgets);
+      expectVisibleSkeletons(tester);
+      expect(
+        find.text(trans('uptizm.monitors.empty_no_monitors_title')),
+        findsNothing,
+        reason: 'a pending read must not claim the team has no monitors',
+      );
     },
   );
 }

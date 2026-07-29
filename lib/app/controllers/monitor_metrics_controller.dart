@@ -176,6 +176,23 @@ class MonitorMetricsController extends MagicController
   /// [reload] and mutated in place by the write actions below.
   final Map<String, List<MonitorMetricRecord>> _byMonitor = {};
 
+  /// Monitor ids whose catalog read has completed at least once, successfully or
+  /// not.
+  ///
+  /// Per monitor id rather than one controller-wide flag, because the cache is
+  /// keyed that way: having resolved monitor A says nothing about monitor B.
+  final Set<String> _resolved = <String>{};
+
+  /// Whether the FIRST catalog read for [monitorId] is still in flight.
+  ///
+  /// Separates "we have not asked yet" from "this monitor has no custom
+  /// metrics". The tab renders a skeleton while this is true instead of showing
+  /// its "no custom metrics" empty state over a pending read.
+  ///
+  /// Only the first read counts: a later refetch keeps the rows on screen rather
+  /// than flashing a skeleton over data already on display.
+  bool isFirstLoad(String monitorId) => !_resolved.contains(monitorId);
+
   /// The custom metric catalog for [monitorId], sourced from `GET
   /// /monitors/:id/metrics`. Empty until [reload] resolves for that monitor.
   List<MonitorMetricRecord> metricsFor(String monitorId) =>
@@ -187,6 +204,9 @@ class MonitorMetricsController extends MagicController
   @visibleForTesting
   void seedForTest(String monitorId, List<MonitorMetricRecord> seed) {
     _byMonitor[monitorId] = List<MonitorMetricRecord>.from(seed);
+    // Seeded state is a resolved state, so a bound view renders the rows rather
+    // than a skeleton waiting for a fetch the test never makes.
+    _resolved.add(monitorId);
     refreshUI();
   }
 
@@ -215,6 +235,13 @@ class MonitorMetricsController extends MagicController
       // unregistered `network` service in a bare test host) or a malformed
       // payload keeps the last-known-good catalog (empty before the first
       // successful fetch) instead of throwing out of the tab's `initState`.
+    } finally {
+      // Resolved either way. A failed read must still end the skeleton, because a
+      // screen that skeletons forever is worse than an honest empty state, and
+      // the early `return`s above (non-2xx, malformed payload) reach this too.
+      final bool firstLoad = isFirstLoad(monitorId);
+      _resolved.add(monitorId);
+      if (firstLoad) refreshUI();
     }
   }
 
@@ -232,6 +259,10 @@ class MonitorMetricsController extends MagicController
   @override
   Future<void> resetForSession() async {
     _byMonitor.clear();
+    // Back to "not asked yet" for every monitor: the incoming identity must get a
+    // skeleton, not the previous tenant's conclusion that a monitor has no
+    // custom metrics.
+    _resolved.clear();
     refreshUI();
   }
 

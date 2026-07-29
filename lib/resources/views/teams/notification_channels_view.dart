@@ -179,6 +179,14 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// team lead knows the per-user push channel cannot deliver yet. Push stays
   /// a per-user preference at `/settings/notifications`; this team-level
   /// screen only surfaces the heads-up, never a toggle.
+  ///
+  /// While the first roster read is in flight the card is replaced by a
+  /// skeleton: every row decides between "Connect" and a live switch purely on
+  /// whether the roster holds a record for that type, so a pending read used to
+  /// render four Connect buttons and tell a team with Slack already wired that
+  /// it had no integrations at all. Loading is not emptiness. The push heads-up
+  /// needs no such guard, since [NotificationChannelController.pushProvisioned]
+  /// is optimistically `true` until a response actually says otherwise.
   Widget _buildBody() {
     final NotificationChannelController controller =
         NotificationChannelController.instance;
@@ -190,7 +198,54 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           _buildPushHint(),
           const SizedBox(height: 16),
         ],
-        _buildChannelsCard(),
+        if (controller.isFirstLoad) _buildSkeleton() else _buildChannelsCard(),
+      ],
+    );
+  }
+
+  /// Builds the first-load placeholder: the channels card's own shape, in
+  /// skeletons.
+  ///
+  /// One row per [ChannelType] in [_types] (the row count is fixed and known
+  /// before any fetch, so the skeleton is exactly as tall as the real card) with
+  /// the same hairline dividers, so nothing shifts when the roster lands.
+  Widget _buildSkeleton() {
+    return MSCard(
+      noPadding: true,
+      child: WDiv(
+        className: 'flex flex-col',
+        children: [
+          for (int index = 0; index < _types.length; index++)
+            _buildSkeletonRow(hasDivider: index < _types.length - 1),
+        ],
+      ),
+    );
+  }
+
+  /// One skeleton row, matching [_buildRow]'s frame and internal rhythm: the
+  /// same `gap-3 px-5 py-4` row around the 36px icon tile, the name/description
+  /// column, and the trailing control slot.
+  ///
+  /// Every text placeholder carries an explicit height, matching the line box of
+  /// the text it stands in for (20px for `text-sm`, 16px for `text-xs`). Without
+  /// one an [MSSkeleton] collapses: its `WDiv` has no child to measure, so in a
+  /// flex column it lays out 0px tall and the placeholder is invisible.
+  Widget _buildSkeletonRow({required bool hasDivider}) {
+    return WDiv(
+      className: hasDivider
+          ? 'flex flex-row items-center gap-3 px-5 py-4 border-b '
+                'border-color-border'
+          : 'flex flex-row items-center gap-3 px-5 py-4',
+      children: const [
+        MSSkeleton(width: 36, height: 36),
+        WDiv(
+          className: 'flex flex-col gap-0.5 flex-1 min-w-0',
+          children: [
+            MSSkeleton(shape: SkeletonShape.text, width: 120, height: 20),
+            MSSkeleton(shape: SkeletonShape.text, width: 220, height: 16),
+          ],
+        ),
+        MSSkeleton(width: 80, height: 32),
       ],
     );
   }

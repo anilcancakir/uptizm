@@ -16,6 +16,7 @@ import 'package:uptizm/ui/layouts/page_container.dart';
 
 import '../../support/incident_fixtures.dart';
 import '../../support/monitor_fixtures.dart';
+import '../../support/skeleton_matchers.dart';
 
 /// In-memory language loader supplying every [trans] key exercised by the
 /// incident list/create/detail views, mirroring the pattern established in
@@ -306,6 +307,72 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(IncidentCard), findsNWidgets(resolvedCount));
+    });
+
+    testWidgets('shows a skeleton before the first read resolves, not the '
+        'empty state', (tester) async {
+      // The regression this pins: loading was indistinguishable from emptiness,
+      // so a team with open incidents opened the page on "No incidents yet" and
+      // only swapped to its cards once the fetch landed, which on an incident
+      // screen reads as "nothing is wrong".
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // A controller that has never resolved a read: drop the seeded harness so
+      // the mount's own fetch is still in flight on the first frame.
+      MagicApp.reset();
+      Magic.flush();
+      Magic.singleton('magic_starter', () => MagicStarterManager());
+      Magic.singleton('log', () => LogManager());
+      Http.fake();
+
+      // Deliberately NOT pumped again: the first frame is painted before the
+      // mount's async fetch resolves, which is exactly the moment the operator
+      // used to be told there were no incidents.
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+
+      expect(find.byType(MSSkeleton), findsWidgets);
+      expectVisibleSkeletons(tester);
+      expect(find.byType(IncidentCard), findsNothing);
+      expect(
+        find.text(trans('uptizm.incidents.empty_never_had_title')),
+        findsNothing,
+        reason: 'a pending read must never assert that there are none',
+      );
+
+      // Once it resolves (the fake answers nothing), the skeleton gives way to
+      // the honest empty state.
+      await tester.pump();
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(
+        find.text(trans('uptizm.incidents.empty_never_had_title')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a resolved empty history shows the empty state, not a '
+        'skeleton', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Drop the seeded fixtures, then let the real `load` resolve against a
+      // fake that answers nothing: that publish is what marks the history
+      // resolved-but-empty (an empty list, not a null state).
+      MagicApp.reset();
+      Magic.flush();
+      Magic.singleton('magic_starter', () => MagicStarterManager());
+      Magic.singleton('log', () => LogManager());
+      Http.fake();
+      await IncidentController.instance.load();
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(
+        find.text(trans('uptizm.incidents.empty_never_had_title')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('an impossible search query renders the empty state', (

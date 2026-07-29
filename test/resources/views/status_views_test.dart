@@ -11,8 +11,11 @@ import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
 import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
 import 'package:uptizm/resources/views/status/status_page_subscribers_view.dart';
 import 'package:uptizm/resources/views/status/status_pages_list_view.dart';
+import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
+
+import '../../support/skeleton_matchers.dart';
 
 /// In-memory language loader supplying every [trans] key exercised by the
 /// status list/editor/subscribers/preview views, mirroring the pattern
@@ -243,6 +246,57 @@ void main() {
         expect(find.text(page.name!), findsOneWidget);
       }
     });
+
+    testWidgets('shows a skeleton before the first read resolves, not the '
+        'empty state', (tester) async {
+      // The regression this pins: loading was indistinguishable from emptiness,
+      // so a populated account opened the page on "No status pages yet" and only
+      // swapped to its rows once the fetch landed.
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // A controller that has never resolved a read: no seedForTest, so the
+      // mount's own fetch is still in flight on the first frame.
+      MagicApp.reset();
+      Magic.flush();
+      Magic.singleton('magic_starter', () => MagicStarterManager());
+      Magic.singleton('log', () => LogManager());
+      Http.fake();
+
+      // Deliberately NOT pumped again: the first frame is painted before the
+      // mount's async fetch resolves, which is exactly the moment the operator
+      // used to be told they had no status pages.
+      await tester.pumpWidget(wrap(const StatusPagesListView()));
+
+      expect(find.byType(MSSkeleton), findsWidgets);
+      expectVisibleSkeletons(tester);
+      expect(
+        find.text(trans('uptizm.status.list_empty_title')),
+        findsNothing,
+        reason: 'a pending read must never assert that there are none',
+      );
+
+      // Once it resolves (the fake answers nothing), the skeleton gives way to
+      // the honest empty state.
+      await tester.pump();
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(find.text(trans('uptizm.status.list_empty_title')), findsOneWidget);
+    });
+
+    testWidgets('a resolved empty roster shows the empty state, not a '
+        'skeleton', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Seeding is a resolved state, so an empty seed is a known-empty roster.
+      StatusPageController.instance.seedForTest(const []);
+
+      await tester.pumpWidget(wrap(const StatusPagesListView()));
+      await tester.pump();
+
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(find.text(trans('uptizm.status.list_empty_title')), findsOneWidget);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -463,6 +517,89 @@ void main() {
       for (final Subscriber s in subs) {
         expect(find.text(s.email), findsOneWidget);
       }
+    });
+
+    testWidgets('shows a skeleton before the first read resolves, not the '
+        'empty state', (tester) async {
+      // The regression this pins: loading was indistinguishable from emptiness,
+      // so a page WITH subscribers opened on "No subscribers yet" and a Total of
+      // 0 until its roster fetch landed. The roster is a lazy per-page cache, so
+      // the resolution this waits on is this page's own.
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Deliberately NOT pumped again: the first frame is painted before the
+      // roster fetch (fired from the first `subscribersFor` read) resolves.
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageSubscribersView(id: 'acme'),
+          size: const Size(1280, 4000),
+        ),
+      );
+
+      expect(find.byType(MSSkeleton), findsWidgets);
+      expectVisibleSkeletons(tester);
+      expect(
+        find.text(trans('uptizm.status.subscribers_empty_subs_enabled_title')),
+        findsNothing,
+        reason: 'a pending read must never assert that there are none',
+      );
+      // An unanswered roster has no total either; the pre-fetch 0 stated as fact
+      // that nobody had subscribed.
+      expect(
+        tester
+            .widgetList<KpiStatCard>(find.byType(KpiStatCard))
+            .first
+            .value,
+        equals('—'),
+      );
+
+      // Once it resolves (the fake answers nothing), the skeleton gives way to
+      // the honest empty state and a real zero.
+      await tester.pumpAndSettle();
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(
+        find.text(trans('uptizm.status.subscribers_empty_subs_enabled_title')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widgetList<KpiStatCard>(find.byType(KpiStatCard))
+            .first
+            .value,
+        equals('0'),
+      );
+    });
+
+    testWidgets('a resolved empty roster shows the empty state, not a '
+        'skeleton', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Resolve this page's roster first (the fake answers nothing), so the view
+      // mounts against a known-empty roster rather than a pending one.
+      StatusPageController.instance.subscribersFor('acme');
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      expect(
+        StatusPageController.instance.hasResolvedSubscribers('acme'),
+        isTrue,
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageSubscribersView(id: 'acme'),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(
+        find.text(trans('uptizm.status.subscribers_empty_subs_enabled_title')),
+        findsOneWidget,
+      );
     });
 
     testWidgets(

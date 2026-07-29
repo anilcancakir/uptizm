@@ -87,17 +87,116 @@ class _EscalationPoliciesViewState
             ],
           ),
           const SizedBox(height: 24),
-          WDiv(
-            className: 'flex flex-col gap-4',
-            children: [
-              for (final EscalationPolicy policy in policies)
-                _buildPolicyCard(policy),
-            ],
-          ),
+          // Loading is not emptiness. Without the skeleton branch a team with a
+          // configured ladder opened this screen on a bare page with no policy
+          // cards at all and only grew them when the fetch landed, which reads
+          // as "you have no escalation policy" for as long as the round trip
+          // takes (the roster needs a per-policy detail hydration on top of the
+          // index call, so that window is two round trips wide here).
+          if (controller.isFirstLoad)
+            _buildSkeleton()
+          else
+            WDiv(
+              className: 'flex flex-col gap-4',
+              children: [
+                for (final EscalationPolicy policy in policies)
+                  _buildPolicyCard(policy),
+              ],
+            ),
           const SizedBox(height: 24),
           WText(
             trans('uptizm.teams.escalation_oncall_reference'),
             className: 'text-sm text-fg-muted',
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // First-load skeleton
+  // ---------------------------------------------------------------------------
+
+  /// Builds the first-load placeholder: the policy list's own shape, in
+  /// skeletons.
+  ///
+  /// Same `gap-4` column rhythm as the real list, two cards deep: enough to read
+  /// as a list without implying a specific policy count.
+  Widget _buildSkeleton() {
+    return WDiv(
+      className: 'flex flex-col gap-4',
+      children: [for (int i = 0; i < 2; i++) _buildSkeletonCard()],
+    );
+  }
+
+  /// One skeleton card, matching [_buildPolicyCard]'s frame and internal
+  /// rhythm: the same [MSCard] shell and `gap-4` column around a header row
+  /// (name + the two trailing actions) and a two-rung ladder.
+  ///
+  /// Every text placeholder carries an explicit height, matching the line box of
+  /// the text it stands in for (20px for `text-sm`, 16px for `text-xs`). Without
+  /// one an [MSSkeleton] collapses: its `WDiv` has no child to measure, so in a
+  /// flex column it lays out 0px tall and the placeholder is invisible.
+  Widget _buildSkeletonCard() {
+    return MSCard(
+      variant: CardVariant.surface,
+      child: WDiv(
+        className: 'flex flex-col gap-4',
+        children: [
+          WDiv(
+            className: 'flex flex-row items-start justify-between gap-3',
+            children: const [
+              MSSkeleton(shape: SkeletonShape.text, width: 140, height: 20),
+              WDiv(
+                className: 'flex flex-row shrink-0 items-center gap-2',
+                children: [
+                  MSSkeleton(width: 64, height: 32),
+                  MSSkeleton(width: 72, height: 32),
+                ],
+              ),
+            ],
+          ),
+          WDiv(
+            className: 'flex flex-col',
+            children: [
+              for (int i = 0; i < 2; i++) _buildSkeletonRung(isLast: i == 1),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// One skeleton rung, matching [_buildRung]'s geometry: the 16px rail slot
+  /// holding the leading dot, the uppercase delay label line, and the target
+  /// pill, with the same 20px bottom gap on every rung but the last.
+  ///
+  /// The rail's connecting line is deliberately absent: it is a [Positioned]
+  /// bar sized to a real rung's height, and a skeleton has no measured rung to
+  /// thread it between.
+  Widget _buildSkeletonRung({required bool isLast}) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
+      child: WDiv(
+        className: 'flex flex-row gap-3',
+        children: const [
+          SizedBox(
+            width: 16,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(height: 4),
+                MSSkeleton(shape: SkeletonShape.circle, width: 10, height: 10),
+              ],
+            ),
+          ),
+          WDiv(
+            className: 'flex flex-col min-w-0 flex-1 gap-1.5',
+            children: [
+              MSSkeleton(shape: SkeletonShape.text, width: 96, height: 16),
+              MSSkeleton(width: 120, height: 22),
+            ],
           ),
         ],
       ),

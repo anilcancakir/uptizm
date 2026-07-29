@@ -15,6 +15,8 @@ import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart'
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
 import 'package:uptizm/resources/views/teams/plan_billing_view.dart';
 
+import '../../support/skeleton_matchers.dart';
+
 /// In-memory [BillingService] fake for [PlanBillingView] wiring tests.
 ///
 /// Records every [checkout] call's `plan` and lets a test configure a canned
@@ -364,6 +366,62 @@ void main() {
       for (final EscalationPolicy policy in seeds) {
         expect(find.text(policy.name!), findsOneWidget);
       }
+    });
+
+    testWidgets('shows a skeleton before the first read resolves, not a page '
+        'with no policies', (tester) async {
+      // The regression this pins: loading was indistinguishable from emptiness,
+      // so a team with a configured ladder opened this screen on a bare page
+      // with no policy cards and only grew them once the fetch landed (two round
+      // trips here: the index call plus a per-policy detail hydration).
+      await tester.binding.setSurfaceSize(const Size(1280, 6000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // No seedForTest: the mount's own fetch is still in flight on the first
+      // frame. Deliberately NOT pumped again, since that pending state is only
+      // observable on the very first frame.
+      await tester.pumpWidget(
+        wrap(const EscalationPoliciesView(), size: const Size(1280, 6000)),
+      );
+
+      expect(find.byType(MSSkeleton), findsWidgets);
+      expectVisibleSkeletons(tester);
+      expect(
+        find.text(trans('uptizm.teams.escalation_policy_edit_button')),
+        findsNothing,
+        reason: 'the skeleton offers no actions on policies it has not read',
+      );
+
+      // Once it resolves (the fake answers nothing), the skeleton gives way to
+      // the honestly policy-less page.
+      await tester.pump();
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(
+        find.text(trans('uptizm.teams.escalation_policy_edit_button')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a resolved empty roster shows no policies and no skeleton', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 6000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Seeding is a resolved state, so an empty seed is a known-empty roster.
+      EscalationController.instance.seedForTest(const []);
+
+      await tester.pumpWidget(
+        wrap(const EscalationPoliciesView(), size: const Size(1280, 6000)),
+      );
+      await tester.pump();
+
+      expect(find.byType(MSSkeleton), findsNothing);
+      expect(find.text(trans('uptizm.teams.escalation_title')), findsOneWidget);
+      expect(
+        find.text(trans('uptizm.teams.escalation_policy_edit_button')),
+        findsNothing,
+      );
     });
   });
 

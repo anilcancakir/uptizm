@@ -333,10 +333,18 @@ class _MonitorsListViewState
   // Monitor list
   // ---------------------------------------------------------------------------
 
-  /// Builds the scrollable monitor list, or an [MSEmptyState] when the active
-  /// filter matches no monitors.
+  /// Builds the scrollable monitor list, a skeleton while the first read is in
+  /// flight, or an [MSEmptyState] when the active filter matches no monitors.
   Widget _buildList() {
     final visible = _visible;
+
+    // Loading is not emptiness. Without this branch a populated account opened
+    // the page on "No monitors yet", complete with an "add your first endpoint"
+    // invitation, and only swapped to its rows when the fetch landed, which
+    // reads as "you have none" for as long as the round trip takes.
+    if (controller.isFirstLoad) {
+      return _buildSkeleton();
+    }
 
     if (visible.isEmpty) {
       return _buildEmptyState();
@@ -350,6 +358,50 @@ class _MonitorsListViewState
             monitor: monitor,
             onTap: () => MagicRoute.to('/monitors/${monitor.id}'),
           ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // First-load skeleton
+  // ---------------------------------------------------------------------------
+
+  /// Builds the first-load placeholder: the monitor list's own shape, in
+  /// skeletons.
+  ///
+  /// Same `gap-2` column rhythm as the real list, three rows deep: enough to
+  /// read as a list without implying a specific inventory size (a single row
+  /// would suggest the team runs exactly one monitor).
+  Widget _buildSkeleton() {
+    return WDiv(
+      className: 'flex flex-col gap-2',
+      children: [for (int i = 0; i < 3; i++) _buildSkeletonRow()],
+    );
+  }
+
+  /// One skeleton row, matching [MonitorListRow]'s frame and internal rhythm:
+  /// the same row shell (border, radius, padding, min height) around a
+  /// name/URL column, the fixed-width latency slot, and the trailing badge.
+  ///
+  /// Every text placeholder carries an explicit height, matching the line box of
+  /// the text it stands in for (20px for `text-sm`, 16px for `text-xs`). Without
+  /// one an [MSSkeleton] collapses: its `WDiv` has no child to measure, so in a
+  /// flex column it lays out 0px tall and the placeholder is invisible.
+  Widget _buildSkeletonRow() {
+    return const WDiv(
+      className:
+          'flex flex-row items-center gap-3 rounded-lg border '
+          'border-color-border bg-surface px-4 py-3 min-h-[44px]',
+      children: [
+        WDiv(
+          className: 'flex flex-col gap-0.5 min-w-0 flex-1',
+          children: [
+            MSSkeleton(shape: SkeletonShape.text, width: 160, height: 20),
+            MSSkeleton(shape: SkeletonShape.text, width: 220, height: 16),
+          ],
+        ),
+        MSSkeleton(width: 48, height: 16),
+        MSSkeleton(width: 84, height: 22),
       ],
     );
   }

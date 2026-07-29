@@ -8,6 +8,7 @@ import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/enums/status_key.dart';
 
 import '../../support/monitor_fixtures.dart';
+import '../../support/skeleton_matchers.dart';
 import 'package:uptizm/resources/views/monitors/monitors_list_view.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
@@ -99,6 +100,58 @@ void main() {
     await tester.pump();
 
     expect(find.byType(MonitorListRow), findsNWidgets(monitors.length));
+  });
+
+  testWidgets('shows a skeleton before the first read resolves, not the empty '
+      'state', (tester) async {
+    // The regression this pins: loading was indistinguishable from emptiness,
+    // so a populated account opened the page on "No monitors yet" (with an "add
+    // your first endpoint" invitation) and only swapped to its rows once the
+    // fetch landed.
+    // A controller that has never resolved a read: drop the seeded harness so
+    // the mount's own fetch is still in flight on the first frame.
+    MagicApp.reset();
+    Magic.flush();
+    Magic.singleton('magic_starter', () => MagicStarterManager());
+    Magic.singleton('log', () => LogManager());
+    Http.fake();
+
+    // Deliberately NOT pumped again: the first frame is painted before the
+    // mount's async fetch resolves, which is exactly the moment the operator
+    // used to be told they had no monitors.
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+
+    expect(find.byType(MSSkeleton), findsWidgets);
+    expectVisibleSkeletons(tester);
+    expect(
+      find.text(trans('uptizm.monitors.empty_no_monitors_title')),
+      findsNothing,
+      reason: 'a pending read must never assert that there are none',
+    );
+
+    // Once it resolves (the fake answers nothing), the skeleton gives way to the
+    // honest empty state.
+    await tester.pump();
+    expect(find.byType(MSSkeleton), findsNothing);
+    expect(
+      find.text(trans('uptizm.monitors.empty_no_monitors_title')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a resolved empty inventory shows the empty state, not a '
+      'skeleton', (tester) async {
+    // Seeding is a resolved state, so an empty seed is a known-empty inventory.
+    MonitorController.instance.seedForTest(const []);
+
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+    await tester.pump();
+
+    expect(find.byType(MSSkeleton), findsNothing);
+    expect(
+      find.text(trans('uptizm.monitors.empty_no_monitors_title')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('wraps its content in a PageContainer', (tester) async {

@@ -119,6 +119,23 @@ class DashboardController extends MagicController
   /// the two entry points never fetch twice.
   bool _loadStarted = false;
 
+  /// Whether the first [reload] has finished, successfully or not.
+  bool _resolvedOnce = false;
+
+  /// Whether the FIRST dashboard read is still in flight.
+  ///
+  /// Every counter here starts at `0` and every panel starts empty, which is
+  /// indistinguishable from a genuinely empty account. The view therefore has to
+  /// know the difference: while this is true it renders a skeleton, because
+  /// otherwise a populated team lands on the ZERO-MONITOR ONBOARDING HERO
+  /// ("create your first monitor") until the fetch answers, and the KPI grid
+  /// would report `0` open incidents and `0%` uptime as though measured.
+  ///
+  /// Only the first read counts. A later refetch (a realtime event, or
+  /// re-entering the route) keeps the current numbers on screen rather than
+  /// flashing a skeleton over data the operator is reading.
+  bool get isFirstLoad => !_resolvedOnce;
+
   /// Bootstraps every dashboard surface the first time this controller backs
   /// a view.
   @override
@@ -153,12 +170,22 @@ class DashboardController extends MagicController
   /// previously loaded data untouched so the dashboard never flickers into
   /// an error or empty state on a partial failure.
   Future<void> reload() async {
+    final bool firstLoad = isFirstLoad;
+
     await Future.wait([
       _reloadStats(),
       _reloadActiveIncidents(),
       _reloadMonitorsSnapshot(),
       _reloadAiInbox(),
     ]);
+
+    // Resolved once all four legs have answered, so the view stops skeletoning
+    // only when every surface it paints has real data (or a real failure) behind
+    // it. Each leg already republishes its own slice; this repaint is what swaps
+    // the skeleton out, including when every leg failed and the honest answer is
+    // the empty dashboard.
+    _resolvedOnce = true;
+    if (firstLoad) refreshUI();
   }
 
   /// Drops every counter and panel the previous session loaded, publishes the
@@ -187,6 +214,10 @@ class DashboardController extends MagicController
     _monitorsSnapshot = [];
     _aiInbox = [];
     _loadStarted = false;
+    // Back to "not asked yet" for the incoming identity: without this the new
+    // team's dashboard would render the cleared zeros as fact, which on this
+    // screen means the create-your-first-monitor hero.
+    _resolvedOnce = false;
     refreshUI();
 
     await _ensureLoading();

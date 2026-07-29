@@ -84,6 +84,14 @@ class _DashboardViewState
     // `gap-*`, not SizedBox spacers. The outer 32px rhythm (`gap-8`) separates
     // the intro block, the KPI row, and the lower region; the intro block nests
     // its own `gap-6` so the header sits 24px above the fleet-summary banner.
+    // Loading is not emptiness, and on THIS screen the difference is stark:
+    // every counter starts at 0, so before the first read `monitorCount == 0`
+    // held and a populated team landed on the create-your-first-monitor hero
+    // until the fetch answered. The skeleton has to come first.
+    if (controller.isFirstLoad) {
+      return PageContainer(child: _buildSkeleton());
+    }
+
     // Zero-monitor teams get a single focused hero instead of the full grid.
     // With no monitors there is no uptime, latency, or incident data to report,
     // so the KPI row and the (necessarily empty) incident / monitor / AI
@@ -119,6 +127,59 @@ class _DashboardViewState
           _buildLowerRegion(),
         ],
       ),
+    );
+  }
+
+  /// Builds the first-load placeholder: the dashboard's own shape, in skeletons.
+  ///
+  /// It mirrors the populated layout (header lines, the fleet-summary banner, the
+  /// 2-up/4-up KPI row, and the lower region's two columns) at the same spacing,
+  /// so nothing jumps when the four aggregate reads land.
+  Widget _buildSkeleton() {
+    return WDiv(
+      className: 'flex flex-col gap-8',
+      children: const [
+        // Header + fleet-summary banner.
+        WDiv(
+          className: 'flex flex-col gap-6',
+          children: [
+            WDiv(
+              className: 'flex flex-col gap-2',
+              children: [
+                MSSkeleton(shape: SkeletonShape.text, width: 160, height: 28),
+                MSSkeleton(shape: SkeletonShape.text, width: 280, height: 20),
+              ],
+            ),
+            MSSkeleton(height: 64),
+          ],
+        ),
+
+        // KPI row: same 2-up then 4-up grid as _buildKpiRow.
+        WDiv(
+          className: 'grid grid-cols-2 lg:grid-cols-4 gap-4',
+          children: [
+            MSSkeleton(height: 104),
+            MSSkeleton(height: 104),
+            MSSkeleton(height: 104),
+            MSSkeleton(height: 104),
+          ],
+        ),
+
+        // Lower region: incidents + monitor snippet beside the AI rail.
+        WDiv(
+          className: 'flex flex-col lg:flex-row gap-6 items-start',
+          children: [
+            WDiv(
+              className: 'flex flex-col gap-6 lg:flex-[2] min-w-0 w-full',
+              children: [MSSkeleton(height: 180), MSSkeleton(height: 180)],
+            ),
+            WDiv(
+              className: 'lg:flex-1 min-w-0 w-full',
+              child: MSSkeleton(height: 240),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

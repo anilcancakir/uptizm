@@ -250,10 +250,19 @@ class _IncidentsListViewState
   // Incident list
   // ---------------------------------------------------------------------------
 
-  /// Builds the scrollable incident list, or an [MSEmptyState] when the active
-  /// filter + query matches no incidents.
+  /// Builds the scrollable incident list, a skeleton while the first read is in
+  /// flight, or an [MSEmptyState] when the active filter + query matches no
+  /// incidents.
   Widget _buildList() {
     final visible = _visible;
+
+    // Loading is not emptiness. Without this branch a team with open incidents
+    // opened the page on "No incidents yet" and only swapped to its cards when
+    // the fetch landed, which on an incident screen reads as "nothing is wrong"
+    // for as long as the round trip takes.
+    if (controller.isFirstLoad) {
+      return _buildSkeleton();
+    }
 
     if (visible.isEmpty) {
       return _buildEmptyState();
@@ -268,6 +277,54 @@ class _IncidentsListViewState
             onTap: () => MagicRoute.to('/incidents/${incident.id}'),
           ),
       ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // First-load skeleton
+  // ---------------------------------------------------------------------------
+
+  /// Builds the first-load placeholder: the incident list's own shape, in
+  /// skeletons.
+  ///
+  /// Same `gap-3` column rhythm as the real list, three cards deep: enough to
+  /// read as a list without implying a specific incident count.
+  Widget _buildSkeleton() {
+    return WDiv(
+      className: 'flex flex-col gap-3',
+      children: [for (int i = 0; i < 3; i++) _buildSkeletonCard()],
+    );
+  }
+
+  /// One skeleton card, matching [IncidentCard]'s frame and internal rhythm:
+  /// the same [MSCard] shell and `gap-2 p-4 pl-5` body around a badge row, the
+  /// headline title line, and the mono meta line.
+  ///
+  /// The card's left accent stripe is deliberately absent: it encodes customer
+  /// impact, which is exactly what has not been answered yet, and painting one
+  /// in any status tone would be the skeleton making a claim.
+  ///
+  /// Every text placeholder carries an explicit height, matching the line box of
+  /// the text it stands in for (20px for `text-sm`, 16px for `text-xs`). Without
+  /// one an [MSSkeleton] collapses: its `WDiv` has no child to measure, so in a
+  /// flex column it lays out 0px tall and the placeholder is invisible.
+  Widget _buildSkeletonCard() {
+    return MSCard(
+      noPadding: true,
+      child: WDiv(
+        className: 'flex flex-col gap-2 p-4 pl-5',
+        children: const [
+          WDiv(
+            className: 'flex flex-row items-center gap-2',
+            children: [
+              MSSkeleton(width: 84, height: 22),
+              MSSkeleton(width: 96, height: 22),
+            ],
+          ),
+          MSSkeleton(shape: SkeletonShape.text, width: 260, height: 20),
+          MSSkeleton(shape: SkeletonShape.text, width: 200, height: 16),
+        ],
+      ),
     );
   }
 

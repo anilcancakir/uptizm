@@ -493,7 +493,7 @@ class _MonitorDetailViewState
         WDiv(
           className: 'flex flex-col gap-3',
           children: const [
-            MSSkeleton(shape: SkeletonShape.text, width: 160),
+            MSSkeleton(shape: SkeletonShape.text, width: 160, height: 20),
             MSSkeleton(height: 40),
           ],
         ),
@@ -502,7 +502,7 @@ class _MonitorDetailViewState
         WDiv(
           className: 'flex flex-col gap-3',
           children: const [
-            MSSkeleton(shape: SkeletonShape.text, width: 192),
+            MSSkeleton(shape: SkeletonShape.text, width: 192, height: 20),
             MSSkeleton(height: 240),
           ],
         ),
