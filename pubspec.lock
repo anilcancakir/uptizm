@@ -411,14 +411,14 @@ packages:
       path: "../artisan"
       relative: true
     source: path
-    version: "0.0.8"
+    version: "0.0.9"
   fluttersdk_dusk:
     dependency: "direct main"
     description:
       path: "../dusk"
       relative: true
     source: path
-    version: "0.0.8"
+    version: "0.0.9"
   fluttersdk_telescope:
     dependency: "direct main"
     description:
@@ -710,7 +710,7 @@ packages:
       path: "../magic"
       relative: true
     source: path
-    version: "0.0.5"
+    version: "0.0.6"
   magic_deeplink:
     dependency: "direct main"
     description:
@@ -724,7 +724,7 @@ packages:
       path: "../magic_devtools"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.0.2"
   magic_notifications:
     dependency: "direct main"
     description:
@@ -745,7 +745,7 @@ packages:
       path: "../magic_starter"
       relative: true
     source: path
-    version: "0.0.1-alpha.16"
+    version: "0.0.1-alpha.17"
   matcher:
     dependency: transitive
     description:
