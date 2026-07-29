@@ -210,6 +210,35 @@ return [
             'timeout' => 60,
             'nice' => 0,
         ],
+
+        /*
+        | Status-page preview rendering holds a headless Chromium for the whole
+        | job, so it gets its own supervisor rather than riding supervisor-1:
+        | one browser costs 300-500 MB, far past that worker's 128 MB ceiling,
+        | and its process count would multiply the bill. Hence a high memory
+        | ceiling and a deliberately small, per-environment process count.
+        |
+        | The 45s timeout is load bearing. It must stay ABOVE the render job's
+        | own 40s timeout, so the job can record its failure before the worker
+        | kills it, and BELOW the redis connection's retry_after, so a
+        | still-running render is never released to a second worker. See the
+        | invariant comment in config/queue.php; PreviewQueueConfigTest pins
+        | the whole chain, including this supervisor's presence in every
+        | environment below.
+        */
+        'previews' => [
+            'connection' => 'redis',
+            'queue' => ['previews'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 768,
+            'tries' => 1,
+            'timeout' => 45,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -219,11 +248,19 @@ return [
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
+
+            'previews' => [
+                'maxProcesses' => 2,
+            ],
         ],
 
         'local' => [
             'supervisor-1' => [
                 'maxProcesses' => 3,
+            ],
+
+            'previews' => [
+                'maxProcesses' => 1,
             ],
         ],
     ],

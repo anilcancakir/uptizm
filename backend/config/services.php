@@ -61,4 +61,15 @@ return [
         ],
     ],
 
+    /*
+    | Browsershot shells out to Node, which it locates on PATH by default. A
+    | queue worker started by a process manager often has a narrower PATH than
+    | the web process, so these are the explicit escape hatch. Leave them null
+    | to keep PATH resolution.
+    */
+    'browsershot' => [
+        'node_binary' => env('BROWSERSHOT_NODE_BINARY'),
+        'npm_binary' => env('BROWSERSHOT_NPM_BINARY'),
+    ],
+
 ];
