@@ -2,8 +2,10 @@
 
 namespace Tests;
 
+use App\Models\StatusPage;
 use App\Services\StatusPages\StatusPagePreviewRenderer;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\Storage;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -35,6 +37,14 @@ abstract class TestCase extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Keep rendered previews off the real disk. Four write endpoints now
+        // dispatch a render, the suite runs the queue synchronously, and the
+        // double below writes a real file, so without this every full run left
+        // placeholder PNGs behind in storage/app/private and they accumulated
+        // across runs. A test that wants to observe the stored file re-fakes or
+        // asserts on this same disk.
+        Storage::fake(StatusPage::PREVIEW_DISK);
 
         $placeholder = (string) base64_decode(self::PLACEHOLDER_PNG_BASE64, true);
 

@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Controllers\Api\V1\NotificationChannelController;
 use App\Http\Controllers\Api\V1\OnCallController;
 use App\Http\Controllers\Api\V1\StatusPageController;
+use App\Http\Controllers\Api\V1\StatusPagePreviewImageController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -80,6 +81,27 @@ Route::get('public/fixtures/random', function (): JsonResponse {
         ->header('X-Cache', $cache)
         ->header('X-Request-Id', (string) Str::uuid());
 })->name('api.v1.public.fixtures.random');
+
+/*
+ * The rendered preview PNG of a status page.
+ *
+ * Deliberately OUTSIDE `auth:sanctum`, and deliberately under `api/`. A Flutter
+ * `Image.network()` fetches these bytes itself and attaches no bearer token, so
+ * an authenticated route is simply not loadable; and only `api/*` gets CORS
+ * headers (`config/cors.php`), which Flutter web needs to read image bytes at
+ * all. The signature is therefore the whole authorisation, and it is bound to
+ * this exact URL including the page id. See
+ * {@see StatusPagePreviewImageController} for what a copied URL grants.
+ *
+ * The throttle is not decorative: `api/v1` never calls `throttleApi()`, so
+ * without it this unauthenticated route would be unbounded.
+ */
+Route::get('status-pages/{statusPage:id}/preview-image', StatusPagePreviewImageController::class)
+    ->middleware([
+        'signed',
+        'throttle:status-page-preview-image',
+    ])
+    ->name(StatusPagePreviewImageController::ROUTE_NAME);
 
 /*
 |--------------------------------------------------------------------------
@@ -180,6 +202,15 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.status-pages.monitors.attach');
     Route::delete('status-pages/{statusPage:id}/monitors/{monitor}', [StatusPageController::class, 'detachMonitor'])
         ->name('api.v1.status-pages.monitors.detach');
+
+    // The operator's explicit "refresh the preview" action. Throttled by name
+    // because one accepted request spawns a headless browser, and because
+    // nothing else bounds it: `api/v1` is unthrottled, and the render job's
+    // per-page lock releases the moment processing starts, so it caps queue
+    // depth rather than request rate.
+    Route::post('status-pages/{statusPage:id}/preview', [StatusPageController::class, 'renderPreview'])
+        ->middleware('throttle:status-page-preview-render')
+        ->name('api.v1.status-pages.preview');
 
     Route::get('status-pages/{statusPage:id}/subscribers', [StatusPageController::class, 'listSubscribers'])
         ->name('api.v1.status-pages.subscribers.index');

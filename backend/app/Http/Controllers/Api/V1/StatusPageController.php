@@ -8,6 +8,7 @@ use App\Http\Requests\StoreStatusPageRequest;
 use App\Http\Requests\UpdateStatusPageRequest;
 use App\Http\Resources\StatusPageResource;
 use App\Http\Resources\StatusPageSubscriberResource;
+use App\Jobs\RenderStatusPagePreview;
 use App\Models\Monitor;
 use App\Models\StatusPage;
 use App\Models\StatusPageSubscriber;
@@ -33,6 +34,11 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  * (create/update/delete/attach/detach/reorder) busts the read-through cache
  * via {@see StatusPageCache::invalidateForMonitors()} so the public page never
  * serves a stale component list.
+ *
+ * Every write that changes what the public page LOOKS LIKE additionally queues a
+ * fresh headless render through {@see self::queuePreviewRender()}, so the
+ * editor's artefact tracks the page instead of waiting for someone to press
+ * refresh. `store` is deliberately not one of them: see that method.
  */
 class StatusPageController extends Controller
 {
@@ -60,6 +66,11 @@ class StatusPageController extends Controller
 
     /**
      * Create a status page for the current team.
+     *
+     * Queues NO preview render, unlike every other write here. A page is created
+     * with no components at all, so the artefact would be an empty page stored
+     * under a customer-view label, and the operator's next action is attaching
+     * the first monitor, which renders anyway.
      */
     public function store(StoreStatusPageRequest $request): JsonResponse
     {
@@ -95,6 +106,8 @@ class StatusPageController extends Controller
 
         $this->statusPageCache->invalidateForMonitors($this->monitorIds($statusPage));
 
+        $this->queuePreviewRender($statusPage);
+
         return StatusPageResource::make($statusPage->refresh()->load('monitors'));
     }
 
@@ -114,6 +127,27 @@ class StatusPageController extends Controller
         $statusPage->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Queue a headless re-render of the page's public view.
+     *
+     * The operator's explicit refresh action. Returns 202 with no body on
+     * purpose: the render happens in a worker, so the row still holds the
+     * PREVIOUS state at this point and returning the resource here would state a
+     * status the render is about to contradict. The client polls
+     * {@see self::show()} for the outcome.
+     *
+     * The dispatch itself, and exactly what `afterCommit()` does and does not
+     * promise on this path, live in {@see self::queuePreviewRender()}.
+     */
+    public function renderPreview(Request $request, StatusPage $statusPage): Response
+    {
+        $this->authorizeTeam($request, $statusPage);
+
+        $this->queuePreviewRender($statusPage);
+
+        return response()->noContent(HttpResponse::HTTP_ACCEPTED);
     }
 
     /**
@@ -152,6 +186,8 @@ class StatusPageController extends Controller
 
         $this->statusPageCache->invalidateForMonitors([$validated['monitor_id']]);
 
+        $this->queuePreviewRender($statusPage);
+
         return StatusPageResource::make($statusPage->load('monitors'));
     }
 
@@ -165,6 +201,8 @@ class StatusPageController extends Controller
         $statusPage->monitors()->detach($monitor->id);
 
         $this->statusPageCache->invalidateForMonitors([$monitor->id]);
+
+        $this->queuePreviewRender($statusPage);
 
         return response()->noContent();
     }
@@ -217,6 +255,10 @@ class StatusPageController extends Controller
         });
 
         $this->statusPageCache->invalidateForMonitors($incomingIds);
+
+        // Dispatched outside the transaction above, so the render reads committed
+        // pivot rows rather than a view a rollback could still discard.
+        $this->queuePreviewRender($statusPage);
 
         return response()->noContent();
     }
@@ -310,6 +352,38 @@ class StatusPageController extends Controller
         $subscriber->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Queue a headless re-render of the page's public artefact.
+     *
+     * Called by the explicit refresh endpoint and by every write that changes
+     * what the public page renders. Two properties belong to the CALL SITE and
+     * cannot be enforced from in here:
+     *
+     * ORDER. The call must sit AFTER the caller's
+     * {@see StatusPageCache::invalidateForMonitors()}. On a synchronous queue
+     * (which is what the test suite runs) the render happens inside this call, so
+     * a browser navigating while the page is still served from its 60-second
+     * read-through cache would store the PRE-write page under a post-write
+     * timestamp: the exact drift this artefact exists to remove.
+     *
+     * COMMIT. `afterCommit()` promises less here than it looks like it does. None
+     * of the current callers holds an open transaction at this point
+     * (`reorderMonitors` closes its own first), so the dispatch is immediate
+     * today and the flag changes nothing. What it buys is the next caller:
+     * wrapping any of these actions in a transaction cannot start feeding the
+     * renderer a view a rollback is about to discard, with nobody having to
+     * remember this.
+     *
+     * Dispatching on every write is only affordable because
+     * {@see RenderStatusPagePreview} is unique per page until processing starts: a
+     * save followed by three attaches queues one render, while an edit made
+     * DURING a render queues a follow-up instead of being dropped.
+     */
+    protected function queuePreviewRender(StatusPage $statusPage): void
+    {
+        RenderStatusPagePreview::dispatch($statusPage)->afterCommit();
     }
 
     /**

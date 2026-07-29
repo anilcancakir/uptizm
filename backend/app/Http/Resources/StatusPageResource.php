@@ -2,9 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Controllers\Api\V1\StatusPagePreviewImageController;
 use App\Models\StatusPage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\URL;
 
 /**
  * JSON shape for a single status page consumed by the Flutter status-page
@@ -15,10 +18,33 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * eager-loaded ({@see self::monitors()}), so `index` stays a single query
  * while `show` can carry the full component list.
  *
+ * `preview_image_url` is a SIGNED CAPABILITY, not an identifier, so unlike every
+ * other field here it is emitted from `show` alone. See
+ * {@see self::previewImageUrl()} for the two properties its construction has to
+ * satisfy at once and {@see StatusPagePreviewImageController} for what holding
+ * one grants.
+ *
  * @property StatusPage $resource
  */
 class StatusPageResource extends JsonResource
 {
+    /**
+     * Name of the route this resource serialises a single page for.
+     *
+     * `apiResource` names its routes without the `api.v1.` prefix the manually
+     * registered status-page routes carry, so this is `status-pages.show` and
+     * not `api.v1.status-pages.show`.
+     */
+    protected const SHOW_ROUTE_NAME = 'status-pages.show';
+
+    /**
+     * Width of the signed URL's expiry bucket, in seconds.
+     *
+     * Quantising the expiry is what makes the URL stable; see
+     * {@see self::signatureExpiresAt()}.
+     */
+    protected const EXPIRY_BUCKET_SECONDS = 900;
+
     /**
      * Transform the status page into its wire representation.
      *
@@ -68,8 +94,81 @@ class StatusPageResource extends JsonResource
                     ])
                     ->all();
             }),
+            // Emitted from `show` only, so the capability is not multiplied
+            // across list responses. `whenLoaded` cannot express that here:
+            // `index` eager-loads `monitors` too, so the loaded relations of the
+            // two endpoints are identical and the request itself is the only
+            // thing that distinguishes them.
+            'preview_image_url' => $this->when(
+                $request->routeIs(self::SHOW_ROUTE_NAME),
+                fn (): ?string => $this->previewImageUrl(),
+            ),
+            'preview_rendered_at' => $this->resource->preview_rendered_at?->toIso8601String(),
+            // Null means never rendered. The enum has no `pending` case, so the
+            // client reads the absence of a value rather than a second spelling
+            // of the same fact.
+            'preview_render_status' => $this->resource->preview_render_status?->value,
             'created_at' => $this->resource->created_at?->toIso8601String(),
             'updated_at' => $this->resource->updated_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Mint the signed URL the client's image widget fetches the PNG from, or
+     * null when there is no render to point at.
+     *
+     * The URL has to satisfy two requirements that pull in opposite directions,
+     * and getting either wrong is visible in the editor:
+     *
+     *   - It must be STABLE while the image is unchanged. Flutter's `ImageCache`
+     *     is keyed on the URL string, and the editor re-reads this resource on
+     *     every poll tick, so a URL carrying a raw `expires` timestamp would be
+     *     a new URL each time and the pane would visibly reload.
+     *   - It must CHANGE when the image changes. The PNG is overwritten at one
+     *     path per page, so a URL that never changed would keep serving the
+     *     previous render out of that same cache after a refresh.
+     *
+     * Hence a bucketed expiry plus `v`, the render's own version. Second
+     * granularity for `v` matches the column's: two renders inside one second
+     * are not distinguishable here, which no real render can be (one holds a
+     * Chromium process for seconds, and the job is unique per page while queued).
+     */
+    protected function previewImageUrl(): ?string
+    {
+        $path = $this->resource->preview_image_path;
+        $renderedAt = $this->resource->preview_rendered_at;
+
+        if (! is_string($path) || $path === '' || $renderedAt === null) {
+            return null;
+        }
+
+        return URL::temporarySignedRoute(
+            StatusPagePreviewImageController::ROUTE_NAME,
+            $this->signatureExpiresAt(),
+            [
+                'statusPage' => $this->resource->getKey(),
+                'v' => $renderedAt->getTimestamp(),
+            ],
+        );
+    }
+
+    /**
+     * Expiry quantised to the next-but-one bucket boundary.
+     *
+     * Rounding DOWN to the current boundary and then adding two buckets, rather
+     * than rounding up to the next one, is deliberate: rounding up alone hands
+     * out a URL with seconds of validity left to a caller that arrives at the end
+     * of a bucket. The cost of the extra bucket is that a URL's real lifetime is
+     * between one and two buckets (15 to 30 minutes) instead of exactly one, so
+     * the leak window in the plan's risk table is up to the wider figure. That is
+     * the honest number for a URL that must also stay stable.
+     */
+    protected function signatureExpiresAt(): Carbon
+    {
+        $bucket = self::EXPIRY_BUCKET_SECONDS;
+
+        return Carbon::createFromTimestamp(
+            intdiv(Carbon::now()->getTimestamp(), $bucket) * $bucket + (2 * $bucket),
+        );
     }
 }

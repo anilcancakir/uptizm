@@ -86,6 +86,40 @@ return Application::configure(basePath: dirname(__DIR__))
                 : Limit::perMinute(30)->by($request->ip()),
         );
 
+        // Bound the preview-render trigger. This limiter is REQUIRED, not
+        // defensive: `api/v1` never calls throttleApi(), and the render job is
+        // unique only UNTIL PROCESSING (so an edit during a render can queue a
+        // follow-up), which means nothing else caps how fast an operator can ask
+        // for a Chromium spawn.
+        //
+        // Two buckets, mirroring the subscribe limiter below. The actor bucket
+        // holds one member accountable; the page bucket bounds the aggregate,
+        // since a whole team refreshing the same page would otherwise multiply
+        // the actor limit by the number of members. `$request->user()` resolves a
+        // TOKEN request here because `config/auth.php` makes `sanctum` the
+        // default guard, so it asks the token guard rather than a session; the
+        // address fallback covers a request whose token failed, which is counted
+        // before it is rejected. A test pins the per-actor keying, because a
+        // silent fall back to the address would put one office NAT on a single
+        // render budget.
+        RateLimiter::for(
+            'status-page-preview-render',
+            fn (Request $request) => [
+                Limit::perMinute(10)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
+                Limit::perMinute(20)->by('page:'.$request->path()),
+            ],
+        );
+
+        // Bound the signed preview-image route. It is unauthenticated by
+        // necessity (see routes/api.php), so the source address is the only key
+        // available. The ceiling is generous because a legitimate client fetches
+        // one image per render: the URL is stable between renders, so its image
+        // cache answers every subsequent read.
+        RateLimiter::for(
+            'status-page-preview-image',
+            fn (Request $request) => Limit::perMinute(60)->by((string) $request->ip()),
+        );
+
         // Throttle the public subscribe write per IP AND per submitted email, so
         // neither a single host nor a single targeted address can be used to
         // spray confirm mail or brute the endpoint. Both limits must pass.
