@@ -20,6 +20,7 @@ use FlutterSdk\MagicStarter\Support\MigrationHelper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -166,6 +167,62 @@ class StatusPageAssemblerTest extends TestCase
         // persists toArray() and rehydrates via fromArray(); the round-trip must
         // reproduce the exact array form.
         $this->assertEquals($original->toArray(), $rehydrated->toArray());
+    }
+
+    /**
+     * A brand colour that is not a plain hex literal never reaches the view.
+     *
+     * Both status partials interpolate this value into an inline
+     * `style="background-color: {{ ... }}"`. Blade escapes HTML entities, so
+     * attribute break-out is impossible, but `red; background-image: url(...)`
+     * contains nothing HTML-special and would survive as a SECOND CSS
+     * declaration, making a tenant-controlled string fetch a remote resource
+     * from inside the headless browser that renders the preview PNG. That is the
+     * exact SSRF shape StatusPageRenderTest forbids at the markup level.
+     *
+     * The write paths already validate the pattern, so this is not reachable
+     * through the API. The guard exists because the column carries no
+     * constraint: a seeder, an import or a console command bypasses the request
+     * rules, and the render-safety control must not depend on validation staying
+     * correct forever. Note the value is written with a mass update here
+     * precisely to model those bypass paths.
+     *
+     * @param  string  $brandColor  The stored value.
+     * @param  string|null  $expected  What the read model should carry.
+     */
+    #[DataProvider('brandColorProvider')]
+    public function test_only_a_hex_brand_color_survives_into_the_read_model(
+        string $brandColor,
+        ?string $expected,
+    ): void {
+        $team = $this->makeTeam();
+        $page = $this->makePage($team);
+
+        DB::table('status_pages')
+            ->where('id', $page->id)
+            ->update(['brand_color' => $brandColor]);
+
+        $viewModel = (new StatusPageAssembler)->build($page->fresh());
+
+        $this->assertSame($expected, $viewModel->page['brand_color']);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string|null}>
+     */
+    public static function brandColorProvider(): array
+    {
+        return [
+            'six digit hex passes' => ['#008560', '#008560'],
+            'eight digit hex passes' => ['#008560ff', '#008560ff'],
+            'uppercase hex passes' => ['#00AB60', '#00AB60'],
+            'a second declaration is dropped' => ['red; background-image: url(https://evil.example.com/x.png)', null],
+            'a bare url is dropped' => ['url(https://evil.example.com/x.png)', null],
+            'a css import is dropped' => ['#008560; @import url(https://evil.example.com/x.css)', null],
+            'a named colour is dropped' => ['red', null],
+            'a hex without the hash is dropped' => ['008560', null],
+            'an empty string is dropped' => ['', null],
+        ];
     }
 
     /**

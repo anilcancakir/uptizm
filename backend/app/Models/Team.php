@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\Plan;
 use FlutterSdk\MagicStarter\Models\Team as MagicStarterTeam;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Cashier\Billable;
 
 class Team extends MagicStarterTeam
@@ -39,6 +40,34 @@ class Team extends MagicStarterTeam
         'plan' => Plan::class,
         'trial_ends_at' => 'datetime',
     ];
+
+    /**
+     * Deletes the filesystem state the team's rows own but cannot clean up
+     * themselves.
+     *
+     * `status_pages.team_id` is `cascadeOnDelete()`, so deleting a team removes
+     * its status pages through a DATABASE cascade. A database cascade raises no
+     * Eloquent event, so {@see StatusPage}'s own `deleted` hook never fires and
+     * every rendered preview PNG would be orphaned on the private disk: the row
+     * that named the file is gone, so nothing can ever find it again.
+     *
+     * Cleaning the files here rather than deleting the pages one by one keeps
+     * the cascade doing the row work it already does correctly, and avoids a
+     * second delete pass over what can be a large set.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (self $team): void {
+            $paths = StatusPage::query()
+                ->where('team_id', $team->getKey())
+                ->whereNotNull('preview_image_path')
+                ->pluck('preview_image_path');
+
+            foreach ($paths as $path) {
+                Storage::disk(StatusPage::PREVIEW_DISK)->delete($path);
+            }
+        });
+    }
 
     /**
      * The single source-of-truth read for the team's billing entitlement.

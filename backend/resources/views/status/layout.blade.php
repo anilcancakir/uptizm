@@ -30,11 +30,35 @@
 
         {{-- Converts every `<time datetime>` on the page to the viewer's local
              time zone client-side; the server-rendered text stays as the
-             no-JS fallback. --}}
+             no-JS fallback. Then flags the document as render-ready. --}}
         <script>
             document.querySelectorAll('time[datetime]').forEach(function (el) {
                 el.textContent = new Date(el.dateTime).toLocaleString();
             });
+
+            // Render-ready marker. The headless preview renderer waits for
+            // `[data-times-localized]` and treats its absence as a hard
+            // failure, so this is a SUCCESS ASSERTION, not just a wait: only
+            // this layout emits it, and a 404 or a 429 error page therefore
+            // can never be stored as a completed customer-facing artefact.
+            //
+            // Two properties are load-bearing. It is set UNCONDITIONALLY
+            // (outside the loop above, which a page with no incidents never
+            // enters, and with a synchronous path for a browser that exposes
+            // no `document.fonts`), because a marker that never fires would
+            // hang the renderer for its whole timeout. And it is set only
+            // after fonts settle, because a capture taken mid-swap stores a
+            // visibly wrong image. A font that fails to load still marks
+            // ready: an unstyled artefact beats no artefact plus a stalled job.
+            var markRenderReady = function () {
+                document.documentElement.dataset.timesLocalized = '1';
+            };
+
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(markRenderReady, markRenderReady);
+            } else {
+                markRenderReady();
+            }
         </script>
     </body>
 </html>

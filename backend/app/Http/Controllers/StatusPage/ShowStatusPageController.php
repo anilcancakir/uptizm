@@ -5,8 +5,8 @@ namespace App\Http\Controllers\StatusPage;
 use App\Http\ViewModels\StatusPageViewModel;
 use App\Models\StatusPage;
 use App\Services\StatusPages\StatusPageAssembler;
-use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -21,12 +21,26 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *     neither confirm a private page exists nor enumerate slugs by status.
  *   - Cache isolation: only a genuinely public page is cached, and only its
  *     `toArray()` form (never the object, which fatals under the cache store's
- *     `serializable_classes => false`). A preview request bypasses the cache
- *     entirely (no read, no write), so a private page can never be seeded into
- *     the shared, CDN-frontable cache.
+ *     `serializable_classes => false`). ANY request carrying a valid preview
+ *     token bypasses the cache entirely (no read, no write) and is answered
+ *     `no-store, private`, so a private page can never be seeded into the
+ *     shared, CDN-frontable cache, and a preview or a render of a PUBLIC page
+ *     reports the page as it is now rather than up to 60 seconds of stale
+ *     state stamped with the current time.
  */
 class ShowStatusPageController
 {
+    /**
+     * Header the preview token travels in on the render path.
+     *
+     * A query token is written verbatim into every access log (`artisan serve`
+     * output, `pail`, nginx `$request`, Telescope), and this token is generated
+     * once and never rotated, so one logged line would be indefinite read
+     * access to a private page. The query parameter stays supported for the
+     * seeded-URL workflow already in use.
+     */
+    public const string PREVIEW_TOKEN_HEADER = 'X-Preview-Token';
+
     public function __construct(
         protected StatusPageAssembler $assembler,
     ) {}
@@ -37,22 +51,32 @@ class ShowStatusPageController
      *
      * @throws NotFoundHttpException
      */
-    public function __invoke(Request $request, string $slug): View
+    public function __invoke(Request $request, string $slug): Response
     {
         // 1. Resolve by slug explicitly (no implicit binding, so a miss is a
         //    controlled 404 rather than a framework-shaped one).
         $page = StatusPage::query()->where('slug', $slug)->first();
 
-        // 2. Fail-closed gate: a missing page, or a private page without a valid
-        //    preview token, is indistinguishable from a non-existent one.
-        if ($page === null || (! $page->is_public && ! $this->hasValidPreviewToken($page, $request))) {
+        if ($page === null) {
             abort(404);
         }
 
-        // 3. A private page that passed the gate did so via a valid preview
-        //    token, so it must render fresh and never touch the shared cache.
-        if (! $page->is_public) {
-            return $this->render($this->assembler->build($page), $page->slug);
+        $hasPreviewToken = $this->hasValidPreviewToken($page, $request);
+
+        // 2. Fail-closed gate: a missing page, or a private page without a valid
+        //    preview token, is indistinguishable from a non-existent one.
+        if (! $page->is_public && ! $hasPreviewToken) {
+            abort(404);
+        }
+
+        // 3. A token holder is a preview or a headless render, never a visitor,
+        //    on a private page AND on a public one. It renders fresh, never
+        //    touches the shared cache in either direction, and is marked
+        //    no-store so an intermediary keying on neither the header nor the
+        //    query cannot store this body under the public URL.
+        if ($hasPreviewToken) {
+            return $this->render($this->assembler->build($page), $page->slug)
+                ->header('Cache-Control', 'no-store, private');
         }
 
         // 4. Public path: cache the plain-array read model (never the object)
@@ -72,24 +96,91 @@ class ShowStatusPageController
      */
     protected function hasValidPreviewToken(StatusPage $page, Request $request): bool
     {
-        $provided = $request->query('preview_token');
-        $expected = $page->preview_token;
+        return static::previewTokenMatches($page->preview_token, $request);
+    }
 
+    /**
+     * Whether the request carries a valid preview token for the page its
+     * `{slug}` route parameter addresses.
+     *
+     * This is what the `resource-not-found` limiter routes a render onto its own
+     * bucket by. The token is the only credential the renderer holds, and it is
+     * what the relief keys on: a render fetches the app's own origin, but so can
+     * real visitor traffic behind a proxy without TrustProxies configured, so an
+     * address-based relief would drop slug-enumeration protection for everyone.
+     *
+     * The page is resolved ONLY once a token was actually supplied, so ordinary
+     * visitor traffic costs no extra query.
+     */
+    public static function requestCarriesValidPreviewToken(Request $request): bool
+    {
+        if (static::suppliedPreviewTokens($request) === []) {
+            return false;
+        }
+
+        $slug = $request->route('slug');
+
+        if (! is_string($slug) || $slug === '') {
+            return false;
+        }
+
+        return static::previewTokenMatches(
+            StatusPage::query()->where('slug', $slug)->value('preview_token'),
+            $request,
+        );
+    }
+
+    /**
+     * Constant-time compare a page's stored token against every transport the
+     * request may carry one in.
+     *
+     * @param  mixed  $expected  The page's stored token, untyped at the model.
+     */
+    protected static function previewTokenMatches(mixed $expected, Request $request): bool
+    {
         // Fail closed when the page has no token: otherwise an empty
         // `?preview_token=` would hash_equals('', '') and bypass the gate.
-        return is_string($expected)
-            && $expected !== ''
-            && is_string($provided)
-            && hash_equals($expected, $provided);
+        if (! is_string($expected) || $expected === '') {
+            return false;
+        }
+
+        foreach (static::suppliedPreviewTokens($request) as $provided) {
+            if (hash_equals($expected, $provided)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every preview token the request supplies, header before query string.
+     *
+     * Empty and non-string values are dropped rather than compared, so a bare
+     * `?preview_token=` or an empty header can never reach `hash_equals`.
+     *
+     * @return array<int, string>
+     */
+    protected static function suppliedPreviewTokens(Request $request): array
+    {
+        $supplied = [
+            $request->header(self::PREVIEW_TOKEN_HEADER),
+            $request->query('preview_token'),
+        ];
+
+        return array_values(array_filter(
+            $supplied,
+            fn (mixed $token): bool => is_string($token) && $token !== '',
+        ));
     }
 
     /**
      * Render the status view from the read model and slug alone. The slug (not
      * the request URL) drives every URL the Blade generates via `route()`.
      */
-    protected function render(StatusPageViewModel $vm, string $slug): View
+    protected function render(StatusPageViewModel $vm, string $slug): Response
     {
-        return view('status.show', [
+        return response()->view('status.show', [
             'vm' => $vm,
             'slug' => $slug,
         ]);

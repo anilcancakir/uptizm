@@ -247,12 +247,45 @@ class StatusPageAssembler
     {
         return [
             'name' => $page->name,
-            'brand_color' => $page->brand_color,
+            'brand_color' => $this->safeBrandColor($page->brand_color),
             'logo_text' => $page->logo_text,
             'description' => $page->description,
             'subscriptions_enabled' => (bool) $page->subscriptions_enabled,
             'slug' => $page->slug,
         ];
+    }
+
+    /**
+     * A brand colour safe to interpolate into a CSS declaration, or null.
+     *
+     * Both status partials render this value inside an inline
+     * `style="background-color: {{ ... }}"`. Blade escapes HTML entities, which
+     * stops attribute break-out, but a value like
+     * `red; background-image: url(https://host/x.png)` contains nothing
+     * HTML-special and would survive intact as a SECOND CSS declaration. That
+     * would make a tenant-controlled string issue a remote fetch from inside the
+     * headless browser that renders the preview PNG, which is the exact SSRF
+     * shape the render-safety test exists to forbid.
+     *
+     * The write paths do validate this pattern (Store and
+     * UpdateStatusPageRequest both anchor a hex regex), so a hostile value is
+     * not reachable through the API today. This guard is deliberately here
+     * anyway: the column carries no constraint, a seeder, an import or a console
+     * command bypasses the request rules entirely, and the render-safety
+     * control must not silently depend on validation staying correct forever.
+     *
+     * Anything that is not a 6 or 8 digit hex literal becomes null, which both
+     * partials already render as their neutral default.
+     */
+    protected function safeBrandColor(?string $brandColor): ?string
+    {
+        if ($brandColor === null) {
+            return null;
+        }
+
+        return preg_match('/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/', $brandColor) === 1
+            ? $brandColor
+            : null;
     }
 
     /**

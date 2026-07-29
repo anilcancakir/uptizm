@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -63,9 +64,26 @@ return Application::configure(basePath: dirname(__DIR__))
         // sweeping the slug space to discover which pages exist. Registered on
         // `booted` because the RateLimiter facade root is not yet set while the
         // middleware configuration closure runs.
+        //
+        // A headless preview render fetches the app's own origin, so it shares
+        // one per-IP bucket with real visitor traffic and could be 429'd by it,
+        // which would then be screenshotted and stored as the customer view. The
+        // relief is keyed on a VALID preview token (which only the renderer
+        // holds) and NOT on the source address: behind a proxy without
+        // TrustProxies configured a real visitor is indistinguishable from the
+        // app's own host, so an address-based exemption would remove
+        // enumeration protection for everyone.
+        //
+        // Relief is a SEPARATE bucket, not an exemption. Keyed on the requested
+        // page, it can never be consumed by visitor traffic, while the token
+        // path stays bounded: it bypasses the 60s cache and rebuilds the whole
+        // read model per request, and the token is never rotated or revocable.
+        // A legitimate render issues one request per dispatch, far below this.
         RateLimiter::for(
             'resource-not-found',
-            fn (Request $request) => Limit::perMinute(30)->by($request->ip()),
+            fn (Request $request) => ShowStatusPageController::requestCarriesValidPreviewToken($request)
+                ? Limit::perMinute(30)->by('status-page-preview:'.$request->path())
+                : Limit::perMinute(30)->by($request->ip()),
         );
 
         // Throttle the public subscribe write per IP AND per submitted email, so
