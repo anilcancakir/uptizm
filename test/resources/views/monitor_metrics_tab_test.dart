@@ -59,6 +59,9 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_form_ai_suggestion': 'Suggestion.',
       'uptizm.monitors.metrics_form_test_title': 'Test extraction',
       'uptizm.monitors.metrics_form_test_hint': 'Run a sample fetch.',
+      'uptizm.monitors.metrics_form_no_sample': 'No checks yet.',
+      'uptizm.monitors.metrics_form_sample_from':
+          'Verified against the check from :when (HTTP :code)',
       'uptizm.monitors.metrics_form_fetch_test': 'Fetch & test',
       'uptizm.monitors.metrics_form_fetching': 'Fetching...',
       'uptizm.monitors.metrics_form_fetching_sample': 'Fetching sample...',
@@ -72,6 +75,8 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.action_edit': 'Edit',
       'uptizm.monitors.action_delete': 'Delete',
       'uptizm.monitors.metrics_detail_latest': 'latest · last 24h',
+      'uptizm.monitors.metrics_detail_loading': 'Loading readings...',
+      'uptizm.monitors.metrics_detail_no_readings': 'No readings yet.',
       'uptizm.monitors.metrics_recent_readings': 'Recent readings',
       'uptizm.monitors.metrics_confirm_delete_title': 'Delete metric',
       'uptizm.monitors.metrics_confirm_delete_description':
@@ -310,14 +315,15 @@ void main() {
         findsOneWidget,
         reason: 'Tapping a custom metric row must open its detail sheet',
       );
-      // The detail body renders the section header uppercased.
+      // The sheet loads the metric's real readings on mount, and this bare test
+      // host serves none, so it renders its honest no-readings state rather than
+      // a section of invented rows. The readings section itself is covered
+      // against a real series in the MonitorMetricDetail group below.
       expect(
-        find.text(
-          trans('uptizm.monitors.metrics_recent_readings').toUpperCase(),
-        ),
+        find.text(trans('uptizm.monitors.metrics_detail_no_readings')),
         findsOneWidget,
-        reason:
-            'The opened detail sheet must render the Recent readings section',
+        reason: 'the opened detail sheet reports having no readings rather '
+            'than inventing a series',
       );
     });
 
@@ -526,6 +532,7 @@ void main() {
             initial: kEmptyMetricForm,
             isEdit: false,
             onSave: (_) async => <String, String>{},
+            onPreview: (_) async => null,
             onCancel: () {},
           ),
         ),
@@ -572,6 +579,7 @@ void main() {
                 submitted = true;
                 return <String, String>{};
               },
+              onPreview: (_) async => null,
               onCancel: () {},
             ),
           ),
@@ -626,6 +634,7 @@ void main() {
                 submitted = form;
                 return <String, String>{};
               },
+              onPreview: (_) async => null,
               onCancel: () {},
             ),
           ),
@@ -668,6 +677,7 @@ void main() {
               initial: statusForm,
               isEdit: false,
               onSave: (_) async => <String, String>{},
+              onPreview: (_) async => null,
               onCancel: () {},
             ),
           ),
@@ -701,76 +711,370 @@ void main() {
       return fromCatalog(m);
     }
 
-    testWidgets('renders a MetricChart for a numeric metric', (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 2400));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(
-          MonitorMetricDetail(
-            metric: memoryUsageForm(),
-            onEdit: () {},
-            onDelete: () {},
-          ),
+    /// Three real readings, oldest first, the shape the series endpoint sends.
+    List<MetricSeriesPoint> readings() {
+      final DateTime base = DateTime.utc(2026, 7, 29, 10);
+      return [
+        MetricSeriesPoint(
+          recordedAt: base,
+          numericValue: 61.2,
+          statusValue: null,
+          stringValue: null,
+          band: 'ok',
         ),
-      );
-      await tester.pump();
+        MetricSeriesPoint(
+          recordedAt: base.add(const Duration(minutes: 5)),
+          numericValue: 74.5,
+          statusValue: null,
+          stringValue: null,
+          band: 'warn',
+        ),
+        MetricSeriesPoint(
+          recordedAt: base.add(const Duration(minutes: 10)),
+          numericValue: 91.8,
+          statusValue: null,
+          stringValue: null,
+          band: 'critical',
+        ),
+      ];
+    }
 
-      expect(
-        find.byType(MetricChart),
-        findsOneWidget,
-        reason: 'MetricChart must be present for a numeric metric',
-      );
-    });
-
-    testWidgets('renders the latest value text for a numeric metric', (
-      tester,
+    Future<void> pumpDetail(
+      WidgetTester tester,
+      List<MetricSeriesPoint> series,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1280, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final MetricForm form = memoryUsageForm();
-
-      await tester.pumpWidget(
-        wrap(MonitorMetricDetail(metric: form, onEdit: () {}, onDelete: () {})),
-      );
-      await tester.pump();
-
-      // The detail computes latest from the augmented series; we just confirm
-      // a fmt'd WText with the unit suffix is present.
-      final Iterable<WText> texts = tester.widgetList<WText>(
-        find.byType(WText),
-      );
-      final bool hasValueText = texts.any(
-        (w) => w.data.contains(kUnitSuffix[form.unit] ?? form.unit),
-      );
-      expect(
-        hasValueText,
-        isTrue,
-        reason: 'A formatted value text with the unit suffix must be visible',
-      );
-    });
-
-    testWidgets('renders the "latest · last 24h" label', (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 2400));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
       await tester.pumpWidget(
         wrap(
           MonitorMetricDetail(
             metric: memoryUsageForm(),
+            onLoadSeries: () async => series,
             onEdit: () {},
             onDelete: () {},
+          ),
+        ),
+      );
+      // One pump resolves the load future, a second paints the result.
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('charts the metric\'s real readings', (tester) async {
+      await pumpDetail(tester, readings());
+
+      expect(find.byType(MetricChart), findsOneWidget);
+    });
+
+    testWidgets('shows the newest reading as the latest value', (tester) async {
+      // The regression this pins: the latest value used to be read off the last
+      // point of a locally generated sine wave, so it disagreed with the real
+      // reading the metrics list showed for the same metric.
+      await pumpDetail(tester, readings());
+
+      final Iterable<WText> texts = tester.widgetList<WText>(
+        find.byType(WText),
+      );
+      expect(
+        texts.any((w) => w.data.contains('91.8')),
+        isTrue,
+        reason: 'the newest recorded reading is the latest value',
+      );
+      expect(
+        texts.any((w) => w.data.contains('61.2')),
+        isTrue,
+        reason: 'older readings still appear in the recent-readings list',
+      );
+    });
+
+    testWidgets('says so when the metric has no readings', (tester) async {
+      // A metric whose rule never extracted anything has no history. It used to
+      // render a full 24-hour series anyway.
+      await pumpDetail(tester, const []);
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_detail_no_readings')),
+        findsOneWidget,
+      );
+      expect(
+        find.byType(MetricChart),
+        findsNothing,
+        reason: 'no readings means no chart, not an invented one',
+      );
+    });
+
+    testWidgets('renders the "latest · last 24h" label', (tester) async {
+      await pumpDetail(tester, readings());
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_detail_latest')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Extraction test panel: it must report the BACKEND's answer, never its own.
+  // ---------------------------------------------------------------------------
+
+  group('MonitorMetricForm extraction test panel', () {
+    /// Pumps the form with a ready json rule and a canned preview answer, taps
+    /// "Fetch & test", and returns once the verdict has rendered.
+    Future<void> runTest(
+      WidgetTester tester,
+      MetricPreviewResult? answer, {
+      MetricForm? initial,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(600, 3000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrapForm(
+          MonitorMetricForm(
+            initial: (initial ?? kEmptyMetricForm).copyWith(
+              label: 'Latency',
+              key: 'latency_ms',
+              path: r'$.data.latency_ms',
+            ),
+            isEdit: false,
+            onSave: (_) async => <String, String>{},
+            onPreview: (_) async => answer,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder button = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.metrics_form_fetch_test'),
+      );
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pump();
+      await tester.pump();
+    }
+
+    MetricPreviewResult answer({
+      String? value,
+      bool typeValid = true,
+      String? error,
+      String? band,
+      bool hasSample = true,
+    }) {
+      return MetricPreviewResult(
+        value: value,
+        typeValid: typeValid,
+        error: error,
+        band: band,
+        hasSample: hasSample,
+        sampleCheckedAt: DateTime.now(),
+        sampleStatusCode: 200,
+      );
+    }
+
+    testWidgets('renders the value the backend extracted', (tester) async {
+      await runTest(tester, answer(value: '185', band: 'ok'));
+
+      expect(find.text(trans('uptizm.monitors.metrics_form_resolved').toUpperCase()), findsOneWidget);
+      expect(
+        find.textContaining('185'),
+        findsWidgets,
+        reason: 'the panel shows the backend value, not a constant per unit',
+      );
+    });
+
+    testWidgets('reports a failed rule as failed, with the backend reason', (
+      tester,
+    ) async {
+      // The regression this pins. The panel used to resolve the path against a
+      // hardcoded sample map and report "RESOLVED" with a constant value, so it
+      // confirmed rules the real pipeline could never extract: live QA saw it
+      // claim "RESOLVED 73.4 %" for a path absent from the monitor's response.
+      await runTest(
+        tester,
+        answer(error: 'No value at path `\$.data.latency_ms`.', typeValid: false),
+      );
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_resolved').toUpperCase()),
+        findsNothing,
+        reason: 'a rule that resolved nothing must never read as resolved',
+      );
+      expect(find.textContaining('No value at path'), findsOneWidget);
+    });
+
+    testWidgets('a type mismatch is not a resolution', (tester) async {
+      // The rule found something, but not of the declared type, so the metric
+      // would record nothing. That is a failure, not a value.
+      await runTest(tester, answer(value: 'service stable', typeValid: false));
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_resolved').toUpperCase()),
+        findsNothing,
+      );
+    });
+
+    testWidgets('says so when the monitor has never been checked', (
+      tester,
+    ) async {
+      await runTest(tester, answer(hasSample: false));
+
+      expect(find.text(trans('uptizm.monitors.metrics_form_no_sample')), findsOneWidget);
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_resolved').toUpperCase()),
+        findsNothing,
+      );
+    });
+
+    testWidgets('names the sample it verified against', (tester) async {
+      // The panel used to print a hardcoded sample JSON body, implying it had
+      // just fetched the endpoint. It states which check it used instead.
+      await runTest(tester, answer(value: '185', band: 'ok'));
+
+      expect(find.textContaining('Verified against the check'), findsOneWidget);
+    });
+
+    testWidgets('offers no threshold suggestion before anything is measured', (
+      tester,
+    ) async {
+      // The suggestion copy states a baseline ("typically reads near X"), which
+      // was previously derived from a constant-per-unit fallback, so a brand-new
+      // metric was told it "typically reads near 73.4 %".
+      await tester.binding.setSurfaceSize(const Size(600, 3000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrapForm(
+          MonitorMetricForm(
+            initial: kEmptyMetricForm.copyWith(
+              label: 'Latency',
+              key: 'latency_ms',
+              path: r'$.data.latency_ms',
+            ),
+            isEdit: false,
+            onSave: (_) async => <String, String>{},
+            onPreview: (_) async => null,
+            onCancel: () {},
           ),
         ),
       );
       await tester.pump();
 
       expect(
-        find.text(trans('uptizm.monitors.metrics_detail_latest')),
-        findsOneWidget,
-        reason: 'The "latest · last 24h" label must be present',
+        find.text(trans('uptizm.monitors.metrics_form_ai_suggestion')),
+        findsNothing,
       );
+    });
+
+    testWidgets('offers a suggestion once a real value has been measured', (
+      tester,
+    ) async {
+      await runTest(tester, answer(value: '185', band: 'ok'));
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_ai_suggestion')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Metric rows: the value shown is the reading, or an em-dash.
+  // ---------------------------------------------------------------------------
+
+  group('MonitorMetricsTab custom rows', () {
+    Future<void> pumpWith(
+      WidgetTester tester,
+      List<MonitorMetricRecord> records,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      MonitorMetricsController.instance.seedForTest('api', records);
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pump();
+    }
+
+    MonitorMetricRecord record({
+      required String type,
+      num? value,
+      String? latestStatus,
+      String? latestString,
+      String? latestBand,
+    }) {
+      return MonitorMetricRecord(
+        id: 'm1',
+        latestStatus: latestStatus,
+        latestString: latestString,
+        latestBand: latestBand,
+        form: MetricForm(
+          label: 'Probe',
+          key: 'probe',
+          type: type,
+          source: 'json',
+          path: 'a.b',
+          unit: 'ms',
+          direction: 'high',
+          warn: '',
+          critical: '',
+          value: value,
+        ),
+      );
+    }
+
+    testWidgets('a metric with no reading shows an em-dash, never 0', (
+      tester,
+    ) async {
+      // The regression this pins. A rule that extracts nothing (a wrong path, an
+      // absent header) used to display `0`, and for a latency or error-count
+      // metric `0` reads as perfect health rather than "this rule is dead".
+      await pumpWith(tester, [record(type: 'numeric')]);
+
+      expect(find.text('—'), findsWidgets);
+      expect(
+        find.text('0'),
+        findsNothing,
+        reason: 'a missing reading must not be rendered as zero',
+      );
+    });
+
+    testWidgets('a status metric shows its real reading, not "operational"', (
+      tester,
+    ) async {
+      // The row used to render the LITERAL word "operational" for every status
+      // metric, so one reading `down` displayed as healthy.
+      await pumpWith(
+        tester,
+        [record(type: 'status', latestStatus: 'down')],
+      );
+
+      expect(find.text('down'), findsOneWidget);
+      expect(find.text('operational'), findsNothing);
+    });
+
+    testWidgets('a string metric shows its real reading, not "ok"', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        [record(type: 'string', latestString: 'eu-central')],
+      );
+
+      expect(find.text('eu-central'), findsOneWidget);
+      expect(find.text('ok'), findsNothing);
+    });
+
+    testWidgets('a numeric reading renders formatted with its unit', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        [record(type: 'numeric', value: 185, latestBand: 'ok')],
+      );
+
+      expect(find.text('185 ms'), findsOneWidget);
     });
   });
 }

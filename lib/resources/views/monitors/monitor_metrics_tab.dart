@@ -72,6 +72,13 @@ class MonitorMetricsTab extends StatefulWidget {
 }
 
 class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
+  /// Shown in place of a value when the metric has recorded no reading.
+  ///
+  /// An em-dash, matching how the rest of the product renders "not measured"
+  /// (the dashboard's unmeasured KPIs, a monitor's response time before its
+  /// first check).
+  static const String _noReading = '—';
+
   /// The singleton controller sourcing this monitor's custom metric catalog
   /// from the live metrics endpoints.
   late final MonitorMetricsController _controller;
@@ -135,6 +142,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       initial: kEmptyMetricForm,
       isEdit: false,
       onSave: (form) => _controller.create(widget.monitorId, form),
+      onPreview: (form) => _controller.preview(widget.monitorId, form),
     );
   }
 
@@ -145,6 +153,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       initial: record.form,
       isEdit: true,
       onSave: (form) => _controller.update(widget.monitorId, record.id, form),
+      onPreview: (form) => _controller.preview(widget.monitorId, form),
     );
   }
 
@@ -160,6 +169,8 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       body: Builder(
         builder: (sheetContext) => MonitorMetricDetail(
           metric: record.form,
+          onLoadSeries: () =>
+              _controller.series(widget.monitorId, record.id),
           onEdit: () {
             Navigator.of(sheetContext).pop();
             _openEdit(record);
@@ -315,14 +326,26 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   Widget _buildMetricRow(MonitorMetricRecord record) {
     final MetricForm metric = record.form;
     final bool isNumeric = metric.type == 'numeric';
-    final num latest = metric.value ?? 0;
-    final StatusKey band = isNumeric
-        ? bandOf(latest, metric.warn, metric.critical, metric.direction)
-        : StatusKey.up;
+    final num? latest = metric.value;
+
+    // Every branch is the metric's REAL latest reading, and an em-dash when it
+    // has none. This row used to default a missing numeric reading to `0` and
+    // render the LITERAL words "operational" / "ok" for every status / string
+    // metric, so a rule that extracted nothing looked healthy and a status
+    // metric reading `down` displayed as operational.
     final String valueText = switch (metric.type) {
-      'status' => 'operational',
-      'string' => 'ok',
-      _ => fmt(latest, metric.unit),
+      'status' => record.latestStatus ?? _noReading,
+      'string' => record.latestString ?? _noReading,
+      _ => latest == null ? _noReading : fmt(latest, metric.unit),
+    };
+
+    // The dot reflects the band the backend froze on that reading; a metric with
+    // no reading, or no thresholds, gets no dot rather than a green one.
+    final StatusKey? band = switch (record.latestBand) {
+      'critical' => StatusKey.down,
+      'warn' => StatusKey.degraded,
+      'ok' => StatusKey.up,
+      _ => null,
     };
 
     // WAnchor (the app's proven clickable-row primitive, as in MonitorListRow)
@@ -353,7 +376,8 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
           WDiv(
             className: 'flex flex-row items-center gap-2',
             children: [
-              if (isNumeric) StatusDot(band),
+              // Only when the reading carried a frozen band.
+              ?(isNumeric && band != null ? StatusDot(band) : null),
               WText(
                 valueText,
                 className: 'font-mono text-sm tabular-nums text-fg',

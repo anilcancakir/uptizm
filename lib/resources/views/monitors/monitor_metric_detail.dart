@@ -2,6 +2,8 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/monitor_metrics_controller.dart'
+    show MetricSeriesPoint;
 import '../../../app/enums/chart_tone.dart' show ChartTone;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
@@ -15,25 +17,21 @@ import 'monitor_metrics_support.dart';
 ///
 /// Displays a full historical view for a single custom metric: a header row
 /// with label, key·path, and Edit/Delete action buttons (Delete routes through
-/// a [ConfirmDialog]); the latest value in large monospace with a [StatusDot]
-/// for numeric metrics; a [MetricChart] at height 180 with the AI-learned band
-/// and an injected anomaly for numeric metrics; and a "Recent readings" list
-/// showing the 6 most-recent hourly readings in reverse chronological order.
+/// a [ConfirmDialog]); the latest reading in large monospace, banded by the band
+/// the backend froze when it was recorded; a [MetricChart] of the metric's real
+/// series; and a "Recent readings" list of the 6 newest readings.
 ///
-/// ### Band + anomaly computation
+/// ### Everything here is a recorded reading
 ///
-/// This widget owns the band multiplier + anomaly injection (mirroring React
-/// `DetailBody` lines 505-521). It takes the raw 24-point [chartData] from
-/// [monitor_metrics_support.dart] and:
+/// [onLoadSeries] fetches `GET /monitors/:id/metrics/:metricId/series` on mount,
+/// and the sheet renders one of three honest states: loading, no readings yet, or
+/// the real series.
 ///
-/// 1. Augments each [MetricDatum] with a `band` tuple using direction-dependent
-///    multipliers (`'low'` → 0.78/1.14, else → 0.86/1.18).
-/// 2. Replaces the value at index 17 with a spike outside the band
-///    (`'low'` → `band[0] * 0.6`, else → `band[1] * 1.45`) and emits it
-///    as the single [MetricAnomaly].
-///
-/// Use this widget as the `body` of a [BottomSheet.show] call from the
-/// Metrics tab, or render it statically in tests.
+/// It previously synthesised all of it: [chartData] generated 24 points as
+/// `base + sin(i / 3) * base * 0.18`, each was given a fabricated "learned
+/// expected range" from direction-dependent multipliers, an anomaly was injected
+/// at a fixed index 17 and narrated as observed, and the "latest value" was read
+/// off the last fake point, so it contradicted the real reading the list showed.
 ///
 /// ### Example
 /// ```dart
@@ -41,75 +39,67 @@ import 'monitor_metrics_support.dart';
 ///   context,
 ///   body: MonitorMetricDetail(
 ///     metric: myMetricForm,
+///     onLoadSeries: () => controller.series(monitorId, metricId),
 ///     onEdit: () { /* open edit sheet */ },
 ///     onDelete: () { /* delete metric */ },
 ///   ),
 /// );
 /// ```
 @immutable
-class MonitorMetricDetail extends StatelessWidget {
-  /// The metric whose history to display.
+class MonitorMetricDetail extends StatefulWidget {
+  /// The metric being inspected.
   final MetricForm metric;
 
-  /// Called when the user taps the Edit button.
+  /// Loads this metric's recorded readings, newest last.
+  ///
+  /// A callback rather than a controller reference (matching the form's
+  /// `onPreview`), so the sheet stays unaware of the monitor id.
+  final Future<List<MetricSeriesPoint>> Function() onLoadSeries;
+
+  /// Called when the user taps Edit.
   final VoidCallback onEdit;
 
-  /// Called after the user confirms deletion via [ConfirmDialog].
+  /// Called once the user confirms Delete.
   final VoidCallback onDelete;
 
   /// Creates a [MonitorMetricDetail].
   const MonitorMetricDetail({
     super.key,
     required this.metric,
+    required this.onLoadSeries,
     required this.onEdit,
     required this.onDelete,
   });
 
-  // ---------------------------------------------------------------------------
-  // Band + anomaly augmentation
-  // ---------------------------------------------------------------------------
+  @override
+  State<MonitorMetricDetail> createState() => _MonitorMetricDetailState();
+}
 
-  /// Augments the raw [chartData] output with direction-dependent band
-  /// multipliers and injects a single anomaly at index 17.
-  ///
-  /// Band multipliers (React `DetailBody` lines 506-507):
-  /// - direction `'low'`: lowMul = 0.78, highMul = 1.14
-  /// - otherwise: lowMul = 0.86, highMul = 1.18
-  ///
-  /// Anomaly spike (React lines 515-521):
-  /// - `'low'`: spike = `band[0] * 0.6` (drops below the low bound).
-  /// - otherwise: spike = `band[1] * 1.45` (spikes above the high bound).
-  ({List<MetricDatum> data, List<MetricAnomaly> anomalies}) _buildAugmented() {
-    final bool isLow = metric.direction == 'low';
-    final double lowMul = isLow ? 0.78 : 0.86;
-    final double highMul = isLow ? 1.14 : 1.18;
+class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
+  /// The metric's recorded readings, oldest first. Empty until the load
+  /// resolves, and legitimately empty afterwards for a metric that has never
+  /// extracted anything.
+  List<MetricSeriesPoint> _points = const [];
 
-    // 1. Augment every datum with the band tuple.
-    final List<MetricDatum> raw = chartData(metric);
-    final List<MetricDatum> data = raw.map((MetricDatum d) {
-      final num v = d.values['value']!;
-      final num lo = (v * lowMul * 10).round() / 10;
-      final num hi = (v * highMul * 10).round() / 10;
-      return MetricDatum(label: d.label, values: d.values, band: (lo, hi));
-    }).toList();
+  /// Whether the series fetch is still in flight.
+  bool _loading = true;
 
-    // 2. Compute the anomaly spike from the band at index 17.
-    final (num lo17, num hi17) = data[17].band!;
-    final num spike = isLow
-        ? (lo17 * 0.6 * 10).round() / 10
-        : (hi17 * 1.45 * 10).round() / 10;
+  MetricForm get metric => widget.metric;
 
-    // 3. Replace the value at index 17 with the spike so the anomaly is visible.
-    data[17] = MetricDatum(
-      label: data[17].label,
-      values: {'value': spike},
-      band: data[17].band,
-    );
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
-    return (
-      data: data,
-      anomalies: [MetricAnomaly(x: data[17].label, y: spike)],
-    );
+  Future<void> _load() async {
+    final List<MetricSeriesPoint> points = await widget.onLoadSeries();
+    if (!mounted) return;
+
+    setState(() {
+      _points = points;
+      _loading = false;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -120,47 +110,101 @@ class MonitorMetricDetail extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isNumeric = metric.type == 'numeric';
 
-    // 1. Augment data with band + anomaly (the band/anomaly computation is
-    //    only rendered for numeric metrics but is always computed for clarity).
-    final augmented = _buildAugmented();
-    final List<MetricDatum> data = augmented.data;
-    final List<MetricAnomaly> anomalies = augmented.anomalies;
-
-    // 2. Derive the latest value and health band from the augmented series.
-    final num latest = data.last.values['value']!;
-    final StatusKey latestBand = isNumeric
-        ? bandOf(latest, metric.warn, metric.critical, metric.direction)
-        : StatusKey.up;
-
-    // 3. Build the 6 most-recent readings (last-6, reversed to newest-first).
-    final List<MetricDatum> readings = data.reversed.take(6).toList();
+    // The chart, the latest value and the readings list are all projections of
+    // the metric's REAL recorded readings. They used to be projections of a
+    // locally generated sine wave (`base + sin(i / 3) * base * 0.18`) with an
+    // anomaly injected at a fixed index 17, so this sheet showed a full 24-hour
+    // history, a "latest" value and a specific anomaly for a metric that might
+    // have three readings and had never held any of those numbers.
+    final List<MetricDatum> data = _points
+        .where((MetricSeriesPoint p) => p.numericValue != null)
+        .map(
+          (MetricSeriesPoint p) => MetricDatum(
+            label: _pointLabel(p),
+            values: {'value': p.numericValue!},
+          ),
+        )
+        .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 4. Header: label + key/path + Edit + Delete buttons.
+        // 1. Header: label + key/path + Edit + Delete buttons.
         _buildHeader(context),
         const SizedBox(height: 16),
 
-        // 5. Latest value with optional StatusDot.
-        _buildLatestValue(latest, latestBand, isNumeric),
-        const SizedBox(height: 16),
-
-        // 6. Numeric-only: AI-band time-series chart + the band-explanation
-        //    insight (mirrors React DetailBody: the chart sits above an AiInsight
-        //    that narrates the learned expected range and the one anomaly).
-        if (isNumeric) ...[
-          _buildChart(data, anomalies),
-          const SizedBox(height: 12),
-          _buildBandInsight(anomalies),
-          const SizedBox(height: 16),
-        ],
-
-        // 7. Recent readings list.
-        _buildRecentReadings(readings, isNumeric),
+        // 2. Everything below depends on there being readings at all.
+        ..._buildSeriesSection(data, isNumeric),
       ],
     );
+  }
+
+  /// Builds the reading-dependent sections, or an honest placeholder.
+  ///
+  /// Three distinct states, none of which invents data: still loading, no
+  /// readings recorded yet, or the real series.
+  List<Widget> _buildSeriesSection(List<MetricDatum> data, bool isNumeric) {
+    if (_loading) {
+      return [
+        WText(
+          trans('uptizm.monitors.metrics_detail_loading'),
+          className: 'text-sm text-fg-muted',
+        ),
+      ];
+    }
+
+    if (_points.isEmpty) {
+      return [
+        WText(
+          trans('uptizm.monitors.metrics_detail_no_readings'),
+          className: 'text-sm text-fg-muted',
+        ),
+      ];
+    }
+
+    final MetricSeriesPoint newest = _points.last;
+    final num? latest = newest.numericValue;
+
+    return [
+      // The latest reading, banded by the band the backend FROZE when it was
+      // recorded, not by re-evaluating today's thresholds against old data.
+      ?(latest == null
+          ? null
+          : _buildLatestValue(latest, _bandOf(newest), isNumeric)),
+      const SizedBox(height: 16),
+
+      // The real series. No anomaly markers: nothing detects metric anomalies,
+      // so one was previously injected at a fixed index and narrated as though
+      // it had been observed.
+      if (isNumeric && data.length > 1) ...[
+        _buildChart(data, const []),
+        const SizedBox(height: 16),
+      ],
+
+      // Newest-first, from the real readings.
+      _buildRecentReadings(data.reversed.take(6).toList(), isNumeric),
+    ];
+  }
+
+  /// Maps a reading's frozen band to its display tone, or null when the metric
+  /// carried no thresholds when the reading landed.
+  StatusKey? _bandOf(MetricSeriesPoint point) => switch (point.band) {
+    'critical' => StatusKey.down,
+    'warn' => StatusKey.degraded,
+    'ok' => StatusKey.up,
+    _ => null,
+  };
+
+  /// Formats a reading's timestamp as the chart's x label.
+  String _pointLabel(MetricSeriesPoint point) {
+    final DateTime? at = point.recordedAt?.toLocal();
+    if (at == null) return '';
+
+    final String hh = at.hour.toString().padLeft(2, '0');
+    final String mm = at.minute.toString().padLeft(2, '0');
+
+    return '$hh:$mm';
   }
 
   // ---------------------------------------------------------------------------
@@ -196,7 +240,7 @@ class MonitorMetricDetail extends StatelessWidget {
             MSButton(
               intent: ButtonIntent.secondary,
               size: ButtonSize.sm,
-              onPressed: onEdit,
+              onPressed: widget.onEdit,
               child: WText(trans('uptizm.monitors.action_edit')),
             ),
             MSButton(
@@ -217,7 +261,7 @@ class MonitorMetricDetail extends StatelessWidget {
 
   /// Builds the latest-value row: optional [StatusDot] + large mono value +
   /// "latest · last 24h" label.
-  Widget _buildLatestValue(num latest, StatusKey band, bool isNumeric) {
+  Widget _buildLatestValue(num latest, StatusKey? band, bool isNumeric) {
     final String valueText = switch (isNumeric) {
       true => fmt(latest, metric.unit),
       false => metric.type == 'status' ? 'operational' : 'ok',
@@ -228,7 +272,11 @@ class MonitorMetricDetail extends StatelessWidget {
       // baseline (replacing the old per-child bottom-padding nudges).
       className: 'flex flex-row items-end gap-2',
       children: [
-        if (isNumeric) StatusDot(band, size: StatusDotSize.lg),
+        // Only when the reading carried a frozen band; an unbanded reading
+        // shows no dot rather than a green one.
+        ?(isNumeric && band != null
+            ? StatusDot(band, size: StatusDotSize.lg)
+            : null),
         WText(
           valueText,
           className: 'text-fg font-mono text-3xl font-semibold tabular-nums',
@@ -249,22 +297,6 @@ class MonitorMetricDetail extends StatelessWidget {
   ///
   /// Mirrors React `DetailBody`: narrates the learned expected range and the
   /// single injected anomaly, with the direction-specific phrase
-  /// (`'low'` → "dropping below", else "spiking above").
-  Widget _buildBandInsight(List<MetricAnomaly> anomalies) {
-    final String time = anomalies.isNotEmpty ? anomalies.first.x : '';
-    final String phrase = metric.direction == 'low'
-        ? trans('uptizm.monitors.metrics_detail_band_drop')
-        : trans('uptizm.monitors.metrics_detail_band_spike');
-    return AiInsight(
-      child: WText(
-        trans('uptizm.monitors.metrics_detail_band_insight', {
-          'label': metric.label,
-          'time': time,
-          'phrase': phrase,
-        }),
-      ),
-    );
-  }
 
   /// Builds the [MetricChart] with the AI-learned band and anomaly overlay.
   Widget _buildChart(List<MetricDatum> data, List<MetricAnomaly> anomalies) {
@@ -354,7 +386,7 @@ class MonitorMetricDetail extends StatelessWidget {
       confirmLabel: trans('uptizm.monitors.metrics_confirm_delete_label'),
       variant: ConfirmDialogVariant.danger,
     );
-    if (confirmed) onDelete();
+    if (confirmed) widget.onDelete();
   }
 }
 

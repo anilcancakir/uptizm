@@ -5,6 +5,7 @@ namespace Tests\Unit\Services\Monitoring;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Services\Monitoring\MetricExtractor;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\WithoutErrorHandler;
 use PHPUnit\Framework\TestCase;
 
@@ -30,6 +31,69 @@ class MetricExtractorTest extends TestCase
         $this->assertSame('42.7', $result->value);
         $this->assertTrue($result->typeValid);
         $this->assertNull($result->error);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function jsonPathPrefixProvider(): array
+    {
+        return [
+            'bare dot notation' => ['data.metrics.latency'],
+            'JSONPath root with dot' => ['$.data.metrics.latency'],
+            'JSONPath root without dot' => ['$data.metrics.latency'],
+        ];
+    }
+
+    /**
+     * The source is named `json_path`, the UI labels it "JSON path" and the
+     * metric form's own path placeholder is `$.system.memory.used_pct`, so the
+     * conventional JSONPath root has to resolve. It used to be passed straight
+     * into Arr::get(), which treats `$` as a literal segment: every metric
+     * created by following the UI silently extracted nothing, forever, with no
+     * error surfaced anywhere.
+     */
+    #[DataProvider('jsonPathPrefixProvider')]
+    public function test_json_path_accepts_the_jsonpath_root_prefix(string $path): void
+    {
+        $result = (new MetricExtractor)->extract(
+            MetricSource::JsonPath,
+            $path,
+            MetricType::Numeric,
+            json_encode(['data' => ['metrics' => ['latency' => 42.7]]]),
+        );
+
+        $this->assertSame('42.7', $result->value, "path `{$path}` must resolve");
+        $this->assertTrue($result->typeValid);
+        $this->assertNull($result->error);
+    }
+
+    public function test_json_path_still_reports_a_genuinely_missing_path(): void
+    {
+        // Stripping the root must not turn a real miss into a silent pass.
+        $result = (new MetricExtractor)->extract(
+            MetricSource::JsonPath,
+            '$.data.nope',
+            MetricType::Numeric,
+            json_encode(['data' => ['metrics' => ['latency' => 42.7]]]),
+        );
+
+        $this->assertNull($result->value);
+        $this->assertNotNull($result->error);
+    }
+
+    public function test_json_path_can_address_a_key_literally_named_dollar(): void
+    {
+        // Only the LEADING root is stripped, so a payload whose own key is `$`
+        // stays addressable rather than becoming unreachable.
+        $result = (new MetricExtractor)->extract(
+            MetricSource::JsonPath,
+            'meta.$.id',
+            MetricType::Numeric,
+            json_encode(['meta' => ['$' => ['id' => 7]]]),
+        );
+
+        $this->assertSame('7', $result->value);
     }
 
     public function test_json_path_errors_when_body_is_not_json(): void

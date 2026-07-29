@@ -119,8 +119,11 @@ void main() {
       expect(fmt(5, 'custom'), equals('5'));
     });
 
-    test('appends /s suffix for req_s', () {
-      expect(fmt(96, 'req_s'), equals('96 /s'));
+    test('an unknown unit gets no invented suffix', () {
+      // The `req_s` option this used to cover was removed: the backend
+      // MetricUnit enum has no throughput unit, so it mapped to `custom` and
+      // decoded back as "req/s", silently corrupting a metric saved as Custom.
+      expect(fmt(96, 'req_s'), equals('96'));
     });
   });
 

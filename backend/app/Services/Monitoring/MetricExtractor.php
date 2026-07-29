@@ -60,12 +60,45 @@ class MetricExtractor
             return ExtractResult::error('Response body is not valid JSON.');
         }
 
-        $value = Arr::get($decoded, $path);
+        $value = Arr::get($decoded, $this->normalizeJsonPath($path));
         if ($value === null) {
             return ExtractResult::error("No value at path `{$path}`.");
         }
 
         return ExtractResult::ok($this->stringify($value));
+    }
+
+    /**
+     * Drop the conventional JSONPath root so `$.a.b`, `$a.b` and `a.b` all
+     * address the same value.
+     *
+     * {@see Arr::get()} treats every dot-separated segment as a literal key, so
+     * a leading `$` was looked up as a key named `$` and never matched. That
+     * mattered because the whole product presents this source as JSONPath: the
+     * enum is `json_path`, the picker reads "JSON path", and the metric form's
+     * path placeholder is literally `$.system.memory.used_pct`. Following the UI
+     * therefore produced a rule that extracted nothing on every check, with no
+     * error surfaced anywhere, so the metric simply stayed empty forever.
+     *
+     * Only the LEADING root is removed, and only when it is the whole first
+     * segment, so a payload with its own key named `$` (`meta.$.id`) stays
+     * addressable.
+     */
+    protected function normalizeJsonPath(string $path): string
+    {
+        $trimmed = ltrim($path);
+
+        if ($trimmed === '$') {
+            return '';
+        }
+        if (str_starts_with($trimmed, '$.')) {
+            return substr($trimmed, 2);
+        }
+        if (str_starts_with($trimmed, '$')) {
+            return substr($trimmed, 1);
+        }
+
+        return $path;
     }
 
     /**

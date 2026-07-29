@@ -4,11 +4,14 @@ namespace Tests\Feature\Http;
 
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
+use App\Enums\MonitorRegion;
+use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\ThresholdDirection;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Models\Monitor;
+use App\Models\MonitorCheck;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\MetricExtractor;
@@ -117,6 +120,102 @@ class MonitorMetricControllerTest extends TestCase
         $this->assertTrue($payload['type_valid']);
         $this->assertNull($payload['error']);
         $this->assertSame('critical', $payload['band']);
+    }
+
+    public function test_preview_falls_back_to_the_monitors_last_check_as_the_sample(): void
+    {
+        // The form's panel promises to verify a rule against what the monitor
+        // actually returns. With no sample supplied the endpoint used to extract
+        // against an EMPTY body, so every rule "failed" for the wrong reason;
+        // the client papered over that by faking the whole test locally. The
+        // last recorded check is the honest sample: it needs no new probe and it
+        // is exactly what the pipeline itself extracted from.
+        [$monitor, $user] = $this->makeMonitor();
+        MonitorCheck::query()->create([
+            'monitor_id' => $monitor->id,
+            'team_id' => $monitor->team_id,
+            'region' => MonitorRegion::USEast,
+            'status' => MonitorStatus::Up,
+            'status_code' => 200,
+            'response_ms' => 120,
+            'response_headers' => ['X-Response-Time' => '88'],
+            'response_body_preview' => json_encode(['data' => ['latency_ms' => 640]]),
+            'checked_at' => now(),
+        ]);
+
+        $request = Request::create('/monitors/'.$monitor->id.'/metrics/preview', 'POST', [
+            'source' => MetricSource::JsonPath->value,
+            // The JSONPath root the form's own placeholder prescribes.
+            'extraction_path' => '$.data.latency_ms',
+            'type' => MetricType::Numeric->value,
+        ]);
+        $request->setUserResolver(fn () => $user);
+
+        $payload = $this->app->make(MonitorMetricController::class)
+            ->preview($request, $monitor, $this->app->make(MetricExtractor::class))
+            ->getData(true);
+
+        $this->assertSame('640', $payload['extracted_value']);
+        $this->assertTrue($payload['type_valid']);
+        $this->assertNull($payload['error']);
+        $this->assertNotNull(
+            $payload['sample_checked_at'],
+            'the caller must be told WHICH sample the answer came from',
+        );
+    }
+
+    public function test_preview_says_so_when_the_monitor_has_never_been_checked(): void
+    {
+        // Nothing to verify against is its own answer, not a failed extraction:
+        // the operator needs to know to run a check first.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $request = Request::create('/monitors/'.$monitor->id.'/metrics/preview', 'POST', [
+            'source' => MetricSource::JsonPath->value,
+            'extraction_path' => 'data.latency_ms',
+            'type' => MetricType::Numeric->value,
+        ]);
+        $request->setUserResolver(fn () => $user);
+
+        $payload = $this->app->make(MonitorMetricController::class)
+            ->preview($request, $monitor, $this->app->make(MetricExtractor::class))
+            ->getData(true);
+
+        $this->assertNull($payload['extracted_value']);
+        $this->assertNull($payload['sample_checked_at']);
+        $this->assertFalse($payload['has_sample']);
+    }
+
+    public function test_preview_still_prefers_an_explicit_sample_body(): void
+    {
+        // An explicitly supplied sample wins over the stored check, so a caller
+        // can test a rule against a payload it has in hand.
+        [$monitor, $user] = $this->makeMonitor();
+        MonitorCheck::query()->create([
+            'monitor_id' => $monitor->id,
+            'team_id' => $monitor->team_id,
+            'region' => MonitorRegion::USEast,
+            'status' => MonitorStatus::Up,
+            'status_code' => 200,
+            'response_ms' => 120,
+            'response_headers' => [],
+            'response_body_preview' => json_encode(['data' => ['latency_ms' => 640]]),
+            'checked_at' => now(),
+        ]);
+
+        $request = Request::create('/monitors/'.$monitor->id.'/metrics/preview', 'POST', [
+            'source' => MetricSource::JsonPath->value,
+            'extraction_path' => 'data.latency_ms',
+            'type' => MetricType::Numeric->value,
+            'sample_body' => json_encode(['data' => ['latency_ms' => 11]]),
+        ]);
+        $request->setUserResolver(fn () => $user);
+
+        $payload = $this->app->make(MonitorMetricController::class)
+            ->preview($request, $monitor, $this->app->make(MetricExtractor::class))
+            ->getData(true);
+
+        $this->assertSame('11', $payload['extracted_value']);
     }
 
     /**

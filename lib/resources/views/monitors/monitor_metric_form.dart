@@ -3,24 +3,26 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'monitor_metrics_support.dart';
+import '../../../app/controllers/monitor_metrics_controller.dart'
+    show MetricPreviewResult;
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 
-/// The simulated "fetch & test" lifecycle for the extraction preview.
+/// The "fetch & test" lifecycle for the extraction preview.
 ///
-/// Mirrors the React `testStatus` union (`"idle" | "fetching" | "done"`). The
-/// transition `idle -> fetching -> done` is driven by a simulated 800ms delay,
-/// never a real network request.
+/// The transition `idle -> fetching -> done` is driven by a real round trip to
+/// `POST /monitors/:id/metrics/preview`. It used to be an 800ms
+/// `Future.delayed` with no request at all, which let the panel confirm a rule
+/// the extraction pipeline could never resolve.
 enum MetricTestStatus {
   /// No test has run; the panel shows a prompt to fetch a sample.
   idle,
 
-  /// A simulated fetch is in flight; the panel shows a spinner row.
+  /// The preview request is in flight; the panel shows a loading row.
   fetching,
 
-  /// The fetch resolved; the panel shows the resolved value or a not-found
-  /// state plus the sample JSON body.
+  /// The preview resolved; the panel reports what the backend extracted.
   done,
 }
 
@@ -71,6 +73,14 @@ class MonitorMetricForm extends StatefulWidget {
   /// surfaced as a generic failure toast.
   final Future<Map<String, String>> Function(MetricForm form) onSave;
 
+  /// Called when the user taps "Fetch & test": applies the draft rule to the
+  /// monitor's most recent check and returns what the backend actually
+  /// extracted, or `null` when the round trip itself failed.
+  ///
+  /// A callback rather than a controller reference, matching [onSave], so the
+  /// form stays unaware of the monitor id and the controller.
+  final Future<MetricPreviewResult?> Function(MetricForm form) onPreview;
+
   /// Called when the user taps Cancel.
   final VoidCallback onCancel;
 
@@ -80,6 +90,7 @@ class MonitorMetricForm extends StatefulWidget {
     required this.initial,
     required this.isEdit,
     required this.onSave,
+    required this.onPreview,
     required this.onCancel,
   });
 
@@ -94,6 +105,7 @@ class MonitorMetricForm extends StatefulWidget {
     required MetricForm initial,
     required bool isEdit,
     required Future<Map<String, String>> Function(MetricForm form) onSave,
+    required Future<MetricPreviewResult?> Function(MetricForm form) onPreview,
   }) {
     return MSBottomSheet.show<void>(
       context,
@@ -115,6 +127,7 @@ class MonitorMetricForm extends StatefulWidget {
             }
             return errors;
           },
+          onPreview: onPreview,
           onCancel: () => Navigator.of(sheetContext).pop(),
         ),
       ),
@@ -165,8 +178,17 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// field.
   String? _criticalError;
 
-  /// The simulated extraction-test lifecycle.
+  /// The extraction-test lifecycle.
   MetricTestStatus _testStatus = MetricTestStatus.idle;
+
+  /// What the backend extracted on the last "Fetch & test", or null before any
+  /// test has run.
+  ///
+  /// This is the ONLY source for the panel's verdict and for the threshold
+  /// suggestion. Both used to be computed locally from a hardcoded sample map
+  /// and a constant-per-unit fallback, so the form could report "RESOLVED
+  /// 73.4 %" for a path that existed nowhere in the monitor's response.
+  MetricPreviewResult? _preview;
 
   /// The Key field is filled programmatically (auto-slugify) while remaining
   /// user-editable, so it needs a controller to reflect the computed value.
@@ -249,13 +271,25 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     _set(_form.copyWith(warn: warn, critical: critical));
   }
 
-  /// Runs the simulated extraction test: `idle -> fetching -> done` over an
-  /// 800ms delay. No network request is performed (React `runTest`).
-  void _runTest() {
-    setState(() => _testStatus = MetricTestStatus.fetching);
-    Future<void>.delayed(const Duration(milliseconds: 800), () {
-      if (!mounted) return;
-      setState(() => _testStatus = MetricTestStatus.done);
+  /// Runs the extraction test for real against the monitor's last check.
+  ///
+  /// On a transport failure the callback returns null (having already toasted),
+  /// so the panel falls back to idle rather than presenting a verdict it does
+  /// not have.
+  Future<void> _runTest() async {
+    setState(() {
+      _testStatus = MetricTestStatus.fetching;
+      _preview = null;
+    });
+
+    final MetricPreviewResult? result = await widget.onPreview(_form);
+    if (!mounted) return;
+
+    setState(() {
+      _preview = result;
+      _testStatus = result == null
+          ? MetricTestStatus.idle
+          : MetricTestStatus.done;
     });
   }
 
@@ -279,31 +313,67 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
 
   bool get _ruleReady => !_needsPath || _form.path.trim().isNotEmpty;
 
-  num? get _resolved => _form.source == 'json' ? resolveJson(_form.path) : null;
+  /// The value the last test extracted, parsed as a number, or null when no
+  /// test has run, the rule resolved nothing, or the value is not numeric.
+  ///
+  /// Every one of those is a real "we do not know", which is why this is
+  /// nullable rather than falling back to a plausible constant.
+  num? get _measured {
+    final MetricPreviewResult? preview = _preview;
+    if (preview == null || !preview.resolved) return null;
+    return num.tryParse(preview.value ?? '');
+  }
 
-  bool get _found => _form.source == 'json' ? _resolved != null : true;
+  /// Whether the last test resolved a usable value.
+  bool get _found => _preview?.resolved ?? false;
 
-  num get _numValue => _form.source == 'http_status'
-      ? 200
-      : _resolved ?? fallbackValue(_form.unit);
+  /// The extracted value formatted for display, or null when there is none.
+  String? get _valueText {
+    final MetricPreviewResult? preview = _preview;
+    if (preview == null || !preview.resolved) return null;
 
-  String get _valueText => switch (_form.type) {
-    'status' => 'operational',
-    'string' => 'ok',
-    _ => fmt(_numValue, _form.unit),
+    final num? measured = _measured;
+
+    return measured == null
+        // A status/string metric extracts a word, not a number, so it is shown
+        // verbatim instead of being pushed through the numeric formatter.
+        ? preview.value
+        : fmt(measured, _form.unit);
+  }
+
+  /// The band the backend said the extracted value lands in, or null when the
+  /// draft carries no thresholds to band against.
+  StatusKey? get _band => switch (_preview?.band) {
+    'critical' => StatusKey.down,
+    'warn' => StatusKey.degraded,
+    'ok' => StatusKey.up,
+    _ => null,
   };
 
-  StatusKey get _band => _isNumeric
-      ? bandOf(_numValue, _form.warn, _form.critical, _form.direction)
-      : StatusKey.up;
+  /// Suggested warn bound, derived from the value the rule ACTUALLY read.
+  ///
+  /// Null until a test has measured something: the suggestion used to be
+  /// computed from a constant-per-unit fallback, so a brand-new metric was told
+  /// "this metric typically reads near 73.4 %" about a value nothing had
+  /// measured.
+  int? get _suggWarn {
+    final num? measured = _measured;
+    if (measured == null) return null;
 
-  int get _suggWarn => _form.direction == 'low'
-      ? (_numValue * 0.75).round()
-      : (_numValue * 1.15).round();
+    return _form.direction == 'low'
+        ? (measured * 0.75).round()
+        : (measured * 1.15).round();
+  }
 
-  int get _suggCrit => _form.direction == 'low'
-      ? (_numValue * 0.5).round()
-      : (_numValue * 1.3).round();
+  /// Suggested critical bound, from the same measured value as [_suggWarn].
+  int? get _suggCrit {
+    final num? measured = _measured;
+    if (measured == null) return null;
+
+    return _form.direction == 'low'
+        ? (measured * 0.5).round()
+        : (measured * 1.3).round();
+  }
 
   // ---------------------------------------------------------------------------
   // Build.
@@ -337,7 +407,9 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
             child: _buildDirectionControl(),
           ),
           _buildThresholdRow(),
-          _buildAiInsight(),
+          // Null until a test has measured a real value, so no baseline is
+          // claimed before one exists.
+          ?_buildAiInsight(),
         ],
 
         // 6. Test extraction panel (when the rule is ready).
@@ -493,11 +565,23 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     );
   }
 
-  /// Builds the AI threshold-suggestion insight with a "Use" action that fills
-  /// Warn and Critical from the computed suggestions.
-  Widget _buildAiInsight() {
-    final int suggWarn = _suggWarn;
-    final int suggCrit = _suggCrit;
+  /// Builds the threshold-suggestion insight, or nothing at all when no value
+  /// has been measured yet.
+  ///
+  /// The suggestion is only offered once "Fetch & test" has read a real number
+  /// off the monitor's own response, because the copy states a baseline
+  /// ("typically reads near X") and deriving that from anything other than a
+  /// measurement makes it a fabricated claim. It previously ran on a
+  /// constant-per-unit fallback, so a brand-new metric with no data was told it
+  /// "typically reads near 73.4 %".
+  Widget? _buildAiInsight() {
+    final num? measured = _measured;
+    final int? suggWarn = _suggWarn;
+    final int? suggCrit = _suggCrit;
+    if (measured == null || suggWarn == null || suggCrit == null) {
+      return null;
+    }
+
     return AiInsight(
       action: MSButton(
         intent: ButtonIntent.secondary,
@@ -507,7 +591,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
       ),
       child: WText(
         trans('uptizm.monitors.metrics_form_ai_suggestion', {
-          'value': fmt(_numValue, _form.unit),
+          'value': fmt(measured, _form.unit),
           'warn': suggWarn.toString(),
           'crit': suggCrit.toString(),
         }),
@@ -544,6 +628,11 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   }
 
   /// Builds the state-dependent body of the test panel.
+  ///
+  /// Every branch reports the backend's own answer. There are four outcomes, and
+  /// they are deliberately distinct: the rule resolved, the rule resolved
+  /// something of the wrong type, the rule resolved nothing, or there was no
+  /// sample to test against at all.
   List<Widget> _buildTestBody() {
     return switch (_testStatus) {
       MetricTestStatus.idle => [
@@ -558,14 +647,50 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
           className: 'text-sm text-fg-muted',
         ),
       ],
-      MetricTestStatus.done =>
-        _found ? [_buildResolvedPanel()] : [_buildNotFoundPanel()],
+      MetricTestStatus.done => [_buildVerdictPanel()],
     };
   }
 
-  /// Builds the resolved panel: the "Resolved" tag, the value (with a
-  /// [StatusDot] for numeric metrics), and the sample JSON block.
-  Widget _buildResolvedPanel() {
+  /// Builds the verdict panel for the completed test.
+  Widget _buildVerdictPanel() {
+    final MetricPreviewResult? preview = _preview;
+    if (preview == null) {
+      return const SizedBox.shrink();
+    }
+
+    // Nothing to test against is its own state: the operator needs to run a
+    // check, not to fix their path.
+    if (!preview.hasSample) {
+      return _buildVerdictBox(
+        tone: 'bg-surface-container',
+        textClass: 'text-fg-muted',
+        message: trans('uptizm.monitors.metrics_form_no_sample'),
+      );
+    }
+
+    if (_found) {
+      return _buildResolvedPanel(preview);
+    }
+
+    return _buildVerdictBox(
+      tone: 'bg-down-soft',
+      textClass: 'text-down-soft-foreground',
+      // The backend's own explanation when it has one (a bad regex, a
+      // non-JSON body, a type mismatch), so the operator is told what actually
+      // went wrong rather than a generic "not found".
+      message: preview.error ??
+          trans('uptizm.monitors.metrics_test_not_found_body', {
+            'path': _form.path,
+          }),
+      provenance: _sampleProvenance(preview),
+    );
+  }
+
+  /// Builds the resolved panel: the "Resolved" tag, the extracted value (with a
+  /// [StatusDot] when the backend banded it), and the sample provenance.
+  Widget _buildResolvedPanel(MetricPreviewResult preview) {
+    final StatusKey? band = _band;
+
     return WDiv(
       className:
           'flex flex-col gap-2 rounded-lg border border-color-border bg-up-soft p-3',
@@ -581,49 +706,60 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
             WDiv(
               className: 'flex items-center gap-2',
               children: [
-                if (_isNumeric) StatusDot(_band),
+                // Only when the draft actually carries thresholds; an unbanded
+                // value gets no dot rather than a green one.
+                ?(band == null ? null : StatusDot(band)),
                 WText(
-                  _valueText,
+                  _valueText ?? '',
                   className: 'font-mono text-lg tabular-nums text-fg',
                 ),
               ],
             ),
           ],
         ),
-        _buildSampleBlock(
-          _form.source == 'http_status' ? 'HTTP/1.1 200 OK' : kMetricSampleJson,
+        WText(
+          _sampleProvenance(preview),
+          className: 'font-mono text-xs text-fg-muted',
         ),
       ],
     );
   }
 
-  /// Builds the not-found panel: the unresolved-path message and the sample
-  /// JSON block.
-  Widget _buildNotFoundPanel() {
+  /// Builds a single-message verdict box with an optional provenance line.
+  Widget _buildVerdictBox({
+    required String tone,
+    required String textClass,
+    required String message,
+    String? provenance,
+  }) {
     return WDiv(
       className:
-          'flex flex-col gap-2 rounded-lg border border-color-border bg-down-soft p-3',
+          'flex flex-col gap-2 rounded-lg border border-color-border $tone p-3',
       children: [
-        WText(
-          trans('uptizm.monitors.metrics_test_not_found_body', {
-            'path': _form.path,
-          }),
-          className: 'text-sm text-down-soft-foreground',
-        ),
-        _buildSampleBlock(kMetricSampleJson),
+        WText(message, className: 'text-sm $textClass'),
+        ?(provenance == null
+            ? null
+            : WText(
+                provenance,
+                className: 'font-mono text-xs text-fg-muted',
+              )),
       ],
     );
   }
 
-  /// Builds the `<pre>`-style monospace sample block.
-  Widget _buildSampleBlock(String content) {
-    return WDiv(
-      className: 'max-h-28 overflow-auto rounded-md bg-surface p-2',
-      child: WText(
-        content,
-        className: 'font-mono text-xs leading-relaxed text-fg-muted',
-      ),
-    );
+  /// Names the sample the verdict came from.
+  ///
+  /// The panel used to print a hardcoded sample JSON body, which implied it had
+  /// fetched the endpoint. It is verified against the monitor's last recorded
+  /// check, so it says exactly that.
+  String _sampleProvenance(MetricPreviewResult preview) {
+    final DateTime? at = preview.sampleCheckedAt;
+    final int? code = preview.sampleStatusCode;
+
+    return trans('uptizm.monitors.metrics_form_sample_from', {
+      'when': at == null ? '-' : Carbon.parse(at.toIso8601String()).diffForHumans(),
+      'code': code?.toString() ?? '-',
+    });
   }
 
   /// Builds the footer: Cancel + Save, right-aligned.

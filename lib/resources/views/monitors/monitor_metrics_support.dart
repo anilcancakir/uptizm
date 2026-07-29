@@ -53,7 +53,6 @@ List<MetricOption> get kMetricUnits => [
   MetricOption(label: trans('uptizm.monitors.metrics_unit_percent'), value: '%'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_count'), value: 'count'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_bytes'), value: 'bytes'),
-  MetricOption(label: trans('uptizm.monitors.metrics_unit_req_s'), value: 'req_s'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_custom'), value: 'custom'),
 ];
 
@@ -126,7 +125,6 @@ const Map<String, String> kUnitSuffix = {
   '%': '%',
   'count': '',
   'bytes': 'B',
-  'req_s': '/s',
   'custom': '',
 };
 

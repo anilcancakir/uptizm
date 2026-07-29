@@ -27,7 +27,7 @@ Method for every user-facing control, applied uniformly:
 | DASH-2 | every KPI equals `/dashboard/stats` exactly (checked twice, incl. after a live data change) |
 | DASH-3 | `uptime_24h_delta: null` renders nothing, never a fabricated `0` |
 | DASH-4 | fleet banner names the actual down monitors, never "all operational" |
-| X-9 realtime | dispatching `MonitorStatusChanged` refetched the dashboard within ~8s to match the API exactly |
+| X-9 realtime | a REAL status transition (a `POST /monitors/{id}/test` check flipping a monitor down -> up) refetched the dashboard within ~4s to match the API exactly. Verified in halves too: a direct Reverb trigger reaches the client and refetches, and Reverb's own `get_channels` confirms the app is subscribed to `private-teams.{team}`. NOTE: dispatching the event by hand from `tinker` does NOT deliver (the queued broadcast never leaves the exiting process, most likely `ShouldDispatchAfterCommit` never flushing), so a manual dispatch is not a valid realtime test |
 | Region catalog parity | client `allRegions` == backend `MonitorRegion` (us-east, us-west, eu-west, eu-central, ap) |
 | SSRF guard | `POST /monitors` with a loopback URL is rejected 422 "The url host is not allowed." |
 | OPS-15 | on-call renders an honest empty state, no fixture responders |

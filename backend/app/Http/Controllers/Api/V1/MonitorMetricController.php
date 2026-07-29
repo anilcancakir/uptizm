@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Resources\MonitorMetricResource;
 use App\Models\Monitor;
+use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
 use App\Services\Monitoring\CheckAggregateService;
@@ -215,11 +216,19 @@ class MonitorMetricController extends Controller
     }
 
     /**
-     * Apply a draft extraction rule against a caller-supplied sample
-     * response (body/headers/status) and return the extracted value plus
-     * the threshold band it would land in. Nothing is persisted; this
-     * powers the metric form sheet's live preview card while the user is
-     * still composing the rule.
+     * Apply a draft extraction rule against a real sample response and return
+     * the extracted value plus the threshold band it would land in.
+     *
+     * The sample is the caller's `sample_body`/`sample_headers`/
+     * `sample_status_code` when supplied, otherwise the monitor's most recent
+     * {@see MonitorCheck}. That fallback is what makes the answer trustworthy:
+     * it is the same payload the extraction pipeline itself ran on, so a rule
+     * that previews cleanly here will extract on the next check. A monitor with
+     * no checks yet answers `has_sample: false` rather than reporting a failed
+     * extraction, because there is nothing to test against.
+     *
+     * Nothing is persisted; this powers the metric form's "Test extraction"
+     * card while the user is still composing the rule.
      */
     public function preview(Request $request, Monitor $monitor, MetricExtractor $extractor): JsonResponse
     {
@@ -269,13 +278,43 @@ class MonitorMetricController extends Controller
         $source = MetricSource::from($validated['source']);
         $type = MetricType::from($validated['type']);
 
+        // Fall back to the monitor's most recent check as the sample. Without
+        // this the endpoint extracted against an EMPTY body whenever the caller
+        // supplied none, so every rule "failed" for a reason that had nothing to
+        // do with the rule. The last check is the honest sample to verify
+        // against: it costs no new probe and it is the very payload the
+        // extraction pipeline itself ran on.
+        $sampleCheck = null;
+        if (! $request->has('sample_body')) {
+            $sampleCheck = MonitorCheck::query()
+                ->where('monitor_id', $monitor->id)
+                ->orderByDesc('checked_at')
+                ->first();
+        }
+
+        // An http_status rule needs no body, so it can still be verified from a
+        // check's status code alone.
+        $hasSample = $request->has('sample_body') || $sampleCheck !== null;
+
+        if (! $hasSample) {
+            return response()->json([
+                'extracted_value' => null,
+                'type_valid' => false,
+                'error' => 'This monitor has no checks yet, so there is nothing to test against. Run a check first.',
+                'band' => null,
+                'has_sample' => false,
+                'sample_checked_at' => null,
+                'sample_status_code' => null,
+            ]);
+        }
+
         $result = $extractor->extract(
             source: $source,
             extractionPath: (string) ($validated['extraction_path'] ?? ''),
             type: $type,
-            body: (string) ($validated['sample_body'] ?? ''),
-            headers: $validated['sample_headers'] ?? [],
-            statusCode: $validated['sample_status_code'] ?? null,
+            body: (string) ($validated['sample_body'] ?? $sampleCheck?->response_body_preview ?? ''),
+            headers: $validated['sample_headers'] ?? $sampleCheck?->response_headers ?? [],
+            statusCode: $validated['sample_status_code'] ?? $sampleCheck?->status_code,
         );
 
         // Band the extracted value only when the caller supplied a
@@ -297,6 +336,11 @@ class MonitorMetricController extends Controller
             'type_valid' => $result->typeValid,
             'error' => $result->error,
             'band' => $band,
+            // Which sample produced this answer, so the UI can name it instead of
+            // implying it just fetched the endpoint live.
+            'has_sample' => true,
+            'sample_checked_at' => $sampleCheck?->checked_at?->toIso8601String(),
+            'sample_status_code' => $validated['sample_status_code'] ?? $sampleCheck?->status_code,
         ]);
     }
 

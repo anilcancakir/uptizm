@@ -8,7 +8,7 @@ import '../../resources/views/monitors/monitor_metrics_support.dart';
 // Wire <-> form vocabulary maps.
 //
 // The Flutter metric form (`monitor_metrics_support.dart`'s `kMetricSources`/
-// `kMetricUnits`) uses a shorter vocabulary (`'json'`, `'%'`, `'req_s'`, ...)
+// `kMetricUnits`) uses a shorter vocabulary (`'json'`, `'%'`, `'bytes'`, ...)
 // than the backend `MetricSource`/`MetricUnit` enums (`'json_path'`,
 // `'percent'`, ...). These maps translate both ways so a write round-trips
 // through the backend's enum validation and a read decodes back into the
@@ -26,18 +26,18 @@ const Map<String, String> _sourceToWire = {
 
 /// Form `unit` value -> backend `MetricUnit` enum value.
 ///
-/// `req_s` (requests/sec) has no backend equivalent (the enum has no
-/// throughput unit); it maps to `custom` as the nearest fit and, on the way
-/// back, decodes to `custom` rather than round-tripping to `req_s` exactly.
-/// This is a deliberate best-effort divergence, not a silent failure: the
-/// mapped value always validates against the backend enum.
+/// Every entry is a 1:1 pairing, which is what makes the round trip lossless.
+/// A `req_s` (requests/sec) option used to sit here mapping to `custom`, and
+/// because the reverse lookup returns the FIRST key with a matching value, a
+/// metric saved as Custom decoded back as "req/s". The backend enum has no
+/// throughput unit at all, so the option was unrepresentable in both directions
+/// and was removed rather than left to corrupt the one that does work.
 const Map<String, String> _unitToWire = {
   'ms': 'millisecond',
   's': 'second',
   '%': 'percent',
   'count': 'count',
   'bytes': 'byte',
-  'req_s': 'custom',
   'custom': 'custom',
 };
 
@@ -80,23 +80,57 @@ class MonitorMetricRecord {
   /// create/edit sheet and the historical detail sheet already consume.
   final MetricForm form;
 
-  const MonitorMetricRecord({required this.id, required this.form});
+  /// The latest reading for a `status`-typed metric, or null when it has never
+  /// recorded one.
+  ///
+  /// Carried because the list used to render the LITERAL word "operational" for
+  /// every status metric and "ok" for every string metric, regardless of what
+  /// was extracted: a metric reading `down` displayed as operational.
+  final String? latestStatus;
+
+  /// The latest reading for a `string`-typed metric, or null when it has never
+  /// recorded one.
+  final String? latestString;
+
+  /// The band the backend froze on the latest reading (`ok` / `warn` /
+  /// `critical`), or null when the metric carries no thresholds.
+  final String? latestBand;
+
+  const MonitorMetricRecord({
+    required this.id,
+    required this.form,
+    this.latestStatus,
+    this.latestString,
+    this.latestBand,
+  });
 
   /// Builds a [MonitorMetricRecord] from a `MonitorMetricResource` payload
   /// (backend `api/v1` snake_case keys; see
   /// `backend/app/Http/Resources/MonitorMetricResource.php`).
   ///
   /// The optional nested `latest` block (`{numeric_value, ...}`) carries the
-  /// most recent extracted reading; when absent the catalog baseline
-  /// ([MetricForm.value]) defaults to `0`.
+  /// most recent extracted reading, and stays NULL when the metric has never
+  /// recorded one.
+  ///
+  /// Null is load-bearing: this used to default to `0`, so a rule that extracted
+  /// nothing (a wrong path, an absent header) displayed `0` on the tab. For a
+  /// latency or error-count metric `0` reads as perfect health, which is the
+  /// opposite of "this rule is not working".
   factory MonitorMetricRecord.fromMap(Map<String, dynamic> map) {
     final Object? latest = map['latest'];
-    final num latestValue = latest is Map
-        ? (latest['numeric_value'] as num?) ?? 0
-        : 0;
+    final num? latestValue = latest is Map
+        ? latest['numeric_value'] as num?
+        : null;
+
+    final Map<String, dynamic>? latestMap = latest is Map
+        ? Map<String, dynamic>.from(latest)
+        : null;
 
     return MonitorMetricRecord(
       id: map['id']?.toString() ?? '',
+      latestStatus: latestMap?['status_value'] as String?,
+      latestString: latestMap?['string_value'] as String?,
+      latestBand: latestMap?['band'] as String?,
       form: MetricForm(
         label: (map['label'] as String?) ?? '',
         key: (map['key'] as String?) ?? '',
@@ -340,6 +374,96 @@ class MonitorMetricsController extends MagicController
     }
   }
 
+  /// Tests [form]'s extraction rule for real via `POST
+  /// /monitors/:id/metrics/preview`, returning what the backend actually
+  /// extracted.
+  ///
+  /// The backend applies the rule to the monitor's most recent check, the same
+  /// payload the extraction pipeline itself ran on, so a rule that previews
+  /// cleanly will extract on the next check. It persists nothing.
+  ///
+  /// Returns `null` only when the round trip itself failed (transport error or a
+  /// non-2xx), after surfacing the shared save-failed toast; a rule that simply
+  /// did not resolve comes back as a [MetricPreviewResult] carrying its `error`,
+  /// because "your path matched nothing" is an answer, not a failure.
+  Future<MetricPreviewResult?> preview(String monitorId, MetricForm form) async {
+    try {
+      final response = await Http.post(
+        '/monitors/$monitorId/metrics/preview',
+        data: <String, dynamic>{
+          'source': _sourceToWireValue(form.source),
+          'extraction_path': form.path.isEmpty ? null : form.path,
+          'type': form.type,
+          if (form.type == 'numeric') ...<String, dynamic>{
+            'threshold_direction': _directionToWireValue(form.direction),
+            'warn_bound': num.tryParse(form.warn),
+            'critical_bound': num.tryParse(form.critical),
+          },
+        },
+      );
+      if (!response.successful) {
+        Log.error(
+          '[MonitorMetricsController.preview] $monitorId: '
+          '${response.errorMessage}',
+        );
+        _notifySaveFailed(response.errorMessage);
+        return null;
+      }
+
+      final Object? data = response.data;
+      if (data is! Map<String, dynamic>) {
+        Log.error('[MonitorMetricsController.preview] $monitorId: bad shape');
+        _notifySaveFailed(null);
+        return null;
+      }
+
+      return MetricPreviewResult.fromMap(data);
+    } catch (error) {
+      Log.error('[MonitorMetricsController.preview] $monitorId failed: $error');
+      _notifySaveFailed(null);
+      return null;
+    }
+  }
+
+  /// Reads the metric's recorded history via `GET
+  /// /monitors/:id/metrics/:metricId/series`, newest last.
+  ///
+  /// Returns an empty list when the metric has never recorded a value, which the
+  /// detail sheet renders as "no readings yet" rather than inventing a series.
+  Future<List<MetricSeriesPoint>> series(
+    String monitorId,
+    String metricId, {
+    String range = '24h',
+  }) async {
+    try {
+      final response = await Http.get(
+        '/monitors/$monitorId/metrics/$metricId/series?range=$range',
+      );
+      if (!response.successful) {
+        Log.error(
+          '[MonitorMetricsController.series] $monitorId/$metricId: '
+          '${response.errorMessage}',
+        );
+        return const [];
+      }
+
+      final Object? raw = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (raw is! List) return const [];
+
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(MetricSeriesPoint.fromMap)
+          .toList();
+    } catch (error) {
+      Log.error(
+        '[MonitorMetricsController.series] $monitorId/$metricId failed: $error',
+      );
+      return const [];
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -392,6 +516,129 @@ class MonitorMetricsController extends MagicController
     Magic.error(
       trans('uptizm.monitors.toast_save_failed_title'),
       message ?? trans('uptizm.monitors.toast_save_failed_description'),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MetricPreviewResult: what the backend really extracted for a draft rule.
+// ---------------------------------------------------------------------------
+
+/// The outcome of `POST /monitors/:id/metrics/preview`.
+///
+/// Every field is the backend's answer, never a locally computed stand-in. The
+/// form's test panel previously simulated this whole shape: it resolved the path
+/// against a hardcoded sample map, fell back to a constant value per unit, and
+/// reported "found" unconditionally for any non-JSON source, so it could confirm
+/// a rule that the real pipeline could never extract.
+@immutable
+class MetricPreviewResult {
+  /// The extracted value as the backend stringified it, or null when the rule
+  /// resolved nothing.
+  final String? value;
+
+  /// Whether the extracted value matches the metric's declared type. False for,
+  /// say, a numeric metric pointed at a sentence.
+  final bool typeValid;
+
+  /// Why the rule resolved nothing, in the backend's own words, or null on a
+  /// clean extraction.
+  final String? error;
+
+  /// The band the value would land in (`ok` / `warn` / `critical`), or null when
+  /// the draft carries no thresholds to band against.
+  final String? band;
+
+  /// Whether there was any sample to test against at all. False means the
+  /// monitor has never been checked, which is not an extraction failure.
+  final bool hasSample;
+
+  /// When the check used as the sample ran, so the panel can name its evidence
+  /// instead of implying it just fetched the endpoint.
+  final DateTime? sampleCheckedAt;
+
+  /// The sample's HTTP status code, shown alongside the provenance line.
+  final int? sampleStatusCode;
+
+  const MetricPreviewResult({
+    required this.value,
+    required this.typeValid,
+    required this.error,
+    required this.band,
+    required this.hasSample,
+    required this.sampleCheckedAt,
+    required this.sampleStatusCode,
+  });
+
+  /// Decodes the preview endpoint's flat JSON body.
+  factory MetricPreviewResult.fromMap(Map<String, dynamic> map) {
+    final Object? checkedAt = map['sample_checked_at'];
+
+    return MetricPreviewResult(
+      value: map['extracted_value']?.toString(),
+      typeValid: map['type_valid'] == true,
+      error: map['error'] as String?,
+      band: map['band'] as String?,
+      // Absent defaults to true so an older backend that predates the flag is
+      // read as "a sample was used", matching its behaviour.
+      hasSample: map['has_sample'] != false,
+      sampleCheckedAt: checkedAt is String
+          ? DateTime.tryParse(checkedAt)
+          : null,
+      sampleStatusCode: (map['sample_status_code'] as num?)?.toInt(),
+    );
+  }
+
+  /// Whether the rule resolved a usable value of the declared type.
+  bool get resolved => value != null && typeValid && error == null;
+}
+
+// ---------------------------------------------------------------------------
+// MetricSeriesPoint: one recorded reading.
+// ---------------------------------------------------------------------------
+
+/// A single persisted reading from `GET /monitors/:id/metrics/:metricId/series`.
+///
+/// This replaces a locally generated sine wave: the detail sheet used to build 24
+/// points as `base + sin(i / 3) * base * 0.18`, inject an anomaly at a fixed
+/// index, and read its "latest value" off the last fake point, so it contradicted
+/// the real reading the list showed.
+@immutable
+class MetricSeriesPoint {
+  /// When the reading was recorded.
+  final DateTime? recordedAt;
+
+  /// The numeric reading, or null for a status/string metric.
+  final num? numericValue;
+
+  /// The status reading, for a `status`-typed metric.
+  final String? statusValue;
+
+  /// The string reading, for a `string`-typed metric.
+  final String? stringValue;
+
+  /// The band frozen at insert time (`ok` / `warn` / `critical`), or null when
+  /// the metric carried no thresholds when this reading landed.
+  final String? band;
+
+  const MetricSeriesPoint({
+    required this.recordedAt,
+    required this.numericValue,
+    required this.statusValue,
+    required this.stringValue,
+    required this.band,
+  });
+
+  /// Decodes one point from the series payload.
+  factory MetricSeriesPoint.fromMap(Map<String, dynamic> map) {
+    final Object? at = map['recorded_at'];
+
+    return MetricSeriesPoint(
+      recordedAt: at is String ? DateTime.tryParse(at) : null,
+      numericValue: map['numeric_value'] as num?,
+      statusValue: map['status_value'] as String?,
+      stringValue: map['string_value'] as String?,
+      band: map['band'] as String?,
     );
   }
 }
