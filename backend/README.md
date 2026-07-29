@@ -71,6 +71,14 @@ The render job releases its uniqueness lock when processing starts, every render
 
 Raising the count therefore requires per-page serialization first: a cache lock in the job, or one file per render plus an atomic pointer column.
 
+**The precondition, which the number alone does not enforce.** What serializes renders is exactly one consumer of `previews` **globally**. `maxProcesses` bounds one Horizon master on one host, so all three of these restore the overlap without anyone touching the value the test guards:
+
+- A second application instance running its own Horizon.
+- `composer dev`, whose `queue:listen` names `previews`, running alongside Horizon locally.
+- An ad-hoc `php artisan queue:work --queue=previews` started by hand to drain a stuck queue. This is the obvious recovery move and it silently defeats the bound, so prefer fixing the Horizon supervisor over adding a second worker.
+
+If a deploy cannot guarantee a single consumer, add the mutex: wrap the render-and-write in `RenderStatusPagePreview::handle()` with a `Cache::lock` keyed on the page id. That makes the process count a cost knob again.
+
 ### Signed preview URLs and APP_URL
 
 Status-page preview routes are signed with absolute URLs. An `APP_URL` mismatch or an untrusted proxy rewriting the scheme (e.g., terminating TLS upstream) yields a 403 on a legitimate URL, even after the PNG renders successfully. Verify that your `APP_URL` matches the public address clients use and that proxies preserve the original scheme in `X-Forwarded-Proto`.

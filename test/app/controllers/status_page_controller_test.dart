@@ -1162,6 +1162,61 @@ void main() {
       expect(controller.configById('acme'), isNull);
     });
 
+    // An unconsumed `previews` queue means the server never reports any render
+    // state at all, so the client's own in-flight marker is the only thing
+    // holding the pane. Without a time bound it would hold it on a skeleton for
+    // the rest of the session and across remounts, which is the one shape the
+    // editor's state table forbids. Expiry turns it into the failed affordance,
+    // which is honest (asked for, nothing came back) and carries a retry.
+    testWidgets('an in-flight preview request expires instead of holding the '
+        'pane forever', (tester) async {
+      Http.fake({
+        'status-pages': Http.response({
+          'data': [
+            {
+              'id': 'acme',
+              'name': 'Acme Status',
+              'slug': 'acme',
+              'domain_mode': 'path',
+            },
+          ],
+        }, 200),
+      });
+
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
+
+      controller.seedPreviewRequestForTest(
+        'acme',
+        DateTime.now().subtract(const Duration(seconds: 10)),
+      );
+
+      expect(
+        controller.hasRequestedPreviewRender('acme'),
+        isTrue,
+        reason: 'a recent request still reads as in flight',
+      );
+      expect(controller.hasPreviewRequestExpired('acme'), isFalse);
+
+      controller.seedPreviewRequestForTest(
+        'acme',
+        DateTime.now().subtract(const Duration(seconds: 241)),
+      );
+
+      expect(
+        controller.hasRequestedPreviewRender('acme'),
+        isFalse,
+        reason:
+            'past the window the request must stop reading as in flight, or an '
+            'unconsumed queue pins the pane on a skeleton',
+      );
+      expect(
+        controller.hasPreviewRequestExpired('acme'),
+        isTrue,
+        reason: 'and it must read as expired so the pane offers a retry',
+      );
+    });
+
     // The preview bookkeeping is keyed by page id and therefore by tenant. This
     // controller is a Type-keyed singleton that outlives a login, so a surviving
     // entry would hand the incoming identity the previous one's "still

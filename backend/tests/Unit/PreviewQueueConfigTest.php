@@ -114,6 +114,13 @@ class PreviewQueueConfigTest extends TestCase
      * tweak. It requires per-page serialization first (a cache lock in the job,
      * or one file per render plus an atomic pointer), and this assertion is here
      * so the decision cannot be made by editing config alone.
+     *
+     * What this assertion CANNOT see, so it is worth stating: the property that
+     * actually serializes renders is one `previews` consumer GLOBALLY, and this
+     * value bounds one Horizon master on one host. A second instance, the
+     * `queue:listen` in composer's `dev` script running beside Horizon, or an
+     * ad-hoc `queue:work --queue=previews` all restore the overlap while this
+     * test stays green. See the comment in config/horizon.php.
      */
     public function test_every_horizon_environment_provisions_exactly_one_previews_process(): void
     {

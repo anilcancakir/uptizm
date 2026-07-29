@@ -33,7 +33,7 @@ import '../../../ui/layouts/page_container.dart';
 /// The body is a two-column responsive split (stacking to one column below the
 /// `lg` breakpoint):
 ///
-/// - **LEFT** — the configuration column. In create mode it leads with the
+/// - **LEFT**: the configuration column. In create mode it leads with the
 ///   "Draft with AI" banner, billing-gated exactly like the incident-detail AI
 ///   surface: when the team's real tier unlocks [AiLevel.analysis] the banner
 ///   offers a Generate action ([aiDraftFor]); otherwise an [MSUpgradeNudge]
@@ -46,9 +46,14 @@ import '../../../ui/layouts/page_container.dart';
 ///   System + Custom [RegionPicker]s over [systemMetricRegions] /
 ///   [customMetricRegions]), and a Subscriptions [Card] (a [Switch] plus, in
 ///   edit mode, the subscriber count and a "View subscribers" link).
-/// - **RIGHT** — a browser-framed live preview: a dotted title bar with the mono
-///   [pageUrl] and a bounded, scrollable [StatusPagePreview] that re-renders
-///   live as the draft mutates.
+/// - **RIGHT**: a browser-framed preview, whose SOURCE depends on whether the
+///   form is dirty. With unsaved edits it is the Flutter [StatusPagePreview]
+///   re-rendering live off [_draftPage] as the draft mutates, labelled as a
+///   draft. Once saved it is a PNG of the REAL public page, rendered by the
+///   backend in a headless browser and fetched through a signed URL, labelled as
+///   what customers see and stamped with when it was rendered. The two must
+///   never swap labels: the draft is an approximation of unsaved state, and only
+///   the PNG is the customer view. See [_buildPreviewBody] for all six states.
 ///
 /// State is a set of individual draft fields (name, slug, domain mode, brand
 /// color, logo text, description, assigned monitor ids, metric keys, and the
@@ -1058,6 +1063,14 @@ class _StatusPageEditorViewState
       // [StatusPageController.hasRequestedPreviewRender]).
       if (controller.hasRequestedPreviewRender(saved.id)) {
         return _buildRenderingBody(saved);
+      }
+      // Asked for, and the server never reported anything at all. The most
+      // likely cause is a `previews` queue nobody is consuming. Treating this
+      // as failed rather than as in-flight is what stops the marker holding the
+      // pane on a skeleton for the rest of the session, and it offers the retry
+      // that a never-rendered empty state would not.
+      if (controller.hasPreviewRequestExpired(saved.id)) {
+        return _buildFailedBody(saved);
       }
       return _buildNeverRenderedBody(saved);
     }

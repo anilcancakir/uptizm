@@ -90,7 +90,15 @@ class StatusPageController extends MagicController
   /// at all. This marker is the client's own knowledge of its own request, so
   /// it is honest state rather than a fabricated server one: it says a render
   /// was requested, never that one is running or has succeeded.
-  final Set<String> _previewRenderRequested = {};
+  ///
+  /// The value is WHEN the request was accepted, not just that it was, because
+  /// the marker has to expire. If the `previews` queue is not being consumed the
+  /// server never reports any state at all, so without a time bound this marker
+  /// would hold the pane on a skeleton for the rest of the session and across
+  /// remounts, which is the one shape the editor's state table forbids. It
+  /// expires after the same window [isPreviewRenderStale] uses, after which the
+  /// pane shows the failed affordance and its retry.
+  final Map<String, DateTime> _previewRenderRequested = {};
 
   /// In-memory cache of the status-page roster, populated by [reload]. Empty
   /// until the first successful fetch resolves.
@@ -642,8 +650,47 @@ class StatusPageController extends MagicController
   /// [_previewRenderRequested]. It stops mattering the moment the server
   /// reports any render state of its own, because the view only consults it
   /// while [StatusPage.previewRenderStatus] is null.
-  bool hasRequestedPreviewRender(String pageId) =>
-      _previewRenderRequested.contains(pageId);
+  ///
+  /// Returns false once the request is older than
+  /// [_previewRenderStaleAfterSeconds]. That bound is what stops an unconsumed
+  /// `previews` queue from holding the pane on a skeleton indefinitely: the
+  /// server never reports a state in that case, so nothing else would ever
+  /// clear this. An expired request reads as failed, which is the honest answer
+  /// (a render was asked for and nothing came back) and carries a retry.
+  bool hasRequestedPreviewRender(String pageId) {
+    final DateTime? requestedAt = _previewRenderRequested[pageId];
+    if (requestedAt == null) return false;
+
+    if (DateTime.now().difference(requestedAt).inSeconds >=
+        _previewRenderStaleAfterSeconds) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /// Records an accepted render request for [pageId] as having been made at
+  /// [requestedAt], so a test can exercise the expiry without waiting out the
+  /// real window.
+  @visibleForTesting
+  void seedPreviewRequestForTest(String pageId, DateTime requestedAt) {
+    _previewRenderRequested[pageId] = requestedAt;
+  }
+
+  /// Whether this client asked for a render for [pageId] and the request has
+  /// since aged out with the server never reporting a state for it.
+  ///
+  /// The editor renders this as the failed affordance rather than as never
+  /// rendered, because "asked and never answered" is a failure from the
+  /// operator's side even though no server-side failure was recorded. The most
+  /// likely cause is an unconsumed `previews` queue.
+  bool hasPreviewRequestExpired(String pageId) {
+    final DateTime? requestedAt = _previewRenderRequested[pageId];
+    if (requestedAt == null) return false;
+
+    return DateTime.now().difference(requestedAt).inSeconds >=
+        _previewRenderStaleAfterSeconds;
+  }
 
   /// Whether [page]'s server-reported `rendering` status has been open long
   /// enough that a lost job, not real progress, is the more honest read.
@@ -727,7 +774,7 @@ class StatusPageController extends MagicController
     // [_previewRenderRequested]) and repaint immediately, so the pane stops
     // reading as never-asked from this tap onwards rather than from whenever a
     // worker happens to pick the job up.
-    _previewRenderRequested.add(pageId);
+    _previewRenderRequested[pageId] = DateTime.now();
     refreshUI();
 
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {

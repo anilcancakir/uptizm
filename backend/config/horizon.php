@@ -271,6 +271,19 @@ return [
             | With a single process the queue itself serializes those renders, so
             | no lock is needed. A page renders a few times a day, so throughput
             | is not the constraint here. PreviewQueueConfigTest pins the 1.
+            |
+            | READ THE PRECONDITION, because this number alone does not carry
+            | it. What serializes renders is exactly ONE consumer of `previews`
+            | GLOBALLY, and this setting only bounds one Horizon master on one
+            | host. Three things defeat it without anyone editing this value:
+            | a second app instance running its own Horizon, the `queue:listen`
+            | in composer's `dev` script running alongside Horizon locally, and
+            | an ad-hoc `queue:work --queue=previews` started by hand to drain a
+            | stuck queue (which is exactly what a live verification pass on a
+            | dev machine found running). If the topology cannot guarantee one
+            | consumer, the render needs a real mutex: wrap the render-and-write
+            | in RenderStatusPagePreview::handle() with a Cache lock keyed on the
+            | page id, which then makes this number a cost knob again.
             */
             'previews' => [
                 'maxProcesses' => 1,
