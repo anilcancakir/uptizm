@@ -116,6 +116,16 @@ failure, not a pass, because the product's own honesty rules forbid it
 | STAT-12 | Public page shows public incident updates only | private updates absent |
 | STAT-13 | Private page is masked as not-found to the public | 404, not 403 |
 | STAT-14 | Delete removes the page and its public URL | subsequent `GET` 404 |
+| STAT-15 | A PRIVATE page renders to a preview PNG | render completes while the page still 404s to the public. Impossible before the preview work: no code path generated `preview_token`, and the public controller fails closed on an empty one |
+| STAT-16 | The preview token authorises by header, not only by query | `X-Preview-Token` 200s; absent 404s; wrong value 404s. The header path is what the renderer uses so the token never enters an access log |
+| STAT-17 | The signed image URL loads cross-origin | `Access-Control-Allow-Origin` present, `Content-Type: image/png`, served bytes identical to the stored file. This is the assertion that catches the route being placed outside `api/`, where `config/cors.php` would not cover it and Flutter web could not load the image |
+| STAT-18 | The signed image URL is a capability, and only that | unsigned 403, tampered 403. It is deliberately NOT team-checked: the route is unauthenticated because `Image.network()` sends no bearer token, so there is no actor to check |
+| STAT-19 | The signed URL is stable between renders and changes after one | two reads with no new render return the identical string (Flutter's `ImageCache` is keyed on it); a completed render changes it (the PNG is overwritten in place) |
+| STAT-20 | The PNG is the real page, styled, including incidents | brand colour renders, fonts are real rather than tofu boxes, and the incidents section is present. That section is what the in-app draft pane deliberately lacks |
+| STAT-21 | An error response is never stored as a customer view | with the render bucket exhausted, a dispatched render lands `failed` and the previously good PNG stays byte-identical. Browsershot ignores a non-2xx by default, so without the status check plus the ready marker a 429 or 404 page would be stored under a customer-view label |
+| STAT-22 | Timestamps inside the PNG are in one declared zone | the rendered time matches `config('app.timezone')`, not the triggering operator's zone. Do not export `TZ` for the previews worker: `process.env` overrides what the job passes |
+| STAT-23 | Deleting a page removes its PNG, on the real disk | verified against the `local` disk rather than `Storage::fake`. A team delete is also covered: that cascade is a DATABASE cascade raising no Eloquent event, so the cleanup lives on `Team` |
+| STAT-24 | The `previews` queue is actually consumed | a dispatched render leaves `rendering` within seconds. A supervisor missing from a `horizon.environments` block, or a `queue:listen` without `--queue`, strands every render at `rendering` with no error anywhere |
 
 ## F. On-call and escalation (OPS)
 

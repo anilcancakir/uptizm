@@ -495,6 +495,19 @@ Components backed by a Wind W-widget with no recipe layer.
 
 ---
 
+### StatusPagePreview
+
+- **File**: `lib/ui/components/status_page_preview/`
+- **Class**: `StatusPagePreview`
+- **Purpose**: Renders an in-app preview of a status page's public view during editing, showing real component status and operational badges. Tied to the backend preview token for cache bypass.
+- **Token bindings**: inherits badge and status tokens (`bg-up`, `bg-down`, `bg-degraded`, `text-up-soft-foreground`, etc.)
+- **Limitations**: Draft previews intentionally omit the incidents timeline and metrics grid (deliberate scope simplification). Saved pages are rendered to PNG via headless Chrome and include the full incidents section and honest metrics; the draft pane stays simpler.
+- **Anti-patterns**:
+  - Do not add a metrics grid or incidents list to the draft preview; that surface is the separate PNG render (stored on private disk, served via signed route).
+  - Do not render the preview without a valid `preview_token` (cache bypass); missing token must gate the entire preview.
+
+---
+
 ## Anti-patterns (global)
 
 | Anti-pattern | Category | Fix |

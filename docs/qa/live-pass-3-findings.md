@@ -105,7 +105,7 @@ recorded), and every one was then re-verified against the running stack.
 |----|----------|---------|
 | L3-14 | P2 | The `escalation_policy_id` column type mismatch under `use_uuids => false` (above). Flagged, not changed. |
 | P2-O1 | low | Flutter's non-fatal "Could not navigate to initial route" on a deep-link web load. Cosmetic, but it pollutes the exception buffer during a QA pass. Carried over from pass 2; emitter still unidentified. |
-| - | low | The in-app status-page preview no longer renders a live-metrics grid or a past-incidents list. Both were fabricated and were removed rather than wired (a deliberate scope decision); the authoritative view is the backend-rendered `/s/{slug}`, linked from the editor. Restoring them against the real endpoints is follow-up work. |
+| - | low | The in-app status-page draft preview deliberately does not render a live-metrics grid or a past-incidents list (both were fabricated; scope decision to keep the draft pane simpler). The PNG render of a SAVED page closes this gap: a saved page's PNG is a render of the real page, which includes the full incidents section and honest metrics. The draft pane stays intentionally lighter; only the saved page's PNG snapshot reflects the complete customer view. |
 | - | low | `show_on_status_page` still has no UI. The client now honours it, so nothing over-promises, but an operator cannot change it from the product. |
 
 ## False leads, and what caused them

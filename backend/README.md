@@ -21,6 +21,40 @@ Laravel is a web application framework with expressive, elegant syntax. We belie
 
 Laravel is accessible, powerful, and provides tools required for large, robust applications.
 
+## Preview PNG Rendering
+
+The status-page preview feature renders a team's public status page to PNG via headless Chrome, stored on the private disk and served through signed routes. Provisioning requires:
+
+### Node and Puppeteer
+
+Node 22 LTS or later is required. After `npm ci`, provision the browser binaries explicitly (because `backend/.npmrc` sets `ignore-scripts=true`):
+
+```bash
+npx puppeteer browsers install chrome
+npx puppeteer browsers install chrome-headless-shell
+```
+
+Both binaries must be installed: the renderer calls `newHeadless()` and uses the full `chrome` binary, but the second binary provides a fallback if future code changes the launch mode.
+
+### Dependencies and environment
+
+`puppeteer` is declared as a runtime dependency in `package.json`, not a dev dependency. The browsershot renderer (`vendor/spatie/browsershot/bin/browser.cjs`) requires it at runtime. A production `npm ci --omit=dev` will fail every preview render with "Cannot find module 'puppeteer'".
+
+Do NOT export `TZ` (timezone) to the previews queue worker. Browsershot's node wrapper spreads `...process.env` after `setEnvironmentOptions()`, so an exported `TZ` silently overrides the timezone passed by PHP, and every timestamp rendered into the PNG ends up in an undeclared zone.
+
+### Docker and containerisation
+
+For any containerised deploy, apply these traps or renders will fail silently:
+
+- **`--shm-size=1gb`**: Docker's default `/dev/shm` is 64 MB, too small for Chrome IPC. Runs fail silently with "Failed to use POSIX shared memory" without this.
+- **Font packages**: Slim images have no fonts. Install `fonts-liberation fonts-noto-core fonts-noto-cjk fontconfig` and run `fc-cache` to regenerate the font cache. Without this, text renders as Unicode placeholder tofu boxes, and a branded artefact is worse than no PNG.
+- **`dumb-init` as PID 1**: Chrome spawns children that become zombies when the parent dies, an unfixed cross-version Puppeteer issue. Run the queue worker under `dumb-init` to reap them.
+- **Chrome binary as a patched dependency**: Chromium's CVE stream reaches headless rendering. Pin the Chrome version in your image (never rely on system package manager Chrome, which lags security updates). Match the revision pinned by `puppeteer` in `package-lock.json`.
+
+### Signed preview URLs and APP_URL
+
+Status-page preview routes are signed with absolute URLs. An `APP_URL` mismatch or an untrusted proxy rewriting the scheme (e.g., terminating TLS upstream) yields a 403 on a legitimate URL, even after the PNG renders successfully. Verify that your `APP_URL` matches the public address clients use and that proxies preserve the original scheme in `X-Forwarded-Proto`.
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
