@@ -16,6 +16,7 @@ use App\Services\Ai\LaravelAiAssistantGateway;
 use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
+use App\Services\StatusPages\StatusPagePreviewRenderer;
 use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Event;
@@ -55,6 +56,16 @@ class AppServiceProvider extends ServiceProvider
         // Wrap the starter's team-invite action with the plan responder cap
         // (contract-action override), so a team cannot invite past its tier.
         $this->app->bind(InvitesTeamMembers::class, PlanGatedInviteTeamMember::class);
+
+        // Register the headless preview renderer as the container's single
+        // resolution point, so the whole class can be swapped for a browserless
+        // double. Tests\TestCase does exactly that for every test: the suite runs
+        // with QUEUE_CONNECTION=sync and several feature tests reach a render
+        // through an endpoint, so without a swappable boundary `php artisan test`
+        // would launch real Chromium. The class's own protected `capture()` seam
+        // is not enough on its own, since nothing can reach it from a container
+        // resolution.
+        $this->app->singleton(StatusPagePreviewRenderer::class);
     }
 
     /**
