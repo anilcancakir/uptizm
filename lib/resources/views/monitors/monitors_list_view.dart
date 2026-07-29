@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
@@ -60,7 +61,8 @@ class _Filter {
 }
 
 class _MonitorsListViewState
-    extends MagicStatefulViewState<MonitorController, MonitorsListView> {
+    extends MagicStatefulViewState<MonitorController, MonitorsListView>
+    with RefetchesOnMount<MonitorController, MonitorsListView> {
   /// The four filter tabs: All, Operational, Degraded, Down.
   ///
   /// A getter (not a `const`) so each tab label resolves through [trans] at the
@@ -146,6 +148,13 @@ class _MonitorsListViewState
     if (selected == null) return controller.monitors;
     return controller.monitors.where((m) => m.status == selected).toList();
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so re-entering this route
+  /// would otherwise re-render the data fetched the first time it was ever
+  /// opened. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {

@@ -2,18 +2,11 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import '../../../app/support/incident_types.dart' show IncidentSummary;
-import '../../../app/support/metric_types.dart' show MonitorMetric;
 import '../../../app/support/status_page_support.dart' show pageUrl, worstStatus;
 import '../../../app/support/status_page_types.dart' show PublicComponent;
-import '../../../app/mocks/incidents.dart';
-import '../../../app/enums/metric_direction.dart' show MetricDirection;
 import '../../../app/enums/status_key.dart';
-import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';
 import '../component_status_row/index.dart';
-import '../status_badge/index.dart';
-import '../status_dot/index.dart';
 import 'status_page_preview.recipe.dart';
 
 /// **The public status page, rendered in-app.**
@@ -24,15 +17,22 @@ import 'status_page_preview.recipe.dart';
 /// public route. Ported 1:1 in structure from the design source
 /// `StatusPagePreview.tsx`.
 ///
-/// Top-to-bottom it renders: a brand header, an overall-status banner, an
-/// optional live-metrics grid, the component list (or a dashed empty
-/// placeholder), an optional past-incidents list filtered to this page's
-/// monitors, an optional subscribe box, and a footer.
+/// Top-to-bottom it renders: a brand header, an overall-status banner, the
+/// component list (or a dashed empty placeholder), an optional subscribe box,
+/// and a footer.
 ///
-/// Brand color and logo come from the model; all component/incident health
-/// reads through the semantic status tokens so it looks right regardless of the
-/// brand tint. The only raw color anywhere is [StatusPage.brandColor] (the logo
-/// tile and the subscribe button), which is content data.
+/// Every component and the banner tone come from [StatusPage.components], the
+/// page's own eager-loaded pivot. This preview previously carried two further
+/// sections, a live-metrics grid and a past-incidents list, both resolved
+/// through design-lab fixtures: they showed invented metrics and incidents that
+/// belonged to no real monitor, so they were removed rather than left to
+/// misinform the operator. The authoritative view remains the backend-rendered
+/// page at `/s/{slug}`, one tap away via the editor's "View public page".
+///
+/// Brand color and logo come from the model; all component health reads through
+/// the semantic status tokens so it looks right regardless of the brand tint.
+/// The only raw color anywhere is [StatusPage.brandColor] (the logo tile and the
+/// subscribe button), which is content data.
 ///
 /// ### Example Usage:
 ///
@@ -49,12 +49,10 @@ class StatusPagePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Resolve the config into its published components, metrics, overall
-    //    status, and the incidents that touch its monitor set.
-    final List<PublicComponent> components = componentsFor(config);
-    final List<MonitorMetric> metrics = metricsFor(config);
-    final StatusKey overall = worstStatus(components);
-    final List<IncidentSummary> history = _historyFor(components);
+    // 1. Resolve the config into its published components and overall status,
+    //    both from the model's own eager-loaded pivot.
+    final List<PublicComponent> components = config.components;
+    final StatusKey? overall = worstStatus(components);
 
     // 2. Column scaffold: an explicit Flutter Column bounds each leaf section to
     //    the max-w-2xl frame so rows and grids lay out cleanly (a Wind flex-col
@@ -67,16 +65,8 @@ class StatusPagePreview extends StatelessWidget {
           _buildBrandHeader(),
           const SizedBox(height: 32),
           _buildBanner(overall),
-          if (metrics.isNotEmpty) ...[
-            const SizedBox(height: 32),
-            _buildMetrics(metrics),
-          ],
           const SizedBox(height: 32),
           _buildComponents(components),
-          if (history.isNotEmpty) ...[
-            const SizedBox(height: 32),
-            _buildIncidents(history),
-          ],
           if (config.subscriptionsEnabled) ...[
             const SizedBox(height: 32),
             _buildSubscribe(),
@@ -119,7 +109,28 @@ class StatusPagePreview extends StatelessWidget {
 
   // -- 2. Overall banner -----------------------------------------------------
 
-  Widget _buildBanner(StatusKey overall) {
+  /// Builds the overall-status banner, or the "nothing published" banner when
+  /// [overall] is null.
+  ///
+  /// A page with no components has measured nothing, so it must not borrow the
+  /// operational tone. Falling back to [StatusKey.up] here is what let an
+  /// unconfigured page announce "All systems operational".
+  Widget _buildBanner(StatusKey? overall) {
+    if (overall == null) {
+      return WDiv(
+        className:
+            'flex flex-row items-center gap-3 rounded-xl border '
+            'border-color-border px-5 py-4 bg-surface-container',
+        // flex-1 so the sentence takes the available width and wraps instead of
+        // overflowing the row: the Turkish string is longer than the English
+        // one, and a fixed-width child would clip whichever is longer.
+        child: WText(
+          trans('uptizm.status.preview_no_components_banner'),
+          className: 'flex-1 text-sm font-semibold text-fg-muted',
+        ),
+      );
+    }
+
     final StatusPageBannerTone tone =
         statusPageBannerTones[overall] ?? statusPageBannerTones[StatusKey.up]!;
 
@@ -147,49 +158,7 @@ class StatusPagePreview extends StatelessWidget {
     );
   }
 
-  // -- 3. Live metrics -------------------------------------------------------
-
-  Widget _buildMetrics(List<MonitorMetric> metrics) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        WText(
-          trans('uptizm.status.preview_live_metrics_heading'),
-          className: statusPagePreviewSectionHeadingClassName,
-        ),
-        const SizedBox(height: 8),
-        WDiv(
-          className: 'grid grid-cols-2 sm:grid-cols-3 gap-3 items-stretch',
-          children: [
-            for (final MonitorMetric metric in metrics)
-              _buildMetricCell(metric),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMetricCell(MonitorMetric metric) {
-    return WDiv(
-      className: statusPagePreviewMetricCellClassName,
-      children: [
-        WText(metric.label, className: 'text-xs text-fg-muted'),
-        const SizedBox(height: 4),
-        WDiv(
-          className: 'flex flex-row items-center gap-2',
-          children: [
-            StatusDot(_metricBand(metric)),
-            WText(
-              _formatMetricValue(metric),
-              className: 'font-mono text-xl font-semibold tabular-nums text-fg',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // -- 4. Components ---------------------------------------------------------
+  // -- 3. Components ---------------------------------------------------------
 
   Widget _buildComponents(List<PublicComponent> components) {
     return Column(
@@ -222,46 +191,7 @@ class StatusPagePreview extends StatelessWidget {
     );
   }
 
-  // -- 5. Past incidents -----------------------------------------------------
-
-  Widget _buildIncidents(List<IncidentSummary> history) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        WText(
-          trans('uptizm.status.preview_past_incidents_heading'),
-          className: statusPagePreviewSectionHeadingClassName,
-        ),
-        const SizedBox(height: 8),
-        for (int i = 0; i < history.length; i++) ...[
-          if (i > 0) const SizedBox(height: 12),
-          _buildIncidentRow(history[i]),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildIncidentRow(IncidentSummary incident) {
-    return WDiv(
-      className: statusPagePreviewIncidentRowClassName,
-      children: [
-        WDiv(
-          className: 'flex-1 min-w-0',
-          children: [
-            WText(incident.title, className: 'text-sm font-medium text-fg'),
-            const SizedBox(height: 2),
-            WText(
-              '${incident.lifecycle.label} · ${incident.startedAt}',
-              className: 'text-xs text-fg-muted',
-            ),
-          ],
-        ),
-        StatusBadge(incident.impact.statusKey, size: StatusBadgeSize.sm),
-      ],
-    );
-  }
-
-  // -- 6. Subscribe ----------------------------------------------------------
+  // -- 4. Subscribe ----------------------------------------------------------
 
   Widget _buildSubscribe() {
     return WDiv(
@@ -313,65 +243,12 @@ class StatusPagePreview extends StatelessWidget {
     );
   }
 
-  // -- 7. Footer -------------------------------------------------------------
+  // -- 5. Footer -------------------------------------------------------------
 
   Widget _buildFooter() {
     return WText(
       '${pageUrl(config)} · ${trans('uptizm.status.preview_powered_by')}',
       className: 'text-center font-mono text-xs text-fg-muted',
     );
-  }
-
-  // -- Helpers ---------------------------------------------------------------
-
-  /// Past incidents whose primary or affected monitors intersect the config's
-  /// published components. Mirrors the design source's `history` filter
-  /// (`names.has(monitorName) || affectedMonitors.some((m) => names.has(m.name))`).
-  List<IncidentSummary> _historyFor(List<PublicComponent> components) {
-    final Set<String> names = {
-      for (final PublicComponent c in components) c.name,
-    };
-    return incidents.where((IncidentSummary incident) {
-      if (names.contains(incident.monitorName)) return true;
-      return incident.affectedMonitors.any((m) => names.contains(m.name));
-    }).toList();
-  }
-
-  /// Health band of a metric's current value against its warn/critical bounds,
-  /// mapped to a [StatusKey] for the [StatusDot]. Mirrors the design source's
-  /// `metricBand` (`down`/`degraded`/`up`).
-  StatusKey _metricBand(MonitorMetric metric) {
-    bool worse(num bound) => metric.direction == MetricDirection.low
-        ? metric.value <= bound
-        : metric.value >= bound;
-
-    if (worse(metric.critical)) return StatusKey.down;
-    if (worse(metric.warn)) return StatusKey.degraded;
-    return StatusKey.up;
-  }
-
-  /// Display string for a metric's current value, e.g. `"73%"` or `"842ms"`.
-  /// Mirrors the design source's `formatMetricValue` + `UNIT_SUFFIX` map.
-  String _formatMetricValue(MonitorMetric metric) {
-    const Map<String, String> unitSuffix = <String, String>{
-      '%': '%',
-      'ms': 'ms',
-      's': 's',
-      'req_s': '/s',
-      'bytes': 'B',
-      'count': '',
-      '': '',
-    };
-    final String suffix = unitSuffix[metric.unit] ?? metric.unit;
-    final String value = _formatNum(metric.value);
-    return suffix.isNotEmpty ? '$value$suffix' : value;
-  }
-
-  /// Render a metric value without a trailing `.0` for whole numbers (the fixture
-  /// values are integers; JavaScript prints `73`, not `73.0`).
-  String _formatNum(num value) {
-    if (value is int) return value.toString();
-    if (value == value.roundToDouble()) return value.toInt().toString();
-    return value.toString();
   }
 }

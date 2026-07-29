@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
@@ -56,7 +57,8 @@ enum _IncidentFilter {
 }
 
 class _IncidentsListViewState
-    extends MagicStatefulViewState<IncidentController, IncidentsListView> {
+    extends MagicStatefulViewState<IncidentController, IncidentsListView>
+    with RefetchesOnMount<IncidentController, IncidentsListView> {
   /// The active filter tab; defaults to "All".
   _IncidentFilter _filter = _IncidentFilter.all;
 
@@ -88,6 +90,13 @@ class _IncidentsListViewState
           i.monitorName.toLowerCase().contains(trimmed);
     }).toList();
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so re-entering this route
+  /// would otherwise re-render the data fetched the first time it was ever
+  /// opened. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {

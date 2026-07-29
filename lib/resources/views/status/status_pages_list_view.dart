@@ -2,23 +2,26 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/enums/domain_mode.dart' show DomainMode;
+import '../../../app/enums/status_key.dart' show StatusKey;
 import '../../../app/support/status_page_support.dart'
     show pageUrl, worstStatus;
 import '../../../app/support/status_page_types.dart' show PublicComponent;
-import '../../../app/mocks/status_pages.dart';
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/status_badge/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Pages list screen.**
 ///
-/// Renders every configured public status page from the design-lab mock
-/// fixtures (no controller, no network): a page header with a "New status
-/// page" action and a responsive card grid, one card per [StatusPage].
-/// An [MSEmptyState] placeholder is shown when [statusPages] is empty.
+/// Renders every configured public status page from [StatusPageController]: a
+/// page header with a "New status page" action and a responsive card grid, one
+/// card per [StatusPage]. Each card's component count and overall status badge
+/// come from the page's own eager-loaded components, so a page whose monitors
+/// are down never reads as operational.
+/// An [MSEmptyState] placeholder is shown when the roster is empty.
 ///
 /// Layout follows the same discipline as [IncidentsListView]: a plain Flutter
 /// [Column] scaffolds the page body so leaf components receive a bounded
@@ -43,7 +46,8 @@ class StatusPagesListView extends MagicStatefulView<StatusPageController> {
 }
 
 class _StatusPagesListViewState
-    extends MagicStatefulViewState<StatusPageController, StatusPagesListView> {
+    extends MagicStatefulViewState<StatusPageController, StatusPagesListView>
+    with RefetchesOnMount<StatusPageController, StatusPagesListView> {
   /// Shared billing entitlement driving the New-status-page cap. Listened to so
   /// the gate re-renders when the real plan and usage land from the backend.
   final EntitlementController _entitlement = EntitlementController.instance;
@@ -103,6 +107,13 @@ class _StatusPagesListViewState
     );
   }
 
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so re-entering this route
+  /// would otherwise re-render the data fetched the first time it was ever
+  /// opened. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
+
   @override
   Widget build(BuildContext context) {
     // Compose the page body as a Wind flex column: the 24px header rhythm is
@@ -139,8 +150,8 @@ class _StatusPagesListViewState
   // Card grid
   // ---------------------------------------------------------------------------
 
-  /// Builds the responsive card grid, or an [MSEmptyState] when [statusPages]
-  /// is empty.
+  /// Builds the responsive card grid, or an [MSEmptyState] when the
+  /// controller's roster is empty.
   Widget _buildBody() {
     if (controller.statusPages.isEmpty) {
       return _buildEmptyState();
@@ -160,7 +171,13 @@ class _StatusPagesListViewState
   /// The whole card is tappable via [WAnchor] (the same pointer-cursor + hit
   /// target wrapper used by [MonitorListRow]) and routes to the page's editor.
   Widget _buildCard(StatusPage page) {
-    final List<PublicComponent> components = componentsFor(page);
+    // The page's REAL components, from the eager-loaded pivot. This used to
+    // resolve the page's monitor ids through a design-lab fixture list, which
+    // never matched a real uuid, so every card claimed "0 components" and (via
+    // worstStatus's old empty-list default) "Operational" even while the
+    // attached monitors were down.
+    final List<PublicComponent> components = page.components;
+    final StatusKey? overall = worstStatus(components);
     final int subscriberCount = controller.subscribersFor(page.id).length;
 
     return WAnchor(
@@ -187,7 +204,10 @@ class _StatusPagesListViewState
                   ),
                 ],
               ),
-              StatusBadge(worstStatus(components), size: StatusBadgeSize.sm),
+              // No components means no measurement to report, so the card shows
+              // no badge rather than a healthy-looking one.
+              if (overall != null)
+                StatusBadge(overall, size: StatusBadgeSize.sm),
             ],
           ),
           WText(

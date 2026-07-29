@@ -6,7 +6,6 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/support/billing_types.dart' show Plan;
 import '../../../app/support/team_types.dart'
     show Invoice, PaymentMethod, UsageStat;
-import '../../../app/mocks/billing.dart' show currentPlanId;
 import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
 import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
@@ -62,12 +61,14 @@ enum BillingCycle {
 ///   pairs, NOT [StatusBadge], which takes a monitoring [StatusKey]), the
 ///   amount, and a "Receipt" [Button] that opens the Stripe billing portal.
 ///
-/// The current-plan id is sourced from the live `GET /billing` entitlement
-/// (via [BillingService.currentEntitlement]), falling back to the design-lab
-/// fixture ([currentPlanId]) until the read resolves or on failure. Every
-/// other section (plan catalog, usage, payment method, invoices) is fully
-/// live; every read degrades to its last-known state (empty before the first
-/// successful fetch) on failure instead of throwing out of `initState`.
+/// The current-plan id is sourced solely from the live `GET /billing`
+/// entitlement (via [BillingService.currentEntitlement]); it stays `null`
+/// (genuinely unknown, not seeded from a guess) until that read resolves, and
+/// no card claims to be the current plan or an upgrade/downgrade target while
+/// it is unresolved. Every other section (plan catalog, usage, payment
+/// method, invoices) is fully live; every read degrades to its last-known
+/// state (empty before the first successful fetch) on failure instead of
+/// throwing out of `initState`.
 ///
 /// ### Example
 /// ```dart
@@ -127,10 +128,12 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   late final BillingService _billing =
       widget.billingService ?? BillingService.instance;
 
-  /// The active plan id. Seeded from the design-lab fixture ([currentPlanId])
-  /// and republished by [_loadEntitlement] once the live `GET /billing` read
-  /// resolves; keeps the fixture id as last-known state on any failure.
-  String _currentPlanId = currentPlanId;
+  /// The active plan id, or `null` while it is genuinely unknown: before
+  /// [_loadEntitlement]'s `GET /billing` read resolves, and permanently on a
+  /// failed read (there is no fixture to fall back to; an unresolved current
+  /// plan must read as unresolved, never as a guess). Republished by
+  /// [_loadEntitlement] once the live read succeeds.
+  String? _currentPlanId;
 
   /// The plan catalog from `GET /billing/plans`, cheapest-to-priciest as
   /// served by the backend. Empty until [_loadPlans] resolves; stays empty
@@ -176,8 +179,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   bool _pmError = false;
 
   /// The active plan, resolved from [_currentPlanId]; `null` while [_plans]
-  /// is still empty (loading, or the catalog fetch failed).
-  Plan? get _current => _plans.isEmpty ? null : _findPlan(_currentPlanId);
+  /// is still empty (loading, or the catalog fetch failed) or while
+  /// [_currentPlanId] itself has not resolved yet.
+  Plan? get _current {
+    final String? planId = _currentPlanId;
+    if (_plans.isEmpty || planId == null) return null;
+    return _findPlan(planId);
+  }
 
   @override
   void initState() {
@@ -193,9 +201,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// [BillingService.currentEntitlement] and republishes [_currentPlanId].
   ///
   /// Deliberate degradation on failure (network error, non-2xx, malformed
-  /// payload): keeps the fixture plan id as last-known state instead of
-  /// throwing, mirroring `MonitorController.reload`'s read-path convention, so
-  /// a transient read failure never crashes this screen.
+  /// payload): leaves [_currentPlanId] `null` instead of throwing, mirroring
+  /// `MonitorController.reload`'s read-path convention, so a transient read
+  /// failure never crashes this screen. It also never fabricates a guessed
+  /// plan id; the current-plan card and every plan-card CTA simply stay in
+  /// their unresolved state until a retry succeeds.
   Future<void> _loadEntitlement() async {
     try {
       final BillingEntitlement entitlement = await _billing
@@ -363,65 +373,68 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
   /// Builds the current-plan [Card]: name + "Current" badge, the renewal line,
   /// and a responsive two-column grid of [UsageMeter]s over the fetched usage
-  /// stats. Renders a loading skeleton while [_current] is `null` (the plan
-  /// catalog has not resolved yet, or its fetch failed).
+  /// stats. Renders a loading skeleton in place of the name/badge/renewal
+  /// block while [_current] is `null` (the plan catalog has not resolved yet,
+  /// its fetch failed, or the live entitlement itself has not resolved), so
+  /// no plan name or "Current" claim is ever shown before it is confirmed.
+  /// The usage grid does not depend on [_current] (usage stats are not
+  /// plan-scoped) and renders as soon as [_usage] itself resolves.
   Widget _buildCurrentPlanCard() {
     final Plan? current = _current;
-    if (current == null) {
-      return MSCard(
-        child: WDiv(
-          className: 'flex flex-col gap-5',
-          children: const [
-            MSSkeleton(shape: SkeletonShape.text, width: 160, height: 20),
-            MSSkeleton(height: 16, width: 220),
-          ],
-        ),
-      );
-    }
 
     return MSCard(
       child: WDiv(
         className: 'flex flex-col gap-5',
         children: [
-          WDiv(
-            className: 'flex flex-col gap-1',
-            children: [
-              WDiv(
-                className: 'flex flex-row items-center gap-2',
-                children: [
-                  WText(
-                    current.name,
-                    className: 'text-sm font-semibold text-fg',
-                  ),
-                  MSBadge(
-                    trans('uptizm.teams.billing_plan_current_badge'),
-                    tone: BadgeTone.primary,
-                  ),
-                ],
-              ),
-              WText(
-                // A free plan never renews and carries no payment method, so it
-                // shows a "free forever" line instead of a "renews <date>" one
-                // (which otherwise read "renews Unknown" with no card on file).
-                (current.monthly == 0 && current.annual == 0)
-                    ? trans('uptizm.teams.billing_renewal_free')
-                    : trans('uptizm.teams.billing_renewal_text', {
-                        'price': _priceLabel(current, BillingCycle.annual),
-                        'cycle': trans(
-                          'uptizm.teams.billing_renewal_cycle_annual',
-                        ),
-                        // Live renewal date from GET /billing/payment-method;
-                        // falls back to a neutral label while the lazy fetch is
-                        // pending or after its Stripe soft-fail (never a
-                        // fabricated date).
-                        'date':
-                            _paymentMethod?.renewalDate ??
-                            trans('common.unknown'),
-                      }),
-                className: 'text-sm text-fg-muted',
-              ),
-            ],
-          ),
+          if (current == null)
+            const WDiv(
+              className: 'flex flex-col gap-1',
+              children: [
+                MSSkeleton(shape: SkeletonShape.text, width: 160, height: 20),
+                MSSkeleton(height: 16, width: 220),
+              ],
+            )
+          else
+            WDiv(
+              className: 'flex flex-col gap-1',
+              children: [
+                WDiv(
+                  className: 'flex flex-row items-center gap-2',
+                  children: [
+                    WText(
+                      current.name,
+                      className: 'text-sm font-semibold text-fg',
+                    ),
+                    MSBadge(
+                      trans('uptizm.teams.billing_plan_current_badge'),
+                      tone: BadgeTone.primary,
+                    ),
+                  ],
+                ),
+                WText(
+                  // A free plan never renews and carries no payment method, so
+                  // it shows a "free forever" line instead of a "renews
+                  // <date>" one (which otherwise read "renews Unknown" with no
+                  // card on file).
+                  (current.monthly == 0 && current.annual == 0)
+                      ? trans('uptizm.teams.billing_renewal_free')
+                      : trans('uptizm.teams.billing_renewal_text', {
+                          'price': _priceLabel(current, BillingCycle.annual),
+                          'cycle': trans(
+                            'uptizm.teams.billing_renewal_cycle_annual',
+                          ),
+                          // Live renewal date from GET /billing/payment-method;
+                          // falls back to a neutral label while the lazy fetch
+                          // is pending or after its Stripe soft-fail (never a
+                          // fabricated date).
+                          'date':
+                              _paymentMethod?.renewalDate ??
+                              trans('common.unknown'),
+                        }),
+                  className: 'text-sm text-fg-muted',
+                ),
+              ],
+            ),
           WDiv(
             className: 'grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2',
             children: [
@@ -491,7 +504,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// hero tile, the feature list, an optional responder add-on line, an optional
   /// "Recommended" badge, and the CTA.
   Widget _buildPlanCard(Plan plan) {
-    final bool isCurrent = plan.id == _currentPlanId;
+    final bool isCurrent = _currentPlanId != null && plan.id == _currentPlanId;
     final bool isCustom = plan.monthly == null;
 
     return WDiv(
@@ -873,14 +886,21 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// Resolves the CTA label for [plan] against the current plan.
   ///
   /// "Current plan" for the active tier; "Contact sales" for a custom tier;
-  /// otherwise "Upgrade" (higher tier) or "Downgrade" (lower tier). Mirrors the
-  /// React `ctaLabel`.
+  /// otherwise "Upgrade" (higher tier) or "Downgrade" (lower tier). While
+  /// [_currentPlanId] is still unresolved, no card may claim to be the active
+  /// tier or an upgrade/downgrade target, so every priced tier falls back to
+  /// the neutral "View plan" label instead (the custom tier still reads
+  /// "Contact sales", since that copy never depended on the current plan).
+  /// Mirrors the React `ctaLabel`.
   String _ctaLabel(Plan plan) {
-    if (plan.id == _currentPlanId) {
-      return trans('uptizm.teams.billing_plan_button_current');
-    }
     if (plan.monthly == null) {
       return trans('uptizm.teams.billing_plan_button_contact');
+    }
+    if (_currentPlanId == null) {
+      return trans('uptizm.teams.billing_plan_button_unresolved');
+    }
+    if (plan.id == _currentPlanId) {
+      return trans('uptizm.teams.billing_plan_button_current');
     }
     return _direction(plan) > 0
         ? trans('uptizm.teams.billing_plan_button_upgrade')
@@ -888,11 +908,15 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   }
 
   /// The tier distance of [plan] from the current plan: positive when [plan] is
-  /// higher (an upgrade), negative when lower. Mirrors the React
+  /// higher (an upgrade), negative when lower. `0` while [_currentPlanId] is
+  /// still unresolved, so no caller can read a false direction; [_ctaLabel]
+  /// never calls this until [_currentPlanId] is non-null. Mirrors the React
   /// `PLAN_ORDER.indexOf(plan.id) - PLAN_ORDER.indexOf(currentPlanId)`, against
-  /// the live [_currentPlanId] rather than the static fixture.
+  /// the live [_currentPlanId] rather than a fixture.
   int _direction(Plan plan) {
-    return _planIndex(plan.id) - _planIndex(_currentPlanId);
+    final String? planId = _currentPlanId;
+    if (planId == null) return 0;
+    return _planIndex(plan.id) - _planIndex(planId);
   }
 
   // ---------------------------------------------------------------------------

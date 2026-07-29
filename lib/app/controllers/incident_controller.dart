@@ -516,7 +516,12 @@ class IncidentController extends MagicController
   /// a call site with no text has nothing honest to send (the backend
   /// requires a non-empty `message`), so it degrades to the toast-only
   /// notice instead of posting an empty or invented note.
-  Future<void> postUpdate(Incident incident, [String? message]) async {
+  Future<void> postUpdate(
+    Incident incident, {
+    String? message,
+    bool isPublic = true,
+    IncidentLifecycle? status,
+  }) async {
     if (message == null || message.trim().isEmpty) {
       Magic.success(
         trans('uptizm.incidents.detail_composer_post'),
@@ -528,7 +533,15 @@ class IncidentController extends MagicController
     try {
       final response = await Http.post(
         '/incidents/${incident.id}/updates',
-        data: {'message': message},
+        data: {
+          'message': message,
+          // Always sent explicitly. The backend resolves an ABSENT `is_public`
+          // as `true` (`IncidentController::postUpdate` ->
+          // `validated('is_public', true)`), so omitting the key publishes an
+          // update the operator marked internal onto the public status page.
+          'is_public': isPublic,
+          if (status != null) 'status': status.name,
+        },
       );
       if (!response.successful) {
         Log.error(

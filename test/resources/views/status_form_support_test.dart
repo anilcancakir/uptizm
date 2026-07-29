@@ -17,8 +17,14 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('worstStatus', () {
-    test('an empty component list defaults to up', () {
-      expect(worstStatus(const []), StatusKey.up);
+    test('an empty component list reports nothing, never up', () {
+      // This used to answer StatusKey.up, and that default was load-bearing in
+      // the wrong direction: while the component list was resolved through a
+      // design-lab fixture it was always empty for a real page, so the
+      // status-page list and the in-app preview both announced "Operational" for
+      // a page whose monitors were down. A page with no components has measured
+      // nothing, so the caller must render the absence instead.
+      expect(worstStatus(const []), isNull);
     });
 
     test('down outranks every other status', () {

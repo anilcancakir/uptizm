@@ -4,12 +4,15 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'status_form_support.dart';
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
+import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/domain_mode.dart' show DomainMode;
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/status_page_support.dart' show pageUrl;
+import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
@@ -77,7 +80,8 @@ class StatusPageEditorView extends MagicStatefulView<StatusPageController> {
 }
 
 class _StatusPageEditorViewState
-    extends MagicStatefulViewState<StatusPageController, StatusPageEditorView> {
+    extends MagicStatefulViewState<StatusPageController, StatusPageEditorView>
+    with RefetchesOnMount<StatusPageController, StatusPageEditorView> {
   /// The route both Save/Create and the breadcrumb return to.
   static const String _listRoute = '/status';
 
@@ -159,18 +163,39 @@ class _StatusPageEditorViewState
     DomainMode.path,
   ];
 
+  /// The team's monitor roster, backing the Components picker.
+  ///
+  /// Resolved through the IoC container so the editor shares the one roster the
+  /// monitor views keep warm. The picker used to be built from a design-lab
+  /// fixture, which offered monitors the team did not own and left the page's
+  /// real components unselectable.
+  final MonitorController _monitors = Magic.findOrPut(MonitorController.new);
+
   @override
   void initState() {
     Magic.findOrPut(StatusPageController.new);
     super.initState();
     _seedFrom(controller.configById(widget.id));
     controller.addListener(_seedOnceResolved);
+
+    // Load the roster explicitly and listen for it: magic only fires `onInit`
+    // for a view's BACKING controller, which here is the status-page one, so the
+    // monitor controller's own bootstrap never runs and the picker would render
+    // no options.
+    _monitors.addListener(_onMonitorsChanged);
+    _monitors.reload();
   }
 
   @override
   void dispose() {
     controller.removeListener(_seedOnceResolved);
+    _monitors.removeListener(_onMonitorsChanged);
     super.dispose();
+  }
+
+  /// Re-render the Components picker when the monitor roster lands.
+  void _onMonitorsChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -278,8 +303,23 @@ class _StatusPageEditorViewState
       'logo_text': _logoText,
       'description': _description,
       'subscriptions_enabled': _subscriptionsEnabled,
+      // Carry each selected monitor's name and live status, not just its id: the
+      // live preview pane renders this draft through StatusPage.components, and
+      // an id-only entry would show a nameless component with no health. The
+      // pivot shape matches StatusPageResource so the draft and a saved page
+      // render identically.
       'monitors': <Map<String, dynamic>>[
-        for (final String id in _monitorIds) <String, dynamic>{'id': id},
+        for (int i = 0; i < _monitorIds.length; i++)
+          () {
+            final String id = _monitorIds[i];
+            final Monitor? monitor = _monitors.monitorById(id);
+            return <String, dynamic>{
+              'id': id,
+              'name': monitor?.name,
+              'display_order': i,
+              'last_status': monitor?.lastStatus,
+            };
+          }(),
       ],
       'metric_keys': _metricKeys,
     });
@@ -441,6 +481,14 @@ class _StatusPageEditorViewState
     return s.substring(0, s.length < 40 ? s.length : 40);
   }
 
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so opening this screen would
+  /// otherwise render whatever the roster held when it was first fetched. A
+  /// prefilled form is the sharp edge here, since it writes what it shows back on
+  /// save. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
+
   @override
   Widget build(BuildContext context) {
     // 1. Resolve the fixture. A supplied-but-unknown id is a broken link, so it
@@ -558,15 +606,20 @@ class _StatusPageEditorViewState
   // ---------------------------------------------------------------------------
 
   /// Builds the configuration column: the create-mode AI banner, the post-
-  /// generate note, and the Branding / Components / Metrics / Subscriptions
-  /// cards. Null-aware elements drop the banners that do not apply.
+  /// generate note, and the Branding / Components / Subscriptions cards.
+  /// Null-aware elements drop the banners that do not apply.
+  ///
+  /// There is no Metrics card. Its System and Custom pickers resolved fixture
+  /// metrics keyed by fixture monitor ids, so they were empty or wrong for a real
+  /// monitor, and nothing renders published metrics now that the preview's
+  /// fabricated metrics grid is gone. A control that publishes a key no surface
+  /// reads is a dead control, so it was removed rather than left in place.
   List<Widget> _buildConfigColumn() {
     return <Widget>[
       if (!_isEdit) _buildAiBanner(),
       if (_aiApplied) _buildAiAppliedBanner(),
       _buildBrandingCard(),
       _buildComponentsCard(),
-      if (_monitorIds.isNotEmpty) _buildMetricsCard(),
       _buildSubscriptionsCard(),
     ];
   }
@@ -813,64 +866,13 @@ class _StatusPageEditorViewState
           MSFormField(
             error: _componentsError,
             child: RegionPicker(
-              regions: monitorRegions(),
+              regions: monitorRegions(_monitors.monitors),
               value: _monitorIds,
               onChanged: (List<String> next) => setState(() {
                 _monitorIds = next;
                 _componentsError = null;
               }),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Builds the Metrics card (rendered only when monitors are assigned): the
-  /// System and Custom metric pickers, each bound to the draft's metric keys.
-  ///
-  /// Each picker resolves its options from the assigned monitors; when a monitor
-  /// set exposes no system (or no custom) metric, the picker is replaced with an
-  /// explanatory line (React's `systemOptions.length > 0 ? … : <p>`).
-  Widget _buildMetricsCard() {
-    final List<Region> systemOptions = systemMetricRegions(_monitorIds);
-    final List<Region> customOptions = customMetricRegions(_monitorIds);
-    return MSCard(
-      variant: CardVariant.surface,
-      child: WDiv(
-        className: 'flex flex-col gap-5',
-        children: <Widget>[
-          _buildSectionHeading(
-            trans('uptizm.status.editor_section_metrics'),
-            hint: trans('uptizm.status.editor_section_metrics_hint'),
-          ),
-          MSFormField(
-            label: trans('uptizm.status.editor_metrics_system_label'),
-            child: systemOptions.isNotEmpty
-                ? RegionPicker(
-                    regions: systemOptions,
-                    value: _metricKeys,
-                    onChanged: (List<String> next) =>
-                        setState(() => _metricKeys = next),
-                  )
-                : WText(
-                    trans('uptizm.status.editor_form_no_system_metrics'),
-                    className: 'text-sm text-fg-muted',
-                  ),
-          ),
-          MSFormField(
-            label: trans('uptizm.status.editor_metrics_custom_label'),
-            child: customOptions.isNotEmpty
-                ? RegionPicker(
-                    regions: customOptions,
-                    value: _metricKeys,
-                    onChanged: (List<String> next) =>
-                        setState(() => _metricKeys = next),
-                  )
-                : WText(
-                    trans('uptizm.status.editor_form_no_custom_metrics'),
-                    className: 'text-sm text-fg-muted',
-                  ),
           ),
         ],
       ),

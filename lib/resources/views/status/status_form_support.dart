@@ -1,12 +1,8 @@
 import 'package:flutter/widgets.dart' show Color;
 
-import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
-import 'package:uptizm/app/mocks/status_pages.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/status_page.dart';
-import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart'
-    show MetricOption;
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
 // ---------------------------------------------------------------------------
@@ -34,41 +30,28 @@ const List<Color> kBrandColors = [
 ];
 
 // ---------------------------------------------------------------------------
-// Region option lists (label / value pairs for the editor's RegionPicker
-// components: assigned monitors and the System/Custom metric pickers).
+// Region option list (label / value pairs for the editor's assigned-monitors
+// RegionPicker).
 // ---------------------------------------------------------------------------
 
-/// Maps the [monitors] fixture to [Region] instances for the assigned-monitors
-/// picker. Mirrors `MONITOR_OPTIONS` in the React `StatusPageEditor` source.
+/// Maps [monitors] to [Region] instances for the assigned-monitors picker.
+///
+/// Takes the team's REAL monitors. It previously projected the design-lab
+/// `monitors` fixture, so the picker offered monitors the team did not own
+/// ("Marketing site", "API gateway", ...) while the operator's actual monitors
+/// were absent, and the page's stored uuid ids matched no option so nothing
+/// rendered as selected.
 ///
 /// ```dart
-/// RegionPicker(regions: monitorRegions(), value: monitorIds, onChanged: ...);
+/// RegionPicker(
+///   regions: monitorRegions(controller.monitors),
+///   value: monitorIds,
+///   onChanged: ...,
+/// );
 /// ```
-List<Region> monitorRegions() {
+List<Region> monitorRegions(List<Monitor> monitors) {
   return [
     for (final Monitor m in monitors) Region(label: m.name ?? '', value: m.id),
-  ];
-}
-
-/// System metric options for the given monitor [ids] as [Region] instances.
-///
-/// The value is the composite `monitorId.key` metric id. Feeds the editor's
-/// System metric picker. Mirrors `systemOptions` in `StatusPageEditor`.
-List<Region> systemMetricRegions(List<String> ids) {
-  return [
-    for (final MetricOption o in systemMetricOptions(ids))
-      Region(label: o.label, value: o.value),
-  ];
-}
-
-/// Custom metric options for the given monitor [ids] as [Region] instances.
-///
-/// The value is the composite `monitorId.key` metric id. Feeds the editor's
-/// Custom metric picker. Mirrors `customOptions` in `StatusPageEditor`.
-List<Region> customMetricRegions(List<String> ids) {
-  return [
-    for (final MetricOption o in customMetricOptions(ids))
-      Region(label: o.label, value: o.value),
   ];
 }
 
@@ -80,34 +63,22 @@ List<Region> customMetricRegions(List<String> ids) {
 /// given [monitorIds].
 ///
 /// Groups every provided monitor into public components and writes a starter
-/// name, slug, and description, plus a preset metric selection filtered to the
-/// metrics that actually resolve for the chosen monitors. Mirrors
-/// `generateWithAi` in the React `StatusPageEditor` source: the description is
-/// composed from the monitors themselves, nothing external. The draft is a
-/// fresh (unsaved) [StatusPage] the editor seeds its fields from.
+/// name, slug, and description. Mirrors `generateWithAi` in the React
+/// `StatusPageEditor` source: the description is composed from the monitors
+/// themselves, nothing external. The draft is a fresh (unsaved) [StatusPage] the
+/// editor seeds its fields from.
+///
+/// It no longer seeds a metric selection. The presets it used to carry
+/// (`api.response_time`, ...) were fixture metric ids belonging to fixture
+/// monitors, so for a real team they either resolved to nothing or published a
+/// metric key pointing at a monitor that did not exist.
 ///
 /// ```dart
 /// final draft = aiDraftFor(monitors.map((m) => m.id).toList());
 /// ```
 StatusPage aiDraftFor(List<String> monitorIds) {
-  // 1. Preset metric ids the React source seeds, kept only when they resolve
-  //    for the selected monitors (an unassigned monitor drops its metrics).
-  const List<String> presetMetricKeys = [
-    'api.response_time',
-    'api.req_rate',
-    'marketing.dom_load',
-  ];
-  final Set<String> available = {
-    for (final Region r in systemMetricRegions(monitorIds)) r.value,
-    for (final Region r in customMetricRegions(monitorIds)) r.value,
-  };
-  final List<String> metricKeys = [
-    for (final String key in presetMetricKeys)
-      if (available.contains(key)) key,
-  ];
-
-  // 2. Assemble the draft model. The brand color defaults to the first preset
-  //    swatch, matching the editor's initial state.
+  // Assemble the draft model. The brand color defaults to the first preset
+  // swatch, matching the editor's initial state.
   final Color brand = kBrandColors.first;
   return StatusPage.fromMap(<String, dynamic>{
     'id': 'draft',
@@ -123,7 +94,7 @@ StatusPage aiDraftFor(List<String> monitorIds) {
     'monitors': <Map<String, dynamic>>[
       for (final String id in monitorIds) <String, dynamic>{'id': id},
     ],
-    'metric_keys': metricKeys,
+    'metric_keys': const <String>[],
   });
 }
 

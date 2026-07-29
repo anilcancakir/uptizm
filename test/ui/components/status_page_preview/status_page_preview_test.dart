@@ -158,11 +158,19 @@ void main() {
   testWidgets('an outage config renders the major-outage banner label', (
     tester,
   ) async {
-    // `checkout` is down in the uptime-history fixture; assigning only it
-    // forces the overall status to `down`.
+    // The component's health now comes from the pivot's own `last_status`, the
+    // shape StatusPageResource sends, rather than from resolving its id against
+    // a fixture monitor list (which could never match a real uuid).
     final StatusPage config = cloneStatusPage(
       statusPages.first,
-      monitorIds: const ['checkout'],
+      components: const <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'checkout',
+          'name': 'Checkout',
+          'display_order': 0,
+          'last_status': 'down',
+        },
+      ],
     );
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));

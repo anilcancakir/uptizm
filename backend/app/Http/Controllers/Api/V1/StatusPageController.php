@@ -45,8 +45,13 @@ class StatusPageController extends Controller
      */
     public function index(Request $request): AnonymousResourceCollection
     {
+        // Components are eager-loaded here, not just on `show`: the client's list
+        // renders each page's component count and overall status badge, and
+        // without the relation it had nothing to derive them from and reported
+        // "0 components / Operational" for a page whose monitors were down.
         $pages = StatusPage::query()
             ->where('team_id', $request->user()->current_team_id)
+            ->with('monitors')
             ->orderByDesc('created_at')
             ->paginate();
 

@@ -66,6 +66,12 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// `StoreMonitorRequest` / `UpdateMonitorRequest`. Runtime state
   /// (`last_status`, `last_response_ms`, `consecutive_fails`, ...) is server
   /// controlled and therefore intentionally NOT mass-assignable here.
+  ///
+  /// This list must stay in step with those two FormRequests. A key the form
+  /// posts but this list omits is stripped HERE, before the request is ever
+  /// sent, so the write fails silently with a 2xx and no validation error to
+  /// surface: that is how the monitor form's AI-assist mode and escalation-policy
+  /// pin were both lost even though the form collected them correctly.
   @override
   List<String> get fillable => [
     'name',
@@ -87,6 +93,8 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'ssl_tracking',
     'ssl_alert_threshold_days',
     'auth_config',
+    'ai_mode',
+    'escalation_policy_id',
   ];
 
   /// The attributes that should be cast.
@@ -377,6 +385,25 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// Set the auth credential map.
   set authConfig(Map<String, dynamic>? value) =>
       setAttribute('auth_config', value);
+
+  /// Get the pinned escalation-policy id, or `null` when none is pinned.
+  ///
+  /// Null is meaningful rather than missing: the backend's
+  /// `EscalationDispatcher::resolvePolicy()` falls back to the team's default
+  /// (earliest-created) policy when a monitor pins none, so the edit form
+  /// renders null as "Team default" instead of inventing a selection.
+  String? get escalationPolicyId =>
+      getAttribute('escalation_policy_id')?.toString();
+
+  /// Set the pinned escalation-policy id (`null` to unpin).
+  set escalationPolicyId(String? value) =>
+      setAttribute('escalation_policy_id', value);
+
+  /// Get the AI-assist mode token (`off` / `suggest`).
+  String get aiMode => getAttribute('ai_mode') as String? ?? 'off';
+
+  /// Set the AI-assist mode token.
+  set aiMode(String value) => setAttribute('ai_mode', value);
 
   // ---------------------------------------------------------------------------
   // Typed Accessors: Runtime State (server-controlled)

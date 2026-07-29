@@ -7,12 +7,9 @@ import 'package:uptizm/app/enums/signal_source.dart' as mocks;
 import 'package:uptizm/app/support/incident_types.dart'
     as mocks
     show TimelineEntry;
-import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/models/incident.dart';
-import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 import 'package:uptizm/ui/components/incident_timeline/incident_timeline.dart';
-import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
 // ---------------------------------------------------------------------------
 // Option-list constants (label / value pairs for the incident create form's
@@ -127,20 +124,6 @@ String postmortemDraft(Incident i) {
     'monitorWord': monitorWord,
     'signal': i.signalSource.label.toLowerCase(),
   });
-}
-
-/// Maps the [monitors] fixture to [Region] instances expected by
-/// [RegionPicker], for the affected-monitors multi-select. Mirrors
-/// `probeRegionsToRegions` in monitor_form_support.dart.
-///
-/// ```dart
-/// final regions = monitorsToRegions();
-/// RegionPicker(regions: regions, value: selected, onChanged: _onChanged);
-/// ```
-List<Region> monitorsToRegions() {
-  return [
-    for (final Monitor m in monitors) Region(label: m.name ?? '', value: m.id),
-  ];
 }
 
 /// Maps [src] (a list of the mocks-layer [mocks.TimelineEntry]) to the

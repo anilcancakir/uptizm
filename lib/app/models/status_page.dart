@@ -4,6 +4,8 @@ import 'package:flutter/painting.dart' show Color;
 import 'package:magic/magic.dart';
 
 import '../enums/domain_mode.dart' show DomainMode;
+import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
+import '../support/status_page_types.dart' show PublicComponent;
 
 /// **A public status page.**
 ///
@@ -174,6 +176,62 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
         .map((m) => m['id']?.toString())
         .whereType<String>()
         .toList();
+  }
+
+  /// The page's published components, in display order, read from the
+  /// eager-loaded `monitors` pivot array.
+  ///
+  /// Each entry carries the component's public label and the monitor's live
+  /// health, so a caller can render the page's real composition and overall
+  /// status. Empty when the wire omits the pivot.
+  ///
+  /// This replaces resolving [monitorIds] through a fixture monitor list, which
+  /// could never match a real (uuid-keyed) monitor and so reported every page as
+  /// having zero components.
+  ///
+  /// Mirrors the public page exactly, which means honouring BOTH gates on public
+  /// visibility: a monitor has to be attached AND carry `show_on_status_page`
+  /// (see `StatusPageAssembler`, which filters on it). Ignoring the second gate
+  /// would let the in-app preview promise a component the real page hides.
+  List<PublicComponent> get components {
+    final Object? raw = getAttribute('monitors');
+    if (raw is! List) return const [];
+
+    final List<Map<String, dynamic>> rows = raw
+        .whereType<Map<String, dynamic>>()
+        // A row that predates the flag (or omits it) is treated as public, so an
+        // older payload keeps rendering rather than silently emptying the page.
+        .where((row) => row['show_on_status_page'] != false)
+        .toList()
+      ..sort((a, b) {
+        final int left = (a['display_order'] as num?)?.toInt() ?? 0;
+        final int right = (b['display_order'] as num?)?.toInt() ?? 0;
+        return left.compareTo(right);
+      });
+
+    return [
+      for (final Map<String, dynamic> row in rows)
+        PublicComponent(
+          // `custom_label` is the operator's public override; the monitor's own
+          // name is the fallback, matching what the public page renders.
+          name:
+              (row['custom_label'] as String?)?.trim().isNotEmpty == true
+              ? row['custom_label'] as String
+              : (row['name'] as String? ?? ''),
+          // A monitor with no check yet reads as Pending, never as up: the
+          // absence of a measurement is not evidence of health.
+          status: statusKeyFromWire(
+            row['last_status'] as String?,
+            fallback: StatusKey.pending,
+          ),
+          // Trailing uptime and the 90-day history are not carried on the pivot.
+          // They are left empty rather than filled with a plausible number: an
+          // invented uptime string is exactly the kind of claim the product's
+          // honesty rules forbid.
+          uptime: '',
+          segments: const [],
+        ),
+    ];
   }
 
   /// Custom/aggregate metric ids surfaced publicly (`monitorId.key`). Read from

@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/support/monitor_types.dart' show CheckRow;
-import '../../../app/mocks/monitors.dart';
 import '../status_badge/index.dart';
 import 'check_history_table.recipe.dart';
 
@@ -56,7 +55,8 @@ import 'check_history_table.recipe.dart';
 class CheckHistoryTable extends StatelessWidget {
   /// The ordered list of check results to display.
   ///
-  /// Typically sourced from [recentChecks] or a live API response.
+  /// Typically sourced from a monitor's recent-checks API response, most
+  /// recent first.
   final List<CheckRow> rows;
 
   /// Creates a [CheckHistoryTable] for the given [rows].

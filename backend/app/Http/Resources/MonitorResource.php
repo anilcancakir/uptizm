@@ -40,8 +40,19 @@ class MonitorResource extends JsonResource
             'regions' => $this->resource->regions ?? [],
             'expected_status_code' => $this->resource->expected_status_code,
             'request_headers' => $this->resource->request_headers ?? [],
+            // Both emitted so the edit form can prefill what the operator
+            // configured. Without them the form fell back to its create-time
+            // defaults and a plain rename silently rewrote the monitor.
+            'request_body' => $this->resource->request_body,
+            'ai_mode' => $this->resource->ai_mode,
             'auth_config' => $this->redactAuthConfig($this->resource->auth_config),
             'slo_target' => $this->resource->slo_target,
+            // The pinned paging ladder, or null to fall back to the team default.
+            // Emitted so the edit form can render the monitor's real selection
+            // instead of resetting it to a default on every save.
+            'escalation_policy_id' => $this->resource->escalation_policy_id === null
+                ? null
+                : (string) $this->resource->escalation_policy_id,
             // Measured uptime over the trailing 24h / 7d / 30d, attached by the
             // show action only (null in list/edit responses and while a monitor
             // has no checks yet, which the client renders as "no data").

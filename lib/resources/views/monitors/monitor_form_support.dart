@@ -2,6 +2,7 @@ import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/support/monitor_types.dart' show ProbeRegion;
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
+import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,10 @@ List<MetricOption> get kCheckIntervals => [
   MetricOption(label: trans('uptizm.monitors.interval_10s'), value: '10s'),
   MetricOption(label: trans('uptizm.monitors.interval_30s'), value: '30s'),
   MetricOption(label: trans('uptizm.monitors.interval_1m'), value: '1m'),
+  // 3m is the Free tier's own interval floor and what every seeded monitor
+  // uses, so leaving it out made a Free monitor's real interval unrepresentable
+  // in its own edit form (and every cheaper option is locked for that tier).
+  MetricOption(label: trans('uptizm.monitors.interval_3m'), value: '3m'),
   MetricOption(label: trans('uptizm.monitors.interval_5m'), value: '5m'),
 ];
 
@@ -56,8 +61,39 @@ const Map<String, int> kIntervalSeconds = {
   '10s': 10,
   '30s': 30,
   '1m': 60,
+  '3m': 180,
   '5m': 300,
 };
+
+/// The interval token whose duration is exactly [seconds], or `null` when no
+/// option matches.
+///
+/// Exact-match on purpose. The edit form uses this to show a monitor's real
+/// interval, and snapping to the nearest option would quietly rewrite the
+/// operator's configuration on the next save, which is the failure this helper
+/// exists to prevent. A `null` answer means "this interval needs its own
+/// option" and the caller renders it verbatim instead.
+String? intervalTokenForSeconds(int seconds) {
+  for (final MapEntry<String, int> entry in kIntervalSeconds.entries) {
+    if (entry.value == seconds) {
+      return entry.key;
+    }
+  }
+  return null;
+}
+
+/// Projects a `request_headers` wire map into the editor's ordered row shape.
+///
+/// An empty map yields an empty list rather than a placeholder row: the form's
+/// create-time default carries an illustrative `Authorization: Bearer …` row,
+/// and seeding that into an EDIT would send the literal placeholder to the
+/// monitored endpoint on every probe.
+List<KeyValueRow> keyValueRowsFromMap(Map<String, dynamic> headers) {
+  return [
+    for (final MapEntry<String, dynamic> entry in headers.entries)
+      KeyValueRow(key: entry.key, value: entry.value?.toString() ?? ''),
+  ];
+}
 
 /// SLO target options for the uptime SLO select. Matches `SLO_TARGETS` in
 /// MonitorForm.tsx. An empty [MetricOption.value] means no SLO target is set.

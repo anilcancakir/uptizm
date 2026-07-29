@@ -5,8 +5,9 @@ import 'package:magic_starter/magic_starter.dart';
 import 'monitor_form_support.dart';
 import 'monitor_metrics_support.dart';
 import '../../../app/controllers/entitlement_controller.dart';
+import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/mocks/monitors.dart';
-import '../../../app/mocks/oncall.dart';
+import '../../../app/models/escalation_policy.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 
@@ -48,9 +49,18 @@ class MonitorForm extends StatefulWidget {
   /// Initial monitored URL or host. Defaults to empty (React `initialUrl = ""`).
   final String initialUrl;
 
-  /// Initial check-interval token (`10s` / `30s` / `1m` / `5m`). Defaults to
-  /// `30s` (React `initialInterval = "30s"`).
+  /// Initial check-interval token (`10s` / `30s` / `1m` / `3m` / `5m`). Defaults
+  /// to `30s` (React `initialInterval = "30s"`).
   final String initialInterval;
+
+  /// The monitor's real check interval in seconds, when editing.
+  ///
+  /// Takes precedence over [initialInterval]. The backend accepts any interval
+  /// from 30s to 24h, so a monitor can legitimately hold a value no option
+  /// covers (set through the API); rather than snapping it to the nearest option
+  /// and rewriting it on the next save, the select grows a verbatim option for
+  /// that exact value.
+  final int? initialIntervalSec;
 
   /// Initial selected probe-region values. Defaults to `['us-east', 'eu-west']`
   /// (React `initialRegions`).
@@ -60,13 +70,46 @@ class MonitorForm extends StatefulWidget {
   /// row (React `initialHeaders`).
   final List<KeyValueRow> initialHeaders;
 
-  /// Initial escalation-policy id. Defaults to [defaultEscalationPolicy.id]
-  /// (React `initialPolicy`).
-  final String initialPolicy;
+  /// Initial escalation-policy id, or `null` for "no policy pinned".
+  ///
+  /// Null is a real, meaningful state rather than a missing value: the backend's
+  /// `EscalationDispatcher::resolvePolicy()` falls back to the team's default
+  /// (earliest-created) policy when the monitor pins none, so there is nothing
+  /// to invent a default for here.
+  final String? initialPolicy;
 
   /// Initial uptime SLO target as a percentage string, or `''` for none.
   /// Defaults to `99.9` (React `initialSlo = "99.9"`).
   final String initialSlo;
+
+  /// Initial HTTP method token (lowercase wire value, e.g. `get`).
+  final String initialMethod;
+
+  /// Initial request timeout in seconds, as the raw field string.
+  final String initialTimeoutSec;
+
+  /// Initial request body for the advanced section.
+  final String initialBody;
+
+  /// Initial AI-assist mode token (`off` / `suggest`).
+  final String initialAiMode;
+
+  /// Initial "alert when this monitor goes down" state.
+  final bool initialAlertOnDown;
+
+  /// Initial "alert when it recovers" state.
+  final bool initialAlertOnRecover;
+
+  /// Whether this form is editing an existing monitor rather than creating one.
+  ///
+  /// It changes what [_MonitorFormState.buildFields] posts. A create sends the
+  /// full request shape, including sensible defaults for the settings this form
+  /// exposes no control for. An edit sends ONLY the fields the form owns, so a
+  /// monitor's unsurfaced configuration (`auth_config`, `expected_status_code`,
+  /// `tags`, the status-page and SSL flags) survives a save instead of being
+  /// reset to a create-time default. Every rule in `UpdateMonitorRequest` is
+  /// `sometimes`, so a partial payload is the intended update shape.
+  final bool isEdit;
 
   /// Open the advanced section on mount (the AI flow pre-fills advanced
   /// fields). Defaults to `false`.
@@ -97,29 +140,32 @@ class MonitorForm extends StatefulWidget {
   final VoidCallback onCancel;
 
   /// Creates a [MonitorForm].
-  MonitorForm({
+  const MonitorForm({
     super.key,
     this.initialName = '',
     this.initialType = 'http',
     this.initialUrl = '',
     this.initialInterval = '30s',
+    this.initialIntervalSec,
     this.initialRegions = const ['us-east', 'eu-west'],
     this.initialHeaders = const [
       KeyValueRow(key: 'Authorization', value: 'Bearer …'),
     ],
-    String? initialPolicy,
+    this.initialPolicy,
     this.initialSlo = '99.9',
+    this.initialMethod = 'get',
+    this.initialTimeoutSec = '30',
+    this.initialBody = '',
+    this.initialAiMode = 'off',
+    this.initialAlertOnDown = true,
+    this.initialAlertOnRecover = true,
+    this.isEdit = false,
     this.startAdvanced = false,
     this.banner,
     required this.submitLabel,
     required this.onSubmit,
     required this.onCancel,
-  }) : initialPolicy = initialPolicy ?? _defaultPolicyId;
-
-  /// The default escalation-policy id, resolved once. A non-const default
-  /// cannot live in the parameter list, so it is funnelled through the
-  /// constructor body.
-  static final String _defaultPolicyId = defaultEscalationPolicy.id;
+  });
 
   @override
   State<MonitorForm> createState() => _MonitorFormState();
@@ -194,8 +240,8 @@ class _MonitorFormState extends State<MonitorForm> {
   /// Alert when the monitor recovers (React `notifyRecover`).
   bool _notifyRecover = true;
 
-  /// Selected escalation-policy id (React `policy`).
-  late String _policy;
+  /// Selected escalation-policy id, or `null` when no policy is pinned.
+  String? _policy;
 
   /// Selected SLO target string (React `slo`).
   late String _slo;
@@ -213,18 +259,66 @@ class _MonitorFormState extends State<MonitorForm> {
   /// the locked options re-resolve the moment the real plan lands.
   final EntitlementController _entitlement = EntitlementController.instance;
 
+  /// The team's real escalation policies, backing the Escalation policy select.
+  ///
+  /// Resolved through the IoC container rather than constructed, so this form
+  /// shares the one roster the escalation views already keep warm. The select is
+  /// wrapped in a [ListenableBuilder] on this controller so the options appear
+  /// as soon as the roster lands, and a team with no policies gets an honest
+  /// hint instead of invented options.
+  final EscalationController _escalation = Magic.findOrPut(
+    EscalationController.new,
+  );
+
+  /// Select value standing for "pin nothing, follow the team default".
+  ///
+  /// [MSSelect] needs a non-null value per option, so the null pin travels as
+  /// this sentinel and is mapped back to `null` in `onChange`. It cannot collide
+  /// with a real id: policy ids are server-generated uuids.
+  static const String _teamDefaultPolicyToken = '';
+
+  /// Select value standing for an interval no preset option covers.
+  static const String _customIntervalToken = 'custom';
+
+  /// The monitor's real interval in seconds when it matches no preset option.
+  ///
+  /// Null whenever the interval is representable, which is every monitor created
+  /// through this form; only an API-set interval lands here.
+  int? _customIntervalSec;
+
   @override
   void initState() {
     super.initState();
     _name = widget.initialName;
     _type = widget.initialType;
     _url = widget.initialUrl;
-    _intervalValue = widget.initialInterval;
+    final int? intervalSec = widget.initialIntervalSec;
+    final String? intervalToken = intervalSec == null
+        ? null
+        : intervalTokenForSeconds(intervalSec);
+    if (intervalSec != null && intervalToken == null) {
+      _customIntervalSec = intervalSec;
+      _intervalValue = _customIntervalToken;
+    } else {
+      _intervalValue = intervalToken ?? widget.initialInterval;
+    }
     _regions = List<String>.from(widget.initialRegions);
     _advanced = widget.startAdvanced;
     _headers = List<KeyValueRow>.from(widget.initialHeaders);
     _policy = widget.initialPolicy;
     _slo = widget.initialSlo;
+    _method = widget.initialMethod;
+    _timeoutMs = widget.initialTimeoutSec;
+    _body = widget.initialBody;
+    _aiMode = widget.initialAiMode;
+    _notifyDown = widget.initialAlertOnDown;
+    _notifyRecover = widget.initialAlertOnRecover;
+
+    // Load the policy roster explicitly. magic only fires `onInit` for a view's
+    // BACKING controller, and this form's backing controller is the monitor one,
+    // so the escalation controller's own bootstrap never runs here and the select
+    // would render its empty state forever.
+    _escalation.reload();
   }
 
   /// Whether the monitor is an HTTP check (React `isHttp`). Gates the advanced
@@ -347,7 +441,18 @@ class _MonitorFormState extends State<MonitorForm> {
         listenable: _entitlement,
         builder: (context, _) => MSSelect<String>(
           value: _intervalValue,
-          options: kCheckIntervals.map(_intervalOption).toList(),
+          options: [
+            // A verbatim option for an interval no preset covers, so the form
+            // states the monitor's real cadence and round-trips it untouched.
+            if (_customIntervalSec != null)
+              SelectOption<String>(
+                value: _customIntervalToken,
+                label: trans('uptizm.monitors.interval_custom', {
+                  'seconds': '$_customIntervalSec',
+                }),
+              ),
+            ...kCheckIntervals.map(_intervalOption),
+          ],
           onChange: (value) {
             if (value != null) {
               setState(() {
@@ -462,20 +567,68 @@ class _MonitorFormState extends State<MonitorForm> {
           value: _notifyRecover,
           onChanged: (value) => setState(() => _notifyRecover = value),
         ),
-        MSFormField(
+        _buildEscalationField(),
+      ],
+    );
+  }
+
+  /// Builds the Escalation policy field over the team's REAL policy roster.
+  ///
+  /// Previously this select was fed the `escalationPolicies` design-lab fixture,
+  /// so it offered "Standard" / "Critical path" to teams that owned neither, and
+  /// the pick was never posted. Both halves mattered: the backend's
+  /// `EscalationDispatcher::resolvePolicy()` reads `monitors.escalation_policy_id`
+  /// to choose the paging ladder, so a fabricated-then-dropped selection meant
+  /// the operator configured one ladder and an outage paged another.
+  ///
+  /// A "Team default" sentinel maps to a null pin, which is the honest name for
+  /// what the backend does without one (fall back to the earliest-created
+  /// policy). With no policies at all there is nothing to choose, so the field
+  /// degrades to that sentence instead of an empty dropdown.
+  Widget _buildEscalationField() {
+    return ListenableBuilder(
+      listenable: _escalation,
+      builder: (BuildContext context, Widget? _) {
+        final List<EscalationPolicy> policies = _escalation.policies;
+
+        if (policies.isEmpty) {
+          return MSFormField(
+            label: trans('uptizm.monitors.form_escalation_label'),
+            hint: trans('uptizm.monitors.form_escalation_empty'),
+            child: const SizedBox.shrink(),
+          );
+        }
+
+        // Drop a pin the roster no longer contains (a deleted policy) rather
+        // than rendering a selection that resolves to nothing.
+        final bool pinIsLive = policies.any((p) => p.id == _policy);
+
+        return MSFormField(
           label: trans('uptizm.monitors.form_escalation_label'),
           hint: trans('uptizm.monitors.form_escalation_hint'),
           child: MSSelect<String>(
-            value: _policy,
-            options: escalationPolicies
-                .map((p) => SelectOption<String>(value: p.id, label: p.name))
-                .toList(),
+            value: pinIsLive ? _policy : _teamDefaultPolicyToken,
+            options: [
+              SelectOption<String>(
+                value: _teamDefaultPolicyToken,
+                label: trans('uptizm.monitors.form_escalation_none'),
+              ),
+              for (final EscalationPolicy policy in policies)
+                SelectOption<String>(
+                  value: policy.id,
+                  label: policy.name ?? '',
+                ),
+            ],
             onChange: (value) {
-              if (value != null) setState(() => _policy = value);
+              if (value == null) return;
+
+              setState(
+                () => _policy = value == _teamDefaultPolicyToken ? null : value,
+              );
             },
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -705,10 +858,14 @@ class _MonitorFormState extends State<MonitorForm> {
   /// converted from the interval token via [kIntervalSeconds] and
   /// `timeout_sec` is parsed straight from [_timeoutMs] (the field is
   /// labelled "Timeout (seconds)"; despite its variable name it already holds
-  /// seconds, not milliseconds). Fields with no dedicated UI control yet
-  /// (`auth_config`, `expected_status_code`, `tags`, the status-page and SSL
-  /// toggles) fall back to sensible request-shape defaults rather than being
-  /// omitted, so a create/save always posts a complete, valid payload.
+  /// seconds, not milliseconds).
+  ///
+  /// The settings this form exposes no control for (`auth_config`,
+  /// `expected_status_code`, `tags`, the status-page and SSL toggles) are sent
+  /// as request-shape defaults on a CREATE only. On an edit they are omitted:
+  /// posting a default for a field the operator cannot see would silently reset
+  /// it, which is how a plain rename used to wipe a monitor's auth config and
+  /// SSL settings ([MonitorForm.isEdit]).
   Map<String, dynamic> buildFields() {
     return {
       'name': _name,
@@ -717,20 +874,26 @@ class _MonitorFormState extends State<MonitorForm> {
       'method': _method,
       'request_headers': _headersToMap(_headers),
       'request_body': _body,
-      'auth_config': null,
-      'expected_status_code': null,
-      'check_interval_sec': kIntervalSeconds[_intervalValue] ?? 30,
+      if (!widget.isEdit) 'auth_config': null,
+      if (!widget.isEdit) 'expected_status_code': null,
+      'check_interval_sec': _intervalValue == _customIntervalToken
+          ? _customIntervalSec!
+          : kIntervalSeconds[_intervalValue] ?? 30,
       'timeout_sec': int.tryParse(_timeoutMs) ?? 30,
       'regions': _regions,
-      'tags': const <String>[],
+      if (!widget.isEdit) 'tags': const <String>[],
       'slo_target': _slo.isEmpty ? null : double.tryParse(_slo),
       'ai_mode': _aiMode,
-      'show_on_status_page': true,
-      'only_show_if_degraded': false,
+      if (!widget.isEdit) 'show_on_status_page': true,
+      if (!widget.isEdit) 'only_show_if_degraded': false,
       'alert_on_down': _notifyDown,
       'alert_on_recover': _notifyRecover,
-      'ssl_tracking': _url.startsWith('https://'),
-      'ssl_alert_threshold_days': 14,
+      // Always sent, including as an explicit null: null is the operator's way
+      // to UNPIN a policy, and an omitted key on an update would leave a stale
+      // pin in place. The backend validates it against the team's own policies.
+      'escalation_policy_id': _policy,
+      if (!widget.isEdit) 'ssl_tracking': _url.startsWith('https://'),
+      if (!widget.isEdit) 'ssl_alert_threshold_days': 14,
     };
   }
 

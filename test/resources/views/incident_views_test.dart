@@ -924,11 +924,13 @@ void main() {
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
         final fake = Http.fake();
-        // The assign reload returns the incident WITH the persisted assignee,
-        // which is what the Select must then render (never local state).
-        fake.stub(
-          'incidents',
-          Http.response({
+        // Staged in two steps because the view refetches on every mount
+        // (RefetchesOnMount): the first fetch must return the UNASSIGNED
+        // incident, and only the post-assign reload returns the persisted
+        // assignee. Seeding the controller alone would be overwritten by that
+        // mount fetch.
+        Map<String, dynamic> incidentPayload({Map<String, dynamic>? assignee}) {
+          return {
             'data': [
               {
                 'id': 'assign-1',
@@ -936,15 +938,17 @@ void main() {
                 'lifecycle': 'investigating',
                 'impact': 'critical',
                 'started_at': '2026-07-11T14:00:00Z',
-                'assignee': {'id': 'u2', 'name': 'Ravi Shah'},
+                'assignee': assignee,
                 'monitors': [
                   {'monitor_id': 'm1', 'name': 'Checkout'},
                 ],
                 'updates': <dynamic>[],
               },
             ],
-          }),
-        );
+          };
+        }
+
+        fake.stub('incidents', Http.response(incidentPayload()));
 
         // The roster is the starter team controller's REAL members list (the
         // owner of `GET /teams/{id}/members`); no parallel fetch is added.
@@ -1000,6 +1004,15 @@ void main() {
         );
         expect(assigneeSelect().value, isEmpty);
 
+        // From here the backend has the assignment, so the reload the assign
+        // action triggers must report it.
+        fake.stub(
+          'incidents',
+          Http.response(
+            incidentPayload(assignee: {'id': 'u2', 'name': 'Ravi Shah'}),
+          ),
+        );
+
         // Selecting a member persists through POST /incidents/{id}/assign.
         assigneeSelect().onChange?.call('u2');
         await tester.pump();
@@ -1029,9 +1042,13 @@ void main() {
             'The origin pool starved under the release traffic.';
 
         final fake = Http.fake();
-        fake.stub(
-          'incidents',
-          Http.response({
+        // Staged in two steps because the view refetches on every mount
+        // (RefetchesOnMount): the first fetch must report NO stored postmortem so
+        // the generated draft renders, and only the post-save reload reports the
+        // stored body. Seeding the controller alone would be overwritten by that
+        // mount fetch.
+        Map<String, dynamic> incidentPayload({String? postmortemBody}) {
+          return {
             'data': [
               {
                 'id': 'pm-1',
@@ -1040,7 +1057,7 @@ void main() {
                 'impact': 'minor',
                 'started_at': '2026-07-10T10:00:00Z',
                 'resolved_at': '2026-07-10T11:00:00Z',
-                'postmortem_body': stored,
+                'postmortem_body': postmortemBody,
                 'postmortem_published_at': null,
                 'monitors': [
                   {'monitor_id': 'm2', 'name': 'API'},
@@ -1048,8 +1065,10 @@ void main() {
                 'updates': <dynamic>[],
               },
             ],
-          }),
-        );
+          };
+        }
+
+        fake.stub('incidents', Http.response(incidentPayload()));
 
         IncidentController.instance.setSuccess([
           Incident.fromMap(<String, dynamic>{
@@ -1110,6 +1129,13 @@ void main() {
         // 3. Saving the edited body persists it as an internal draft.
         await tester.enterText(postmortemField, stored);
         await tester.pump();
+
+        // From here the backend holds the draft, so the reload the save action
+        // triggers must report it.
+        fake.stub(
+          'incidents',
+          Http.response(incidentPayload(postmortemBody: stored)),
+        );
 
         final Finder saveButton = find.widgetWithText(
           MSButton,

@@ -26,6 +26,11 @@ class _StatusViewsLangLoader implements TranslationLoader {
       // fixed-width pill (mirrors the guard in monitor_detail_view_test.dart).
       'uptizm.status.up': 'Operational',
       'uptizm.status.down': 'Major outage',
+      // `pending` included because a component whose monitor has no check yet
+      // resolves to it, and a missing key renders the raw ~21-char token inside
+      // a fixed-width badge, which reads as a layout overflow rather than as the
+      // missing translation it actually is.
+      'uptizm.status.pending': 'Pending',
       'uptizm.status.degraded': 'Degraded',
       'uptizm.status.paused': 'Paused',
       'uptizm.status.info': 'Maintenance',
@@ -47,6 +52,8 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.preview_components_heading': 'Components',
       'uptizm.status.preview_components_empty':
           'No components yet. Assign monitors to show their status here.',
+      'uptizm.status.preview_no_components_banner':
+          'No components published yet',
       'uptizm.status.preview_past_incidents_heading': 'Past incidents',
       'uptizm.status.preview_subscribe_heading': 'Subscribe to updates',
       'uptizm.status.preview_subscribe_description':

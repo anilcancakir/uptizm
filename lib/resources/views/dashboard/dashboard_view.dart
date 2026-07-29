@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
@@ -62,12 +63,20 @@ class DashboardView extends MagicStatefulView<DashboardController> {
 }
 
 class _DashboardViewState
-    extends MagicStatefulViewState<DashboardController, DashboardView> {
+    extends MagicStatefulViewState<DashboardController, DashboardView>
+    with RefetchesOnMount<DashboardController, DashboardView> {
   @override
   void initState() {
     Magic.findOrPut(DashboardController.new);
     super.initState();
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so re-entering this route
+  /// would otherwise re-render the data fetched the first time it was ever
+  /// opened. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {

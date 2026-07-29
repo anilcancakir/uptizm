@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/enums/status_key.dart';
@@ -45,7 +46,8 @@ class EscalationPoliciesView extends MagicStatefulView<EscalationController> {
 }
 
 class _EscalationPoliciesViewState
-    extends MagicStatefulViewState<EscalationController, EscalationPoliciesView> {
+    extends MagicStatefulViewState<EscalationController, EscalationPoliciesView>
+    with RefetchesOnMount<EscalationController, EscalationPoliciesView> {
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -53,6 +55,13 @@ class _EscalationPoliciesViewState
     Magic.findOrPut(EscalationController.new);
     super.initState();
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so re-entering this route
+  /// would otherwise re-render the data fetched the first time it was ever
+  /// opened. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {

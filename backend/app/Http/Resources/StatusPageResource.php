@@ -54,6 +54,17 @@ class StatusPageResource extends JsonResource
                         'name' => $monitor->name,
                         'display_order' => (int) $monitor->pivot->display_order,
                         'custom_label' => $monitor->pivot->custom_label,
+                        // The component's live health, so the client can render a
+                        // page's real overall status instead of assuming
+                        // "Operational". Null means never checked yet, which the
+                        // client shows as pending rather than as up.
+                        'last_status' => $monitor->last_status?->value,
+                        // The SECOND gate on public visibility. Attaching a
+                        // monitor is not enough: StatusPageAssembler also filters
+                        // on show_on_status_page, so without this the client's
+                        // in-app preview would promise a component the real public
+                        // page hides.
+                        'show_on_status_page' => (bool) $monitor->show_on_status_page,
                     ])
                     ->all();
             }),

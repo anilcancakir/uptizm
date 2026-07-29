@@ -397,17 +397,71 @@ void main() {
       );
     });
 
-    test('refreshes the bound view on a successful save', () async {
+    test('refreshes the bound view once when components are unchanged', () async {
+      // The fake answers the post-save re-read with a page carrying exactly the
+      // draft's component set, so the pivot sync is a no-op and the save
+      // notifies once. Most saves only touch branding, and firing
+      // detach/attach/reorder for an unchanged set would be three wasted writes.
+      final StatusPage draft = statusPages.first;
       Http.fake({
-        'status-pages/*': Http.response({'data': {}}, 200),
+        'status-pages/*': Http.response({
+          'data': <String, dynamic>{
+            'id': draft.id,
+            'monitors': <Map<String, dynamic>>[
+              for (final String id in draft.monitorIds)
+                <String, dynamic>{'id': id},
+            ],
+          },
+        }, 200),
       });
       final StatusPageController controller = StatusPageController.instance;
       int notifications = 0;
       controller.addListener(() => notifications++);
 
-      await controller.save(statusPages.first);
+      await controller.save(draft);
 
       expect(notifications, equals(1));
+    });
+
+    test('syncs components through the pivot endpoints, not the page write', () async {
+      // The regression this pins: the editor used to carry its component
+      // assignment inside the page payload under a `monitors` key, which neither
+      // StoreStatusPageRequest nor UpdateStatusPageRequest validates, so
+      // Laravel's validated() dropped it and a component assignment made in the
+      // UI never persisted. Assignment has to travel over the dedicated
+      // attach/detach/reorder sub-resource instead.
+      final StatusPage draft = statusPages.first;
+      // The re-read reports a DIFFERENT attachment set, so the sync has a real
+      // delta to apply: one id to detach and the draft's own ids to attach.
+      final fake = Http.fake({
+        'status-pages/*': Http.response({
+          'data': <String, dynamic>{
+            'id': draft.id,
+            'monitors': <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'stale-monitor'},
+            ],
+          },
+        }, 200),
+      });
+
+      await StatusPageController.instance.save(draft);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'DELETE' &&
+            r.url == '/status-pages/${draft.id}/monitors/stale-monitor',
+      );
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url == '/status-pages/${draft.id}/monitors' &&
+            (r.data as Map)['monitor_id'] == draft.monitorIds.first,
+      );
+      fake.assertSent(
+        (r) =>
+            r.method == 'PUT' &&
+            r.url == '/status-pages/${draft.id}/monitors/reorder',
+      );
     });
 
     test('surfaces an error toast and does not refresh on a failed save', () async {

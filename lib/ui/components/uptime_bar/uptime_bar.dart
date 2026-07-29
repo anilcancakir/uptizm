@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/support/monitor_types.dart' show UptimeSegment;
-import '../../../app/mocks/monitors.dart';
 import 'uptime_bar.recipe.dart';
 
 /// **The 90-Day Uptime Timeline Bar**
@@ -31,7 +30,7 @@ import 'uptime_bar.recipe.dart';
 class UptimeBar extends StatelessWidget {
   /// The ordered list of daily status buckets.
   ///
-  /// Typically built with [uptime90].
+  /// Typically built from a monitor's 90-day daily status buckets.
   final List<UptimeSegment> segments;
 
   /// Visual height of the bar track; defaults to [UptimeBarSize.md].

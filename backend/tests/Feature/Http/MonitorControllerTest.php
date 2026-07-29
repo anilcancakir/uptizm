@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Http;
 
+use App\Enums\AiMode;
 use App\Enums\MonitorStatus;
 use App\Enums\Plan;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Jobs\PerformMonitorCheck;
+use App\Models\EscalationPolicy;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\User;
@@ -360,6 +362,123 @@ class MonitorControllerTest extends TestCase
      *
      * @return array<string, mixed>
      */
+    public function test_store_persists_the_pinned_escalation_policy(): void
+    {
+        // EscalationDispatcher::resolvePolicy() reads monitors.escalation_policy_id
+        // to decide who gets paged, falling back to the team's earliest-created
+        // policy when it is null. A dropped pin therefore does not fail loudly:
+        // it silently pages the wrong ladder during a real outage.
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $policy = EscalationPolicy::create([
+            'team_id' => $team->id,
+            'name' => 'Critical path',
+        ]);
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'escalation_policy_id' => $policy->id,
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.escalation_policy_id', (string) $policy->id);
+        $this->assertSame(
+            (string) $policy->id,
+            (string) Monitor::query()->latest('created_at')->first()->escalation_policy_id,
+        );
+    }
+
+    public function test_store_persists_the_ai_mode(): void
+    {
+        // ai_mode is load-bearing, not cosmetic: SweepAiSuggestions scans the
+        // fleet with whereIn('ai_mode', ['suggest','auto']) and
+        // TriageAnomalyCandidate gates on AiMode::Suggest. An unvalidated (and so
+        // dropped) ai_mode leaves every monitor at the `off` default, which means
+        // the AI suggestion pipeline never runs for a monitor created through the
+        // product, while the UI shows the operator that they enabled it.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'ai_mode' => 'suggest',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.ai_mode', 'suggest');
+        $this->assertSame(
+            AiMode::Suggest,
+            Monitor::query()->latest('created_at')->first()->ai_mode,
+        );
+    }
+
+    public function test_store_rejects_an_unknown_ai_mode(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'ai_mode' => 'sentient',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('ai_mode');
+    }
+
+    public function test_store_rejects_an_escalation_policy_from_another_team(): void
+    {
+        // Pinning across tenants would page another team's responders, so the
+        // rule is scoped to the acting team rather than a bare exists check.
+        Queue::fake();
+        $this->actingAsTeamMember();
+        $otherOwner = User::factory()->create();
+        $otherTeam = Team::create([
+            'user_id' => $otherOwner->id,
+            'name' => 'Other Co',
+            'personal_team' => true,
+        ]);
+        $foreign = EscalationPolicy::create([
+            'team_id' => $otherTeam->id,
+            'name' => 'Their ladder',
+        ]);
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'escalation_policy_id' => $foreign->id,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('escalation_policy_id');
+    }
+
+    public function test_update_can_clear_and_repin_the_escalation_policy(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $policy = EscalationPolicy::create([
+            'team_id' => $team->id,
+            'name' => 'Standard',
+        ]);
+        $monitor = $this->makeMonitor($team->id, ['escalation_policy_id' => $policy->id]);
+
+        // Clearing it must round-trip as null, not be ignored as "absent".
+        $cleared = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'escalation_policy_id' => null,
+        ]);
+        $cleared->assertStatus(200);
+        $this->assertNull($monitor->fresh()->escalation_policy_id);
+
+        $repinned = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'escalation_policy_id' => $policy->id,
+        ]);
+        $repinned->assertStatus(200);
+        $this->assertSame(
+            (string) $policy->id,
+            (string) $monitor->fresh()->escalation_policy_id,
+        );
+    }
+
     protected function validPayload(): array
     {
         return [

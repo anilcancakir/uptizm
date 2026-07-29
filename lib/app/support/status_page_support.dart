@@ -40,6 +40,10 @@ String pageUrl(StatusPage c) {
 /// `StatusPageConfig.copyWith`. This rehydrates a new model from the source's
 /// raw attributes, then patches the wire keys for any provided override so the
 /// clone reads them back through the model's reverse-cast accessors.
+/// Pass [components] instead of [monitorIds] to control each component's public
+/// label and live health as well as its id; the pivot rows are written verbatim,
+/// matching `StatusPageResource`'s shape. [monitorIds] writes id-only rows, which
+/// read back as Pending components (no `last_status` means no measurement).
 StatusPage cloneStatusPage(
   StatusPage page, {
   String? name,
@@ -47,6 +51,7 @@ StatusPage cloneStatusPage(
   DomainMode? domainMode,
   Color? brandColor,
   List<String>? monitorIds,
+  List<Map<String, dynamic>>? components,
   List<String>? metricKeys,
 }) {
   final Map<String, dynamic> map = Map<String, dynamic>.from(page.attributes);
@@ -57,7 +62,9 @@ StatusPage cloneStatusPage(
     map['brand_color'] =
         '#${brandColor.toARGB32().toRadixString(16).substring(2)}';
   }
-  if (monitorIds != null) {
+  if (components != null) {
+    map['monitors'] = components;
+  } else if (monitorIds != null) {
     map['monitors'] = <Map<String, dynamic>>[
       for (final String id in monitorIds) <String, dynamic>{'id': id},
     ];
@@ -66,13 +73,24 @@ StatusPage cloneStatusPage(
   return StatusPage.fromMap(map);
 }
 
-/// Worst component status, for the overall banner tone.
+/// Worst component status, for the overall banner tone, or `null` when there is
+/// nothing to report.
 ///
 /// Ranks the statuses `down` (4) > `degraded` (3) > `info` (2) > `paused` (1)
-/// > `up`/`ai` (0) and returns the highest-ranked status among [components],
-/// defaulting to [StatusKey.up] for an empty list. Mirrors `worstStatus` in
-/// the React status mock.
-StatusKey worstStatus(List<PublicComponent> components) {
+/// > `up`/`ai` (0) and returns the highest-ranked status among [components].
+///
+/// An empty list answers `null`, NOT [StatusKey.up]. A page with no components
+/// has made no measurement, so claiming "Operational" would be an unearned
+/// all-clear: while the component list was resolved through a design-lab fixture
+/// it was always empty, and this default is what made the status-page list and
+/// preview read "Operational" for a page whose monitors were down. Callers must
+/// render the absence (no badge, or an explicit "nothing published yet") rather
+/// than substituting a healthy tone.
+StatusKey? worstStatus(List<PublicComponent> components) {
+  if (components.isEmpty) {
+    return null;
+  }
+
   int rank(StatusKey s) => switch (s) {
     StatusKey.down => 4,
     StatusKey.degraded => 3,

@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/on_call_controller.dart';
 import '../../../app/enums/status_key.dart';
@@ -65,7 +66,8 @@ class OnCallScheduleView extends MagicStatefulView<OnCallController> {
 }
 
 class _OnCallScheduleViewState
-    extends MagicStatefulViewState<OnCallController, OnCallScheduleView> {
+    extends MagicStatefulViewState<OnCallController, OnCallScheduleView>
+    with RefetchesOnMount<OnCallController, OnCallScheduleView> {
   /// The move-earlier glyph on a rotation row.
   static const IconData _moveUpIcon = Icons.arrow_upward;
 
@@ -91,6 +93,13 @@ class _OnCallScheduleViewState
     // picker fills in as soon as the roster lands.
     unawaited(_team.loadMembersAndInvitations());
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so re-entering this route
+  /// would otherwise re-render the data fetched the first time it was ever
+  /// opened. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {

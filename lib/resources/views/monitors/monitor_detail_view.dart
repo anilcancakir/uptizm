@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/incident.dart';
@@ -15,7 +16,6 @@ import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
 import '../../../app/support/monitor_types.dart' show CheckRow, UptimeSegment;
 import '../../../app/enums/chart_tone.dart' show ChartTone;
-import '../../../app/mocks/monitors.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/check_history_table/index.dart';
@@ -45,9 +45,9 @@ import 'monitor_metrics_tab.dart';
 /// - **Incidents** lists the monitor's [IncidentCard]s, or a graceful
 ///   [MSEmptyState] when none touch it.
 ///
-/// It resolves a monitor [id] to a fixture via [findMonitor]; when no monitor
-/// matches it renders a graceful [MSEmptyState] rather than crashing (the route
-/// supplies the id at the routing layer).
+/// It resolves a monitor [id] to a [Monitor] via [MonitorController.monitorById];
+/// when no monitor matches it renders a graceful [MSEmptyState] rather than
+/// crashing (the route supplies the id at the routing layer).
 ///
 /// A brief loading state mirrors the React source: on mount (and whenever [id]
 /// changes) a 600ms timer flips [_loading] to false. While loading the body is
@@ -110,7 +110,8 @@ enum _DetailTab {
 }
 
 class _MonitorDetailViewState
-    extends MagicStatefulViewState<MonitorController, MonitorDetailView> {
+    extends MagicStatefulViewState<MonitorController, MonitorDetailView>
+    with RefetchesOnMount<MonitorController, MonitorDetailView> {
   /// The currently selected tab index.
   int _tabIndex = _DetailTab.overview.index;
 
@@ -285,6 +286,14 @@ class _MonitorDetailViewState
     return '${dt.hour.toString().padLeft(2, '0')}:'
         '${dt.minute.toString().padLeft(2, '0')}';
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so opening this screen would
+  /// otherwise render whatever the roster held when it was first fetched. A
+  /// prefilled form is the sharp edge here, since it writes what it shows back on
+  /// save. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {
@@ -929,7 +938,8 @@ class _MonitorDetailViewState
   // Not-found
   // ---------------------------------------------------------------------------
 
-  /// Builds the graceful not-found state shown when [findMonitor] returns null.
+  /// Builds the graceful not-found state shown when [MonitorController.monitorById]
+  /// returns null.
   ///
   /// Reuses the monitors error-load copy as a calm "couldn't load this
   /// monitor" message rather than crashing on an unknown route id.

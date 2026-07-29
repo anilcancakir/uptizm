@@ -1,5 +1,6 @@
 import 'dart:async' show unawaited;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/widgets.dart' show Color, visibleForTesting;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -235,6 +236,7 @@ class StatusPageController extends MagicController
       return const {};
     }
 
+    await _syncComponents(page.id, draft.monitorIds);
     refreshUI();
     Magic.success(trans('uptizm.status.editor_form_save'), draft.name ?? '');
     MagicRoute.to('/status');
@@ -264,6 +266,7 @@ class StatusPageController extends MagicController
       return const {};
     }
 
+    await _syncComponents(page.id, draft.monitorIds);
     refreshUI();
     Magic.success(
       trans('uptizm.status.editor_form_create_page'),
@@ -271,6 +274,58 @@ class StatusPageController extends MagicController
     );
     MagicRoute.to('/status');
     return const {};
+  }
+
+  /// Brings page [pageId]'s attached components in line with [desiredIds], in
+  /// the given display order.
+  ///
+  /// Components are a pivot SUB-RESOURCE on the backend: `StoreStatusPageRequest`
+  /// and `UpdateStatusPageRequest` do not validate a `monitors` key, so anything
+  /// the page write carries under that name is discarded by `validated()`. The
+  /// editor used to rely on exactly that key, which is why a component
+  /// assignment made in the UI never persisted and every page reported zero
+  /// components. Assignment therefore has to go through the dedicated
+  /// attach/detach/reorder endpoints, which is what this does.
+  ///
+  /// Detaches first, then attaches, then restates the order, so a reorder-only
+  /// change still lands. Each leg already logs and toasts its own failure
+  /// without throwing, so a partial sync degrades to "some components moved"
+  /// rather than aborting the whole save the operator already saw succeed.
+  Future<void> _syncComponents(String pageId, List<String> desiredIds) async {
+    if (pageId.isEmpty) return;
+
+    // The server's current attachment set, not the cached list: a create has no
+    // cache entry yet, and a stale cache would compute the wrong delta.
+    final StatusPage? saved = await StatusPage.find(pageId);
+    final List<String> current = saved?.monitorIds ?? const <String>[];
+
+    // Nothing to do when the assignment is already exactly this, in this order.
+    // Most saves only touch branding, and firing detach/attach/reorder for an
+    // unchanged component set would be three pointless writes per save.
+    if (listEquals(current, desiredIds)) return;
+
+    final Set<String> desired = desiredIds.toSet();
+
+    for (final String removed in current.toSet().difference(desired)) {
+      await detachMonitor(pageId, removed);
+    }
+
+    for (final String added in desired.difference(current.toSet())) {
+      await attachMonitor(
+        pageId,
+        added,
+        displayOrder: desiredIds.indexOf(added),
+      );
+    }
+
+    // Restate the full order. Attach only carries the order of newly added
+    // rows, so moving an already-attached component needs this pass.
+    if (desiredIds.isNotEmpty) {
+      await reorderMonitors(pageId, <Map<String, dynamic>>[
+        for (int i = 0; i < desiredIds.length; i++)
+          <String, dynamic>{'id': desiredIds[i], 'display_order': i},
+      ]);
+    }
   }
 
   /// Resolves a failed [page] save into either its per-field validation errors

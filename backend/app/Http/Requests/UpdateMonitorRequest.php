@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
@@ -71,6 +72,20 @@ class UpdateMonitorRequest extends StoreMonitorRequest
                 'integer',
                 'min:100',
                 'max:599',
+            ],
+            // See StoreMonitorRequest: this column gates the AI suggestion sweep.
+            'ai_mode' => [
+                'sometimes',
+                Rule::enum(AiMode::class),
+            ],
+            // See StoreMonitorRequest: team-scoped because this column selects the
+            // paging ladder. `nullable` is what lets an operator UNPIN a policy
+            // and fall back to the team default.
+            'escalation_policy_id' => [
+                'sometimes',
+                'nullable',
+                Rule::exists('escalation_policies', 'id')
+                    ->where('team_id', $this->user()?->current_team_id),
             ],
             'request_headers' => [
                 'sometimes',

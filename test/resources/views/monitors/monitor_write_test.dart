@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
+import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart'
+    show KeyValueRow;
 
 /// In-memory language loader supplying the [trans] keys [MonitorForm]
 /// exercises, mirroring the pattern in `test/resources/views/monitor_form_test.dart`.
@@ -30,6 +33,10 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_alert_recover': 'Alert on recovery',
       'uptizm.monitors.form_escalation_label': 'Escalation policy',
       'uptizm.monitors.form_escalation_hint': 'Who gets paged.',
+      'uptizm.monitors.form_escalation_none': 'Team default',
+      'uptizm.monitors.form_escalation_empty': 'No escalation policies yet.',
+      'uptizm.monitors.interval_custom': 'Every :seconds seconds',
+      'uptizm.monitors.interval_3m': 'Every 3 minutes',
       'uptizm.monitors.form_advanced_label': 'Advanced configuration',
       'uptizm.monitors.form_advanced_hint': 'HTTP method, headers, timeout.',
       'uptizm.monitors.form_method_label': 'HTTP method',
@@ -265,6 +272,183 @@ void main() {
         reason: 'Cancel must never invoke onSubmit (no write on cancel)',
       );
       expect(cancelCalled, isTrue);
+    });
+  });
+
+  group('MonitorForm edit payload', () {
+    /// Pumps an edit-mode form seeded exactly as `MonitorEditView` seeds it from
+    /// a real monitor, renames it, and returns the posted field map.
+    Future<Map<String, dynamic>> submitRename(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Map<String, dynamic>? captured;
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            isEdit: true,
+            initialName: 'Checkout',
+            initialUrl: 'https://checkout.example.com/health',
+            initialType: 'http',
+            initialIntervalSec: 180,
+            initialRegions: const ['eu-west'],
+            initialHeaders: const [
+              KeyValueRow(key: 'X-Api-Key', value: 'real-secret-header'),
+            ],
+            initialSlo: '99.99',
+            initialMethod: 'head',
+            initialTimeoutSec: '45',
+            initialAiMode: 'suggest',
+            initialAlertOnDown: false,
+            initialAlertOnRecover: false,
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (fields) async {
+              captured = fields;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.widgetWithText(MSInput, 'Checkout'),
+        'Checkout (renamed)',
+      );
+      await tester.pump();
+
+      final Finder submitButton = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submitButton);
+      await tester.pump();
+      await tester.tap(submitButton);
+      await tester.pump();
+
+      expect(captured, isNotNull);
+      return captured!;
+    }
+
+    testWidgets('a rename preserves every field the operator configured', (
+      tester,
+    ) async {
+      // The regression this pins: MonitorEditView used to pass only name, url
+      // and regions, so the form filled the rest with CREATE defaults and the
+      // resulting PUT overwrote them. Renaming a monitor reset its method,
+      // interval, timeout and SLO, and replaced its real request headers with
+      // the literal placeholder `Authorization: Bearer …`, which then went out
+      // to the monitored endpoint on every probe.
+      final Map<String, dynamic> fields = await submitRename(tester);
+
+      expect(fields['name'], equals('Checkout (renamed)'));
+      expect(
+        fields['request_headers'],
+        equals({'X-Api-Key': 'real-secret-header'}),
+        reason: 'the operator\'s real auth header must survive a rename',
+      );
+      expect(
+        fields['check_interval_sec'],
+        equals(180),
+        reason: '180s has no preset option, so it must round-trip verbatim '
+            'rather than snap to a preset',
+      );
+      expect(fields['method'], equals('head'));
+      expect(fields['timeout_sec'], equals(45));
+      expect(fields['slo_target'], equals(99.99));
+      expect(fields['ai_mode'], equals('suggest'));
+      expect(fields['alert_on_down'], isFalse);
+      expect(fields['alert_on_recover'], isFalse);
+    });
+
+    testWidgets('an edit omits the settings the form exposes no control for', (
+      tester,
+    ) async {
+      // These have no UI, so sending a default for them on an edit silently
+      // resets the monitor's auth config, tags, status-page placement and SSL
+      // tracking. Every UpdateMonitorRequest rule is `sometimes`, so omitting
+      // them is the intended partial-update shape.
+      final Map<String, dynamic> fields = await submitRename(tester);
+
+      for (final String unowned in const <String>[
+        'auth_config',
+        'expected_status_code',
+        'tags',
+        'show_on_status_page',
+        'only_show_if_degraded',
+        'ssl_tracking',
+        'ssl_alert_threshold_days',
+      ]) {
+        expect(
+          fields.containsKey(unowned),
+          isFalse,
+          reason: '$unowned has no form control, so an edit must not post it',
+        );
+      }
+    });
+
+    testWidgets('every posted field survives the ORM mass-assignment filter', (
+      tester,
+    ) async {
+      // The gap this closes. The form built a correct payload, but the ORM strips
+      // any key missing from Monitor.fillable BEFORE the request is sent, so the
+      // write vanished with a 2xx and no validation error to surface. Both
+      // `ai_mode` (which gates the AI suggestion sweep) and
+      // `escalation_policy_id` (which selects the paging ladder) were lost that
+      // way while the UI showed the operator their choice had been saved.
+      final Map<String, dynamic> fields = await submitRename(tester);
+      final List<String> fillable = Monitor().fillable;
+
+      for (final String key in fields.keys) {
+        expect(
+          fillable,
+          contains(key),
+          reason: 'the form posts "$key", so Monitor.fillable must carry it or '
+              'the ORM drops it before the request leaves the client',
+        );
+      }
+    });
+
+    testWidgets('a create still posts the full request shape', (tester) async {
+      // The other half of the contract: a create has no existing row to
+      // preserve, so it must keep sending the defaults the backend expects.
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Map<String, dynamic>? captured;
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (fields) async {
+              captured = fields;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder submitButton = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submitButton);
+      await tester.pump();
+      await tester.tap(submitButton);
+      await tester.pump();
+
+      expect(captured, isNotNull);
+      expect(captured!.containsKey('tags'), isTrue);
+      expect(captured!.containsKey('show_on_status_page'), isTrue);
+      expect(captured!.containsKey('ssl_tracking'), isTrue);
+      expect(captured!.containsKey('auth_config'), isTrue);
     });
   });
 }

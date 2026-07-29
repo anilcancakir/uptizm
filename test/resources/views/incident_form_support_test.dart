@@ -7,7 +7,6 @@ import 'package:uptizm/app/support/incident_types.dart'
     as mocks
     show IncidentSummary, TimelineEntry;
 import 'package:uptizm/app/mocks/incidents.dart' as mocks;
-import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/resources/views/incidents/incident_form_support.dart';
 
@@ -94,22 +93,6 @@ void main() {
       expect(draft, isNotEmpty);
       expect(draft, contains(incident.duration));
       expect(draft, contains(incident.title));
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // monitorsToRegions
-  // ---------------------------------------------------------------------------
-
-  group('monitorsToRegions', () {
-    test('maps every monitor, preserving label and value', () {
-      final regions = monitorsToRegions();
-
-      expect(regions.length, monitors.length);
-      for (var i = 0; i < monitors.length; i++) {
-        expect(regions[i].label, monitors[i].name);
-        expect(regions[i].value, monitors[i].id);
-      }
     });
   });
 

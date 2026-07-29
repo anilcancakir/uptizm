@@ -217,6 +217,7 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.billing_plan_button_contact': 'Contact sales',
       'uptizm.teams.billing_plan_button_upgrade': 'Upgrade',
       'uptizm.teams.billing_plan_button_downgrade': 'Downgrade',
+      'uptizm.teams.billing_plan_button_unresolved': 'View plan',
       'uptizm.teams.billing_payment_header': 'Payment method',
       'uptizm.teams.billing_payment_expires': 'Expires :date',
       'uptizm.teams.billing_payment_update_button': 'Update',
@@ -740,11 +741,13 @@ void main() {
           (r) => r.method == 'GET' && r.url.contains('billing/payment-method'),
         );
 
-        // Plans grid renders both tiers, in the price order the backend
-        // sent. "Pro" also appears on the current-plan card (the fixture
-        // `currentPlanId` default), so it renders twice.
+        // Plans grid renders both tiers. `GET /billing` (the entitlement
+        // read) is not stubbed here, so it degrades silently and
+        // [_currentPlanId] stays unresolved: the current-plan card renders
+        // its loading skeleton instead of guessing, so "Pro" only appears
+        // once (in the plans grid).
         expect(find.text('Free'), findsOneWidget);
-        expect(find.text('Pro'), findsNWidgets(2));
+        expect(find.text('Pro'), findsOneWidget);
 
         // Usage meters render the used/limit readout.
         expect(find.textContaining('47'), findsWidgets);

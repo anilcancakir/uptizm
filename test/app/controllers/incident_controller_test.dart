@@ -420,7 +420,10 @@ void main() {
           fake.reset();
           seedIncidents(fake);
 
-          await controller.postUpdate(incident, 'Rolling back the release.');
+          await controller.postUpdate(
+            incident,
+            message: 'Rolling back the release.',
+          );
 
           fake.assertSent(
             (r) =>
@@ -439,6 +442,58 @@ void main() {
         await controller.postUpdate(incident);
 
         fake.assertNothingSent();
+      });
+
+      test('sends is_public: false for an internal-only note', () async {
+        // The load-bearing case. The backend resolves an ABSENT `is_public` as
+        // `true` (`IncidentController::postUpdate` ->
+        // `validated('is_public', true)`), so omitting the key publishes the
+        // note to the public status page. An operator who turned the composer's
+        // publish switch off asked for the opposite, which makes a dropped
+        // `is_public` a confidentiality leak rather than a cosmetic default.
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.postUpdate(
+          incident,
+          message: 'Internal: rotating the leaked key.',
+          isPublic: false,
+        );
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/${incident.id}/updates' &&
+              (r.data as Map)['is_public'] == false,
+        );
+      });
+
+      test('sends the composer status as its wire token', () async {
+        // The update row is STAMPED with this status
+        // (`IncidentWriteService::appendUpdate`), so a dropped status silently
+        // relabels the entry with the incident's current lifecycle instead of
+        // the one the operator picked.
+        final fake = seedIncidents();
+        controller = Magic.findOrPut(IncidentController.new);
+        await controller.load();
+        fake.reset();
+        seedIncidents(fake);
+
+        await controller.postUpdate(
+          incident,
+          message: 'Failover complete, watching error rates.',
+          status: IncidentLifecycle.monitoring,
+        );
+
+        fake.assertSent(
+          (r) =>
+              r.method == 'POST' &&
+              r.url == '/incidents/${incident.id}/updates' &&
+              (r.data as Map)['status'] == 'monitoring',
+        );
       });
     });
 

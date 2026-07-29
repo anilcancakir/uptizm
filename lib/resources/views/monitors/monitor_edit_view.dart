@@ -3,23 +3,24 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../ui/layouts/page_container.dart';
 import 'monitor_form.dart';
+import 'monitor_form_support.dart' show keyValueRowsFromMap;
 
 /// **The monitor edit screen.**
 ///
 /// A faithful Flutter port of the React `MonitorFormPage.tsx`. Resolves the
-/// given [id] to a fixture via [findMonitor]; when no monitor matches (or [id]
+/// given [id] through [MonitorController.monitorById]; when no monitor matches (or [id]
 /// is null) it renders a graceful not-found [MSEmptyState] rather than
 /// crashing.
 ///
-/// When a monitor is found the screen renders a [MonitorForm] prefilled with
-/// the monitor's [Monitor.name], [Monitor.url], and
-/// [Monitor.regions]. All other fields use [MonitorForm]'s defaults
-/// (matching the React `MonitorFormPage.tsx` lines 33-40, which passes only
-/// `initialName`, `initialUrl`, and `initialRegions`). "Save changes" fires
+/// When a monitor is found the screen renders a [MonitorForm] prefilled from
+/// EVERY field the form owns, not just name/url/regions: "Save changes" posts the
+/// form's complete field map, so any field left at a create-time default would be
+/// written over the operator's configuration. "Save changes" fires
 /// [MonitorController.save] with the form's full field map (a `PUT` to the
 /// monitor's resource route); "Cancel" navigates to the monitor detail route
 /// WITHOUT writing anything. Both land on the monitor detail route, falling
@@ -49,7 +50,8 @@ class MonitorEditView extends MagicStatefulView<MonitorController> {
 }
 
 class _MonitorEditViewState
-    extends MagicStatefulViewState<MonitorController, MonitorEditView> {
+    extends MagicStatefulViewState<MonitorController, MonitorEditView>
+    with RefetchesOnMount<MonitorController, MonitorEditView> {
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -64,6 +66,14 @@ class _MonitorEditViewState
       controller.refreshOne(id);
     }
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so opening this screen would
+  /// otherwise render whatever the roster held when it was first fetched. A
+  /// prefilled form is the sharp edge here, since it writes what it shows back on
+  /// save. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {
@@ -92,19 +102,36 @@ class _MonitorEditViewState
             backFallback: '/monitors',
           ),
 
-          // 4. The prefilled form: name, url, and regions come from the
-          //    fixture (React lines 33-40). Interval and SLO are NOT passed
-          //    (intervalLabel like '60s' has no 1:1 option value; React does
-          //    not pass them either). Everything else uses MonitorForm's
-          //    defaults. Submit fires the real PUT with the form's field map
-          //    (controller.save already navigates to the detail route on
-          //    completion); Cancel navigates there directly WITHOUT writing —
-          //    it must never fire the same save call as Submit, or a stale
-          //    field would silently persist on cancel.
+          // 4. The prefilled form. EVERY field the form owns is seeded from the
+          //    monitor, because Submit fires a real PUT with the form's complete
+          //    field map: any field left at a create-time default would be
+          //    written over the operator's configuration. That is not
+          //    hypothetical - while this passed only name/url/regions, renaming a
+          //    monitor reset its method, interval, timeout and SLO, and replaced
+          //    its real request headers with the placeholder
+          //    `Authorization: Bearer …`, which then went out on every probe.
+          //    `isEdit` additionally stops the form posting defaults for the
+          //    settings it exposes no control for (auth, tags, status-page and
+          //    SSL flags), so those survive a save.
+          //
+          //    Cancel navigates to the detail route WITHOUT writing; it must
+          //    never fire the same save call as Submit.
           MonitorForm(
+            isEdit: true,
             initialName: monitor.name ?? '',
             initialUrl: monitor.url ?? '',
+            initialType: monitor.type ?? 'http',
             initialRegions: monitor.regions,
+            initialIntervalSec: monitor.checkIntervalSec,
+            initialHeaders: keyValueRowsFromMap(monitor.requestHeaders),
+            initialPolicy: monitor.escalationPolicyId,
+            initialSlo: monitor.sloTarget?.toString() ?? '',
+            initialMethod: monitor.method ?? 'get',
+            initialTimeoutSec: monitor.timeoutSec.toString(),
+            initialBody: monitor.requestBody ?? '',
+            initialAiMode: monitor.aiMode,
+            initialAlertOnDown: monitor.alertOnDown,
+            initialAlertOnRecover: monitor.alertOnRecover,
             submitLabel: trans('uptizm.monitors.form_submit_save'),
             onSubmit: (fields) => controller.save(monitor.id, fields),
             onCancel: () => MagicRoute.to('/monitors/${monitor.id}'),

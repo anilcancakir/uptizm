@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/controllers/incident_controller.dart';
@@ -94,7 +95,8 @@ class IncidentDetailView extends MagicStatefulView<IncidentController> {
 }
 
 class _IncidentDetailViewState
-    extends MagicStatefulViewState<IncidentController, IncidentDetailView> {
+    extends MagicStatefulViewState<IncidentController, IncidentDetailView>
+    with RefetchesOnMount<IncidentController, IncidentDetailView> {
   /// The timeline view: `'public'` (subscriber-visible entries only) or `'all'`
   /// (the full activity log). Defaults to public, matching the React source.
   String _view = _viewPublic;
@@ -215,6 +217,14 @@ class _IncidentDetailViewState
         ? IncidentLifecycle.investigating
         : incident.lifecycle;
   }
+
+  /// Refetch on every mount: the backing controller loads in `onInit`, which
+  /// magic fires only once per controller instance, so opening this screen would
+  /// otherwise render whatever the roster held when it was first fetched. A
+  /// prefilled form is the sharp edge here, since it writes what it shows back on
+  /// save. See [RefetchesOnMount].
+  @override
+  Future<void> refetch() => controller.reload();
 
   @override
   Widget build(BuildContext context) {
@@ -988,7 +998,12 @@ class _IncidentDetailViewState
       _message = '';
       _aiDrafted = false;
     });
-    controller.postUpdate(incident, message);
+    controller.postUpdate(
+      incident,
+      message: message,
+      isPublic: _publish,
+      status: _lifecycle,
+    );
   }
 
   /// Maps a title-case status [label] (e.g. `"Investigating"`) back to its

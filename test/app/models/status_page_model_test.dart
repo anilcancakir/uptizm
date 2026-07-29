@@ -2,6 +2,7 @@ import 'package:flutter/painting.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
+import 'package:uptizm/app/enums/status_key.dart' show StatusKey;
 import 'package:uptizm/app/models/status_page.dart';
 
 void main() {
@@ -152,6 +153,115 @@ void main() {
       expect(page.domainMode, DomainMode.subdomain);
       expect(page.brandColor, const Color(0xFF008560));
       expect(page.isPublic, isTrue);
+    });
+
+    group('components', () {
+      /// Builds a page carrying the pivot shape `StatusPageResource` sends.
+      StatusPage pageWith(List<Map<String, dynamic>> monitors) {
+        return StatusPage.fromMap(<String, dynamic>{
+          'id': 'acme',
+          'name': 'Acme Status',
+          'monitors': monitors,
+        });
+      }
+
+      test('reads name, live status and order from the pivot', () {
+        // These used to be resolved by looking each monitor id up in a
+        // design-lab fixture list, which could never match a real uuid, so every
+        // page reported zero components and (via worstStatus's old empty-list
+        // default) rendered as "Operational" while its monitors were down.
+        final StatusPage page = pageWith([
+          <String, dynamic>{
+            'id': 'm2',
+            'name': 'Website',
+            'display_order': 1,
+            'last_status': 'down',
+          },
+          <String, dynamic>{
+            'id': 'm1',
+            'name': 'API',
+            'display_order': 0,
+            'last_status': 'up',
+          },
+        ]);
+
+        expect(
+          page.components.map((c) => c.name).toList(),
+          equals(['API', 'Website']),
+          reason: 'components come back in display order',
+        );
+        expect(page.components.last.status, StatusKey.down);
+      });
+
+      test('prefers the operator custom label over the monitor name', () {
+        final StatusPage page = pageWith([
+          <String, dynamic>{
+            'id': 'm1',
+            'name': 'checkout-prod-eu',
+            'custom_label': 'Checkout',
+            'display_order': 0,
+            'last_status': 'up',
+          },
+        ]);
+
+        expect(page.components.single.name, equals('Checkout'));
+      });
+
+      test('a monitor with no check yet is Pending, never up', () {
+        final StatusPage page = pageWith([
+          <String, dynamic>{'id': 'm1', 'name': 'API', 'display_order': 0},
+        ]);
+
+        expect(
+          page.components.single.status,
+          StatusKey.pending,
+          reason: 'the absence of a measurement is not evidence of health',
+        );
+      });
+
+      test('excludes a component the public page hides', () {
+        // The SECOND gate: StatusPageAssembler filters public components on
+        // show_on_status_page, so an attached-but-unpublished monitor must not
+        // appear here either, or the in-app preview promises a component the real
+        // page will not show.
+        final StatusPage page = pageWith([
+          <String, dynamic>{
+            'id': 'm1',
+            'name': 'API',
+            'display_order': 0,
+            'last_status': 'up',
+            'show_on_status_page': true,
+          },
+          <String, dynamic>{
+            'id': 'm2',
+            'name': 'Internal probe',
+            'display_order': 1,
+            'last_status': 'down',
+            'show_on_status_page': false,
+          },
+        ]);
+
+        expect(page.components.map((c) => c.name).toList(), equals(['API']));
+      });
+
+      test('treats a row without the flag as public', () {
+        // An older payload predating the flag must keep rendering rather than
+        // silently emptying the page.
+        final StatusPage page = pageWith([
+          <String, dynamic>{
+            'id': 'm1',
+            'name': 'API',
+            'display_order': 0,
+            'last_status': 'up',
+          },
+        ]);
+
+        expect(page.components, hasLength(1));
+      });
+
+      test('a page with no pivot has no components', () {
+        expect(StatusPage.fromMap({'id': 'acme'}).components, isEmpty);
+      });
     });
   });
 }

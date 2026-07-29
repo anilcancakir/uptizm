@@ -3,8 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import 'package:uptizm/app/support/settings_types.dart'
-    show ChangelogRelease, LegalSection;
+import 'package:uptizm/app/support/settings_types.dart' show LegalSection;
 import 'package:uptizm/app/mocks/settings.dart';
 import 'package:uptizm/resources/views/settings/changelog_settings_view.dart';
 import 'package:uptizm/resources/views/settings/help_settings_view.dart';
@@ -39,7 +38,9 @@ class _SettingsViewsLangLoader implements TranslationLoader {
       // Changelog.
       'uptizm.settings.changelog_title': 'Changelog',
       'uptizm.settings.changelog_description': "What's new in Uptizm.",
-      'uptizm.settings.changelog_version_label': 'Version :version',
+      'uptizm.settings.changelog_empty_title': 'No releases yet',
+      'uptizm.settings.changelog_empty_description':
+          'We have not published a release history yet.',
 
       // Privacy.
       'uptizm.settings.privacy_title': 'Privacy Policy',
@@ -115,7 +116,9 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('ChangelogSettingsView', () {
-    testWidgets('renders a card for every fixture release', (tester) async {
+    testWidgets('renders the honest empty state instead of a release list', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(1280, 6000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -125,9 +128,14 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      for (final ChangelogRelease release in changelog) {
-        expect(find.text(release.date), findsOneWidget);
-      }
+      expect(
+        find.text(trans('uptizm.settings.changelog_empty_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.settings.changelog_empty_description')),
+        findsOneWidget,
+      );
     });
   });
 

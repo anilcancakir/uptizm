@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\AiMode;
 use App\Enums\HttpAuthType;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorRegion;
@@ -144,6 +145,24 @@ class StoreMonitorRequest extends FormRequest
                 'integer',
                 'min:100',
                 'max:599',
+            ],
+            // Load-bearing, not cosmetic: SweepAiSuggestions scans the fleet with
+            // whereIn('ai_mode', ['suggest','auto']) and TriageAnomalyCandidate
+            // gates on AiMode::Suggest, so an unvalidated (and therefore dropped)
+            // ai_mode leaves every monitor at the `off` default and the AI
+            // suggestion pipeline never runs for it.
+            'ai_mode' => [
+                'sometimes',
+                Rule::enum(AiMode::class),
+            ],
+            // Scoped to the acting team, never a bare exists: this column is what
+            // EscalationDispatcher::resolvePolicy() reads to choose the paging
+            // ladder, so a cross-tenant id here would page another team's
+            // responders during an outage.
+            'escalation_policy_id' => [
+                'nullable',
+                Rule::exists('escalation_policies', 'id')
+                    ->where('team_id', $this->user()?->current_team_id),
             ],
             'request_headers' => [
                 'nullable',
