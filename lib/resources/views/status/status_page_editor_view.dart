@@ -95,6 +95,12 @@ class _StatusPageEditorViewState
   /// may-be-out-of-date chip (D4/D9: "beyond roughly 15 minutes").
   static const int _previewAgeChipThresholdMinutes = 15;
 
+  /// Height of the preview pane's waiting skeleton, shared by the `rendering`
+  /// state and the still-downloading PNG so the pane does not jump between
+  /// them. Explicit because a heightless skeleton lays out 0px tall, which
+  /// leaves the wait invisible while `find.byType` still passes.
+  static const double _previewSkeletonHeight = 220;
+
   // ---------------------------------------------------------------------------
   // Draft fields.
   //
@@ -518,8 +524,24 @@ class _StatusPageEditorViewState
   /// otherwise render whatever the roster held when it was first fetched. A
   /// prefilled form is the sharp edge here, since it writes what it shows back on
   /// save. See [RefetchesOnMount].
+  ///
+  /// In edit mode the roster read alone is not enough, and the ORDER of these
+  /// two is load-bearing. `GET /status-pages` (which [StatusPageController.reload]
+  /// calls, and which overwrites the whole roster) never carries
+  /// `preview_image_url`: the signed URL is a capability, so D5 keeps it out of
+  /// list responses and emits it from `show` only. The show-derived read
+  /// therefore has to land AFTER the roster overwrite, or the roster would wipe
+  /// the preview fields this pane renders and every open would show the
+  /// customer-view heading with no image beneath it.
   @override
-  Future<void> refetch() => controller.reload();
+  Future<void> refetch() async {
+    await controller.reload();
+
+    final String? id = widget.id;
+    if (id == null) return;
+
+    await controller.reloadPage(id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1018,14 +1040,27 @@ class _StatusPageEditorViewState
   /// rendering (or stale-rendering, treated as failed so a lost job cannot
   /// pin the pane on a skeleton forever), completed, and failed.
   Widget _buildPreviewBody(bool dirty) {
-    if (dirty) return _buildDraftBody();
+    // A page that does not resolve out of the roster has no saved render to
+    // present, so it takes the draft body with the draft label. `_isDirty`
+    // already reports true for that case; resolving the page here rather than
+    // trusting that other method's invariant is what keeps the two in step.
+    final StatusPage? saved = controller.configById(widget.id);
+    if (dirty || saved == null) return _buildDraftBody();
 
-    // `dirty` is false only when `_isEdit` is true and the saved page
-    // resolved (see `_isDirty`), so this is never null here.
-    final StatusPage saved = controller.configById(widget.id)!;
     final StatusPagePreviewStatus? status = saved.previewRenderStatus;
 
-    if (status == null) return _buildNeverRenderedBody(saved);
+    if (status == null) {
+      // `POST .../preview` only enqueues, so the row's status stays null until
+      // a worker starts the job. While this client has a request outstanding,
+      // the honest reading of that null is "in flight", not "never rendered":
+      // routing it through the rendering body also picks up the check-again row
+      // for a render that never starts at all (see
+      // [StatusPageController.hasRequestedPreviewRender]).
+      if (controller.hasRequestedPreviewRender(saved.id)) {
+        return _buildRenderingBody(saved);
+      }
+      return _buildNeverRenderedBody(saved);
+    }
 
     if (status == StatusPagePreviewStatus.rendering) {
       if (controller.isPreviewRenderStale(saved)) {
@@ -1065,7 +1100,9 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the `rendering` (and not stale) state: sized skeleton bars.
+  /// Builds the `rendering` (and not stale) state: sized skeleton bars. Also
+  /// serves the client-side in-flight state, where a render has been requested
+  /// and the server has not started it yet (see [_buildPreviewBody]).
   ///
   /// When [StatusPageController.hasPreviewPollCapped] is true for this page,
   /// a check-again row is appended: the render may still succeed server-side
@@ -1077,7 +1114,7 @@ class _StatusPageEditorViewState
     return WDiv(
       className: 'flex flex-col gap-3',
       children: <Widget>[
-        MSSkeleton(height: 220),
+        MSSkeleton(height: _previewSkeletonHeight),
         MSSkeleton(height: 20, width: 160),
         if (capped) _buildCheckAgainRow(saved),
       ],
@@ -1206,20 +1243,35 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the rendered PNG via [WImage], with an error fallback for a
-  /// signed URL that has since expired or failed to load. When [onTap] is
-  /// given the image itself is wrapped as the tap-to-open-full affordance
-  /// (D9: the PNG is legible at full size, not at ~32% in a 380px column).
+  /// Builds the rendered PNG via [WImage], with a loading affordance while it
+  /// downloads and an error fallback for a signed URL that has since expired
+  /// or failed to load. When [onTap] is given the image itself is wrapped as
+  /// the tap-to-open-full affordance (D9: the PNG is legible at full size, not
+  /// at ~32% in a 380px column).
+  ///
+  /// The loading affordance is not decoration: this is a cross-origin fetch of
+  /// a full-page screenshot, so without it the pane shows blank space for as
+  /// long as the download takes, and blank space is indistinguishable from
+  /// having no render to show at all. It reuses [_buildRenderingBody]'s sized
+  /// skeleton so waiting for the image reads the same as waiting for the
+  /// render.
   Widget _buildPreviewImage(String url, String? alt, {String? onTap}) {
     final Widget image = WImage(
       src: url,
       alt: alt ?? '',
       className: 'w-full rounded-lg border border-color-border object-cover',
+      loadingBuilder: (context, child, progress) =>
+          progress == null ? child : _buildImageLoading(),
       errorBuilder: (context, error, stackTrace) => _buildImageLoadError(),
     );
     if (onTap == null) return image;
     return WButton(onTap: () => _openFullPreview(onTap), child: image);
   }
+
+  /// Builds the placeholder shown while the PNG is still downloading: the same
+  /// sized skeleton the `rendering` state uses, so the height never collapses
+  /// (a heightless skeleton lays out 0px tall and is invisible).
+  Widget _buildImageLoading() => MSSkeleton(height: _previewSkeletonHeight);
 
   /// Builds the fallback shown in place of a PNG that failed to load (e.g. an
   /// expired signed URL).

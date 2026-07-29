@@ -188,19 +188,42 @@ class _StatusViewsLangLoader implements TranslationLoader {
   }
 }
 
-/// Builds a [StatusPage] carrying the given preview-render wire fields, on
-/// top of the same branding shape as the `acme` fixture, for the editor's
-/// hybrid-pane tests (D8). [updatedAtOverride] stands in for the render job's
-/// own `save()` timestamp bump, which [StatusPageController.isPreviewRenderStale]
-/// reads to judge a `rendering` row as stuck.
-StatusPage _previewPage({
-  String id = 'preview-acme',
+/// The status-page id every preview fixture below carries, so a test can name
+/// the routed editor id as a const.
+const String _previewPageId = 'preview-acme';
+
+/// The signed PNG URL the show endpoint answers with, for the fixtures that
+/// stand for a page whose render completed.
+const String _previewImageUrl =
+    'https://api.uptizm.test/api/v1/status-pages/preview-acme/preview.png'
+    '?signature=abc';
+
+/// The wire payload of a status page carrying the given preview-render fields,
+/// on top of the same branding shape as the `acme` fixture, for the editor's
+/// hybrid-pane tests (D8).
+///
+/// The two read endpoints do NOT answer with the same keys, and the difference
+/// is exactly one field: `GET /status-pages` (index) never carries
+/// `preview_image_url`, because the signed URL is a capability and D5 keeps it
+/// out of list responses (the backend pins that omission in
+/// `StatusPagePreviewControllerTest::test_index_omits_the_signed_image_url`),
+/// while `GET /status-pages/{id}` (show) does carry it. Every fixture here is
+/// built from this one payload so a test always states which of the two shapes
+/// it stands in for: the missing-PNG defect survived a full pane-state suite
+/// precisely because every fixture handed the roster a URL only `show` can
+/// produce.
+///
+/// [updatedAtOverride] stands in for the render job's own `save()` timestamp
+/// bump, which [StatusPageController.isPreviewRenderStale] reads to judge a
+/// `rendering` row as stuck.
+Map<String, dynamic> _previewPayload({
+  String id = _previewPageId,
   String? previewRenderStatus,
   String? previewImageUrl,
   DateTime? previewRenderedAt,
   DateTime? updatedAtOverride,
 }) {
-  return StatusPage.fromMap(<String, dynamic>{
+  return <String, dynamic>{
     'id': id,
     'name': 'Acme Status',
     'slug': 'acme',
@@ -215,7 +238,50 @@ StatusPage _previewPage({
     'preview_image_url': ?previewImageUrl,
     'preview_rendered_at': ?previewRenderedAt?.toIso8601String(),
     'updated_at': (updatedAtOverride ?? DateTime.now()).toIso8601String(),
-  });
+  };
+}
+
+/// A page in the shape `GET /status-pages` (index) answers with: every branding
+/// field plus the render state and its timestamp, and NEVER a signed
+/// `preview_image_url`.
+///
+/// This is the only shape a roster read can put in the cache, so it is what a
+/// warm editor open actually starts from.
+StatusPage _indexShapedPage({
+  String? previewRenderStatus,
+  DateTime? previewRenderedAt,
+  DateTime? updatedAtOverride,
+}) {
+  return StatusPage.fromMap(
+    _previewPayload(
+      previewRenderStatus: previewRenderStatus,
+      previewRenderedAt: previewRenderedAt,
+      updatedAtOverride: updatedAtOverride,
+    ),
+  );
+}
+
+/// A page in the shape `GET /status-pages/{id}` (show) answers with: the index
+/// shape plus the signed `preview_image_url`.
+///
+/// Seeding this into the roster stands for a cache the editor's own show read
+/// has already published into (see [StatusPageController.reloadPage]), which is
+/// the one way a roster entry ever carries the URL. It is deliberately named
+/// for that, because no list response could have produced it.
+StatusPage _showShapedPage({
+  String previewImageUrl = _previewImageUrl,
+  String? previewRenderStatus,
+  DateTime? previewRenderedAt,
+  DateTime? updatedAtOverride,
+}) {
+  return StatusPage.fromMap(
+    _previewPayload(
+      previewRenderStatus: previewRenderStatus,
+      previewImageUrl: previewImageUrl,
+      previewRenderedAt: previewRenderedAt,
+      updatedAtOverride: updatedAtOverride,
+    ),
+  );
 }
 
 void main() {
@@ -516,20 +582,31 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPage page = _previewPage();
+        final StatusPage page = _indexShapedPage();
         StatusPageController.instance.seedForTest(<StatusPage>[page]);
-        // The GET show route is faked as an immediate `completed` so the
-        // poll started by the tap below stops on its very first tick,
-        // leaving no pending Timer once the test tears down.
-        final FakeNetworkDriver fake = Http.fake({
-          'status-pages/${page.id}/preview': Http.response(null, 202),
-          'status-pages/${page.id}': Http.response({
-            'data': {
-              'id': page.id,
-              'preview_render_status': 'completed',
-              'preview_image_url': 'https://api.uptizm.test/preview/acme.png',
-            },
-          }, 200),
+        // The show route answers the way the server really would: no render
+        // state at all until the trigger has been POSTed, `completed` after.
+        // A flat `completed` stub would be answered by the editor's own mount
+        // read (which is what makes the PNG show at all, see the regression
+        // test below), so the pane would never sit on the never-rendered
+        // state this test is about. The post-tap `completed` also stops the
+        // poll on its first tick, leaving no pending Timer at teardown.
+        bool renderRequested = false;
+        final FakeNetworkDriver fake = Http.fake((r) {
+          if (r.method == 'POST' &&
+              r.url.contains('status-pages/${page.id}/preview')) {
+            renderRequested = true;
+            return Http.response(null, 202);
+          }
+          if (r.method == 'GET' && r.url.endsWith('status-pages/${page.id}')) {
+            return Http.response({
+              'data': _previewPayload(
+                previewRenderStatus: renderRequested ? 'completed' : null,
+                previewImageUrl: renderRequested ? _previewImageUrl : null,
+              ),
+            }, 200);
+          }
+          return Http.response(<String, dynamic>{}, 200);
         });
 
         await tester.pumpWidget(
@@ -567,11 +644,92 @@ void main() {
       },
     );
 
+    testWidgets(
+      'no render yet: tapping Generate shows the in-flight skeleton at once, '
+      'and the check-again copy once the poll gives up',
+      (tester) async {
+        // The regression this pins: the row's `preview_render_status` stays
+        // NULL until a worker picks the job up, so the pane kept rendering
+        // "No preview yet" under the same Generate button with zero feedback.
+        // If nothing consumes the `previews` queue (the failure the live pass
+        // found present on this machine) the status stays null forever, the
+        // poll silently caps, and the check-again copy that exists for exactly
+        // this case was only reachable from the `rendering` body, so the
+        // operator never saw it.
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final StatusPage page = _indexShapedPage();
+        StatusPageController.instance.seedForTest(<StatusPage>[page]);
+        // The trigger is accepted, and every show read afterwards still
+        // reports no render state: a queue nobody is consuming.
+        Http.fake((r) {
+          if (r.method == 'POST' &&
+              r.url.contains('status-pages/${page.id}/preview')) {
+            return Http.response(null, 202);
+          }
+          if (r.method == 'GET' && r.url.endsWith('status-pages/${page.id}')) {
+            return Http.response({'data': _previewPayload()}, 200);
+          }
+          return Http.response(<String, dynamic>{}, 200);
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            StatusPageEditorView(id: page.id),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(
+          find.text(trans('uptizm.status.editor_preview_generate_action')),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byType(MSSkeleton),
+          findsWidgets,
+          reason:
+              'a tapped Generate must show it is in flight before the server '
+              'has any render state to report',
+        );
+        expectVisibleSkeletons(tester);
+        expect(
+          find.text(trans('uptizm.status.editor_preview_never_rendered_title')),
+          findsNothing,
+          reason: 'the requested render must not still read as never asked',
+        );
+
+        // Drain the poll: 45 attempts at 2s is the production cap, and the
+        // server never leaves `null`, so it runs to the end and marks the page
+        // capped. This also leaves no pending Timer at teardown.
+        await tester.pump(const Duration(seconds: 95));
+        await tester.pump();
+
+        expect(
+          find.text(trans('uptizm.status.editor_preview_check_again')),
+          findsOneWidget,
+          reason:
+              'a poll that gave up on a never-started render must say so, not '
+              'sit on a silent skeleton',
+        );
+        expect(
+          find.text(trans('uptizm.status.editor_preview_render_failed_title')),
+          findsNothing,
+          reason: 'the render may still succeed; a poll cap is not a failure',
+        );
+      },
+    );
+
     testWidgets('rendering: shows visible skeleton bars', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final StatusPage page = _previewPage(previewRenderStatus: 'rendering');
+      final StatusPage page = _indexShapedPage(
+        previewRenderStatus: 'rendering',
+      );
       StatusPageController.instance.seedForTest(<StatusPage>[page]);
 
       await tester.pumpWidget(
@@ -595,7 +753,7 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPage page = _previewPage(
+        final StatusPage page = _indexShapedPage(
           previewRenderStatus: 'rendering',
           updatedAtOverride: DateTime.now().subtract(
             const Duration(minutes: 10),
@@ -634,7 +792,9 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPage page = _previewPage(previewRenderStatus: 'rendering');
+        final StatusPage page = _indexShapedPage(
+          previewRenderStatus: 'rendering',
+        );
         StatusPageController.instance.seedForTest(<StatusPage>[page]);
         Http.fake({
           'status-pages/${page.id}/preview': Http.response(null, 202),
@@ -682,15 +842,91 @@ void main() {
     );
 
     testWidgets(
+      'completed: a plain editor open shows the PNG, even though the roster '
+      'it reloads from carries no image URL',
+      (tester) async {
+        // The regression this pins, and the reason the pane-state tests below
+        // could not catch it. `index` deliberately omits `preview_image_url`
+        // (D5: the signed URL is a capability and is not multiplied across
+        // list responses), and the editor's mount refetch overwrites the whole
+        // roster from exactly that response. Reading the pane out of the
+        // roster alone therefore left EVERY normal editor open on the
+        // customer-view heading with a rendered-at stamp, a Refresh button and
+        // no image at all; the PNG only ever appeared inside the window of an
+        // explicit Generate/Refresh poll and was wiped again on the next mount.
+        //
+        // Both endpoints below answer exactly as the backend does, so the test
+        // also pins the ORDER: the show read has to land after the index
+        // overwrite, or the roster refresh would wipe the URL again.
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final DateTime renderedAt = DateTime.now().subtract(
+          const Duration(minutes: 2),
+        );
+
+        // The cache as a warm open leaves it: index-shaped, so no image URL.
+        StatusPageController.instance.seedForTest(<StatusPage>[
+          _indexShapedPage(
+            previewRenderStatus: 'completed',
+            previewRenderedAt: renderedAt,
+          ),
+        ]);
+
+        Http.fake({
+          'status-pages': Http.response({
+            'data': <Map<String, dynamic>>[
+              _previewPayload(
+                previewRenderStatus: 'completed',
+                previewRenderedAt: renderedAt,
+              ),
+            ],
+          }, 200),
+          'status-pages/$_previewPageId': Http.response({
+            'data': _previewPayload(
+              previewRenderStatus: 'completed',
+              previewImageUrl: _previewImageUrl,
+              previewRenderedAt: renderedAt,
+            ),
+          }, 200),
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            const StatusPageEditorView(id: _previewPageId),
+            size: const Size(1280, 4000),
+          ),
+        );
+        // Two frames: the mount's roster reload lands on the first, the show
+        // read that carries the signed URL on the second.
+        await tester.pump();
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byType(WImage),
+          findsOneWidget,
+          reason:
+              'the customer-view pane must show the rendered PNG on a plain '
+              'open, not only during a Generate/Refresh poll',
+        );
+        expect(
+          find.text(trans('uptizm.status.editor_preview_open_fullscreen')),
+          findsOneWidget,
+          reason: 'a PNG on screen must come with its open-full affordance',
+        );
+      },
+    );
+
+    testWidgets(
       'completed, fresh: shows the PNG, the rendered-at stamp, a refresh '
       'action, and no age chip',
       (tester) async {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPage page = _previewPage(
+        final StatusPage page = _showShapedPage(
           previewRenderStatus: 'completed',
-          previewImageUrl: 'https://api.uptizm.test/preview/acme.png',
           previewRenderedAt: DateTime.now().subtract(
             const Duration(minutes: 2),
           ),
@@ -716,14 +952,72 @@ void main() {
     );
 
     testWidgets(
+      'completed: the PNG downloads behind a sized skeleton, not blank space',
+      (tester) async {
+        // The signed PNG is a cross-origin fetch of a full-page screenshot, so
+        // with only an errorBuilder wired the pane showed blank space for the
+        // whole download, and that blank was indistinguishable from having no
+        // render to show.
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        StatusPageController.instance.seedForTest(<StatusPage>[
+          _showShapedPage(
+            previewRenderStatus: 'completed',
+            previewRenderedAt: DateTime.now().subtract(
+              const Duration(minutes: 2),
+            ),
+          ),
+        ]);
+
+        await tester.pumpWidget(
+          wrap(
+            const StatusPageEditorView(id: _previewPageId),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+
+        final WImage image = tester.widget<WImage>(find.byType(WImage));
+        final BuildContext context = tester.element(find.byType(WImage));
+        const Widget loaded = SizedBox.shrink();
+
+        expect(
+          image.loadingBuilder,
+          isNotNull,
+          reason: 'a downloading screenshot must not read as a missing one',
+        );
+
+        // Mid-download: a sized placeholder holds the pane's height.
+        final Widget waiting = image.loadingBuilder!(
+          context,
+          loaded,
+          const ImageChunkEvent(
+            cumulativeBytesLoaded: 1,
+            expectedTotalBytes: 100,
+          ),
+        );
+        expect(waiting, isA<MSSkeleton>());
+        expect(
+          (waiting as MSSkeleton).height,
+          isNotNull,
+          reason: 'a heightless skeleton lays out 0px tall and is invisible',
+        );
+
+        // Downloaded: the builder must hand the image itself back, or the PNG
+        // would sit behind its own placeholder forever.
+        expect(image.loadingBuilder!(context, loaded, null), same(loaded));
+      },
+    );
+
+    testWidgets(
       'completed, old: shows the may-be-out-of-date chip',
       (tester) async {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPage page = _previewPage(
+        final StatusPage page = _showShapedPage(
           previewRenderStatus: 'completed',
-          previewImageUrl: 'https://api.uptizm.test/preview/acme.png',
           previewRenderedAt: DateTime.now().subtract(
             const Duration(minutes: 20),
           ),
@@ -746,7 +1040,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 4000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final StatusPage page = _previewPage(previewRenderStatus: 'failed');
+      final StatusPage page = _indexShapedPage(previewRenderStatus: 'failed');
       StatusPageController.instance.seedForTest(<StatusPage>[page]);
 
       await tester.pumpWidget(
@@ -771,9 +1065,8 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final StatusPage page = _previewPage(
+        final StatusPage page = _showShapedPage(
           previewRenderStatus: 'completed',
-          previewImageUrl: 'https://api.uptizm.test/preview/acme.png',
           previewRenderedAt: DateTime.now().subtract(
             const Duration(minutes: 2),
           ),

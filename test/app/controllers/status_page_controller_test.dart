@@ -110,6 +110,87 @@ void main() {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // reloadPage: tops the roster cache up with ONE page's `show` payload, which
+  // is the only read that carries the signed `preview_image_url` (D5 keeps the
+  // capability out of `index`).
+  // ---------------------------------------------------------------------------
+
+  group('reloadPage', () {
+    /// The `show` envelope for `acme`: the same fields the index answers with
+    /// (so nothing else about the cached page changes) plus the signed image
+    /// URL that only `show` can carry.
+    Map<String, MagicResponse> acmeShowEnvelope({
+      String imageUrl = 'https://api.uptizm.test/preview/acme.png?signature=a',
+    }) => {
+      'status-pages/acme': Http.response({
+        'data': {
+          'id': 'acme',
+          'name': 'Acme Status',
+          'slug': 'acme',
+          'domain_mode': 'path',
+          'brand_color': '#16A34A',
+          'subscriptions_enabled': true,
+          'preview_render_status': 'completed',
+          'preview_image_url': imageUrl,
+        },
+      }, 200),
+    };
+
+    test('publishes the signed image URL the index response cannot carry', () async {
+      Http.fake({...pagesEnvelope(), ...acmeShowEnvelope()});
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.reload();
+      expect(
+        controller.configById('acme')?.previewImageUrl,
+        isNull,
+        reason: 'the roster read has no image URL to give (D5)',
+      );
+
+      await controller.reloadPage('acme');
+
+      expect(
+        controller.configById('acme')?.previewImageUrl,
+        equals('https://api.uptizm.test/preview/acme.png?signature=a'),
+      );
+      expect(
+        controller.statusPages.map((StatusPage p) => p.id),
+        containsAll(['acme', 'internal']),
+        reason: 'a single-page read tops the roster up, it does not replace it',
+      );
+    });
+
+    test('GETs the show route and notifies listeners', () async {
+      final fake = Http.fake({...pagesEnvelope(), ...acmeShowEnvelope()});
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
+      int notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.reloadPage('acme');
+
+      fake.assertSent(
+        (r) => r.method == 'GET' && r.url.endsWith('status-pages/acme'),
+      );
+      expect(notifications, equals(1));
+    });
+
+    test('drops a read that does not answer for the requested page', () async {
+      // Only the index is stubbed, so the show read falls through to the
+      // fake's empty 200. That hydrates a model with no id, which appended to
+      // the roster would show up as a blank status page.
+      Http.fake(pagesEnvelope());
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
+
+      await controller.reloadPage('acme');
+
+      expect(controller.statusPages, hasLength(2));
+      expect(controller.configById('acme')?.name, equals('Acme Status'));
+    });
+  });
+
   test('statusPages returns the cached StatusPage list', () async {
     Http.fake(pagesEnvelope());
     final StatusPageController controller = StatusPageController.instance;
@@ -791,6 +872,65 @@ void main() {
       },
     );
 
+    // -------------------------------------------------------------------------
+    // The in-flight marker: `POST .../preview` only enqueues, so the row's
+    // status stays NULL until a worker starts the job. The client's own
+    // knowledge that it asked is what fills that gap; it never states a server
+    // state the server has not reached.
+    // -------------------------------------------------------------------------
+
+    test('marks the page render-requested once the trigger is accepted', () async {
+      Http.fake({
+        'status-pages/acme/preview': Http.response(null, 202),
+        // The worker never picks the job up, so the status never appears.
+        ...showEnvelope('acme', null),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+        maxAttempts: 2,
+      );
+
+      expect(controller.hasRequestedPreviewRender('acme'), isTrue);
+      expect(
+        controller.configById('acme')?.previewRenderStatus,
+        isNull,
+        reason: 'the client marker must not fabricate a server render state',
+      );
+    });
+
+    test('a rejected trigger leaves the page unmarked', () async {
+      Http.fake({
+        'status-pages/acme/preview': Http.response({'message': 'nope'}, 429),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.requestPreviewRender('acme');
+
+      expect(
+        controller.hasRequestedPreviewRender('acme'),
+        isFalse,
+        reason: 'nothing was enqueued, so nothing is in flight',
+      );
+    });
+
+    test('hands the marker back once the server reports a terminal state', () async {
+      Http.fake({
+        'status-pages/acme/preview': Http.response(null, 202),
+        ...showEnvelope('acme', 'completed', imageUrl: 'https://x/acme.png'),
+      });
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+      );
+
+      expect(controller.hasRequestedPreviewRender('acme'), isFalse);
+    });
+
     test('a fresh poll clears an earlier capped signal', () async {
       Http.fake({
         'status-pages/acme/preview': Http.response(null, 202),
@@ -1020,6 +1160,57 @@ void main() {
         equals(['other-team']),
       );
       expect(controller.configById('acme'), isNull);
+    });
+
+    // The preview bookkeeping is keyed by page id and therefore by tenant. This
+    // controller is a Type-keyed singleton that outlives a login, so a surviving
+    // entry would hand the incoming identity the previous one's "still
+    // generating" affordance for a page it cannot even see. This repo has
+    // shipped that class of bug before, which is why it is pinned here.
+    testWidgets('clears the previous identity preview bookkeeping', (
+      tester,
+    ) async {
+      Http.fake({
+        'status-pages': Http.response({
+          'data': [
+            {
+              'id': 'acme',
+              'name': 'Acme Status',
+              'slug': 'acme',
+              'domain_mode': 'path',
+            },
+          ],
+        }, 200),
+        'status-pages/acme/preview': Http.response({}, 202),
+      });
+
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.reload();
+
+      await tester.runAsync(
+        () => controller.requestPreviewRender('acme', maxAttempts: 1),
+      );
+
+      expect(
+        controller.hasRequestedPreviewRender('acme'),
+        isTrue,
+        reason: 'premise: the request must be recorded before the reset',
+      );
+
+      Http.fake({
+        'status-pages': Http.response({'data': <dynamic>[]}, 200),
+      });
+
+      await controller.resetForSession();
+
+      expect(
+        controller.hasRequestedPreviewRender('acme'),
+        isFalse,
+        reason:
+            'a new identity must not inherit the previous one in-flight '
+            'preview request',
+      );
+      expect(controller.hasPreviewPollCapped('acme'), isFalse);
     });
   });
 }

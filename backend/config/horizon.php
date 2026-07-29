@@ -249,8 +249,31 @@ return [
                 'balanceCooldown' => 3,
             ],
 
+            /*
+            | ONE process, and this ceiling is a CORRECTNESS bound rather than a
+            | cost one. Do not raise it without first making the render
+            | serialize per page.
+            |
+            | The render job is ShouldBeUniqueUntilProcessing, which releases its
+            | lock the moment processing STARTS, so a second dispatch for the
+            | same page can begin while the first is still holding a browser.
+            | Both write the same single key (one PNG per page, overwritten in
+            | place) and then stamp preview_rendered_at = now(). If the
+            | earlier-started render finishes last, the stored file holds
+            | pre-change pixels under a post-change timestamp, presented in the
+            | editor under a customer-view label. That is exactly the drift this
+            | whole feature exists to remove.
+            |
+            | Overlap is the NORMAL save path, not an exotic race: the client's
+            | own component sync fires detach, attach and reorder in sequence and
+            | every one of them dispatches a render.
+            |
+            | With a single process the queue itself serializes those renders, so
+            | no lock is needed. A page renders a few times a day, so throughput
+            | is not the constraint here. PreviewQueueConfigTest pins the 1.
+            */
             'previews' => [
-                'maxProcesses' => 2,
+                'maxProcesses' => 1,
             ],
         ],
 

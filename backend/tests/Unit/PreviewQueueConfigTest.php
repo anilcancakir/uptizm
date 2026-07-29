@@ -98,10 +98,24 @@ class PreviewQueueConfigTest extends TestCase
     }
 
     /**
-     * Horizon's ProvisioningPlan skips any supervisor whose `maxProcesses` is
-     * zero, which would leave the queue unconsumed with no error anywhere.
+     * Every environment provisions EXACTLY one previews process.
+     *
+     * Both bounds matter and they are different failures. Zero processes means
+     * Horizon's ProvisioningPlan skips the supervisor outright and the queue is
+     * never consumed, with no error anywhere. More than one means two renders of
+     * the same page can overlap: the job releases its uniqueness lock when
+     * processing starts, both writes target the same single key, and both stamp
+     * `preview_rendered_at = now()`, so an earlier-started render finishing last
+     * stores pre-change pixels under a post-change timestamp. That is the drift
+     * this feature exists to remove, and it would be presented under a
+     * customer-view label.
+     *
+     * Raising the ceiling is therefore a correctness change, not a capacity
+     * tweak. It requires per-page serialization first (a cache lock in the job,
+     * or one file per render plus an atomic pointer), and this assertion is here
+     * so the decision cannot be made by editing config alone.
      */
-    public function test_every_horizon_environment_provisions_at_least_one_previews_process(): void
+    public function test_every_horizon_environment_provisions_exactly_one_previews_process(): void
     {
         foreach ($this->horizonEnvironments() as $environment => $supervisors) {
             $maxProcesses = $this->effectiveSupervisors($supervisors)[self::SUPERVISOR]['maxProcesses'] ?? null;
@@ -111,10 +125,12 @@ class PreviewQueueConfigTest extends TestCase
                 "The [{$environment}] environment provisions no [previews] maxProcesses."
             );
 
-            $this->assertGreaterThanOrEqual(
+            $this->assertSame(
                 1,
                 $maxProcesses,
-                "The [{$environment}] previews supervisor provisions no process, so Horizon never starts it."
+                "The [{$environment}] previews supervisor must provision exactly one process: "
+                .'zero leaves the queue unconsumed, and more than one lets two renders of the '
+                .'same page overwrite one file and stamp the loser as current.'
             );
         }
     }

@@ -728,7 +728,7 @@
       "editor_preview_live_heading": "Canlı önizleme",
       "editor_preview_draft_heading": "Taslak önizleme",
       "editor_preview_rendered_heading": "Müşterinin gördüğü",
-      "editor_preview_rendered_at": ":time itibarıyla oluşturuldu",
+      "editor_preview_rendered_at": ":time oluşturuldu",
       "editor_preview_may_be_stale": "Bu önizleme güncel olmayabilir",
       "editor_preview_refresh_action": "Yenile",
       "editor_preview_never_rendered_title": "Henüz önizleme yok",

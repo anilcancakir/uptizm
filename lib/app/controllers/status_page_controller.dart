@@ -19,7 +19,9 @@ import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 /// through `StatusPage.all()` (`GET /status-pages`) and caches it in [_pages],
 /// degrading to the last-known-good cache on any failure (empty before the
 /// first success); [statusPages] and [configById] answer synchronously from
-/// that cache so a view's `build()` never awaits. The write actions [save] and
+/// that cache so a view's `build()` never awaits. [reloadPage] tops that up
+/// with the show payload of ONE page, which is the only read that carries the
+/// signed `preview_image_url` (see its docblock). The write actions [save] and
 /// [create] map the editor's [StatusPage] draft to a clean persistence model
 /// and persist through its ORM `save()` (bool-checked, toast on failure),
 /// while [attachMonitor]/[detachMonitor]/[reorderMonitors] stay raw `Http.*`
@@ -75,6 +77,20 @@ class StatusPageController extends MagicController
   /// already fixed three times (dashboard KPIs, monitor-detail SLO, the
   /// pending-monitor "zero monitors" state).
   final Set<String> _previewPollCapped = {};
+
+  /// Page ids whose render this client has asked for through
+  /// [requestPreviewRender], accepted by the server (a 202), but which the
+  /// server does not yet report any render state for.
+  ///
+  /// The gap this closes is real and not cosmetic: `POST .../preview` only
+  /// enqueues, so `preview_render_status` stays NULL until a worker picks the
+  /// job up. Between the tap and that moment the server cannot distinguish
+  /// "never asked" from "asked, waiting", and the editor's never-rendered
+  /// state therefore kept offering the same Generate button with no feedback
+  /// at all. This marker is the client's own knowledge of its own request, so
+  /// it is honest state rather than a fabricated server one: it says a render
+  /// was requested, never that one is running or has succeeded.
+  final Set<String> _previewRenderRequested = {};
 
   /// In-memory cache of the status-page roster, populated by [reload]. Empty
   /// until the first successful fetch resolves.
@@ -163,6 +179,33 @@ class StatusPageController extends MagicController
     refreshUI();
   }
 
+  /// Refreshes the single page [pageId] from `GET /status-pages/{pageId}`
+  /// (show) and publishes it into the cached roster.
+  ///
+  /// [reload] cannot stand in for this, and the difference is not a
+  /// performance one. The two read endpoints answer with DIFFERENT keys:
+  /// `index` deliberately omits `preview_image_url` because the signed URL is
+  /// a capability and D5 keeps it out of list responses, so a roster read can
+  /// never populate the preview pane's image. Only the show payload carries
+  /// it, which makes this the read the editor needs on every open; without it
+  /// the pane sat on the customer-view heading with no image under it.
+  ///
+  /// Publishes through [_replaceCachedPage] (so [statusPages] and [configById]
+  /// answer with the show-derived fields the same way a poll tick's read
+  /// does), then notifies listeners.
+  ///
+  /// A read that comes back for a different id than the one asked for is not
+  /// this page and is dropped: an empty or unmatched envelope hydrates into a
+  /// model with no id, which would otherwise be appended to the roster as a
+  /// blank page.
+  Future<void> reloadPage(String pageId) async {
+    final StatusPage? page = await StatusPage.find(pageId);
+    if (page == null || page.id != pageId) return;
+
+    _replaceCachedPage(page);
+    refreshUI();
+  }
+
   /// Drops the previous session's status-page roster and its per-page
   /// subscriber caches, publishes the cleared state, then refetches for the
   /// identity that is now authenticated.
@@ -183,6 +226,15 @@ class StatusPageController extends MagicController
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that there are no status pages.
     _resolvedOnce = false;
+    // Preview-render bookkeeping is per page id and therefore per tenant. A
+    // surviving entry would let the incoming identity inherit the previous one's
+    // "still generating" or "check again" affordance, and bumping the generation
+    // counters also stops any poll still in flight from writing into the new
+    // session's cache. This controller is a Type-keyed singleton that outlives a
+    // login, so nothing else clears these.
+    _previewPollGeneration.clear();
+    _previewPollCapped.clear();
+    _previewRenderRequested.clear();
     refreshUI();
 
     await reload();
@@ -581,6 +633,18 @@ class StatusPageController extends MagicController
   bool hasPreviewPollCapped(String pageId) =>
       _previewPollCapped.contains(pageId);
 
+  /// Whether this client has an accepted [requestPreviewRender] outstanding for
+  /// [pageId].
+  ///
+  /// The editor renders a page in this state as in-flight (the same sized
+  /// skeleton a server-reported `rendering` gets, plus the check-again row once
+  /// the poll caps) rather than as never rendered: see
+  /// [_previewRenderRequested]. It stops mattering the moment the server
+  /// reports any render state of its own, because the view only consults it
+  /// while [StatusPage.previewRenderStatus] is null.
+  bool hasRequestedPreviewRender(String pageId) =>
+      _previewRenderRequested.contains(pageId);
+
   /// Whether [page]'s server-reported `rendering` status has been open long
   /// enough that a lost job, not real progress, is the more honest read.
   ///
@@ -658,6 +722,14 @@ class StatusPageController extends MagicController
     _previewPollGeneration[pageId] = generation;
     _previewPollCapped.remove(pageId);
 
+    // The server accepted the job but has not started it, so nothing in its
+    // payload changes yet. Publish the client's own request (see
+    // [_previewRenderRequested]) and repaint immediately, so the pane stops
+    // reading as never-asked from this tap onwards rather than from whenever a
+    // worker happens to pick the job up.
+    _previewRenderRequested.add(pageId);
+    refreshUI();
+
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       await Future<void>.delayed(pollInterval);
 
@@ -674,6 +746,9 @@ class StatusPageController extends MagicController
       final StatusPagePreviewStatus? status = page?.previewRenderStatus;
       if (status == StatusPagePreviewStatus.completed ||
           status == StatusPagePreviewStatus.failed) {
+        // The server now reports a terminal state of its own, so the client's
+        // stand-in for the gap before it had one is handed back.
+        _previewRenderRequested.remove(pageId);
         refreshUI();
         return;
       }

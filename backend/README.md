@@ -50,6 +50,26 @@ For any containerised deploy, apply these traps or renders will fail silently:
 - **Font packages**: Slim images have no fonts. Install `fonts-liberation fonts-noto-core fonts-noto-cjk fontconfig` and run `fc-cache` to regenerate the font cache. Without this, text renders as Unicode placeholder tofu boxes, and a branded artefact is worse than no PNG.
 - **`dumb-init` as PID 1**: Chrome spawns children that become zombies when the parent dies, an unfixed cross-version Puppeteer issue. Run the queue worker under `dumb-init` to reap them.
 - **Chrome binary as a patched dependency**: Chromium's CVE stream reaches headless rendering. Pin the Chrome version in your image (never rely on system package manager Chrome, which lags security updates). Match the revision pinned by `puppeteer` in `package-lock.json`.
+- **Run the worker as a non-root user.** The renderer deliberately does not call `noSandbox()`, so the Chromium sandbox stays on, and there is no config switch to turn it off. A container running the queue worker as root will fail every render. If a deploy genuinely has to drop the sandbox, that is a code change in `StatusPagePreviewRenderer::browsershotFor()` and a deliberate decision, not an environment variable.
+
+### The worker must be able to reach APP_URL itself
+
+The render is an HTTP fetch of this application's own public status page, issued from the queue worker. So the worker's network has to resolve and reach `APP_URL`, and whatever answers has to be the app rather than an edge in front of it.
+
+This is the mirror image of the reason Cloudflare's hosted browser was rejected for this feature: a renderer that cannot reach the origin cannot render it.
+
+Two failure shapes to watch:
+
+- A WAF or bot challenge in front of the origin returns 200 with a challenge page. The status check passes, the render-ready marker never appears, and the job fails honestly, but the failure names the marker rather than the challenge. If renders fail with a ready-marker timeout and the page loads fine in a browser, suspect this first.
+- Signed image URLs are absolute and built from `APP_URL`. An `APP_URL` that disagrees with the host actually serving the request, or an untrusted proxy rewriting the scheme, invalidates the signature and returns 403 on a URL that is otherwise legitimate. Configure `TrustProxies` for the deploy.
+
+### Preview process count is a correctness bound
+
+`config/horizon.php` provisions exactly ONE `previews` process per environment, and `PreviewQueueConfigTest` pins that number. It is not a cost ceiling.
+
+The render job releases its uniqueness lock when processing starts, every render of a page writes the same single key, and each completion stamps `preview_rendered_at = now()`. With two processes, two renders of one page can overlap and the earlier-started one can finish last, storing pre-change pixels under a post-change timestamp. Overlap is the normal save path, since a component sync dispatches a render per detach, attach and reorder.
+
+Raising the count therefore requires per-page serialization first: a cache lock in the job, or one file per render plus an atomic pointer column.
 
 ### Signed preview URLs and APP_URL
 

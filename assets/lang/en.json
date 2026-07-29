@@ -728,7 +728,7 @@
       "editor_preview_live_heading": "Live preview",
       "editor_preview_draft_heading": "Draft preview",
       "editor_preview_rendered_heading": "What customers see",
-      "editor_preview_rendered_at": "Rendered at :time",
+      "editor_preview_rendered_at": "Rendered :time",
       "editor_preview_may_be_stale": "This preview may be out of date",
       "editor_preview_refresh_action": "Refresh",
       "editor_preview_never_rendered_title": "No preview yet",
