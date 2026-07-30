@@ -47,6 +47,10 @@ would cost roughly 300 MB on an 8 GB box shared with two other products.
   backend. A signed probe was verified end to end (us-east, HTTP 200).
 - The Flutter web build is uploaded to
   `/home/uptizm-app/htdocs/app.uptizm.com`.
+- `public/storage` is symlinked. Profile photos default to the `public` disk
+  (`magic-starter.profile_photo_disk`), so without the link every uploaded avatar
+  would 404. Status-page preview PNGs are on the private disk and served through a
+  signed route instead, so they do not depend on it.
 
 ## Still to do in the CloudPanel UI
 
