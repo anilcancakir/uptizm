@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\DomainMode;
 use App\Enums\StatusPagePreviewStatus;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Builder;
@@ -87,9 +88,26 @@ class StatusPage extends Model
     ];
 
     /**
+     * Mirror the schema default in memory.
+     *
+     * `domain_mode` is NOT NULL with a `path` default applied by the database,
+     * so without this a freshly created model reads back null until it is
+     * refreshed, and the API answered `domain_mode: null` for a row the database
+     * stores as `path`. The client's own default for an unknown wire value is
+     * `subdomain`, so a page created as path-addressed was displayed as
+     * subdomain-addressed.
+     *
+     * @var array<string, string>
+     */
+    protected $attributes = [
+        'domain_mode' => 'path',
+    ];
+
+    /**
      * @var array<string, string>
      */
     protected $casts = [
+        'domain_mode' => DomainMode::class,
         'is_public' => 'boolean',
         'subscriptions_enabled' => 'boolean',
         'preview_rendered_at' => 'immutable_datetime',

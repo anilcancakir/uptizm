@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/status_page_controller.dart';
+import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
 import 'package:uptizm/app/enums/status_page_preview_status.dart'
     show StatusPagePreviewStatus;
 import 'package:uptizm/app/models/status_page.dart';
@@ -585,13 +586,20 @@ void main() {
 
       await controller.create(draft);
 
+      // The domain mode goes on the wire as ITSELF. The client used to translate
+      // `subdomain` into `custom` because the backend accepted only
+      // `path|custom`, so picking Subdomain stored Custom, and the read-back only
+      // looked right because the model's fallback for the unknown `custom`
+      // happened to be `subdomain`. Both halves are fixed; this pins the wire.
+      expect(draft.domainMode, DomainMode.subdomain);
+
       fake.assertSent(
         (r) =>
             r.method == 'POST' &&
             r.url.contains('status-pages') &&
             r.data is Map &&
             (r.data as Map)['name'] == draft.name &&
-            (r.data as Map)['domain_mode'] == 'custom',
+            (r.data as Map)['domain_mode'] == 'subdomain',
       );
     });
 

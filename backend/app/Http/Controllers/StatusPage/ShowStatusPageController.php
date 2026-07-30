@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\StatusPage;
 
+use App\Enums\DomainMode;
 use App\Http\ViewModels\StatusPageViewModel;
 use App\Models\StatusPage;
 use App\Services\StatusPages\StatusPageAssembler;
@@ -75,7 +76,7 @@ class ShowStatusPageController
         //    no-store so an intermediary keying on neither the header nor the
         //    query cannot store this body under the public URL.
         if ($hasPreviewToken) {
-            return $this->render($this->assembler->build($page), $page->slug)
+            return $this->render($this->assembler->build($page), $page)
                 ->header('Cache-Control', 'no-store, private');
         }
 
@@ -87,7 +88,7 @@ class ShowStatusPageController
             fn (): array => $this->assembler->build($page)->toArray(),
         );
 
-        return $this->render(StatusPageViewModel::fromArray($data), $page->slug);
+        return $this->render(StatusPageViewModel::fromArray($data), $page);
     }
 
     /**
@@ -175,14 +176,46 @@ class ShowStatusPageController
     }
 
     /**
-     * Render the status view from the read model and slug alone. The slug (not
-     * the request URL) drives every URL the Blade generates via `route()`.
+     * Render the status view from the read model, the slug, and the page's own
+     * canonical URL.
      */
-    protected function render(StatusPageViewModel $vm, string $slug): Response
+    protected function render(StatusPageViewModel $vm, StatusPage $page): Response
     {
         return response()->view('status.show', [
             'vm' => $vm,
-            'slug' => $slug,
+            'slug' => $page->slug,
+            'canonicalUrl' => $this->canonicalUrl($page),
         ]);
+    }
+
+    /**
+     * The one URL this page should be indexed and shared under.
+     *
+     * The same page answers on up to three hosts (`<app>/s/{slug}`,
+     * `{slug}.<subdomain_host>`, and a `custom_domain`), so without a canonical
+     * they compete as duplicates and a customer's page ranks against itself.
+     *
+     * Built from configuration, NEVER from the incoming request: `route()`
+     * resolves an absolute URL against the request root, which would make the
+     * canonical (and the OG url a crawler reads) differ per host and defeat the
+     * point. `domain_mode` picks the form; a mode whose prerequisite is missing
+     * falls back to the path form, which always resolves.
+     */
+    protected function canonicalUrl(StatusPage $page): string
+    {
+        $base = rtrim((string) config('app.url'), '/');
+        $scheme = parse_url($base, PHP_URL_SCHEME) ?: 'https';
+
+        if ($page->domain_mode === DomainMode::Custom && is_string($page->custom_domain) && $page->custom_domain !== '') {
+            return $scheme.'://'.$page->custom_domain.'/';
+        }
+
+        $subdomainHost = config('status_pages.subdomain_host');
+
+        if ($page->domain_mode === DomainMode::Subdomain && is_string($subdomainHost) && $subdomainHost !== '') {
+            return $scheme.'://'.$page->slug.'.'.$subdomainHost.'/';
+        }
+
+        return $base.'/s/'.$page->slug;
     }
 }

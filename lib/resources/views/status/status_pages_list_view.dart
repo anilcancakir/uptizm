@@ -5,7 +5,6 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/status_page_controller.dart';
-import '../../../app/enums/domain_mode.dart' show DomainMode;
 import '../../../app/enums/status_key.dart' show StatusKey;
 import '../../../app/support/status_page_support.dart'
     show pageUrl, worstStatus;
@@ -250,10 +249,10 @@ class _StatusPagesListViewState
     final String componentsLabel = componentCount == 1
         ? trans('uptizm.status.list_card_component_singular')
         : trans('uptizm.status.list_card_component_plural');
-    final String domainLabel = switch (page.domainMode) {
-      DomainMode.subdomain => trans('uptizm.status.list_card_subdomain'),
-      DomainMode.path => trans('uptizm.status.list_card_path'),
-    };
+    // The enum owns its own localized label, so there is one place to add a
+    // mode. A second key set here held byte-identical strings and would have
+    // silently gone stale the moment a mode was added.
+    final String domainLabel = page.domainMode.label;
     final String subscribersLabel = page.subscriptionsEnabled
         ? '$subscriberCount ${trans('uptizm.status.list_card_subscribers')}'
         : trans('uptizm.status.list_card_subs_off');

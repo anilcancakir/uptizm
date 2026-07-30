@@ -39,6 +39,20 @@ return Application::configure(basePath: dirname(__DIR__))
         ],
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // nginx is the only client that reaches this app. It terminates TLS and
+        // rewrites the client address from Cloudflare's `CF-Connecting-IP`, then
+        // SETS `X-Forwarded-For` to exactly that address (see deploy/vhost.conf).
+        //
+        // Trust the loopback ONLY. Trusting `*` would accept a client-supplied
+        // `X-Forwarded-For`, and Cloudflare APPENDS the real address to whatever
+        // the client sent rather than replacing it, so the leftmost entry is
+        // attacker controlled. Every IP-keyed limiter registered in `booted()`
+        // below, including the slug-enumeration cap, depends on this.
+        $middleware->trustProxies(at: [
+            '127.0.0.1',
+            '::1',
+        ]);
+
         // Lean group for the public status pages: bind route params but skip
         // StartSession / cookies so the page carries no Set-Cookie and stays
         // CDN-cacheable with zero session cost.
@@ -79,10 +93,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // path stays bounded: it bypasses the 60s cache and rebuilds the whole
         // read model per request, and the token is never rotated or revocable.
         // A legitimate render issues one request per dispatch, far below this.
+        // The relief bucket is keyed on the resolved SLUG, not the request path:
+        // the same page is reachable as `/s/{slug}` and as `{slug}.<host>`, whose
+        // path is `/` for every page, so a path key would collapse every
+        // subdomain render into one shared bucket.
         RateLimiter::for(
             'resource-not-found',
             fn (Request $request) => ShowStatusPageController::requestCarriesValidPreviewToken($request)
-                ? Limit::perMinute(30)->by('status-page-preview:'.$request->path())
+                ? Limit::perMinute(30)->by('status-page-preview:'.$request->route('slug'))
                 : Limit::perMinute(30)->by($request->ip()),
         );
 

@@ -83,8 +83,6 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.list_new_page_action': 'New status page',
       'uptizm.status.list_card_component_singular': 'component',
       'uptizm.status.list_card_component_plural': 'components',
-      'uptizm.status.list_card_subdomain': 'Subdomain',
-      'uptizm.status.list_card_path': 'Path',
       'uptizm.status.list_card_subscribers': 'subscribers',
       'uptizm.status.list_card_subs_off': 'Subs off',
       'uptizm.status.list_empty_title': 'No status pages yet',

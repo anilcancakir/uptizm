@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\DomainMode;
 use App\Models\StatusPage;
 use App\Models\Team;
 use App\Services\Billing\PlanGate;
@@ -86,15 +87,17 @@ class StoreStatusPageRequest extends FormRequest
                 'string',
                 'max:100',
                 'regex:/^[a-z0-9]+(-[a-z0-9]+)*$/',
+                // A slug doubles as a hostname label under
+                // `status_pages.subdomain_host`, so a reserved word here would
+                // claim a subdomain we serve ourselves. See config/status_pages.php.
+                Rule::notIn(config('status_pages.reserved_slugs')),
                 Rule::unique('status_pages', 'slug'),
             ],
+            // Not `nullable`: the column is NOT NULL with a `path` default, so an
+            // explicit null used to pass validation and then fail at insert. Omit
+            // the key to take the default; send a valid case to change it.
             'domain_mode' => [
-                'nullable',
-                'string',
-                Rule::in([
-                    'path',
-                    'custom',
-                ]),
+                Rule::enum(DomainMode::class),
             ],
             'custom_domain' => [
                 'nullable',

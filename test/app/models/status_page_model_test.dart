@@ -36,7 +36,7 @@ void main() {
       expect(page.subscriptionsEnabled, isFalse);
     });
 
-    test('domainMode parses subdomain / path and falls back', () {
+    test('domainMode parses every wire mode and falls back to path', () {
       expect(
         StatusPage.fromMap({'domain_mode': 'subdomain'}).domainMode,
         DomainMode.subdomain,
@@ -45,14 +45,20 @@ void main() {
         StatusPage.fromMap({'domain_mode': 'path'}).domainMode,
         DomainMode.path,
       );
-      // Missing or unrecognized -> subdomain default.
+      expect(
+        StatusPage.fromMap({'domain_mode': 'custom'}).domainMode,
+        DomainMode.custom,
+      );
+      // Missing or unrecognized -> path, which is the backend column's own
+      // default and the only mode that always resolves. This used to fall back
+      // to subdomain, so a path-addressed page read as subdomain-addressed.
       expect(
         StatusPage.fromMap(<String, dynamic>{}).domainMode,
-        DomainMode.subdomain,
+        DomainMode.path,
       );
       expect(
         StatusPage.fromMap({'domain_mode': 'bogus'}).domainMode,
-        DomainMode.subdomain,
+        DomainMode.path,
       );
     });
 

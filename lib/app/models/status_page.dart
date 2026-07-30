@@ -98,7 +98,8 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// Set the slug.
   set slug(String? value) => setAttribute('slug', value);
 
-  /// Optional custom domain (when [domainMode] is `subdomain`).
+  /// Optional tenant-owned hostname, used when [domainMode] is
+  /// [DomainMode.custom].
   String? get customDomain => getAttribute('custom_domain') as String?;
 
   /// Set the custom domain.
@@ -145,15 +146,19 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
       setAttribute('subscriptions_enabled', value);
 
   /// How the page is served, parsed from the wire `domain_mode` string into
-  /// the [DomainMode] enum. Falls back to [DomainMode.subdomain] when the wire
-  /// value is missing or unrecognized.
+  /// the [DomainMode] enum.
+  ///
+  /// Falls back to [DomainMode.path], which is the backend column's own default
+  /// and the only mode that always resolves. The fallback used to be
+  /// [DomainMode.subdomain], so a page the backend stored as path-addressed was
+  /// displayed as subdomain-addressed whenever the wire value was absent.
   DomainMode get domainMode {
     final String? raw = getAttribute('domain_mode') as String?;
-    if (raw == null) return DomainMode.subdomain;
+    if (raw == null) return DomainMode.path;
     for (final DomainMode mode in DomainMode.values) {
       if (mode.name == raw) return mode;
     }
-    return DomainMode.subdomain;
+    return DomainMode.path;
   }
 
   /// Set the domain mode (stored as its wire `name`).

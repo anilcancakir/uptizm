@@ -57,7 +57,9 @@ class StatusPageResource extends JsonResource
             'team_id' => $this->resource->team_id,
             'name' => $this->resource->name,
             'slug' => $this->resource->slug,
-            'domain_mode' => $this->resource->domain_mode,
+            // `->value` explicitly: the attribute is a DomainMode cast, and the
+            // client reads the wire string, not an object shape.
+            'domain_mode' => $this->resource->domain_mode->value,
             'custom_domain' => $this->resource->custom_domain,
             'brand_color' => $this->resource->brand_color,
             'logo_path' => $this->resource->logo_path,

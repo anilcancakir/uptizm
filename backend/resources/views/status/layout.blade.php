@@ -2,9 +2,13 @@
 {{--
     Standalone shell for the public status page. This is NOT the authenticated
     app chrome: it carries its own <html>, its own Tailwind v4 build, and the
-    server-side OG/meta tags a link-preview crawler reads. Every URL below is
-    built from `$vm->page['slug']` via `route()`, never from the incoming
-    request, so a cached response never bakes in a stale or spoofed host.
+    server-side OG/meta tags a link-preview crawler reads.
+
+    The page answers on up to three hosts (path, subdomain, custom domain), so
+    the two URLs a crawler indexes on (canonical and og:url) come from
+    `$canonicalUrl`, which the controller derives from configuration rather than
+    from the request. Functional URLs (the subscribe POST) stay request-relative
+    via `route()` so they post back to the host the visitor is actually on.
 --}}
 <html lang="en">
     <head>
@@ -13,9 +17,11 @@
 
         <title>{{ $vm->page['name'] }}</title>
 
+        <link rel="canonical" href="{{ $canonicalUrl }}">
+
         <meta property="og:title" content="{{ $vm->page['name'] }}">
         <meta property="og:type" content="website">
-        <meta property="og:url" content="{{ route('status.show', $vm->page['slug']) }}">
+        <meta property="og:url" content="{{ $canonicalUrl }}">
         @if ($vm->page['description'])
             <meta property="og:description" content="{{ $vm->page['description'] }}">
             <meta name="description" content="{{ $vm->page['description'] }}">

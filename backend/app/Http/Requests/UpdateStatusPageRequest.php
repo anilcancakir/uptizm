@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\DomainMode;
 use Illuminate\Validation\Rule;
 
 /**
@@ -32,16 +33,16 @@ class UpdateStatusPageRequest extends StoreStatusPageRequest
                 'string',
                 'max:100',
                 'regex:/^[a-z0-9]+(-[a-z0-9]+)*$/',
+                // A slug doubles as a hostname label under
+                // `status_pages.subdomain_host`, so a reserved word here would
+                // claim a subdomain we serve ourselves. See config/status_pages.php.
+                Rule::notIn(config('status_pages.reserved_slugs')),
                 Rule::unique('status_pages', 'slug')->ignore($this->route('statusPage')),
             ],
+            // See StoreStatusPageRequest: not `nullable`, the column is NOT NULL.
             'domain_mode' => [
                 'sometimes',
-                'nullable',
-                'string',
-                Rule::in([
-                    'path',
-                    'custom',
-                ]),
+                Rule::enum(DomainMode::class),
             ],
             'custom_domain' => [
                 'sometimes',

@@ -6,7 +6,6 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/status_page.dart';
-import '../enums/domain_mode.dart' show DomainMode;
 import '../enums/status_page_preview_status.dart'
     show StatusPagePreviewStatus;
 import '../support/status_page_types.dart' show Subscriber;
@@ -909,7 +908,7 @@ class StatusPageController extends MagicController
       ..fill(<String, dynamic>{
         'name': draft.name,
         'slug': draft.slug,
-        'domain_mode': _wireDomainMode(draft.domainMode),
+        'domain_mode': draft.domainMode.name,
         'brand_color': _wireBrandColor(draft.brandColor),
         'logo_text': draft.logoText,
         'description': draft.description,
@@ -921,18 +920,6 @@ class StatusPageController extends MagicController
     }
     return page;
   }
-
-  /// Maps the fixture's [DomainMode] to the backend's `domain_mode` enum
-  /// (`'path'`/`'custom'`).
-  ///
-  /// The two enums diverge: the fixture models a subdomain vs. a shared path,
-  /// while the backend models a shared path vs. a dedicated custom domain.
-  /// [DomainMode.subdomain] maps to `'custom'` as the closest available
-  /// concept (a page served on its own domain, not the shared path).
-  String _wireDomainMode(DomainMode mode) => switch (mode) {
-    DomainMode.path => 'path',
-    DomainMode.subdomain => 'custom',
-  };
 
   /// Encodes a fixture [Color] as the backend's `#RRGGBB` hex string.
   String _wireBrandColor(Color color) {

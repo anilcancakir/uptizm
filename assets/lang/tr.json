@@ -361,7 +361,8 @@
       },
       "domain_mode": {
         "subdomain": "Alt alan adı",
-        "path": "Yol"
+        "path": "Yol",
+        "custom": "Özel alan adı"
       },
       "invoice_status": {
         "paid": "Ödendi",
@@ -679,8 +680,6 @@
       "list_error_load_description": "Sayfalarınızı yüklerken bir sorun yaşadık. Bir süre sonra tekrar deneyin.",
       "list_card_component_singular": "bileşen",
       "list_card_component_plural": "bileşen",
-      "list_card_subdomain": "Alt alan adı",
-      "list_card_path": "Yol",
       "list_card_subscribers": "abone",
       "list_card_subs_off": "Abonelik kapalı",
       "editor_breadcrumb_back": "Durum sayfaları",

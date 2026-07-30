@@ -361,7 +361,8 @@
       },
       "domain_mode": {
         "subdomain": "Subdomain",
-        "path": "Path"
+        "path": "Path",
+        "custom": "Custom domain"
       },
       "invoice_status": {
         "paid": "Paid",
@@ -679,8 +680,6 @@
       "list_error_load_description": "We hit a snag loading your pages. Try again in a moment.",
       "list_card_component_singular": "component",
       "list_card_component_plural": "components",
-      "list_card_subdomain": "Subdomain",
-      "list_card_path": "Path",
       "list_card_subscribers": "subscribers",
       "list_card_subs_off": "Subs off",
       "editor_breadcrumb_back": "Status pages",
