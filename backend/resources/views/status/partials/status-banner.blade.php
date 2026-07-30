@@ -8,6 +8,9 @@
         'major_outage' => 'bg-red-500',
         'partial_outage' => 'bg-orange-500',
         'degraded' => 'bg-amber-500',
+        // Neutral, not green: a page with nothing published has no verdict to
+        // give, and a green dot would read as one.
+        \App\Services\StatusPages\StatusPageAssembler::STATUS_UNKNOWN => 'bg-gray-400',
         default => 'bg-green-500',
     };
 

@@ -38,6 +38,15 @@ class StatusPageAssembler
      */
     protected const int RECENT_INCIDENT_DAYS = 14;
 
+    /**
+     * Overall status for a page with no published components.
+     *
+     * Deliberately NOT on the severity ladder: it is the absence of a verdict,
+     * not a rung on it. Kept as a constant because the Blade banner matches on
+     * it to pick a neutral dot rather than a green one.
+     */
+    public const string STATUS_UNKNOWN = 'unknown';
+
     public function __construct(
         protected ComponentDailyUptimeService $uptime = new ComponentDailyUptimeService,
     ) {}
@@ -56,10 +65,18 @@ class StatusPageAssembler
         );
 
         // 3. Shape components and roll their statuses up the severity ladder.
+        //
+        // A page with NOTHING published does not get a health verdict. `worstOf`
+        // returns the bottom of the ladder for an empty set, which would put
+        // "All Systems Operational" above a components card reading "No
+        // components are currently published on this page" -- a claim about
+        // systems the page is not tracking, next to the admission that it is
+        // tracking none. On a status page that is not a fail-safe default, it is
+        // the one lie that costs the most trust.
         $components = $this->buildComponents($monitors, $strips);
-        $overallStatus = $this->uptime->worstOf(
-            array_column($components, 'status'),
-        );
+        $overallStatus = $components === []
+            ? self::STATUS_UNKNOWN
+            : $this->uptime->worstOf(array_column($components, 'status'));
 
         return new StatusPageViewModel(
             page: $this->buildPage($page),
@@ -326,6 +343,7 @@ class StatusPageAssembler
             'major_outage' => 'Major System Outage',
             'partial_outage' => 'Partial System Outage',
             'degraded' => 'Degraded Performance',
+            self::STATUS_UNKNOWN => 'No Components Published',
             default => 'All Systems Operational',
         };
     }

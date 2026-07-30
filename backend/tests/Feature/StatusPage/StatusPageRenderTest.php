@@ -17,6 +17,7 @@ use App\Models\User;
 use FlutterSdk\MagicStarter\Support\MigrationHelper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Vite;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -60,6 +61,40 @@ class StatusPageRenderTest extends TestCase
         $response->assertSee($monitor->name, escape: false);
         $response->assertSee('All Systems Operational');
         $response->assertSee('Elevated latency on checkout API');
+    }
+
+    public function test_a_page_with_nothing_published_does_not_claim_to_be_operational(): void
+    {
+        // Caught on the first production render: the banner read "All Systems
+        // Operational" directly above a components card reading "No components
+        // are currently published on this page". The rollup returns the bottom
+        // of the severity ladder for an empty set, so a page tracking nothing
+        // asserted that nothing was wrong. On a status page that is the most
+        // expensive thing to get wrong, so an empty set now has no verdict.
+        $page = $this->makePageWithMonitor('empty-page', isPublic: true);
+
+        // Unpublish the only component, leaving the page attached but empty.
+        $page->monitors()->first()->forceFill(['show_on_status_page' => false])->save();
+        Cache::forget("status-page:{$page->slug}");
+
+        $response = $this->get('/s/empty-page');
+
+        $response->assertOk();
+        $response->assertSee('No components are currently published');
+        $response->assertDontSee('All Systems Operational');
+        $response->assertSee('No Components Published');
+    }
+
+    public function test_a_page_with_a_healthy_component_still_reads_operational(): void
+    {
+        // The other half of the assertion above: the honest empty state must not
+        // have cost the ordinary healthy verdict.
+        $this->makePageWithMonitor('healthy-page', isPublic: true);
+
+        $this->get('/s/healthy-page')
+            ->assertOk()
+            ->assertSee('All Systems Operational')
+            ->assertDontSee('No Components Published');
     }
 
     public function test_it_never_leaks_the_monitor_url_or_the_preview_token(): void
