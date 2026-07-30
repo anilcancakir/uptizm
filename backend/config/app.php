@@ -56,6 +56,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | Where the Flutter web client is served. The client lives on its own host
+    | (production: app.uptizm.com), so the landing page and any mail this app
+    | sends have to link there rather than to their own origin. Falls back to
+    | APP_URL for a single-origin local setup.
+    |
+    */
+
+    'frontend_url' => env('APP_FRONTEND_URL', env('APP_URL', 'http://localhost')),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
