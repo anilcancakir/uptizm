@@ -63,9 +63,16 @@ save. Paste the files from this directory into the panel instead.
    Laravel's public directory is one level deeper than CloudPanel's default. The
    vhost renders `{{root}}` from this setting, so a mismatch serves the wrong
    directory.
-2. Settings > **Varnish Cache: OFF**. It came on by default. A shared cache in
-   front of a tenant-scoped JSON API and per-tenant status pages can serve one
-   team's page to another.
+2. Varnish Cache: leave it alone. It came on by default, and it does not matter:
+   the vhost in this directory hardcodes `proxy_pass http://127.0.0.1:9502`
+   instead of using CloudPanel's `varnish_proxy_pass` placeholder, so Varnish is
+   not in the request path at all. Verified: zero occurrences of `varnish` or
+   `6081` in the rendered config, and the running Varnish on 6081 belongs to
+   another site. The panel's own toggle and its `varnish_cache` database flag
+   disagree with each other here; that is a panel quirk, not something to chase.
+   It WOULD matter if the vhost ever went back to that placeholder, since a
+   shared cache in front of a tenant-scoped API can serve one team's page to
+   another.
 3. Vhost > paste `vhost-uptizm.com.conf`, Save.
 4. SSL/TLS > **Import Certificate**. Paste from the server:
    ```bash
