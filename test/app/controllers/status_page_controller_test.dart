@@ -781,6 +781,80 @@ void main() {
       );
     });
 
+    // The bug a live pass caught, and the one that made the acknowledgement
+    // line look broken. On a page that ALREADY has a render the server keeps
+    // reporting the PREVIOUS `completed` until a worker picks the new job up, so
+    // treating any `completed` as terminal made the very first tick conclude,
+    // two seconds after the tap, that the render it had just asked for was
+    // already finished. The poll stopped tracking, the in-flight marker was
+    // handed straight back, and the pane sat on the old stamp. Refresh on an
+    // existing preview is the most common action this feature has.
+    test('a re-render keeps polling while the server still reports the '
+        'PREVIOUS completed render', () async {
+      final DateTime previous = DateTime.now().subtract(
+        const Duration(minutes: 5),
+      );
+
+      // The roster already holds a completed render, which is what makes the
+      // stale-completed reading reachable at all.
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        StatusPage.fromMap(<String, dynamic>{
+          'id': 'acme',
+          'name': 'Acme Status',
+          'slug': 'acme',
+          'domain_mode': 'path',
+          'preview_render_status': 'completed',
+          'preview_image_url': 'https://x/acme.png?v=1',
+          'preview_rendered_at': previous.toIso8601String(),
+        }),
+      ]);
+
+      int getCalls = 0;
+      Http.fake((r) {
+        if (r.method == 'POST' && r.url.contains('status-pages/acme/preview')) {
+          return Http.response(null, 202);
+        }
+        if (r.method == 'GET' && r.url.contains('status-pages/acme')) {
+          getCalls++;
+          // The server keeps answering with the OLD completed render, exactly
+          // as it does before a worker starts the new job.
+          return Http.response({
+            'data': {
+              'id': 'acme',
+              'name': 'Acme Status',
+              'preview_render_status': 'completed',
+              'preview_image_url': 'https://x/acme.png?v=1',
+              'preview_rendered_at': previous.toIso8601String(),
+            },
+          }, 200);
+        }
+        return Http.response(null, 404);
+      });
+
+      final StatusPageController controller = StatusPageController.instance;
+
+      await controller.requestPreviewRender(
+        'acme',
+        pollInterval: const Duration(milliseconds: 1),
+        maxAttempts: 4,
+      );
+
+      expect(
+        getCalls,
+        4,
+        reason:
+            'the poll must keep waiting for a render NEWER than the one it '
+            'already knew about, not stop on the first stale completed',
+      );
+      expect(
+        controller.hasPreviewPollCapped('acme'),
+        isTrue,
+        reason:
+            'and it must reach its cap, so the pane can offer check-again '
+            'instead of silently pretending the render finished',
+      );
+    });
+
     test('polls show and stops once the server reports completed', () async {
       int getCalls = 0;
       Http.fake((r) {

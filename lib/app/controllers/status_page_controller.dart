@@ -743,6 +743,11 @@ class StatusPageController extends MagicController
     Duration pollInterval = _defaultPreviewPollInterval,
     int maxAttempts = _defaultPreviewPollMaxAttempts,
   }) async {
+    // The render this request is WAITING FOR has to be distinguishable from the
+    // one the page already has, or the poll below mistakes the old one for the
+    // new one. Captured before the trigger so nothing can land in between.
+    final Carbon? knownRenderedAt = configById(pageId)?.previewRenderedAt;
+
     try {
       final response = await Http.post('/status-pages/$pageId/preview');
       if (!response.successful) {
@@ -791,10 +796,26 @@ class StatusPageController extends MagicController
       if (page != null) _replaceCachedPage(page);
 
       final StatusPagePreviewStatus? status = page?.previewRenderStatus;
-      if (status == StatusPagePreviewStatus.completed ||
-          status == StatusPagePreviewStatus.failed) {
-        // The server now reports a terminal state of its own, so the client's
-        // stand-in for the gap before it had one is handed back.
+
+      // A terminal state only ends this poll when it belongs to THIS request.
+      // On a page that already had a render the server still reports the
+      // PREVIOUS `completed` until a worker picks the new job up, so treating
+      // any `completed` as terminal made the first tick conclude, two seconds
+      // after the tap, that the render it asked for was already done. The
+      // observable result was a Refresh that stopped tracking immediately and
+      // left the old stamp in place, which is the most common path this feature
+      // has. `failed` is exempt from the comparison: a failure does not move the
+      // stamp, so there is nothing to compare, and re-reporting the previous
+      // failure is the honest answer either way.
+      final bool completedIsNew =
+          status == StatusPagePreviewStatus.completed &&
+          (knownRenderedAt == null ||
+              (page?.previewRenderedAt != null &&
+                  page!.previewRenderedAt!.isAfter(knownRenderedAt)));
+
+      if (completedIsNew || status == StatusPagePreviewStatus.failed) {
+        // The server now reports a terminal state for this request, so the
+        // client's stand-in for the gap before it had one is handed back.
         _previewRenderRequested.remove(pageId);
         refreshUI();
         return;
