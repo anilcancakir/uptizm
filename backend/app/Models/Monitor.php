@@ -49,6 +49,39 @@ class Monitor extends Model
     protected $guarded = [];
 
     /**
+     * Mirror the schema defaults in memory.
+     *
+     * These columns are NOT NULL with database defaults, which Eloquent does not
+     * know about, so a freshly created monitor read them back as null until it was
+     * refreshed. That is not cosmetic here: `RelayClient::buildSpec()` sends
+     * `method` and `timeout_sec` to the edge worker, and a null timeout became
+     * `AbortSignal.timeout(0)`, so the probe aborted after 0ms and reported the
+     * target as down. Found by dispatching a probe for a monitor created in the
+     * same request.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'method' => 'get',
+        'timeout_sec' => 30,
+        'expected_status_code' => 200,
+        'request_headers' => '{}',
+        'regions' => '[]',
+        'tags' => '[]',
+        'ai_mode' => 'off',
+        'status' => 'active',
+        'consecutive_fails' => 0,
+        'incident_threshold' => self::DEFAULT_INCIDENT_THRESHOLD,
+        'show_on_status_page' => false,
+        'only_show_if_degraded' => false,
+        'is_group' => false,
+        'alert_on_down' => true,
+        'alert_on_recover' => true,
+        'ssl_tracking' => false,
+        'ssl_alert_threshold_days' => 14,
+    ];
+
+    /**
      * @var array<string, string>
      */
     protected $casts = [
