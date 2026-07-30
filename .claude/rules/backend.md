@@ -6,7 +6,18 @@ paths:
 
 # Uptizm backend (Laravel API + monitoring core)
 
-`backend/` is the Laravel 13 JSON API and monitoring engine behind the Flutter client. It is built on the local `fluttersdk/magic-starter-laravel` package (path symlink `../../magic-starter-laravel`, `@dev`); that package's own conventions (teams, 2FA, Sanctum tokens, contract-action overrides, UUID-optional migrations) are authoritative for the auth/team surface, so do not restate them here.
+`backend/` is the Laravel 13 JSON API and monitoring engine behind the Flutter client. It is built on the `fluttersdk/magic-starter-laravel` package, resolved from Packagist at a pinned version (`^0.0.5`); that package's own conventions (teams, 2FA, Sanctum tokens, contract-action overrides, UUID-optional migrations) are authoritative for the auth/team surface, so do not restate them here.
+
+The dependency used to be a symlinked `path` repository to `../../magic-starter-laravel`. It is not any more, because a path repo writes a `"type": "path"` entry into `composer.lock` that no other machine can install, which broke `composer install` on the server. To develop both repos together, add the path repo locally and revert it before committing:
+
+```bash
+composer config repositories.magic-starter path ../../magic-starter-laravel
+# work, then:
+composer config --unset repositories.magic-starter
+composer update fluttersdk/magic-starter-laravel
+```
+
+Prefer tagging and publishing the sibling instead: its releases are cheap (`0.0.x` tags) and a published version keeps the lock portable.
 
 ## Stack
 
