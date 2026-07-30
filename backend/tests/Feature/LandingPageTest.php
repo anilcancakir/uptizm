@@ -25,23 +25,45 @@ class LandingPageTest extends TestCase
         config([
             'app.url' => 'https://api.uptizm.test',
             'app.frontend_url' => 'https://app.uptizm.test',
+            'app.frontend_auth_prefix' => '/auth',
         ]);
 
         $response = $this->get('/');
 
         $response->assertOk();
-        $response->assertSee('https://app.uptizm.test/register', escape: false);
-        $response->assertSee('https://app.uptizm.test/login', escape: false);
-        $response->assertDontSee('https://api.uptizm.test/register', escape: false);
+        $response->assertSee('https://app.uptizm.test/auth/register', escape: false);
+        $response->assertSee('https://app.uptizm.test/auth/login', escape: false);
+        $response->assertDontSee('https://api.uptizm.test/auth/register', escape: false);
+    }
+
+    public function test_the_calls_to_action_carry_the_clients_auth_prefix(): void
+    {
+        // Regression: these were written as `/login` and `/register`, which the
+        // client does not serve. Its auth screens are mounted under a prefix
+        // (`auth_prefix` in lib/config/magic_starter.dart), so every visitor who
+        // clicked "Get started" landed on a route that did not exist.
+        config([
+            'app.frontend_url' => 'https://app.uptizm.test',
+            'app.frontend_auth_prefix' => '/auth',
+        ]);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertDontSee('href="https://app.uptizm.test/login"', escape: false)
+            ->assertDontSee('href="https://app.uptizm.test/register"', escape: false);
     }
 
     public function test_a_trailing_slash_on_the_frontend_url_does_not_double_up(): void
     {
-        config(['app.frontend_url' => 'https://app.uptizm.test/']);
+        config([
+            'app.frontend_url' => 'https://app.uptizm.test/',
+            'app.frontend_auth_prefix' => '/auth/',
+        ]);
 
         $this->get('/')
             ->assertOk()
-            ->assertDontSee('https://app.uptizm.test//login', escape: false);
+            ->assertDontSee('https://app.uptizm.test//auth', escape: false)
+            ->assertDontSee('/auth//login', escape: false);
     }
 
     public function test_the_region_list_comes_from_configuration(): void

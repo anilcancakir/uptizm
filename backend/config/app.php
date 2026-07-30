@@ -70,6 +70,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend Auth Prefix
+    |--------------------------------------------------------------------------
+    |
+    | The path prefix the Flutter client mounts its auth screens under. It
+    | MIRRORS `auth_prefix` in the client's `lib/config/magic_starter.dart`, and
+    | the landing page's sign-in and register links are built from it. The two
+    | are separate codebases with no shared source of truth, so changing one
+    | means changing the other; a mismatch sends every visitor who clicks
+    | "Get started" to a route the client does not serve.
+    |
+    */
+
+    'frontend_auth_prefix' => env('APP_FRONTEND_AUTH_PREFIX', '/auth'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

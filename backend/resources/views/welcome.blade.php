@@ -39,6 +39,12 @@
     <body class="min-h-screen bg-white text-gray-900 antialiased">
         @php
             $appUrl = rtrim(config('app.frontend_url'), '/');
+            // The client mounts its auth screens under a prefix (see
+            // `app.frontend_auth_prefix`), so these are NOT `/login` and
+            // `/register`. Getting that wrong sends every visitor who clicks
+            // "Get started" to a route the client does not serve.
+            $loginUrl = $appUrl.rtrim(config('app.frontend_auth_prefix'), '/').'/login';
+            $registerUrl = $appUrl.rtrim(config('app.frontend_auth_prefix'), '/').'/register';
             $regions = config('relay.regions', []);
         @endphp
 
@@ -53,8 +59,8 @@
                 <nav class="hidden items-center gap-8 text-sm text-gray-600 sm:flex">
                     <a href="#capabilities" class="hover:text-gray-900">Capabilities</a>
                     <a href="#regions" class="hover:text-gray-900">Regions</a>
-                    <a href="{{ $appUrl }}/login" class="hover:text-gray-900">Sign in</a>
-                    <a href="{{ $appUrl }}/register" class="rounded-md bg-brand px-3 py-2 font-medium text-white hover:bg-brand-dark">
+                    <a href="{{ $loginUrl }}" class="hover:text-gray-900">Sign in</a>
+                    <a href="{{ $registerUrl }}" class="rounded-md bg-brand px-3 py-2 font-medium text-white hover:bg-brand-dark">
                         Get started
                     </a>
                 </nav>
@@ -77,8 +83,8 @@
                 <div class="mx-auto flex max-w-6xl flex-col gap-1 px-4 py-3 text-sm">
                     <a href="#capabilities" class="rounded-md px-2 py-2 text-gray-600 hover:bg-gray-100">Capabilities</a>
                     <a href="#regions" class="rounded-md px-2 py-2 text-gray-600 hover:bg-gray-100">Regions</a>
-                    <a href="{{ $appUrl }}/login" class="rounded-md px-2 py-2 text-gray-600 hover:bg-gray-100">Sign in</a>
-                    <a href="{{ $appUrl }}/register" class="mt-1 rounded-md bg-brand px-3 py-2 text-center font-medium text-white">Get started</a>
+                    <a href="{{ $loginUrl }}" class="rounded-md px-2 py-2 text-gray-600 hover:bg-gray-100">Sign in</a>
+                    <a href="{{ $registerUrl }}" class="mt-1 rounded-md bg-brand px-3 py-2 text-center font-medium text-white">Get started</a>
                 </div>
             </nav>
         </header>
@@ -96,10 +102,10 @@
                     you.
                 </p>
                 <div class="mt-8 flex flex-wrap items-center gap-3">
-                    <a href="{{ $appUrl }}/register" class="rounded-md bg-brand px-5 py-3 text-sm font-medium text-white hover:bg-brand-dark">
+                    <a href="{{ $registerUrl }}" class="rounded-md bg-brand px-5 py-3 text-sm font-medium text-white hover:bg-brand-dark">
                         Start monitoring
                     </a>
-                    <a href="{{ $appUrl }}/login" class="rounded-md border border-gray-300 px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    <a href="{{ $loginUrl }}" class="rounded-md border border-gray-300 px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50">
                         Sign in
                     </a>
                 </div>
@@ -166,7 +172,7 @@
                     <h2 class="text-xl font-semibold text-white">Put your first monitor up in a minute.</h2>
                     <p class="mt-2 text-sm text-gray-400">A URL and a check interval is all it takes to start.</p>
                 </div>
-                <a href="{{ $appUrl }}/register" class="rounded-md bg-brand px-5 py-3 text-sm font-medium text-white hover:bg-brand-dark">
+                <a href="{{ $registerUrl }}" class="rounded-md bg-brand px-5 py-3 text-sm font-medium text-white hover:bg-brand-dark">
                     Create an account
                 </a>
             </div>
@@ -176,7 +182,7 @@
             <div class="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-8 text-sm text-gray-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
                 <p>&copy; {{ now()->year }} {{ config('app.name') }}</p>
                 <nav class="flex gap-6">
-                    <a href="{{ $appUrl }}/login" class="hover:text-gray-900">Sign in</a>
+                    <a href="{{ $loginUrl }}" class="hover:text-gray-900">Sign in</a>
                     <a href="#capabilities" class="hover:text-gray-900">Capabilities</a>
                 </nav>
             </div>
