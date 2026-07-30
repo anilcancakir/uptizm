@@ -1,11 +1,11 @@
 {
-    "name": "uptizm",
-    "short_name": "uptizm",
+    "name": "Uptizm",
+    "short_name": "Uptizm",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F9FAFB",
+    "theme_color": "#008560",
+    "description": "Uptime, incident and status-page monitoring. Multi-region HTTP and TCP checks, incident timelines with on-call escalation, and status pages your customers can subscribe to.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

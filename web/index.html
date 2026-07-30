@@ -2,45 +2,193 @@
 <html>
 <head>
   <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
+    Replaced by `flutter build`'s `--base-href`. It has to start and end with a
+    slash. Path URL strategy is on (see lib/config/routing.dart), so this base
+    plus the server's index.html fallback is what makes a deep link reloadable.
   -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Uptime, incident and status-page monitoring. Multi-region HTTP and TCP checks, incident timelines with on-call escalation, and status pages your customers can subscribe to.">
 
-  <!-- iOS meta tags & icons -->
+  <!-- iOS -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="uptizm">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Uptizm">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <!--
+    The brand mark. `favicon.svg` carries the 16px-corrected geometry, because a
+    `link rel=icon` cannot pick between sizes for an SVG and the tab is the size
+    that gets looked at. The PNG is the fallback for browsers without SVG favicon
+    support.
 
-  <title>uptizm</title>
+    This is the APP's favicon and it is always brand green. The public status
+    pages serve their own, coloured by current status; that lives in the Laravel
+    side under backend/public/favicon/.
+  -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+
+  <!-- Matches the splash background below so the browser chrome does not flash. -->
+  <meta name="theme-color" content="#F9FAFB" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#07090C" media="(prefers-color-scheme: dark)">
+
+  <title>Uptizm</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    /*
+      Loading splash.
+
+      Flutter web shows nothing at all until the engine and main.dart.js are
+      parsed, which on a cold load over a slow link is seconds of blank page. This
+      draws the brand mark in the meantime, using the SAME surface colours as the
+      app (DESIGN.md `surface`: #F9FAFB light, #07090C dark) so the handover is
+      invisible rather than a flash.
+
+      The pulse is where the mark's ring earns its keep: at 88px it reads as a
+      live heartbeat, which is the one thing a plain dot cannot say. The favicon
+      deliberately does not animate.
+    */
+    html, body { margin: 0; padding: 0; height: 100%; }
+
+    body { background: #F9FAFB; }
+
+    #uptizm-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #F9FAFB;
+      z-index: 2147483647;
+      transition: opacity 220ms ease-out;
+    }
+
+    #uptizm-splash.is-done {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* The ring and the dot are drawn, not loaded, so the splash needs no network
+       round trip of its own. An <img> here would race the very thing it covers. */
+    .uptizm-mark {
+      position: relative;
+      width: 88px;
+      height: 88px;
+      display: grid;
+      place-items: center;
+    }
+
+    .uptizm-mark::before,
+    .uptizm-mark::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+    }
+
+    /* Ring. */
+    .uptizm-mark::before {
+      width: 78px;
+      height: 78px;
+      border: 7px solid #008560;
+      opacity: 0.20;
+      animation: uptizm-pulse 1800ms ease-out infinite;
+    }
+
+    /* Dot. */
+    .uptizm-mark::after {
+      width: 40px;
+      height: 40px;
+      background: #008560;
+      box-shadow: 0 3px 10px rgba(0, 133, 96, 0.38);
+    }
+
+    @keyframes uptizm-pulse {
+      0%   { transform: scale(0.86); opacity: 0.30; }
+      70%  { transform: scale(1.12); opacity: 0.04; }
+      100% { transform: scale(1.12); opacity: 0; }
+    }
+
+    /* A vestibular-sensitive visitor gets the mark without the motion. */
+    @media (prefers-reduced-motion: reduce) {
+      .uptizm-mark::before { animation: none; opacity: 0.20; }
+      #uptizm-splash { transition: none; }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body, #uptizm-splash { background: #07090C; }
+      /* The dark-mode brand primary, brighter so the ring survives on near-black. */
+      .uptizm-mark::before { border-color: #00C292; opacity: 0.26; }
+      .uptizm-mark::after {
+        background: #00C292;
+        box-shadow: 0 3px 12px rgba(0, 194, 146, 0.30);
+      }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <div id="uptizm-splash" role="status" aria-live="polite" aria-label="Loading Uptizm">
+    <div class="uptizm-mark"></div>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <script>
+    // Hide the splash the moment Flutter has something on screen.
+    //
+    // Watching the DOM rather than hooking the Flutter bootstrap on purpose: the
+    // hook names have changed across Flutter versions, and a splash that fails to
+    // clear is a blank app. A MutationObserver for the view element works on any
+    // version, and the timeout below means the worst case is a splash that leaves
+    // early rather than one that never leaves.
+    (function () {
+      var splash = document.getElementById('uptizm-splash');
+      if (!splash) return;
+
+      var cleared = false;
+      var clear = function () {
+        if (cleared) return;
+        cleared = true;
+        splash.classList.add('is-done');
+        window.setTimeout(function () {
+          if (splash.parentNode) splash.parentNode.removeChild(splash);
+        }, 260);
+      };
+
+      var rendered = function () {
+        return document.querySelector('flutter-view, flt-glass-pane, flt-scene-host') !== null;
+      };
+
+      if (rendered()) {
+        clear();
+        return;
+      }
+
+      var observer = new MutationObserver(function () {
+        if (rendered()) {
+          observer.disconnect();
+          // One frame of grace so the first paint lands under the splash rather
+          // than after it, which is what stops a white flicker between the two.
+          window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(clear);
+          });
+        }
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      // Failsafe: never hold the app behind the splash. 12s is far past a cold
+      // load on a slow connection, so reaching it means something is wrong and
+      // the visitor is better off seeing whatever Flutter managed to render.
+      window.setTimeout(function () {
+        observer.disconnect();
+        clear();
+      }, 12000);
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
