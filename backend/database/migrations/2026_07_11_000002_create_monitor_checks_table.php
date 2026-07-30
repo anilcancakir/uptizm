@@ -66,10 +66,20 @@ return new class extends Migration
                 'id',
                 'checked_at',
             ]);
+            // The idempotency key carries `checked_at` for the same reason the
+            // primary key does: TimescaleDB refuses to promote a table whose
+            // UNIQUE index omits the partitioning column, and that refusal is
+            // what actually blocked the first real hypertable promotion. The
+            // dedupe guarantee is unchanged, because `checked_at` is the probe's
+            // own timestamp read straight off the relay payload
+            // (CheckResult::fromArray, no `now()` fallback), so replaying one
+            // probe_run always presents the same instant. `checked_at` goes last
+            // so the leading three columns stay a usable lookup prefix.
             $table->unique([
                 'monitor_id',
                 'region',
                 'probe_run_id',
+                'checked_at',
             ]);
             $table->index([
                 'team_id',
