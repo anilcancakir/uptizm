@@ -4,15 +4,9 @@
     label, and a "last updated" timestamp.
 --}}
 @php
-    $bannerDotClass = match ($vm->overallStatus) {
-        'major_outage' => 'bg-red-500',
-        'partial_outage' => 'bg-orange-500',
-        'degraded' => 'bg-amber-500',
-        // Neutral, not green: a page with nothing published has no verdict to
-        // give, and a green dot would read as one.
-        \App\Services\StatusPages\StatusPageAssembler::STATUS_UNKNOWN => 'bg-gray-400',
-        default => 'bg-green-500',
-    };
+    // One map, in App\Support\StatusPages\StatusPresentation, so this dot and the
+    // favicon in the browser tab can never end up different colours.
+    $bannerDotClass = \App\Support\StatusPages\StatusPresentation::dotClass($vm->overallStatus);
 
     // The snapshot's assembly time (carried in the cached DTO), so the label
     // reflects the age of the data shown, not the moment the page rendered.

@@ -19,6 +19,25 @@
 
         <link rel="canonical" href="{{ $canonicalUrl }}">
 
+        {{--
+            The favicon carries the page's CURRENT status, so a pinned tab is a
+            status light: green, amber, orange, red, or grey when nothing is
+            published. Its colours come from the same map the banner dot uses
+            (see $bannerDotClass in partials/status-banner.blade.php), so the tab
+            and the page can never disagree.
+
+            The 16px rendition is used deliberately. A `link rel=icon` cannot pick
+            between sizes for an SVG, and the tab is the size that gets looked at,
+            so the geometry optically corrected for 16px wins over the full mark
+            that blurs there. See assets/brand/uptizm-mark-16.svg.
+
+            It only updates on a page load. A status change is not pushed to an
+            already-open tab, and pretending otherwise would need a poll this page
+            deliberately does not run (it stays a cacheable static document).
+        --}}
+        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon/'.\App\Support\StatusPages\StatusPresentation::faviconStem($vm->overallStatus).'-16.svg') }}">
+        <meta name="theme-color" content="{{ \App\Support\StatusPages\StatusPresentation::themeColor($vm->overallStatus) }}">
+
         <meta property="og:title" content="{{ $vm->page['name'] }}">
         <meta property="og:type" content="website">
         <meta property="og:url" content="{{ $canonicalUrl }}">

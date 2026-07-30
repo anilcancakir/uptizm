@@ -1,0 +1,31 @@
+<!--
+  Uptizm brand mark: a live status dot inside a ring.
+
+  The mark IS the product's subject. A green dot is what every uptime tool uses
+  for "operational", and the ring is what makes it read as live rather than
+  decorative.
+
+  This file is the canonical artwork for sizes 32px and up. Below that the ring
+  collapses into a halo and the whole mark turns to mush, so there is a second,
+  optically corrected rendition at uptizm-mark-16.svg. That is not a second logo:
+  it is the same mark with the ring thickened and its opacity raised so the
+  drawing survives a 16px grid. Responsive logos are normal practice.
+
+  Colour is the light-mode brand primary from DESIGN.md (#008560). Anything that
+  needs the dark-mode pair (#00C292) or a per-status colour renders this geometry
+  with a different fill rather than editing this file; see
+  backend/public/favicon/ for the status renditions.
+
+  Kept out of pubspec.yaml on purpose: the Flutter app draws this shape with
+  theme tokens instead of shipping the asset, so it adapts to dark mode and
+  needs no flutter_svg dependency.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Uptizm">
+  <defs>
+    <filter id="uptizm-mark-shadow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.4" flood-color="#008560" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+  <circle cx="32" cy="32" r="25" fill="none" stroke="#008560" stroke-opacity="0.20" stroke-width="5"/>
+  <circle cx="32" cy="32" r="13" fill="#008560" filter="url(#uptizm-mark-shadow)"/>
+</svg>

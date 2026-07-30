@@ -1,0 +1,16 @@
+<!--
+  Uptizm brand mark, 16px rendition.
+
+  The same mark as uptizm-mark.svg, optically corrected for a 16px grid: the ring
+  is thicker (2 instead of 5-at-64, so proportionally heavier), its opacity is
+  raised from 0.20 to 0.42 so it survives antialiasing, and the dot is
+  proportionally larger. The drop shadow is dropped entirely: at this size it only
+  smears the edge.
+
+  Use this for a 16x16 favicon. Do NOT let a browser downscale the full mark to
+  16px instead; that produces a blurred blob with a barely visible halo.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" role="img" aria-label="Uptizm">
+  <circle cx="8" cy="8" r="6.5" fill="none" stroke="#008560" stroke-opacity="0.42" stroke-width="2"/>
+  <circle cx="8" cy="8" r="3.4" fill="#008560"/>
+</svg>

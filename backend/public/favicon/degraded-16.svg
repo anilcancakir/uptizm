@@ -1,0 +1,13 @@
+<!--
+  Uptizm status-page favicon: degraded.
+
+  Generated from assets/brand/uptizm-mark-16.svg with the fill swapped for the
+  status colour. The colour is amber-500,  the banner dot for degraded, taken from the same Tailwind step the
+  banner dot uses, so the browser tab and the page can never disagree.
+
+  Regenerate with backend/public/favicon/README.md.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" role="img" aria-label="Uptizm">
+  <circle cx="8" cy="8" r="6.5" fill="none" stroke="#f59e0b" stroke-opacity="0.42" stroke-width="2"/>
+  <circle cx="8" cy="8" r="3.4" fill="#f59e0b"/>
+</svg>
