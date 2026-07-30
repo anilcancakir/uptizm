@@ -127,11 +127,29 @@ cd ~/htdocs/uptizm.com && git pull
 cd backend
 php8.5 /usr/local/bin/composer install --no-dev --optimize-autoloader
 php8.5 artisan migrate --force
-npm ci && npm run build          # only when resources/ changed
+npm ci && npm run build
 php8.5 artisan optimize
 exit
 supervisorctl restart uptizm:*
 ```
+
+Two things about that order, both learned the hard way on the first deploy.
+
+**Run `npm run build` on any deploy that touched Blade**, not just CSS or JS.
+Tailwind generates its output from the class strings it finds in the templates, so
+a Blade change introducing a utility the previous build never saw produces markup
+referencing a class that is not in the stylesheet. It fails silently and visually:
+the element renders with no styling. This bit us on a `bg-gray-400` status dot that
+simply did not appear.
+
+**Restart Octane AFTER the asset build, never before.** Octane holds the Vite
+manifest in memory for the life of the worker, so a build followed by no restart
+leaves every page linking the PREVIOUS content hash, which the build has already
+deleted from disk. The page then references a stylesheet that 404s and renders
+completely unstyled. Cloudflare hides this for a while by serving the old hashed
+file from its own cache (those assets go out with `expires max`), so the breakage
+surfaces later and looks unrelated to the deploy. The command order above is
+correct; do not reorder it.
 
 Do **not** run `migrate:fresh --seed` here. The seeder creates the demo account
 (`demo@uptizm.test`) and is local/dev only.
