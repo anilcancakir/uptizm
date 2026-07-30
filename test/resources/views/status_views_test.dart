@@ -919,6 +919,71 @@ void main() {
     );
 
     testWidgets(
+      'completed: a Refresh the server has not reported yet is acknowledged, '
+      'without hiding the render it already has',
+      (tester) async {
+        // The dead control a live pass caught. On an already-rendered page the
+        // row says `completed`, so tapping Refresh changed NOTHING observable
+        // until a worker flipped it to `rendering`. With a healthy queue that is
+        // about a second; with an unconsumed `previews` queue it never happens,
+        // and the pass sat on it for over two minutes with no acknowledgement.
+        // Refresh on an existing preview is the most common action this feature
+        // has, so a silent one is the worst place for it.
+        //
+        // The old image and its stamp must SURVIVE the acknowledgement: they are
+        // still the truth about the last successful render, and hiding real data
+        // to signal a pending one trades a dead control for a lie.
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final DateTime renderedAt = DateTime.now().subtract(
+          const Duration(minutes: 2),
+        );
+        StatusPageController.instance.seedForTest(<StatusPage>[
+          _showShapedPage(
+            previewRenderStatus: 'completed',
+            previewRenderedAt: renderedAt,
+          ),
+        ]);
+        StatusPageController.instance.seedPreviewRequestForTest(
+          _previewPageId,
+          DateTime.now(),
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            const StatusPageEditorView(id: _previewPageId),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.status.editor_preview_check_again')),
+          findsOneWidget,
+          reason:
+              'an outstanding render request must be acknowledged, or Refresh '
+              'is a dead control whenever the queue is slow or unconsumed',
+        );
+        expect(
+          find.byType(WImage),
+          findsOneWidget,
+          reason:
+              'the previous render stays visible: it is still true, and hiding '
+              'it to signal a pending render would be a lie',
+        );
+        expect(
+          find.textContaining(
+            trans('uptizm.status.editor_preview_rendered_at', {'time': ''}).trim(),
+          ),
+          findsWidgets,
+          reason: 'and it keeps its own honest timestamp',
+        );
+      },
+    );
+
+    testWidgets(
       'completed, fresh: shows the PNG, the rendered-at stamp, a refresh '
       'action, and no age chip',
       (tester) async {

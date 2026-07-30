@@ -1178,6 +1178,14 @@ class _StatusPageEditorViewState
             child: WText(trans('uptizm.status.editor_preview_retry_action')),
           ),
         ),
+        // Same dead-control gap as the completed body: Try again leaves the row
+        // at `failed` until a worker starts, so without this the retry looks
+        // like it did nothing.
+        if (controller.hasRequestedPreviewRender(saved.id))
+          WText(
+            trans('uptizm.status.editor_preview_check_again'),
+            className: 'text-xs text-fg-muted',
+          ),
         if (url != null && renderedAt != null)
           WDiv(
             className: 'flex flex-col gap-2',
@@ -1243,6 +1251,21 @@ class _StatusPageEditorViewState
             ),
           ],
         ),
+        // Acknowledge a Refresh the server has not reported yet. Without this
+        // the button is a DEAD CONTROL on the most common path there is: the
+        // row already says `completed`, so a tap changed nothing observable
+        // until a worker flipped it to `rendering`, which with a healthy queue
+        // is a second and with an unconsumed one is never. A live pass sat on
+        // this for over two minutes with no acknowledgement at all.
+        //
+        // The stored image and its stamp deliberately stay visible above. They
+        // are still the truth about the last successful render, and hiding real
+        // data to signal a pending one would trade a dead control for a lie.
+        if (controller.hasRequestedPreviewRender(saved.id))
+          WText(
+            trans('uptizm.status.editor_preview_check_again'),
+            className: 'text-xs text-fg-muted',
+          ),
         if (url != null)
           MSButton(
             intent: ButtonIntent.secondary,
