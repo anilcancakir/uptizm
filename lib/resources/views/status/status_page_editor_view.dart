@@ -1032,10 +1032,20 @@ class _StatusPageEditorViewState
           'bg-surface-container',
       children: <Widget>[
         _buildBrowserBar(),
-        WDiv(className: 'bg-surface p-5', child: _buildPreviewBody(dirty)),
+        // No padding here on purpose. The completed state's screenshot has to
+        // meet the frame edges to read as a browser viewport rather than as a
+        // picture sitting on a card, so each state pads ITSELF and the PNG
+        // simply does not. Padding at this level would inset the screenshot on
+        // all four sides and undo that.
+        WDiv(className: 'bg-surface', child: _buildPreviewBody(dirty)),
       ],
     );
   }
+
+  /// Padding the non-screenshot states use, so they keep breathing room while
+  /// the screenshot goes edge to edge. See [_buildBrowserFrame].
+  Widget _padPreviewState(Widget child) =>
+      WDiv(className: 'p-5', child: child);
 
   /// Dispatches to the right D8 state builder.
   ///
@@ -1050,7 +1060,7 @@ class _StatusPageEditorViewState
     // already reports true for that case; resolving the page here rather than
     // trusting that other method's invariant is what keeps the two in step.
     final StatusPage? saved = controller.configById(widget.id);
-    if (dirty || saved == null) return _buildDraftBody();
+    if (dirty || saved == null) return _padPreviewState(_buildDraftBody());
 
     final StatusPagePreviewStatus? status = saved.previewRenderStatus;
 
@@ -1062,7 +1072,7 @@ class _StatusPageEditorViewState
       // for a render that never starts at all (see
       // [StatusPageController.hasRequestedPreviewRender]).
       if (controller.hasRequestedPreviewRender(saved.id)) {
-        return _buildRenderingBody(saved);
+        return _padPreviewState(_buildRenderingBody(saved));
       }
       // Asked for, and the server never reported anything at all. The most
       // likely cause is a `previews` queue nobody is consuming. Treating this
@@ -1070,20 +1080,20 @@ class _StatusPageEditorViewState
       // pane on a skeleton for the rest of the session, and it offers the retry
       // that a never-rendered empty state would not.
       if (controller.hasPreviewRequestExpired(saved.id)) {
-        return _buildFailedBody(saved);
+        return _padPreviewState(_buildFailedBody(saved));
       }
-      return _buildNeverRenderedBody(saved);
+      return _padPreviewState(_buildNeverRenderedBody(saved));
     }
 
     if (status == StatusPagePreviewStatus.rendering) {
       if (controller.isPreviewRenderStale(saved)) {
-        return _buildFailedBody(saved);
+        return _padPreviewState(_buildFailedBody(saved));
       }
-      return _buildRenderingBody(saved);
+      return _padPreviewState(_buildRenderingBody(saved));
     }
 
     if (status == StatusPagePreviewStatus.failed) {
-      return _buildFailedBody(saved);
+      return _padPreviewState(_buildFailedBody(saved));
     }
 
     return _buildCompletedBody(saved);
@@ -1217,12 +1227,17 @@ class _StatusPageEditorViewState
         renderedAt != null &&
         Carbon.now().diffInMinutes(renderedAt) > _previewAgeChipThresholdMinutes;
 
+    // The screenshot meets the frame edges, directly under the URL bar, so the
+    // pane reads as a browser viewport showing the page rather than as a
+    // picture of it sitting on a card. Everything BELOW the image is editor
+    // chrome, not part of the rendered page, so that keeps its own padding.
     return WDiv(
-      className: 'flex flex-col gap-3',
+      className: 'flex flex-col',
       children: <Widget>[
-        if (url != null) _buildPreviewImage(url, saved.name, onTap: url),
+        if (url != null)
+          _buildPreviewImage(url, saved.name, onTap: url, flush: true),
         WDiv(
-          className: 'flex flex-row items-start justify-between gap-2',
+          className: 'flex flex-row items-start justify-between gap-2 px-4 pt-4',
           children: <Widget>[
             WDiv(
               className: 'min-w-0 flex flex-col gap-1',
@@ -1264,15 +1279,21 @@ class _StatusPageEditorViewState
         if (controller.hasRequestedPreviewRender(saved.id))
           WText(
             trans('uptizm.status.editor_preview_check_again'),
-            className: 'text-xs text-fg-muted',
+            className: 'px-4 pt-2 text-xs text-fg-muted',
           ),
         if (url != null)
-          MSButton(
-            intent: ButtonIntent.secondary,
-            size: ButtonSize.sm,
-            onPressed: () => _openFullPreview(url),
-            child: WText(
-              trans('uptizm.status.editor_preview_open_fullscreen'),
+          WDiv(
+            // A row, so the button keeps its intrinsic width. A plain padded
+            // block stretches it to the full pane, which reads as a primary
+            // action rather than the secondary affordance it is.
+            className: 'flex flex-row px-4 pb-4 pt-3',
+            child: MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              onPressed: () => _openFullPreview(url),
+              child: WText(
+                trans('uptizm.status.editor_preview_open_fullscreen'),
+              ),
             ),
           ),
       ],
@@ -1291,11 +1312,24 @@ class _StatusPageEditorViewState
   /// having no render to show at all. It reuses [_buildRenderingBody]'s sized
   /// skeleton so waiting for the image reads the same as waiting for the
   /// render.
-  Widget _buildPreviewImage(String url, String? alt, {String? onTap}) {
+  /// [flush] renders the image with no rounding or border of its own, so it can
+  /// meet the browser frame's edges and read as that frame's viewport. The
+  /// frame clips it (`overflow-hidden rounded-xl`), so the corners still follow
+  /// the frame. Off by default: the failed state shows a previous render inside
+  /// padding, where a bordered card is the correct reading, since there it is a
+  /// stale artefact being referred to rather than the page being displayed.
+  Widget _buildPreviewImage(
+    String url,
+    String? alt, {
+    String? onTap,
+    bool flush = false,
+  }) {
     final Widget image = WImage(
       src: url,
       alt: alt ?? '',
-      className: 'w-full rounded-lg border border-color-border object-cover',
+      className: flush
+          ? 'w-full object-cover'
+          : 'w-full rounded-lg border border-color-border object-cover',
       loadingBuilder: (context, child, progress) =>
           progress == null ? child : _buildImageLoading(),
       errorBuilder: (context, error, stackTrace) => _buildImageLoadError(),
