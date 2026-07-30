@@ -72,6 +72,13 @@ class MonitorResource extends JsonResource
             'parent_id' => $this->resource->parent_id,
             'last_checked_at' => $this->resource->last_checked_at?->toIso8601String(),
             'last_response_ms' => $this->resource->last_response_ms,
+            // Set when the EDGE refused to run a probe, which is a configuration
+            // problem on this monitor rather than an outage of its target. It is
+            // deliberately separate from `last_status`: a refused probe produces no
+            // health verdict at all, so the status stays whatever the last real
+            // probe said. Cleared by the next probe that reaches the target.
+            'last_probe_error' => $this->resource->last_probe_error,
+            'last_probe_error_at' => $this->resource->last_probe_error_at?->toIso8601String(),
             'next_check_at' => $this->resource->next_check_at?->toIso8601String(),
             'consecutive_fails' => $this->resource->consecutive_fails,
             'incident_threshold' => $this->resource->incident_threshold,

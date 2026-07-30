@@ -36,6 +36,32 @@ readonly class CheckResult
         public array $responseHeaders,
         public ?string $responseBodyPreview,
         public string $probeRunId,
+
+        /**
+         * The Cloudflare colo the probe ran from, e.g. `FRA`.
+         *
+         * This is the only EVIDENCE of where a check happened. `region` is an
+         * echo of what the caller asked for, so without the colo a mis-mapped
+         * `locationHint` would produce identical probes under different region
+         * labels and nothing would catch it.
+         *
+         * Nullable because an older worker deployment does not send it, and a
+         * payload replayed from before this field existed must still parse.
+         */
+        public ?string $colo = null,
+
+        /**
+         * True when the EDGE refused to run the probe, rather than the target
+         * failing it.
+         *
+         * `connect()` rejects a raw TCP connection to any host Cloudflare serves
+         * over HTTP, which is every proxied hostname. That says nothing about the
+         * customer's service, so it must not be counted as a failed check:
+         * counting it opens an incident and pages someone for a target that is
+         * up. It must not count as a SUCCESS either, because resetting the
+         * failure streak would mask a real outage underneath.
+         */
+        public bool $probeRefused = false,
     ) {}
 
     /**
@@ -61,6 +87,10 @@ readonly class CheckResult
             responseHeaders: (array) ($payload['response_headers'] ?? []),
             responseBodyPreview: $payload['response_body_preview'] ?? null,
             probeRunId: (string) $payload['probe_run_id'],
+            colo: isset($payload['colo']) && $payload['colo'] !== ''
+                ? (string) $payload['colo']
+                : null,
+            probeRefused: (bool) ($payload['probe_refused'] ?? false),
         );
     }
 
@@ -93,6 +123,8 @@ readonly class CheckResult
             'response_headers' => $this->responseHeaders,
             'response_body_preview' => $this->responseBodyPreview,
             'probe_run_id' => $this->probeRunId,
+            'colo' => $this->colo,
+            'probe_refused' => $this->probeRefused,
         ];
     }
 }

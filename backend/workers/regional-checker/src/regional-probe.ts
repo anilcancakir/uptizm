@@ -51,7 +51,52 @@ type CheckResultPayload = {
     timing: TimingBreakdown;
     response_headers: Record<string, string>;
     response_body_preview: string | null;
+
+    /**
+     * The Cloudflare colo the probe actually ran from, e.g. `FRA`.
+     *
+     * It travels in the BODY as well as the `x-probe-colo` header, because the
+     * API reads only the body and the header was therefore discarded. Without it
+     * the `region` on a stored check is an echo of what the caller asked for
+     * rather than evidence of where the probe ran, and a mis-mapped
+     * `locationHint` would produce identical results under different region
+     * labels with nothing to catch it.
+     *
+     * `unknown` when the probe failed before the colo could be resolved.
+     */
+    colo: string;
+
+    /**
+     * True when the EDGE refused to perform the probe, as opposed to the target
+     * failing it.
+     *
+     * `connect()` rejects a raw TCP connection to a host it serves over HTTP,
+     * which is every Cloudflare-proxied hostname. That is a fact about our
+     * platform, not about the customer's service, so the API must not let it
+     * count as a failed check: doing so opens an incident and pages someone for
+     * a target that is up.
+     */
+    probe_refused: boolean;
 };
+
+/**
+ * Whether a thrown probe failure is the edge refusing to connect at all.
+ *
+ * Matched on the runtime's own wording, which is the only signal available;
+ * there is no error code for it. Kept deliberately narrow: two independent
+ * fragments must both appear, so an unrelated proxy error is not swallowed into
+ * "not our problem".
+ */
+function isRefusedByEdge(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    const message = error.message.toLowerCase();
+
+    return message.includes("proxy request failed")
+        && message.includes("consider using fetch");
+}
 
 const BODY_PREVIEW_BYTES = 10_240;
 
@@ -97,6 +142,19 @@ export class RegionalProbe {
  * says the target could not be reached, names the target, and leaves any
  * message that IS specific (a TLS or certificate error) untouched.
  */
+/**
+ * The operator-facing message for a probe the edge refused.
+ *
+ * The runtime's own wording ends in "consider using fetch instead", which is
+ * advice for whoever wrote this worker and means nothing to a customer looking at
+ * a monitor. This says what they can actually change.
+ */
+function describeEdgeRefusal(probe: ProbeRequest): string {
+    return `A TCP check cannot reach ${probeTarget(probe)}: the edge network `
+        + "refuses a raw connection to a host it serves over HTTP. Monitor this "
+        + "target with an HTTP check instead.";
+}
+
 export function describeProbeFailure(error: unknown, probe: ProbeRequest): string {
     const target = probeTarget(probe);
 
@@ -155,19 +213,28 @@ async function executeProbe(
             ? await probeTcp(probe, checkedAt, start)
             : await probeHttp(probe, checkedAt, start);
     } catch (error: unknown) {
+        const refused = isRefusedByEdge(error);
+
         return {
             result: {
                 monitor_id: probe.monitor_id,
                 probe_run_id: probe.probe_run_id,
                 region: probe.region,
                 checked_at: checkedAt,
+                // A refused probe measured nothing, so it carries no verdict the
+                // API should trust. `down` stays on the wire for older readers,
+                // and `probe_refused` is what the API branches on.
                 status: "down",
                 status_code: null,
                 response_ms: null,
-                error_message: describeProbeFailure(error, probe),
+                error_message: refused
+                    ? describeEdgeRefusal(probe)
+                    : describeProbeFailure(error, probe),
                 timing: emptyTiming(),
                 response_headers: {},
                 response_body_preview: null,
+                colo: "unknown",
+                probe_refused: refused,
             },
             colo: "unknown",
         };
@@ -224,6 +291,8 @@ async function probeHttp(
             timing,
             response_headers: extractHeaders(response.headers),
             response_body_preview: preview,
+            colo,
+            probe_refused: false,
         },
         colo,
     };
@@ -286,6 +355,8 @@ async function probeTcp(
             timing,
             response_headers: {},
             response_body_preview: null,
+            colo,
+            probe_refused: false,
         },
         colo,
     };

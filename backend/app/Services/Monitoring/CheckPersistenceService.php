@@ -66,6 +66,22 @@ class CheckPersistenceService
      */
     public function persist(Monitor $monitor, CheckResult $result): void
     {
+        // 0. A probe the EDGE refused measured nothing about the target, so it
+        //    never becomes a check. Recording it as `down` would advance
+        //    `consecutive_fails`, cross `incident_threshold`, open an incident and
+        //    page a responder for a service that is up. Recording it as `up` would
+        //    be worse: it would reset the streak and mask a real outage
+        //    underneath. The only honest answer is no verdict at all, plus a
+        //    monitor-level error the operator can act on.
+        //
+        //    Nothing below runs: no lock, no dedup, no threshold evaluation, no
+        //    notification.
+        if ($result->probeRefused) {
+            $this->recordProbeRefusal($monitor, $result);
+
+            return;
+        }
+
         // 1. Serialize concurrent retries of the SAME payload. A holder that
         //    cannot acquire the lock is a live duplicate of this exact
         //    delivery: the current holder will persist, so this attempt bows
@@ -199,6 +215,9 @@ class CheckPersistenceService
                 'monitor_id' => $monitor->id,
                 'team_id' => $monitor->team_id,
                 'region' => $result->region,
+                // Where the probe ACTUALLY ran. `region` above is the region the
+                // caller asked for, which is not the same claim.
+                'colo' => $result->colo,
                 'checked_at' => $result->checkedAt,
                 'status' => $result->status,
                 'status_code' => $result->statusCode,
@@ -229,6 +248,12 @@ class CheckPersistenceService
                     'consecutive_fails' => $isDown
                         ? DB::raw('consecutive_fails + 1')
                         : 0,
+                    // A probe that reached the target clears any earlier edge
+                    // refusal, in the same atomic UPDATE that refreshes the
+                    // status. Left behind, the warning would outlive the
+                    // misconfiguration that caused it.
+                    'last_probe_error' => null,
+                    'last_probe_error_at' => null,
                 ]);
 
             // 4. Freeze configured metric samples against this check; the
@@ -380,6 +405,33 @@ class CheckPersistenceService
      * Build the per-payload lock key from the same tuple the dedup guard
      * keys on, so the lock and the durable guard protect the exact same unit.
      */
+    /**
+     * Record a probe the edge refused, without letting it look like a check.
+     *
+     * Writes ONLY the two error columns. `last_status`, `last_checked_at` and
+     * `consecutive_fails` are deliberately untouched: the monitor's health is
+     * whatever the last real probe said, and a refusal is not evidence either
+     * way. A mass UPDATE rather than a model save, so no observer treats this as
+     * a health transition and nothing broadcasts.
+     *
+     * The message is truncated to the column width rather than allowed to throw;
+     * losing the tail of an explanation is better than losing the fact that the
+     * monitor is misconfigured.
+     */
+    protected function recordProbeRefusal(Monitor $monitor, CheckResult $result): void
+    {
+        Monitor::query()
+            ->whereKey($monitor->id)
+            ->update([
+                'last_probe_error' => mb_substr(
+                    $result->errorMessage ?? 'The edge refused this probe.',
+                    0,
+                    255,
+                ),
+                'last_probe_error_at' => $result->checkedAt,
+            ]);
+    }
+
     protected function payloadLockKey(Monitor $monitor, CheckResult $result): string
     {
         return "check-persist:{$monitor->id}:{$result->region}:{$result->probeRunId}";

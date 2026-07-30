@@ -70,6 +70,9 @@ class Monitor extends Model
         'ssl_tracking' => 'boolean',
         'ssl_expires_at' => 'datetime',
         'ssl_last_checked_at' => 'datetime',
+        // Set only when the edge refused to run a probe, and cleared by the next
+        // probe that reached the target. See CheckPersistenceService.
+        'last_probe_error_at' => 'datetime',
         'ssl_alert_threshold_days' => 'integer',
         // `status` is the administrative state (active/paused), a plain string;
         // MonitorStatus (up/down/degraded/paused) is the health cast for `last_status`.
