@@ -72,10 +72,27 @@ class StatusPagePreviewRenderer
     protected const READY_MARKER_TIMEOUT_MS = 8_000;
 
     /**
-     * Capture viewport. Height only seeds the first paint: `fullPage()` extends
-     * the screenshot to the whole document.
+     * Capture viewport width, derived from the page's own layout rather than
+     * picked as a round number.
+     *
+     * `resources/views/status/layout.blade.php` wraps the page in
+     * `mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8`, so the content is 768px
+     * wide (Tailwind `max-w-3xl` = 48rem) with 24px of its own padding either
+     * side at this width (`sm:px-6` applies from 640px, `lg:px-8` only from
+     * 1024px). 768 + 48 = 816 is therefore the width at which `mx-auto` has
+     * NOTHING left to centre.
+     *
+     * Rendering wider just adds dead white space: at the previous 1200px the
+     * artefact carried 216px of empty page on each side, which is most of the
+     * pane's width once it is scaled into a 380px column, and it made the
+     * screenshot read as a small picture floating in a white field. The 24px
+     * that remains is the page's real padding, which a customer sees too, so it
+     * stays.
+     *
+     * Height only seeds the first paint: `fullPage()` extends the screenshot to
+     * the whole document.
      */
-    protected const VIEWPORT_WIDTH = 1200;
+    protected const VIEWPORT_WIDTH = 816;
 
     protected const VIEWPORT_HEIGHT = 800;
 

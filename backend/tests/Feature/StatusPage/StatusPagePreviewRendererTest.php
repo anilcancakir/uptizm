@@ -162,7 +162,13 @@ class StatusPagePreviewRendererTest extends TestCase
         $options = $renderer->command['options'];
 
         $this->assertSame('png', $options['type']);
-        $this->assertSame(1200, $options['viewport']['width']);
+        // 816 = the page's own 768px content box (`max-w-3xl`) plus its 24px
+        // padding either side (`sm:px-6`), i.e. the width at which `mx-auto` has
+        // nothing left to centre. Rendering wider only adds dead white space:
+        // at 1200 the artefact carried 216px of empty page on each side, which
+        // dominated the pane once scaled into the editor's 380px column. Derive
+        // this from layout.blade.php if that wrapper ever changes.
+        $this->assertSame(816, $options['viewport']['width']);
         $this->assertSame(800, $options['viewport']['height']);
         // Scale 1, not 2: a 2400px artefact is unreadable at ~32% in the
         // editor's 380px column and a multi-MB download on mobile.
