@@ -39,7 +39,7 @@
                     'body' => __('A monitor with no checks yet shows no uptime figure, not 100% and not 0%. A day it was not being watched renders neutral on the history bar instead of green. An empty status page says so rather than claiming all systems are operational.'),
                 ],
             ] as $rule)
-                <article data-reveal class="rounded-lg border border-border bg-surface p-6 transition-colors hover:border-fg-disabled">
+                <article data-reveal data-lift class="rounded-lg border border-border bg-surface p-6 hover:border-fg-disabled">
                     <h3 class="flex gap-3 text-title-lg text-fg">
                         <svg class="mt-0.5 size-5 shrink-0 text-primary" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 10.5l2 2 4-5" />

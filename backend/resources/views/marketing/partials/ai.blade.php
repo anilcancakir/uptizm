@@ -39,7 +39,7 @@
                         'body' => __('A written summary of the week: what broke, what recovered, and what is trending the wrong way.'),
                     ],
                 ] as $feature)
-                    <article data-reveal class="rounded-lg border border-border bg-surface-container p-6 transition-colors hover:border-fg-disabled">
+                    <article data-reveal data-lift class="rounded-lg border border-border bg-surface-container p-6 hover:border-fg-disabled">
                         <h3 class="text-title-lg text-fg">{{ $feature['title'] }}</h3>
                         <p class="mt-2 text-body-md text-fg-muted">{{ $feature['body'] }}</p>
                     </article>

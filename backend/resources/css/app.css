@@ -266,14 +266,14 @@
 @media (prefers-reduced-motion: no-preference) {
     .js-reveal [data-reveal] {
         opacity: 0;
-        transform: translateY(0.875rem);
+        transform: translateY(1.5rem);
     }
 
     .js-reveal [data-reveal].is-revealed {
-        animation: reveal 0.62s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        animation: reveal 0.72s cubic-bezier(0.22, 1, 0.36, 1) forwards;
         /* Per-item stagger. Set by the script from the element's position in its
            group, so a grid reveals as a sequence rather than as one block. */
-        animation-delay: calc(var(--reveal-index, 0) * 70ms);
+        animation-delay: calc(var(--reveal-index, 0) * 90ms);
     }
 
     @keyframes reveal {
@@ -324,27 +324,86 @@
     }
 
     /*
-     * The probe sweep: each region row's dot brightens in turn, on a loop, so
-     * the hero panel reads as something that is still checking rather than a
-     * screenshot. Deliberately slow and low-contrast; at this amplitude it is
-     * peripheral, which is the point. An operator watching a dashboard should
-     * never be drawn to a decoration.
+     * The probe sweep, and the only motion on this page that never stops.
+     *
+     * Everything else here fires once and settles, which left the hero perfectly
+     * still a second after load: by the time anyone actually looks at it, there
+     * was nothing moving. This is what makes the panel read as something that is
+     * still checking rather than a screenshot of something that once was.
+     *
+     * The first attempt animated the DOT's own opacity between 0.55 and 1. That
+     * failed twice over: the flash was under half a second in a 5.5s cycle, so
+     * nobody saw it, and the dot sat dimmed at 55% for the rest of the cycle, so
+     * the cost was a panel that looked greyed out. A ring expanding OUT of a
+     * full-opacity dot is visible without touching the dot at all.
      */
-    [data-probe] {
-        animation: probe 5.5s ease-in-out infinite;
-        animation-delay: calc(var(--probe-index, 0) * 0.42s);
+    [data-probe-ring] {
+        animation: probe-ring 4.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+        animation-delay: calc(var(--probe-index, 0) * 0.5s);
     }
 
-    @keyframes probe {
-        0%,
-        82%,
-        100% {
-            opacity: 0.55;
+    @keyframes probe-ring {
+        0% {
+            opacity: 0.7;
             transform: scale(1);
         }
-        88% {
-            opacity: 1;
-            transform: scale(1.5);
+        /* Out and gone in the first third; the rest of the cycle is the wait
+           until this region's next check, which is the thing being depicted. */
+        34%,
+        100% {
+            opacity: 0;
+            transform: scale(3.2);
         }
+    }
+
+    /*
+     * The row the sweep is currently on lifts its background, so the eye can
+     * follow the scan down the list rather than having to notice five separate
+     * rings.
+     */
+    [data-probe-row] {
+        animation: probe-row 4.4s ease-in-out infinite;
+        animation-delay: calc(var(--probe-index, 0) * 0.5s);
+    }
+
+    @keyframes probe-row {
+        0%,
+        26%,
+        100% {
+            background-color: transparent;
+        }
+        8% {
+            background-color: var(--app-surface-container-high);
+        }
+    }
+
+    /* A slow breath on the status badge's dot: the one element that should look
+       alive even when the panel is not being scanned. */
+    [data-breathe] {
+        animation: breathe 2.6s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+        0%,
+        100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+        50% {
+            opacity: 0.45;
+            transform: scale(0.82);
+        }
+    }
+
+    /* Cards lift on hover. Transform only, so nothing around them reflows. */
+    [data-lift] {
+        transition:
+            transform 0.22s ease-out,
+            border-color 0.22s ease-out,
+            background-color 0.22s ease-out;
+    }
+
+    [data-lift]:hover {
+        transform: translateY(-0.1875rem);
     }
 }

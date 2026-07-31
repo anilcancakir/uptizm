@@ -49,7 +49,7 @@
                     'icon' => 'M12 3.75l7.5 3v5.25c0 4.14-3.09 7.5-7.5 8.25-4.41-.75-7.5-4.11-7.5-8.25V6.75l7.5-3z',
                 ],
             ] as $capability)
-                <article data-reveal class="rounded-lg border border-border bg-surface-container p-6 transition-colors hover:border-fg-disabled">
+                <article data-reveal data-lift class="rounded-lg border border-border bg-surface-container p-6 hover:border-fg-disabled">
                     <svg class="size-6 text-fg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="{{ $capability['icon'] }}" />
                     </svg>

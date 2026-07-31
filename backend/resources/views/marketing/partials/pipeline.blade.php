@@ -36,7 +36,7 @@
                     'body' => __('The incident goes step by step to whoever is on call, over the destinations you configured. Each one is throttled, so a flapping monitor cannot turn into forty messages.'),
                 ],
             ] as $index => $step)
-                <li data-reveal class="bg-surface-container p-6 transition-colors hover:bg-surface-container-high">
+                <li data-reveal data-lift class="bg-surface-container p-6 hover:bg-surface-container-high">
                     <div class="flex items-center gap-3">
                         <span class="flex size-7 items-center justify-center rounded-full bg-primary-container font-mono text-label-sm text-primary">
                             {{ $index + 1 }}

@@ -14,6 +14,10 @@
 @endphp
 
 <span data-reveal class="inline-flex items-center gap-2 rounded-full {{ $toneClasses }} px-3 py-1 text-label-sm uppercase tracking-[0.12em]">
-    <span class="size-1.5 rounded-full bg-current opacity-70"></span>
+    {{-- The dot breathes. Small thing, but it is the only motion above the fold
+         that does not stop, and this component replaced an earlier eyebrow whose
+         pulsing dot got dropped in the refactor, which left the hero completely
+         still one second after load. --}}
+    <span data-breathe class="size-1.5 rounded-full bg-current"></span>
     {{ $text }}
 </span>

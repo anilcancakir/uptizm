@@ -62,7 +62,7 @@
     <div class="flex items-start justify-between gap-4 border-b border-border-subtle p-5">
         <div class="min-w-0">
             <div class="flex items-center gap-2.5">
-                <span class="size-2.5 shrink-0 rounded-full bg-up"></span>
+                <span data-breathe class="size-2.5 shrink-0 rounded-full bg-up"></span>
                 <span class="truncate font-mono text-body-md text-fg">api.acme.com</span>
             </div>
             <p class="mt-1.5 pl-[1.25rem] text-label-sm text-fg-muted">
@@ -79,13 +79,24 @@
         @foreach ($regions as $region)
             @php $sample = $exampleTelemetry[$region['value']] ?? null; @endphp
 
-            <li class="flex items-center gap-3 px-5 py-3">
-                {{-- The probe sweep runs on rows that HAVE a result. A row with no
-                     data has nothing to be checking, so it stays still. --}}
-                <span
-                    @if ($sample !== null) data-probe style="--probe-index: {{ $loop->index }}" @endif
-                    class="size-1.5 shrink-0 rounded-full {{ $sample === null ? 'bg-paused' : 'bg-up' }}"
-                ></span>
+            {{-- The sweep runs on rows that HAVE a result. A row with no data has
+                 nothing to be checking, so it stays still. --}}
+            <li
+                @if ($sample !== null) data-probe-row style="--probe-index: {{ $loop->index }}" @endif
+                class="flex items-center gap-3 px-5 py-3"
+            >
+                @if ($sample !== null)
+                    <span class="relative flex size-1.5 shrink-0">
+                        <span
+                            data-probe-ring
+                            style="--probe-index: {{ $loop->index }}"
+                            class="absolute inline-flex size-full rounded-full bg-up"
+                        ></span>
+                        <span class="relative inline-flex size-1.5 rounded-full bg-up"></span>
+                    </span>
+                @else
+                    <span class="size-1.5 shrink-0 rounded-full bg-paused"></span>
+                @endif
 
                 <span class="w-28 shrink-0 truncate text-body-md text-fg">{{ $region['label'] }}</span>
 

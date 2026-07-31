@@ -49,7 +49,7 @@
             ] as $platform)
                 @php $isLive = config("app.client_platforms.{$platform['key']}") === 'live'; @endphp
 
-                <article data-reveal class="rounded-lg border border-border bg-surface p-6 transition-colors hover:border-fg-disabled">
+                <article data-reveal data-lift class="rounded-lg border border-border bg-surface p-6 hover:border-fg-disabled">
                     <div class="flex items-center justify-between gap-3">
                         <svg class="size-6 {{ $isLive ? 'text-primary' : 'text-fg-muted' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="{{ $platform['icon'] }}" />
