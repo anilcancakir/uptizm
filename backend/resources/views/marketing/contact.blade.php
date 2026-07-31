@@ -28,6 +28,7 @@
       $fieldErrors       a MessageBag, empty on a plain GET
       $submitted         the values to repopulate after a rejection
       $sent              render the acknowledgement instead of the form
+      $throttled         the aggregate cap is exhausted, so this render carries a 429
 
     WHY THERE IS NO @csrf, NO old() AND NO @error HERE
 
@@ -114,21 +115,75 @@
                  back to them, because an unauthenticated endpoint that mails arbitrary text
                  to an arbitrary address is a spam relay carrying this domain's own DKIM
                  signature. The form is gone from the page, so a second press of the button
-                 cannot resend the same message. --}}
+                 cannot resend the same message.
+
+                 ACCEPTED, AND NEVER "REACHED US". This wording is load-bearing, not modesty.
+                 `SendContactMessageController` QUEUES the send, so at the moment this markup
+                 is written the message has reached a queue and nothing else: a stopped
+                 Horizon, a recipient Symfony's `Address` refuses, or a dead SMTP host each
+                 fail inside a job nobody is watching, minutes after the visitor read this
+                 page. `mailDeliverable()` rules out the configuration that guarantees
+                 failure, which is a claim about config and never about delivery. So this may
+                 only claim what is true when it is written, and it names the operator's
+                 address again (the document above names it too) so a visitor who is not
+                 satisfied with "accepted" has a channel that needs no queue at all. --}}
             <section
                 class="mt-10 rounded-lg border border-up bg-up-soft p-4 sm:p-6"
                 role="status"
                 aria-live="polite"
             >
-                <h2 class="text-title-lg text-up-soft-foreground">{{ __('Your message reached us.') }}</h2>
+                <h2 class="text-title-lg text-up-soft-foreground">{{ __('Your message has been accepted.') }}</h2>
 
                 <p class="mt-2 text-body-md text-up-soft-foreground">
-                    {{ __('It is in the inbox the operator reads. No response time is promised, so this page does not name one.') }}
+                    {{ __('It is queued for the inbox the operator reads, and the sending happens later.') }}
+                </p>
+
+                <p class="mt-2 text-body-md text-up-soft-foreground">
+                    {{ __('So nothing here can promise it arrived, and no response time is promised either.') }}
+                </p>
+
+                <p class="mt-2 text-body-md text-up-soft-foreground">
+                    {{ __('If you hear nothing back, write to :email directly.', ['email' => $contactEmail]) }}
                 </p>
             </section>
         @elseif ($formEnabled)
             <section class="mt-10 rounded-lg border border-border bg-surface-container p-4 sm:p-6">
                 <h2 class="text-title-lg text-fg">{{ __('Send a message') }}</h2>
+
+                @if ($throttled)
+                    {{-- The aggregate cap, refused as THIS PAGE with a 429 rather than as the
+                         framework's error page.
+
+                         The whole reason the cap moved out of the route middleware and into
+                         `SendContactMessageController` is that the framework's 429 page names
+                         no address at all, so the fallback channel disappeared at exactly the
+                         moment the form was unavailable. Here the operator's address is on the
+                         page, the form is still rendered below, and `$submitted` still holds
+                         what the visitor typed, so a retry in a minute is not a retype.
+
+                         `degraded` tokens and not `down`: nothing is broken and no message was
+                         lost, the channel is busy for a minute. `role="alert"` because this
+                         arrives on a page the visitor did not ask to re-read, exactly like the
+                         validation summary below, and it is a separate block from that summary
+                         because this failure belongs to no field the visitor filled in. --}}
+                    <div
+                        class="mt-4 rounded-md border border-degraded bg-degraded-soft p-4"
+                        role="alert"
+                    >
+                        <p class="text-label-md text-degraded-soft-foreground">
+                            {{ __('The form is taking a short break.') }}
+                        </p>
+
+                        <p class="mt-2 text-body-md text-degraded-soft-foreground">
+                            {{ __('More messages arrived this minute than this form accepts, so yours was not sent.') }}
+                        </p>
+
+                        <p class="mt-2 text-body-md text-degraded-soft-foreground">
+                            {{ __('Your text is still below. Send it again in a minute, or write to us:') }}
+                            {{ $contactEmail }}
+                        </p>
+                    </div>
+                @endif
 
                 @if ($fieldErrors->isNotEmpty())
                     {{-- One summary block rather than a message under each field. `role=alert`

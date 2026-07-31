@@ -147,8 +147,6 @@
     "Send": "Gönder",
     "Leave this field empty": "Bu alanı boş bırakın",
     "Your message was not sent.": "Mesajınız gönderilmedi.",
-    "Your message reached us.": "Mesajınız bize ulaştı.",
-    "It is in the inbox the operator reads. No response time is promised, so this page does not name one.": "İşletmecinin okuduğu gelen kutusunda. Taahhüt edilen bir yanıt süresi yok, bu sayfa da bir süre belirtmiyor.",
     "Please tell us your name.": "Lütfen adınızı yazın.",
     "That name is longer than we can store.": "Bu ad saklayabileceğimizden uzun.",
     "Please give us an email address we can reply to.": "Lütfen yanıt verebileceğimiz bir e-posta adresi yazın.",
@@ -175,5 +173,13 @@
     "Counts visits with Google Analytics. Off until you turn it on.": "Google Analytics ile ziyaretleri sayar. Siz açana kadar kapalı kalır.",
     "Accept all": "Tümünü kabul et",
     "Necessary only": "Sadece zorunlu olanlar",
-    "Change your choice": "Seçiminizi değiştir"
+    "Change your choice": "Seçiminizi değiştir",
+    "Your message has been accepted.": "Mesajınız alındı.",
+    "It is queued for the inbox the operator reads, and the sending happens later.": "İşletmecinin okuduğu gelen kutusu için kuyruğa alındı, gönderim daha sonra gerçekleşiyor.",
+    "So nothing here can promise it arrived, and no response time is promised either.": "Bu yüzden buradaki hiçbir şey ulaştığını garanti edemez; bir yanıt süresi de taahhüt edilmiyor.",
+    "If you hear nothing back, write to :email directly.": "Yanıt alamazsanız doğrudan :email adresine yazın.",
+    "The form is taking a short break.": "Form kısa bir mola veriyor.",
+    "More messages arrived this minute than this form accepts, so yours was not sent.": "Bu dakika içinde formun kabul ettiğinden daha fazla mesaj geldi, bu yüzden sizinki gönderilmedi.",
+    "Your text is still below. Send it again in a minute, or write to us:": "Yazdığınız metin aşağıda duruyor. Bir dakika sonra yeniden gönderin ya da bize yazın:",
+    "This form only accepts messages sent from this page. Please write your message here.": "Bu form yalnızca bu sayfadan gönderilen mesajları kabul eder. Lütfen mesajınızı burada yazın."
 }

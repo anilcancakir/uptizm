@@ -58,12 +58,15 @@ class ShowContactController
     /**
      * The contact page in a given state.
      *
-     * The three overrides the write path uses: `fieldErrors` (the MessageBag from a failed
-     * validation), `submitted` (the values to repopulate, since there is no `old()` without a
-     * session) and `sent` (render the acknowledgement instead of the form).
+     * The four overrides the write path uses: `fieldErrors` (the MessageBag from a failed
+     * validation, or a form-level refusal such as a cross-site POST), `submitted` (the values
+     * to repopulate, since there is no `old()` without a session), `sent` (render the
+     * acknowledgement instead of the form) and `throttled` (the aggregate cap is exhausted, so
+     * the page carries the fallback address and an explanation above a form that still works).
      *
      * @param  array<string, mixed>  $state  Merged over the defaults in `viewData()`.
-     * @param  int  $status  200 for a rendered page, 422 for a rejected submission.
+     * @param  int  $status  200 for a rendered page, 422 for a rejected submission, 403 for a
+     *                       cross-site POST, 429 for an exhausted aggregate cap.
      */
     public function response(array $state = [], int $status = 200): Response
     {
@@ -109,6 +112,13 @@ class ShowContactController
             'fieldErrors' => new MessageBag,
             'submitted' => [],
             'sent' => false,
+            // FALSE HERE AND NOT ONLY IN THE WRITE PATH'S OVERRIDE. The view dereferences
+            // `$throttled` unguarded, like every other variable on this page, so a default
+            // that lives only where the aggregate cap is spent would make a plain GET of the
+            // contact page an undefined-variable error. It is a default rather than an
+            // `??` in the template for the same reason `$sent` is: the state a page can be
+            // in belongs in one list, here, where a reader can see all of it at once.
+            'throttled' => false,
             ...$state,
         ];
     }
