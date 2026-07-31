@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\AggregateMonitorDailyUptime;
+use App\Jobs\PruneContentArchive;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Jobs\ScheduleSslChecks;
 use App\Jobs\SweepAiSuggestions;
@@ -34,6 +35,19 @@ Schedule::job(new ScheduleSslChecks)
     ->dailyAt('03:00')
     ->onOneServer()
     ->name('monitoring:schedule-ssl-checks');
+
+// Expire archived page content nobody has resolved to inside the retention
+// window (supervisor `content` queue, so an unlink parked in the rclone FUSE
+// mount can never occupy a slot the monitoring checks need). Runs after the
+// 03:00 SSL fan-out so the two nightly jobs do not contend for the mount, and
+// `withoutOverlapping` matters here rather than being boilerplate: a sweep can
+// outlive its own tick on a slow mount, and two of them would race the
+// blob-survivor query.
+Schedule::job(new PruneContentArchive)
+    ->dailyAt('04:10')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('monitoring:prune-content-archive');
 
 // Sweep the ai_mode=suggest fleet for response-time anomalies every 2 minutes
 // (supervisor `ai` queue, single-server, unique lock prevents overlap with a
