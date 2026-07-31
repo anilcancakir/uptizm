@@ -15,6 +15,12 @@
 
         <title>{{ config('app.name') }}</title>
 
+        {{-- The hero shows a short line per act now, so the sentence that describes the
+             product no longer sits in the body copy. It lives here, which is where a
+             summary belongs anyway: a crawler and a link preview both read it, and a
+             six-word slogan would have left them nothing. --}}
+        <meta name="description" content="{{ $summary }}">
+
         <meta name="theme-color" content="#008560" media="(prefers-color-scheme: light)">
         <meta name="theme-color" content="#07090c" media="(prefers-color-scheme: dark)">
 
