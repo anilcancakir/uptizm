@@ -37,4 +37,29 @@ if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
 
         el.classList.add('is-in');
     });
+
+    /*
+     * Everything below the fold arrives on scroll instead. One observer for the whole
+     * page, and each element is unobserved the moment it lands: a reveal is a first
+     * impression, so replaying it on the way back up would turn a considered entrance
+     * into a twitch.
+     *
+     * The bottom margin means an element reveals slightly before it reaches the edge of
+     * the viewport, which is what stops the animation from looking like it is chasing
+     * the scroll.
+     */
+    const reveals = new IntersectionObserver(
+        (entries, observer) =>
+            entries.forEach((entry) => {
+                if (!entry.isIntersecting) {
+                    return;
+                }
+
+                entry.target.classList.add('is-in');
+                observer.unobserve(entry.target);
+            }),
+        { threshold: 0.1, rootMargin: '0px 0px -8% 0px' },
+    );
+
+    document.querySelectorAll('[data-reveal]').forEach((el) => reveals.observe(el));
 }

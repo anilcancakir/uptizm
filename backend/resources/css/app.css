@@ -73,6 +73,7 @@
     --app-ai: #6e59e2;
     --app-ai-soft: #ece8ff;
     --app-ai-soft-foreground: #5f40d5;
+    --app-ai-wash: #f2f1fd;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -108,6 +109,7 @@
         --app-ai: #9e8afa;
         --app-ai-soft: #2b195a;
         --app-ai-soft-foreground: #d6d0ff;
+        --app-ai-wash: #191133;
     }
 }
 
@@ -172,6 +174,7 @@ main[id] {
     --color-ai: var(--app-ai);
     --color-ai-soft: var(--app-ai-soft);
     --color-ai-soft-foreground: var(--app-ai-soft-foreground);
+    --color-ai-wash: var(--app-ai-wash);
 
     /* Corner radii, named as DESIGN.md names them (`DEFAULT` becomes `base`, since
        a bare `rounded` cannot be redefined). These intentionally shadow Tailwind's
@@ -356,6 +359,49 @@ main[id] {
     @keyframes enter {
         to {
             opacity: 1;
+            transform: none;
+        }
+    }
+
+    /*
+     * Scroll reveals: ONE system for every section below the fold, rather than a bespoke
+     * animation per section. A staggered arrival that is the same everywhere reads as
+     * deliberate; four different clever effects read as four different afternoons.
+     *
+     * Shares the `enter` keyframe with the hero's entrance, so the page has a single
+     * motion vocabulary: rise a little, fade in, ease out hard. Held under `.js-motion`
+     * like everything else, so a visitor whose JavaScript never arrives gets a static
+     * page rather than an empty one.
+     */
+    .js-motion [data-reveal] {
+        opacity: 0;
+        transform: translateY(1.5rem);
+    }
+
+    .js-motion [data-reveal].is-in {
+        animation: enter 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        animation-delay: calc(var(--reveal-index, 0) * 80ms);
+    }
+
+    /*
+     * The one variant. An uptime strip is 90 bars, and staggering 90 elements would be
+     * 270 animations on this page for one gesture, so the strip wipes as a single
+     * transform from its left edge. Which is also the right gesture: a 90-day bar reads
+     * left to right, oldest to today.
+     */
+    .js-motion [data-reveal='sweep'] {
+        opacity: 1;
+        transform: scaleX(0);
+        transform-origin: left center;
+    }
+
+    .js-motion [data-reveal='sweep'].is-in {
+        animation: bar-sweep 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        animation-delay: calc(var(--reveal-index, 0) * 130ms);
+    }
+
+    @keyframes bar-sweep {
+        to {
             transform: none;
         }
     }
