@@ -102,6 +102,20 @@
             })();
         </script>
 
+        {{--
+            Consent Mode v2 and the tag container, and their position here is not cosmetic.
+
+            AHEAD of `@vite`, because everything Vite emits is a module and therefore
+            deferred: the consent defaults have to be evaluated before `gtm.js` is fetched,
+            and a deferred script cannot be. The partial itself keeps the two blocks in order
+            internally and explains why; do not move this include below the bundle, and do
+            not move any of its contents into `resources/js/`.
+
+            It renders NOTHING unless a container id is configured (config/analytics.php), so
+            on this deployment the head still reaches no third-party host at all.
+        --}}
+        @include('marketing.analytics')
+
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-surface font-sans text-fg antialiased">
@@ -119,5 +133,11 @@
         </main>
 
         @include('marketing.footer')
+
+        {{-- Last in the document and fixed to the bottom of the viewport, so it is painted
+             over the page instead of inserted into it: no layout shift, and the reading
+             order puts the question after the content rather than in front of it. Withheld
+             entirely with no container configured, like the head bootstrap. --}}
+        @include('marketing.consent-banner')
     </body>
 </html>
