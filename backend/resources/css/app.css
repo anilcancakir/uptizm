@@ -117,6 +117,28 @@
     display: none !important;
 }
 
+/*
+ * In-page jumps, under a sticky header.
+ *
+ * `scroll-margin-top` is the whole point: without it the header covers the top of
+ * whatever a nav link jumps to, and the visitor lands looking at the middle of a
+ * section wondering what they missed. Slightly more than the 4rem bar so the heading
+ * is not flush against it.
+ *
+ * The smooth scroll is a real movement, so it is the one thing here that reduced
+ * motion turns off. Everything else about the jump still works.
+ */
+main [id],
+main[id] {
+    scroll-margin-top: 5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        scroll-behavior: smooth;
+    }
+}
+
 @theme inline {
     --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
     --font-mono: 'Geist Mono', ui-monospace, monospace;
