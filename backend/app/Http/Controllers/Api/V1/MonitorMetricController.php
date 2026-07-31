@@ -11,9 +11,14 @@ use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Resources\MonitorMetricResource;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use App\Models\MonitorContentVersion;
 use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
+use App\Models\Team;
+use App\Services\Ai\MetricDiscoveryService;
+use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\CheckAggregateService;
+use App\Services\Monitoring\ContentArchive;
 use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\ThresholdEvaluator;
 use Illuminate\Http\JsonResponse;
@@ -21,16 +26,38 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Nested CRUD for a monitor's custom metric definitions, plus a windowed
- * reader over `monitor_metric_values` and a non-persisting extraction
- * preview used by the metric form sheet.
+ * reader over `monitor_metric_values`, a non-persisting extraction preview used
+ * by the metric form sheet, and AI-assisted discovery of metrics worth adding.
+ *
+ * The preview and the discovery endpoint both read their sample from the
+ * monitor's newest ARCHIVED page content rather than from the 10 KiB
+ * `response_body_preview` column, and they resolve that blob through
+ * {@see ContentArchive::blobPath()}. Both details matter: on a real page the
+ * first useful candidate can sit past byte 98,000, so a preview reading the
+ * truncated column would answer "extracts nothing" for a rule that extracts
+ * perfectly well at runtime; and the blob path is derived in exactly one place
+ * because it is also the argument to a delete against a remote holding this
+ * system's only database backups.
  */
 class MonitorMetricController extends Controller
 {
+    /**
+     * The AI capability level a team needs for metric discovery.
+     */
+    protected const string DISCOVERY_AI_LEVEL = 'analysis';
+
+    public function __construct(
+        protected ContentArchive $archive,
+    ) {}
+
     public function index(Request $request, Monitor $monitor): AnonymousResourceCollection
     {
         $this->authorizeMonitor($request, $monitor);
@@ -220,12 +247,15 @@ class MonitorMetricController extends Controller
      * the extracted value plus the threshold band it would land in.
      *
      * The sample is the caller's `sample_body`/`sample_headers`/
-     * `sample_status_code` when supplied, otherwise the monitor's most recent
-     * {@see MonitorCheck}. That fallback is what makes the answer trustworthy:
-     * it is the same payload the extraction pipeline itself ran on, so a rule
-     * that previews cleanly here will extract on the next check. A monitor with
-     * no checks yet answers `has_sample: false` rather than reporting a failed
-     * extraction, because there is nothing to test against.
+     * `sample_status_code` when supplied, otherwise the monitor's newest
+     * ARCHIVED page content, and failing that the most recent
+     * {@see MonitorCheck}'s truncated body preview. That order is what makes the
+     * answer trustworthy: the archived body is the whole of what the target
+     * served, which is exactly what runtime extraction now runs against, while
+     * the preview column stops at 10 KiB and would report a perfectly good rule
+     * as extracting nothing. A monitor with neither answers `has_sample: false`
+     * rather than reporting a failed extraction, because there is nothing to test
+     * against.
      *
      * Nothing is persisted; this powers the metric form's "Test extraction"
      * card while the user is still composing the rule.
@@ -278,23 +308,41 @@ class MonitorMetricController extends Controller
         $source = MetricSource::from($validated['source']);
         $type = MetricType::from($validated['type']);
 
-        // Fall back to the monitor's most recent check as the sample. Without
-        // this the endpoint extracted against an EMPTY body whenever the caller
-        // supplied none, so every rule "failed" for a reason that had nothing to
-        // do with the rule. The last check is the honest sample to verify
-        // against: it costs no new probe and it is the very payload the
-        // extraction pipeline itself ran on.
+        // Fall back to what the monitor actually returned. Without this the
+        // endpoint extracted against an EMPTY body whenever the caller supplied
+        // none, so every rule "failed" for a reason that had nothing to do with
+        // the rule. The last check supplies the headers, the status code and the
+        // "which sample was this" answer; the archived version supplies the FULL
+        // body, which is what the runtime extraction path sees.
         $sampleCheck = null;
+        $archivedBody = null;
         if (! $request->has('sample_body')) {
             $sampleCheck = MonitorCheck::query()
                 ->where('monitor_id', $monitor->id)
                 ->orderByDesc('checked_at')
                 ->first();
+
+            // Only the body-consuming sources pay for the archived read. A cold
+            // read off the archive mount costs about a second against a remote
+            // capped near two file operations a second, and `http_status` and
+            // `header` rules never look at a body, so for them the read buys
+            // nothing and `$sampleCheck` already answers "is there a sample".
+            // Listed inline rather than as a method on `MetricSource`: one call
+            // site does not earn a new member on a shared domain enum.
+            $consumesBody = in_array($source, [
+                MetricSource::JsonPath,
+                MetricSource::Regex,
+                MetricSource::Xpath,
+            ], true);
+
+            if ($consumesBody) {
+                $archivedBody = $this->newestArchivedBody($monitor);
+            }
         }
 
         // An http_status rule needs no body, so it can still be verified from a
         // check's status code alone.
-        $hasSample = $request->has('sample_body') || $sampleCheck !== null;
+        $hasSample = $request->has('sample_body') || $sampleCheck !== null || $archivedBody !== null;
 
         if (! $hasSample) {
             return response()->json([
@@ -312,7 +360,7 @@ class MonitorMetricController extends Controller
             source: $source,
             extractionPath: (string) ($validated['extraction_path'] ?? ''),
             type: $type,
-            body: (string) ($validated['sample_body'] ?? $sampleCheck?->response_body_preview ?? ''),
+            body: (string) ($validated['sample_body'] ?? $archivedBody ?? $sampleCheck?->response_body_preview ?? ''),
             headers: $validated['sample_headers'] ?? $sampleCheck?->response_headers ?? [],
             statusCode: $validated['sample_status_code'] ?? $sampleCheck?->status_code,
         );
@@ -342,6 +390,94 @@ class MonitorMetricController extends Controller
             'sample_checked_at' => $sampleCheck?->checked_at?->toIso8601String(),
             'sample_status_code' => $validated['sample_status_code'] ?? $sampleCheck?->status_code,
         ]);
+    }
+
+    /**
+     * Propose metrics worth adding, discovered from the monitor's newest
+     * archived page content.
+     *
+     * Gated on the team's AI LEVEL rather than on the create wizard's metered
+     * analyze allowance: this call is re-runnable by design (the page changes,
+     * the operator changes their mind), so spending a one-off setup try on it
+     * would be wrong.
+     *
+     * Nothing is created. The response is a list of suggestions the operator
+     * accepts by submitting the existing metric form, and it is an empty array
+     * whenever discovery could not run (nothing archived, the daily AI budget
+     * exhausted, or output the gateway would not trust) so the client renders no
+     * hole and never sees a fabricated metric.
+     */
+    public function discover(Request $request, Monitor $monitor, MetricDiscoveryService $discovery): JsonResponse
+    {
+        $this->authorizeMonitor($request, $monitor);
+
+        $team = Team::find($request->user()->current_team_id);
+        if ($team !== null) {
+            (new PlanGate)->assertAiLevel($team, self::DISCOVERY_AI_LEVEL, 'AI metric discovery');
+        }
+
+        return response()->json([
+            'data' => [
+                'suggested_metrics' => $discovery->discover(
+                    $monitor,
+                    $this->newestArchivedBody($monitor),
+                    (string) $monitor->team_id,
+                ),
+            ],
+        ]);
+    }
+
+    /**
+     * The decompressed body of the monitor's NEWEST archived content version, or
+     * null when there is none to read.
+     *
+     * Only the newest, deliberately: the archive lives on a cold FUSE mount of a
+     * Drive remote where a single read costs about a second and the remote caps
+     * at roughly two files per second, so a history-wide scan would turn one
+     * request into a stall.
+     *
+     * Every failure mode answers null rather than throwing, because both callers
+     * are read-only conveniences: a version whose blob retention already pruned,
+     * a corrupt stored hash the path helper refuses, and bytes that will not
+     * decompress all mean "no sample available", never a 500 on a form panel.
+     */
+    protected function newestArchivedBody(Monitor $monitor): ?string
+    {
+        $version = MonitorContentVersion::query()
+            ->where('monitor_id', $monitor->getKey())
+            ->orderByDesc('last_seen_at')
+            ->first();
+
+        if ($version === null) {
+            return null;
+        }
+
+        try {
+            // The single permitted derivation of a blob location; no caller
+            // rebuilds `{team}/{fanout}/{hash}.gz` for itself.
+            $path = $this->archive->blobPath($version->team_id, (string) $version->content_hash);
+        } catch (InvalidArgumentException $exception) {
+            // The corrupt-row case the retention sweep also skips. Logged rather
+            // than swallowed: the row needs a human, the request does not.
+            Log::warning('Skipped an archived content version with a malformed hash.', [
+                'monitor_id' => (string) $monitor->getKey(),
+                'version_id' => (string) $version->getKey(),
+                'exception' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        // One `get()` rather than `exists()`-then-`get()`: two round trips to a
+        // FUSE mount can also lose the race to the retention sweep between them.
+        $blob = Storage::disk((string) config('content-archive.disk'))->get($path);
+        if ($blob === null || $blob === '') {
+            return null;
+        }
+
+        $body = gzdecode($blob);
+
+        return $body === false ? null : $body;
     }
 
     /**

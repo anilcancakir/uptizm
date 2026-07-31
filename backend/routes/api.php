@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\EscalationPolicyController;
 use App\Http\Controllers\Api\V1\IncidentAnalysisController;
 use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
+use App\Http\Controllers\Api\V1\MonitorContentController;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Controllers\Api\V1\NotificationChannelController;
@@ -123,6 +124,21 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.monitors.checks.index');
     Route::get('monitors/{monitor}/checks/{check}', [MonitorCheckController::class, 'show'])
         ->name('api.v1.monitors.checks.show');
+    // The archived page-content versions of a monitor, plus the download of one
+    // version's original bytes. The address is a CONTENT HASH, not a row id.
+    //
+    // The constraint below is not decorative. Almost every malformed address is
+    // already turned away by the version lookup matching no row, but a stored row
+    // carrying a hash that is not 64 lowercase hex (the corrupt row the retention
+    // sweep skips) DOES match its own malformed value, and
+    // `ContentArchive::blobPath()` throws on it. Without this the endpoint answers
+    // 500 for that row instead of 404.
+    Route::get('monitors/{monitor}/content', [MonitorContentController::class, 'index'])
+        ->name('api.v1.monitors.content.index');
+    Route::get('monitors/{monitor}/content/{contentHash}', [MonitorContentController::class, 'show'])
+        ->where('contentHash', '[0-9a-f]{64}')
+        ->name('api.v1.monitors.content.show');
+
     Route::get('monitors/{monitor}/uptime', [MonitorCheckController::class, 'uptime'])
         ->name('api.v1.monitors.uptime');
     Route::get('monitors/{monitor}/response-times', [MonitorCheckController::class, 'responseTimes'])
@@ -134,6 +150,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.monitors.metrics.store');
     Route::post('monitors/{monitor}/metrics/preview', [MonitorMetricController::class, 'preview'])
         ->name('api.v1.monitors.metrics.preview');
+    // AI-proposed metrics for an already-running monitor, read from its newest
+    // archived page content. Gated on the team's AI level, not on the create
+    // wizard's metered analyze allowance, because it is re-runnable.
+    Route::post('monitors/{monitor}/metrics/discover', [MonitorMetricController::class, 'discover'])
+        ->name('api.v1.monitors.metrics.discover');
     Route::match(['patch', 'put'], 'monitors/{monitor}/metrics/reorder', [
         MonitorMetricController::class,
         'reorder',

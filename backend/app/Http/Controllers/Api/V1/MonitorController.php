@@ -17,6 +17,7 @@ use App\Services\Ai\AiBudget;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
+use App\Services\Ai\MetricDiscoveryService;
 use App\Services\Ai\ResponseTimeAnomalyDetector;
 use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\CheckAggregateService;
@@ -191,6 +192,11 @@ class MonitorController extends Controller
      * calling the LLM, so the endpoint still prefills a config. The gateway
      * only SUGGESTS: the operator still submits the create form and can
      * override every field.
+     *
+     * The same probe body also feeds {@see MetricDiscoveryService}, so the
+     * response carries `suggested_metrics` beside the configuration. That rides
+     * this call's EXISTING metered try: the operator asked for one analysis and
+     * spends one, whatever the probe body turned out to contain.
      */
     public function analyze(
         AnalyzeMonitorRequest $request,
@@ -198,6 +204,7 @@ class MonitorController extends Controller
         ResponseTimeAnomalyDetector $detector,
         AnalysisGateway $gateway,
         AiBudget $budget,
+        MetricDiscoveryService $discovery,
     ): JsonResponse {
         $gate = new PlanGate;
         $team = Team::find($request->user()->current_team_id);
@@ -215,7 +222,8 @@ class MonitorController extends Controller
         //    yet, so a throwaway instance carries the probe spec the relay
         //    (and its SSRF-checked worker) executes. The SSRF host denylist
         //    already rejected an internal target in request validation.
-        $probe = $relay->dispatch($this->transientMonitor($url, $region), $region);
+        $transient = $this->transientMonitor($url, $region);
+        $probe = $relay->dispatch($transient, $region);
 
         // 2. Run the detector over the single-probe window. One sample never
         //    clears the cold-start gate, so the candidate is null here; wiring
@@ -239,7 +247,13 @@ class MonitorController extends Controller
             ? $gateway->analyze($this->analysisPayload($url, $region, $probe, $candidate))
             : $this->deterministicSuggestion($probe, $region);
 
-        // 4. The setup produced a result, so spend one metered try (a no-op on a
+        // 4. Mine the SAME probe body for metrics worth proposing. The body is
+        //    already in memory here, so this costs no second probe; discovery
+        //    spends its own budget unit and degrades to an empty array on its
+        //    own, so a create flow never fails because of a suggestion.
+        $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId);
+
+        // 5. The setup produced a result, so spend one metered try (a no-op on a
         //    tier that entitles AI analysis) and report what is left, so the
         //    client can count the allowance down without a second request.
         if ($team !== null) {
@@ -251,6 +265,7 @@ class MonitorController extends Controller
                 'url' => $url,
                 'name' => $this->suggestedName($url),
                 ...$result->toArray(),
+                'suggested_metrics' => $suggestedMetrics,
                 'probe' => [
                     'region' => $probe->region,
                     'status_code' => $probe->statusCode,

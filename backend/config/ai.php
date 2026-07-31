@@ -40,6 +40,16 @@ return [
     ],
 
     /*
+     * Metric discovery reads its own model key rather than borrowing triage's,
+     * so retuning one selection task cannot silently retune the other. It is a
+     * structured-output selection over a compact candidate digest, which the
+     * same cheap, fast model handles well.
+     */
+    'metric_discovery' => [
+        'model' => env('AI_METRIC_DISCOVERY_MODEL', 'claude-haiku-4-5-20251001'),
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Caching
     |--------------------------------------------------------------------------
