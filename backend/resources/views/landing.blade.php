@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 {{--
-    The landing page, rebuilt section by section. Only the hero exists so far.
+    The landing page, rebuilt section by section.
 
     Styling is Tailwind v4 against the tokens ported from the Flutter client's
     DESIGN.md (resources/css/app.css), so this surface and the product share one
@@ -87,6 +87,7 @@
 
         <main id="content">
             @include('marketing.hero')
+            @include('marketing.decides')
         </main>
 
         @include('marketing.footer')

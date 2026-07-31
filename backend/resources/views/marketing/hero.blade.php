@@ -106,13 +106,12 @@
                 >{{ $heroBeats['1']['line'] }}</p>
             </div>
 
-            {{-- One call to action, not two.
-                 There was a second button here reading "See how it decides", pointing
-                 at `#pipeline`. No section with that id exists yet, so clicking it did
-                 nothing at all: a dead link shipped for several commits because a
-                 static screenshot cannot show you that a jump went nowhere.
-                 It comes back with the section it names, and `ChromeTest` now fails
-                 the build on any anchor whose target is missing. --}}
+            {{-- The secondary call to action is back, pointing at the section that
+                 now exists. It spent several commits pointing at `#pipeline`, a
+                 section nobody had built, so clicking it did nothing at all; a static
+                 screenshot cannot show you that a jump went nowhere. `ChromeTest`
+                 walks every anchor on the page and fails the build on a missing
+                 target, which is what makes restoring this safe. --}}
             <div data-enter style="--enter-index: 4" class="mt-9 flex flex-wrap items-center gap-3">
                 <a
                     href="{{ $signUpUrl }}"
@@ -120,11 +119,11 @@
                 >{{ __('Start free') }}</a>
 
                 <a
-                    href="{{ $signInUrl }}"
+                    href="#how-it-decides"
                     class="group inline-flex min-h-12 items-center gap-2 rounded-md border border-border px-6 text-label-md text-fg transition-colors hover:bg-surface-container-high"
                 >
-                    {{ __('Sign in') }}
-                    <span class="text-fg-muted transition-transform group-hover:translate-x-0.5" aria-hidden="true">&rarr;</span>
+                    {{ __('See how it decides') }}
+                    <span class="text-fg-muted transition-transform group-hover:translate-y-0.5" aria-hidden="true">&darr;</span>
                 </a>
             </div>
 

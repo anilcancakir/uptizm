@@ -55,5 +55,18 @@
     "Pull a number out of the response body with a JSON path and give it a bound. Crossing it opens an incident with the evidence already attached.": "JSON yolu ile yanıt gövdesinden bir sayı çek ve ona bir sınır ver. Sınır aşıldığında olay, kanıtı çoktan ekli olarak açılır.",
     "It keeps paging until somebody": "Biri çözene kadar",
     "resolves it": "çağırmayı sürdürür",
-    "A ladder of your own steps and delays, through :channels. Resolve it and every page still pending is cancelled.": "Kendi adımlarınız ve gecikmelerinizle bir basamak dizisi: :channels. Olayı çözersen bekleyen tüm çağrılar iptal edilir."
+    "A ladder of your own steps and delays, through :channels. Resolve it and every page still pending is cancelled.": "Kendi adımlarınız ve gecikmelerinizle bir basamak dizisi: :channels. Olayı çözersen bekleyen tüm çağrılar iptal edilir.",
+    "How it decides": "Nasıl karar verir",
+    "Every alert has a rule behind it.": "Her uyarının arkasında bir kural var.",
+    "Here they are": "Kurallar şunlar",
+    "Every monitoring tool promises it will not wake you for nothing. These are the four rules that decide, printed rather than promised, so you can check them against the last false alarm you were paged for.": "Her izleme aracı sizi boşuna uyandırmayacağına söz verir. Karar veren dört kural burada, söz olarak değil yazılı olarak; en son boşa çağrıldığınız ana karşı tutup kontrol edebilirsiniz.",
+    "One tick, every region": "Tek tur, tüm bölgeler",
+    "All :count regions run in the same tick rather than taking turns, so a slow region is a fact about that region and not about where it sat in a queue.": ":count bölge sırayla değil aynı turda çalışır; böylece yavaş bir bölge o bölgeyle ilgili bir gerçektir, kuyrukta nerede durduğuyla değil.",
+    "One healthy region clears the streak": "Tek sağlıklı bölge seriyi siler",
+    "A single success from anywhere resets the failure count to zero. Which means one region having a bad minute cannot page you on its own.": "Herhangi bir yerden gelen tek bir başarı, hata sayacını sıfıra çeker. Yani kötü bir dakika geçiren tek bir bölge kendi başına sizi çağırtamaz.",
+    "Not the first failure, the :count in a row": "İlk hata değil, üst üste :count hata",
+    "An incident opens only once the failure streak crosses the threshold. The default is :count, so a transient flake is absorbed and a sustained outage still opens on the next tick. Adjustable per monitor.": "Olay ancak hata serisi eşiği geçtiğinde açılır. Varsayılan :count, yani geçici bir tökezleme yutulur ama süregelen bir kesinti bir sonraki turda gene açılır. İzleyici başına ayarlanabilir.",
+    "Our failure is not your outage": "Bizim hatamız sizin kesintiniz değil",
+    "When our own edge refuses a probe, it is recorded as a configuration problem and shown to you. It does not touch the status, it does not touch the streak, and it pages nobody.": "Kendi kenarımız bir probe'u reddettiğinde bu bir yapılandırma sorunu olarak kaydedilir ve size gösterilir. Duruma dokunmaz, seriye dokunmaz ve kimseyi çağırmaz.",
+    "And every check records which data centre answered it, so a regional story is evidence rather than a guess.": "Ve her kontrol hangi veri merkezinin yanıtladığını kaydeder; böylece bölgesel bir hikâye tahmin değil kanıt olur."
 }
