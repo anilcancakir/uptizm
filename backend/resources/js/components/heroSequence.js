@@ -31,9 +31,19 @@ const REGIONS = [
     { label: 'Asia-Pacific', colo: 'HKG', ms: 88 },
 ];
 
-export const heroSequence = (channels = []) => ({
+export const heroSequence = (channels = [], labels = {}) => ({
     /** Alert destinations, handed in from the server so they stay derived. */
     channels,
+
+    /*
+     * Act names, also handed in from the server, and for the same reason twice over:
+     * a string literal in this file is derived from nothing, and it never reaches
+     * Laravel's translator. Hardcoded here, the stage relabelled itself in English a
+     * second after a Turkish page finished loading.
+     *
+     * Keyed by act, `1.5` included, which is why the server sends string keys.
+     */
+    labels,
 
     /** 1, 1.5, 2, 3, 4 — halves are transitions. */
     act: 0,
@@ -80,14 +90,6 @@ export const heroSequence = (channels = []) => ({
      */
     gen: 0,
     restartTimer: null,
-
-    labels: {
-        1: 'New monitor',
-        1.5: 'Dispatching',
-        2: 'Checks',
-        3: 'Triage',
-        4: 'Escalation',
-    },
 
     init() {
         /*
@@ -138,7 +140,7 @@ export const heroSequence = (channels = []) => ({
             // The transition act is pure motion: a pulse standing in for dispatch. It
             // carries no information, so it is the one act that is skipped outright.
             if (!this.reduced) {
-                await this.act1Transition(alive);
+                await this.act1Transition();
                 if (!alive()) return;
             }
 
@@ -226,7 +228,9 @@ export const heroSequence = (channels = []) => ({
         this.submitting = false;
     },
 
-    async act1Transition(alive = () => true) {
+    /** Pure motion, no state: a pulse standing in for dispatch. It takes no
+     *  generation token because it writes nothing that could go stale. */
+    async act1Transition() {
         this.act = 1.5;
         await this.delay(1400);
     },
@@ -238,12 +242,18 @@ export const heroSequence = (channels = []) => ({
         await this.delay(350);
 
         // Results land in latency order, each on its own clock, because that is what a
-        // parallel fan-out looks like from the outside.
+        // parallel fan-out looks like from the outside. Each lander checks its
+        // generation first: five timers are in flight here, and a tab click mid-fan-out
+        // would otherwise let them write rows into a sequence that had already moved on.
         await Promise.all(
             this.results.map(
                 (row, i) =>
                     new Promise((resolve) => {
                         setTimeout(() => {
+                            if (!alive()) {
+                                return resolve();
+                            }
+
                             this.results[i] = { ...row, state: 'up', shown: row.ms };
                             resolve();
                         }, 120 + row.ms * 14);
