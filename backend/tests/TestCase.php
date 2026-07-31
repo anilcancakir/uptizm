@@ -46,6 +46,12 @@ abstract class TestCase extends BaseTestCase
         // asserts on this same disk.
         Storage::fake(StatusPage::PREVIEW_DISK);
 
+        // Keep monitor-content archive writes off the real disk for the same
+        // reason as the preview disk above: a separate disk is not redirected
+        // by faking `local`, so without this every archive-writing test would
+        // leave real `.gz` blobs accumulating under storage/app/private.
+        Storage::fake(config('content-archive.disk'));
+
         $placeholder = (string) base64_decode(self::PLACEHOLDER_PNG_BASE64, true);
 
         $this->app->instance(

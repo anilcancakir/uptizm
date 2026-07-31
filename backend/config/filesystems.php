@@ -47,6 +47,17 @@ return [
             'report' => false,
         ],
 
+        // Dedicated disk for the monitor-content archive (config/content-archive.php).
+        // Rooted outside the default `local` disk (storage/app/private) so a
+        // production deploy can point it at a separately-mounted, larger volume
+        // (see .env.example) without moving anything else stored on `local`.
+        'content' => [
+            'driver' => 'local',
+            'root' => env('CONTENT_ARCHIVE_DISK_ROOT', storage_path('app/private/monitor-content')),
+            'throw' => false,
+            'report' => true,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
