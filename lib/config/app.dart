@@ -1,6 +1,7 @@
 import 'package:magic/magic.dart';
 import '../app/providers/app_service_provider.dart';
 import '../app/providers/route_service_provider.dart';
+import '../app/support/web_links.dart' show kDefaultWebUrl;
 import 'package:magic_deeplink/magic_deeplink.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_social_auth/magic_social_auth.dart';
@@ -25,6 +26,12 @@ Map<String, dynamic> get appConfig => {
     'debug': env('APP_DEBUG', false),
     'key': env('APP_KEY'),
     'title_separator': ' | ',
+
+    // The marketing website's origin, no trailing slash. The client owns no
+    // legal text of its own: Terms, Privacy and Contact live on the website and
+    // are opened externally, so their one text stays in one place. [WebLinks]
+    // reads this slot and composes the per-language path.
+    'web_url': env('WEB_URL', kDefaultWebUrl),
     'providers': [
       (app) => RouteServiceProvider(app),
       (app) => CacheServiceProvider(app),
