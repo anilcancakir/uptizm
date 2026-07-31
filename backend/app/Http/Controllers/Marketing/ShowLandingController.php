@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Marketing;
 
 use App\Enums\MonitorRegion;
+use App\Enums\NotificationChannelType;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
 
@@ -27,6 +28,8 @@ class ShowLandingController
             'signInUrl' => $this->clientUrl('/login'),
             'signUpUrl' => $this->clientUrl('/register'),
             'aiEnabled' => $this->aiEnabled(),
+            'channels' => $this->channels(),
+            'platformClaim' => $this->platformClaim(),
         ]);
     }
 
@@ -48,6 +51,49 @@ class ShowLandingController
             ],
             MonitorRegion::cases(),
         );
+    }
+
+    /**
+     * The team-scoped alert destinations that exist.
+     *
+     * An exhaustive match with no default arm, so adding a channel type is a failure
+     * here rather than a hero that quietly omits it. Notably absent because they are
+     * absent from the enum: email and SMS as TEAM channels.
+     *
+     * @return list<string>
+     */
+    protected function channels(): array
+    {
+        return array_map(
+            fn (NotificationChannelType $type): string => match ($type) {
+                NotificationChannelType::Slack => 'Slack',
+                NotificationChannelType::Webhook => 'Webhook',
+                NotificationChannelType::PagerDuty => 'PagerDuty',
+                NotificationChannelType::Teams => 'Microsoft Teams',
+            },
+            NotificationChannelType::cases(),
+        );
+    }
+
+    /**
+     * What we may honestly say about where the client runs.
+     *
+     * "Web, iOS and Android" as a flat claim is false while the mobile builds are in
+     * neither store: they come from the same Flutter source, but nobody can install
+     * them. So the phrasing follows `app.client_platforms` and only becomes the
+     * unqualified version once every platform is live.
+     */
+    protected function platformClaim(): string
+    {
+        $platforms = (array) config('app.client_platforms', []);
+        $pending = array_keys(array_filter($platforms, fn (string $state): bool => $state !== 'live'));
+
+        return $pending === []
+            ? __('Web, iOS and Android')
+            : __('On the web today, :pending next', ['pending' => implode(' and ', array_map(
+                fn (string $key): string => $key === 'ios' ? 'iOS' : ucfirst($key),
+                $pending,
+            ))]);
     }
 
     /**

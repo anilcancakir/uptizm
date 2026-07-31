@@ -9,7 +9,7 @@
             class="min-w-0 flex-1 truncate font-mono text-body-md text-fg"
             :data-caret="url.length < 27 ? '' : null"
             x-text="url"
-        ></span>
+        >https://api.acme.com/health</span>
     </div>
 
     <p class="mt-5 text-label-sm uppercase tracking-[0.12em] text-fg-muted">

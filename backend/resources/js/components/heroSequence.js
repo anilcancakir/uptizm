@@ -31,12 +31,20 @@ const REGIONS = [
     { label: 'Asia-Pacific', colo: 'HKG', ms: 88 },
 ];
 
-export const heroSequence = () => ({
+export const heroSequence = (channels = []) => ({
+    /** Alert destinations, handed in from the server so they stay derived. */
+    channels,
+
     /** 1, 1.5, 2, 3, 4 — halves are transitions. */
     act: 0,
 
-    /** Act 1 */
-    url: '',
+    /*
+     * Act 1. Seeded with the finished value rather than empty, and the Blade renders
+     * the same string, so the example host is in the server HTML: without it a visitor
+     * with no JavaScript, or a crawler, saw an endpoint field with nothing in it. Act 1
+     * clears and retypes it when the sequence starts.
+     */
+    url: 'https://api.acme.com/health',
     pickedRegions: 0,
     submitting: false,
 
@@ -48,8 +56,15 @@ export const heroSequence = () => ({
     metricBreached: false,
     showAi: false,
 
-    /** Act 4 */
-    delivered: [],
+    /*
+     * Act 4: the escalation ladder, filled a row at a time.
+     *
+     * Channel names arrive from the server (derived from NotificationChannelType) so
+     * this file cannot name a destination the product cannot deliver to.
+     */
+    escalation: [],
+    waiting: false,
+    ackAt: null,
 
     verdict: 'up',
     running: false,
@@ -71,7 +86,7 @@ export const heroSequence = () => ({
         1.5: 'Dispatching',
         2: 'Checks',
         3: 'Triage',
-        4: 'Delivery',
+        4: 'Escalation',
     },
 
     init() {
@@ -95,20 +110,24 @@ export const heroSequence = () => ({
         ).observe(this.$el);
     },
 
-    /** Reduced motion: no typing, no waiting, no transition acts. The visitor gets the
-     *  finished state of the act that carries the most information, and the tabs still
-     *  move between all four. */
+    /**
+     * Reduced motion removes the MOVEMENT, not the sequence.
+     *
+     * The first version parked on act 3 and re-entered it every seven seconds, so a
+     * visitor with the preference set saw a stage that never animated and yet changed
+     * on its own: "no movement, it just switches tabs". Which is exactly what it did.
+     *
+     * The acts still advance, the values still change, the states still recolour. What
+     * goes is the typing, the transition pulse, the slide between acts and the caret.
+     * Vestibular safety is about movement; a number arriving in place is information,
+     * and withholding it leaves someone looking at a screenshot of a monitoring
+     * product with no way to tell it monitors anything.
+     */
     get reduced() {
         return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     },
 
     async play() {
-        if (this.reduced) {
-            this.showAct(3);
-
-            return;
-        }
-
         const g = ++this.gen;
         const alive = () => this.gen === g;
 
@@ -116,8 +135,12 @@ export const heroSequence = () => ({
             await this.act1(alive);
             if (!alive()) return;
 
-            await this.act1Transition(alive);
-            if (!alive()) return;
+            // The transition act is pure motion: a pulse standing in for dispatch. It
+            // carries no information, so it is the one act that is skipped outright.
+            if (!this.reduced) {
+                await this.act1Transition(alive);
+                if (!alive()) return;
+            }
 
             await this.act2(alive);
             if (!alive()) return;
@@ -133,10 +156,10 @@ export const heroSequence = () => ({
      *  motion, so no state is ever half-built. */
     showAct(n) {
         // Kill whatever is in flight, then resume the loop after a dwell so a click
-        // never leaves the stage frozen for good.
+        // never leaves the stage frozen, and never yanks the chosen act away either.
         this.gen += 1;
         window.clearTimeout(this.restartTimer);
-        this.restartTimer = window.setTimeout(() => this.play(), 7000);
+        this.restartTimer = window.setTimeout(() => this.play(), 9000);
 
         this.act = n;
         this.submitting = false;
@@ -166,7 +189,15 @@ export const heroSequence = () => ({
             this.verdict = 'up';
         }
 
-        this.delivered = n === 4 ? ['web', 'ios', 'android'] : [];
+        if (n === 4) {
+            this.escalation = this.ladder();
+            this.waiting = true;
+            this.ackAt = '5m 12s';
+        } else {
+            this.escalation = [];
+            this.waiting = false;
+            this.ackAt = null;
+        }
     },
 
     async act1(alive = () => true) {
@@ -253,19 +284,53 @@ export const heroSequence = () => ({
         await this.delay(4200);
     },
 
+    /**
+     * The two escalation steps. Step 1 goes out immediately; step 2 fires only because
+     * nobody answered, which is the point of the act.
+     */
+    ladder() {
+        const [first, second, third, fourth] = this.channels;
+
+        return [
+            { at: 't+0s', channel: first, target: '#ops-alerts', step: 1 },
+            { at: 't+0s', channel: third, target: 'Ops rotation', step: 1 },
+            { at: 't+5m', channel: fourth, target: '#incidents', step: 2 },
+            { at: 't+5m', channel: second, target: 'ops.acme.com/hooks/uptizm', step: 2 },
+        ];
+    },
+
     async act4(alive = () => true) {
         this.act = 4;
-        this.delivered = [];
-        await this.delay(400);
+        this.escalation = [];
+        this.waiting = false;
+        this.ackAt = null;
+        await this.delay(350);
 
-        for (const target of ['web', 'ios', 'android']) {
+        const rows = this.ladder();
+
+        // Step 1 lands first.
+        for (const row of rows.filter((r) => r.step === 1)) {
             if (!alive()) return;
 
-            this.delivered.push(target);
-            await this.delay(420);
+            this.escalation.push(row);
+            await this.delay(520);
         }
 
-        await this.delay(3200);
+        // Then the silence that makes step 2 necessary.
+        await this.delay(900);
+        this.waiting = true;
+        await this.delay(1100);
+
+        for (const row of rows.filter((r) => r.step === 2)) {
+            if (!alive()) return;
+
+            this.escalation.push(row);
+            await this.delay(520);
+        }
+
+        await this.delay(800);
+        this.ackAt = '5m 12s';
+        await this.delay(2600);
     },
 
     delay(ms) {
@@ -278,6 +343,13 @@ export const heroSequence = () => ({
      * produced a doubled URL.
      */
     type(prop, text, speed, alive = () => true) {
+        // Under reduced motion the text simply arrives. Typing is movement.
+        if (this.reduced) {
+            this[prop] = text;
+
+            return Promise.resolve();
+        }
+
         return new Promise((resolve) => {
             this[prop] = '';
             let i = 0;

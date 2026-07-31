@@ -49,7 +49,7 @@
 
                 <span data-enter style="--enter-index: 1" class="inline-flex items-center gap-2 rounded-full bg-primary-container px-3 py-1 text-label-sm uppercase tracking-[0.12em] text-accent">
                     <span class="size-2 rounded-full bg-current"></span>
-                    {{ __('Web, iOS and Android') }}
+                    {{ $platformClaim }}
                 </span>
             </div>
 

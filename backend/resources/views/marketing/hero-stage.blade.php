@@ -10,7 +10,7 @@
     seconds can jump, a keyboard user can reach every act, and the hero describes
     itself even in a screenshot where nothing is playing.
 --}}
-<div class="stage-perspective" x-data="heroSequence" x-cloak>
+<div class="stage-perspective" x-data="heroSequence(@js($channels))" x-cloak>
     <div class="stage-tilt">
         {{-- Glow. A radial gradient, not a blurred element: see the note in app.css. --}}
         <div
@@ -56,7 +56,7 @@
                     1 => __('Set it up'),
                     2 => __('Checked at once'),
                     3 => __('Read and triaged'),
-                    4 => __('Delivered'),
+                    4 => __('Paged'),
                 ] as $n => $label)
                     <button
                         type="button"

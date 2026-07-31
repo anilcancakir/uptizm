@@ -72,28 +72,46 @@ class HeroTest extends TestCase
         $this->get('/')->assertOk()->assertSee('AI-assisted triage');
     }
 
-    public function test_mobile_platforms_are_not_claimed_as_available(): void
+    public function test_the_platform_claim_is_qualified_while_the_stores_are_empty(): void
     {
         /*
-         * The web client is live; the iOS and Android builds come from the same
-         * Flutter source but are in neither store. Availability is stated per
-         * platform from config, so this stays honest until a listing exists.
+         * The web client is live; the iOS and Android builds come from the same Flutter
+         * source but are in neither store, so nobody can install them. A flat "Web, iOS
+         * and Android" would be false, and it was, briefly: the qualification used to
+         * live in an act-4 platform matrix and went missing when that act was rewritten
+         * as an escalation ladder. It is derived from config now, so it cannot outrun
+         * the stores again.
          */
         config(['app.client_platforms' => ['web' => 'live', 'ios' => 'soon', 'android' => 'soon']]);
 
-        $response = $this->get('/');
-
-        $response->assertSee('soon');
-        $response->assertDontSee('App Store');
-        $response->assertDontSee('Google Play');
-        $response->assertDontSee('Download');
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('On the web today, iOS and Android next')
+            ->assertDontSee('App Store')
+            ->assertDontSee('Google Play')
+            ->assertDontSee('Download');
     }
 
-    public function test_a_platform_becomes_live_from_config_alone(): void
+    public function test_the_claim_becomes_unqualified_only_when_every_platform_is_live(): void
     {
         config(['app.client_platforms' => ['web' => 'live', 'ios' => 'live', 'android' => 'live']]);
 
-        $this->get('/')->assertOk()->assertDontSee('soon');
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('Web, iOS and Android')
+            ->assertDontSee('next');
+    }
+
+    public function test_every_alert_destination_comes_from_the_enum(): void
+    {
+        // The escalation ladder in act 4 names channels; they are derived so it cannot
+        // list a destination the product has no driver for. Email and SMS are absent
+        // from the enum and must stay absent here.
+        $response = $this->get('/');
+
+        foreach (['Slack', 'Webhook', 'PagerDuty', 'Microsoft Teams'] as $channel) {
+            $response->assertSee($channel);
+        }
     }
 
     public function test_the_hero_claims_nothing_the_probe_engine_cannot_do(): void
