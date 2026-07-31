@@ -9,8 +9,8 @@
 <section class="border-b border-border bg-surface-container">
     <div class="mx-auto grid max-w-6xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:items-center lg:gap-16 lg:px-8">
         <div>
-            <p class="text-label-sm uppercase tracking-[0.14em] text-fg-muted">{{ __('Beyond up and down') }}</p>
-            <h2 class="mt-3 text-section text-balance text-fg">{{ __('Your health endpoint already knows. Read it.') }}</h2>
+            @include('marketing.partials.eyebrow', ['text' => __('Beyond up and down')])
+            <h2 data-reveal class="mt-3 text-section text-balance text-fg">{{ __('Your health endpoint already knows.') }} <span class="text-primary">{{ __('Read it.') }}</span></h2>
 
             <p class="mt-4 text-body-lg text-fg-muted">
                 {{ __('A queue that is 40,000 jobs deep answers HTTP 200 in 30 milliseconds. Uptime monitoring calls that healthy. Uptizm reads the number out of the response and treats it as a signal in its own right.') }}
@@ -22,7 +22,7 @@
                     __('Give each metric a warning and a critical bound; a breach opens an incident with the sample attached.'),
                     __('Chart the series over time next to the response times for the same monitor.'),
                 ] as $point)
-                    <li class="flex gap-3 text-body-md text-fg-muted">
+                    <li data-reveal class="flex gap-3 text-body-md text-fg-muted">
                         <svg class="mt-1 size-4 shrink-0 text-primary" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.5 8.5l3 3 6-7" />
                         </svg>
@@ -30,13 +30,35 @@
                     </li>
                 @endforeach
             </ul>
+
+            <a
+                href="#capabilities"
+                data-reveal
+                class="group mt-8 inline-flex items-center gap-2 text-label-md text-primary transition-colors hover:text-accent"
+            >
+                {{ __('Browse every capability') }}
+                <span class="transition-transform group-hover:translate-x-0.5" aria-hidden="true">&rarr;</span>
+            </a>
         </div>
 
         <div
             role="img"
             aria-label="{{ __('Example: a metric extracted from a health endpoint breaches its warning bound and opens an incident.') }}"
-            class="overflow-hidden rounded-lg border border-border bg-surface font-mono text-label-sm"
+            data-reveal class="overflow-hidden rounded-lg border border-border bg-surface font-mono text-label-sm"
         >
+            {{-- Same neutral window chrome as the hero panel, so the two visuals
+                 read as two views of one application. --}}
+            <div class="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
+                <span class="flex gap-1.5" aria-hidden="true">
+                    <span class="size-2.5 rounded-full bg-fg-disabled"></span>
+                    <span class="size-2.5 rounded-full bg-fg-disabled"></span>
+                    <span class="size-2.5 rounded-full bg-fg-disabled"></span>
+                </span>
+                <span class="min-w-0 flex-1 truncate rounded-base bg-surface-container-high px-3 py-1 text-center text-label-sm text-fg-muted">
+                    {{ __('metric') }} · queue_depth
+                </span>
+            </div>
+
             <div class="flex items-center justify-between gap-3 border-b border-border-subtle px-5 py-3.5">
                 <span class="text-fg">GET /health</span>
                 <span class="text-fg-muted tabular-nums">200 · 42 ms</span>

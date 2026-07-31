@@ -18,6 +18,14 @@
         </include>
     </source>
     <php>
+        <!--
+            PHPUnit runs the whole suite in one process, so the framework
+            instances every test boots accumulate. The suite crossed PHP's 128M
+            default and started dying with "Premature end of PHP process" part
+            way through, which reads like a broken test rather than the resource
+            limit it actually is.
+        -->
+        <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

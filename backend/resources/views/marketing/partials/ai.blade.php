@@ -9,11 +9,11 @@
     mechanism and where the output lands instead of using "AI-powered" as an
     adjective.
 --}}
-<section class="border-b border-border bg-ai-wash">
+<section id="ai" class="border-b border-border bg-ai-wash">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
         <div class="max-w-2xl">
-            <p class="text-label-sm uppercase tracking-[0.14em] text-ai-soft-foreground">{{ __('Assisted, not autonomous') }}</p>
-            <h2 class="mt-3 text-section text-balance text-fg">{{ __('AI that has to show its evidence') }}</h2>
+            @include('marketing.partials.eyebrow', ['text' => __('Assisted, not autonomous'), 'tone' => 'ai'])
+            <h2 data-reveal class="mt-3 text-section text-balance text-fg">{{ __('AI that has to') }} <span class="text-ai">{{ __('show its evidence') }}</span></h2>
             <p class="mt-4 text-body-lg text-fg-muted">
                 {{ __('It drafts, cites and waits. Every suggestion arrives with the signals it was drawn from, and a person accepts or dismisses it.') }}
             </p>
@@ -39,14 +39,14 @@
                         'body' => __('A written summary of the week: what broke, what recovered, and what is trending the wrong way.'),
                     ],
                 ] as $feature)
-                    <article class="rounded-lg border border-border bg-surface-container p-6">
+                    <article data-reveal class="rounded-lg border border-border bg-surface-container p-6 transition-colors hover:border-fg-disabled">
                         <h3 class="text-title-lg text-fg">{{ $feature['title'] }}</h3>
                         <p class="mt-2 text-body-md text-fg-muted">{{ $feature['body'] }}</p>
                     </article>
                 @endforeach
             </div>
 
-            <div class="rounded-lg border border-ai/25 bg-surface-container p-6">
+            <div data-reveal class="rounded-lg border border-ai/25 bg-surface-container p-6">
                 <h3 class="text-title-lg text-fg">{{ __('The guardrails, specifically') }}</h3>
 
                 <ul class="mt-5 space-y-4">

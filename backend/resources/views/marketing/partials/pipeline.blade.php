@@ -7,7 +7,7 @@
 <section id="pipeline" class="border-b border-border">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
         <div class="max-w-2xl">
-            <h2 class="text-section text-balance text-fg">{{ __('How a check becomes a page') }}</h2>
+            <h2 data-reveal class="text-section text-balance text-fg">{{ __('How a check') }} <span class="text-primary">{{ __('becomes a page') }}</span></h2>
             <p class="mt-4 text-body-lg text-fg-muted">
                 {{ __('Four steps, and a decision in the middle of them. Most alert fatigue comes from tools that skip step three.') }}
             </p>
@@ -36,7 +36,7 @@
                     'body' => __('The incident goes step by step to whoever is on call, over the destinations you configured. Each one is throttled, so a flapping monitor cannot turn into forty messages.'),
                 ],
             ] as $index => $step)
-                <li class="bg-surface-container p-6">
+                <li data-reveal class="bg-surface-container p-6 transition-colors hover:bg-surface-container-high">
                     <div class="flex items-center gap-3">
                         <span class="flex size-7 items-center justify-center rounded-full bg-primary-container font-mono text-label-sm text-primary">
                             {{ $index + 1 }}

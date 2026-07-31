@@ -8,7 +8,7 @@
 <section id="capabilities" class="border-b border-border">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
         <div class="max-w-2xl">
-            <h2 class="text-section text-balance text-fg">{{ __('What you get') }}</h2>
+            <h2 data-reveal class="text-section text-balance text-fg">{{ __('What') }} <span class="text-primary">{{ __('you get') }}</span></h2>
             <p class="mt-4 text-body-lg text-fg-muted">
                 {{ __('Enough to run an on-call rotation and keep customers informed, without a second tool for the status page.') }}
             </p>
@@ -49,7 +49,7 @@
                     'icon' => 'M12 3.75l7.5 3v5.25c0 4.14-3.09 7.5-7.5 8.25-4.41-.75-7.5-4.11-7.5-8.25V6.75l7.5-3z',
                 ],
             ] as $capability)
-                <article class="rounded-lg border border-border bg-surface-container p-6">
+                <article data-reveal class="rounded-lg border border-border bg-surface-container p-6 transition-colors hover:border-fg-disabled">
                     <svg class="size-6 text-fg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="{{ $capability['icon'] }}" />
                     </svg>

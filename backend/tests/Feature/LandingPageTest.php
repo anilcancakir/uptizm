@@ -161,7 +161,10 @@ class LandingPageTest extends TestCase
 
         $this->get('/')
             ->assertOk()
-            ->assertDontSee('AI that has to show its evidence');
+            // Asserted on the guardrails heading, not on the section's own H2: an
+            // accent colour splits every heading across two spans, so a full
+            // heading string is not contiguous in the markup.
+            ->assertDontSee('The guardrails, specifically');
     }
 
     public function test_the_ai_section_appears_once_a_provider_key_is_configured(): void
@@ -170,7 +173,7 @@ class LandingPageTest extends TestCase
 
         $this->get('/')
             ->assertOk()
-            ->assertSee('AI that has to show its evidence');
+            ->assertSee('The guardrails, specifically');
     }
 
     public function test_the_subscriber_promise_is_withheld_when_mail_only_goes_to_a_log(): void
@@ -198,13 +201,39 @@ class LandingPageTest extends TestCase
     public function test_our_own_status_page_is_linked_only_once_it_exists(): void
     {
         config(['app.own_status_page_url' => null]);
-        $this->get('/')->assertOk()->assertDontSee('Our status');
+        $this->get('/')->assertOk()->assertDontSee('Our own status page');
 
         config(['app.own_status_page_url' => 'https://status.uptizm.test']);
         $this->get('/')
             ->assertOk()
-            ->assertSee('Our status')
+            ->assertSee('Our own status page')
             ->assertSee('https://status.uptizm.test', escape: false);
+    }
+
+    public function test_platform_availability_is_stated_per_platform_from_config(): void
+    {
+        /*
+         * "Web, iOS and Android" as one finished claim would be false: the web
+         * client is live and the mobile builds are in neither store. So each
+         * platform states its own availability, and it comes from config rather
+         * than from the template.
+         */
+        config(['app.client_platforms' => ['web' => 'live', 'ios' => 'soon', 'android' => 'soon']]);
+
+        $response = $this->get('/');
+
+        $response->assertSee('Available now');
+        $response->assertSee('Not in the stores yet');
+    }
+
+    public function test_a_platform_becomes_available_without_touching_the_template(): void
+    {
+        // The day a store listing exists, flipping the config is the whole change.
+        config(['app.client_platforms' => ['web' => 'live', 'ios' => 'live', 'android' => 'live']]);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertDontSee('Not in the stores yet');
     }
 
     public function test_the_page_does_not_advertise_anything_unbuilt(): void

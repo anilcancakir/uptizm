@@ -8,7 +8,7 @@
 <section class="border-b border-border bg-surface-container">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
         <div class="mx-auto max-w-2xl text-center">
-            <h2 class="text-section text-balance text-fg">{{ __('Put one monitor up and see what it tells you.') }}</h2>
+            <h2 data-reveal class="text-section text-balance text-fg">{{ __('Put one monitor up and') }} <span class="text-primary">{{ __('see what it tells you') }}</span>.</h2>
 
             <p class="mt-4 text-body-lg text-fg-muted">
                 {{ __('A URL, an interval, and the regions to watch from. The first check runs on the next tick.') }}

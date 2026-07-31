@@ -100,6 +100,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Client Platform Availability
+    |--------------------------------------------------------------------------
+    |
+    | Where the client can ACTUALLY be used today, which the landing page states
+    | per platform rather than claiming "web, iOS and Android" as one finished
+    | thing. `live` renders as available, anything else renders as not yet.
+    |
+    | The web client is live. iOS and Android build from the same Flutter source
+    | but are in neither store, so they are `soon` until a listing exists. Flip
+    | the value in the same change that ships the listing, not before: an install
+    | button that leads nowhere costs more trust than a "soon" label saves.
+    |
+    */
+
+    'client_platforms' => [
+        'web' => env('APP_PLATFORM_WEB', 'live'),
+        'ios' => env('APP_PLATFORM_IOS', 'soon'),
+        'android' => env('APP_PLATFORM_ANDROID', 'soon'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

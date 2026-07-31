@@ -44,8 +44,21 @@
     aria-label="{{ __('Example: an Uptizm monitor showing one check result per probe region.') }}"
     data-enter
     style="animation-delay: 280ms"
-    class="rounded-lg border border-border bg-surface-container"
+    class="overflow-hidden rounded-lg border border-border bg-surface-container"
 >
+    {{-- Window chrome. Neutral dots, not traffic lights: red, amber and green
+         mean down, degraded and up everywhere else on this page. --}}
+    <div class="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
+        <span class="flex gap-1.5" aria-hidden="true">
+            <span class="size-2.5 rounded-full bg-fg-disabled"></span>
+            <span class="size-2.5 rounded-full bg-fg-disabled"></span>
+            <span class="size-2.5 rounded-full bg-fg-disabled"></span>
+        </span>
+        <span class="min-w-0 flex-1 truncate rounded-base bg-surface-container-high px-3 py-1 text-center font-mono text-label-sm text-fg-muted">
+            {{ config('app.name') }} &middot; {{ __('monitor') }}
+        </span>
+    </div>
+
     <div class="flex items-start justify-between gap-4 border-b border-border-subtle p-5">
         <div class="min-w-0">
             <div class="flex items-center gap-2.5">
@@ -67,7 +80,12 @@
             @php $sample = $exampleTelemetry[$region['value']] ?? null; @endphp
 
             <li class="flex items-center gap-3 px-5 py-3">
-                <span class="size-1.5 shrink-0 rounded-full {{ $sample === null ? 'bg-paused' : 'bg-up' }}"></span>
+                {{-- The probe sweep runs on rows that HAVE a result. A row with no
+                     data has nothing to be checking, so it stays still. --}}
+                <span
+                    @if ($sample !== null) data-probe style="--probe-index: {{ $loop->index }}" @endif
+                    class="size-1.5 shrink-0 rounded-full {{ $sample === null ? 'bg-paused' : 'bg-up' }}"
+                ></span>
 
                 <span class="w-28 shrink-0 truncate text-body-md text-fg">{{ $region['label'] }}</span>
 
@@ -75,9 +93,15 @@
 
                 <span class="hidden h-1 flex-1 overflow-hidden rounded-full bg-surface-container-high sm:block">
                     @if ($sample !== null)
+                        @php $width = min(100, (int) round($sample['ms'] / $latencyScaleMs * 100)); @endphp
+                        {{-- The rendered width IS the finished width; the animation
+                             grows to it from zero. So the no-motion state and the
+                             end state are the same markup, and nothing has to be
+                             put back afterwards. --}}
                         <span
+                            data-bar
                             class="block h-full rounded-full bg-primary/70"
-                            style="width: {{ min(100, (int) round($sample['ms'] / $latencyScaleMs * 100)) }}%"
+                            style="width: {{ $width }}%; --bar-width: {{ $width }}%"
                         ></span>
                     @endif
                 </span>
@@ -95,12 +119,12 @@
             <span class="font-mono text-label-sm text-fg-muted">{{ __('1 degraded · 1 no data') }}</span>
         </div>
 
-        <div class="mt-2.5 flex h-6 items-stretch gap-px">
+        <div data-days class="mt-2.5 flex h-6 items-stretch gap-px">
             @foreach ($historyDays as $day)
                 {{-- Interpolated, not @class: that directive emits a whole
                      `class="..."` attribute, so inside one it nests and the
                      browser drops every utility after it. --}}
-                <span class="flex-1 rounded-[1px] {{ match ($day) {
+                <span data-day class="flex-1 rounded-[1px] {{ match ($day) {
                     'up' => 'bg-up',
                     'degraded' => 'bg-degraded',
                     'none' => 'bg-surface-container-high',

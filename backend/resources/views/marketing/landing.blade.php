@@ -64,6 +64,34 @@
             crossorigin
         >
 
+        {{--
+            Arms the scroll reveal BEFORE first paint. Doing this from the
+            deferred module instead would show the content, hide it, then animate
+            it back in, which is worse than no animation at all.
+
+            The failsafe is the load-bearing half. `resources/js/reveal.js` sets
+            `revealReady` once it can honour the hidden state; if it never runs
+            (blocked, failed to parse, offline) the class comes back off and the
+            page is simply static. A page must never be able to hide its own
+            content behind a script that did not arrive.
+        --}}
+        <script>
+            (function () {
+                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    return;
+                }
+
+                var root = document.documentElement;
+                root.classList.add('js-reveal');
+
+                window.setTimeout(function () {
+                    if (root.dataset.revealReady !== '1') {
+                        root.classList.remove('js-reveal');
+                    }
+                }, 2500);
+            })();
+        </script>
+
         @vite(['resources/css/app.css', 'resources/js/app.js'])
 
         <style>
@@ -100,15 +128,20 @@
         <main>
             @include('marketing.partials.hero')
             @include('marketing.partials.pipeline')
-            @include('marketing.partials.signal')
-            @include('marketing.partials.capabilities')
-            @include('marketing.partials.metrics')
-            @include('marketing.partials.status-pages')
 
+            {{-- AI and the platform story sit high, right after the mechanism.
+                 The mechanism stays first on purpose: in this category a page that
+                 opens on AI reads as a substitute for a product, so the reader
+                 gets one section of substance before the assistant is mentioned. --}}
             @if ($aiEnabled)
                 @include('marketing.partials.ai')
             @endif
 
+            @include('marketing.partials.platforms')
+            @include('marketing.partials.signal')
+            @include('marketing.partials.capabilities')
+            @include('marketing.partials.metrics')
+            @include('marketing.partials.status-pages')
             @include('marketing.partials.regions')
             @include('marketing.partials.cta')
         </main>

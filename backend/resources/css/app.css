@@ -185,6 +185,13 @@
     --radius-lg: 16px;
     --radius-xl: 20px;
 
+    /*
+     * Below the app scale, and only for the inside of a device mockup, where the
+     * UI is drawn at a fraction of its real size. Never for reading text.
+     */
+    --text-micro: 10px;
+    --text-micro--line-height: 14px;
+
     /* The app's type scale, one token per DESIGN.md entry. */
     --text-label-sm: 12px;
     --text-label-sm--line-height: 16px;
@@ -234,4 +241,110 @@
     --text-section--line-height: 1.15;
     --text-section--letter-spacing: -0.02em;
     --text-section--font-weight: 700;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Motion
+ * ---------------------------------------------------------------------------
+ *
+ * The whole layer is wrapped in `prefers-reduced-motion: no-preference`, so a
+ * visitor who asked for less gets a completely static page rather than a
+ * gentler version of this one.
+ *
+ * Two rules shape everything below.
+ *
+ * ONLY opacity, transform and the width of bars inside fixed-size tracks are
+ * animated. Nothing here can move the layout after paint, which keeps the
+ * animation out of the metric it would otherwise damage.
+ *
+ * The hidden-until-revealed state is scoped to `.js-reveal`, a class the reveal
+ * script puts on <html> at parse time. If that script never runs, never
+ * finishes, or is blocked, the class is absent and every element stays visible.
+ * The page must not be able to hide its own content behind a failed script.
+ */
+@media (prefers-reduced-motion: no-preference) {
+    .js-reveal [data-reveal] {
+        opacity: 0;
+        transform: translateY(0.875rem);
+    }
+
+    .js-reveal [data-reveal].is-revealed {
+        animation: reveal 0.62s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        /* Per-item stagger. Set by the script from the element's position in its
+           group, so a grid reveals as a sequence rather than as one block. */
+        animation-delay: calc(var(--reveal-index, 0) * 70ms);
+    }
+
+    @keyframes reveal {
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    /*
+     * A latency bar grows to the width it was rendered with. `--bar-width` is
+     * the real value in the markup, so the finished state is identical to the
+     * no-animation state and nothing has to be restored afterwards.
+     */
+    .js-reveal [data-bar] {
+        width: 0;
+    }
+
+    .js-reveal [data-bar].is-revealed {
+        animation: grow-bar 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        animation-delay: calc(160ms + var(--reveal-index, 0) * 90ms);
+    }
+
+    @keyframes grow-bar {
+        to {
+            width: var(--bar-width, 100%);
+        }
+    }
+
+    /*
+     * The 90-day history and the status-page component bars wipe in left to
+     * right. 90 elements at 7ms apart is a ~0.6s sweep, which reads as the
+     * series being drawn rather than as ninety separate animations.
+     */
+    .js-reveal [data-day] {
+        opacity: 0;
+    }
+
+    .js-reveal [data-day].is-revealed {
+        animation: reveal-day 0.34s ease-out forwards;
+        animation-delay: calc(var(--day-index, 0) * 7ms);
+    }
+
+    @keyframes reveal-day {
+        to {
+            opacity: 1;
+        }
+    }
+
+    /*
+     * The probe sweep: each region row's dot brightens in turn, on a loop, so
+     * the hero panel reads as something that is still checking rather than a
+     * screenshot. Deliberately slow and low-contrast; at this amplitude it is
+     * peripheral, which is the point. An operator watching a dashboard should
+     * never be drawn to a decoration.
+     */
+    [data-probe] {
+        animation: probe 5.5s ease-in-out infinite;
+        animation-delay: calc(var(--probe-index, 0) * 0.42s);
+    }
+
+    @keyframes probe {
+        0%,
+        82%,
+        100% {
+            opacity: 0.55;
+            transform: scale(1);
+        }
+        88% {
+            opacity: 1;
+            transform: scale(1.5);
+        }
+    }
 }
