@@ -88,9 +88,8 @@
             @endif
         </div>
 
-        <div class="space-y-4">
-            @include('marketing.hero-panel')
-            @include('marketing.hero-spotlight')
+        <div class="relative">
+            @include('marketing.hero-stage')
         </div>
     </div>
 </section>

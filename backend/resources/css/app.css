@@ -111,6 +111,12 @@
     }
 }
 
+/* Alpine has not booted yet: hide anything it will position, or every act flashes
+   on screen at once for one frame. */
+[x-cloak] {
+    display: none !important;
+}
+
 @theme inline {
     --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
     --font-mono: 'Geist Mono', ui-monospace, monospace;
@@ -409,6 +415,114 @@
         50% {
             opacity: 0.3;
             transform: scale(0.65);
+        }
+    }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Hero stage
+ * ---------------------------------------------------------------------------
+ *
+ * The frame the four acts play inside, adapted from fluttersdk.com's hero.
+ *
+ * Two things are deliberately NOT adapted. That hero leans on `blur-2xl` /
+ * `blur-3xl` for its glow and `shadow-2xl` for lift; here the glow is a radial
+ * gradient and the lift is a border plus a tonal background. A large blur radius
+ * crashed the headless Chromium that renders our status-page previews, and Wind
+ * supports no filter utilities at all, so a blur would be an effect the product
+ * itself cannot express.
+ *
+ * The tilt is a transform, so it composites and costs nothing per frame.
+ */
+.stage-perspective {
+    perspective: 2000px;
+}
+
+.stage-tilt {
+    transform: rotateY(-5deg) rotateX(2deg);
+    transform-style: preserve-3d;
+    transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    /* Straightens under the cursor, so the frame reads as an object you can pick
+       up rather than a picture that happens to be askew. */
+    .stage-perspective:hover .stage-tilt {
+        transform: rotateY(0deg) rotateX(0deg) scale(1.015);
+    }
+
+    /* A shine crossing the glass, once per loop of the sequence. */
+    .stage-shine::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(
+            105deg,
+            transparent 40%,
+            color-mix(in srgb, var(--app-fg) 7%, transparent) 50%,
+            transparent 60%
+        );
+        transform: translateX(-100%);
+        animation: stage-shine 9s ease-in-out infinite;
+    }
+
+    @keyframes stage-shine {
+        0%,
+        70% {
+            transform: translateX(-100%);
+        }
+        85%,
+        100% {
+            transform: translateX(100%);
+        }
+    }
+
+    /* The act swap: out on a rise, in on a drop. */
+    [data-act] {
+        animation: act-in 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes act-in {
+        from {
+            opacity: 0;
+            transform: translateY(0.75rem);
+        }
+    }
+
+    /* The pulse that stands in for "the work leaves the machine", used by the
+       transition act. Scale and opacity only. */
+    [data-pulse] {
+        animation: pulse-out 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+    }
+
+    @keyframes pulse-out {
+        0% {
+            opacity: 0.55;
+            transform: scale(0.4);
+        }
+        100% {
+            opacity: 0;
+            transform: scale(2.4);
+        }
+    }
+
+    /* The caret that follows typed text. */
+    [data-caret]::after {
+        content: '';
+        display: inline-block;
+        width: 1px;
+        height: 1em;
+        margin-left: 2px;
+        vertical-align: text-bottom;
+        background-color: currentColor;
+        animation: caret 1s steps(2, start) infinite;
+    }
+
+    @keyframes caret {
+        50% {
+            opacity: 0;
         }
     }
 }
