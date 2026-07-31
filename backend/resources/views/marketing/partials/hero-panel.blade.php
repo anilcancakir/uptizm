@@ -1,14 +1,19 @@
 @php
     /*
-     * Illustrative telemetry for the hero panel, keyed by the region values the
-     * MonitorRegion enum defines. `colo` is the Cloudflare data centre a probe
-     * for that region actually came back from during live verification, so the
-     * geography is real even though the latency is an example.
+     * Baselines for the hero panel, keyed by the region values the MonitorRegion
+     * enum defines. `colo` is the Cloudflare data centre a probe for that region
+     * actually came back from during live verification, so the geography is real
+     * even though the latency is an example.
      *
-     * A region with no entry renders as "no data" in the neutral `paused` tone.
-     * That is deliberate: it is the same thing the product does with a day it has
-     * no checks for, so adding a region to the enum degrades this panel into
-     * honesty rather than into a fabricated row.
+     * These are the values the page RENDERS. resources/js/monitor-sim.js then
+     * jitters around them to drive the panel as a running monitor; without that
+     * script the panel simply sits on these, which is a correct quiet state rather
+     * than a broken one.
+     *
+     * A region with no entry renders as "no data" in the neutral `paused` tone and
+     * takes no part in the simulation. That is deliberate: it is what the product
+     * does with a period it has no checks for, so adding a region to the enum
+     * degrades this panel into honesty rather than into a fabricated row.
      */
     $exampleTelemetry = [
         'us-east' => ['colo' => 'MIA', 'ms' => 36],
@@ -23,10 +28,12 @@
 
     /*
      * 90 days of an example history. Two days are deliberately not green: one
-     * degraded and one with NO DATA, because that is what the real 90-day strip
-     * renders when a monitor was not being checked, and a hero that shows a
-     * flawless wall of green would be advertising a product that cannot express
-     * doubt.
+     * degraded and one with NO DATA, because that is what the real history strip
+     * renders when a monitor was not being checked, and a hero showing a flawless
+     * wall of green would be advertising a product that cannot express doubt.
+     *
+     * The last day is today, still in progress, so the simulation moves it with
+     * the monitor's current verdict.
      */
     $historyDays = collect(range(1, 90))
         ->map(fn (int $day): string => match (true) {
@@ -36,12 +43,14 @@
         });
 @endphp
 
-{{-- role="img" with a label that names this as an example: the panel is
-     decorative evidence, and a screen reader should get the summary rather than
-     a table of invented numbers. --}}
+{{-- role="img" with a label naming this an example: the panel is decorative
+     evidence, and a screen reader should get the summary rather than a table of
+     numbers that change every two seconds. --}}
 <div
     role="img"
     aria-label="{{ __('Example: an Uptizm monitor showing one check result per probe region.') }}"
+    data-monitor-sim
+    data-scale-ms="{{ $latencyScaleMs }}"
     data-enter
     style="animation-delay: 280ms"
     class="overflow-hidden rounded-lg border border-border bg-surface-container"
@@ -59,10 +68,16 @@
         </span>
     </div>
 
+    {{-- Fills between checks and resets on each one, so the panel shows that the
+         next check is COMING rather than only that the last one arrived. --}}
+    <div class="h-0.5 bg-surface-container-high" aria-hidden="true">
+        <div data-check-progress class="h-full w-0 bg-primary/60"></div>
+    </div>
+
     <div class="flex items-start justify-between gap-4 border-b border-border-subtle p-5">
         <div class="min-w-0">
             <div class="flex items-center gap-2.5">
-                <span data-breathe class="size-2.5 shrink-0 rounded-full bg-up"></span>
+                <span data-rollup-dot class="size-2.5 shrink-0 rounded-full"></span>
                 <span class="truncate font-mono text-body-md text-fg">api.acme.com</span>
             </div>
             <p class="mt-1.5 pl-[1.25rem] text-label-sm text-fg-muted">
@@ -70,8 +85,17 @@
             </p>
         </div>
 
-        <span class="shrink-0 rounded-full bg-up-soft px-2.5 py-1 text-label-sm text-up-soft-foreground">
-            {{ __('Operational') }}
+        {{-- Labels ride on the element so the simulation carries no copy of its
+             own and stays translatable. --}}
+        <span
+            data-rollup
+            data-state="up"
+            data-label-up="{{ __('Operational') }}"
+            data-label-degraded="{{ __('Degraded') }}"
+            data-label-down="{{ __('Major outage') }}"
+            class="shrink-0 rounded-full px-2.5 py-1 text-label-sm"
+        >
+            <span data-rollup-label>{{ __('Operational') }}</span>
         </span>
     </div>
 
@@ -79,20 +103,19 @@
         @foreach ($regions as $region)
             @php $sample = $exampleTelemetry[$region['value']] ?? null; @endphp
 
-            {{-- The sweep runs on rows that HAVE a result. A row with no data has
-                 nothing to be checking, so it stays still. --}}
             <li
-                @if ($sample !== null) data-probe-row style="--probe-index: {{ $loop->index }}" @endif
-                class="flex items-center gap-3 px-5 py-3"
+                @if ($sample !== null)
+                    data-region
+                    data-state="up"
+                    data-baseline-ms="{{ $sample['ms'] }}"
+                    data-label-timeout="{{ __('timeout') }}"
+                @endif
+                class="relative flex items-center gap-3 px-5 py-3"
             >
                 @if ($sample !== null)
                     <span class="relative flex size-2 shrink-0">
-                        <span
-                            data-probe-ring
-                            style="--probe-index: {{ $loop->index }}"
-                            class="absolute inline-flex size-full rounded-full bg-up"
-                        ></span>
-                        <span class="relative inline-flex size-2 rounded-full bg-up"></span>
+                        <span data-region-ring class="absolute inline-flex size-full rounded-full"></span>
+                        <span data-region-dot class="relative inline-flex size-2 rounded-full"></span>
                     </span>
                 @else
                     <span class="size-2 shrink-0 rounded-full bg-paused"></span>
@@ -104,22 +127,19 @@
 
                 <span class="hidden h-1 flex-1 overflow-hidden rounded-full bg-surface-container-high sm:block">
                     @if ($sample !== null)
-                        @php $width = min(100, (int) round($sample['ms'] / $latencyScaleMs * 100)); @endphp
-                        {{-- The rendered width IS the finished width; the animation
-                             grows to it from zero. So the no-motion state and the
-                             end state are the same markup, and nothing has to be
-                             put back afterwards. --}}
                         <span
-                            data-bar
-                            class="block h-full rounded-full bg-primary/70"
-                            style="width: {{ $width }}%; --bar-width: {{ $width }}%"
+                            data-region-bar
+                            class="block h-full rounded-full"
+                            style="width: {{ min(100, (int) round($sample['ms'] / $latencyScaleMs * 100)) }}%"
                         ></span>
                     @endif
                 </span>
 
-                <span class="w-16 shrink-0 text-right font-mono text-label-sm tabular-nums {{ $sample === null ? 'text-fg-muted' : 'text-fg' }}">
-                    {{ $sample === null ? __('no data') : $sample['ms'].' ms' }}
-                </span>
+                @if ($sample !== null)
+                    <span data-region-ms class="w-16 shrink-0 text-right font-mono text-label-sm tabular-nums">{{ $sample['ms'] }} ms</span>
+                @else
+                    <span class="w-16 shrink-0 text-right font-mono text-label-sm text-fg-muted tabular-nums">{{ __('no data') }}</span>
+                @endif
             </li>
         @endforeach
     </ul>
@@ -130,16 +150,17 @@
             <span class="font-mono text-label-sm text-fg-muted">{{ __('1 degraded · 1 no data') }}</span>
         </div>
 
-        <div data-days data-sweep class="mt-2.5 flex h-6 items-stretch gap-px">
+        <div data-days class="mt-2.5 flex h-6 items-stretch gap-px">
             @foreach ($historyDays as $day)
-                {{-- Interpolated, not @class: that directive emits a whole
-                     `class="..."` attribute, so inside one it nests and the
-                     browser drops every utility after it. --}}
-                <span data-day class="flex-1 rounded-[1px] {{ match ($day) {
-                    'up' => 'bg-up',
-                    'degraded' => 'bg-degraded',
-                    'none' => 'bg-surface-container-high',
-                } }}"></span>
+                {{-- `data-state` drives the colour from CSS rather than a Tailwind
+                     class, because the last segment's state is changed from JS and
+                     Tailwind only generates the classes it can SEE in the source. --}}
+                <span
+                    data-day
+                    data-state="{{ $day }}"
+                    @if ($loop->last) data-today @endif
+                    class="flex-1 rounded-[1px]"
+                ></span>
             @endforeach
         </div>
     </div>
