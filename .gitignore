@@ -57,3 +57,6 @@ pubspec_overrides.yaml
 
 # Local QA report (not part of the published example)
 /REPORT.md
+
+# playwright-cli scratch snapshots from browser debugging sessions.
+.playwright-cli/
