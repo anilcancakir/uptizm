@@ -1,0 +1,20 @@
+{
+    "status": "ok",
+    "generated_at": "2026-08-01T10:00:00+00:00",
+    "summary": "This free-text field is deliberately longer than the digest ceiling so the full sample value and the truncated digest row can be told apart by a test rather than by inspection.",
+    "metrics": {
+        "latency_ms": 4200,
+        "error_rate": "0.5%",
+        "uptime_pct": 99.98
+    },
+    "items": [
+        {
+            "region": "fra",
+            "latency": "120ms"
+        },
+        {
+            "region": "iad",
+            "latency": "133ms"
+        }
+    ]
+}

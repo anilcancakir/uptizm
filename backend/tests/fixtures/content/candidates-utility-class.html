@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Candidate fixture: class stability</title>
+</head>
+<body>
+<main>
+    <!--
+        Every class on the value-bearing element here is a Tailwind utility, so
+        none of them may become a selector component: the first restyle would
+        silently stop the path resolving. The path must fall through to
+        positional. Two paragraphs exist on purpose, so `//p` is not unique
+        either and the fall-through is genuinely to a positional path.
+    -->
+    <div class="rounded-lg p-4">
+        <p class="text-sm text-gray-500">Error rate</p>
+        <p class="font-bold text-blue-400">98%</p>
+    </div>
+
+    <!--
+        The positive control: a semantic, word-like class IS allowed to anchor,
+        which is what keeps the stability gate from being a blanket ban.
+    -->
+    <div class="latency-card">
+        <p class="latency-value">88ms</p>
+    </div>
+</main>
+</body>
+</html>

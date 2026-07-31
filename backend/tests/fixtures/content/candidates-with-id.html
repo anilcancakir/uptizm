@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Candidate fixture: id anchors</title>
+</head>
+<body>
+<main>
+    <!--
+        The value sits DIRECTLY inside the id-bearing element, so that element's
+        own textContent equals the value and `//*[@id="render-time"]` round-trips
+        through the whole-subtree read the extractor performs.
+    -->
+    <section class="overview">
+        <p>Render time <span id="render-time">120ms</span></p>
+        <p>Requests served <span id="request-count">4200</span></p>
+    </section>
+
+    <!--
+        Here the id sits on a WRAPPER whose textContent is "p95 340ms", so an id
+        anchor alone would round-trip a different string. The path must descend
+        from the id to the value-bearing element instead.
+    -->
+    <section>
+        <div id="latency-panel">
+            <span>p95</span>
+            <span>340ms</span>
+        </div>
+    </section>
+</main>
+</body>
+</html>

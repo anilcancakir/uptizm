@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Candidate fixture: sibling enumeration</title>
+</head>
+<body>
+<main>
+    <!--
+        Seven siblings sharing one parent and one digit-masked value shape are
+        list numbering, not seven metrics. They collapse to a single
+        representative so the digest is not filled with counting.
+    -->
+    <ol class="steps">
+        <li>1</li>
+        <li>2</li>
+        <li>3</li>
+        <li>4</li>
+        <li>5</li>
+        <li>6</li>
+        <li>7</li>
+    </ol>
+
+    <!--
+        A different parent AND a different shape stay their own group. That is
+        what proves the collapse groups on (parent, shape) rather than simply
+        keeping one row per document.
+    -->
+    <ul class="timings">
+        <li>42ms</li>
+        <li>51ms</li>
+    </ul>
+</main>
+</body>
+</html>
