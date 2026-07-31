@@ -3,14 +3,235 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+/*
+ * Geist, self-hosted: the same two variable files the Flutter client ships in
+ * `assets/fonts/`. Self-hosted rather than pulled from a font CDN because these
+ * pages are the public face of an uptime product, and a third-party request in
+ * the critical path of a status page is a dependency we would then be
+ * accountable for during someone else's incident. It also keeps the headless
+ * preview renderer deterministic: `document.fonts.ready` no longer waits on a
+ * network we do not control.
+ *
+ * Both files carry the full 100-900 axis, so the range is declared once rather
+ * than one @font-face per weight.
+ */
+@font-face {
+    font-family: 'Geist';
+    src: url('../fonts/GeistVariable.woff2') format('woff2-variations');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
 
-    /* The product's single brand green, kept in sync with the Flutter client's
-       `primary` in DESIGN.md. The rest of this surface stays on Tailwind's
-       default gray scale, as the status page already does, so nothing here is a
-       bespoke palette to maintain. */
-    --color-brand: #008560;
-    --color-brand-dark: #00674a;
+@font-face {
+    font-family: 'Geist Mono';
+    src: url('../fonts/GeistMonoVariable.woff2') format('woff2-variations');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+/*
+ * The design system, ported from the Flutter client's DESIGN.md so the
+ * marketing page, the status page and the product read as one product. Token
+ * NAMES match DESIGN.md's alias keys exactly; when a value changes there it has
+ * to change here, and the two must not be allowed to drift.
+ *
+ * Light and dark live in the two blocks below and reach Tailwind through
+ * `@theme inline`, so `bg-surface` compiles to `var(--app-surface)` and follows
+ * the visitor's system preference on its own. That is deliberate: it makes a
+ * light-only colour impossible to write, which is the same guarantee DESIGN.md
+ * enforces on the Wind side by demanding an explicit `dark:` pair for every
+ * token. `dark:` still works, and is reserved for the cases where dark needs a
+ * genuinely different treatment rather than merely a different value.
+ */
+:root {
+    --app-surface: #f9fafb;
+    --app-surface-container: #ffffff;
+    --app-surface-container-high: #f1f3f6;
+
+    --app-fg: #040608;
+    --app-fg-muted: #555d65;
+    --app-fg-disabled: #d1d5da;
+
+    --app-primary: #008560;
+    --app-on-primary: #ffffff;
+    --app-primary-container: #e0f9ee;
+    --app-accent: #007a54;
+
+    --app-border: #dee2e5;
+    --app-border-subtle: #eceff1;
+
+    --app-destructive: #df202e;
+    --app-on-destructive: #ffffff;
+
+    /* The monitoring status vocabulary. `down` equals `destructive` by design,
+       so an outage and a dangerous action read identically. */
+    --app-up: #30a556;
+    --app-up-soft: #dcf9e1;
+    --app-up-soft-foreground: #197037;
+    --app-down: #df202e;
+    --app-down-soft: #ffe3df;
+    --app-down-soft-foreground: #b71824;
+    --app-degraded: #e69825;
+    --app-degraded-soft: #ffeccc;
+    --app-degraded-soft-foreground: #834100;
+    --app-paused: #79828a;
+    --app-paused-soft: #f1f3f6;
+    --app-paused-soft-foreground: #555d65;
+    --app-info: #207fe8;
+    --app-info-soft: #dbefff;
+    --app-info-soft-foreground: #005dd1;
+    --app-ai: #6e59e2;
+    --app-ai-soft: #ece8ff;
+    --app-ai-soft-foreground: #5f40d5;
+    --app-ai-wash: #f2f1fd;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --app-surface: #07090c;
+        --app-surface-container: #121518;
+        --app-surface-container-high: #202529;
+
+        --app-fg: #f1f3f6;
+        --app-fg-muted: #aab1b7;
+        --app-fg-disabled: #3a4147;
+
+        --app-primary: #00c292;
+        --app-on-primary: #07090c;
+        --app-primary-container: #003223;
+        --app-accent: #98e8c9;
+
+        --app-border: #2a2e33;
+        --app-border-subtle: #1c2023;
+
+        --app-destructive: #ff645f;
+        --app-on-destructive: #07090c;
+
+        --app-up: #45c06a;
+        --app-up-soft: #0c2e16;
+        --app-up-soft-foreground: #8ce6a0;
+        --app-down: #ff645f;
+        --app-down-soft: #4c1010;
+        --app-down-soft-foreground: #ffaea6;
+        --app-degraded: #f5ae39;
+        --app-degraded-soft: #412400;
+        --app-degraded-soft-foreground: #fac871;
+        --app-paused: #999fa6;
+        --app-paused-soft: #23272b;
+        --app-paused-soft-foreground: #aab1b7;
+        --app-info: #53a0ff;
+        --app-info-soft: #00265d;
+        --app-info-soft-foreground: #b0d4ff;
+        --app-ai: #9e8afa;
+        --app-ai-soft: #2b195a;
+        --app-ai-soft-foreground: #d6d0ff;
+        --app-ai-wash: #191133;
+    }
+}
+
+@theme inline {
+    --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+    --color-surface: var(--app-surface);
+    --color-surface-container: var(--app-surface-container);
+    --color-surface-container-high: var(--app-surface-container-high);
+
+    --color-fg: var(--app-fg);
+    --color-fg-muted: var(--app-fg-muted);
+    --color-fg-disabled: var(--app-fg-disabled);
+
+    --color-primary: var(--app-primary);
+    --color-on-primary: var(--app-on-primary);
+    --color-primary-container: var(--app-primary-container);
+    --color-accent: var(--app-accent);
+
+    --color-border: var(--app-border);
+    --color-border-subtle: var(--app-border-subtle);
+
+    --color-destructive: var(--app-destructive);
+    --color-on-destructive: var(--app-on-destructive);
+
+    --color-up: var(--app-up);
+    --color-up-soft: var(--app-up-soft);
+    --color-up-soft-foreground: var(--app-up-soft-foreground);
+    --color-down: var(--app-down);
+    --color-down-soft: var(--app-down-soft);
+    --color-down-soft-foreground: var(--app-down-soft-foreground);
+    --color-degraded: var(--app-degraded);
+    --color-degraded-soft: var(--app-degraded-soft);
+    --color-degraded-soft-foreground: var(--app-degraded-soft-foreground);
+    --color-paused: var(--app-paused);
+    --color-paused-soft: var(--app-paused-soft);
+    --color-paused-soft-foreground: var(--app-paused-soft-foreground);
+    --color-info: var(--app-info);
+    --color-info-soft: var(--app-info-soft);
+    --color-info-soft-foreground: var(--app-info-soft-foreground);
+    --color-ai: var(--app-ai);
+    --color-ai-soft: var(--app-ai-soft);
+    --color-ai-soft-foreground: var(--app-ai-soft-foreground);
+    --color-ai-wash: var(--app-ai-wash);
+
+    /*
+     * Corner radii, named as DESIGN.md names them (`DEFAULT` becomes `base`,
+     * since a bare `rounded` cannot be redefined). These intentionally shadow
+     * Tailwind's own md/lg/xl values: the app's 4px scale is the authority.
+     */
+    --radius-sm: 4px;
+    --radius-base: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+
+    /* The app's type scale, one token per DESIGN.md entry. */
+    --text-label-sm: 12px;
+    --text-label-sm--line-height: 16px;
+    --text-label-sm--font-weight: 500;
+
+    --text-label-md: 14px;
+    --text-label-md--line-height: 20px;
+    --text-label-md--letter-spacing: 0.01em;
+    --text-label-md--font-weight: 600;
+
+    --text-body-md: 14px;
+    --text-body-md--line-height: 22px;
+
+    --text-body-lg: 16px;
+    --text-body-lg--line-height: 26px;
+
+    --text-title-lg: 18px;
+    --text-title-lg--line-height: 26px;
+    --text-title-lg--font-weight: 600;
+
+    --text-headline-md: 22px;
+    --text-headline-md--line-height: 30px;
+    --text-headline-md--font-weight: 600;
+
+    --text-headline-lg: 28px;
+    --text-headline-lg--line-height: 36px;
+    --text-headline-lg--letter-spacing: -0.01em;
+    --text-headline-lg--font-weight: 700;
+
+    --text-display: 36px;
+    --text-display--line-height: 44px;
+    --text-display--letter-spacing: -0.02em;
+    --text-display--font-weight: 700;
+
+    /*
+     * Marketing-only steps above the app scale. A product screen never needs
+     * type this large, so these do NOT exist in DESIGN.md: they extend it for
+     * the landing page rather than contradict it. Fluid, so the hero does not
+     * need a breakpoint ladder of its own.
+     */
+    --text-hero: clamp(2.5rem, 1.7rem + 3vw, 3.75rem);
+    --text-hero--line-height: 1.04;
+    --text-hero--letter-spacing: -0.03em;
+    --text-hero--font-weight: 700;
+
+    --text-section: clamp(1.75rem, 1.4rem + 1.4vw, 2.5rem);
+    --text-section--line-height: 1.15;
+    --text-section--letter-spacing: -0.02em;
+    --text-section--font-weight: 700;
 }

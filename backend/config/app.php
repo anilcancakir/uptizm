@@ -86,6 +86,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Our Own Public Status Page
+    |--------------------------------------------------------------------------
+    |
+    | The status page we publish about ourselves, linked from the landing page
+    | footer. Every credible tool in this category monitors itself in public, and
+    | its absence reads as an admission, so the link appears as soon as this is
+    | set and stays out while it is empty rather than pointing at a 404.
+    |
+    */
+
+    'own_status_page_url' => env('APP_OWN_STATUS_PAGE_URL'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

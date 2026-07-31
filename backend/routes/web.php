@@ -1,11 +1,10 @@
 <?php
 
+use App\Http\Controllers\Marketing\ShowLandingController;
 use App\Http\Controllers\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::get('/', ShowLandingController::class)->name('landing');
 
 /*
  * Point Cashier's `stripe/webhook` path at the app's StripeWebhookController so

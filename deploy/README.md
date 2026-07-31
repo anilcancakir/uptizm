@@ -109,6 +109,22 @@ rather than pretending to work.
 | `ANTHROPIC_API_KEY` | AI triage is inert. No suggestion is invented. |
 | `STRIPE_KEY` / `STRIPE_SECRET` / `STRIPE_WEBHOOK_SECRET` | Billing endpoints answer, but no checkout completes and the webhook cannot verify a signature. |
 | `MAIL_*` (a real SMTP provider) | Mail goes to the log. No status-page subscriber receives a confirmation, and no alert email is sent. Cloudflare Email Routing on this domain **receives** only; sending needs a provider. |
+| `APP_OWN_STATUS_PAGE_URL` | The landing page footer has no link to a status page of our own. Every competitor in this category publishes one, so its absence is visible. |
+
+Two of those now change what the landing page SAYS, not just what the product
+does. `ShowLandingController` derives the page's feature claims from the
+deployment's actual capabilities, so a missing key removes a claim rather than
+leaving a false one:
+
+- no AI provider key -> the whole AI section is withheld, because without it every
+  AI path returns its deterministic fallback and the section would be selling the
+  fallback
+- `MAIL_MAILER=log` -> the status-page subscriber promise is withheld, because the
+  confirmation email a subscriber waits for is written to a file
+
+So the page currently goes live in a reduced form. Set the mail transport and an
+AI key first if you want it whole. `LandingPageTest` pins both directions of both
+gates, so neither can be quietly inverted.
 
 ## Rebuilding the Flutter client
 
