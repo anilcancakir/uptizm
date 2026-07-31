@@ -56,13 +56,16 @@ for it.
 You must be able to enter a binding contract where you live. The product does not check your
 age or capacity: that is a term you are relied on to honour, not a control that stops you.
 
-These terms are accepted by creating an account and using the Service. Being honest about
-what that looks like today: the sign-up screen in the application does not link to this page
-yet, and the link that does exist is in the footer of every page on this website. A term you
-had no real opportunity to read before you signed up is not enforced against you, and EU
-consumer-protection law reaches the same result through its transparency requirement. If you
-have just found this page and disagree with something in it, section 8 tells you how to
-leave, and nothing here charges you for doing so.
+These terms are accepted by creating an account and using the Service. Being precise about what
+that looks like today: the sign-up screen in the application shows, directly above the button that
+creates the account, a line saying you agree to the Terms of Service and the Privacy Policy, with
+each of the two as a link that opens the document on this website in the language the screen is in.
+The same two links sit in the footer of every page here. There is no separate tick box, so being
+shown the two documents and then creating the account is the acceptance. A term you had no real
+opportunity to read is still not enforced against you, and EU consumer-protection law reaches the
+same result through its transparency requirement, which is why the link belongs on the screen where
+the account is created and not only in a footer. If you disagree with something in this document,
+section 8 tells you how to leave, and nothing here charges you for doing so.
 
 **Whether you are a consumer or a business is decided by what you actually do, not by the
 plan name.** Nothing in the product asks you to declare it: there is no company-name field,

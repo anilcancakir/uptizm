@@ -58,13 +58,16 @@ Bulunduğunuz yerde bağlayıcı bir sözleşme kurma ehliyetine sahip olmanız 
 yaşınızı veya ehliyetinizi denetlemiyor: bu, sizin uymanız beklenen bir hüküm, sizi
 durduran bir kontrol değil.
 
-Bu koşullar, bir hesap oluşturup Hizmeti kullanmakla kabul edilir. Bunun bugün gerçekte
-nasıl göründüğünü açıkça yazmak gerekir: uygulamadaki kayıt ekranı henüz bu sayfaya bağlantı
-vermiyor; var olan bağlantı bu sitedeki her sayfanın altındaki bağlantıdır. Kaydolmadan önce
-okumak için gerçek bir imkân bulamadığınız bir hüküm size karşı ileri sürülmez; Avrupa
-Birliği tüketici hukuku da şeffaflık ilkesi üzerinden aynı sonuca varır. Bu sayfayı yeni
-bulduysanız ve bir maddeye katılmıyorsanız, 8. bölüm nasıl ayrılacağınızı anlatıyor ve burada
-hiçbir hüküm ayrılmanız için sizden bir bedel istemiyor.
+Bu koşullar, bir hesap oluşturup Hizmeti kullanmakla kabul edilir. Bunun bugün gerçekte nasıl
+göründüğünü açıkça yazmak gerekir: uygulamadaki kayıt ekranı, hesabı oluşturan düğmenin hemen
+üstünde, Kullanım Koşulları'nı ve Gizlilik Politikası'nı kabul ettiğinizi söyleyen bir satır
+gösterir; bu iki belgenin her biri, metni bu sitede ekrandaki dille açan bir bağlantıdır. Aynı iki
+bağlantı buradaki her sayfanın altında da duruyor. Ayrı bir onay kutusu yok; iki belge önünüze
+konduktan sonra hesabı oluşturmanız kabul anlamına gelir. Okumak için gerçek bir imkân
+bulamadığınız bir hüküm size karşı yine de ileri sürülmez; Avrupa Birliği tüketici hukuku da
+şeffaflık ilkesi üzerinden aynı sonuca varır ve bağlantının yalnızca sayfa altında değil, hesabın
+oluşturulduğu ekranda durmasının sebebi budur. Bu metindeki bir maddeye katılmıyorsanız, 8. bölüm
+nasıl ayrılacağınızı anlatıyor ve burada hiçbir hüküm ayrılmanız için sizden bir bedel istemiyor.
 
 **Tüketici mi yoksa ticari kullanıcı mı olduğunuzu planın adı değil, fiilen ne yaptığınız
 belirler.** Ürünün hiçbir yeri bunu size sormuyor: ne bir şirket adı alanı, ne bir vergi

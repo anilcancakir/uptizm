@@ -246,6 +246,64 @@ class TermsPageTest extends TestCase
             ->assertSee('düğme');
     }
 
+    public function test_the_acceptance_paragraph_matches_the_sign_up_screen_the_client_renders(): void
+    {
+        /*
+         * This paragraph used to publish the opposite: "the sign-up screen in the application
+         * does not link to this page yet". It was true when it was written, and the sentence
+         * after it concedes that a term the reader had no opportunity to read is not enforced
+         * against them, so the page was waiving the enforceability of its own terms on a premise
+         * that has since stopped holding.
+         *
+         * The client is the other half of this claim and it lives in this repository (the
+         * Flutter app is the repo root, `backend/` is a subdirectory), so the two halves are
+         * pinned together rather than left to drift: `lib/app/support/web_links.dart` fills
+         * magic_starter's `legal` block with locale-aware URLs and `lib/config/magic_starter.dart`
+         * hands that block to the config, which is what makes `MagicStarterConfig.hasLegalLinks()`
+         * true and renders the two links above the create-account button. Null either key again
+         * and the register screen hides the whole legal line, at which point this paragraph has
+         * to go back to describing a footer link.
+         */
+        $resolver = base_path('../lib/app/support/web_links.dart');
+        $clientConfig = base_path('../lib/config/magic_starter.dart');
+
+        $this->assertFileExists($resolver, 'The client web-link resolver moved; this paragraph names what it renders.');
+        $this->assertFileExists($clientConfig, 'The client magic_starter config moved; this paragraph names what it renders.');
+
+        $this->assertStringContainsString(
+            "'terms_url': terms",
+            (string) file_get_contents($resolver),
+            'The client no longer resolves a Terms URL, so the sign-up screen shows no link to this page.',
+        );
+        $this->assertStringContainsString(
+            'WebLinks.legalConfig',
+            (string) file_get_contents($clientConfig),
+            'The client no longer hands the legal URLs to magic_starter, so the sign-up screen hides the legal line.',
+        );
+
+        // The stale claim, in the words each language used to carry it in.
+        $stale = [
+            'en' => 'does not link',
+            'tr' => 'bağlantı vermiyor',
+        ];
+
+        foreach ($this->supported() as $locale) {
+            $this->assertStringNotContainsString(
+                $stale[$locale],
+                $this->source($locale),
+                "The Terms source in \"{$locale}\" still says the sign-up screen carries no link to this page.",
+            );
+        }
+
+        $this->get('/terms')
+            ->assertSee('sign-up screen')
+            ->assertSee('Privacy Policy');
+
+        $this->get('/tr/terms')
+            ->assertSee('kayıt ekranı')
+            ->assertSee('Gizlilik Politikası');
+    }
+
     public function test_the_page_says_who_wrote_it_and_that_it_is_not_legal_advice(): void
     {
         // The plan's own framing: this document is factually correct about the system and
