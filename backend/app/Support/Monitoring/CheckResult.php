@@ -3,6 +3,7 @@
 namespace App\Support\Monitoring;
 
 use App\Enums\MonitorStatus;
+use App\Services\Monitoring\CheckPersistenceService;
 use DateTimeImmutable;
 
 /**
@@ -17,6 +18,12 @@ use DateTimeImmutable;
  */
 readonly class CheckResult
 {
+    /**
+     * The `monitor_content_versions.content_type` column width; a longer header
+     * is cut to it as it enters (see {@see fromWorkerPayload()}).
+     */
+    protected const int CONTENT_TYPE_MAX_LENGTH = 128;
+
     /**
      * @param  array<string, string>  $responseHeaders
      */
@@ -62,6 +69,40 @@ readonly class CheckResult
          * failure streak would mask a real outage underneath.
          */
         public bool $probeRefused = false,
+
+        /**
+         * The full DECODED response body, up to `content-archive.max_bytes`.
+         *
+         * The worker reads the body once, which is what makes the runtime
+         * decompress it, so this is plain content whether the origin served
+         * gzip, brotli or nothing. That decoding is required for the archive
+         * hash to be stable: the same page compressed twice is not the same
+         * bytes.
+         *
+         * Null for a TCP probe, for a response whose content type falls outside
+         * `content-archive.allowed_content_types` (the edge filters it, so a
+         * disallowed body never crosses the wire), and for any payload from a
+         * worker deployment older than this field.
+         *
+         * It is deliberately ABSENT from {@see toArray()}; see that docblock.
+         */
+        public ?string $content = null,
+
+        /**
+         * The raw `content-type` response header, truncated to 128 characters
+         * in {@see fromWorkerPayload()}.
+         *
+         * Carried even when {@see $content} was filtered out, because knowing
+         * WHICH type was rejected is what makes a missing archive explainable.
+         */
+        public ?string $contentType = null,
+
+        /**
+         * True when the body reached `content-archive.max_bytes` and the
+         * remainder was discarded at the edge, so {@see $content} is a prefix of
+         * what the target actually served rather than the whole of it.
+         */
+        public bool $contentTruncated = false,
     ) {}
 
     /**
@@ -91,15 +132,37 @@ readonly class CheckResult
                 ? (string) $payload['colo']
                 : null,
             probeRefused: (bool) ($payload['probe_refused'] ?? false),
+            content: isset($payload['content']) ? (string) $payload['content'] : null,
+            // Cut to 128 characters HERE, at the boundary where untrusted data
+            // enters: this is a raw header chosen by the monitored target and it
+            // lands in a `string(128)` column, where PostgreSQL throws on an
+            // over-long value rather than trimming it. The archive claim runs
+            // inside `PerformMonitorCheck` before `ProcessCheckResult` is
+            // dispatched, so that throw would take the whole check down and lose
+            // the telemetry. The archive degrades first; monitoring never does.
+            contentType: isset($payload['content_type']) && $payload['content_type'] !== ''
+                ? mb_substr((string) $payload['content_type'], 0, self::CONTENT_TYPE_MAX_LENGTH)
+                : null,
+            contentTruncated: (bool) ($payload['content_truncated'] ?? false),
         );
     }
 
     /**
-     * Serialize back to the worker wire shape.
+     * Serialize back to the worker wire shape, MINUS the response body.
      *
      * The output round-trips through {@see fromWorkerPayload()}; the
      * processing job uses it to hand the parsed result forward without
      * re-deriving the individual fields.
+     *
+     * `content` is deliberately omitted while `content_type` and
+     * `content_truncated` are present, and that asymmetry must not be "fixed".
+     * `PerformMonitorCheck` dispatches this array onto the Redis `processing`
+     * queue, so including the body would push every HTTP check's full page (up
+     * to 1 MB) into Redis. Queue keys carry no TTL, so under `volatile-lru` the
+     * eviction victims are {@see CheckPersistenceService}'s
+     * locks, and losing one races `consecutive_fails` into a duplicate incident.
+     * The body reaches the archive from the body-owning stage instead, never
+     * through a queue payload.
      *
      * @return array<string, mixed>
      */
@@ -125,6 +188,8 @@ readonly class CheckResult
             'probe_run_id' => $this->probeRunId,
             'colo' => $this->colo,
             'probe_refused' => $this->probeRefused,
+            'content_type' => $this->contentType,
+            'content_truncated' => $this->contentTruncated,
         ];
     }
 }

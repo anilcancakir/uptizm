@@ -69,6 +69,11 @@ class RelayClient
         $response = Http::withHeaders([
             config('relay.signature_header') => $signature,
             config('relay.timestamp_header') => (string) $timestamp,
+            // Every HTTP probe now returns the full body, so this hop carries
+            // roughly 8x what it used to. The worker honours the header and
+            // Guzzle turns it into CURLOPT_ENCODING, so curl decompresses
+            // transparently and the parsed payload is unaffected.
+            'Accept-Encoding' => 'gzip',
         ])
             ->retry(2, 200, fn ($e): bool => $e instanceof ConnectionException)
             ->timeout(config('relay.timeout_seconds'))
@@ -105,6 +110,16 @@ class RelayClient
             'auth_config' => $monitor->auth_config,
             'assertion_rules' => $monitor->assertion_rules,
             'probe_run_id' => (string) Str::uuid(),
+            // The body ceiling and the content-type allowlist travel on the
+            // signed spec because the worker cannot read Laravel config. A
+            // worker-owned copy of either would mean raising
+            // CONTENT_ARCHIVE_MAX_BYTES, or widening the allowlist, silently
+            // does nothing: exactly the two-language drift this routing avoids.
+            // The worker reimplements the matcher from
+            // {@see \App\Support\Monitoring\ContentTypeAllowList}, so the list
+            // is sent verbatim, order and shape intact.
+            'max_bytes' => (int) config('content-archive.max_bytes'),
+            'allowed_content_types' => config('content-archive.allowed_content_types'),
         ];
     }
 }

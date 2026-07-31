@@ -37,6 +37,29 @@ type ProbeRequest = {
     expected_status_code: number;
     auth_config: unknown;
     assertion_rules: unknown;
+
+    /**
+     * The body ceiling in bytes, mirrored from the origin's
+     * `content-archive.max_bytes`.
+     *
+     * It travels on the signed spec rather than living here so raising the
+     * origin's config actually raises the ceiling. Optional because a spec from
+     * an origin older than the content archive omits it; see
+     * {@link CONTENT_MAX_BYTES_FALLBACK}.
+     */
+    max_bytes?: number;
+
+    /**
+     * The content types whose body may be returned, mirrored verbatim from the
+     * origin's `content-archive.allowed_content_types`.
+     *
+     * ABSENT MEANS NOTHING IS ALLOWED: an origin that does not send the list has
+     * nowhere to put a body, so it keeps the preview-only behaviour it expects.
+     * Do NOT introduce a default list here; the whole point of routing the
+     * allowlist through the signed spec is that widening it stays a one-sided
+     * config change on the origin.
+     */
+    allowed_content_types?: string[];
 };
 
 type CheckResultPayload = {
@@ -77,6 +100,38 @@ type CheckResultPayload = {
      * a target that is up.
      */
     probe_refused: boolean;
+
+    /**
+     * The DECODED response body, up to {@link ProbeRequest.max_bytes}.
+     *
+     * Reading the body is what makes the runtime decompress it, so this is plain
+     * content whether the target served gzip, brotli or nothing. That matters
+     * because the API hashes it: the same page compressed twice is not the same
+     * bytes, so a still-compressed body would dedupe to nothing.
+     *
+     * Null for a TCP probe, for a failed probe, and for a response whose content
+     * type falls outside {@link ProbeRequest.allowed_content_types}. Filtering
+     * HERE rather than on the API side means a body the archive would refuse
+     * never crosses the wire at all.
+     */
+    content: string | null;
+
+    /**
+     * The raw `content-type` response header, or null when the response carried
+     * none.
+     *
+     * Sent even when {@link CheckResultPayload.content} was filtered out: which
+     * type was rejected is what makes a missing archive explainable rather than
+     * mysterious.
+     */
+    content_type: string | null;
+
+    /**
+     * True when the body reached the ceiling and the remainder was discarded, so
+     * {@link CheckResultPayload.content} is a prefix of what the target served
+     * rather than the whole of it.
+     */
+    content_truncated: boolean;
 };
 
 /**
@@ -99,6 +154,16 @@ function isRefusedByEdge(error: unknown): boolean {
 }
 
 const BODY_PREVIEW_BYTES = 10_240;
+
+/**
+ * Body ceiling used only when the spec carries no {@link ProbeRequest.max_bytes}.
+ *
+ * The spec's value is the authority: it mirrors the origin's
+ * `content-archive.max_bytes`, so raising that raises this. This fallback exists
+ * for a spec from an origin older than the archive feature, and matches the
+ * origin's own default so the two agree by construction.
+ */
+const CONTENT_MAX_BYTES_FALLBACK = 1_048_576;
 
 export class RegionalProbe {
     async fetch(request: Request): Promise<Response> {
@@ -235,6 +300,9 @@ async function executeProbe(
                 response_body_preview: null,
                 colo: "unknown",
                 probe_refused: refused,
+                content: null,
+                content_type: null,
+                content_truncated: false,
             },
             colo: "unknown",
         };
@@ -265,8 +333,9 @@ async function probeHttp(
     ]);
     const ttfbAt = Date.now();
 
-    // 2. Drain up to 10 KiB of the response body for the preview.
-    const preview = await readBodyPreview(response);
+    // 2. Drain the response body ONCE, up to the archive ceiling, and derive
+    //    both the 10 KiB preview and the archivable content from that one read.
+    const body = await readBody(response, probe);
     const downloadEnd = Date.now();
 
     // 3. DNS/connect/TLS stay zero: CF does not expose per-phase timing.
@@ -290,9 +359,12 @@ async function probeHttp(
             error_message: null,
             timing,
             response_headers: extractHeaders(response.headers),
-            response_body_preview: preview,
+            response_body_preview: body.preview,
             colo,
             probe_refused: false,
+            content: body.content,
+            content_type: response.headers.get("content-type"),
+            content_truncated: body.truncated,
         },
         colo,
     };
@@ -357,6 +429,11 @@ async function probeTcp(
             response_body_preview: null,
             colo,
             probe_refused: false,
+            // A TCP probe sends no request and reads no body: reaching `opened`
+            // IS the health signal, so there is nothing to archive.
+            content: null,
+            content_type: null,
+            content_truncated: false,
         },
         colo,
     };
@@ -419,28 +496,97 @@ function determineStatus(statusCode: number, expected: number): "up" | "down" | 
     return "down";
 }
 
-async function readBodyPreview(response: Response): Promise<string | null> {
+type BodyRead = {
+    /** The first {@link BODY_PREVIEW_BYTES} of the body, decoded. */
+    preview: string | null;
+
+    /** The archivable body, decoded, or null when it must not travel. */
+    content: string | null;
+
+    /** True when bytes past the content ceiling were discarded. */
+    truncated: boolean;
+};
+
+/**
+ * Drain the response body ONCE and derive both the preview and the archivable
+ * content from that single read.
+ *
+ * A stream can only be consumed once, and the 10 KiB preview column predates the
+ * archive, so the two must come out of the same pass: reading twice would either
+ * throw on a locked body or double the target's egress.
+ *
+ * A body whose content type is not on the spec's allowlist is read only as far
+ * as the preview. There is nothing to archive, so pulling the remaining megabyte
+ * across the edge would buy nothing.
+ */
+async function readBody(response: Response, probe: ProbeRequest): Promise<BodyRead> {
     if (response.body === null) {
-        return null;
+        return {
+            preview: null,
+            content: null,
+            truncated: false,
+        };
     }
+
+    const archivable = contentTypeAllowed(
+        response.headers.get("content-type"),
+        probe.allowed_content_types ?? [],
+    );
+    const contentCeiling = archivable
+        ? (probe.max_bytes ?? CONTENT_MAX_BYTES_FALLBACK)
+        : 0;
+    // The preview floor is independent of the archive ceiling: a deploy that
+    // lowered `max_bytes` below 10 KiB must not quietly shrink the preview
+    // column that existing consumers read.
+    const readLimit = Math.max(contentCeiling, BODY_PREVIEW_BYTES);
+
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;
+    let ended = false;
 
-    while (total < BODY_PREVIEW_BYTES) {
+    while (total < readLimit) {
         const {
             done,
             value,
         } = await reader.read();
         if (done) {
+            ended = true;
             break;
         }
         chunks.push(value);
         total += value.byteLength;
     }
+
+    // A body that ends exactly ON the ceiling is indistinguishable from one that
+    // continues past it until one more chunk is asked for. Without this an
+    // exactly-1 MB page would be archived under a truncation flag it does not
+    // deserve, and the API would treat a complete snapshot as a fragment.
+    if (!ended && total <= contentCeiling) {
+        const {
+            done,
+        } = await reader.read();
+        ended = done;
+    }
     reader.cancel().catch(() => {});
 
-    const merged = new Uint8Array(Math.min(total, BODY_PREVIEW_BYTES));
+    const merged = mergeChunks(chunks, Math.min(total, readLimit));
+
+    return {
+        preview: decodeUtf8(merged.subarray(0, Math.min(merged.byteLength, BODY_PREVIEW_BYTES))),
+        content: archivable
+            ? decodeUtf8(merged.subarray(0, Math.min(merged.byteLength, contentCeiling)))
+            : null,
+        truncated: archivable && (total > contentCeiling || !ended),
+    };
+}
+
+/**
+ * Copy `chunks` into one buffer of exactly `size` bytes, dropping the overflow
+ * of the chunk that crossed the limit.
+ */
+function mergeChunks(chunks: Uint8Array[], size: number): Uint8Array {
+    const merged = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) {
         const copyLen = Math.min(chunk.byteLength, merged.byteLength - offset);
@@ -450,10 +596,58 @@ async function readBodyPreview(response: Response): Promise<string | null> {
             break;
         }
     }
+    return merged;
+}
+
+/**
+ * Decode bytes as UTF-8 without failing on malformed input.
+ *
+ * Non-fatal on purpose: the ceiling cuts BYTES, so a multi-byte sequence split
+ * at the boundary must become U+FFFD rather than throw away the whole body.
+ */
+function decodeUtf8(bytes: Uint8Array): string {
     return new TextDecoder("utf-8", {
         fatal: false,
         ignoreBOM: false,
-    }).decode(merged);
+    }).decode(bytes);
+}
+
+/**
+ * Whether a response `Content-Type` may have its body returned.
+ *
+ * This MIRRORS `App\Support\Monitoring\ContentTypeAllowList::allows()` on the
+ * API side, deliberately step for step: lowercase the raw header, cut at the
+ * first `;` to drop parameters such as `charset=utf-8`, trim, then accept when
+ * the result equals an exact rule or begins with a prefix rule (a rule ending in
+ * `/`). A null or empty header is rejected, and so is every header when `rules`
+ * is empty. Change one side and the other must move with it; the rules
+ * themselves are never authored here, they arrive on the signed spec.
+ */
+function contentTypeAllowed(header: string | null, rules: string[]): boolean {
+    if (header === null || header.trim() === "") {
+        return false;
+    }
+
+    const mediaType = (header.split(";")[0] ?? "").trim().toLowerCase();
+    if (mediaType === "") {
+        return false;
+    }
+
+    for (const rule of rules) {
+        if (rule.endsWith("/")) {
+            if (mediaType.startsWith(rule)) {
+                return true;
+            }
+
+            continue;
+        }
+
+        if (mediaType === rule) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function extractHeaders(headers: Headers): Record<string, string> {
