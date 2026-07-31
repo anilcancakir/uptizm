@@ -139,6 +139,143 @@ class CheckPersistenceServiceTest extends TestCase
     }
 
     /**
+     * Metric extraction now happens in the stage that holds the FULL response
+     * body, so the sample arrives here pre-extracted. The preview deliberately
+     * carries a different value (42), which is what makes this assertion prove
+     * the pre-extracted sample is the one that persists.
+     */
+    public function test_pre_extracted_samples_persist_instead_of_the_truncated_preview(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+
+        $this->service()->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+            ['latency' => '99'],
+        );
+
+        $value = MonitorMetricValue::query()->sole();
+
+        $this->assertSame('latency', $value->metric_key);
+        $this->assertSame(99.0, $value->numeric_value);
+    }
+
+    /**
+     * The idempotency guard has to hold on the pre-extracted path too: samples
+     * arrive on every delivery of the same payload, so a replay must still
+     * produce one check row, one metric-value set and one streak increment.
+     */
+    public function test_a_replayed_probe_run_id_persists_pre_extracted_samples_exactly_once(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $service = $this->service();
+        $samples = ['latency' => '99'];
+
+        $service->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down),
+            $samples,
+        );
+        $service->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down),
+            $samples,
+        );
+
+        $this->assertSame(1, MonitorCheck::query()->count());
+        $this->assertSame(1, MonitorMetricValue::query()->count());
+        $this->assertSame(99.0, MonitorMetricValue::query()->sole()->numeric_value);
+        $this->assertSame(1, $monitor->fresh()->consecutive_fails);
+        $this->assertSame(0, Incident::query()->count());
+    }
+
+    /**
+     * A TCP probe, a content type the edge filtered out and a worker deployment
+     * older than the full-body field all reach this stage with nothing
+     * pre-extracted. The truncated preview must still be read, which is the
+     * behaviour that predates the split.
+     */
+    public function test_the_truncated_preview_stays_the_fallback_when_no_samples_arrive(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+
+        $this->service()->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+        );
+
+        $this->assertSame(42.0, MonitorMetricValue::query()->sole()->numeric_value);
+    }
+
+    /**
+     * An EMPTY array is not the same message as no array at all, and conflating
+     * them re-opens the defect moving extraction upstream exists to close.
+     *
+     * Null means extraction never ran for this payload (a TCP probe, a filtered
+     * content type, a worker older than the body field, a direct caller), which is
+     * what the preview fallback above is for. An empty array means extraction DID
+     * run against the FULL body and legitimately matched nothing. Falling back
+     * there would re-read the 10 KiB truncated preview and record a value the full
+     * body does not support, which is how a monitor ends up with a metric whose
+     * samples come from a different, shorter body than the one it was verified on.
+     *
+     * The preview in this fixture DOES contain a matching value, so the fallback
+     * firing would produce a row; the assertion is that it does not.
+     */
+    public function test_an_empty_sample_set_does_not_fall_back_to_the_truncated_preview(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+
+        $this->service()->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+            [],
+        );
+
+        $this->assertSame(0, MonitorMetricValue::query()->count());
+    }
+
+    /**
+     * The declared metric type is re-read from the database here while the value
+     * was validated against it one stage earlier, so a metric edited between the
+     * two stages can pair a numeric column with a word. `(float)` would record a
+     * silent zero that the evaluator then bands and can page on, so the sample is
+     * dropped instead.
+     */
+    public function test_a_non_numeric_sample_for_a_numeric_metric_records_nothing(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+
+        $this->service()->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+            ['latency' => 'unavailable'],
+        );
+
+        $this->assertSame(0, MonitorMetricValue::query()->count());
+    }
+
+    /**
+     * Pre-extracted samples must not sneak past the probe-refusal early return:
+     * a probe the EDGE refused measured nothing about the target, so it becomes
+     * no check row and no metric value.
+     */
+    public function test_a_refused_probe_persists_no_metric_values_even_when_samples_arrive(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+
+        $this->service()->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down, refused: true),
+            ['latency' => '99'],
+        );
+
+        $this->assertSame(0, MonitorCheck::query()->count());
+        $this->assertSame(0, MonitorMetricValue::query()->count());
+        $this->assertSame(0, $monitor->fresh()->consecutive_fails);
+    }
+
+    /**
      * Resolve the service with its real collaborators from the container.
      */
     protected function service(): CheckPersistenceService
@@ -193,6 +330,7 @@ class CheckPersistenceServiceTest extends TestCase
         string $probeRunId,
         MonitorStatus $status,
         string $region = 'us-east-1',
+        bool $refused = false,
     ): CheckResult {
         return new CheckResult(
             monitorId: (string) $monitor->id,
@@ -212,6 +350,7 @@ class CheckPersistenceServiceTest extends TestCase
             ],
             responseBodyPreview: '{"latency": 42}',
             probeRunId: $probeRunId,
+            probeRefused: $refused,
         );
     }
 }
