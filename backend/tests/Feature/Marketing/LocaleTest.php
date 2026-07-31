@@ -125,20 +125,18 @@ class LocaleTest extends TestCase
             ->assertDontSee('New monitor');
     }
 
-    public function test_no_english_connective_leaks_into_a_translated_sentence(): void
+    public function test_no_english_connective_leaks_into_the_turkish_page(): void
     {
         /*
-         * The platform claim assembles its list in PHP, and the conjunction between the
-         * items was a literal `' and '`. The sentence AROUND it was translated, so
-         * every "is this page in Turkish" check passed while the pill on screen read
-         * "sırada iOS and Android". Only reading the rendered page caught it.
+         * A list glued together in PHP is where this hides: the sentence around it comes
+         * out translated while the connective stays English. It happened in the platform
+         * pill, which read "sırada iOS and Android" on a page that was otherwise fully
+         * Turkish, and it passed every translation assertion at the time.
+         *
+         * The pill is a comma-separated list now, so nothing on the page should carry
+         * the English word at all.
          */
-        config(['app.client_platforms' => ['web' => 'live', 'ios' => 'soon', 'android' => 'soon']]);
-
-        $this->get('/tr')
-            ->assertOk()
-            ->assertSee('iOS ve Android')
-            ->assertDontSee('iOS and Android');
+        $this->get('/tr')->assertOk()->assertDontSee(' and ');
     }
 
     /**

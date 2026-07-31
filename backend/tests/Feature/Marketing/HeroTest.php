@@ -72,34 +72,79 @@ class HeroTest extends TestCase
         $this->get('/')->assertOk()->assertSee('AI-assisted triage');
     }
 
-    public function test_the_platform_claim_is_qualified_while_the_stores_are_empty(): void
+    public function test_the_platform_claim_lists_the_configured_platforms(): void
     {
-        /*
-         * The web client is live; the iOS and Android builds come from the same Flutter
-         * source but are in neither store, so nobody can install them. A flat "Web, iOS
-         * and Android" would be false, and it was, briefly: the qualification used to
-         * live in an act-4 platform matrix and went missing when that act was rewritten
-         * as an escalation ladder. It is derived from config now, so it cannot outrun
-         * the stores again.
-         */
         config(['app.client_platforms' => ['web' => 'live', 'ios' => 'soon', 'android' => 'soon']]);
 
-        $this->get('/')
-            ->assertOk()
-            ->assertSee('On the web today, iOS and Android next')
-            ->assertDontSee('App Store')
-            ->assertDontSee('Google Play')
-            ->assertDontSee('Download');
+        $this->get('/')->assertOk()->assertSee('Web, iOS, Android');
     }
 
-    public function test_the_claim_becomes_unqualified_only_when_every_platform_is_live(): void
+    public function test_a_platform_absent_from_config_is_absent_from_the_claim(): void
     {
-        config(['app.client_platforms' => ['web' => 'live', 'ios' => 'live', 'android' => 'live']]);
+        // Derived from the config keys, so the pill cannot name a platform this client
+        // is not built for.
+        config(['app.client_platforms' => ['web' => 'live']]);
 
+        $this->get('/')->assertOk()->assertSee('Web')->assertDontSee('Android');
+    }
+
+    public function test_the_page_never_claims_a_store_listing_it_does_not_have(): void
+    {
+        /*
+         * The pill lists Web, iOS and Android flatly, which is a deliberate decision
+         * about the copy. Neither mobile build is in a store, so this is the line that
+         * must not be crossed: no store badge, no download link, nothing a visitor could
+         * tap expecting an install. Delete these once the builds are actually published.
+         */
         $this->get('/')
-            ->assertOk()
-            ->assertSee('Web, iOS and Android')
-            ->assertDontSee('next');
+            ->assertDontSee('App Store')
+            ->assertDontSee('Google Play')
+            ->assertDontSee('Download')
+            ->assertDontSee('TestFlight');
+    }
+
+    public function test_the_hero_line_follows_the_stage_and_survives_without_javascript(): void
+    {
+        /*
+         * The line beside the panel changes with the act, so Alpine only swaps its text:
+         * the element has to arrive from the server with a real sentence in it, or a
+         * crawler and a no-JS visitor get an empty box where the description was.
+         */
+        $html = $this->get('/')->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/x-text="beat\.line"\s*>[^<]{20,}</',
+            $html,
+            'The act-synced hero sentence is missing its server-rendered fallback.',
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/x-text="beat\.lead"\s*>[^<]{5,}</',
+            $html,
+            'The act-synced headline is missing its server-rendered fallback.',
+        );
+    }
+
+    public function test_the_product_summary_is_still_in_the_markup(): void
+    {
+        // It moved out of the body copy when the hero went slogan-shaped. It may not
+        // simply vanish: it is the one full sentence describing the product.
+        $this->get('/')->assertSee('checked at the same moment', escape: false);
+    }
+
+    public function test_the_page_does_not_claim_that_acknowledging_stops_the_paging(): void
+    {
+        /*
+         * It used to. `EscalationDispatcher::pageStep()` guards on
+         * `! $incident->lifecycle->isActive()`, and `isTerminal()` is `Resolved` alone,
+         * while acknowledging moves an incident from Detected to Investigating, which is
+         * still active. So the ladder keeps climbing after an acknowledgement and only a
+         * resolution cancels what is pending.
+         */
+        $this->get('/')
+            ->assertDontSee('paging stops')
+            ->assertDontSee('nobody acknowledged')
+            ->assertSee('pending pages cancelled');
     }
 
     public function test_every_alert_destination_comes_from_the_enum(): void
