@@ -239,6 +239,37 @@ return [
             'timeout' => 45,
             'nice' => 0,
         ],
+
+        /*
+        | Monitor-content archive writes go through an rclone FUSE mount of a
+        | Google Drive remote, which sustains roughly two file operations a second
+        | and can park a process in an uninterruptible syscall. On supervisor-1
+        | that stall would occupy a slot the monitoring checks need, so the
+        | archive gets its own supervisor and a deliberately serial process count.
+        | Memory stays modest: the job carries a spool-file PATH, and only the
+        | compressed bytes (a fraction of the 1 MB body ceiling) are ever held.
+        |
+        | The 60s timeout is load bearing. It must stay ABOVE the archive job's own
+        | 50s timeout, so the job can run the failure hook that releases its
+        | claimed version row before the worker kills it, and BELOW the redis
+        | connection's retry_after, so a still-running write is never released to a
+        | second worker. See the invariant comment in config/queue.php;
+        | ContentQueueConfigTest pins the whole chain, including this supervisor's
+        | presence and its single process in every environment below.
+        */
+        'content' => [
+            'connection' => 'redis',
+            'queue' => ['content'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 192,
+            'tries' => 1,
+            'timeout' => 60,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -288,6 +319,19 @@ return [
             'previews' => [
                 'maxProcesses' => 1,
             ],
+
+            /*
+            | ONE process, and the mount is the reason. rclone over Google Drive
+            | sustains roughly two file operations a second, and each archive write
+            | costs two (a staged write plus a rename), so a second worker buys no
+            | throughput and only lengthens the stall each one sits in. The write
+            | itself stays CORRECT under concurrency (content-addressed target,
+            | per-process staging name), so this is a throughput bound, not a
+            | correctness one: raise it only with the mount measured first.
+            */
+            'content' => [
+                'maxProcesses' => 1,
+            ],
         ],
 
         'local' => [
@@ -296,6 +340,10 @@ return [
             ],
 
             'previews' => [
+                'maxProcesses' => 1,
+            ],
+
+            'content' => [
                 'maxProcesses' => 1,
             ],
         ],
