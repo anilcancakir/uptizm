@@ -164,5 +164,16 @@
     "Please complete the verification challenge.": "Lütfen doğrulamayı tamamlayın.",
     "Verification is temporarily unavailable. Please try again.": "Doğrulama şu anda kullanılamıyor, lütfen yeniden deneyin.",
     "Verification failed. Please try again.": "Doğrulama başarısız oldu, lütfen yeniden deneyin.",
-    "See how it decides": "Nasıl karar verdiğini gör"
+    "See how it decides": "Nasıl karar verdiğini gör",
+    "Cookies for analytics": "Analitik için çerezler",
+    "Uptizm sets no cookies of its own. If you allow analytics, Google Analytics stores a cookie on this device so we can count visits. Until you choose, nothing is stored.": "Uptizm kendi adına çerez kullanmıyor. Analitiğe izin verirseniz, ziyaretleri sayabilmemiz için Google Analytics bu cihaza bir çerez yazar. Siz seçim yapana kadar hiçbir şey saklanmıyor.",
+    "Privacy notice": "Gizlilik bildirimi",
+    "Necessary": "Zorunlu",
+    "Always on": "Her zaman açık",
+    "The record of this choice, and nothing else. No cookie.": "Yalnızca bu seçimin kaydı, başka bir şey değil. Çerez yok.",
+    "Analytics": "Analitik",
+    "Counts visits with Google Analytics. Off until you turn it on.": "Google Analytics ile ziyaretleri sayar. Siz açana kadar kapalı kalır.",
+    "Accept all": "Tümünü kabul et",
+    "Necessary only": "Sadece zorunlu olanlar",
+    "Change your choice": "Seçiminizi değiştir"
 }
