@@ -7,10 +7,9 @@ use App\Enums\MetricSource;
 use App\Enums\MonitorRegion;
 use App\Enums\NotificationChannelType;
 use App\Models\Monitor;
+use App\Support\Marketing\ChromeData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
-use Locale;
 
 /**
  * The landing page on the apex host.
@@ -21,26 +20,29 @@ use Locale;
  * not probe from or a limit we do not honour.
  *
  * It grows a method per section as the page is rebuilt.
+ *
+ * The shell's own data (canonical, hreflang, the language links, the calls to
+ * action, the footer's region count and platform line) is NOT here any more: it is
+ * `ChromeData`, shared with every other marketing page. This controller supplies
+ * only what the six sections say, plus the three per-page facts the shell cannot
+ * derive on its own: the page's path, its summary sentence, and its anchor list.
  */
 class ShowLandingController
 {
     public function __invoke(): View
     {
         return view('landing', [
-            'regions' => $this->regions(),
+            // The site root, so ChromeData composes `/` and `/tr` for it.
+            ...(new ChromeData(
+                path: '',
+                summary: $this->summary(),
+                sections: $this->sections(),
+            ))->toArray(),
             'freeTier' => $this->freeTier(),
-            'signInUrl' => $this->clientUrl('/login'),
-            'signUpUrl' => $this->clientUrl('/register'),
             'aiEnabled' => $this->aiEnabled(),
             'channels' => $this->channels(),
-            'platformClaim' => $this->platformClaim(),
             'stageLabels' => $this->stageLabels(),
             'heroBeats' => $this->heroBeats(),
-            'summary' => $this->summary(),
-            'localeLinks' => $this->localeLinks(),
-            'homePath' => $this->pathFor(app()->getLocale()),
-            'canonicalUrl' => $this->urlFor(app()->getLocale()),
-            'sections' => $this->sections(),
             'decisionRules' => $this->decisionRules(),
             'inspections' => $this->inspections(),
             'statusPageFeatures' => $this->statusPageFeatures(),
@@ -198,7 +200,10 @@ class ShowLandingController
      */
     protected function decisionRules(): array
     {
-        $regions = count($this->regions());
+        // Straight off the enum the write requests validate against, the same count the
+        // footer and the hero derive. The region LIST is the chrome's business now, but
+        // the number in this sentence still has to come from the same place.
+        $regions = count(MonitorRegion::cases());
 
         return [
             [
@@ -249,86 +254,6 @@ class ShowLandingController
     }
 
     /**
-     * Every language the product speaks, with this page's address in each.
-     *
-     * The list is `magic-starter.supported_locales`, the same array the API
-     * negotiates Accept-Language against and the same pair the Flutter client
-     * registers, so the three surfaces cannot drift apart.
-     *
-     * @return list<array{code: string, label: string, path: string, url: string, current: bool}>
-     */
-    protected function localeLinks(): array
-    {
-        $current = app()->getLocale();
-
-        return array_map(
-            fn (string $code): array => [
-                'code' => $code,
-                'label' => $this->languageName($code),
-                'path' => $this->pathFor($code),
-                'url' => $this->urlFor($code),
-                'current' => $code === $current,
-            ],
-            array_values((array) config('magic-starter.supported_locales', [])),
-        );
-    }
-
-    /**
-     * A language's name in its own language.
-     *
-     * Read from ICU rather than a typed label map, so a locale added to config names
-     * itself instead of showing a two-letter code. This matches the app's own
-     * switcher (`English`, `Türkçe`): somebody hunting for Turkish scans for
-     * "Türkçe", not for "Turkish".
-     */
-    protected function languageName(string $code): string
-    {
-        return Str::ucfirst(Locale::getDisplayLanguage($code, $code));
-    }
-
-    /**
-     * The path a language is served on. The default language lives on the apex.
-     */
-    protected function pathFor(string $locale): string
-    {
-        return $locale === config('app.default_locale') ? '/' : '/'.$locale;
-    }
-
-    /**
-     * The absolute URL for a language, for canonical and hreflang.
-     *
-     * From `route()`, which is configuration-derived, rather than from the request:
-     * the URL a crawler indexes must be the canonical host even when the request
-     * arrived on some other name.
-     */
-    protected function urlFor(string $locale): string
-    {
-        return $locale === config('app.default_locale')
-            ? route('landing')
-            : route('landing.localized', ['locale' => $locale]);
-    }
-
-    /**
-     * The probe regions a monitor can actually be pinned to.
-     *
-     * Sourced from the enum the write requests validate against, NOT from
-     * `config/relay.php`'s `regions` key, which the dispatch path never reads and
-     * which understates the real list.
-     *
-     * @return list<array{value: string, label: string}>
-     */
-    protected function regions(): array
-    {
-        return array_map(
-            fn (MonitorRegion $region): array => [
-                'value' => $region->value,
-                'label' => $region->label(),
-            ],
-            MonitorRegion::cases(),
-        );
-    }
-
-    /**
      * The team-scoped alert destinations that exist.
      *
      * An exhaustive match with no default arm, so adding a channel type is a failure
@@ -347,33 +272,6 @@ class ShowLandingController
                 NotificationChannelType::Teams => 'Microsoft Teams',
             },
             NotificationChannelType::cases(),
-        );
-    }
-
-    /**
-     * What we may honestly say about where the client runs.
-     *
-     * A plain list of the platforms the client is built for, read from
-     * `app.client_platforms` so adding or dropping one moves the pill with it. The
-     * names are proper nouns and are not translated.
-     *
-     * It used to carry a per-platform qualification ("On the web today, iOS and
-     * Android next") because the mobile builds are in neither store: they come from
-     * the same Flutter source, but nobody can install them yet. That wording was
-     * rejected as clumsy and the flat list is a deliberate product decision, so the
-     * honesty guard moved rather than disappeared. What the page must still never
-     * claim is a listing that does not exist: no App Store or Google Play badge, no
-     * download link. `HeroTest` pins that absence. Shipping the two store builds is
-     * tracked separately.
-     */
-    protected function platformClaim(): string
-    {
-        return Arr::join(
-            array_map(
-                fn (string $key): string => $key === 'ios' ? 'iOS' : ucfirst($key),
-                array_keys((array) config('app.client_platforms', [])),
-            ),
-            ', ',
         );
     }
 
@@ -508,19 +406,5 @@ class ShowLandingController
         $key = config("ai.providers.{$provider}.key");
 
         return is_string($key) && $key !== '';
-    }
-
-    /**
-     * Absolute URL into the Flutter client.
-     *
-     * The client mounts its auth screens under a prefix, so these are NOT `/login`
-     * and `/register` on the app host; getting it wrong sends every visitor who
-     * clicks the primary call to action to a route the client does not serve.
-     */
-    protected function clientUrl(string $path): string
-    {
-        return rtrim((string) config('app.frontend_url'), '/')
-            .rtrim((string) config('app.frontend_auth_prefix'), '/')
-            .$path;
     }
 }
