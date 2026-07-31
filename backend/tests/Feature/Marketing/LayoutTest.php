@@ -100,7 +100,10 @@ class LayoutTest extends TestCase
             'document' => $this->document(),
         ]);
 
-        preg_match_all('/href="#([a-zA-Z0-9_-]+)"/', $html, $matches);
+        // Any fragment at all: `[a-zA-Z0-9_-]+` silently skips the non-ASCII slug a
+        // Turkish heading produces (`href="#haklarınız"`), which would make this walk
+        // vacuous on every /tr document.
+        preg_match_all('/href="#([^"]+)"/u', $html, $matches);
 
         $this->assertNotSame([], $matches[1], 'The page emitted no in-page anchor at all, so this walk checked nothing.');
 

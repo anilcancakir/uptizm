@@ -36,21 +36,22 @@ class ChromeTest extends TestCase
          * Every entry is a footer cliche with no page behind it. A link that 404s is
          * worse than an absent link, and an invented Privacy page is worse still.
          *
-         * Privacy and Terms are a real launch requirement (the status pages collect
-         * subscriber email and Stripe is wired), so when they are written, delete
-         * their lines here in the same change.
+         * `/privacy`, `/terms` and `/contact` used to be on this list and came off it in
+         * the change that added the pages, which is the rule this test exists to enforce:
+         * the link and the page it points at land together or neither lands. `/faq` was
+         * never listed here and is linked by the same change. `LegalPagesTest` is the
+         * other half of the pair, asserting all four answer in both languages.
+         *
+         * Nothing else comes off this list without a page arriving with it.
          */
         $response = $this->get('/');
 
         foreach ([
             '/pricing',
-            '/privacy',
-            '/terms',
             '/docs',
             '/blog',
             '/about',
             '/careers',
-            '/contact',
             '/changelog',
             'twitter.com',
             'linkedin.com',
@@ -71,7 +72,17 @@ class ChromeTest extends TestCase
          */
         $html = $this->get('/')->getContent();
 
-        preg_match_all('/href="#([a-zA-Z0-9_-]+)"/', $html, $matches);
+        // Any fragment at all, not `[a-zA-Z0-9_-]+`. That class silently SKIPS a
+        // non-ASCII slug, and every Turkish document heading produces one
+        // (`href="#haklarınız"`), so it made this walk pass by checking nothing on
+        // exactly the pages that needed it most.
+        preg_match_all('/href="#([^"]+)"/u', $html, $matches);
+
+        $this->assertNotSame(
+            [],
+            $matches[1],
+            'The page emitted no in-page anchor at all, so this walk checked nothing.',
+        );
 
         foreach (array_unique($matches[1]) as $anchor) {
             $this->assertStringContainsString(
