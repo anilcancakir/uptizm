@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Marketing\SendContactMessageController;
 use App\Http\Controllers\Marketing\ShowContactController;
 use App\Http\Controllers\Marketing\ShowFaqController;
 use App\Http\Controllers\Marketing\ShowLandingController;
@@ -149,4 +150,38 @@ foreach ($documents as $page => $controller) {
             ->whereIn('locale', $prefixedLocales)
             ->name($page.'.localized');
     }
+}
+
+/*
+ * The contact form's write path: the only unauthenticated write on this surface.
+ *
+ * It belongs in THIS file and nowhere else. The claim above ("these pages store nothing on
+ * the visitor's device") covers this POST, and the Privacy page publishes it without a
+ * qualifier, so a session here falsifies a published statement. The `web` group is therefore
+ * out, and so is CSRF: `PreventRequestForgery` cannot exist on a session-free route at all,
+ * because on the way out it always calls `$request->session()->token()` to mint `XSRF-TOKEN`
+ * (`PreventRequestForgery.php:243`). What replaces the token is four layers that do not
+ * depend on a session: a honeypot, an encrypted render timestamp with a minimum AND a maximum
+ * age, Cloudflare Turnstile when configured, and the three-bucket limiter below. The
+ * controller returns a rendered VIEW with a 422 rather than redirecting back, because a
+ * redirect-with-errors on a sessionless route flashes into a store nobody saves and the
+ * visitor gets an empty form with no message.
+ *
+ * One POST per language, mirroring the GET exactly, and that is not symmetry for its own
+ * sake: `SetMarketingLocale` reads the locale from the PATH, so a Turkish page posting to
+ * `/contact` would have every validation message answered in English on a Turkish page.
+ *
+ * `throttle:contact-form` is the only layer that bounds a distributed flood, so it is
+ * attached here rather than left to the controller. Its three buckets are registered in
+ * `bootstrap/app.php`; `SendContactMessageController::LIMITER` is the same string.
+ */
+Route::post('/contact', SendContactMessageController::class)
+    ->middleware('throttle:'.SendContactMessageController::LIMITER)
+    ->name('contact.send');
+
+if ($prefixedLocales !== []) {
+    Route::post('/{locale}/contact', SendContactMessageController::class)
+        ->whereIn('locale', $prefixedLocales)
+        ->middleware('throttle:'.SendContactMessageController::LIMITER)
+        ->name('contact.send.localized');
 }

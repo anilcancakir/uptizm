@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Marketing\SendContactMessageController;
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Middleware\SetMarketingLocale;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -10,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -162,6 +164,34 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => [
                 Limit::perMinute(5)->by($request->ip()),
                 Limit::perMinute(5)->by((string) $request->input('email')),
+            ],
+        );
+
+        // The public contact form. THREE buckets, and the third is the one the
+        // subscribe shape above does not have, because the two endpoints mail
+        // different people. Subscribe mails the SUBMITTED address, so its
+        // per-email bucket is what stops somebody spraying a victim's inbox. The
+        // contact form mails the OPERATOR: varying the submitted address costs an
+        // attacker nothing and defeats a per-email bucket for free, while the
+        // target inbox stays the same one either way. So a FIXED global key caps
+        // the aggregate across every address and every source, which is the only
+        // bound on a distributed flood. It is deliberately generous compared to
+        // the per-IP bucket: it exists to stop a thousand hosts, not to make one
+        // busy afternoon look like an attack.
+        //
+        // Registered on `booted` for the same reason as every limiter above: the
+        // RateLimiter facade root is not set while the middleware configuration
+        // closure runs. The per-IP key depends on the `trustProxies` decision at
+        // the top of this file, exactly as the others do.
+        RateLimiter::for(
+            SendContactMessageController::LIMITER,
+            fn (Request $request) => [
+                Limit::perMinute(5)->by('contact-form:ip:'.$request->ip()),
+                // Lower-cased and trimmed so `A@x.test` and ` a@x.test ` share one
+                // bucket instead of buying a second, and prefixed so a submitted
+                // value can never collide with another bucket's key space.
+                Limit::perMinute(5)->by('contact-form:email:'.Str::lower(trim((string) $request->input('email')))),
+                Limit::perMinute(30)->by(SendContactMessageController::GLOBAL_LIMITER_KEY),
             ],
         );
     })
