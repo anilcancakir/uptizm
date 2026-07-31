@@ -31,7 +31,7 @@ const REGIONS = [
     { label: 'Asia-Pacific', colo: 'HKG', ms: 88 },
 ];
 
-export const heroSequence = (channels = [], labels = {}) => ({
+export const heroSequence = (channels = [], labels = {}, beats = {}) => ({
     /** Alert destinations, handed in from the server so they stay derived. */
     channels,
 
@@ -44,6 +44,28 @@ export const heroSequence = (channels = [], labels = {}) => ({
      * Keyed by act, `1.5` included, which is why the server sends string keys.
      */
     labels,
+
+    /*
+     * The copy beside the stage, one beat per act: `{ lead, accent, line }`. Same
+     * reasoning as the labels, plus one more that matters more: each beat is a product
+     * CLAIM, so it belongs where the other claims are derived and can be checked
+     * against the code, not in a JS literal nobody audits.
+     */
+    beats,
+
+    /*
+     * The beat the copy column is currently DISPLAYING, which deliberately lags `act`.
+     *
+     * The swap cannot be driven straight off `act`, because then the words change while
+     * they are fully visible and it reads as a snap. So the fade drives the swap: the
+     * text is replaced at the invisible midpoint and `act` only requests the change.
+     *
+     * Seeded with act 1's beat so the very first `act = 1` is not treated as a change
+     * and the page does not fade in over itself a beat after loading.
+     */
+    shownBeat: beats['1'] ?? null,
+    copyFading: false,
+    copyToken: 0,
 
     /** 1, 1.5, 2, 3, 4 — halves are transitions. */
     act: 0,
@@ -92,6 +114,10 @@ export const heroSequence = (channels = [], labels = {}) => ({
     restartTimer: null,
 
     init() {
+        // Crossfade the copy whenever the act asks for a different beat. A watcher
+        // rather than a call at each `this.act = N`, of which there are seven.
+        this.$watch('act', (value) => this.crossfade(value));
+
         /*
          * ONE GATE: is the stage on screen. An earlier build also required the tab to
          * be visible and that created a dead state, because a page opened in a
@@ -125,6 +151,51 @@ export const heroSequence = (channels = [], labels = {}) => ({
      * and withholding it leaves someone looking at a screenshot of a monitoring
      * product with no way to tell it monitors anything.
      */
+    /** What the copy shows right now. Falls back to act 1's beat, which is the one
+     *  the server renders, so the bindings never resolve to undefined. */
+    get beat() {
+        return this.shownBeat ?? this.beats['1'] ?? { lead: '', accent: '', line: '' };
+    },
+
+    /**
+     * Fade the copy out, swap the words while they cannot be seen, fade back in.
+     *
+     * Two beats are shared between acts (1.5 and 2 carry the same one, because the
+     * transition is too short to read a sentence in), and comparing the resolved beats
+     * rather than the act numbers is what stops that handover from flickering for no
+     * reason.
+     *
+     * Under reduced motion the words simply change. An opacity fade is not the movement
+     * that preference exists to suppress, but it is still an animation, and the swap
+     * carries the whole meaning without it.
+     */
+    async crossfade(act) {
+        const next = this.beats[act] ?? this.beats['1'];
+
+        if (!next || next === this.shownBeat) {
+            return;
+        }
+
+        if (this.reduced) {
+            this.shownBeat = next;
+
+            return;
+        }
+
+        const token = ++this.copyToken;
+
+        this.copyFading = true;
+        await this.delay(190);
+
+        // A tab click can request another beat mid-fade; the newer one owns the slot.
+        if (this.copyToken !== token) {
+            return;
+        }
+
+        this.shownBeat = next;
+        this.copyFading = false;
+    },
+
     get reduced() {
         return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     },

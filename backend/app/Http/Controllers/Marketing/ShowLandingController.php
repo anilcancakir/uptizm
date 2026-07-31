@@ -33,6 +33,8 @@ class ShowLandingController
             'channels' => $this->channels(),
             'platformClaim' => $this->platformClaim(),
             'stageLabels' => $this->stageLabels(),
+            'heroBeats' => $this->heroBeats(),
+            'summary' => $this->summary(),
             'localeLinks' => $this->localeLinks(),
             'homePath' => $this->pathFor(app()->getLocale()),
             'canonicalUrl' => $this->urlFor(app()->getLocale()),
@@ -183,31 +185,108 @@ class ShowLandingController
     /**
      * What we may honestly say about where the client runs.
      *
-     * "Web, iOS and Android" as a flat claim is false while the mobile builds are in
-     * neither store: they come from the same Flutter source, but nobody can install
-     * them. So the phrasing follows `app.client_platforms` and only becomes the
-     * unqualified version once every platform is live.
+     * A plain list of the platforms the client is built for, read from
+     * `app.client_platforms` so adding or dropping one moves the pill with it. The
+     * names are proper nouns and are not translated.
      *
-     * The conjunction is translated. It used to be a literal `' and '` inside the
-     * implode, which is the kind of leak that survives every "is the page translated"
-     * check: the sentence around it came out in Turkish and read "sırada iOS and
-     * Android".
+     * It used to carry a per-platform qualification ("On the web today, iOS and
+     * Android next") because the mobile builds are in neither store: they come from
+     * the same Flutter source, but nobody can install them yet. That wording was
+     * rejected as clumsy and the flat list is a deliberate product decision, so the
+     * honesty guard moved rather than disappeared. What the page must still never
+     * claim is a listing that does not exist: no App Store or Google Play badge, no
+     * download link. `HeroTest` pins that absence. Shipping the two store builds is
+     * tracked separately.
      */
     protected function platformClaim(): string
     {
-        $platforms = (array) config('app.client_platforms', []);
-        $pending = array_keys(array_filter($platforms, fn (string $state): bool => $state !== 'live'));
+        return Arr::join(
+            array_map(
+                fn (string $key): string => $key === 'ios' ? 'iOS' : ucfirst($key),
+                array_keys((array) config('app.client_platforms', [])),
+            ),
+            ', ',
+        );
+    }
 
-        return $pending === []
-            ? __('Web, iOS and Android')
-            : __('On the web today, :pending next', ['pending' => Arr::join(
-                array_map(
-                    fn (string $key): string => $key === 'ios' ? 'iOS' : ucfirst($key),
-                    $pending,
-                ),
-                ', ',
-                ' '.__('and').' ',
-            )]);
+    /**
+     * The copy beside the stage, one beat per act: a headline and the sentence under it.
+     *
+     * The headline is split into `lead` plus `accent` because the accent is the part
+     * that carries the brand green, and a single string would need markup inside a
+     * translation.
+     *
+     * Nothing MOVES when a beat changes: the text of three elements is replaced. That
+     * is information arriving rather than motion, which is why it still works under
+     * reduced motion, and why both slots are height-clamped so a longer beat in another
+     * language cannot push the buttons below them around mid-sequence.
+     *
+     * Act 1 is the beat the server renders, so its headline is the page's real claim
+     * rather than a note about act 1: a crawler and a visitor with no JavaScript only
+     * ever see this one, and the strongest signal on the page should not be the one
+     * about setup.
+     *
+     * Every beat is checked against the code rather than written to sound good:
+     *
+     *   1  no agent, because probes run in the edge worker; nothing installs anywhere
+     *   2  one signed spec fans out to every region in a single tick
+     *      (ScheduleMonitorChecks dispatches one job per region per tick)
+     *   3  the worker returns a bounded response-body preview and
+     *      CheckPersistenceService runs MetricExtractor over it, so the body is read
+     *      and a bound really can be set on a value inside it
+     *   4  the ladder climbs on its own delays and stops on RESOLUTION, which is what
+     *      EscalationDispatcher::pageStep() actually guards on
+     *
+     * Act 1.5 shares act 2's beat on purpose: the transition lasts 1.4s, nowhere near
+     * long enough to read a sentence, so the beat arrives with the dispatch and stays
+     * through the results.
+     *
+     * @return array<string, array{lead: string, accent: string, line: string}>
+     */
+    protected function heroBeats(): array
+    {
+        $checks = [
+            'lead' => __('Every region,'),
+            'accent' => __('at the same moment'),
+            'line' => __('One signed spec fans out to all :count regions in a single tick. A slow region is then a fact about that region, not about when we got round to it.', [
+                'count' => count(MonitorRegion::cases()),
+            ]),
+        ];
+
+        return [
+            '1' => [
+                'lead' => __('Uptime monitoring that'),
+                'accent' => __('refuses to guess'),
+                'line' => __('Point it at a URL, pick the regions, and it starts checking. No agent, no sidecar, nothing of ours running in your infrastructure.'),
+            ],
+            '1.5' => $checks,
+            '2' => $checks,
+            '3' => [
+                'lead' => __('A status code is not'),
+                'accent' => __('the whole answer'),
+                'line' => __('Pull a number out of the response body with a JSON path and give it a bound. Crossing it opens an incident with the evidence already attached.'),
+            ],
+            '4' => [
+                'lead' => __('It keeps paging until somebody'),
+                'accent' => __('resolves it'),
+                'line' => __('A ladder of your own steps and delays, through :channels. Resolve it and every page still pending is cancelled.', [
+                    'channels' => Arr::join($this->channels(), ', '),
+                ]),
+            ],
+        ];
+    }
+
+    /**
+     * The one-sentence description of the product.
+     *
+     * It used to be the hero's paragraph. The hero shows a short per-act line now, so
+     * this sentence moved to `meta description`, which is where a summary belongs: it
+     * keeps the substance in the markup for a crawler and for a link preview instead
+     * of losing it to a six-word slogan.
+     */
+    protected function summary(): string
+    {
+        return __('Every region is checked at the same moment, an incident opens on repeated failure rather than the first blip, and the numbers you are shown are the ones that were measured.');
     }
 
     /**

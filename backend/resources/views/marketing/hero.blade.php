@@ -6,9 +6,11 @@
     deliberately leaves the next section peeking. `dvh` rather than `vh` so mobile
     browser chrome appearing and disappearing does not resize it mid-scroll.
 
-    The left column NEVER moves after its entrance. Copy that animates is what makes
-    a page feel cheap; all the motion lives in the panel on the right, which is the
-    thing actually worth watching.
+    The copy column follows the panel, and the distinction that keeps it from feeling
+    cheap is that it never MOVES. The headline and the sentence under it hand over on a
+    200ms crossfade as the acts advance; nothing slides and nothing types. Both slots are
+    height-clamped from measured values so a longer beat cannot shift the buttons below
+    them, so the only thing that changes on this side is the words.
 --}}
 {{-- `flex items-center` on the section, not just on the grid inside it.
      The grid carried `h-full items-center` for a while and centred nothing: `h-full`
@@ -17,6 +19,7 @@
      below the fold. The section has to be the flex container for the centring to have
      anything to centre against. --}}
 <section
+    x-data="heroSequence(@js($channels), @js($stageLabels), @js($heroBeats))"
     class="relative flex items-center overflow-hidden border-b border-border"
     style="min-height: clamp(700px, 90dvh, 980px)"
 >
@@ -65,14 +68,43 @@
                 </span>
             </div>
 
-            <h1 data-enter style="--enter-index: 2" class="mt-6 text-hero text-balance text-fg">
-                {{ __('Uptime monitoring that') }}
-                <span class="text-primary">{{ __('refuses to guess') }}</span>.
-            </h1>
+            {{-- The headline and its sentence, faded together as one unit.
+                 One binding on the group rather than one each, so the two can never be
+                 caught mid-handover showing different beats.
 
-            <p data-enter style="--enter-index: 3" class="mt-6 max-w-xl text-body-lg text-fg-muted">
-                {{ __('Every region is checked at the same moment, an incident opens on repeated failure rather than the first blip, and the numbers you are shown are the ones that were measured.', ['count' => count($regions)]) }}
-            </p>
+                 Both slots are height-clamped, and the numbers are measured rather than
+                 guessed: every beat, in both languages, at 375 / 640 / 768 / 1024 / 1280
+                 / 1440. 1024 is the worst case for the headline and is easy to miss,
+                 because that is where the two-column layout starts and the copy column
+                 is at its narrowest while the fluid type is already near its maximum.
+                 Without the clamp the tallest beat pushes the buttons below it down and
+                 the whole column twitches every few seconds.
+
+                 Act 1's beat is what the server renders, so the `<h1>` still arrives
+                 carrying the product's real claim for a crawler and for a visitor with
+                 no JavaScript. --}}
+            <div
+                class="transition-opacity duration-200 ease-out"
+                :class="copyFading ? 'opacity-0' : 'opacity-100'"
+            >
+                <h1
+                    data-enter
+                    style="--enter-index: 2"
+                    class="mt-6 flex min-h-[8rem] items-center text-hero text-balance text-fg sm:min-h-[6.75rem] lg:min-h-[12rem]"
+                >
+                    <span>
+                        <span x-text="beat.lead">{{ $heroBeats['1']['lead'] }}</span>
+                        <span class="text-primary" x-text="beat.accent">{{ $heroBeats['1']['accent'] }}</span>.
+                    </span>
+                </h1>
+
+                <p
+                    data-enter
+                    style="--enter-index: 3"
+                    class="mt-5 flex min-h-[6.75rem] max-w-xl items-start text-body-lg text-fg-muted sm:min-h-[3.5rem] lg:min-h-[5rem]"
+                    x-text="beat.line"
+                >{{ $heroBeats['1']['line'] }}</p>
+            </div>
 
             {{-- One call to action, not two.
                  There was a second button here reading "See how it decides", pointing

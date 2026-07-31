@@ -10,7 +10,10 @@
     seconds can jump, a keyboard user can reach every act, and the hero describes
     itself even in a screenshot where nothing is playing.
 --}}
-<div class="stage-perspective" x-data="heroSequence(@js($channels), @js($stageLabels))" x-cloak>
+{{-- The Alpine scope lives on the hero SECTION, not here, because the line beside the
+     stage reads the same `act`. Alpine state is scoped to the element that declares it,
+     so a component declared here would be invisible to the other column. --}}
+<div class="stage-perspective" x-cloak>
     <div class="stage-tilt">
         {{-- Glow. A radial gradient, not a blurred element: see the note in app.css. --}}
         <div
