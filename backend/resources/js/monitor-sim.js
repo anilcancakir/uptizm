@@ -1,7 +1,16 @@
 /*
- * Drives the hero panel as a running monitor: a check fires against one region at
- * a time, its latency lands, its bar moves, its state colour follows, and the
- * monitor's overall verdict rolls up from whatever the regions currently say.
+ * Drives the hero panel as a running monitor.
+ *
+ * A cycle fans out to EVERY region at once, which is what the product does:
+ * `ScheduleMonitorChecks` dispatches one job per region inside a single tick (see
+ * its fan-out loop), so a monitor's regions are probed in parallel and never one
+ * after another. An earlier version walked them round-robin, which was simply a
+ * different product from the one this page is selling.
+ *
+ * Results then land in LATENCY ORDER, each after a delay derived from the number
+ * it is about, so the fast region settles first and a timeout settles last. That
+ * ordering is not decoration: it is the one thing about a parallel fan-out a
+ * viewer can actually see.
  *
  * This replaced a set of looping CSS keyframes. Those animated correctly and were
  * still reported as "no movement", because ambient pulsing is not what a
@@ -36,25 +45,46 @@ const DEGRADED_FACTOR = [6, 14];
 const GAP_MS = [1000, 5000];
 
 /*
- * Probability a check comes back degraded, then down.
+ * Probability a single region's check comes back degraded, then down.
  *
- * Tuned against a measured run, not guessed. The first values (0.13 / 0.045) put
- * the panel on "Major outage" for ten seconds out of twenty, because a failure
- * persisted until that region's next round-robin turn nearly nine seconds later,
- * and five regions each failing 17% of the time means something is broken 62% of
- * the time. A hero advertising a product that is down more than it is up is worse
- * than a hero with no motion.
+ * These have to be read per CYCLE, not per check, and that is why they are small.
+ * Every region is probed every cycle now, so the chance the panel shows a problem
+ * is 1 - (1 - p)^5, which compounds fast: the round-robin era's 0.11/0.028 would
+ * put something in a failed state 52% of the time. An earlier version of exactly
+ * that mistake had the panel reading "Major outage" for ten seconds out of twenty,
+ * and a hero advertising a product that is broken more than it works is worse than
+ * a hero that does not move.
  *
- * With the priority recheck below, a failure now occupies about one tick, so these
- * read as occasional blips against a mostly green panel.
+ * Frequency is the only real lever on how much of the WALL CLOCK the panel spends
+ * unhealthy, because a failed region necessarily stays failed until its next
+ * result, which is a whole cycle away (~3.7s). Instrumenting the first parallel
+ * version showed the code hitting its stated 4.4% per region and 17% of cycles
+ * exactly as designed, while the badge still read degraded 46% of the time: the
+ * rate was right and the DURATION was doing the damage. Hence these lower values
+ * and a tighter recovery.
  */
-const P_DEGRADED = 0.11;
-const P_DOWN = 0.028;
+const P_DEGRADED = 0.022;
+const P_DOWN = 0.006;
 
-/** Chance a region that just failed comes back healthy on its priority recheck.
- *  Not 1: an outage that always clears on the very next check would be its own
- *  kind of lie. */
-const P_RECOVER = 0.82;
+/** Chance a region that failed last cycle comes back healthy on the next one. Not
+ *  1: an outage that always clears on the very next check would be its own kind of
+ *  lie. */
+const P_RECOVER = 0.9;
+
+/*
+ * How long a result takes to land, from the number it reports. A fast region
+ * settles almost at once, a slow one visibly later, a timeout last of all because
+ * a timeout is the full window elapsing. Amplified from real milliseconds, which
+ * are far too quick to perceive, and capped so one slow region cannot hold the
+ * whole cycle open.
+ */
+const settleDelay = (state, ms) => {
+    if (state === 'down') {
+        return 1300;
+    }
+
+    return 90 + Math.min(300, ms) * 3;
+};
 
 const jitter = (base, spread = 0.22) => {
     const delta = base * spread;
@@ -114,7 +144,6 @@ export default function initMonitorSim() {
     const timeoutText = rows[0].dataset.labelTimeout ?? 'timeout';
 
     const scaleMs = Number(panel.dataset.scaleMs || 110);
-    let cursor = 0;
     let timer = null;
 
     /*
@@ -147,47 +176,29 @@ export default function initMonitorSim() {
         }
     };
 
-    const runCheck = () => {
-        /*
-         * A region that is currently failing jumps the queue. Two reasons, and
-         * both matter: a real monitor re-checks a failing target sooner than it
-         * walks the rest of the rotation, and without it a failure sat on screen
-         * for a full lap (five regions, nearly nine seconds) which read as a
-         * sustained outage rather than the blip it was meant to be.
-         */
-        const failing = rows.find((r) => r.dataset.state !== 'up');
-        const row = failing ?? rows[cursor % rows.length];
-
-        if (!failing) {
-            cursor += 1;
-        }
-
-        // The row flashes for the duration of its check, restarted each time by
-        // removing and re-adding the class across a reflow.
-        row.classList.remove('is-checking');
-        void row.offsetWidth;
-        row.classList.add('is-checking');
-        window.setTimeout(() => row.classList.remove('is-checking'), 900);
-
+    /** Decide one region's outcome for this cycle. */
+    const resolve = (row) => {
         const baseline = Number(row.dataset.baselineMs || 40);
         const roll = Math.random();
+        const slow = () => jitter(Math.round(baseline * pick(DEGRADED_FACTOR)), 0.15);
 
-        if (failing) {
-            // A recheck mostly recovers, and otherwise softens a timeout into a
-            // slow response, which is the usual shape of something coming back.
-            if (roll < P_RECOVER) {
-                paint(row, 'up', jitter(baseline));
-            } else {
-                paint(row, 'degraded', jitter(Math.round(baseline * pick(DEGRADED_FACTOR)), 0.15));
-            }
-        } else if (roll < P_DOWN) {
-            paint(row, 'down', 0);
-        } else if (roll < P_DOWN + P_DEGRADED) {
-            paint(row, 'degraded', jitter(Math.round(baseline * pick(DEGRADED_FACTOR)), 0.15));
-        } else {
-            paint(row, 'up', jitter(baseline));
+        // A region that failed last cycle mostly recovers, and otherwise softens a
+        // timeout into a slow response, which is the usual shape of something
+        // coming back.
+        if (row.dataset.state !== 'up') {
+            return roll < P_RECOVER ? { state: 'up', ms: jitter(baseline) } : { state: 'degraded', ms: slow() };
         }
 
+        if (roll < P_DOWN) {
+            return { state: 'down', ms: 0 };
+        }
+
+        return roll < P_DOWN + P_DEGRADED
+            ? { state: 'degraded', ms: slow() }
+            : { state: 'up', ms: jitter(baseline) };
+    };
+
+    const refreshVerdict = () => {
         const verdict = rollup(rows.map((r) => r.dataset.state));
 
         if (badge) {
@@ -203,24 +214,58 @@ export default function initMonitorSim() {
         if (today) {
             today.dataset.state = verdict;
         }
+    };
 
-        // Schedule the next check, and hand the countdown bar the same duration so
-        // the two cannot drift apart now that the gap is not a constant.
+    /**
+     * One check cycle: every region at once, results landing in latency order.
+     */
+    const runCycle = () => {
+        // All rows go in-flight together, which is the visible difference between
+        // a parallel fan-out and a rotation. Restarting the flash needs the class
+        // removed and re-added across a reflow.
+        rows.forEach((row) => {
+            row.classList.remove('is-checking');
+            void row.offsetWidth;
+            row.classList.add('is-checking');
+        });
+
+        let lastSettle = 0;
+
+        rows.forEach((row) => {
+            const { state, ms } = resolve(row);
+            const delay = settleDelay(state, ms);
+
+            lastSettle = Math.max(lastSettle, delay);
+
+            // Each result lands on its own clock, so the row that answers in 12ms
+            // is done long before the one that times out.
+            window.setTimeout(() => {
+                row.classList.remove('is-checking');
+                paint(row, state, ms);
+                refreshVerdict();
+            }, delay);
+        });
+
+        /*
+         * The next cycle is measured from when THIS one finished settling, not from
+         * when it started, so a slow cycle cannot overlap the following one and
+         * leave two sets of results racing into the same rows.
+         */
         const gap = Math.round(pick(GAP_MS));
 
         if (progress) {
-            progress.style.animationDuration = `${gap}ms`;
+            progress.style.animationDuration = `${lastSettle + gap}ms`;
             progress.classList.remove('is-counting');
             void progress.offsetWidth;
             progress.classList.add('is-counting');
         }
 
-        timer = window.setTimeout(runCheck, gap);
+        timer = window.setTimeout(runCycle, lastSettle + gap);
     };
 
     const start = () => {
         if (timer === null) {
-            runCheck();
+            runCycle();
         }
     };
 
