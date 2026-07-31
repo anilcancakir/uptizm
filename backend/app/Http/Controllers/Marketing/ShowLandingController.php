@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Marketing;
 
+use App\Enums\AiMode;
+use App\Enums\MetricSource;
 use App\Enums\MonitorRegion;
 use App\Enums\NotificationChannelType;
 use App\Models\Monitor;
@@ -40,6 +42,9 @@ class ShowLandingController
             'canonicalUrl' => $this->urlFor(app()->getLocale()),
             'sections' => $this->sections(),
             'decisionRules' => $this->decisionRules(),
+            'inspections' => $this->inspections(),
+            'statusPageFeatures' => $this->statusPageFeatures(),
+            'aiBoundary' => $this->aiBoundary(),
         ]);
     }
 
@@ -55,8 +60,114 @@ class ShowLandingController
      */
     protected function sections(): array
     {
-        return [
+        $sections = [
             ['id' => 'how-it-decides', 'label' => __('How it decides')],
+            ['id' => 'beyond-status-codes', 'label' => __('What it inspects')],
+            ['id' => 'status-pages', 'label' => __('Status pages')],
+        ];
+
+        // The AI section is withheld entirely on a deployment with no provider key, so
+        // its nav entry has to be withheld with it. Otherwise the nav points at a
+        // section that is not on the page, which is the exact defect the anchor guard
+        // in ChromeTest exists to catch.
+        if ($this->aiEnabled()) {
+            $sections[] = ['id' => 'ai-boundary', 'label' => __('The AI boundary')];
+        }
+
+        return $sections;
+    }
+
+    /**
+     * What a single check actually looks at, beyond whether the server answered.
+     *
+     * The section this feeds is the depth argument. Uptizm covers fewer protocols than
+     * the tools that list eighteen check types, so breadth is not the story; what one
+     * check inspects is.
+     *
+     * @return list<array{title: string, body: string, mechanism: string}>
+     */
+    protected function inspections(): array
+    {
+        return [
+            [
+                'title' => __('A number out of the response body'),
+                'body' => __('Point a selector at a value your endpoint already returns, give it a bound, and it becomes a first-class signal: charted, thresholded, and able to open an incident on its own. :count kinds of selector, and you can test one against a live response before you save it.', [
+                    'count' => count(MetricSource::cases()),
+                ]),
+                // The enum's own backing values. A source added there appears here.
+                'mechanism' => Arr::join(array_column(MetricSource::cases(), 'value'), ' · '),
+            ],
+            [
+                'title' => __('The certificate, before it bites'),
+                'body' => __('Every tracked monitor has its TLS certificate read on a schedule. Inside the warning window an incident opens once, not once per run, and the expiry date is on the monitor where you can see it coming.'),
+                'mechanism' => 'ssl_alert_threshold_days = '.Monitor::make()->ssl_alert_threshold_days,
+            ],
+            [
+                'title' => __('An error budget, from real checks'),
+                'body' => __('Set a target per monitor and the remaining budget is computed from the checks that actually ran. When there is not enough history to answer, it says so instead of showing you a confident zero.'),
+                'mechanism' => 'slo_target, per monitor',
+            ],
+        ];
+    }
+
+    /**
+     * What a published status page carries.
+     *
+     * Typed rather than derived from `DomainMode`, and that is deliberate: the enum has
+     * three cases and the third, a customer's own domain, is accepted by the API but has
+     * no route answering on it. Deriving the list would advertise it.
+     *
+     * @return list<string>
+     */
+    protected function statusPageFeatures(): array
+    {
+        return [
+            __('Components, and groups of components'),
+            __('90 days of uptime per component'),
+            __('Incident history with published postmortems'),
+            __('Email subscribers, double opt-in'),
+            __('Your brand colour and logo'),
+            __('On a path or on its own subdomain'),
+        ];
+    }
+
+    /**
+     * The AI modes, and the line the AI does not cross.
+     *
+     * The modes come from the enum the write requests validate against. The boundary is
+     * the more important half: uptizm has no integration into the customer's product, so
+     * its AI can only reason from what uptizm itself measured. Saying that plainly is
+     * the differentiator, because the failure mode of every AI feature in this category
+     * is a confident sentence about a deploy it cannot see.
+     *
+     * @return array{modes: list<array{name: string, body: string}>, cannot: list<string>}
+     */
+    protected function aiBoundary(): array
+    {
+        return [
+            'modes' => array_map(
+                fn (AiMode $mode): array => match ($mode) {
+                    AiMode::Off => [
+                        'name' => __('Off'),
+                        'body' => __('Thresholds and people open incidents. The AI is not in the loop at all.'),
+                    ],
+                    AiMode::Suggest => [
+                        'name' => __('Suggest'),
+                        'body' => __('It writes an analysis on incidents and raises what it thinks is an anomaly. You decide.'),
+                    ],
+                    AiMode::Auto => [
+                        'name' => __('Auto'),
+                        'body' => __('It opens anomaly incidents itself, keeps them updated, and resolves them when the signal clears.'),
+                    ],
+                },
+                AiMode::cases(),
+            ),
+            'cannot' => [
+                __('your deploys, your commits, your CI'),
+                __('your logs, your traces, your APM'),
+                __('your CDN or anybody else\'s status page'),
+                __('anything it can change on your behalf'),
+            ],
         ];
     }
 
