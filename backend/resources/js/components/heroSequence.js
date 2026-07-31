@@ -165,20 +165,19 @@ export const heroSequence = (channels = [], labels = {}, beats = {}) => ({
      * rather than the act numbers is what stops that handover from flickering for no
      * reason.
      *
-     * Under reduced motion the words simply change. An opacity fade is not the movement
-     * that preference exists to suppress, but it is still an animation, and the swap
-     * carries the whole meaning without it.
+     * The fade runs under reduced motion too, and that is deliberate rather than an
+     * oversight. A cross-fade is not what the preference exists to suppress; travel across
+     * the screen is, and there is none here. It also has to match the rest of the page:
+     * every section below the hero now cross-fades in under reduce, so a hard swap here
+     * would be the one jarring thing on an otherwise calm page.
+     *
+     * What stays off under reduce is the typing and the transition pulse, which are
+     * movement.
      */
     async crossfade(act) {
         const next = this.beats[act] ?? this.beats['1'];
 
         if (!next || next === this.shownBeat) {
-            return;
-        }
-
-        if (this.reduced) {
-            this.shownBeat = next;
-
             return;
         }
 

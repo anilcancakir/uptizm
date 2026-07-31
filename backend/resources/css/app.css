@@ -335,10 +335,36 @@ main[id] {
  * on the X axis instead of animating `width`, which is a layout property and was
  * costing a reflow per frame in the previous build.
  *
- * The whole layer sits inside `prefers-reduced-motion: no-preference`, so a visitor
- * who asked for less gets a completely static page rather than a gentler version of
- * this one. The state colours above stay, so nothing loses meaning.
+ * MOVEMENT sits inside `prefers-reduced-motion: no-preference`. A visitor who asked for
+ * less does NOT get a dead page: the hidden state is shared, and the reduce block after
+ * this one animates the same elements with opacity alone. That is the documented
+ * substitution, a cross-fade in place of a slide, which is what Apple's own Reduce Motion
+ * does to its transitions.
+ *
+ * Getting this wrong is not theoretical. The whole layer really did sit inside
+ * no-preference, so every section under the hero was inert for anybody with the
+ * preference set, and it was reported as "no animation anywhere except the hero". Which
+ * is precisely what it was.
  */
+/*
+ * The hidden state, deliberately OUTSIDE both motion blocks.
+ *
+ * Every accommodation below animates from hidden, so this cannot live inside either one:
+ * in no-preference a reduced-motion visitor would have nothing to fade in from, in reduce
+ * the reverse. Same mistake in a different costume as the one that once stacked all three
+ * hero scenes on top of each other. State belongs outside the media query, transitions
+ * inside it.
+ *
+ * Still scoped to `.js-motion`, which is now set whatever the motion preference, because
+ * that class means "JavaScript is here and can honour a hidden state" and nothing more.
+ * Its failsafe is what stops the page hiding its own content behind a script that never
+ * arrived.
+ */
+.js-motion [data-enter],
+.js-motion [data-reveal] {
+    opacity: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
     /*
      * Entrance. Scoped to `.js-motion`, a class the hero script sets on <html>
@@ -347,7 +373,6 @@ main[id] {
      * script that did not arrive.
      */
     .js-motion [data-enter] {
-        opacity: 0;
         transform: translateY(1.25rem);
     }
 
@@ -374,7 +399,6 @@ main[id] {
      * page rather than an empty one.
      */
     .js-motion [data-reveal] {
-        opacity: 0;
         transform: translateY(1.5rem);
     }
 
@@ -492,6 +516,39 @@ main[id] {
         50% {
             opacity: 0.3;
             transform: scale(0.65);
+        }
+    }
+}
+
+/*
+ * Reduced motion: the same choreography with the travel taken out.
+ *
+ * A cross-fade is not what `prefers-reduced-motion` exists to suppress. What it exists to
+ * suppress is movement across the screen, parallax and scale, all of which the block above
+ * owns and none of which appears here. So the page still arrives section by section, in
+ * the same order, with the same stagger, and nothing slides.
+ *
+ * The stagger is shorter, because a fade with no travel reads as finished sooner and a
+ * long delay on an element that is merely becoming visible feels like a page loading
+ * badly rather than a page arriving.
+ */
+@media (prefers-reduced-motion: reduce) {
+    .js-motion [data-enter].is-in,
+    .js-motion [data-reveal].is-in {
+        animation: fade-in 0.5s ease-out forwards;
+    }
+
+    .js-motion [data-enter].is-in {
+        animation-delay: calc(var(--enter-index, 0) * 60ms);
+    }
+
+    .js-motion [data-reveal].is-in {
+        animation-delay: calc(var(--reveal-index, 0) * 60ms);
+    }
+
+    @keyframes fade-in {
+        to {
+            opacity: 1;
         }
     }
 }

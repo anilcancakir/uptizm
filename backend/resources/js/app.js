@@ -24,10 +24,17 @@ Alpine.start();
  * column sat blank for the full 2.5s timeout before the failsafe un-hid it, which is
  * the failsafe doing its job as the primary path.
  *
- * No IntersectionObserver: the hero is above the fold, so there is nothing to wait
- * for, and one less gate is one less dead state.
+ * No IntersectionObserver for the hero's own entrance: it is above the fold, so there is
+ * nothing to wait for, and one less gate is one less dead state.
+ *
+ * None of this is gated on the motion preference any more. It was, and the result was that
+ * a visitor with reduced motion set had `js-motion` withheld and this observer never
+ * created, so every section below the hero arrived already visible and never animated at
+ * all. The preference is CSS's decision now: app.css slides under no-preference and
+ * cross-fades under reduce, and this file just reports that the page can be trusted with a
+ * hidden state.
  */
-if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+{
     document.documentElement.dataset.motionReady = '1';
 
     document.querySelectorAll('[data-enter]').forEach((el, i) => {

@@ -50,18 +50,20 @@
             Arms the entrance reveal BEFORE first paint. Doing it from the deferred
             module instead would show the content, hide it, then animate it back in.
 
-            The failsafe is the load-bearing half: hero-monitor.js sets `motionReady`
-            as soon as it can honour the hidden state, and if it never runs (blocked,
-            failed to parse, offline) the class comes back off and the page is simply
-            static. A page must never be able to hide its own content behind a script
-            that did not arrive.
+            It arms regardless of the motion preference, and that is the fix for a real
+            defect: this used to return early on `prefers-reduced-motion: reduce`, so
+            `js-motion` was never set, so every reveal below the hero was dead for anybody
+            with the preference on. The class means "JavaScript is here and can honour a
+            hidden state" and nothing else; app.css decides whether the arrival is a slide
+            or a cross-fade.
+
+            The failsafe is the load-bearing half: app.js sets `motionReady` as soon as it
+            can honour the hidden state, and if it never runs (blocked, failed to parse,
+            offline) the class comes back off and the page is simply static. A page must
+            never be able to hide its own content behind a script that did not arrive.
         --}}
         <script>
             (function () {
-                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                    return;
-                }
-
                 var root = document.documentElement;
                 root.classList.add('js-motion');
 
