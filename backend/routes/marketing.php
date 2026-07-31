@@ -1,6 +1,10 @@
 <?php
 
+use App\Http\Controllers\Marketing\ShowContactController;
+use App\Http\Controllers\Marketing\ShowFaqController;
 use App\Http\Controllers\Marketing\ShowLandingController;
+use App\Http\Controllers\Marketing\ShowPrivacyController;
+use App\Http\Controllers\Marketing\ShowTermsController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -97,4 +101,52 @@ if ($prefixedLocales !== []) {
     Route::get('/{locale}', ShowLandingController::class)
         ->whereIn('locale', $prefixedLocales)
         ->name('landing.localized');
+}
+
+/*
+ * The long-form documents: Privacy, Terms, Contact, FAQ.
+ *
+ * Registered here rather than in `routes/web.php`, and that is not a matter of tidiness:
+ * the `web:` argument in `bootstrap/app.php` is loaded as
+ * `Route::middleware('web')->group(...)`, so a route in THAT file re-inherits
+ * `StartSession` whatever was done to its neighbours. The Privacy page below states that
+ * these pages store nothing on the visitor's device, so a session cookie here would
+ * falsify a published claim. `tests/Feature/Marketing/LegalPagesTest.php` asserts the
+ * resolved middleware of every path added here, because the failure is otherwise
+ * invisible until somebody curls for a `Set-Cookie` header.
+ *
+ * The paths mirror the landing shape exactly, per language: the default language on the
+ * apex, every other language behind its prefix, one URL per language per document so
+ * hreflang has a single canonical to name. The controller constant, the Markdown filename
+ * under `resources/legal/` and the path key below are the same string.
+ */
+$documents = [
+    'privacy' => ShowPrivacyController::class,
+    'terms' => ShowTermsController::class,
+    'contact' => ShowContactController::class,
+    'faq' => ShowFaqController::class,
+];
+
+foreach ($documents as $page => $controller) {
+    Route::get('/'.$page, $controller)->name($page);
+
+    // The default language already has this document on the apex, so its prefixed form is
+    // a permanent redirect rather than a second English page competing for the same query.
+    // A plain `Route::redirect`, which the framework answers without touching a session.
+    Route::redirect('/'.$defaultLocale.'/'.$page, '/'.$page, 301);
+
+    /*
+     * The same `whereIn` constraint the landing route carries, for a related reason. It
+     * cannot swallow `/up` (that path is one segment and this pattern is two), but
+     * unconstrained it would answer `/de/privacy`, `/xx/privacy` and everything else with
+     * the English document under a 200, which publishes one legal notice at unbounded
+     * addresses and invites a crawler to index each of them. A language we do not speak
+     * must be a 404. Registered only when there IS another language, because `whereIn([])`
+     * compiles to an empty alternation that matches anything at all.
+     */
+    if ($prefixedLocales !== []) {
+        Route::get('/{locale}/'.$page, $controller)
+            ->whereIn('locale', $prefixedLocales)
+            ->name($page.'.localized');
+    }
 }

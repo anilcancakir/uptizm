@@ -3,13 +3,10 @@
 
     Deliberately short. A footer template arrives with Pricing, Docs, Careers, Privacy
     and four social icons, and every one of those is a claim that a page exists. This
-    deployment serves the landing page, the public status pages and the client, so
-    those are the only things linked. `ChromeTest` pins the absence of the rest.
-
-    Privacy and Terms are a real launch requirement rather than an oversight: the
-    status pages collect subscriber email and Stripe is wired. They are not linked
-    here because they are not written yet, and a 404 behind "Privacy" is worse than
-    no link at all.
+    deployment serves the landing page, the four documents below, the public status
+    pages and the client, so those are the only things linked. `ChromeTest` pins the
+    absence of the rest, and the rule that governs both files is one rule: a link and
+    the page behind it land in the same change, never a release apart.
 --}}
 {{-- `surface` rather than `surface-container`, so the alternation the sections keep does
      not break on the last step: the closing band above is a container, and two identical
@@ -62,6 +59,40 @@
                             class="text-body-md text-fg-muted transition-colors hover:text-fg"
                         >{{ __('Start free') }}</a>
                     </li>
+                </ul>
+            </div>
+
+            {{-- The four long-form documents.
+
+                 The href is COMPOSED, from `$homePath` (the chrome's own home path for
+                 the language being read: `/` or `/tr`), rather than typed as `/privacy`.
+                 A Turkish reader clicking "Gizlilik" must land on `/tr/privacy` and not
+                 be dropped into the English notice, and `rtrim` is what keeps the default
+                 language on `/privacy` instead of `//privacy`.
+
+                 Typed as a list here because there is no config or enum behind these four
+                 paths to derive them from; the routes themselves are the same typed list.
+                 What is NOT negotiable is that a link here is a promise the page answers:
+                 all four were absent from this footer until the pages existed, and
+                 `ChromeTest` still pins the absence of every footer cliche with nothing
+                 behind it. --}}
+            <div>
+                <h2 class="text-label-sm uppercase tracking-[0.12em] text-fg-muted">{{ __('Legal') }}</h2>
+
+                <ul class="mt-3 space-y-2">
+                    @foreach ([
+                        ['path' => 'privacy', 'label' => __('Privacy')],
+                        ['path' => 'terms', 'label' => __('Terms')],
+                        ['path' => 'contact', 'label' => __('Contact')],
+                        ['path' => 'faq', 'label' => __('FAQ')],
+                    ] as $documentLink)
+                        <li>
+                            <a
+                                href="{{ rtrim($homePath, '/').'/'.$documentLink['path'] }}"
+                                class="text-body-md text-fg-muted transition-colors hover:text-fg"
+                            >{{ $documentLink['label'] }}</a>
+                        </li>
+                    @endforeach
                 </ul>
             </div>
 
