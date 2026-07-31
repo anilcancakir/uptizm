@@ -16,6 +16,7 @@ use Laravel\Octane\Listeners\CollectGarbage;
 use Laravel\Octane\Listeners\DisconnectFromDatabases;
 use Laravel\Octane\Listeners\EnsureUploadedFilesAreValid;
 use Laravel\Octane\Listeners\EnsureUploadedFilesCanBeMoved;
+use Laravel\Octane\Listeners\FlushLocaleState;
 use Laravel\Octane\Listeners\FlushOnce;
 use Laravel\Octane\Listeners\FlushTemporaryContainerInstances;
 use Laravel\Octane\Listeners\FlushUploadedFiles;
@@ -73,7 +74,20 @@ return [
         RequestReceived::class => [
             ...Octane::prepareApplicationForNextOperation(),
             ...Octane::prepareApplicationForNextRequest(),
-            //
+
+            /*
+             * Return the translator to the configured locale before each request.
+             *
+             * Octane's own default list does NOT include this (it ships
+             * FlushTranslatorCache, which drops loaded messages but leaves the
+             * locale alone), and `App::setLocale()` mutates the long-lived
+             * translator singleton. So without this listener a visitor reading the
+             * Turkish landing page leaves the worker set to `tr`, and the next
+             * visitor to reach that same worker is served Turkish on a URL that
+             * promises English. Cross-request state, and invisible under
+             * `artisan serve` because there every request is a fresh process.
+             */
+            FlushLocaleState::class,
         ],
 
         RequestHandled::class => [
