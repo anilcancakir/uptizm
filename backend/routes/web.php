@@ -1,18 +1,19 @@
 <?php
 
+use App\Http\Controllers\Marketing\ShowLandingController;
 use App\Http\Controllers\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
- * The apex host. Deliberately a blank slate: the landing page is being rebuilt
- * from scratch, section by section, starting with the hero.
+ * The apex host. The landing page is being rebuilt section by section; the hero is
+ * the only section so far.
  *
  * Keep this route registered even while empty. It is what answers on the apex,
  * and `SubdomainAddressingTest` pins that it wins there while the host-constrained
  * status-page route still wins on a subdomain, which is a routing contract worth
  * not breaking mid-rebuild.
  */
-Route::get('/', fn () => view('landing'))->name('landing');
+Route::get('/', ShowLandingController::class)->name('landing');
 
 /*
  * Point Cashier's `stripe/webhook` path at the app's StripeWebhookController so

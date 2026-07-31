@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Http\Controllers\Marketing;
+
+use App\Enums\MonitorRegion;
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Arr;
+
+/**
+ * The landing page on the apex host.
+ *
+ * One rule governs this controller: A CLAIM IS DERIVED, NEVER TYPED. Anything the
+ * page asserts about the product comes from the enum or config that actually
+ * governs the behaviour, so the page cannot drift into advertising a region we do
+ * not probe from or a limit we do not honour.
+ *
+ * It grows a method per section as the page is rebuilt. Right now it serves the
+ * hero only.
+ */
+class ShowLandingController
+{
+    public function __invoke(): View
+    {
+        return view('landing', [
+            'regions' => $this->regions(),
+            'freeTier' => $this->freeTier(),
+            'signInUrl' => $this->clientUrl('/login'),
+            'signUpUrl' => $this->clientUrl('/register'),
+            'aiEnabled' => $this->aiEnabled(),
+        ]);
+    }
+
+    /**
+     * The probe regions a monitor can actually be pinned to.
+     *
+     * Sourced from the enum the write requests validate against, NOT from
+     * `config/relay.php`'s `regions` key, which the dispatch path never reads and
+     * which understates the real list.
+     *
+     * @return list<array{value: string, label: string}>
+     */
+    protected function regions(): array
+    {
+        return array_map(
+            fn (MonitorRegion $region): array => [
+                'value' => $region->value,
+                'label' => $region->label(),
+            ],
+            MonitorRegion::cases(),
+        );
+    }
+
+    /**
+     * The free tier's enforced limits, read from the plan catalog PlanGate uses.
+     *
+     * Returns null when the catalog has no free tier, which drops the sentence
+     * rather than inventing one.
+     *
+     * @return array{monitors: int|null, interval: string, status_pages: int|null}|null
+     */
+    protected function freeTier(): ?array
+    {
+        $tier = Arr::first(
+            config('plans.tiers', []),
+            fn (array $tier): bool => ($tier['id'] ?? null) === 'free',
+        );
+
+        if ($tier === null) {
+            return null;
+        }
+
+        $seconds = Arr::get($tier, 'limits.check_interval_sec');
+
+        return [
+            'monitors' => Arr::get($tier, 'limits.monitors'),
+            // "3-minute" reads better than "180-second" on a whole number of
+            // minutes, and the copy should not have to know which it is.
+            'interval' => is_int($seconds) && $seconds >= 60 && $seconds % 60 === 0
+                ? __(':count-minute', ['count' => intdiv($seconds, 60)])
+                : __(':count-second', ['count' => $seconds]),
+            'status_pages' => Arr::get($tier, 'limits.status_pages'),
+        ];
+    }
+
+    /**
+     * Whether this deployment can actually run an AI feature.
+     *
+     * Without a provider key every AI path in the product degrades to its
+     * deterministic baseline. That degrade is a feature, but a page advertising
+     * "AI-assisted triage" on top of it would be selling the fallback, so the claim
+     * is withheld instead.
+     */
+    protected function aiEnabled(): bool
+    {
+        $provider = config('ai.default');
+
+        if (! is_string($provider) || $provider === '') {
+            return false;
+        }
+
+        $key = config("ai.providers.{$provider}.key");
+
+        return is_string($key) && $key !== '';
+    }
+
+    /**
+     * Absolute URL into the Flutter client.
+     *
+     * The client mounts its auth screens under a prefix, so these are NOT `/login`
+     * and `/register` on the app host; getting it wrong sends every visitor who
+     * clicks the primary call to action to a route the client does not serve.
+     */
+    protected function clientUrl(string $path): string
+    {
+        return rtrim((string) config('app.frontend_url'), '/')
+            .rtrim((string) config('app.frontend_auth_prefix'), '/')
+            .$path;
+    }
+}

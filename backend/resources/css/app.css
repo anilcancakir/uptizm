@@ -9,17 +9,8 @@
  * pages are the public face of an uptime product, and a third-party request in the
  * critical path of a status page is a dependency we would then be accountable for
  * during someone else's incident. It also keeps the headless preview renderer
- * deterministic: `document.fonts.ready` no longer waits on a network we do not
+ * deterministic: `document.fonts.ready` stops waiting on a network we do not
  * control.
- *
- * These two survived the landing-page teardown on purpose. This stylesheet is ALSO
- * loaded by the public status pages under /s/{slug}, which are tenant-facing and are
- * not being rebuilt, so stripping the typography out from under them would be a
- * regression to a surface nobody asked to change.
- *
- * Everything else that used to live here (the DESIGN.md colour tokens, the radius
- * and type scales, the motion layer) is gone, and comes back deliberately as part of
- * the new design rather than as inherited furniture.
  */
 @font-face {
     font-family: 'Geist';
@@ -37,7 +28,387 @@
     font-display: swap;
 }
 
-@theme {
+/*
+ * Colour, ported from the Flutter client's DESIGN.md so the marketing page, the
+ * status page and the product read as one product. Token NAMES match DESIGN.md's
+ * alias keys exactly; when a value changes there it has to change here.
+ *
+ * Light and dark live in the two blocks below and reach Tailwind through
+ * `@theme inline`, so `bg-surface` compiles to `var(--app-surface)` and follows the
+ * visitor's system preference on its own. That is the point: it makes a light-only
+ * colour impossible to write, which is the same guarantee DESIGN.md enforces on the
+ * Wind side by demanding an explicit `dark:` pair for every token.
+ */
+:root {
+    --app-surface: #f9fafb;
+    --app-surface-container: #ffffff;
+    --app-surface-container-high: #f1f3f6;
+
+    --app-fg: #040608;
+    --app-fg-muted: #555d65;
+    --app-fg-disabled: #d1d5da;
+
+    --app-primary: #008560;
+    --app-on-primary: #ffffff;
+    --app-primary-container: #e0f9ee;
+    --app-accent: #007a54;
+
+    --app-border: #dee2e5;
+    --app-border-subtle: #eceff1;
+
+    /* The monitoring status vocabulary. `down` equals `destructive` by design, so
+       an outage and a dangerous action read identically. */
+    --app-up: #30a556;
+    --app-up-soft: #dcf9e1;
+    --app-up-soft-foreground: #197037;
+    --app-down: #df202e;
+    --app-down-soft: #ffe3df;
+    --app-down-soft-foreground: #b71824;
+    --app-degraded: #e69825;
+    --app-degraded-soft: #ffeccc;
+    --app-degraded-soft-foreground: #834100;
+    --app-paused: #79828a;
+    --app-paused-soft: #f1f3f6;
+    --app-paused-soft-foreground: #555d65;
+    --app-ai: #6e59e2;
+    --app-ai-soft: #ece8ff;
+    --app-ai-soft-foreground: #5f40d5;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --app-surface: #07090c;
+        --app-surface-container: #121518;
+        --app-surface-container-high: #202529;
+
+        --app-fg: #f1f3f6;
+        --app-fg-muted: #aab1b7;
+        --app-fg-disabled: #3a4147;
+
+        --app-primary: #00c292;
+        --app-on-primary: #07090c;
+        --app-primary-container: #003223;
+        --app-accent: #98e8c9;
+
+        --app-border: #2a2e33;
+        --app-border-subtle: #1c2023;
+
+        --app-up: #45c06a;
+        --app-up-soft: #0c2e16;
+        --app-up-soft-foreground: #8ce6a0;
+        --app-down: #ff645f;
+        --app-down-soft: #4c1010;
+        --app-down-soft-foreground: #ffaea6;
+        --app-degraded: #f5ae39;
+        --app-degraded-soft: #412400;
+        --app-degraded-soft-foreground: #fac871;
+        --app-paused: #999fa6;
+        --app-paused-soft: #23272b;
+        --app-paused-soft-foreground: #aab1b7;
+        --app-ai: #9e8afa;
+        --app-ai-soft: #2b195a;
+        --app-ai-soft-foreground: #d6d0ff;
+    }
+}
+
+@theme inline {
     --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
     --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+    --color-surface: var(--app-surface);
+    --color-surface-container: var(--app-surface-container);
+    --color-surface-container-high: var(--app-surface-container-high);
+
+    --color-fg: var(--app-fg);
+    --color-fg-muted: var(--app-fg-muted);
+    --color-fg-disabled: var(--app-fg-disabled);
+
+    --color-primary: var(--app-primary);
+    --color-on-primary: var(--app-on-primary);
+    --color-primary-container: var(--app-primary-container);
+    --color-accent: var(--app-accent);
+
+    --color-border: var(--app-border);
+    --color-border-subtle: var(--app-border-subtle);
+
+    --color-up: var(--app-up);
+    --color-up-soft: var(--app-up-soft);
+    --color-up-soft-foreground: var(--app-up-soft-foreground);
+    --color-degraded: var(--app-degraded);
+    --color-degraded-soft: var(--app-degraded-soft);
+    --color-degraded-soft-foreground: var(--app-degraded-soft-foreground);
+    --color-down: var(--app-down);
+    --color-down-soft: var(--app-down-soft);
+    --color-down-soft-foreground: var(--app-down-soft-foreground);
+    --color-paused: var(--app-paused);
+    --color-ai: var(--app-ai);
+    --color-ai-soft: var(--app-ai-soft);
+    --color-ai-soft-foreground: var(--app-ai-soft-foreground);
+
+    /* Corner radii, named as DESIGN.md names them (`DEFAULT` becomes `base`, since
+       a bare `rounded` cannot be redefined). These intentionally shadow Tailwind's
+       own md/lg/xl values: the app's 4px scale is the authority. */
+    --radius-sm: 4px;
+    --radius-base: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+
+    /* The app's type scale, one token per DESIGN.md entry. */
+    --text-micro: 10px;
+    --text-micro--line-height: 14px;
+
+    --text-label-sm: 12px;
+    --text-label-sm--line-height: 16px;
+    --text-label-sm--font-weight: 500;
+
+    --text-label-md: 14px;
+    --text-label-md--line-height: 20px;
+    --text-label-md--letter-spacing: 0.01em;
+    --text-label-md--font-weight: 600;
+
+    --text-body-md: 14px;
+    --text-body-md--line-height: 22px;
+
+    --text-body-lg: 16px;
+    --text-body-lg--line-height: 26px;
+
+    --text-title-lg: 18px;
+    --text-title-lg--line-height: 26px;
+    --text-title-lg--font-weight: 600;
+
+    /* A marketing-only step above the app scale: a product screen never needs type
+       this large, so it extends DESIGN.md rather than contradicting it. Fluid, so
+       the headline needs no breakpoint ladder of its own. */
+    --text-hero: clamp(2.5rem, 1.7rem + 3vw, 3.75rem);
+    --text-hero--line-height: 1.04;
+    --text-hero--letter-spacing: -0.03em;
+    --text-hero--font-weight: 700;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Monitor state
+ * ---------------------------------------------------------------------------
+ *
+ * Driven by `data-state`, NOT by Tailwind classes, because the hero simulation
+ * changes state at runtime and Tailwind only generates classes it can see in the
+ * source: a JS-composed `bg-degraded` compiles to markup referencing a class the
+ * stylesheet does not contain.
+ *
+ * Outside the reduced-motion block on purpose. A state is what something LOOKS
+ * like, not an animation, so a visitor who asked for less motion still needs a
+ * degraded row to read as degraded.
+ */
+[data-dot],
+[data-ms],
+[data-bar-fill],
+[data-verdict] {
+    transition:
+        background-color 0.3s ease-out,
+        color 0.3s ease-out,
+        transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-state='up'] [data-dot],
+[data-state='up'] [data-ring],
+[data-day][data-state='up'] {
+    background-color: var(--app-up);
+}
+
+[data-state='degraded'] [data-dot],
+[data-state='degraded'] [data-ring],
+[data-day][data-state='degraded'] {
+    background-color: var(--app-degraded);
+}
+
+[data-state='down'] [data-dot],
+[data-state='down'] [data-ring],
+[data-day][data-state='down'] {
+    background-color: var(--app-down);
+}
+
+[data-day][data-state='none'] {
+    background-color: var(--app-surface-container-high);
+}
+
+[data-state='up'] [data-bar-fill] {
+    background-color: color-mix(in srgb, var(--app-primary) 75%, transparent);
+}
+
+[data-state='degraded'] [data-bar-fill] {
+    background-color: var(--app-degraded);
+}
+
+[data-state='down'] [data-bar-fill] {
+    background-color: var(--app-down);
+}
+
+[data-state='up'] [data-ms] {
+    color: var(--app-fg);
+}
+
+[data-state='degraded'] [data-ms] {
+    color: var(--app-degraded-soft-foreground);
+}
+
+[data-state='down'] [data-ms] {
+    color: var(--app-down);
+}
+
+[data-verdict][data-state='up'] {
+    background-color: var(--app-up-soft);
+    color: var(--app-up-soft-foreground);
+}
+
+[data-verdict][data-state='degraded'] {
+    background-color: var(--app-degraded-soft);
+    color: var(--app-degraded-soft-foreground);
+}
+
+[data-verdict][data-state='down'] {
+    background-color: var(--app-down-soft);
+    color: var(--app-down-soft-foreground);
+}
+
+/*
+ * Which spotlight scene is showing.
+ *
+ * OUTSIDE the reduced-motion block, and the reason is a bug this already caused:
+ * with the rule inside it, a visitor with Reduce Motion enabled got all three scenes
+ * stacked on top of each other, because nothing was hiding the inactive ones. Hiding
+ * is a STATE, not an animation. Only the transition between states is motion.
+ */
+[data-scene][aria-hidden='true'] {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Motion
+ * ---------------------------------------------------------------------------
+ *
+ * ONE RULE: only `transform` and `opacity` are animated. Those two skip layout and
+ * paint and go straight to compositing; anything else drags the animation back onto
+ * the main thread no matter which API drives it. This is why the latency bars scale
+ * on the X axis instead of animating `width`, which is a layout property and was
+ * costing a reflow per frame in the previous build.
+ *
+ * The whole layer sits inside `prefers-reduced-motion: no-preference`, so a visitor
+ * who asked for less gets a completely static page rather than a gentler version of
+ * this one. The state colours above stay, so nothing loses meaning.
+ */
+@media (prefers-reduced-motion: no-preference) {
+    /*
+     * Entrance. Scoped to `.js-motion`, a class the hero script sets on <html>
+     * before first paint, with a failsafe that removes it if the script never
+     * reports ready. A page must not be able to hide its own content behind a
+     * script that did not arrive.
+     */
+    .js-motion [data-enter] {
+        opacity: 0;
+        transform: translateY(1.25rem);
+    }
+
+    .js-motion [data-enter].is-in {
+        animation: enter 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        animation-delay: calc(var(--enter-index, 0) * 90ms);
+    }
+
+    @keyframes enter {
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    /* A check landing on a row: a tint sweeps the row and a ring leaves the dot.
+       The tint is an overlay's opacity, not the row's background-color, because
+       background-color animation repaints. */
+    [data-region]::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-color: var(--app-primary-container);
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    [data-region].is-checking::before {
+        animation: row-flash 0.85s ease-out;
+    }
+
+    @keyframes row-flash {
+        0% {
+            opacity: 0.9;
+        }
+        100% {
+            opacity: 0;
+        }
+    }
+
+    [data-region].is-checking [data-ring] {
+        animation: ring 0.85s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes ring {
+        0% {
+            opacity: 0.85;
+            transform: scale(1);
+        }
+        100% {
+            opacity: 0;
+            transform: scale(5.5);
+        }
+    }
+
+    /* The card swaps scenes on a small rise and drop. Only the TRANSITION lives in
+       here; the hiding itself is a state and sits outside, below. */
+    [data-scene] {
+        transition:
+            opacity 0.45s ease-out,
+            transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    [data-scene][aria-hidden='true'] {
+        transform: translateY(0.75rem);
+    }
+
+    /* The JSONPath sweep: a highlight crosses the extracted value once, when the
+       metric scene comes up. */
+    [data-sweep].is-sweeping {
+        animation: sweep 1.1s ease-in-out;
+    }
+
+    @keyframes sweep {
+        0% {
+            opacity: 0;
+            transform: translateX(-60%);
+        }
+        35% {
+            opacity: 1;
+        }
+        100% {
+            opacity: 0;
+            transform: translateX(160%);
+        }
+    }
+
+    /* The dot beside the host, alive between checks. */
+    [data-breathe] {
+        animation: breathe 2.2s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+        0%,
+        100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+        50% {
+            opacity: 0.3;
+            transform: scale(0.65);
+        }
+    }
 }
