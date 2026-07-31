@@ -82,6 +82,27 @@ class ChromeTest extends TestCase
         }
     }
 
+    public function test_no_translation_placeholder_reaches_the_page(): void
+    {
+        /*
+         * `__('... :count ...')` renders the placeholder literally when the replacement
+         * array is forgotten, and it is silent: no exception, no log line, just a
+         * heading on the live page reading "the :count in a row". That shipped for one
+         * commit because the tests were checking the derived NUMBER elsewhere on the
+         * page and never the string that was supposed to contain it.
+         *
+         * Both languages, because a placeholder can be dropped in a translation while
+         * the source string keeps it.
+         */
+        foreach (['/', '/tr'] as $path) {
+            $response = $this->get($path);
+
+            foreach ([':count', ':pending', ':channels', ':interval', ':pages', ':name'] as $placeholder) {
+                $response->assertDontSee($placeholder);
+            }
+        }
+    }
+
     public function test_a_keyboard_visitor_can_skip_the_chrome(): void
     {
         // A sticky header in front of the hero puts the brand and the whole nav
