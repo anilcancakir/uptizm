@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" role="img" aria-label="Uptizm">
+  <style>
+    .ring { stroke: #008560; }
+    .dot { fill: #008560; }
+    @media (prefers-color-scheme: dark) {
+      .ring { stroke: #00C292; }
+      .dot { fill: #00C292; }
+    }
+  </style>
+  <circle class="ring" cx="8" cy="8" r="6.5" fill="none" stroke-opacity="0.42" stroke-width="2"/>
+  <circle class="dot" cx="8" cy="8" r="3.4"/>
+</svg>

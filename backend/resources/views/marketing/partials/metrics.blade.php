@@ -61,7 +61,7 @@
 
             <div class="flex items-start gap-2.5 border-t border-border-subtle bg-degraded-soft px-5 py-4 text-degraded-soft-foreground">
                 <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-degraded"></span>
-                <span>{{ __('1843 crossed the warning bound — incident opened, severity warning') }}</span>
+                <span>{{ __('1843 crossed the warning bound: incident opened, severity warning') }}</span>
             </div>
         </div>
     </div>

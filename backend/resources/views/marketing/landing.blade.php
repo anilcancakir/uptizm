@@ -28,22 +28,41 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
-        <title>{{ config('app.name') }} — {{ __('uptime, incident and status-page monitoring') }}</title>
-        <meta name="description" content="{{ __('Monitor HTTP and TCP endpoints from pinned regions at the edge, run incidents with on-call escalation, and publish a status page your customers can subscribe to.') }}">
+        {{-- Title, description, canonical, robots, Open Graph, Twitter card and
+             the SoftwareApplication JSON-LD, all set in ShowLandingController so
+             the crawler-facing copy sits next to the page's own claims and cannot
+             drift from them. --}}
+        {!! SEO::generate() !!}
 
-        <link rel="canonical" href="{{ rtrim(config('app.url'), '/') }}/">
+        {{-- Icons carry the BRAND mark, not a status rendition: this page reports
+             on nothing, so a green status light here would have no subject. The
+             per-status renditions in public/favicon/ belong to the status pages.
 
-        {{-- The brand mark, not a status rendition: this page reports on nothing,
-             so a green favicon here would be a status light with no subject. The
-             status pages use the per-status renditions in public/favicon/. --}}
-        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon/operational-16.svg') }}">
+             Three formats because they answer different clients: the SVG (which
+             carries its own dark-mode pair) for current browsers, the .ico for
+             the bare /favicon.ico that crawlers and older clients request, and an
+             opaque PNG for iOS, which composites the home-screen icon with no
+             transparency handling. --}}
+        <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="32x32">
+        <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
+        <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+        <link rel="manifest" href="{{ asset('site.webmanifest') }}">
+
         <meta name="theme-color" content="#008560" media="(prefers-color-scheme: light)">
         <meta name="theme-color" content="#07090c" media="(prefers-color-scheme: dark)">
 
-        <meta property="og:title" content="{{ config('app.name') }}">
-        <meta property="og:description" content="{{ __('Uptime monitoring that refuses to guess.') }}">
-        <meta property="og:type" content="website">
-        <meta property="og:url" content="{{ rtrim(config('app.url'), '/') }}/">
+        {{-- Preload the sans face only. It renders the hero headline, which is
+             the largest contentful paint; the mono face carries the numbers and
+             can arrive a beat later without moving the layout that gets measured.
+             Preloading both would spend 140KB of early bandwidth to save nothing.
+             --}}
+        <link
+            rel="preload"
+            as="font"
+            type="font/woff2"
+            href="{{ Vite::asset('resources/fonts/GeistVariable.woff2') }}"
+            crossorigin
+        >
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
 

@@ -4,6 +4,10 @@ namespace App\Http\Controllers\Marketing;
 
 use App\Enums\MonitorRegion;
 use App\Enums\NotificationChannelType;
+use Artesaos\SEOTools\Facades\JsonLdMulti;
+use Artesaos\SEOTools\Facades\OpenGraph;
+use Artesaos\SEOTools\Facades\SEOMeta;
+use Artesaos\SEOTools\Facades\TwitterCard;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
 
@@ -26,6 +30,8 @@ class ShowLandingController
 {
     public function __invoke(): View
     {
+        $this->describeForCrawlers();
+
         return view('marketing.landing', [
             'regions' => $this->regions(),
             'channels' => $this->channels(),
@@ -40,6 +46,92 @@ class ShowLandingController
             // link would be worse than the gap it papers over.
             'ownStatusPageUrl' => $this->ownStatusPageUrl(),
         ]);
+    }
+
+    /**
+     * Meta, Open Graph, Twitter card and JSON-LD for this page.
+     *
+     * The copy here is the same claim the page makes in its hero. A social card
+     * or a search snippet promising something the page does not say is the
+     * crawler-facing version of a false claim, so the two are kept identical on
+     * purpose rather than tuned separately for clicks.
+     *
+     * Nothing is asserted that we cannot back: no `aggregateRating` (we have no
+     * reviews, and inventing one to win a star in a search result is exactly the
+     * sin the rest of this page is built to avoid), and the only `offers` entry
+     * is the free tier, which is real and self-serve. Paid tiers are left out
+     * until a checkout can complete.
+     */
+    protected function describeForCrawlers(): void
+    {
+        $name = (string) config('app.name');
+        $title = $name.': '.__('uptime, incident and status-page monitoring');
+        $description = __('Uptime monitoring that refuses to guess. HTTP and TCP checks from :count pinned regions at the edge, incidents that open on repeated failure rather than the first blip, and status pages your customers can subscribe to.', [
+            'count' => count(MonitorRegion::cases()),
+        ]);
+        /*
+         * Absolute, and built from the canonical base rather than `asset()`.
+         * `asset()` uses the CURRENT request root, so a crawler that reached this
+         * page over `api.uptizm.com` would be handed a social card URL on that
+         * hostname.
+         */
+        $image = $this->canonicalUrl().'brand/og-image.png';
+
+        SEOMeta::setTitle($title, false)
+            ->setDescription($description)
+            ->setCanonical($this->canonicalUrl());
+
+        OpenGraph::setTitle($title)
+            ->setDescription($description)
+            ->setUrl($this->canonicalUrl())
+            ->setType('website')
+            ->setSiteName($name)
+            ->addImage($image, ['width' => 1200, 'height' => 630, 'type' => 'image/png']);
+
+        TwitterCard::setTitle($title)
+            ->setDescription($description)
+            ->setImage($image);
+
+        /*
+         * JsonLdMulti, NOT the JsonLd facade. They are two separate singletons
+         * (`seotools.json-ld-multi` and `seotools.json-ld`), and
+         * `SEOTools::generate()` renders the MULTI one. Writing to the other
+         * compiles, runs, and silently emits the config defaults instead, which
+         * is how a page ends up shipping `@type: WebPage` while the controller
+         * clearly asked for a SoftwareApplication.
+         */
+        JsonLdMulti::setType('SoftwareApplication')
+            ->setTitle($name)
+            ->setDescription($description)
+            ->setUrl($this->canonicalUrl())
+            ->addImage($image)
+            ->addValue('applicationCategory', 'DeveloperApplication')
+            ->addValue('operatingSystem', 'Web, iOS, Android')
+            ->addValue('offers', [
+                '@type' => 'Offer',
+                'price' => '0',
+                'priceCurrency' => 'USD',
+                'description' => __('Free plan, no card required.'),
+            ])
+            ->addValue('publisher', [
+                '@type' => 'Organization',
+                'name' => $name,
+                'url' => $this->canonicalUrl(),
+                'logo' => $this->canonicalUrl().'brand/icon-512.png',
+            ]);
+    }
+
+    /**
+     * The apex host's canonical URL, built from configuration.
+     *
+     * Deliberately NOT `url()->current()`: this app also answers on
+     * `api.uptizm.com` and on every status-page subdomain, so a request-derived
+     * canonical would let a crawler that reached the landing page over one of
+     * those hostnames index it there.
+     */
+    protected function canonicalUrl(): string
+    {
+        return rtrim((string) config('app.url'), '/').'/';
     }
 
     /**
