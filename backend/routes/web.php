@@ -1,48 +1,21 @@
 <?php
 
-use App\Http\Controllers\Marketing\ShowLandingController;
 use App\Http\Controllers\StripeWebhookController;
-use App\Http\Middleware\SetMarketingLocale;
 use Illuminate\Support\Facades\Route;
 
 /*
- * The apex host, in every language the product speaks.
+ * This file is loaded as `Route::middleware('web')->group(...)`, so EVERY route
+ * registered here starts a session, encrypts cookies and gates on a CSRF token,
+ * with no per-route way out. That is right for the Stripe webhook below and wrong
+ * for a page a visitor merely reads.
  *
- * The default locale lives on the apex itself and every other locale gets a path
- * prefix, so there is exactly ONE url per language and hreflang has a single
- * canonical to name for each. The list comes from `magic-starter.supported_locales`,
- * the same array the API negotiates Accept-Language against, so a language cannot
- * appear on one surface and be missing from the other.
- *
- * Keep the apex route registered even while the page is half-built. It is what
- * answers on the apex, and `SubdomainAddressingTest` pins that it wins there while
- * the host-constrained status-page route still wins on a subdomain.
+ * So the public marketing pages are NOT here: they live in `routes/marketing.php`,
+ * registered by the bootstrap `then` callback under the lean `static` group, and
+ * they set no cookie at all. That file carries the ePrivacy reasoning in full.
+ * Adding a marketing route here instead would re-inherit the session silently and
+ * put two `Set-Cookie` headers back on a formless page, which the Privacy page
+ * states does not happen.
  */
-$supportedLocales = array_values((array) config('magic-starter.supported_locales', []));
-$defaultLocale = (string) config('app.default_locale');
-$prefixedLocales = array_values(array_diff($supportedLocales, [$defaultLocale]));
-
-Route::middleware(SetMarketingLocale::class)->group(function () use ($defaultLocale, $prefixedLocales): void {
-    Route::get('/', ShowLandingController::class)->name('landing');
-
-    // The default language already has a home, so its prefixed form is a permanent
-    // redirect rather than a second English page competing for the same query.
-    Route::redirect('/'.$defaultLocale, '/', 301);
-
-    /*
-     * One route for every other language. The constraint is not decoration: without
-     * it this is a bare two-letter catch-all, and `/up` (the health check nginx and
-     * the deploy script poll) is two letters.
-     *
-     * Registered only when there IS another language, because `whereIn([])` compiles
-     * to an empty alternation that matches anything at all.
-     */
-    if ($prefixedLocales !== []) {
-        Route::get('/{locale}', ShowLandingController::class)
-            ->whereIn('locale', $prefixedLocales)
-            ->name('landing.localized');
-    }
-});
 
 /*
  * Point Cashier's `stripe/webhook` path at the app's StripeWebhookController so

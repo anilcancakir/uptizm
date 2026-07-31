@@ -112,9 +112,17 @@ class SubdomainAddressingTest extends TestCase
     public function test_the_landing_page_does_not_shadow_a_status_subdomain(): void
     {
         // The mirror of the assertion above: the host-constrained route must win
-        // on a subdomain even though the unconstrained `GET /` was registered
-        // first (routes/web.php loads before the `then` callback registers
-        // routes/status.php).
+        // on a subdomain even though an unconstrained `GET /` also exists (the
+        // landing page, in routes/marketing.php). This does NOT rest on which
+        // file loads first: `RouteCollection` keeps host-constrained routes in
+        // their own `$domainRoutes` bucket and matches that bucket before the
+        // unconstrained one, so registration order never decided it.
+        //
+        // Caveat this test cannot see: the suite always runs against an
+        // uncached collection. With `route:cache` (which `artisan optimize` runs
+        // on deploy) the compiled matcher goes by registration order instead,
+        // and the apex route wins here. That is a live defect with its own
+        // follow-up, not something this assertion is pinning.
         $page = $this->makePage('acme', isPublic: true);
 
         $this->get('http://acme.'.self::HOST.'/')->assertSee($page->name);

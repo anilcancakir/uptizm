@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
+use App\Http\Middleware\SetMarketingLocale;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -22,7 +23,22 @@ return Application::configure(basePath: dirname(__DIR__))
         // and the public subscribe POST is not CSRF-gated (a web.php route would
         // inherit the `web` group and 419 the POST). Throttle + double opt-in +
         // dedupe are the real mitigations.
+        //
+        // The read-only marketing pages register the same way, and for a reason
+        // the status pages do not have: ePrivacy Art. 5(3) exempts only storage
+        // strictly necessary to the service the visitor asked for, assessed per
+        // purpose, so a session cookie on a page with no form is not exempt and
+        // the Privacy page says these pages set none. `routes/marketing.php`
+        // carries that reasoning in full. It must stay its OWN file: the `web:`
+        // argument above is loaded as `Route::middleware('web')->group(...)`, so
+        // a route in `routes/web.php` inherits `StartSession` whatever else is
+        // done to it. `SetMarketingLocale` rides along here rather than inside
+        // the file so every route in it speaks the language its URL asks for; it
+        // is session-free and cookie-free by design.
         then: function (): void {
+            Route::middleware(['static', SetMarketingLocale::class])
+                ->group(base_path('routes/marketing.php'));
+
             Route::middleware('static')->group(base_path('routes/status.php'));
         },
     )
