@@ -205,6 +205,15 @@ main[id] {
     --text-title-lg--line-height: 26px;
     --text-title-lg--font-weight: 600;
 
+    /* Section headings, one step below the hero. Fluid between DESIGN.md's
+       `headline-lg` (28px) and `display` (36px) plus a little, because a section
+       heading on a marketing page sits in more whitespace than the same size does in
+       a product screen and reads smaller for it. Marketing-only, like --text-hero. */
+    --text-section: clamp(1.75rem, 1.2rem + 1.8vw, 2.5rem);
+    --text-section--line-height: 1.12;
+    --text-section--letter-spacing: -0.02em;
+    --text-section--font-weight: 700;
+
     /* A marketing-only step above the app scale: a product screen never needs type
        this large, so it extends DESIGN.md rather than contradicting it. Fluid, so
        the headline needs no breakpoint ladder of its own. */
