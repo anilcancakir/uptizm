@@ -165,8 +165,7 @@ class ShowLandingController
             'cannot' => [
                 __('your deploys, your commits, your CI'),
                 __('your logs, your traces, your APM'),
-                __('your CDN or anybody else\'s status page'),
-                __('anything it can change on your behalf'),
+                __('your CDN, or anybody else\'s status page'),
             ],
         ];
     }

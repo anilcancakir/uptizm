@@ -70,7 +70,11 @@ class AiBoundaryTest extends TestCase
             ->assertSee('cannot see')
             ->assertSee('deploys')
             ->assertSee('APM')
-            ->assertSee('advisory');
+            // It advises and nothing more. The wording moved from "stay advisory" to
+            // "are advice" when this section's copy was simplified, because the idioms
+            // in the first draft translated into Turkish nonsense.
+            ->assertSee('are advice')
+            ->assertSee('no way in');
     }
 
     public function test_the_section_does_not_promise_the_ai_can_act(): void
