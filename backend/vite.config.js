@@ -15,6 +15,14 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
+        /*
+         * Bind IPv4 explicitly. Vite's default resolves to the IPv6 loopback on
+         * macOS, so `public/hot` ends up saying `http://[::1]:5173` and Blade emits
+         * every dev asset URL against it while `127.0.0.1:5173` refuses outright.
+         * It works until something in the chain prefers IPv4, and then the page
+         * loads with no stylesheet and no JS and looks like a caching problem.
+         */
+        host: '127.0.0.1',
         watch: {
             ignored: ['**/storage/framework/views/**'],
         },
