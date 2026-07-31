@@ -18,6 +18,6 @@
          that does not stop, and this component replaced an earlier eyebrow whose
          pulsing dot got dropped in the refactor, which left the hero completely
          still one second after load. --}}
-    <span data-breathe class="size-1.5 rounded-full bg-current"></span>
+    <span data-breathe class="size-2 rounded-full bg-current"></span>
     {{ $text }}
 </span>

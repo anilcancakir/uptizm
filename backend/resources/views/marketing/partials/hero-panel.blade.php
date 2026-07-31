@@ -86,16 +86,16 @@
                 class="flex items-center gap-3 px-5 py-3"
             >
                 @if ($sample !== null)
-                    <span class="relative flex size-1.5 shrink-0">
+                    <span class="relative flex size-2 shrink-0">
                         <span
                             data-probe-ring
                             style="--probe-index: {{ $loop->index }}"
                             class="absolute inline-flex size-full rounded-full bg-up"
                         ></span>
-                        <span class="relative inline-flex size-1.5 rounded-full bg-up"></span>
+                        <span class="relative inline-flex size-2 rounded-full bg-up"></span>
                     </span>
                 @else
-                    <span class="size-1.5 shrink-0 rounded-full bg-paused"></span>
+                    <span class="size-2 shrink-0 rounded-full bg-paused"></span>
                 @endif
 
                 <span class="w-28 shrink-0 truncate text-body-md text-fg">{{ $region['label'] }}</span>
@@ -130,7 +130,7 @@
             <span class="font-mono text-label-sm text-fg-muted">{{ __('1 degraded · 1 no data') }}</span>
         </div>
 
-        <div data-days class="mt-2.5 flex h-6 items-stretch gap-px">
+        <div data-days data-sweep class="mt-2.5 flex h-6 items-stretch gap-px">
             @foreach ($historyDays as $day)
                 {{-- Interpolated, not @class: that directive emits a whole
                      `class="..."` attribute, so inside one it nests and the

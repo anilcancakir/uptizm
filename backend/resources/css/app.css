@@ -337,50 +337,65 @@
      * the cost was a panel that looked greyed out. A ring expanding OUT of a
      * full-opacity dot is visible without touching the dot at all.
      */
+    /*
+     * Amplitudes here were measured in a real browser, not eyeballed, after the
+     * first version ran correctly and was still reported as "no movement at
+     * all". Instructive numbers from that version:
+     *
+     *   - the row highlight animated white -> #F1F3F6, a ~3% luminance shift on
+     *     a white card, so in LIGHT MODE the scan was doing nothing visible
+     *   - the ring peaked at 19px, a small filled blob rather than a wave
+     *   - the breathing dot was 5.8px shrinking 18%, which is not perceptible
+     *
+     * Motion that technically runs and cannot be seen is the same as no motion,
+     * and costs more, because it is easy to believe it is working.
+     */
     [data-probe-ring] {
-        animation: probe-ring 4.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-        animation-delay: calc(var(--probe-index, 0) * 0.5s);
+        animation: probe-ring 4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+        animation-delay: calc(var(--probe-index, 0) * 0.46s);
     }
 
     @keyframes probe-ring {
         0% {
-            opacity: 0.7;
+            opacity: 0.85;
             transform: scale(1);
         }
         /* Out and gone in the first third; the rest of the cycle is the wait
            until this region's next check, which is the thing being depicted. */
-        34%,
+        38%,
         100% {
             opacity: 0;
-            transform: scale(3.2);
+            transform: scale(5.5);
         }
     }
 
     /*
-     * The row the sweep is currently on lifts its background, so the eye can
-     * follow the scan down the list rather than having to notice five separate
-     * rings.
+     * The row the sweep is on tints its background, so the eye follows one scan
+     * down the list instead of having to notice five separate rings.
+     *
+     * `primary-container` rather than `surface-container-high`: it is a mint tint
+     * that reads clearly on white AND on the near-black dark surface, which the
+     * neutral step did not.
      */
     [data-probe-row] {
-        animation: probe-row 4.4s ease-in-out infinite;
-        animation-delay: calc(var(--probe-index, 0) * 0.5s);
+        animation: probe-row 4s ease-in-out infinite;
+        animation-delay: calc(var(--probe-index, 0) * 0.46s);
     }
 
     @keyframes probe-row {
         0%,
-        26%,
+        30%,
         100% {
             background-color: transparent;
         }
-        8% {
-            background-color: var(--app-surface-container-high);
+        10% {
+            background-color: var(--app-primary-container);
         }
     }
 
-    /* A slow breath on the status badge's dot: the one element that should look
-       alive even when the panel is not being scanned. */
+    /* The dots that should look alive even when nothing is being scanned. */
     [data-breathe] {
-        animation: breathe 2.6s ease-in-out infinite;
+        animation: breathe 2.2s ease-in-out infinite;
     }
 
     @keyframes breathe {
@@ -390,8 +405,47 @@
             transform: scale(1);
         }
         50% {
-            opacity: 0.45;
-            transform: scale(0.82);
+            opacity: 0.25;
+            transform: scale(0.6);
+        }
+    }
+
+    /*
+     * A highlight travelling across the 90-day history, once per loop. The bar is
+     * the widest element in the panel, so a sweep across it is the most legible
+     * motion available without enlarging anything.
+     *
+     * Opt-in via `data-sweep` rather than applying to every `[data-days]` track:
+     * the status-page mock's component bars are 2.5px tall, where a sweep is
+     * invisible and only adds noise.
+     */
+    [data-sweep] {
+        position: relative;
+        overflow: hidden;
+    }
+
+    [data-sweep]::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(
+            90deg,
+            transparent 0%,
+            color-mix(in srgb, var(--app-primary) 55%, transparent) 50%,
+            transparent 100%
+        );
+        width: 28%;
+        animation: sweep 4s ease-in-out infinite;
+    }
+
+    @keyframes sweep {
+        0% {
+            transform: translateX(-120%);
+        }
+        45%,
+        100% {
+            transform: translateX(460%);
         }
     }
 
