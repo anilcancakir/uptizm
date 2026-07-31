@@ -88,6 +88,10 @@
         <main id="content">
             @include('marketing.hero')
             @include('marketing.decides')
+            @include('marketing.inspects')
+            @include('marketing.status-pages')
+            @include('marketing.ai-boundary')
+            @include('marketing.closing')
         </main>
 
         @include('marketing.footer')
