@@ -93,6 +93,32 @@
                             >{{ $documentLink['label'] }}</a>
                         </li>
                     @endforeach
+
+                    {{-- Withdrawal, and it belongs here rather than buried in the notice.
+                         GDPR Art. 7(3): withdrawing consent has to be as easy as giving it,
+                         so the way back is one click from every page, next to the documents
+                         that describe it.
+
+                         A BUTTON and not an anchor, deliberately. A `href="#..."` here would
+                         have to resolve to an element carrying that id (`ChromeTest` and
+                         `LayoutTest` walk every fragment on the page and fail the build on a
+                         dangling one), and the banner is a dialog rather than a place on the
+                         page. The dispatched event bubbles to the window, where the banner
+                         listens for it.
+
+                         Present only when there is something to withdraw: with no container
+                         configured nothing is ever stored, so the link would be offering to
+                         change a choice that was never asked for. --}}
+                    @if ($consent['container_id'] !== null)
+                        <li>
+                            <button
+                                type="button"
+                                x-data
+                                x-on:click="$dispatch('consent-reopen')"
+                                class="text-body-md text-fg-muted transition-colors hover:text-fg"
+                            >{{ __('Change your choice') }}</button>
+                        </li>
+                    @endif
                 </ul>
             </div>
 

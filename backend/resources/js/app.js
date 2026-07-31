@@ -1,5 +1,6 @@
 import Alpine from 'alpinejs';
 
+import { consentChoice } from './components/consentChoice';
 import { heroSequence } from './components/heroSequence';
 
 // This bundle serves the MARKETING surface only. The product itself is the Flutter
@@ -10,6 +11,13 @@ import { heroSequence } from './components/heroSequence';
 // Registered before start(), and this app owns Alpine outright: unlike fluttersdk.com
 // there is no Livewire here that would boot a second instance alongside it.
 Alpine.data('heroSequence', heroSequence);
+
+// The consent banner. Registered unconditionally and inert unless the banner is on the
+// page at all, which it is only on a deployment with a GTM container configured
+// (config/analytics.php). Nothing in this module reaches a Google host by itself: it
+// updates the Consent Mode state the inline head bootstrap established, and the bootstrap
+// is what the capability gate withholds.
+Alpine.data('consentChoice', consentChoice);
 
 window.Alpine = Alpine;
 

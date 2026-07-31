@@ -326,6 +326,34 @@ main[id] {
 
 /*
  * ---------------------------------------------------------------------------
+ * Consent banner
+ * ---------------------------------------------------------------------------
+ *
+ * Alpine drives these as transition CLASSES (`x-transition:enter="consent-fade"` and
+ * friends) rather than through inline styles, so the motion stays here with the rest of it
+ * and can differ by preference, which an `x-transition` modifier cannot do.
+ *
+ * The two endpoint states sit OUTSIDE both media blocks, following the same structure as
+ * the scene rule above and for the same reason: a cross-fade is the accommodation, not the
+ * thing being accommodated. Under `reduce` the banner still fades in, because fading in
+ * place is information arriving rather than movement, and a hard appearance at the bottom
+ * of the viewport is more startling than the fade it would replace. What the no-preference
+ * block below adds is the TRAVEL, and only that.
+ */
+.consent-fade {
+    transition: opacity 0.35s ease-out;
+}
+
+.consent-fade-out {
+    opacity: 0;
+}
+
+.consent-fade-in {
+    opacity: 1;
+}
+
+/*
+ * ---------------------------------------------------------------------------
  * Motion
  * ---------------------------------------------------------------------------
  *
@@ -480,6 +508,22 @@ main[id] {
 
     [data-scene][aria-hidden='true'] {
         transform: translateY(0.75rem);
+    }
+
+    /* The banner rises the last few pixels into place. Transform and opacity only, like
+       everything else here, so it composites and the page under it never reflows. */
+    .consent-fade {
+        transition:
+            opacity 0.35s ease-out,
+            transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .consent-fade-out {
+        transform: translateY(0.75rem);
+    }
+
+    .consent-fade-in {
+        transform: none;
     }
 
     /* The JSONPath sweep: a highlight crosses the extracted value once, when the
