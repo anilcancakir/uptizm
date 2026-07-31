@@ -11,11 +11,19 @@
 
     Channel names come from NotificationChannelType via the controller, so the ladder
     cannot list a destination the product cannot deliver to.
+
+    The terminal beat is RESOLUTION, not acknowledgement, and that correction matters.
+    It read "Acknowledged, paging stops", which the code does not do:
+    `EscalationDispatcher::pageStep()` short-circuits on `! lifecycle->isActive()` and
+    `isTerminal()` is `Resolved` alone, while acknowledging moves an incident from
+    Detected to Investigating, which is still active. So acknowledging leaves the ladder
+    climbing and only a resolution cancels the steps still pending. Advertising the
+    opposite would have promised the one thing an operator most needs to be true.
 --}}
 <div data-act x-show="act === 4" x-cloak class="absolute inset-0 flex flex-col p-5">
     <div class="flex items-baseline justify-between">
         <p class="text-label-sm uppercase tracking-[0.12em] text-fg-muted">{{ __('Escalation') }}</p>
-        <p class="font-mono text-label-sm text-fg-muted" x-text="ackAt ? '{{ __('acknowledged') }}' : '{{ __('paging') }}'"></p>
+        <p class="font-mono text-label-sm text-fg-muted" x-text="resolvedAt ? '{{ __('resolved') }}' : '{{ __('paging') }}'"></p>
     </div>
 
     {{-- Split by STEP, with the waiting beat between the two groups. A single loop
@@ -35,7 +43,7 @@
              line of its own rather than being implied by a gap. --}}
         <li x-show="waiting" x-cloak class="flex items-center gap-3 px-3 py-1">
             <span class="h-px flex-1 bg-border"></span>
-            <span class="shrink-0 text-label-sm text-fg-muted">{{ __('nobody acknowledged, step 2') }}</span>
+            <span class="shrink-0 text-label-sm text-fg-muted">{{ __('still open, so step 2 fires') }}</span>
             <span class="h-px flex-1 bg-border"></span>
         </li>
 
@@ -50,18 +58,18 @@
     </ul>
 
     <div
-        x-show="ackAt"
+        x-show="resolvedAt"
         x-cloak
         class="mt-auto flex items-center gap-3 rounded-base px-3 py-2.5"
         style="background-color: var(--app-up-soft)"
     >
         <span class="size-2 shrink-0 rounded-full" style="background-color: var(--app-up)"></span>
-        <span class="text-label-md" style="color: var(--app-up-soft-foreground)">{{ __('Acknowledged') }}</span>
-        <span class="font-mono text-label-sm" style="color: var(--app-up-soft-foreground)" x-text="ackAt"></span>
-        <span class="ml-auto text-label-sm" style="color: var(--app-up-soft-foreground)">{{ __('paging stops') }}</span>
+        <span class="text-label-md" style="color: var(--app-up-soft-foreground)">{{ __('Resolved') }}</span>
+        <span class="font-mono text-label-sm" style="color: var(--app-up-soft-foreground)" x-text="resolvedAt"></span>
+        <span class="ml-auto text-label-sm" style="color: var(--app-up-soft-foreground)">{{ __('pending pages cancelled') }}</span>
     </div>
 
-    <p x-show="!ackAt" x-cloak class="mt-auto text-label-sm text-fg-muted">
+    <p x-show="! resolvedAt" x-cloak class="mt-auto text-label-sm text-fg-muted">
         {{ __('Each destination is throttled, so one flapping monitor cannot become forty messages.') }}
     </p>
 </div>

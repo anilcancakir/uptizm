@@ -74,7 +74,7 @@ export const heroSequence = (channels = [], labels = {}) => ({
      */
     escalation: [],
     waiting: false,
-    ackAt: null,
+    resolvedAt: null,
 
     verdict: 'up',
     running: false,
@@ -194,11 +194,11 @@ export const heroSequence = (channels = [], labels = {}) => ({
         if (n === 4) {
             this.escalation = this.ladder();
             this.waiting = true;
-            this.ackAt = '5m 12s';
+            this.resolvedAt = '5m 12s';
         } else {
             this.escalation = [];
             this.waiting = false;
-            this.ackAt = null;
+            this.resolvedAt = null;
         }
     },
 
@@ -295,8 +295,8 @@ export const heroSequence = (channels = [], labels = {}) => ({
     },
 
     /**
-     * The two escalation steps. Step 1 goes out immediately; step 2 fires only because
-     * nobody answered, which is the point of the act.
+     * The two escalation steps. Step 1 goes out immediately; step 2 fires because the
+     * incident is still open when its delay elapses.
      */
     ladder() {
         const [first, second, third, fourth] = this.channels;
@@ -313,7 +313,7 @@ export const heroSequence = (channels = [], labels = {}) => ({
         this.act = 4;
         this.escalation = [];
         this.waiting = false;
-        this.ackAt = null;
+        this.resolvedAt = null;
         await this.delay(350);
 
         const rows = this.ladder();
@@ -326,7 +326,8 @@ export const heroSequence = (channels = [], labels = {}) => ({
             await this.delay(520);
         }
 
-        // Then the silence that makes step 2 necessary.
+        // Then the interval that lets step 2 fire: the ladder climbs on its own
+        // timers, and only a resolution stops it.
         await this.delay(900);
         this.waiting = true;
         await this.delay(1100);
@@ -339,7 +340,7 @@ export const heroSequence = (channels = [], labels = {}) => ({
         }
 
         await this.delay(800);
-        this.ackAt = '5m 12s';
+        this.resolvedAt = '5m 12s';
         await this.delay(2600);
     },
 
