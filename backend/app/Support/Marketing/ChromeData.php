@@ -83,6 +83,7 @@ readonly class ChromeData
      *     signUpUrl: string,
      *     regions: list<array{value: string, label: string}>,
      *     platformClaim: string,
+     *     consent: array{container_id: string|null, storage_key: string, version: int},
      * }
      */
     public function toArray(): array
@@ -98,6 +99,41 @@ readonly class ChromeData
             'signUpUrl' => $this->clientUrl('/register'),
             'regions' => $this->regions(),
             'platformClaim' => $this->platformClaim(),
+            'consent' => $this->consent(),
+        ];
+    }
+
+    /**
+     * Everything the analytics and consent partials need, as ONE chrome key.
+     *
+     * Three partials read it: the head bootstrap, the banner, and the footer's withdrawal
+     * link. They read it from here rather than calling `config()` each, so the gate is
+     * decided once per request and cannot be half-applied (a banner with no container
+     * behind it, or a container with no banner in front of it).
+     *
+     * `container_id` null is the CLOSED state and every consumer gates on it: no bootstrap,
+     * no loader, no banner, no withdrawal link, no Google host mentioned anywhere. Null
+     * rather than false, because the id itself is what the loader needs and a separate
+     * boolean would be a second fact that could disagree with it.
+     *
+     * `storage_key` and `version` are carried through so the inline head script and the
+     * Alpine component address the SAME record. The head script cannot import the module
+     * (it has to run before the container, and a module would not), so those two constants
+     * are the only thing keeping the two readers in agreement.
+     *
+     * @return array{container_id: string|null, storage_key: string, version: int}
+     */
+    private function consent(): array
+    {
+        // The shape was already validated where the value enters (config/analytics.php),
+        // so this is the null-and-empty guard that keeps a hand-set config value from
+        // reaching a `<script>`, not a second validation.
+        $containerId = config('analytics.gtm_container_id');
+
+        return [
+            'container_id' => is_string($containerId) && $containerId !== '' ? $containerId : null,
+            'storage_key' => (string) config('analytics.consent_storage_key'),
+            'version' => (int) config('analytics.consent_version'),
         ];
     }
 
