@@ -2,18 +2,47 @@
 
 use App\Http\Controllers\Marketing\ShowLandingController;
 use App\Http\Controllers\StripeWebhookController;
+use App\Http\Middleware\SetMarketingLocale;
 use Illuminate\Support\Facades\Route;
 
 /*
- * The apex host. The landing page is being rebuilt section by section; the hero is
- * the only section so far.
+ * The apex host, in every language the product speaks.
  *
- * Keep this route registered even while empty. It is what answers on the apex,
- * and `SubdomainAddressingTest` pins that it wins there while the host-constrained
- * status-page route still wins on a subdomain, which is a routing contract worth
- * not breaking mid-rebuild.
+ * The default locale lives on the apex itself and every other locale gets a path
+ * prefix, so there is exactly ONE url per language and hreflang has a single
+ * canonical to name for each. The list comes from `magic-starter.supported_locales`,
+ * the same array the API negotiates Accept-Language against, so a language cannot
+ * appear on one surface and be missing from the other.
+ *
+ * Keep the apex route registered even while the page is half-built. It is what
+ * answers on the apex, and `SubdomainAddressingTest` pins that it wins there while
+ * the host-constrained status-page route still wins on a subdomain.
  */
-Route::get('/', ShowLandingController::class)->name('landing');
+$supportedLocales = array_values((array) config('magic-starter.supported_locales', []));
+$defaultLocale = (string) config('app.default_locale');
+$prefixedLocales = array_values(array_diff($supportedLocales, [$defaultLocale]));
+
+Route::middleware(SetMarketingLocale::class)->group(function () use ($defaultLocale, $prefixedLocales): void {
+    Route::get('/', ShowLandingController::class)->name('landing');
+
+    // The default language already has a home, so its prefixed form is a permanent
+    // redirect rather than a second English page competing for the same query.
+    Route::redirect('/'.$defaultLocale, '/', 301);
+
+    /*
+     * One route for every other language. The constraint is not decoration: without
+     * it this is a bare two-letter catch-all, and `/up` (the health check nginx and
+     * the deploy script poll) is two letters.
+     *
+     * Registered only when there IS another language, because `whereIn([])` compiles
+     * to an empty alternation that matches anything at all.
+     */
+    if ($prefixedLocales !== []) {
+        Route::get('/{locale}', ShowLandingController::class)
+            ->whereIn('locale', $prefixedLocales)
+            ->name('landing.localized');
+    }
+});
 
 /*
  * Point Cashier's `stripe/webhook` path at the app's StripeWebhookController so

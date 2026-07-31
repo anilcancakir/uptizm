@@ -146,6 +146,21 @@ return [
 
     'locale' => env('APP_LOCALE', 'en'),
 
+    /*
+     * The language served on the apex, and therefore the one language whose
+     * marketing URL carries no path prefix.
+     *
+     * It reads the same env var as `locale` above and exists as a separate key for
+     * one reason: `App::setLocale()` OVERWRITES `app.locale` for the rest of the
+     * request. So once the marketing locale middleware has run, `app.locale` is the
+     * language being displayed and nothing downstream can still tell which language
+     * was the default. That inverted every switcher link on the Turkish page, which
+     * offered `/` for Turkish and `/en` for English.
+     *
+     * Sharing the env var is what keeps the two from drifting.
+     */
+    'default_locale' => env('APP_LOCALE', 'en'),
+
     'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
 
     'faker_locale' => env('APP_FAKER_LOCALE', 'en_US'),
