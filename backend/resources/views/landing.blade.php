@@ -19,6 +19,28 @@
         <meta name="theme-color" content="#07090c" media="(prefers-color-scheme: dark)">
 
         {{--
+            One canonical URL per language, and every language declared as an
+            alternate of every other.
+
+            The locale is carried by the path alone: `/` for the default language,
+            `/<code>` for each of the others. No redirect on Accept-Language, which
+            is the opposite of what the Flutter client does. The client can negotiate
+            freely because nothing indexes it; a public page that redirects on browser
+            language shows a crawler only one of its languages and traps a visitor who
+            wants the other one.
+
+            `x-default` is the fallback for a visitor whose language we do not speak,
+            and it points at the apex.
+        --}}
+        <link rel="canonical" href="{{ $canonicalUrl }}">
+
+        @foreach ($localeLinks as $link)
+            <link rel="alternate" hreflang="{{ $link['code'] }}" href="{{ $link['url'] }}">
+        @endforeach
+
+        <link rel="alternate" hreflang="x-default" href="{{ route('landing') }}">
+
+        {{--
             Arms the entrance reveal BEFORE first paint. Doing it from the deferred
             module instead would show the content, hide it, then animate it back in.
 
@@ -48,8 +70,19 @@
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-surface font-sans text-fg antialiased">
-        <main>
+        {{-- The header is sticky, so it sits ahead of the content on every Tab pass.
+             This is what makes that survivable. Visually hidden until focused. --}}
+        <a
+            href="#content"
+            class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-label-md focus:text-on-primary"
+        >{{ __('Skip to content') }}</a>
+
+        @include('marketing.header')
+
+        <main id="content">
             @include('marketing.hero')
         </main>
+
+        @include('marketing.footer')
     </body>
 </html>
