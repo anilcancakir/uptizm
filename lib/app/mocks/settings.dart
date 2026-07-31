@@ -8,16 +8,15 @@ import '../support/settings_types.dart'
         ChangelogRelease,
         DeviceSession,
         FaqItem,
-        LegalSection,
         NotificationPref;
 
 /// **Settings-domain mock fixtures.**
 ///
 /// Ported from the design lab's `src/pages/settings/*.tsx` pages. Backs the
 /// account-level Settings vertical (sessions, language, timezone,
-/// notifications, changelog, help, and the two legal docs). The value-object
-/// types live in `lib/app/support/settings_types.dart`; this file holds only
-/// their fixtures and the tiny accessors over them.
+/// notifications, changelog, help). The value-object types live in
+/// `lib/app/support/settings_types.dart`; this file holds only their fixtures
+/// and the tiny accessors over them.
 ///
 /// Timezones are a special case: [timezonesFromApi] is a curated, hardcoded
 /// list framed as an API response, not a client-side `Intl` enumeration
@@ -453,97 +452,5 @@ const List<FaqItem> faqItems = [
         'No. Uptizm observes from the outside and only reasons from its own '
         'checks and your metrics. It suggests where to look and can manage '
         'the incident, but it never touches your systems.',
-  ),
-];
-
-// ---------------------------------------------------------------------------
-// Legal
-// ---------------------------------------------------------------------------
-
-/// Privacy Policy sections. Mirrors the React `PrivacySettingsPage` content.
-const List<LegalSection> privacySections = [
-  LegalSection(
-    heading: 'Information we collect',
-    body:
-        'Account details you provide (name, email), the monitors and '
-        'metrics you configure, and the check results Uptizm gathers on '
-        "your behalf. We don't collect data from inside your own systems.",
-  ),
-  LegalSection(
-    heading: 'How we use it',
-    body:
-        'To run your monitors, detect and analyze incidents, deliver '
-        'notifications through your chosen channels, and render your '
-        'status pages. We never sell your data.',
-  ),
-  LegalSection(
-    heading: 'Sharing',
-    body:
-        'We share only with the integrations you connect (e.g. Slack, your '
-        'webhook endpoint) and the infrastructure providers that run the '
-        'service. Status page subscribers receive only what you publish.',
-  ),
-  LegalSection(
-    heading: 'Data retention',
-    body:
-        "Check history and metrics are retained for your plan's window, "
-        'then aggregated or deleted. You can delete a team at any time, '
-        'which removes its monitors, incidents, and status pages.',
-  ),
-  LegalSection(
-    heading: 'Your rights',
-    body:
-        'You can access, export, or delete your personal data from your '
-        'account settings, or by contacting us. We honor regional privacy '
-        'rights including GDPR and CCPA.',
-  ),
-  LegalSection(
-    heading: 'Contact',
-    body: 'Questions about privacy? Reach us at privacy@uptizm.com.',
-  ),
-];
-
-/// Terms of Service sections. Mirrors the React `TermsSettingsPage` content.
-const List<LegalSection> termsSections = [
-  LegalSection(
-    heading: 'Acceptance',
-    body:
-        'By creating a team or using Uptizm, you agree to these terms. If '
-        "you're using Uptizm for an organization, you confirm you're "
-        'authorized to accept on its behalf.',
-  ),
-  LegalSection(
-    heading: 'Using the service',
-    body:
-        "Use Uptizm to monitor endpoints you own or are permitted to check. "
-        "Don't use it to attack, overload, or probe systems without "
-        'authorization.',
-  ),
-  LegalSection(
-    heading: 'Your data',
-    body:
-        'You own the monitors, metrics, and content you create. You grant '
-        'us the rights needed to operate the service on your behalf, as '
-        'described in the Privacy Policy.',
-  ),
-  LegalSection(
-    heading: 'Availability',
-    body:
-        "We work hard to keep Uptizm reliable but provide it 'as is'. "
-        'Planned maintenance is posted in advance on our own status page.',
-  ),
-  LegalSection(
-    heading: 'Liability',
-    body:
-        "To the extent permitted by law, Uptizm isn't liable for indirect "
-        'or consequential damages. Monitoring is a safety net, not a '
-        'guarantee against downtime.',
-  ),
-  LegalSection(
-    heading: 'Changes',
-    body:
-        'We may update these terms; material changes are announced in-app '
-        'and via the changelog. Continued use means you accept the '
-        'updated terms.',
   ),
 ];

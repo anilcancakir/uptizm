@@ -3,18 +3,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import 'package:uptizm/app/support/settings_types.dart' show LegalSection;
 import 'package:uptizm/app/mocks/settings.dart';
 import 'package:uptizm/resources/views/settings/changelog_settings_view.dart';
 import 'package:uptizm/resources/views/settings/help_settings_view.dart';
-import 'package:uptizm/resources/views/settings/privacy_settings_view.dart';
-import 'package:uptizm/resources/views/settings/terms_settings_view.dart';
 
 /// In-memory language loader supplying every [trans] key exercised by the
-/// About & support settings sub-pages (help, changelog, and the two legal
-/// docs). The account/security/preferences sub-pages moved to magic_starter,
-/// so their keys are gone. Short, wrappable strings avoid RenderFlex overflow
-/// at the test viewport.
+/// About & support settings sub-pages (help and changelog). The
+/// account/security/preferences sub-pages moved to magic_starter and the legal
+/// documents moved to the website, so their keys are gone. Short, wrappable
+/// strings avoid RenderFlex overflow at the test viewport.
 class _SettingsViewsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
@@ -41,14 +38,6 @@ class _SettingsViewsLangLoader implements TranslationLoader {
       'uptizm.settings.changelog_empty_title': 'No releases yet',
       'uptizm.settings.changelog_empty_description':
           'We have not published a release history yet.',
-
-      // Privacy.
-      'uptizm.settings.privacy_title': 'Privacy Policy',
-      'uptizm.settings.privacy_updated': 'Jun 1, 2026',
-
-      // Terms.
-      'uptizm.settings.terms_title': 'Terms of Service',
-      'uptizm.settings.terms_updated': 'Jun 1, 2026',
     };
   }
 }
@@ -136,54 +125,6 @@ void main() {
         find.text(trans('uptizm.settings.changelog_empty_description')),
         findsOneWidget,
       );
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // PrivacySettingsView
-  // ---------------------------------------------------------------------------
-
-  group('PrivacySettingsView', () {
-    testWidgets('renders the title and every fixture section heading', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 6000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const PrivacySettingsView(), size: const Size(1280, 6000)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.settings.privacy_title')), findsOneWidget);
-      for (final LegalSection section in privacySections) {
-        expect(find.text(section.heading), findsOneWidget);
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // TermsSettingsView
-  // ---------------------------------------------------------------------------
-
-  group('TermsSettingsView', () {
-    testWidgets('renders the title and every fixture section heading', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 6000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const TermsSettingsView(), size: const Size(1280, 6000)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.settings.terms_title')), findsOneWidget);
-      for (final LegalSection section in termsSections) {
-        expect(find.text(section.heading), findsOneWidget);
-      }
     });
   });
 }

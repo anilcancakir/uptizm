@@ -130,15 +130,3 @@ class FaqItem {
 
   const FaqItem({required this.question, required this.answer});
 }
-
-/// A single heading/body section within a legal document.
-@immutable
-class LegalSection {
-  /// Section heading.
-  final String heading;
-
-  /// Section body text.
-  final String body;
-
-  const LegalSection({required this.heading, required this.body});
-}

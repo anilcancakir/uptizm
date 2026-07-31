@@ -96,14 +96,6 @@ void main() {
       }
     });
 
-    test('privacySections is non-empty', () {
-      expect(privacySections, isNotEmpty);
-    });
-
-    test('termsSections is non-empty', () {
-      expect(termsSections, isNotEmpty);
-    });
-
     test('faqItems is non-empty', () {
       expect(faqItems, isNotEmpty);
     });
