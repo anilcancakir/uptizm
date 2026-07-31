@@ -1,5 +1,9 @@
 {{-- Act 1: point it at a URL and pick where to check from. --}}
-<div data-act x-show="Math.floor(act) === 1 && act !== 1.5" x-cloak class="absolute inset-0 flex flex-col p-5">
+{{-- `justify-between` rather than pinning the button with `mt-auto`. The act is shorter
+     than the frame it lives in (the frame is sized by act 4, the tallest), and pinning
+     one child to the bottom collected the whole difference into a single ~100px hole
+     above the button. Distributed, the same slack reads as breathing room. --}}
+<div data-act x-show="Math.floor(act) === 1 && act !== 1.5" x-cloak class="absolute inset-0 flex flex-col justify-between p-5">
     <p class="text-label-sm uppercase tracking-[0.12em] text-fg-muted">{{ __('Endpoint') }}</p>
 
     <div class="mt-2 flex items-center gap-2 rounded-base border border-border bg-surface px-3 py-2.5">
@@ -44,7 +48,7 @@
         @endforeach
     </div>
 
-    <div class="mt-auto flex items-center gap-3">
+    <div class="flex items-center gap-3">
         <span
             class="rounded-md px-4 py-2 text-label-md transition-transform"
             :class="submitting ? 'scale-95 bg-accent text-on-primary' : 'bg-primary text-on-primary'"
