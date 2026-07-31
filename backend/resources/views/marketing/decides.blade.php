@@ -13,12 +13,14 @@
     is the same string an engineer would grep for, which is a different kind of claim
     from a sentence in a marketing voice.
 
-    Static. No animation here on purpose: the hero already carries the motion, and a
-    page where every section moves has no emphasis left to spend.
+    Motion is the page-wide scroll reveal and nothing more: the header, then the four
+    cards in order, then the region strip. Deliberately the same arrival every other
+    section uses, because a stagger that is identical everywhere reads as intent while
+    four clever per-section effects read as four different afternoons.
 --}}
 <section id="how-it-decides" class="border-b border-border bg-surface-container">
     <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-        <div class="max-w-2xl">
+        <div data-reveal class="max-w-2xl">
             <p class="text-label-md text-accent">{{ __('How it decides') }}</p>
 
             <h2 class="mt-3 text-section text-balance text-fg">
@@ -33,7 +35,7 @@
 
         <ol class="mt-14 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2">
             @foreach ($decisionRules as $i => $rule)
-                <li class="flex flex-col gap-3 bg-surface p-6 lg:p-8">
+                <li data-reveal style="--reveal-index: {{ $i + 1 }}" class="flex flex-col gap-3 bg-surface p-6 lg:p-8">
                     <div class="flex items-baseline gap-3">
                         {{-- The index is decoration, so it is hidden from the reading
                              order: the ordered list already numbers these for anyone
@@ -60,7 +62,7 @@
         {{-- The regions, as the last word of the section. The names come from the enum
              the write requests validate against, so this strip cannot advertise a region
              a monitor could not actually be pinned to. --}}
-        <div class="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div data-reveal style="--reveal-index: 5" class="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p class="text-body-md text-fg-muted">
                 {{ __('And every check records which data centre answered it, so a regional story is evidence rather than a guess.') }}
             </p>

@@ -11,7 +11,11 @@
     here because they are not written yet, and a 404 behind "Privacy" is worse than
     no link at all.
 --}}
-<footer class="border-t border-border bg-surface-container">
+{{-- `surface` rather than `surface-container`, so the alternation the sections keep does
+     not break on the last step: the closing band above is a container, and two identical
+     tones in a row is where the bottom of the page stops having a seam. It also puts the
+     footer on the page's base tone, which is the conventional recessed treatment. --}}
+<footer class="border-t border-border bg-surface">
     <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         <div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             <div class="lg:col-span-2">
