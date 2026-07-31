@@ -94,6 +94,41 @@ class ContactFormTest extends TestCase
         }
     }
 
+    public function test_the_form_is_withheld_while_there_is_nowhere_to_send(): void
+    {
+        /*
+         * A working transport and a real From address still leave the destination unchecked,
+         * and the destination is what `Mail::to()` is handed. A blank or malformed
+         * `legal.contact_email` therefore renders a form, accepts a message, tells the
+         * visitor it was accepted, and then fails inside the QUEUED job where nobody sees
+         * it. The gate has to cover the address the message is sent TO, not only the ones it
+         * is sent FROM and through.
+         */
+        Mail::fake();
+
+        foreach (['', '   ', 'info@', 'two addresses@example.test'] as $destination) {
+            config([
+                'mail.default' => 'smtp',
+                'mail.from.address' => 'noreply@uptizm.test',
+                'legal.contact_email' => $destination,
+            ]);
+
+            $response = $this->get('/contact');
+
+            $response->assertOk();
+            $this->assertStringNotContainsString(
+                '<form',
+                $response->getContent(),
+                "There is nowhere to send a message when legal.contact_email is `{$destination}`.",
+            );
+
+            // And the write path is masked exactly as it is for an unsendable transport.
+            $this->post('/contact', $this->payload())->assertNotFound();
+        }
+
+        Mail::assertNothingQueued();
+    }
+
     public function test_the_form_is_withheld_while_the_from_address_is_the_framework_default(): void
     {
         // `smtp` plus `hello@example.com` is "configured" and rejected by every MTA, so the
@@ -189,7 +224,18 @@ class ContactFormTest extends TestCase
         $response = $this->post('/contact', $this->payload());
 
         $response->assertOk();
-        $response->assertSee('Your message reached us.');
+
+        /*
+         * ACCEPTED, and never "arrived". The send is QUEUED, so at the moment this page is
+         * rendered the message has reached a Redis list and nothing else: a stopped Horizon,
+         * a refused recipient or a dead SMTP host all fail inside the job, long after the
+         * visitor has been told it landed. The acknowledgement may only claim what is true
+         * when it is written, and it names the fallback address so a visitor who is not
+         * satisfied with "accepted" has somewhere else to go.
+         */
+        $response->assertSee('Your message has been accepted.');
+        $response->assertDontSee('Your message reached us.');
+        $response->assertSee((string) config('legal.contact_email'));
 
         // The form is replaced by the acknowledgement, so a visitor cannot resend the same
         // message by mashing the button.
@@ -401,7 +447,7 @@ class ContactFormTest extends TestCase
     }
 
     // ---------------------------------------------------------------------
-    // The three-bucket limiter
+    // The limiter: two route buckets, plus the global one the controller spends
     // ---------------------------------------------------------------------
 
     public function test_the_write_path_is_throttled_by_a_named_limiter(): void
@@ -413,8 +459,22 @@ class ContactFormTest extends TestCase
         );
     }
 
-    public function test_three_buckets_are_registered_and_the_global_one_is_keyed_by_a_constant(): void
+    public function test_the_route_carries_the_two_garbage_buckets_and_not_the_global_one(): void
     {
+        /*
+         * WHY THE GLOBAL BUCKET IS NOT HERE ANY MORE
+         *
+         * `ThrottleRequests::handleRequest()` checks EVERY bucket and then hits EVERY bucket,
+         * before the controller runs and regardless of what the controller decides. So a
+         * global bucket registered here is spent by a REJECTED submission exactly like by an
+         * accepted one, and 30 garbage POSTs a minute close the only contact channel on the
+         * site for every visitor. Since there is no CSRF token on this route (and there
+         * cannot be one), any third-party page can make real visitors' browsers issue those
+         * POSTs from residential addresses the per-IP bucket cannot separate.
+         *
+         * The per-IP and per-email buckets stay HERE on purpose: those are meant to bite on
+         * garbage, and they bound one host and one submitted address rather than the channel.
+         */
         $limiter = RateLimiter::limiter(SendContactMessageController::LIMITER);
 
         $this->assertNotNull($limiter, 'The `'.SendContactMessageController::LIMITER.'` limiter is not registered.');
@@ -422,7 +482,7 @@ class ContactFormTest extends TestCase
         $first = $limiter($this->submissionFrom('203.0.113.9', 'one@example.test'));
         $second = $limiter($this->submissionFrom('198.51.100.4', 'two@example.test'));
 
-        $this->assertCount(3, $first, 'Three buckets: per IP, per submitted email, and a fixed global key.');
+        $this->assertCount(2, $first, 'Two buckets: per IP and per submitted email. No global bucket here.');
 
         foreach ($first as $limit) {
             $this->assertInstanceOf(Limit::class, $limit);
@@ -443,18 +503,237 @@ class ContactFormTest extends TestCase
             'No bucket is keyed by the submitted email address.',
         );
 
+        $this->assertStringNotContainsString(
+            SendContactMessageController::GLOBAL_LIMITER_KEY,
+            implode(' ', $firstKeys),
+            'The global bucket is back on the route, where a rejected submission spends it.',
+        );
+
         /*
-         * The load-bearing bucket. A contact form mails the OPERATOR, so an attacker varies
-         * the submitted email for free and the per-email bucket protects nothing at all. The
-         * fixed key is what caps a distributed flood in aggregate, and it is only fixed if
-         * it is IDENTICAL for two requests that share neither address nor email: that is
-         * exactly what the intersection below measures.
+         * Two unrelated submissions must now share NO bucket at all. This is the measurement
+         * that a shared kill switch is gone: any key they have in common is, by definition, a
+         * bucket one visitor can exhaust for another.
          */
         $this->assertSame(
-            [SendContactMessageController::GLOBAL_LIMITER_KEY],
+            [],
             array_values(array_intersect($firstKeys, $secondKeys)),
-            'Exactly one bucket must be shared by two unrelated submissions, and it is the global one.',
+            'Two unrelated submissions still share a route bucket, so one can close the form for the other.',
         );
+    }
+
+    public function test_only_an_accepted_submission_spends_the_global_budget(): void
+    {
+        $this->openTheGate();
+        Mail::fake();
+
+        // A rejected submission is the whole point: garbage must not spend the budget that
+        // keeps the channel open.
+        $this->post('/contact', $this->payload(['email' => 'not-an-address']))->assertStatus(422);
+
+        $this->assertSame(
+            0,
+            RateLimiter::attempts(SendContactMessageController::GLOBAL_LIMITER_KEY),
+            'A rejected submission spent a global slot, so garbage can still close the contact channel.',
+        );
+
+        // The positive control: without this, a global budget that is never spent at all
+        // reads as a pass.
+        $this->post('/contact', $this->payload())->assertOk();
+
+        $this->assertSame(
+            1,
+            RateLimiter::attempts(SendContactMessageController::GLOBAL_LIMITER_KEY),
+            'An accepted submission did not spend a global slot, so the aggregate cap is not enforced.',
+        );
+    }
+
+    public function test_a_flood_of_rejected_submissions_does_not_close_the_form_for_a_real_visitor(): void
+    {
+        /*
+         * THE KILL SWITCH, END TO END, and the reason the assertion above is not enough on
+         * its own: a global bucket on the ROUTE lives in the throttle middleware's own hashed
+         * key space, so counting the controller's key cannot see it being spent. This test
+         * measures the consequence instead.
+         *
+         * Thirty rejected POSTs, each from its own address with its own submitted email so
+         * neither route bucket bites. That is the shape a third-party page gets for free: no
+         * CSRF token exists here, so it can make real visitors' browsers issue these from
+         * residential addresses. Against the old three-bucket registration the visitor below
+         * was answered 429 by the framework's error page, with the fallback address nowhere
+         * on it.
+         */
+        $this->openTheGate();
+        Mail::fake();
+
+        for ($i = 0; $i < SendContactMessageController::GLOBAL_LIMIT_MAX_ATTEMPTS; $i++) {
+            $this->withServerVariables(['REMOTE_ADDR' => '198.18.0.'.$i])
+                ->post('/contact', $this->payload([
+                    'email' => "bot-{$i}@example.test",
+                    'message' => 'too short',
+                ]))
+                ->assertStatus(422);
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.90'])
+            ->post('/contact', $this->payload())
+            ->assertOk();
+
+        Mail::assertQueued(ContactMessage::class, 1);
+    }
+
+    public function test_an_exhausted_global_budget_answers_429_with_the_page_and_the_fallback_address(): void
+    {
+        /*
+         * The framework's 429 error page does not carry the operator's address, so the
+         * fallback channel is invisible at exactly the moment the form is unavailable. This
+         * page has to be the contact page: the address on it, and the visitor's own text still
+         * in the fields so a retry in a minute is not a retype.
+         */
+        $this->openTheGate();
+        Mail::fake();
+
+        // Spent the way the controller spends it, one slot per ACCEPTED message, rather than
+        // by 30 POSTs (which the per-IP bucket would refuse at the sixth anyway).
+        for ($i = 0; $i < SendContactMessageController::GLOBAL_LIMIT_MAX_ATTEMPTS; $i++) {
+            RateLimiter::hit(
+                SendContactMessageController::GLOBAL_LIMITER_KEY,
+                SendContactMessageController::GLOBAL_LIMIT_DECAY_SECONDS,
+            );
+        }
+
+        $response = $this->post('/contact', $this->payload());
+
+        $response->assertStatus(429);
+        $response->assertSee('The form is taking a short break.');
+        $response->assertSee((string) config('legal.contact_email'));
+        $response->assertSee(self::VALID_MESSAGE);
+        $this->assertSame(1, substr_count($response->getContent(), '<form'));
+
+        Mail::assertNothingQueued();
+    }
+
+    public function test_an_array_valued_email_is_a_rejection_and_never_a_500(): void
+    {
+        /*
+         * `email[]=x` arrives as an ARRAY. The limiter closure runs BEFORE the controller and
+         * used to build its per-email bucket key with a `(string)` cast, which raises "Array
+         * to string conversion"; `HandleExceptions` promotes that warning to an
+         * `ErrorException`, so a one-line curl was a 500 on a public endpoint plus a stack
+         * trace in the log for free. The controller was already careful about exactly this
+         * input (`stringInput()` uses `is_string`, never a cast); the limiter was not.
+         */
+        $this->openTheGate();
+        Mail::fake();
+
+        $response = $this->post('/contact', $this->payload(['email' => ['x']]));
+
+        $this->assertNotSame(
+            500,
+            $response->getStatusCode(),
+            'An array-valued email still raises "Array to string conversion" inside the limiter key.',
+        );
+
+        $response->assertStatus(422);
+        $response->assertSee('That does not look like an email address.');
+
+        Mail::assertNothingQueued();
+    }
+
+    public function test_the_subscribe_limiter_carries_the_same_array_email_guard(): void
+    {
+        /*
+         * THE IDENTICAL DEFECT, on an endpoint that has been live longer.
+         *
+         * `status-subscribe` is registered in the same `bootstrap/app.php` and built its
+         * per-email key with the same cast, so `POST /s/<slug>/subscribe` with `email[]=x`
+         * was a 500 too. Asserted at the limiter CLOSURE rather than over HTTP because the
+         * subscribe controller queries the database and this file provisions none; the
+         * closure is where the defect lives and where the fix has to hold. The limiter name
+         * is a literal because `SubscribeController` publishes no constant for it: it is the
+         * string in `routes/status.php` and in `bootstrap/app.php`.
+         */
+        $limiter = RateLimiter::limiter('status-subscribe');
+
+        $this->assertNotNull($limiter, 'The `status-subscribe` limiter is not registered.');
+
+        $limits = $limiter(Request::create(
+            '/s/a-page/subscribe',
+            'POST',
+            ['email' => ['x']],
+            [],
+            [],
+            ['REMOTE_ADDR' => '203.0.113.9'],
+        ));
+
+        $this->assertCount(2, $limits, 'Two buckets: per IP and per submitted email.');
+
+        foreach ($limits as $limit) {
+            $this->assertInstanceOf(Limit::class, $limit);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // The session-free cross-site check
+    // ---------------------------------------------------------------------
+
+    public function test_a_cross_site_submission_is_refused_and_spends_no_budget(): void
+    {
+        /*
+         * There is no CSRF token on this route and there cannot be one, so `Sec-Fetch-Site`
+         * is the stand-in: the browser sets it, a script cannot (the `Sec-` prefix is a
+         * forbidden header name), and it needs no cookie and no session to read. The
+         * framework already trusts this exact mechanism, short-circuiting its own token check
+         * on `same-origin` (`PreventRequestForgery::hasValidOrigin()`), and maps its origin
+         * failure to a 403.
+         *
+         * `same-site` is refused with `cross-site`, matching the framework's default
+         * (`$allowSameSite = false`): this form's action is a relative path on the page the
+         * visitor is reading, so a real submission is never anything but `same-origin`, while
+         * a status page on a subdomain IS same-site and has no business posting here.
+         */
+        $this->openTheGate();
+        Mail::fake();
+
+        foreach (['cross-site', 'same-site'] as $fetchSite) {
+            $response = $this->post('/contact', $this->payload(), [
+                SendContactMessageController::FETCH_SITE_HEADER => $fetchSite,
+            ]);
+
+            $response->assertStatus(403);
+            $response->assertSee('This form only accepts messages sent from this page.');
+
+            // The submitted values are NOT echoed back on this path: a third-party page
+            // chooses them, and repopulating would print attacker-chosen prose onto our own
+            // branded page.
+            $response->assertDontSee(self::VALID_MESSAGE);
+
+            $this->assertSame(
+                0,
+                RateLimiter::attempts(SendContactMessageController::GLOBAL_LIMITER_KEY),
+                'A cross-site POST spent a global slot, so a third party can still close the channel.',
+            );
+        }
+
+        Mail::assertNothingQueued();
+    }
+
+    public function test_a_same_origin_submission_and_a_non_browser_client_are_both_accepted(): void
+    {
+        /*
+         * The positive control, and the half that is easy to get wrong: an ABSENT
+         * `Sec-Fetch-Site` means a non-browser client (curl, a monitoring probe, an older
+         * browser), and refusing it would break every legitimate caller while stopping no
+         * attacker, since an attacker's vehicle IS a browser and a browser always sets the
+         * header. Absent must be allowed. `none` is a user-initiated navigation.
+         */
+        $this->openTheGate();
+        Mail::fake();
+
+        foreach ([['Sec-Fetch-Site' => 'same-origin'], ['Sec-Fetch-Site' => 'none'], []] as $headers) {
+            $this->post('/contact', $this->payload(), $headers)->assertOk();
+        }
+
+        Mail::assertQueued(ContactMessage::class, 3);
     }
 
     // ---------------------------------------------------------------------
@@ -539,8 +818,12 @@ class ContactFormTest extends TestCase
     /**
      * A submission that passes every layer, so an override is the only thing under test.
      *
-     * @param  array<string, string>  $overrides
-     * @return array<string, string>
+     * `mixed` rather than `string`, because one test overrides a field with an ARRAY: that is
+     * the shape a public endpoint has to survive (`email[]=x`), so it has to be expressible
+     * here.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
      */
     protected function payload(array $overrides = []): array
     {

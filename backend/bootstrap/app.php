@@ -91,6 +91,32 @@ return Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->booted(function (): void {
+        /*
+         * The submitted email address as a LIMITER KEY, and the reason it is a closure rather
+         * than a cast at each call site.
+         *
+         * `$request->input('email')` is attacker-controlled and `email[]=x` arrives as an
+         * ARRAY, so `(string) $request->input('email')` raises "Array to string conversion".
+         * `HandleExceptions` promotes that warning to an `ErrorException` INSIDE the limiter
+         * closure, which runs before any controller, so a one-line curl against either public
+         * write path below was a 500 plus a stack trace in the log, for free, unauthenticated.
+         * `SendContactMessageController::stringInput()` was already careful about exactly this
+         * input (`is_string`, never a cast) for exactly this reason; the limiters were not.
+         *
+         * `is_string` and not `(string)`: an array collapses to the empty key, which is the
+         * same bucket a request with no email at all lands in, and the `email` validation rule
+         * downstream refuses the value anyway.
+         *
+         * Lower-cased and trimmed so `A@x.test` and ` a@x.test ` share one bucket instead of
+         * buying a second for the same inbox. Both endpoints below want that: one mails the
+         * submitted address, the other rate-limits by it.
+         */
+        $submittedEmailKey = static function (Request $request): string {
+            $email = $request->input('email');
+
+            return is_string($email) ? Str::lower(trim($email)) : '';
+        };
+
         // Throttle slug enumeration on the public status route: a private page
         // 404s like a non-existent one, so this per-IP cap stops attackers from
         // sweeping the slug space to discover which pages exist. Registered on
@@ -159,39 +185,57 @@ return Application::configure(basePath: dirname(__DIR__))
         // Throttle the public subscribe write per IP AND per submitted email, so
         // neither a single host nor a single targeted address can be used to
         // spray confirm mail or brute the endpoint. Both limits must pass.
+        //
+        // The email key goes through `$submittedEmailKey` at the top of this
+        // callback and NEVER through a cast: `email[]=x` on this endpoint was a
+        // 500 for the same one-line reason the contact form's was, and this one
+        // has been live longer.
         RateLimiter::for(
             'status-subscribe',
             fn (Request $request) => [
                 Limit::perMinute(5)->by($request->ip()),
-                Limit::perMinute(5)->by((string) $request->input('email')),
+                Limit::perMinute(5)->by($submittedEmailKey($request)),
             ],
         );
 
-        // The public contact form. THREE buckets, and the third is the one the
-        // subscribe shape above does not have, because the two endpoints mail
-        // different people. Subscribe mails the SUBMITTED address, so its
-        // per-email bucket is what stops somebody spraying a victim's inbox. The
-        // contact form mails the OPERATOR: varying the submitted address costs an
-        // attacker nothing and defeats a per-email bucket for free, while the
-        // target inbox stays the same one either way. So a FIXED global key caps
-        // the aggregate across every address and every source, which is the only
-        // bound on a distributed flood. It is deliberately generous compared to
-        // the per-IP bucket: it exists to stop a thousand hosts, not to make one
-        // busy afternoon look like an attack.
+        // The public contact form. TWO buckets here, and a third that deliberately
+        // is NOT here.
         //
-        // Registered on `booted` for the same reason as every limiter above: the
-        // RateLimiter facade root is not set while the middleware configuration
-        // closure runs. The per-IP key depends on the `trustProxies` decision at
-        // the top of this file, exactly as the others do.
+        // WHY THE AGGREGATE CAP LIVES IN THE CONTROLLER AND NOT ON THIS ROUTE
+        //
+        // The contact form mails the OPERATOR, so varying the submitted address
+        // costs an attacker nothing while the target inbox stays the same one
+        // either way. A fixed global key is therefore the only bound on a
+        // distributed flood, and for a while it was registered right here as a
+        // third bucket. That made it a KILL SWITCH for the site's only contact
+        // channel: `ThrottleRequests::handleRequest()` checks every bucket and
+        // then hits every bucket, before the controller runs and whatever the
+        // controller decides, so a REJECTED submission spent the global slot
+        // exactly like an accepted one. Thirty garbage POSTs a minute closed the
+        // form for every visitor, and since this route carries no CSRF token (and
+        // cannot), any third-party page could make real visitors' browsers issue
+        // them from residential addresses the per-IP bucket cannot separate.
+        //
+        // So the aggregate cap moved to `SendContactMessageController`, which
+        // spends a slot only once a submission has actually passed validation and
+        // is about to be queued, and answers an exhausted budget with the CONTACT
+        // PAGE carrying the fallback address rather than the framework's 429 error
+        // page. Do not put a global bucket back here.
+        //
+        // These two stay: they are meant to bite on garbage, and each bounds one
+        // host or one submitted address rather than the whole channel. The per-IP
+        // key depends on the `trustProxies` decision at the top of this file,
+        // exactly as the others do, and this is registered on `booted` for the same
+        // reason as every limiter above (the RateLimiter facade root is not set
+        // while the middleware configuration closure runs).
         RateLimiter::for(
             SendContactMessageController::LIMITER,
             fn (Request $request) => [
                 Limit::perMinute(5)->by('contact-form:ip:'.$request->ip()),
-                // Lower-cased and trimmed so `A@x.test` and ` a@x.test ` share one
-                // bucket instead of buying a second, and prefixed so a submitted
-                // value can never collide with another bucket's key space.
-                Limit::perMinute(5)->by('contact-form:email:'.Str::lower(trim((string) $request->input('email')))),
-                Limit::perMinute(30)->by(SendContactMessageController::GLOBAL_LIMITER_KEY),
+                // Prefixed so a submitted value can never collide with another
+                // bucket's key space, and normalised by `$submittedEmailKey` above,
+                // which is also what keeps `email[]=x` from being a 500 here.
+                Limit::perMinute(5)->by('contact-form:email:'.$submittedEmailKey($request)),
             ],
         );
     })
