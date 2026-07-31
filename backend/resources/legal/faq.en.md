@@ -14,15 +14,6 @@ is a fact about that region rather than about where it sat in a queue.
 </details>
 
 <details>
-<summary>Which protocols can I monitor?</summary>
-
-Two: [[faq.monitor_types]]. An HTTP monitor issues a request at the configured URL; a TCP
-monitor opens a socket and times the connect and handshake only. There is no ping check,
-no DNS check and no browser-based check today.
-
-</details>
-
-<details>
 <summary>How often can a check run?</summary>
 
 That depends on your plan. The shortest interval you can set is
@@ -42,6 +33,26 @@ with up to [[faq.free_subscribers]] email subscribers. [[faq.free_responders]] r
 alerting over every channel below. TLS expiry alerts and response-metric bounds. The AI
 anomaly inbox is included, plus [[faq.free_ai_trials]] free AI monitor setups before that
 particular feature asks you to move to Pro.
+
+</details>
+
+<details>
+<summary>Which protocols can I monitor?</summary>
+
+Two: [[faq.monitor_types]]. An HTTP monitor issues a request at the configured URL; a TCP
+monitor opens a socket and times the connect and handshake only. There is no ping check,
+no DNS check and no browser-based check today.
+
+</details>
+
+<details>
+<summary>Are monitor authentication and assertion rules honoured?</summary>
+
+Not yet. Both can be entered and saved on a monitor, and the probe engine currently ignores
+both: an endpoint that requires authentication is checked as if it did not, and an assertion
+rule changes nothing about whether a check passes or fails. Do not rely on either. The
+[Terms](/terms) carry the same disclosure, and it stays on both pages until the probe engine
+honours them.
 
 </details>
 
@@ -81,17 +92,24 @@ measured.
 <details>
 <summary>How long is check history kept?</summary>
 
-[[faq.retention_days]] days of raw checks. History older than that is rolled up into
-hourly and daily aggregates rather than kept at full resolution forever.
+[[faq.retention_days]] days of raw checks, at full resolution. The database drops it on a
+schedule of its own rather than an application job doing the rounds, and that schedule is
+a feature of the time-series extension the database runs: there is no second pruning job
+and no rollup tier, hourly or daily, standing behind it.
 
 </details>
 
 <details>
 <summary>How do I cancel?</summary>
 
-From your billing settings, any time. Cancelling does not cut you off immediately: your
-plan stays active until the end of the period you already paid for, and the same screen
-opens Stripe's billing portal for your invoices and payment method.
+By email, and that is the route that reliably works: send a message to the operator's contact
+address, which section 8 of the [Terms](/terms) publishes. It costs nothing and needs no notice
+period. Cancelling does not cut you off immediately either: your plan stays active until the end
+of the period you already paid for, and the account then continues on the free plan. The billing
+screen in the application opens the payment provider's customer portal, where your invoices and
+your payment method live; what can be done in there is the payment provider's own configuration
+rather than ours, so do not count on finding a cancel control in it. Deleting your account ends
+the contract too, on a paid plan as well as on the free one.
 
 </details>
 
