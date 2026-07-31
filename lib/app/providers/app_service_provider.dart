@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 import '../models/user.dart';
 import '../services/locale_application_service.dart';
 import '../services/realtime_service.dart';
+import '../support/web_links.dart';
 import '../../ui/layouts/app_layout.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
 
@@ -78,6 +79,20 @@ class AppServiceProvider extends ServiceProvider {
     );
   }
 
+  /// Re-points magic_starter's legal links at the ACTIVE language.
+  ///
+  /// `Magic.init` evaluates every config factory before it boots a single
+  /// provider, so the `magic_starter.legal` block in
+  /// `lib/config/magic_starter.dart` is composed while [Lang] still holds its
+  /// pre-detection default. This runs after `LocalizationServiceProvider.boot()`
+  /// has resolved the real locale (that provider is registered ahead of this
+  /// one in `app.providers`, and boot order follows registration order), and
+  /// again on every runtime locale change, so the sign-up screen's Terms and
+  /// Privacy links always open the document in the language on screen.
+  static void _syncLegalLinks() {
+    Config.set('magic_starter.legal', WebLinks.legalConfig);
+  }
+
   @override
   Future<void> boot() async {
     // Perform async bootstrap logic here.
@@ -143,6 +158,13 @@ class AppServiceProvider extends ServiceProvider {
     // `auto_detect_locale` already renders the device locale.
     _syncLocale();
     Auth.stateNotifier.addListener(_syncLocale);
+
+    // Legal links: point the sign-up screen's Terms / Privacy links at the
+    // website documents in the language that is actually on screen, then keep
+    // them there through every locale change (device detection above, the
+    // user's persisted preference, or the in-app language picker).
+    _syncLegalLinks();
+    Lang.addListener(_syncLegalLinks);
 
     // Session scope: record the identity a restored session boots with, then
     // clear + refetch every registered domain controller on each subsequent
