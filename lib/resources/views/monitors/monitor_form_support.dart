@@ -130,18 +130,23 @@ List<String> get kAnalyzeSteps => [
   trans('uptizm.monitors.create_ai_step_5'),
 ];
 
-/// A single AI-suggested metric seed carrying label, key, unit, source, path,
-/// and raw warn/critical threshold strings.
+/// A single AI-suggested metric seed carrying label, key, type, unit, source,
+/// path, raw warn/critical threshold strings, and a sample value.
 ///
-/// Mirrors the inline `aiMetrics` array shape from MonitorCreatePage.tsx.
-/// Threshold strings are kept raw so the metric form can display them without
-/// a lossy parse/round-trip.
+/// Mirrors the backend `suggested_metrics` wire shape (see
+/// `MetricDiscoveryService::toWireRows()`): every entry's `path` was generated
+/// and proven evaluable by the backend, the model only selects among
+/// candidates, it never authors a path. Threshold strings are kept raw so the
+/// metric form can display them without a lossy parse/round-trip.
 class AiMetricSeed {
   /// Human-readable label, e.g. `"p95 latency"`.
   final String label;
 
   /// Machine key used in API payloads, e.g. `"p95_ms"`.
   final String key;
+
+  /// The metric's value type, e.g. `"numeric"`.
+  final String type;
 
   /// Measurement unit string, e.g. `"ms"`.
   final String unit;
@@ -158,49 +163,54 @@ class AiMetricSeed {
   /// Raw critical threshold string; empty when not applicable.
   final String critical;
 
+  /// The sample value the backend showed the model when it proposed this
+  /// metric, e.g. `"120"`.
+  final String sampleValue;
+
   /// Creates an [AiMetricSeed].
   const AiMetricSeed({
     required this.label,
     required this.key,
+    required this.type,
     required this.unit,
     required this.source,
     required this.path,
     required this.warn,
     required this.critical,
+    required this.sampleValue,
   });
+
+  /// Decodes an [AiMetricSeed] from one entry of the backend's
+  /// `suggested_metrics` array.
+  ///
+  /// Every field defaults to `''` rather than throwing on a missing or
+  /// unexpected wire value, matching [MonitorAnalysis.fromMap]'s stale-client
+  /// convention. `warn`/`critical` arrive as a nullable number on the wire but
+  /// are kept as raw strings here (see the class docblock), so a numeric
+  /// value is stringified and a `null` degrades to `''` rather than `"null"`.
+  factory AiMetricSeed.fromMap(Map<String, dynamic> map) {
+    return AiMetricSeed(
+      label: map['label'] as String? ?? '',
+      key: map['key'] as String? ?? '',
+      type: map['type'] as String? ?? '',
+      unit: map['unit'] as String? ?? '',
+      source: map['source'] as String? ?? '',
+      path: map['path'] as String? ?? '',
+      warn: _wireThresholdToString(map['warn']),
+      critical: _wireThresholdToString(map['critical']),
+      sampleValue: map['sample_value'] as String? ?? '',
+    );
+  }
 }
 
-/// The three AI-suggested metrics pre-filled in the review step. Matches the
-/// `aiMetrics` array in MonitorCreatePage.tsx.
-List<AiMetricSeed> get kAiMetrics => [
-  AiMetricSeed(
-    label: trans('uptizm.monitors.ai_metric_p95_latency'),
-    key: 'p95_ms',
-    unit: 'ms',
-    source: 'json',
-    path: r'$.latency.p95',
-    warn: '300',
-    critical: '1000',
-  ),
-  AiMetricSeed(
-    label: trans('uptizm.monitors.ai_metric_error_rate'),
-    key: 'error_rate',
-    unit: '%',
-    source: 'json',
-    path: r'$.errors.rate',
-    warn: '1',
-    critical: '5',
-  ),
-  AiMetricSeed(
-    label: trans('uptizm.monitors.ai_metric_active_connections'),
-    key: 'active_conns',
-    unit: 'count',
-    source: 'json',
-    path: r'$.pool.active',
-    warn: '',
-    critical: '',
-  ),
-];
+/// Stringifies a wire `warn`/`critical` threshold (a nullable number) into
+/// the raw string [AiMetricSeed] keeps for display, defaulting a missing or
+/// unexpected value to `''` rather than the literal `"null"`.
+String _wireThresholdToString(Object? value) {
+  if (value is num) return value.toString();
+  if (value is String) return value;
+  return '';
+}
 
 // ---------------------------------------------------------------------------
 // Pure helper functions.

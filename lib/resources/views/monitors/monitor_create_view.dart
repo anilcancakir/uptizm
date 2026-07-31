@@ -461,9 +461,17 @@ class _MonitorCreateViewState
   /// An ai-wash surface (the dedicated `bg-ai-wash` / `border-ai-soft` tokens,
   /// mirroring the [AiInsight] banner recipe) carrying the glyph tile, the
   /// "AI configured this monitor" title with a high-confidence
-  /// [AiConfidenceBadge], the summary sentence, the suggested-metrics pills
-  /// ([kAiMetrics]), and the help text. React lines 164-202.
+  /// [AiConfidenceBadge], the summary sentence, and (when the backend
+  /// actually proposed any) the suggested-metrics pills + help text. React
+  /// lines 164-202.
+  ///
+  /// The suggested-metrics section is sourced from [_analysis]'s
+  /// [MonitorAnalysis.suggestedMetrics] rather than a fixture, and renders
+  /// nothing at all when that list is empty: an absent suggestion is honest,
+  /// a placeholder metric is not.
   Widget _buildReviewBanner() {
+    final List<AiMetricSeed> suggestedMetrics =
+        _analysis?.suggestedMetrics ?? const [];
     return WDiv(
       className:
           'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
@@ -492,27 +500,29 @@ class _MonitorCreateViewState
               className: 'mt-1 text-sm text-fg-muted',
             ),
 
-            // 3. Suggested custom metrics: a label, the metric pills, the help.
-            WDiv(
-              className: 'mt-3 flex flex-col',
-              children: [
-                WText(
-                  trans('uptizm.monitors.create_ai_suggested_metrics'),
-                  className: 'text-xs font-medium text-fg-muted',
-                ),
-                WDiv(
-                  className: 'mt-1.5 wrap gap-1.5',
-                  children: [
-                    for (final AiMetricSeed metric in kAiMetrics)
-                      _buildMetricPill(metric),
-                  ],
-                ),
-                WText(
-                  trans('uptizm.monitors.create_ai_suggested_metrics_help'),
-                  className: 'mt-1.5 text-xs text-fg-muted',
-                ),
-              ],
-            ),
+            // 3. Suggested custom metrics: a label, the metric pills, the
+            //    help, but only when the backend proposed at least one.
+            if (suggestedMetrics.isNotEmpty)
+              WDiv(
+                className: 'mt-3 flex flex-col',
+                children: [
+                  WText(
+                    trans('uptizm.monitors.create_ai_suggested_metrics'),
+                    className: 'text-xs font-medium text-fg-muted',
+                  ),
+                  WDiv(
+                    className: 'mt-1.5 wrap gap-1.5',
+                    children: [
+                      for (final AiMetricSeed metric in suggestedMetrics)
+                        _buildMetricPill(metric),
+                    ],
+                  ),
+                  WText(
+                    trans('uptizm.monitors.create_ai_suggested_metrics_help'),
+                    className: 'mt-1.5 text-xs text-fg-muted',
+                  ),
+                ],
+              ),
           ],
         ),
       ],

@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/mocks/billing.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
@@ -179,9 +180,101 @@ void main() {
     });
   });
 
-  group('kAiMetrics', () {
-    test('is non-empty', () {
-      expect(kAiMetrics, isNotEmpty);
+  group('AiMetricSeed.fromMap', () {
+    test('decodes every pinned wire key', () {
+      final AiMetricSeed seed = AiMetricSeed.fromMap({
+        'key': 'p95_ms',
+        'label': 'p95 latency',
+        'type': 'numeric',
+        'source': 'json',
+        'path': r'$.latency.p95',
+        'unit': 'ms',
+        'warn': 300,
+        'critical': 1000,
+        'sample_value': '120',
+      });
+
+      expect(seed.key, equals('p95_ms'));
+      expect(seed.label, equals('p95 latency'));
+      expect(seed.type, equals('numeric'));
+      expect(seed.source, equals('json'));
+      expect(seed.path, equals(r'$.latency.p95'));
+      expect(seed.unit, equals('ms'));
+      expect(seed.warn, equals('300'));
+      expect(seed.critical, equals('1000'));
+      expect(seed.sampleValue, equals('120'));
+    });
+
+    test('defaults every field defensively on an empty map, never throwing', () {
+      final AiMetricSeed seed = AiMetricSeed.fromMap(const {});
+
+      expect(seed.key, equals(''));
+      expect(seed.label, equals(''));
+      expect(seed.type, equals(''));
+      expect(seed.source, equals(''));
+      expect(seed.path, equals(''));
+      expect(seed.unit, equals(''));
+      expect(seed.warn, equals(''));
+      expect(seed.critical, equals(''));
+      expect(seed.sampleValue, equals(''));
+    });
+
+    test('null warn/critical/unit degrade to empty strings, not "null"', () {
+      final AiMetricSeed seed = AiMetricSeed.fromMap({
+        'key': 'active_conns',
+        'label': 'Active connections',
+        'type': 'numeric',
+        'source': 'json',
+        'path': r'$.pool.active',
+        'unit': null,
+        'warn': null,
+        'critical': null,
+        'sample_value': '4',
+      });
+
+      expect(seed.unit, equals(''));
+      expect(seed.warn, equals(''));
+      expect(seed.critical, equals(''));
+    });
+  });
+
+  group('MonitorAnalysis.fromMap', () {
+    test('an empty map yields an empty suggestedMetrics list and does not throw', () {
+      final MonitorAnalysis analysis = MonitorAnalysis.fromMap(const {});
+      expect(analysis.suggestedMetrics, equals(const []));
+    });
+
+    test('decodes suggested_metrics into AiMetricSeed entries', () {
+      final MonitorAnalysis analysis = MonitorAnalysis.fromMap({
+        'suggested_metrics': [
+          {
+            'key': 'p95_ms',
+            'label': 'p95 latency',
+            'type': 'numeric',
+            'source': 'json',
+            'path': r'$.latency.p95',
+            'unit': 'ms',
+            'warn': 300,
+            'critical': 1000,
+            'sample_value': '120',
+          },
+          {
+            'key': 'error_rate',
+            'label': 'Error rate',
+            'type': 'numeric',
+            'source': 'json',
+            'path': r'$.errors.rate',
+            'unit': '%',
+            'warn': 1,
+            'critical': 5,
+            'sample_value': '0.2',
+          },
+        ],
+      });
+
+      expect(analysis.suggestedMetrics, hasLength(2));
+      expect(analysis.suggestedMetrics.first.key, equals('p95_ms'));
+      expect(analysis.suggestedMetrics.last.key, equals('error_rate'));
     });
   });
 

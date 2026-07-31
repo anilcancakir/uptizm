@@ -6,6 +6,7 @@ import 'entitlement_controller.dart';
 import '../models/monitor.dart';
 import '../support/monitor_types.dart' show UptimeSegment;
 import '../enums/status_key.dart';
+import '../../resources/views/monitors/monitor_form_support.dart' show AiMetricSeed;
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
 ///
@@ -37,6 +38,14 @@ class MonitorAnalysis {
   /// The narration behind the suggestion.
   final String rationale;
 
+  /// The AI-proposed custom metrics for this monitor, decoded from
+  /// `suggested_metrics`. Each entry's `path` was generated and proven
+  /// evaluable by the backend (the model only selects among candidates, it
+  /// never authors a path). Empty when the backend omits the key (a stale
+  /// client against a new backend, or a new client against an old backend
+  /// must both keep working) or proposes nothing.
+  final List<AiMetricSeed> suggestedMetrics;
+
   /// Creates a [MonitorAnalysis].
   const MonitorAnalysis({
     required this.url,
@@ -46,6 +55,7 @@ class MonitorAnalysis {
     required this.recommendedCriticalThresholdMs,
     required this.recommendedRegions,
     required this.rationale,
+    this.suggestedMetrics = const [],
   });
 
   /// Decodes a [MonitorAnalysis] from the `data` object of the `POST
@@ -64,6 +74,12 @@ class MonitorAnalysis {
           (map['recommended_regions'] as List?)?.whereType<String>().toList() ??
           const [],
       rationale: map['rationale'] as String? ?? '',
+      suggestedMetrics:
+          (map['suggested_metrics'] as List?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(AiMetricSeed.fromMap)
+              .toList() ??
+          const [],
     );
   }
 }

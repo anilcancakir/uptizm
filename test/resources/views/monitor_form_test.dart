@@ -633,7 +633,113 @@ void main() {
         findsOneWidget,
         reason: 'The Name field must be prefilled from the analyze response',
       );
+
+      // The response carries no `suggested_metrics` key, so the suggested
+      // custom metrics section (label + pills + help) must not render at all;
+      // a fabricated fixture is worse than an absent suggestion.
+      expect(
+        find.text(trans('uptizm.monitors.create_ai_suggested_metrics')),
+        findsNothing,
+        reason:
+            'The suggested-metrics section must be absent when the backend '
+            'returns no suggested_metrics',
+      );
     });
+
+    testWidgets(
+      'a successful analyze carrying suggested_metrics renders one pill per '
+      'entry, sourced from the response rather than a fixture',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_warn_threshold_ms': 300,
+              'recommended_critical_threshold_ms': 1000,
+              'recommended_regions': ['us-east', 'eu-west'],
+              'rationale': 'Stable JSON API, 60s checks are sufficient.',
+              'suggested_metrics': [
+                {
+                  'key': 'p95_ms',
+                  'label': 'p95 latency',
+                  'type': 'numeric',
+                  'source': 'json',
+                  'path': r'$.latency.p95',
+                  'unit': 'ms',
+                  'warn': 300,
+                  'critical': 1000,
+                  'sample_value': '120',
+                },
+                {
+                  'key': 'error_rate',
+                  'label': 'Error rate',
+                  'type': 'numeric',
+                  'source': 'json',
+                  'path': r'$.errors.rate',
+                  'unit': '%',
+                  'warn': 1,
+                  'critical': 5,
+                  'sample_value': '0.2',
+                },
+              ],
+              'probe': {
+                'region': 'us-east',
+                'status_code': 200,
+                'response_ms': 120,
+              },
+            },
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        final Finder urlInput = find.widgetWithText(
+          MSInput,
+          trans('uptizm.monitors.create_ai_url_placeholder'),
+        );
+        await tester.tap(urlInput);
+        await tester.pump();
+        await tester.enterText(urlInput, 'https://api.example.com/health');
+        await tester.pump();
+
+        await tester.tap(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.monitors.create_ai_analyze_button'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The section header appears (the response carries real suggestions)
+        // and exactly one pill renders per suggested_metrics entry, using the
+        // backend's own labels rather than the deleted p95_ms/error_rate/
+        // active_conns fixture.
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_suggested_metrics')),
+          findsOneWidget,
+          reason: 'The suggested-metrics section must render when the '
+              'backend proposes real metrics',
+        );
+        expect(
+          find.text('p95 latency'),
+          findsOneWidget,
+          reason: 'A pill must render for the first suggested_metrics entry',
+        );
+        expect(
+          find.text('Error rate'),
+          findsOneWidget,
+          reason: 'A pill must render for the second suggested_metrics entry',
+        );
+      },
+    );
 
     testWidgets(
       'a failed POST /monitors/analyze falls back to the input step',
