@@ -73,22 +73,14 @@ class PrivacyPageTest extends TestCase
          * telling every data subject the wrong retention period, in two languages, with
          * nothing failing.
          */
-        config([
-            'timescale.retention.raw_days' => 37,
-            'timescale.retention.hourly_days' => 111,
-            'timescale.retention.daily_days' => 222,
-        ]);
+        config(['timescale.retention.raw_days' => 37]);
 
         $this->get('/privacy')
             ->assertSee('37 days')
-            ->assertSee('111 days')
-            ->assertSee('222 days')
             ->assertDontSee('90 days');
 
         $this->get('/tr/privacy')
             ->assertSee('37 gün')
-            ->assertSee('111 gün')
-            ->assertSee('222 gün')
             ->assertDontSee('90 gün');
     }
 
@@ -193,6 +185,121 @@ class PrivacyPageTest extends TestCase
         }
     }
 
+    public function test_the_analytics_recipient_is_named_in_the_recipient_list_and_in_the_transfer_section(): void
+    {
+        /*
+         * The gate this page was missing. With a container id configured, `gtm.js` loads on
+         * every marketing page and the request itself carries the visitor's IP to Google before
+         * any answer is given: Consent Mode's denied defaults gate STORAGE, not the request. So
+         * the moment the key is set Google is a recipient and the transfer is an international
+         * one, and a recipient list that enumerated everything except the analytics arm made
+         * its own "a category missing from this list receives nothing" sentence false.
+         *
+         * Both sentences are asserted through the phrase that only exists in their own section,
+         * so a list rendered in one place and forgotten in the other cannot pass.
+         */
+        $this->assertNull(config('analytics.gtm_container_id'), 'Analytics is configured, so this test proves the other branch.');
+
+        foreach (['/privacy', '/tr/privacy'] as $path) {
+            $this->get($path)
+                ->assertSee('Cloudflare')
+                ->assertDontSee('Cloudflare, Google');
+        }
+
+        config(['analytics.gtm_container_id' => 'GTM-TESTONLY']);
+
+        /*
+         * Anchored to each section's own phrase, and deliberately NOT closed with the
+         * parenthesis. The list is derived from whatever this deployment configures, so pinning
+         * the whole parenthetical asserts the absence of every other recipient too: on a machine
+         * with an AI key set the page correctly reads `(Cloudflare, Google, OpenRouter)` and a
+         * closed assertion fails on a page that is right. What this test owns is that Google
+         * reaches both sections; which other recipients join it is
+         * `test_the_named_third_parties_are_the_ones_configuration_selects`'s business.
+         */
+        $this->get('/privacy')
+            ->assertSee('today: Cloudflare, Google')
+            ->assertSee('recipients above (Cloudflare, Google');
+
+        $this->get('/tr/privacy')
+            ->assertSee('üçüncü taraflar: Cloudflare, Google')
+            ->assertSee('alıcılardan (Cloudflare, Google');
+    }
+
+    public function test_the_zero_embed_claim_reads_the_challenge_key_as_well_as_the_analytics_one(): void
+    {
+        /*
+         * The contact form loads Cloudflare's Turnstile script whenever a site key is
+         * configured, which is INDEPENDENT of the analytics container. A claim of "no
+         * third-party embed" derived from the analytics key alone would therefore keep
+         * promising an embed-free site on a deployment that loads one; `config/services.php`
+         * named that coupling in a comment and left it as a comment.
+         *
+         * Each key is moved on its own, then both together, so neither arm can be the only one
+         * wired.
+         */
+        $figures = [
+            '/privacy' => 'into your browser: ',
+            '/tr/privacy' => 'betik sayısı: ',
+        ];
+
+        foreach ($figures as $path => $figure) {
+            $this->get($path)->assertSee($figure.'0');
+        }
+
+        // The challenge key alone, with no analytics container anywhere. The widget rides the
+        // contact form, so the deliverability gate that decides whether the form is offered at
+        // all is part of the same derivation.
+        config([
+            'services.turnstile.site_key' => '0x4AAAAAAATEST',
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.host' => 'smtp.example.test',
+            'mail.from.address' => 'ops@uptizm.test',
+        ]);
+
+        foreach ($figures as $path => $figure) {
+            $this->get($path)->assertSee($figure.'1');
+        }
+
+        config(['analytics.gtm_container_id' => 'GTM-TESTONLY']);
+
+        foreach ($figures as $path => $figure) {
+            $this->get($path)->assertSee($figure.'2');
+        }
+    }
+
+    public function test_the_published_cookie_families_are_the_ones_the_withdrawal_path_expires(): void
+    {
+        /*
+         * `_ga` plus `_gid` was published as a two-cookie total while the module that expires
+         * them on withdrawal already worked in FOUR prefixes, because GA4 mints a per-stream
+         * `_ga_<MEASUREMENT_ID>` whose suffix no code here can know and a container may add
+         * `_gat` or `_gac_*`. Both could not be true, and `_gid` is a Universal Analytics
+         * cookie a GA4-only container may never set at all.
+         *
+         * So the page publishes FAMILIES, and this reads them from the module that expires
+         * them: the list on the page and the list a revocation actually clears cannot drift.
+         */
+        config(['analytics.gtm_container_id' => 'GTM-TESTONLY']);
+
+        $families = $this->expiredCookieFamilies();
+
+        $figures = [
+            '/privacy' => 'on your device: ',
+            '/tr/privacy' => 'çerez ailesi sayısı: ',
+        ];
+
+        foreach ($figures as $path => $figure) {
+            $response = $this->get($path);
+
+            foreach ($families as $family) {
+                $response->assertSee($family);
+            }
+
+            $response->assertSee($figure.count($families));
+        }
+    }
+
     public function test_the_cookie_section_counts_zero_while_no_analytics_container_is_configured(): void
     {
         /*
@@ -213,7 +320,7 @@ class PrivacyPageTest extends TestCase
             ->assertSee(config('session.lifetime').' minutes');
 
         $this->get('/tr/privacy')
-            ->assertSee('çerez sayısı: 0')
+            ->assertSee('çerez ailesi sayısı: 0')
             ->assertSee('XSRF-TOKEN')
             ->assertSee(config('session.lifetime').' dakika');
     }
@@ -224,24 +331,100 @@ class PrivacyPageTest extends TestCase
          * The claim "this site sets no cookies" was true when it was written and stops being
          * true the moment a container id is configured, so it is DERIVED like every other
          * claim on this surface instead of asserted. The consent layer keeps Consent Mode
-         * defaults denied, so nothing is set until the visitor accepts; the count is of what
-         * the site CAN store, which is the honest number to publish.
+         * defaults denied, so nothing is set until the visitor accepts; the figure is what the
+         * site CAN store, which is the honest thing to publish, and it counts families rather
+         * than cookies because the two do not match one for one (see the test above).
          */
         config(['analytics.gtm_container_id' => 'GTM-TESTONLY']);
 
         $this->get('/privacy')
-            ->assertSee('on your device: 2')
             ->assertSee('_ga')
-            ->assertSee('_gid')
-            ->assertSee('2 years')
-            ->assertSee('24 hours')
+            ->assertSee('two years')
             ->assertDontSee('on your device: 0');
 
         $this->get('/tr/privacy')
-            ->assertSee('çerez sayısı: 2')
-            ->assertSee('_gid')
-            ->assertSee('24 saat')
-            ->assertDontSee('çerez sayısı: 0');
+            ->assertSee('_ga')
+            ->assertSee('iki yıl')
+            ->assertDontSee('çerez ailesi sayısı: 0');
+    }
+
+    public function test_the_consent_banner_is_described_as_gating_storage_and_not_the_request(): void
+    {
+        /*
+         * "A banner asks before anything measures you" was not backed by anything: the head
+         * bootstrap's own comment accepts that the container is fetched either way, so the
+         * request and the IP it carries reach Google before the answer, and the banner body
+         * itself only claims that nothing is STORED. The page has to carry that split rather
+         * than the reassuring half of it.
+         */
+        $this->get('/privacy')
+            ->assertSee('before anything is stored on your device')
+            ->assertSee('Your answer controls storage on your device, not the request')
+            ->assertDontSee('before anything measures you');
+
+        $this->get('/tr/privacy')
+            ->assertSee('cihazınızda hiçbir şey saklanmadan önce')
+            ->assertSee('isteğin kendisini değil');
+    }
+
+    public function test_the_always_on_category_is_justified_on_the_ground_the_code_supports(): void
+    {
+        /*
+         * The Necessary category was published as always on "because the site does not work
+         * without it". The only thing in it is the record of the visitor's own answer, kept so
+         * the choice can be demonstrated (Art. 7(1)), and this website works perfectly without
+         * it. Strict necessity claimed on a ground the code contradicts is the sentence a
+         * regulator reads closely.
+         */
+        $this->get('/privacy')
+            ->assertSee('the record of your own answer')
+            ->assertDontSee('because the site does not work without it');
+
+        $this->get('/tr/privacy')
+            ->assertSee('kendi yanıtınızın kaydı')
+            ->assertDontSee('site onsuz çalışmadığı için');
+    }
+
+    public function test_the_retention_prose_publishes_no_summary_tier_that_no_code_creates(): void
+    {
+        /*
+         * `timescale.retention.hourly_days` and `daily_days` were interpolated here and read by
+         * nothing else in the codebase: the Timescale migration attaches retention to
+         * `monitor_checks` and `monitor_metric_values` on the RAW window only, no continuous
+         * aggregate is ever created, and `config/timescale.php`'s `aggregates` block is unread.
+         * A storage-limitation claim is one a data subject quotes back, so the tiers come off
+         * the page rather than the aggregates going in.
+         */
+        $this->get('/privacy')
+            ->assertDontSee('hourly summaries')
+            ->assertDontSee((string) config('timescale.retention.hourly_days').' days')
+            ->assertDontSee((string) config('timescale.retention.daily_days').' days');
+
+        $this->get('/tr/privacy')
+            ->assertDontSee('saatlik özet')
+            ->assertDontSee((string) config('timescale.retention.hourly_days').' gün')
+            ->assertDontSee((string) config('timescale.retention.daily_days').' gün');
+    }
+
+    public function test_withdrawal_is_described_as_forward_looking_in_both_senses(): void
+    {
+        // The legal half was already there (withdrawal does not unpick what was lawful while
+        // the consent stood). The technical half was not: what has already left cannot be
+        // recalled from the recipient that received it.
+        $this->get('/privacy')->assertSee('cannot recall what has already left');
+
+        $this->get('/tr/privacy')->assertSee('buradan çıkmış olanı geri çağıramaz');
+    }
+
+    public function test_the_contact_form_recipient_claims_delivery_was_attempted_and_not_achieved(): void
+    {
+        // `SendContactMessageController::mailDeliverable()` validates the transport and
+        // `mail.from`, never `legal.contact_email`, and the message is queued rather than sent
+        // inline. So the honest claim on this page is that the mail is handed over, not that it
+        // arrives.
+        $this->get('/privacy')->assertSee('Accepted for delivery is not delivered');
+
+        $this->get('/tr/privacy')->assertSee('Gönderime kabul edilmiş olmak ulaşmış olmak değildir');
     }
 
     public function test_the_former_session_cookie_is_named_from_config(): void
@@ -530,6 +713,37 @@ class PrivacyPageTest extends TestCase
     protected function supported(): array
     {
         return array_values((array) config('magic-starter.supported_locales', []));
+    }
+
+    /**
+     * The cookie families a withdrawal actually expires, read from the module that expires
+     * them (`resources/js/components/consentChoice.js`).
+     *
+     * Read from the JavaScript rather than restated here, because restating it is exactly how
+     * the page came to publish two cookie names against a revocation path that clears four
+     * prefixes. The pattern is asserted before the walk: an empty match list would let this
+     * test certify a page it never checked.
+     *
+     * @return list<string>
+     */
+    protected function expiredCookieFamilies(): array
+    {
+        $source = (string) file_get_contents(resource_path('js/components/consentChoice.js'));
+
+        $this->assertMatchesRegularExpression(
+            '/const prefixes = \[[^\]]+\]/',
+            $source,
+            'The consent module no longer declares its cookie prefixes as a list, so this test reads nothing.',
+        );
+
+        preg_match('/const prefixes = \[([^\]]+)\]/', $source, $declaration);
+        preg_match_all("/'([^']+)'/", $declaration[1], $names);
+
+        $families = array_values($names[1]);
+
+        $this->assertNotSame([], $families, 'No cookie family was read from the consent module.');
+
+        return $families;
     }
 
     /**

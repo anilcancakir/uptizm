@@ -87,13 +87,13 @@ işletmeci değil müşteridir.
 
 ## Verilerin saklanma süreleri
 
-Aşağıdaki her satır bir saklama süresi ve onu uygulayan mekanizmayı gösteriyor.
-
-- **Kontrol geçmişi: [[privacy.check_days]] gün.** Bu kayıtları bir uygulama görevi dolaşarak
-  değil, veritabanının kendisi kendi takvimiyle siler; aynı politika saatlik özetleri
-  [[privacy.hourly_days]] gün, günlük özetleri [[privacy.daily_days]] gün tutar. Dürüst kayıt:
-  bu takvim, veritabanının çalıştırdığı zaman serisi eklentisinin bir özelliğidir; böyle bir
-  eklentisi olmayan bir kurulumda arkada bekleyen ikinci bir temizleme görevi yoktur.
+- **Kontrol geçmişi: [[privacy.check_days]] gün.** Bu saklama süresini bir uygulama görevi
+  dolaşarak değil, veritabanının kendisi kendi takvimiyle uygular. Dürüst kayıt: bu takvim,
+  veritabanının çalıştırdığı zaman serisi eklentisinin bir özelliğidir; böyle bir eklentisi
+  olmayan bir kurulumda arkada bekleyen ikinci bir temizleme görevi yoktur.
+- **Günlük erişilebilirlik oranı, arkasındaki kontrollerden uzun yaşar.** Monitör başına günde
+  bir satır (bir tarih, iki sayaç, bir yüzde; yanıt içeriği yok), durum sayfası çubukları ham
+  geçmiş okunmadan çizilebilsin diye yazılır ve bu satırları hiçbir şey temizlemiyor.
 - **Silinen bir monitör yok edilmez, gizlenir.** Silme işlemi satırı işaretler ve satırı kalır;
   yani arkasındaki kontrol geçmişi, yukarıdaki süre onu yakalayana kadar erişilebilir olmayı
   sürdürür.
@@ -121,6 +121,11 @@ burada yapılandırılmamıştır ve hiçbir şey almaz.
   Kullanım Koşulları da bunu yazıyor: gönderiliyorlar, kullanılmıyorlar. Veritabanında şifreli
   tutuluyorlar ve talimat imzalı gidiyor; bunların hiçbiri sistemden çıktıkları gerçeğini
   değiştirmiyor.
+- **Kurulumda bir etiket konteyneri (tag container) yapılandırılmışsa analitik sağlayıcısı.**
+  Konteyner bu sitenin her sayfasında yüklenir; yani onu getiren istek ve o isteğin taşıdığı IP
+  adresi, bildirim çubuğu yanıtlanmadan önce o sağlayıcıya ulaşır. Yanıtınızın denetlediği şey,
+  cihazınızda saklamadır. Yapılandırılmış bir konteyner yoksa hiçbir şey yüklenmez; aşağıdaki
+  çerez bölümü de bunu sayıyor.
 - **Kurulumda bir AI sağlayıcısı yapılandırılmışsa o sağlayıcı.** Bir olay analizi; olayın kendi
   verilerini, zaman çizelgesini ve kontrol verilerini, ayrıca buradan denetlenemeyen üç alanı
   gönderir ve bu üç alanın her biri [[privacy.ai_chars]] karakterde sert biçimde kesilir: hata
@@ -135,6 +140,7 @@ burada yapılandırılmamıştır ve hiçbir şey almaz.
   bildirim türü için ayrıca verilmiş bir onay gerekir.
 - **Gerçek bir e-posta taşıyıcısı yapılandırılmışsa e-posta sağlayıcısı.** Olay e-postaları,
   abonelik onayları ve bu sitedeki iletişim formunun işletmeciye gönderdiği mesajlar.
+  Gönderime kabul edilmiş olmak ulaşmış olmak değildir; buradan ikincisi doğrulanamıyor.
 - **Ücretli plan için ödeme sağlayıcısı.** Kart bilgileri onun tarafında girilir; işletmeci kart
   numaranızı ne görür ne saklar.
 - **Dosya depolama.** Profil fotoğrafları, takım logoları ve oluşturulan durum sayfası görüntüleri
@@ -151,13 +157,16 @@ Problar bu ürünün asıl konusudur ve çıkmak üzere tasarlanmışlardır: bi
 [[privacy.region_count]] bölge içinden birine sabitlenebilir ([[privacy.regions]]) ve kontrol
 müşterinin seçtiği yerden yapılır.
 
-Yukarıdaki alıcılardan Türkiye ve Avrupa Ekonomik Alanı dışında olanlara yurt dışına aktarım söz
-konusu olduğunda mekanizma bir taahhüt değil bir kategori olarak yazılır: alıcıyı kapsayan bir
-yeterlilik kararı varsa o karar, ki Amerika Birleşik Devletleri için bu, alıcının sertifikalı
-olduğu hâlde AB-ABD Veri Gizliliği Çerçevesi (Data Privacy Framework) anlamına gelir; yoksa Avrupa
-Komisyonu'nun standart sözleşme hükümleri; Türkiye'den yapılan aktarımlar için de Türk veri koruma
-mevzuatının öngördüğü yol. Hangi alıcı için hangisinin geçerli olduğunu ya da güvencelerin bir
-kopyasını [[legal.rights_email]] adresinden isteyebilirsiniz.
+Yukarıdaki alıcılardan ([[privacy.recipients]]) Türkiye ve Avrupa Ekonomik Alanı dışında olanlara
+yurt dışına aktarım söz konusu olduğunda mekanizma bir taahhüt değil bir kategori olarak yazılır:
+alıcıyı kapsayan bir yeterlilik kararı varsa o karar, ki Amerika Birleşik Devletleri için bu,
+alıcının sertifikalı olduğu hâlde AB-ABD Veri Gizliliği Çerçevesi (Data Privacy Framework)
+anlamına gelir; yoksa Avrupa Komisyonu'nun standart sözleşme hükümleri; Türkiye'den yapılan
+aktarımlar için de Türk veri koruma mevzuatının öngördüğü yol. Hangi alıcı için hangisinin geçerli
+olduğunu ya da güvencelerin bir kopyasını [[legal.rights_email]] adresinden isteyebilirsiniz.
+
+Bir analitik konteyneri yapılandırılmışsa bu aktarım hepsinin en erkenidir: açtığınız ilk sayfada,
+siz henüz hiçbir şeyi yanıtlamadan bir IP adresi taşır.
 
 Bu bölüm bilinçli olarak kesinleşmiş gibi yazılmadı. Amerika Birleşik Devletleri'ni kapsayan
 yeterlilik kararı Avrupa mahkemelerinde dava konusudur; karar düşerse o alıcılar için aktarım
@@ -181,10 +190,11 @@ dışında hiçbir şey iddia edilmiyor.
 işlemenin kısıtlanmasını ve başka bir yere taşıyabileceğiniz makine tarafından okunabilir bir
 kopyayı talep edebilirsiniz. Meşru menfaate dayanan her işlemeye, yukarıda adı geçen güvenlikle
 ilgili olanlar dahil, itiraz edebilirsiniz. Bir işleme rızaya dayanıyorsa, ki bugün bu bir durum
-sayfası aboneliği ve açılırsa analitik demektir, rızanızı istediğiniz zaman geri çekebilirsiniz;
-geri çekmek, geçerli olduğu süre boyunca hukuka uygun olanı geçersiz kılmaz. Hukuki sonuç doğuran
-veya benzer biçimde önemli etkisi olan otomatik bir karar mekanizması yoktur; dolayısıyla bu
-başlık altında itiraz edilecek bir şey de yoktur.
+sayfası aboneliği ve açılırsa analitik demektir, rızanızı istediğiniz zaman geri çekebilirsiniz.
+Geri çekmek, geçerli olduğu süre boyunca hukuka uygun olanı geçersiz kılmaz
+ve buradan çıkmış olanı geri çağıramaz: bir sonraki gönderimi durdurur, sonuncusunu değil. Hukuki
+sonuç doğuran veya benzer biçimde önemli etkisi olan otomatik bir karar mekanizması yoktur;
+dolayısıyla bu başlık altında itiraz edilecek bir şey de yoktur.
 
 Bu haklarınızı kullanmak için [[legal.rights_email]] adresine yazın. Yanıtı bir ay içinde alırsınız.
 Talep gerçekten karmaşıksa bu süre iki ay daha uzatılabilir ve bu size ilk ayın sonundan sonra
@@ -204,41 +214,56 @@ anılacak bir öncü otorite de yok.
 
 ## Çerezler ve cihazınızda tutulan diğer veriler
 
-Bu web sitesinin cihazınıza yerleştirebileceği çerez sayısı: [[privacy.cookie_count]]. Bu sayı
-sayfaya elle yazılmıyor, kurulumun yapılandırmasından okunuyor; böylece bu bölüm sitenin
-gerisinde kalamıyor.
+İki sayı; ikisi de sayfaya elle yazılmıyor, kurulumun kendi yapılandırmasından okunuyor, böylece
+bu bölüm sitenin gerisinde kalamıyor:
 
-**Sayı sıfır olduğunda yazdığı gibidir.** Okuyabildiğiniz hiçbir sayfada hiçbir türden çerez yok;
-analitik yok, etiket yöneticisi yok, reklam pikseli yok, üçüncü taraf gömülü içerik yok, parmak
-izi çıkarma yok ve iletişim formunu gönderdiğinizde de hiçbir şey saklanmıyor. Bu sayfaları sunan
-yollar, çerçevenin oturum başlatan kısmının dışında bilinçli olarak kayıtlıdır; sayının sıfır
-olması bu yüzdendir, birinin sessizce geri alabileceği bir tercih olduğu için değil. Yazı
-tipleri de bu alan adından geliyor.
+- Buradaki bir sayfanın tarayıcınıza yükleyebileceği üçüncü taraf betik sayısı: [[privacy.embed_count]].
+- Analitik katmanının cihazınıza yazabileceği çerez ailesi sayısı: [[privacy.cookie_family_count]].
 
-Burada eskiden iki çerez kullanılıyordu, artık kullanılmıyor. Adları burada yazıyor, çünkü onları
-hatırlayan ya da birini eski bir tarayıcı profilinde bulan okuyucu bir yanıt hak ediyor.
+**İkisi de sıfır okuduğu sürece yazdıkları gibidir.** Okuyabildiğiniz hiçbir sayfada hiçbir türden
+çerez yok; analitik yok, etiket yöneticisi yok, reklam pikseli yok, üçüncü taraf gömülü içerik yok,
+parmak izi çıkarma yok ve iletişim formunu gönderdiğinizde de hiçbir şey saklanmıyor. Bu sayfaları
+sunan yollar, çerçevenin oturum başlatan kısmının dışında bilinçli olarak kayıtlıdır; ikinci
+sayının sıfır olması bu yüzdendir, birinin sessizce geri alabileceği bir tercih olduğu için değil.
+Yazı tipleri de bu alan adından geliyor.
+
+Burada eskiden iki çerez kullanılıyordu, artık kullanılmıyor. Adları, onları hatırlayan ya da
+birini eski bir tarayıcı profilinde bulan okuyucu için burada yazıyor.
 
 | Adı | Kullanım amacı | Saklama süresi | Tarafı |
 |---|---|---|---|
 | `XSRF-TOKEN` | çerçevenin form sahteciliği anahtarı, bu alan adındaki betikler tarafından okunabilir | [[privacy.session_minutes]] dakika | birinci taraf |
 | `[[privacy.session_cookie]]` | çerçevenin oturum kimliği | [[privacy.session_minutes]] dakika | birinci taraf |
 
-**Sayı iki olduğunda bu kurulumda analitik yapılandırılmış demektir** ve anlamı şudur. Google Tag
-Manager, her amaç için rıza varsayılan olarak reddedilmiş hâlde yüklenir ve hiçbir ölçüm
-yapılmadan önce bir bildirim çubuğu size sorar. Çubuk, kesinlikle gerekli olanı (site onsuz
-çalışmadığı için her zaman açık ve kapatma anahtarı olmayan) analitikten ayırır; analitik siz
-aksini söyleyene kadar kapalı kalır. Analitiği kabul etmeniz, Google Analytics'in iki çerez
-saklamasına izin verir:
+**İkinci sayı sıfır olmaktan çıktığında bu kurulumda analitik yapılandırılmış demektir.** Google
+Tag Manager, buradaki her sayfada her amaç için rıza reddedilmiş hâlde yüklenir ve bir bildirim
+çubuğu, cihazınızda hiçbir şey saklanmadan önce size sorar. Bunun neyi kapsadığını tam olarak
+söylemek gerekiyor, çünkü bu cümlenin rahatlatıcı hâli yanlış olurdu: konteyner her durumda
+getirilir, yani Google isteği ve o isteğin taşıdığı IP adresini siz yanıt vermeden önce alır.
+Yanıtınız cihazınızda saklamayı denetler, isteğin kendisini değil.
 
-| Adı | Kullanım amacı | Saklama süresi | Tarafı |
-|---|---|---|---|
-| `_ga` | ziyaretler sayılabilsin diye bir tarayıcıyı diğerinden ayırır | 2 yıl | üçüncü taraf, Google |
-| `_gid` | aynı işi tek bir gün içinde yapar | 24 saat | üçüncü taraf, Google |
+Bildirim çubuğu, her zaman açık olan bir kategoriyi analitikten ayırır; analitik siz açana kadar
+kapalı kalır. Her zaman açık olanın kapatma anahtarı yoktur, çünkü içinde kapatılacak bir şey de
+yoktur: içinde yalnızca kendi yanıtınızın kaydı vardır ve bu kayıt, seçimin yapıldığı
+gösterilebilsin diye tutulur. Bu web sitesi onsuz da çalışır. O kayıt bir çerez değildir.
+
+Analitiği kabul etmeniz, Google Analytics'in şu ailelerde çerez saklamasına izin verir:
+`[[privacy.cookie_families]]`. İsimler değil aileler, çünkü ikisi birebir örtüşmüyor: Google
+Analytics 4, bu kurulumun bilemeyeceği bir adla akış başına bir çerez üretir ve bir konteyner
+bunların yalnızca bir kısmını yazabilir. Bunlar, rıza geri çekildiğinde süresi dolan ailelerdir;
+yani burada yayımlanan şey, yanıtınızı geri almanın gerçekten temizlediği şeydir. Bir `_ga`
+kimliği ise cihazınızda iki yıla kadar kalır.
 
 Verdiğiniz yanıt bir çerezde değil, tarayıcının yerel depolama alanında tutulur; sayfanın
 altındaki bir bağlantı da bildirim çubuğunu yeniden açar, böylece tercihinizi dilediğiniz zaman
 değiştirebilir ya da geri alabilirsiniz. Reddetmeniz, gerçekten saklanan çerez sayısını sıfırda
 bırakır.
+
+**İletişim formunun kötüye kullanım önleyici doğrulaması yapılandırılmışsa**, yalnızca o sayfa
+Cloudflare'in Turnstile betiğini yükler; ilk sayının çerezleri değil betikleri saymasının sebebi
+budur. Başka hiçbir yerde ve yalnızca formun sunulduğu yerde yüklenir. Cloudflare yukarıda zaten
+alıcı olarak anılıyor, yani yeni bir alıcı eklemiyor; doğrulamanın cihazınızda tuttuğu şey
+Cloudflare'in kendisine aittir ve analitik katmanını kapsayan ikinci sayının dışındadır.
 
 **Uygulama bu web sitesinden farklı bir yüzeydir.** Orada oturum açmak bir çerez oluşturmaz:
 uygulama tarayıcının yerel depolama alanında bir bearer token tutar ve her istekle birlikte
