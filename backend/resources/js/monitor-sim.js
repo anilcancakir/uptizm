@@ -24,10 +24,16 @@
 /** Latency multiplier for a degraded check, and for a recovered one. */
 const DEGRADED_FACTOR = [6, 14];
 
-/** How often a check lands, in ms. Kept slower than the eye's patience for a
- *  static page but faster than the 30s the panel claims, because a visitor will
- *  not wait half a minute to see the thing work. */
-const CHECK_EVERY = 1750;
+/*
+ * Gap between checks, in ms, drawn fresh each time.
+ *
+ * Random rather than fixed because a metronome reads as an animation while an
+ * uneven cadence reads as work arriving. Both bounds are deliberate: under a
+ * second the panel becomes a slot machine, and over five the visitor concludes
+ * nothing is happening. Faster than the 30s the panel claims, because nobody
+ * waits half a minute to see whether a hero works.
+ */
+const GAP_MS = [1000, 5000];
 
 /*
  * Probability a check comes back degraded, then down.
@@ -111,6 +117,19 @@ export default function initMonitorSim() {
     let cursor = 0;
     let timer = null;
 
+    /*
+     * Running requires BOTH conditions, tracked separately.
+     *
+     * The first version derived this from the IntersectionObserver alone and had
+     * `visibilitychange` only ever call stop(). Switching to another window
+     * therefore killed the simulation permanently: coming back set
+     * `document.hidden` to false, but the observer does not re-fire because the
+     * intersection never changed. Reported as "it ran once and then stopped",
+     * which is precisely what it did.
+     */
+    let inView = false;
+    let visible = !document.hidden;
+
     const paint = (row, state, ms) => {
         row.dataset.state = state;
 
@@ -185,32 +204,47 @@ export default function initMonitorSim() {
             today.dataset.state = verdict;
         }
 
+        // Schedule the next check, and hand the countdown bar the same duration so
+        // the two cannot drift apart now that the gap is not a constant.
+        const gap = Math.round(pick(GAP_MS));
+
         if (progress) {
+            progress.style.animationDuration = `${gap}ms`;
             progress.classList.remove('is-counting');
             void progress.offsetWidth;
             progress.classList.add('is-counting');
         }
+
+        timer = window.setTimeout(runCheck, gap);
     };
 
     const start = () => {
         if (timer === null) {
             runCheck();
-            timer = window.setInterval(runCheck, CHECK_EVERY);
         }
     };
 
     const stop = () => {
         if (timer !== null) {
-            window.clearInterval(timer);
+            window.clearTimeout(timer);
             timer = null;
         }
     };
 
-    // Only while on screen, and only while the tab is in front.
+    // One place decides, so neither signal can leave the other's state stale.
+    const sync = () => (inView && visible ? start() : stop());
+
     new IntersectionObserver(
-        (entries) => entries.forEach((entry) => (entry.isIntersecting && !document.hidden ? start() : stop())),
+        (entries) =>
+            entries.forEach((entry) => {
+                inView = entry.isIntersecting;
+                sync();
+            }),
         { threshold: 0.15 },
     ).observe(panel);
 
-    document.addEventListener('visibilitychange', () => (document.hidden ? stop() : null));
+    document.addEventListener('visibilitychange', () => {
+        visible = !document.hidden;
+        sync();
+    });
 }
