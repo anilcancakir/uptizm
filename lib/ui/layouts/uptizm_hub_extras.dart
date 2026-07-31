@@ -3,6 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../app/support/web_links.dart';
+
 /// Uptizm's injected settings-hub extras.
 ///
 /// Rendered into the starter settings hub's `settings.hub.footer` slot (wired in
@@ -12,13 +14,21 @@ import 'package:magic_starter/magic_starter.dart';
 ///
 /// 1. **Team** --- team-ops sub-pages (`/teams/notifications`, `/teams/escalation`,
 ///    `/teams/on-call`, `/teams/billing`).
-/// 2. **About & support** --- static informational pages (`/settings/help`,
-///    `/settings/changelog`, `/settings/privacy`, `/settings/terms`).
+/// 2. **About & support** --- the in-app static pages (`/settings/help`,
+///    `/settings/changelog`) plus the three documents the WEBSITE owns
+///    (Contact, Privacy, Terms), opened externally through [WebLinks].
+///
+/// The legal rows used to drill into in-app copies of Privacy and Terms. Those
+/// views are gone: the website serves the real documents, so there is exactly
+/// one text of each and the version a user reads is the version that governs.
+/// The three external rows are [MSSettingsRow] (a plain tappable row with a
+/// trailing slot) rather than [MSSettingsNavRow], because a drill chevron would
+/// promise an in-app screen; they carry an open-in-new icon instead.
 ///
 /// It is composed from the same starter components the hub itself uses
-/// ([MSSettingsSection] + [MSSettingsNavRow]), so the injected groups are visually
-/// indistinguishable from the native ones. All titles/subtitles come from the
-/// existing `uptizm.settings.hub_*` i18n keys.
+/// ([MSSettingsSection] + [MSSettingsNavRow] + [MSSettingsRow]), so the injected
+/// groups are visually indistinguishable from the native ones. All
+/// titles/subtitles come from the existing `uptizm.settings.hub_*` i18n keys.
 @immutable
 class UptizmHubExtras extends StatelessWidget {
   /// Creates the [UptizmHubExtras] slot content.
@@ -33,8 +43,30 @@ class UptizmHubExtras extends StatelessWidget {
   static const _iconBilling = Icons.credit_card_outlined;
   static const _iconHelp = Icons.help_outline;
   static const _iconChangelog = Icons.article_outlined;
+  static const _iconContact = Icons.mail_outline;
   static const _iconPrivacy = Icons.privacy_tip_outlined;
   static const _iconTerms = Icons.description_outlined;
+  static const _iconExternal = Icons.open_in_new;
+
+  /// Builds a row that opens [url] in the browser instead of navigating.
+  ///
+  /// [Launch] never throws and returns `false` on failure (it also refuses an
+  /// empty URL outright), so a misconfigured `WEB_URL` degrades to a row that
+  /// does nothing rather than to an exception during a tap.
+  Widget _externalRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String url,
+  }) {
+    return MSSettingsRow(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      trailing: const WIcon(_iconExternal, className: 'text-fg-muted'),
+      onTap: () => Launch.url(url),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +107,11 @@ class UptizmHubExtras extends StatelessWidget {
           ],
         ),
 
-        // 2. About & support: static informational pages.
+        // 2. About & support: the two in-app static pages, then the three
+        //    documents the website owns. Contact / Privacy / Terms open the
+        //    website in the active language (`/terms` in the default language,
+        //    `/tr/terms` in Turkish), so the app never carries a second copy of
+        //    a text the site already publishes.
         MSSettingsSection(
           header: trans('uptizm.settings.hub_group_about'),
           children: [
@@ -91,17 +127,23 @@ class UptizmHubExtras extends StatelessWidget {
               subtitle: trans('uptizm.settings.hub_changelog_subtitle'),
               to: '/settings/changelog',
             ),
-            MSSettingsNavRow(
+            _externalRow(
+              icon: _iconContact,
+              title: trans('uptizm.settings.hub_contact_title'),
+              subtitle: trans('uptizm.settings.hub_contact_subtitle'),
+              url: WebLinks.contact,
+            ),
+            _externalRow(
               icon: _iconPrivacy,
               title: trans('uptizm.settings.hub_privacy_title'),
               subtitle: trans('uptizm.settings.hub_privacy_subtitle'),
-              to: '/settings/privacy',
+              url: WebLinks.privacy,
             ),
-            MSSettingsNavRow(
+            _externalRow(
               icon: _iconTerms,
               title: trans('uptizm.settings.hub_terms_title'),
               subtitle: trans('uptizm.settings.hub_terms_subtitle'),
-              to: '/settings/terms',
+              url: WebLinks.terms,
             ),
           ],
         ),
