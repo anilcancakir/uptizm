@@ -6,6 +6,8 @@ use App\Enums\MonitorRegion;
 use App\Enums\NotificationChannelType;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
+use Locale;
 
 /**
  * The landing page on the apex host.
@@ -30,7 +32,110 @@ class ShowLandingController
             'aiEnabled' => $this->aiEnabled(),
             'channels' => $this->channels(),
             'platformClaim' => $this->platformClaim(),
+            'stageLabels' => $this->stageLabels(),
+            'localeLinks' => $this->localeLinks(),
+            'homePath' => $this->pathFor(app()->getLocale()),
+            'canonicalUrl' => $this->urlFor(app()->getLocale()),
+            'sections' => $this->sections(),
         ]);
+    }
+
+    /**
+     * The in-page sections the header and footer may link to.
+     *
+     * Empty while the hero is the only section, and that emptiness is the feature:
+     * both render their nav from this list, so a nav entry cannot outrun the section
+     * it points at. Add an entry in the same change that adds the section.
+     *
+     * @return list<array{id: string, label: string}>
+     */
+    protected function sections(): array
+    {
+        return [];
+    }
+
+    /**
+     * The stage's act names, handed to the Alpine sequence to label itself with.
+     *
+     * They belong here rather than in heroSequence.js because a string literal in a
+     * JS module never reaches Laravel's translator: the server HTML would come out
+     * translated and then the running animation would relabel itself in English a
+     * second later.
+     *
+     * Keys are strings because the transition act is `1.5`, and PHP truncates a
+     * float array key to an integer.
+     *
+     * @return array<string, string>
+     */
+    protected function stageLabels(): array
+    {
+        return [
+            '1' => __('New monitor'),
+            '1.5' => __('Dispatching'),
+            '2' => __('Checks'),
+            '3' => __('Triage'),
+            '4' => __('Escalation'),
+        ];
+    }
+
+    /**
+     * Every language the product speaks, with this page's address in each.
+     *
+     * The list is `magic-starter.supported_locales`, the same array the API
+     * negotiates Accept-Language against and the same pair the Flutter client
+     * registers, so the three surfaces cannot drift apart.
+     *
+     * @return list<array{code: string, label: string, path: string, url: string, current: bool}>
+     */
+    protected function localeLinks(): array
+    {
+        $current = app()->getLocale();
+
+        return array_map(
+            fn (string $code): array => [
+                'code' => $code,
+                'label' => $this->languageName($code),
+                'path' => $this->pathFor($code),
+                'url' => $this->urlFor($code),
+                'current' => $code === $current,
+            ],
+            array_values((array) config('magic-starter.supported_locales', [])),
+        );
+    }
+
+    /**
+     * A language's name in its own language.
+     *
+     * Read from ICU rather than a typed label map, so a locale added to config names
+     * itself instead of showing a two-letter code. This matches the app's own
+     * switcher (`English`, `Türkçe`): somebody hunting for Turkish scans for
+     * "Türkçe", not for "Turkish".
+     */
+    protected function languageName(string $code): string
+    {
+        return Str::ucfirst(Locale::getDisplayLanguage($code, $code));
+    }
+
+    /**
+     * The path a language is served on. The default language lives on the apex.
+     */
+    protected function pathFor(string $locale): string
+    {
+        return $locale === config('app.default_locale') ? '/' : '/'.$locale;
+    }
+
+    /**
+     * The absolute URL for a language, for canonical and hreflang.
+     *
+     * From `route()`, which is configuration-derived, rather than from the request:
+     * the URL a crawler indexes must be the canonical host even when the request
+     * arrived on some other name.
+     */
+    protected function urlFor(string $locale): string
+    {
+        return $locale === config('app.default_locale')
+            ? route('landing')
+            : route('landing.localized', ['locale' => $locale]);
     }
 
     /**
@@ -82,6 +187,11 @@ class ShowLandingController
      * neither store: they come from the same Flutter source, but nobody can install
      * them. So the phrasing follows `app.client_platforms` and only becomes the
      * unqualified version once every platform is live.
+     *
+     * The conjunction is translated. It used to be a literal `' and '` inside the
+     * implode, which is the kind of leak that survives every "is the page translated"
+     * check: the sentence around it came out in Turkish and read "sırada iOS and
+     * Android".
      */
     protected function platformClaim(): string
     {
@@ -90,10 +200,14 @@ class ShowLandingController
 
         return $pending === []
             ? __('Web, iOS and Android')
-            : __('On the web today, :pending next', ['pending' => implode(' and ', array_map(
-                fn (string $key): string => $key === 'ios' ? 'iOS' : ucfirst($key),
-                $pending,
-            ))]);
+            : __('On the web today, :pending next', ['pending' => Arr::join(
+                array_map(
+                    fn (string $key): string => $key === 'ios' ? 'iOS' : ucfirst($key),
+                    $pending,
+                ),
+                ', ',
+                ' '.__('and').' ',
+            )]);
     }
 
     /**
