@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Marketing;
 
 use App\Enums\MonitorRegion;
 use App\Enums\NotificationChannelType;
+use App\Models\Monitor;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
@@ -17,8 +18,7 @@ use Locale;
  * governs the behaviour, so the page cannot drift into advertising a region we do
  * not probe from or a limit we do not honour.
  *
- * It grows a method per section as the page is rebuilt. Right now it serves the
- * hero only.
+ * It grows a method per section as the page is rebuilt.
  */
 class ShowLandingController
 {
@@ -39,21 +39,79 @@ class ShowLandingController
             'homePath' => $this->pathFor(app()->getLocale()),
             'canonicalUrl' => $this->urlFor(app()->getLocale()),
             'sections' => $this->sections(),
+            'decisionRules' => $this->decisionRules(),
         ]);
     }
 
     /**
      * The in-page sections the header and footer may link to.
      *
-     * Empty while the hero is the only section, and that emptiness is the feature:
-     * both render their nav from this list, so a nav entry cannot outrun the section
-     * it points at. Add an entry in the same change that adds the section.
+     * Both render their nav from this list, so a nav entry cannot outrun the section
+     * it points at. Add an entry in the same change that adds the section, never
+     * before: `ChromeTest` walks every in-page anchor on the rendered page and fails
+     * the build on one with no matching id.
      *
      * @return list<array{id: string, label: string}>
      */
     protected function sections(): array
     {
-        return [];
+        return [
+            ['id' => 'how-it-decides', 'label' => __('How it decides')],
+        ];
+    }
+
+    /**
+     * The rules that turn probe results into a verdict.
+     *
+     * These are PUBLISHED, which is the whole point of the section. The category's
+     * leader headlines "no false positives" and leaves it at an assertion; the thing
+     * we can actually do differently is show the rule that produces the verdict.
+     *
+     * So every rule here is read out of the code that enforces it, and the mechanism
+     * line is the real mechanism rather than a paraphrase:
+     *
+     *   1  ScheduleMonitorChecks dispatches one job per region per tick
+     *   2  CheckPersistenceService resets `consecutive_fails` to 0 on any non-down
+     *      result, which is what stops a single failing region from paging anybody
+     *   3  ThresholdEvaluator opens nothing until the streak crosses
+     *      `incident_threshold`, whose default is this constant
+     *   4  recordProbeRefusal() writes only the two error columns and deliberately
+     *      leaves `last_status` and the streak alone, because our own edge refusing a
+     *      probe is not evidence about the customer's endpoint either way
+     *
+     * Deliberately NOT claimed here: a quorum. There is no "two regions must agree"
+     * rule in the code. `last_status` is whatever the most recent check said, and the
+     * protection against one bad region is rule 2, not a vote. Advertising a quorum
+     * would have been the easy sentence to write and it would have been false.
+     *
+     * @return list<array{title: string, body: string, mechanism: string}>
+     */
+    protected function decisionRules(): array
+    {
+        $regions = count($this->regions());
+
+        return [
+            [
+                'title' => __('One tick, every region'),
+                'body' => __('All :count regions run in the same tick rather than taking turns, so a slow region is a fact about that region and not about where it sat in a queue.', ['count' => $regions]),
+                'mechanism' => '1 job × '.$regions.' regions / tick',
+            ],
+            [
+                'title' => __('One healthy region clears the streak'),
+                'body' => __('A single success from anywhere resets the failure count to zero. Which means one region having a bad minute cannot page you on its own.'),
+                'mechanism' => 'any non-down result → consecutive_fails = 0',
+            ],
+            [
+                'title' => __('Not the first failure, the :count in a row', ['count' => Monitor::DEFAULT_INCIDENT_THRESHOLD]),
+                'body' => __('An incident opens only once the failure streak crosses the threshold. The default is :count, so a transient flake is absorbed and a sustained outage still opens on the next tick. Adjustable per monitor.', ['count' => Monitor::DEFAULT_INCIDENT_THRESHOLD]),
+                'mechanism' => 'incident_threshold = '.Monitor::DEFAULT_INCIDENT_THRESHOLD,
+            ],
+            [
+                'title' => __('Our failure is not your outage'),
+                'body' => __('When our own edge refuses a probe, it is recorded as a configuration problem and shown to you. It does not touch the status, it does not touch the streak, and it pages nobody.'),
+                'mechanism' => 'refusal → last_status untouched',
+            ],
+        ];
     }
 
     /**
