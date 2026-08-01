@@ -33,7 +33,9 @@ sorumlusunun verisi üzerinde tek başına işlem yapmaz ve bunu sessiz kalmak y
 - **Genel iletişim:** [[legal.contact_email]]
 - **Kendi verinizle ilgili her konu:** [[legal.rights_email]]
 
-İşletmeci Türkiye'de faaliyet gösteren bir şahıs işletmesidir ve hizmeti Türkiye'den işletir. Üç
+Hizmet Türkiye'den işletiliyor. Yukarıdaki bir satır bir bilginin henüz yayımlanmadığını
+yazıyorsa, Hizmet henüz yayına alınmamış demektir; yayına alındığında o satır dolar ve bugün
+çalışan kanal yukarıdaki iletişim adresidir. Üç
 eksik, siz keşfedin diye bırakılmak yerine burada yazıyor:
 **Avrupa Birliği içinde bir temsilci bulunmuyor**, oysa bu ürünün yaptığı türden sürekli izleme
 tam olarak böyle bir temsilcinin var olma sebebidir; bu boşluk gizlenmiyor, bilinerek kabul

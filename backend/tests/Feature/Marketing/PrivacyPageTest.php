@@ -454,26 +454,81 @@ class PrivacyPageTest extends TestCase
 
     public function test_the_identity_facts_are_read_from_config_and_the_tax_number_is_not_published(): void
     {
+        /*
+         * The negative half used to assert the operator's own address fragment and national
+         * identity number were absent, which put both into this file to prove they were not on
+         * the page. Both are now obviously-fake config values, and the guard against a
+         * transcribed literal is a SECOND pass with different ones: a notice that printed the
+         * first pair and kept them beside the second fails here without any personal value
+         * being written down.
+         */
         config([
-            'legal.operator' => 'Someone Else (Trading Name)',
-            'legal.address' => 'A Street 1, Somewhere',
+            'legal.operator' => 'Example Operator',
+            'legal.address' => '1 Test Street, Example',
             'legal.contact_email' => 'someone@example.test',
             'legal.rights_email' => 'rights@example.test',
+            // The identity disclosure that belongs to the Terms page. For an esnaf this number
+            // IS the national identity number, so a privacy notice is the last page that
+            // should publish one it has no reason to, filled or not.
+            'legal.tax_number' => '0000000000',
+            'legal.registry_number' => '0000000000000000',
         ]);
 
         foreach (['/privacy', '/tr/privacy'] as $path) {
             $this->get($path)
                 ->assertOk()
-                ->assertSee('Someone Else (Trading Name)')
-                ->assertSee('A Street 1, Somewhere')
+                ->assertSee('Example Operator')
+                ->assertSee('1 Test Street, Example')
                 ->assertSee('someone@example.test')
                 ->assertSee('rights@example.test')
-                // The supplied values, which the Markdown must not carry as literals.
-                ->assertDontSee('Konak')
                 ->assertDontSee('info@kodizm.com')
-                // The tax number is the operator's national identity number. It belongs to
-                // the Terms identity block and has no business on a privacy notice at all.
-                ->assertDontSee('44938660202');
+                ->assertDontSee('0000000000');
+        }
+
+        config([
+            'legal.operator' => 'Different Trader',
+            'legal.address' => '2 Other Street, Elsewhere',
+        ]);
+
+        foreach (['/privacy', '/tr/privacy'] as $path) {
+            $this->get($path)
+                ->assertSee('Different Trader')
+                ->assertSee('2 Other Street, Elsewhere')
+                ->assertDontSee('Example Operator')
+                ->assertDontSee('1 Test Street, Example');
+        }
+    }
+
+    public function test_an_unfilled_identity_slot_renders_an_honest_absence_and_never_a_blank(): void
+    {
+        /*
+         * `legal.operator` and `legal.address` are empty until the Service launches, and this
+         * notice names both. A blank after the label would read as a rendering fault and an
+         * invented value would be a false statement about who holds the data, so the row says
+         * the detail is not published yet and the contact address above it works today.
+         *
+         * The phrase is asserted on the English page only: it is a `__()` string and
+         * `lang/tr.json` is the orchestrator's file, so pinning the Turkish wording here would
+         * pin a key this change does not own. The dangling-row guard is language-independent
+         * and runs on both.
+         */
+        config([
+            'legal.operator' => null,
+            'legal.address' => null,
+        ]);
+
+        $this->get('/privacy')->assertOk()->assertSee('Not published yet');
+
+        foreach (['/privacy', '/tr/privacy'] as $path) {
+            $html = $this->get($path)->assertOk()->getContent();
+
+            foreach (['</strong></li>', '</strong> </li>'] as $dangling) {
+                $this->assertStringNotContainsString(
+                    $dangling,
+                    $html,
+                    "GET {$path} renders an identity row whose value is missing entirely.",
+                );
+            }
         }
     }
 
