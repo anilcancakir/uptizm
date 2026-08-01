@@ -49,10 +49,21 @@ class StatusPageSubscribeConfirmation extends Mailable
             view: 'status.emails.confirm',
             with: [
                 'pageName' => $this->page->name,
-                'confirmUrl' => route('status.subscribe.confirm', [
+                // Composed from configuration, not from the request. This mail is
+                // rendered INLINE during the subscribe POST (`Mail::to()->send()`), so
+                // `route()` would resolve it against whatever host that request arrived
+                // on, and the link then outlives the request inside somebody's inbox. The
+                // same idiom put the API host into the status-page address the editor
+                // showed operators.
+                //
+                // The PATH form specifically, on the configured host: the confirm route
+                // is registered only as `/s/{slug}/subscribe/confirm/{token}` and has no
+                // subdomain form, so this must not follow the page's `domain_mode` the way
+                // `StatusPage::publicUrl()` does.
+                'confirmUrl' => rtrim((string) config('app.url'), '/').route('status.subscribe.confirm', [
                     'slug' => $this->page->slug,
                     'token' => $this->subscriber->confirmed_token,
-                ]),
+                ], absolute: false),
             ],
         );
     }
