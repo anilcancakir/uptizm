@@ -10,18 +10,25 @@ uygulanmaz.
 
 - **İşletmeci:** [[legal.operator]]
 - **Ticari ad:** [[legal.trade_name]]
-- **Adres:** [[legal.address]]
+- **Merkez adresi:** [[legal.address]]
 - **E-posta:** [[legal.contact_email]]
 - **Kişisel veri talepleri:** [[legal.rights_email]]
 - **Telefon:** [[legal.phone]]
+- **KEP adresi:** [[legal.kep_address]]
+- **MERSİS numarası:** [[legal.registry_number]]
 - **[[legal.tax_number_label]]:** [[legal.tax_number]]
 
-İşletmeci, Türkiye'de faaliyet gösteren bir şahıs işletmesidir. Şahıs işletmesinin
-arkasındaki kişiden ayrı bir tüzel kişiliği yoktur; dolayısıyla sözleşmeyi yukarıda adı
-geçen gerçek kişiyle kurarsınız. Yukarıda yayımlanan numara bu kişinin bireysel vergi
-kimliğidir; bir şirket sicil numarası ya da bir KDV numarası değildir. Burada ticaret sicil
-numarası yer almıyor, çünkü yayımlanmak üzere böyle bir numara verilmedi; bu sayfa da
-olmayan bir numarayı uydurmaz.
+Yukarıdaki satırlardan biri bir bilginin henüz yayımlanmadığını yazıyorsa, durum gerçekten
+budur; sayfada bir arıza yok. Hizmet henüz yayına alınmadı. Sözleşmeyi kurduğunuz tarafın
+sicile kayıtlı kimlik bilgileri, kaydedildikleri biçimde ve tüm sitenin okuduğu tek bir
+kaynaktan bu blokta yayımlanır; blok tam görünsün diye hiçbir satır tahminle doldurulmaz.
+Bu bilgiler yayımlanana kadar işletmeciye ulaşan kanal yukarıdaki e-posta adresidir ve o
+bugün çalışıyor.
+
+Son iki satır birlikte değil, birbirinin alternatifidir. Ticaret siciline kayıtlı bir tacir
+MERSİS numarasını yayımlar; kayıtlı olmayan bir esnaf ise vergi kimlik numarasını yayımlar.
+Hangisi geçerliyse dolan satır odur; diğeri, sizden bir bilgi saklanmış olmaksızın
+yayımlanmamış kalabilir.
 
 Avrupa Birliği'nde herhangi bir işyeri, şube, ofis veya temsilci bulunmuyor; böyle bir iddia
 da yok. Hizmet Türkiye'den işletiliyor.
@@ -34,7 +41,7 @@ daha söylüyor.
 
 - **Uptizm** veya **Hizmet**: bu web sitesi ve bağlantı verdiği uygulama üzerinden erişilen
   erişilebilirlik, olay ve durum sayfası izleme ürünü; 4. bölümde anlatılan parçaları dahil.
-- **İşletmeci**: 1. bölümde adı geçen taraf.
+- **İşletmeci**: 1. bölümün tanımladığı taraf.
 - **Siz**: hesabı bulunan kişi veya kuruluş.
 - **Tüketici**: ticari, sınai, mesleki veya zanaat faaliyeti dışındaki amaçlarla hareket eden
   gerçek kişi. Bu koşullarda bir hükmün tüketicilere uygulandığı yazıyorsa, bu tanıma
@@ -181,6 +188,18 @@ açık talebinizi almışsa ve tümüyle ifa hâlinde hakkınızı yitireceğini
 kabul ettirmişse. Uptizm'in ödeme akışı bugün bunların hiçbirini toplamıyor. Bu nedenle
 istisnaya dayanılmaz: 14 gün içinde cayarsanız, içinde bulunduğunuz dönem için ödediğinizi
 geri alırsınız ve halihazırda izlenen günler için sizden bir bedel alınmaz.
+
+**O 14 gün içinde kullandığınız AI için de bir bedel alınmaz.** Bir AI analizi ayrıca
+fiyatlanan bir kalem değildir ve analiz başına bir ücret yok: ücretli planlar analizi planın
+kapsamında verir, ücretsiz plan ise o özellik sizi üst plana yönlendirmeden önce
+[[service.free_ai_setups]] AI monitör kurulumu içerir. Yani analiz, plan içinde ölçülen bir
+haktır ve siz istediğinizde harcanır. Cayma süresi içinde ifa edilen için bedel istemek,
+yalnızca ifaya başlanması yönündeki açık talebinizi ve tam ifanın hakkı sona erdireceğine
+dair kabulünüzü satın alma anında almış olan satıcıya açıktır; bu ödeme akışı ikisini de
+toplamıyor. Bu nedenle geri ödemeden, kaç tane olursa olsun çalıştırdığınız analizler için
+hiçbir kesinti yapılmaz. Bir analiz ileride kendi fiyatını ve sipariş anında kendi onayını
+taşırsa bu paragraf da onunla birlikte, 15. bölüme göre ve yürürlüğe girmeden önce haber
+verilerek değişir.
 
 **Bugün var olanla nasıl cayılır.** 14 gün geçmeden [[legal.contact_email]] adresine açık ve
 tereddüde yer bırakmayan bir bildirim gönderin. E-posta yeterlidir; doldurulacak bir form ve

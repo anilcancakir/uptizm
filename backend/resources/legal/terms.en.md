@@ -9,17 +9,25 @@ law that protects you, the law wins and the term does not apply.
 
 - **Operator:** [[legal.operator]]
 - **Trading name:** [[legal.trade_name]]
-- **Address:** [[legal.address]]
+- **Registered address:** [[legal.address]]
 - **Email:** [[legal.contact_email]]
 - **Data protection requests:** [[legal.rights_email]]
 - **Telephone:** [[legal.phone]]
+- **KEP address:** [[legal.kep_address]]
+- **MERSİS number:** [[legal.registry_number]]
 - **[[legal.tax_number_label]]:** [[legal.tax_number]]
 
-The operator is a sole proprietorship in Türkiye. A sole proprietorship has no legal
-identity separate from the person behind it, so the person named above is the party you
-contract with. The number published above is that person's individual tax identifier, not a
-company registration number and not a VAT number. No trade-register number appears here
-because none was available to publish, and this page does not invent one.
+Where a line above says a detail is not published yet, that is the fact and not a fault in
+the page. The Service has not launched. The registered identity of the party you would be
+contracting with is published in that block as it is registered, from one catalog the whole
+site reads, and nothing in it is filled in with a guess to make the block look complete.
+Until it is filled, the email address above is the channel that reaches the operator, and
+it works today.
+
+The last two lines are alternatives rather than a pair. A trader entered in the trade
+register publishes a MERSİS number; a tradesperson who is not entered publishes a tax
+number instead. Whichever applies is the one that gets filled, so the other may stay
+unpublished without anything being kept from you.
 
 There is no establishment, branch, office or representative in the European Union, and none
 is claimed. The Service is operated from Türkiye.
@@ -33,7 +41,7 @@ for it.
 - **Uptizm**, or **the Service**: the uptime, incident and status-page monitoring product
   reachable through this website and the application it links to, including the parts of it
   described in section 4.
-- **The operator**: the party named in section 1.
+- **The operator**: the party section 1 identifies.
 - **You**: the person or organisation holding an account.
 - **Consumer**: a natural person acting for purposes outside their trade, business, craft or
   profession. Where these terms say something applies to consumers, it applies to you if you
@@ -176,6 +184,17 @@ acknowledge, that you would lose the right once performance was complete. Uptizm
 collects neither of those things today. The exception is therefore not relied on: if you
 withdraw inside the 14 days, you get back what you paid for the current period and you are
 not charged for the days already monitored.
+
+**The AI you used in those 14 days is not charged for either.** An AI analysis is not a
+separately priced item and there is no per-analysis charge: a paid plan entitles the
+analysis, and the free plan includes [[service.free_ai_setups]] AI monitor setups before
+that feature asks you to move up. It is a metered entitlement inside the plan, spent when
+you ask for an analysis. Charging for what was supplied during a withdrawal period is open
+only to a trader who collected your express request to begin and your acknowledgement that
+full performance ends the right, at the moment of purchase; this checkout collects neither,
+so nothing is deducted from the refund for the analyses you ran, however many they were. If
+an analysis ever carries its own price and its own consent at the moment it is ordered, this
+paragraph changes with it, under section 15 and with notice before it takes effect.
 
 **How to withdraw, using what exists today.** Send an unambiguous statement to
 [[legal.contact_email]] before the 14 days are up. An email is enough; there is no form to

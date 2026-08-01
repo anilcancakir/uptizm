@@ -3,6 +3,7 @@
 namespace Tests\Feature\Marketing;
 
 use App\Enums\MonitorRegion;
+use Illuminate\Support\Arr;
 use Tests\TestCase;
 
 /**
@@ -43,39 +44,135 @@ class TermsPageTest extends TestCase
      */
     protected const SECTIONS = 17;
 
+    /**
+     * The identity slots that are empty until launch and therefore render an honest absence.
+     * Each one is personal data about the operator, so every value below is obviously fake.
+     *
+     * @var array<string, string>
+     */
+    protected const UNFILLED_UNTIL_LAUNCH = [
+        'legal.operator' => 'Example Operator',
+        'legal.address' => '1 Test Street, Example',
+        'legal.phone' => '+00 000 000 00 00',
+        'legal.kep_address' => 'example@hs00.kep.test',
+        'legal.registry_number' => '0000000000000000',
+        'legal.tax_number' => '0000000000',
+    ];
+
     public function test_the_identity_block_is_read_from_config_and_not_typed_into_the_prose(): void
     {
         /*
          * THE load-bearing test of this step. Every value in the identity block is moved to
          * something no drafter would type, and the page has to move with it: that is the
-         * difference between an identity block and a paragraph somebody transcribed. The
-         * negative assertion is the other half, because a page that prints the config value
-         * AND keeps a stale literal beside it satisfies the positive one.
+         * difference between an identity block and a paragraph somebody transcribed.
+         *
+         * The negative half used to name the operator's own address and national identity
+         * number, so the guard against a transcribed literal was itself a copy of the personal
+         * data it guarded. It is now a SECOND pass with different fake values: a page that
+         * prints one config value and keeps the previous one beside it fails on the second
+         * pass, and no personal value has to appear in this file to prove it.
          */
         config([
-            'legal.operator' => 'Someone Else (Trading Name)',
+            ...self::UNFILLED_UNTIL_LAUNCH,
             'legal.trade_name' => 'Trading Name',
-            'legal.address' => 'A Street 1, Somewhere',
-            'legal.phone' => '+99 000 000 00 00',
-            'legal.tax_number' => '00000000000',
             'legal.contact_email' => 'someone@example.test',
             'legal.rights_email' => 'rights@example.test',
         ]);
 
         foreach ($this->supported() as $locale) {
+            $response = $this->get($this->pathFor($locale))->assertOk();
+
+            foreach ([...array_values(self::UNFILLED_UNTIL_LAUNCH), 'Trading Name', 'someone@example.test', 'rights@example.test'] as $value) {
+                $response->assertSee($value);
+            }
+
+            // The inbox this deployment really carries: a business address, and the one value
+            // in the block that has to come from config rather than from the prose today.
+            $response->assertDontSee('info@kodizm.com');
+        }
+
+        config([
+            'legal.operator' => 'Different Trader',
+            'legal.address' => '2 Other Street, Elsewhere',
+        ]);
+
+        foreach ($this->supported() as $locale) {
             $this->get($this->pathFor($locale))
-                ->assertOk()
-                ->assertSee('Someone Else (Trading Name)')
-                ->assertSee('A Street 1, Somewhere')
-                ->assertSee('+99 000 000 00 00')
-                ->assertSee('00000000000')
-                ->assertSee('someone@example.test')
-                ->assertSee('rights@example.test')
-                // The supplied address and the supplied inbox, which the Markdown must not
-                // carry as literals. `Konak` appears in no other legal key.
-                ->assertDontSee('Konak')
-                ->assertDontSee('info@kodizm.com')
-                ->assertDontSee('44938660202');
+                ->assertSee('Different Trader')
+                ->assertSee('2 Other Street, Elsewhere')
+                ->assertDontSee('Example Operator')
+                ->assertDontSee('1 Test Street, Example');
+        }
+    }
+
+    public function test_an_unfilled_identity_slot_renders_an_honest_absence_and_never_a_blank(): void
+    {
+        /*
+         * The whole point of taking the personal values out of the repository: with the slots
+         * empty the block must still read as a block. A blank after a label reads as a
+         * rendering fault, a dash reads as "not applicable", and an invented value is a false
+         * statement about who the reader is contracting with, so the page says the detail is
+         * not published yet and names the channel that does work.
+         *
+         * The phrase is asserted on the ENGLISH page only, matching the tax-label test below:
+         * it is a `__()` string and `lang/tr.json` is the orchestrator's file, so pinning the
+         * Turkish wording here would pin a key this change does not own. The Turkish page is
+         * covered by the language-independent half, which is the assertion that matters most
+         * anyway: no identity row may render with its value missing.
+         */
+        config([
+            'legal.operator' => null,
+            'legal.address' => null,
+            'legal.phone' => null,
+            'legal.kep_address' => null,
+            'legal.registry_number' => null,
+            'legal.tax_number' => null,
+            'legal.tax_number_kind' => null,
+        ]);
+
+        $this->get('/terms')->assertOk()->assertSee('Not published yet');
+
+        foreach ($this->supported() as $locale) {
+            $html = $this->get($this->pathFor($locale))->assertOk()->getContent();
+
+            // `- **Label:** [[placeholder]]` renders as `<li><strong>Label:</strong> value`,
+            // so an empty replacement leaves the list item ending right after the label.
+            foreach (['</strong></li>', '</strong> </li>'] as $dangling) {
+                $this->assertStringNotContainsString(
+                    $dangling,
+                    $html,
+                    "The Terms page in \"{$locale}\" renders an identity row whose value is missing entirely.",
+                );
+            }
+        }
+    }
+
+    public function test_an_absent_identity_value_is_never_interpolated_into_a_sentence(): void
+    {
+        /*
+         * The structural rule that keeps the honest absence coherent. "Not published yet" is a
+         * value for a labelled row and nonsense in the middle of a clause ("send notice to Not
+         * published yet"), so every placeholder that can resolve to it may appear ONLY as a
+         * list-row value. The inboxes, the trade name and the authority are the placeholders
+         * that DO appear mid-sentence, and they are the ones this deployment fills today.
+         */
+        $rowOnly = ['operator', 'address', 'phone', 'kep_address', 'registry_number', 'tax_number'];
+
+        foreach ($this->supported() as $locale) {
+            foreach (preg_split('/\R/u', $this->source($locale)) ?: [] as $number => $line) {
+                foreach ($rowOnly as $key) {
+                    if (! str_contains($line, "[[legal.{$key}]]")) {
+                        continue;
+                    }
+
+                    $this->assertMatchesRegularExpression(
+                        '/^- \*\*/u',
+                        $line,
+                        "The Terms source in \"{$locale}\" line ".($number + 1)." puts [[legal.{$key}]] outside the ".
+                        'identity block, where an unfilled slot would read as a sentence with "Not published yet" in it.',
+                    );
+                }
+            }
         }
     }
 
@@ -83,25 +180,61 @@ class TermsPageTest extends TestCase
     {
         /*
          * config/legal.php holds `tax_number_kind` precisely so a page does not assume every
-         * operator publishes a VAT number: for a Turkish sole proprietorship the number IS
+         * operator publishes a VAT number: for a Turkish esnaf the published tax number IS
          * the national identity number, and mislabelling it as a company tax id would be a
-         * false statement about what the operator just published.
+         * false statement about what the operator just published. The kind is empty until
+         * launch, so the generic label is what the block carries today.
          *
-         * Only the English page is asserted after the kind changes: the non-`tc` labels are
+         * Only the English page is asserted for the `vat` label: the non-`tc` labels are
          * translator strings this step does not own (lang/tr.json is written by the
-         * orchestrator), so pinning them on the Turkish page would pin a missing key.
+         * orchestrator), and `Tax number` plus `VAT number` already have Turkish keys, which
+         * is why the default label is asserted in both languages.
          */
-        $this->assertSame('tc', config('legal.tax_number_kind'), 'This deployment publishes a TC kimlik number.');
+        $this->assertNull(config('legal.tax_number_kind'), 'A kind is configured, so this test no longer proves anything.');
+
+        $this->get('/terms')->assertSee('Tax number');
+        $this->get('/tr/terms')->assertSee('Vergi numarası');
+
+        config(['legal.tax_number_kind' => 'tc']);
 
         foreach ($this->supported() as $locale) {
-            $this->get($this->pathFor($locale))->assertSee('TC Kimlik No');
+            $this->get($this->pathFor($locale))
+                ->assertSee('TC Kimlik No')
+                ->assertDontSee('Vergi numarası');
         }
 
         config(['legal.tax_number_kind' => 'vat']);
 
-        $this->get($this->pathFor(config('app.default_locale')))
+        $this->get('/terms')
             ->assertSee('VAT number')
             ->assertDontSee('TC Kimlik No');
+    }
+
+    public function test_the_identity_block_carries_the_registry_and_kep_rows_the_regulation_asks_for(): void
+    {
+        /*
+         * Madde 5(1)(a) and (b) of the 29.12.2022 e-commerce regulation: the disclosure is
+         * "eksiksiz" and it names a KEP adresi and a registry identifier. The pages carried
+         * neither until this change, and the reason both rows exist while both values are
+         * empty is that a row a reader can see is unfilled is the only honest way to publish
+         * a disclosure that is not ready.
+         */
+        config([
+            'legal.kep_address' => 'example@hs00.kep.test',
+            'legal.registry_number' => '0000000000000000',
+        ]);
+
+        $this->get('/terms')
+            ->assertSee('KEP address')
+            ->assertSee('MERSİS number')
+            ->assertSee('example@hs00.kep.test')
+            ->assertSee('0000000000000000');
+
+        $this->get('/tr/terms')
+            ->assertSee('KEP adresi')
+            ->assertSee('MERSİS numarası')
+            ->assertSee('example@hs00.kep.test')
+            ->assertSee('0000000000000000');
     }
 
     public function test_the_researched_section_order_is_present_in_both_languages(): void
@@ -246,6 +379,73 @@ class TermsPageTest extends TestCase
             ->assertSee('düğme');
     }
 
+    public function test_the_withdrawal_section_deducts_nothing_for_the_ai_a_plan_already_entitles(): void
+    {
+        /*
+         * The operator asked for the opposite clause: deduct the AI already consumed from a
+         * refund. It is not available and writing it would be worse than not writing it, which
+         * is why this test pins the refusal rather than the request.
+         *
+         * CRD Art. 14(4)(a): without the express request AND the acknowledgement, collected at
+         * checkout, the consumer bears NO cost for what was supplied in the withdrawal period.
+         * Commission Guidance s.5.6.1: a clause in the terms does not collect either of them,
+         * it takes a positive action such as an unticked box. Art. 25 then makes the clause
+         * simply not binding, so drafting it creates exposure instead of protection. And
+         * C-641/19 PE Digital ruling 1: even with the preconditions the amount is pro rata
+         * temporis unless the item is supplied in full "and separately, for a price which must
+         * be paid separately". Turkish law is worse for the clause, not better: Mesafeli
+         * Sözleşmeler Yönetmeliği has no proportionate deduction at all and Madde 14(1) says
+         * the consumer owes no masraf, so a deduction reads as a forbidden charge.
+         *
+         * Sourced in research/librarian-identity-and-ai-refunds.md section 2.
+         */
+        $this->assertNull(
+            $this->firstPricedAiKey(),
+            'A tier now prices AI separately, which is the one fact that would change this section: '.
+            'a separately priced, separately consented, instantly performed analysis falls under CRD '.
+            'Art. 16(a) and MSY Madde 15(1)(ğ) per unit. Revisit the clause with the checkout change.',
+        );
+
+        $trials = (string) Arr::get($this->freeTier(), 'limits.ai_analysis_trials');
+
+        $this->get('/terms')
+            ->assertSee('no per-analysis charge')
+            ->assertSee('nothing is deducted from the refund')
+            ->assertSee($trials.' AI monitor setups');
+
+        $this->get('/tr/terms')
+            ->assertSee('analiz başına bir ücret yok')
+            ->assertSee('hiçbir kesinti yapılmaz')
+            ->assertSee($trials.' AI monitör kurulumu');
+    }
+
+    public function test_no_language_promises_a_deduction_or_a_lost_withdrawal_right(): void
+    {
+        /*
+         * The two sentences this document must never carry: that consumed usage comes off a
+         * refund, and that the withdrawal right is extinguished by performance beginning. The
+         * second is available only to a trader that collected the Art. 8(8) request and
+         * acknowledgement, and `BillingController::checkout()` validates a plan and two URLs
+         * and nothing else, so both would be false statements about this product.
+         */
+        $forbidden = [
+            'en' => ['deducted from your refund', 'deduct the', 'you lose the right', 'forfeit'],
+            'tr' => ['kesinti yapılır', 'mahsup edilir', 'hakkınızı yitirirsiniz'],
+        ];
+
+        foreach ($this->supported() as $locale) {
+            $source = $this->source($locale);
+
+            foreach ($forbidden[$locale] ?? [] as $claim) {
+                $this->assertStringNotContainsStringIgnoringCase(
+                    $claim,
+                    $source,
+                    "The Terms source in \"{$locale}\" carries \"{$claim}\", a clause this checkout cannot support.",
+                );
+            }
+        }
+    }
+
     public function test_the_acceptance_paragraph_matches_the_sign_up_screen_the_client_renders(): void
     {
         /*
@@ -381,6 +581,46 @@ class TermsPageTest extends TestCase
     protected function supported(): array
     {
         return array_values((array) config('magic-starter.supported_locales', []));
+    }
+
+    /**
+     * The free tier from the plan catalog, which is where the AI figure the withdrawal
+     * section quotes comes from.
+     *
+     * @return array<string, mixed>
+     */
+    protected function freeTier(): array
+    {
+        return (array) Arr::first(
+            (array) config('plans.tiers', []),
+            static fn (array $tier): bool => ($tier['id'] ?? null) === 'free',
+        );
+    }
+
+    /**
+     * The first plan-catalog key that would price AI per use, or null while none does.
+     *
+     * The premise the withdrawal clause rests on, expressed as a check rather than a comment.
+     * AI is an ENTITLEMENT today: `limits.ai` is a capability level (inbox < analysis < auto <
+     * custom) and `limits.ai_analysis_trials` meters the free tier, so an analysis has no
+     * separate price and cannot be "supplied in full for a price which must be paid
+     * separately" within C-641/19 PE Digital. A key that prices one is therefore the exact
+     * event that reopens the clause, and it fails this test by name instead of leaving the
+     * page quietly wrong.
+     */
+    protected function firstPricedAiKey(): ?string
+    {
+        foreach ((array) config('plans.tiers', []) as $tier) {
+            foreach (array_keys(Arr::dot((array) $tier)) as $key) {
+                $matched = preg_match('/(ai[_.][a-z_.]*(price|cost|rate|fee)|(price|cost|rate|fee)[a-z_.]*[_.]ai)/i', (string) $key);
+
+                if ($matched === 1) {
+                    return (string) $key;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
