@@ -89,6 +89,15 @@ class BillingTest extends TestCase
 
     public function test_usage_returns_team_scoped_counts_against_the_plan_limits(): void
     {
+        /*
+         * Pinned to the middle of a month, because the fixture below places one check two
+         * days back and expects it inside the current-month window. On the 1st and the 2nd
+         * of any month that lands in the PREVIOUS month, the count comes back one short, and
+         * the failure reads as a broken usage endpoint rather than as a calendar. It fired for
+         * real on 1 August. The endpoint was correct both times.
+         */
+        $this->travelTo(now()->startOfMonth()->addDays(14));
+
         [$user, $team] = $this->makeTeam(['plan' => Plan::Pro->value, 'plan_status' => 'active']);
 
         // Two additional members plus the owner: three distinct responders.
