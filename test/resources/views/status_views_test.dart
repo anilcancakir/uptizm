@@ -94,6 +94,13 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.editor_title_new': 'New status page',
       'uptizm.status.editor_form_view_public_page': 'View public page',
       'uptizm.status.editor_form_save': 'Save',
+      // Short values on purpose. Without a stub entry `trans()` returns the raw
+      // key, which is long enough to overflow the fixed-width switch row and
+      // fails these tests as a layout error rather than a missing translation.
+      'uptizm.status.editor_section_visibility': 'Visibility',
+      'uptizm.status.editor_section_visibility_hint': 'Who can open it.',
+      'uptizm.status.editor_form_is_public_label': 'Public',
+      'uptizm.status.editor_private_gated': 'Private needs :plan.',
       'uptizm.status.editor_form_create_page': 'Create page',
       'uptizm.status.editor_ai_draft_gated':
           'Upgrade to :plan to draft with AI.',

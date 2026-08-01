@@ -781,7 +781,11 @@
       "not_found_description": "There's no status page at this address. Double-check the link, or ask whoever shared it for the current address.",
       "editor_metrics_system_label": "System",
       "editor_metrics_custom_label": "Custom",
-      "editor_open_failed_description": "Couldn't open :url. Copy it into your browser instead."
+      "editor_open_failed_description": "Couldn't open :url. Copy it into your browser instead.",
+      "editor_section_visibility": "Visibility",
+      "editor_section_visibility_hint": "Who can open this page.",
+      "editor_form_is_public_label": "Anyone with the link can read this page",
+      "editor_private_gated": "Keeping a page private is available on :plan and up. A public page needs no upgrade."
     },
     "ai": {
       "tldr": "TL;DR",

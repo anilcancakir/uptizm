@@ -143,6 +143,14 @@ class _StatusPageEditorViewState
   /// The published metric keys (`monitorId.key`).
   late List<String> _metricKeys;
 
+  /// Whether anyone with the URL may read this page.
+  ///
+  /// The field the editor never had, which is why a page created here could not be
+  /// published at all: `is_public` defaults to false in the database, nothing sent it,
+  /// and the public route is fail-closed, so the operator's own page answered 404 with no
+  /// way in the product to change it.
+  late bool _isPublic;
+
   /// Whether email subscriptions are enabled.
   late bool _subscriptionsEnabled;
 
@@ -169,6 +177,11 @@ class _StatusPageEditorViewState
   /// by a server 422 that rejects `slug`. Cleared when the name auto-fills the
   /// slug or the slug is edited.
   String? _slugError;
+
+  /// The server's reason for refusing the visibility choice, painted under the
+  /// control. The backend rejects only the PRIVATE direction, and only when the
+  /// team's plan does not include private pages.
+  String? _isPublicError;
 
   /// Inline validation error for the Components picker, or null when it is
   /// valid. Set on save when no monitor is assigned (a page needs at least one
@@ -271,6 +284,7 @@ class _StatusPageEditorViewState
       _description = '';
       _monitorIds = <String>[];
       _metricKeys = <String>[];
+      _isPublic = true;
       _subscriptionsEnabled = true;
       return;
     }
@@ -285,6 +299,7 @@ class _StatusPageEditorViewState
     _description = existing.description ?? '';
     _monitorIds = List<String>.of(existing.monitorIds);
     _metricKeys = List<String>.of(existing.metricKeys);
+    _isPublic = existing.isPublic;
     _subscriptionsEnabled = existing.subscriptionsEnabled;
   }
 
@@ -331,6 +346,7 @@ class _StatusPageEditorViewState
         _description != (saved.description ?? '') ||
         !listEquals(_monitorIds, saved.monitorIds) ||
         !listEquals(_metricKeys, saved.metricKeys) ||
+        _isPublic != saved.isPublic ||
         _subscriptionsEnabled != saved.subscriptionsEnabled;
   }
 
@@ -365,6 +381,7 @@ class _StatusPageEditorViewState
           }(),
       ],
       'metric_keys': _metricKeys,
+      'is_public': _isPublic,
     });
   }
 
@@ -477,6 +494,8 @@ class _StatusPageEditorViewState
             _nameError = entry.value;
           case 'slug':
             _slugError = entry.value;
+          case 'is_public':
+            _isPublicError = entry.value;
           default:
             unmapped[entry.key] = entry.value;
         }
@@ -679,6 +698,7 @@ class _StatusPageEditorViewState
       if (_aiApplied) _buildAiAppliedBanner(),
       _buildBrandingCard(),
       _buildComponentsCard(),
+      _buildVisibilityCard(),
       _buildSubscriptionsCard(),
     ];
   }
@@ -935,6 +955,75 @@ class _StatusPageEditorViewState
           ),
         ],
       ),
+    );
+  }
+
+  /// Builds the Visibility card: whether anybody with the URL may read this page.
+  ///
+  /// A new page starts PUBLIC. A status page exists to be published, the private
+  /// variant is the paid one, and the backend asks for no entitlement to be public, so
+  /// defaulting to private is what left every page created here answering 404 with no
+  /// control to change it.
+  ///
+  /// Only the PRIVATE direction is gated, mirroring `StoreStatusPageRequest`: turning
+  /// the switch OFF needs `private_pages`. Wrapped in a [ListenableBuilder] so it
+  /// re-gates the moment the real plan lands, the same way the AI banner does, and the
+  /// refusal is a nudge naming the cheapest plan that unlocks it rather than a switch
+  /// that silently snaps back.
+  Widget _buildVisibilityCard() {
+    return ListenableBuilder(
+      listenable: EntitlementController.instance,
+      builder: (context, _) {
+        final entitlement = EntitlementController.instance;
+        final bool mayGoPrivate = entitlement.canUsePrivatePages;
+
+        return MSCard(
+          variant: CardVariant.surface,
+          child: WDiv(
+            className: 'flex flex-col gap-4',
+            children: <Widget>[
+              _buildSectionHeading(
+                trans('uptizm.status.editor_section_visibility'),
+                hint: trans('uptizm.status.editor_section_visibility_hint'),
+              ),
+              _buildSwitchRow(
+                label: trans('uptizm.status.editor_form_is_public_label'),
+                value: _isPublic,
+                onChanged: (bool value) {
+                  // Refuse the private direction rather than accepting it and
+                  // letting the save fail: the nudge below already says why.
+                  if (!value && !mayGoPrivate) return;
+                  setState(() {
+                    _isPublic = value;
+                    _isPublicError = null;
+                  });
+                },
+              ),
+              if (_isPublicError != null)
+                WText(
+                  _isPublicError!,
+                  className: 'text-xs text-destructive dark:text-destructive',
+                ),
+              if (!mayGoPrivate)
+                MSUpgradeNudge(
+                  message: trans('uptizm.status.editor_private_gated', {
+                    'plan': entitlement.planNameUnlocking(
+                      (PlanLimits limits) => limits.privatePages,
+                    ),
+                  }),
+                  requiredPlan: entitlement.planNameUnlocking(
+                    (PlanLimits limits) => limits.privatePages,
+                  ),
+                  onUpgrade: () => UpgradePrompt.startUpgrade(
+                    entitlement.planIdUnlocking(
+                      (PlanLimits limits) => limits.privatePages,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 

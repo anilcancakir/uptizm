@@ -781,7 +781,11 @@
       "not_found_description": "Bu adreste bir durum sayfası yok. Bağlantıyı tekrar kontrol edin veya paylaşan kişiden güncel adresi isteyin.",
       "editor_metrics_system_label": "Sistem",
       "editor_metrics_custom_label": "Özel",
-      "editor_open_failed_description": ":url açılamadı. Adresi tarayıcınıza kopyalayın."
+      "editor_open_failed_description": ":url açılamadı. Adresi tarayıcınıza kopyalayın.",
+      "editor_section_visibility": "Görünürlük",
+      "editor_section_visibility_hint": "Bu sayfayı kimler açabilir.",
+      "editor_form_is_public_label": "Bağlantıya sahip herkes bu sayfayı görebilir",
+      "editor_private_gated": "Sayfayı gizli tutmak :plan ve üzeri planlarda var. Herkese açık sayfa için yükseltme gerekmiyor."
     },
     "ai": {
       "tldr": "Özet",

@@ -1350,4 +1350,57 @@ void main() {
       expect(controller.hasPreviewPollCapped('acme'), isFalse);
     });
   });
+
+  group('visibility reaches the wire', () {
+    /// Captures the body of the create POST, and answers with a minimal created
+    /// resource so `save()` reports success.
+    Future<Map<String, dynamic>?> postedBodyFor({required bool isPublic}) async {
+      Map<String, dynamic>? posted;
+      Http.fake((r) {
+        if (r.method == 'POST') {
+          posted = Map<String, dynamic>.from(r.data as Map);
+          return Http.response({
+            'data': <String, dynamic>{'id': 'acme', 'name': 'Acme', 'slug': 'acme'},
+          }, 201);
+        }
+        return Http.response(<String, dynamic>{}, 200);
+      });
+
+      final StatusPageController controller = StatusPageController.instance;
+      await controller.create(
+        StatusPage.fromMap(<String, dynamic>{
+          'name': 'Acme',
+          'slug': 'acme',
+          'domain_mode': 'path',
+          'is_public': isPublic,
+          'subscriptions_enabled': true,
+        }),
+      );
+
+      return posted;
+    }
+
+    test('a created page posts the visibility the operator chose', () async {
+      // The defect this pins, which shipped. `is_public` was missing from BOTH ends:
+      // the editor had no control for it, and `_modelFrom` enumerates the wire fields
+      // explicitly and had no entry. So a page created in the product kept the database
+      // default of false, the public route is fail-closed, and the operator's own page
+      // answered 404 with nothing in the UI able to change it.
+      //
+      // Asserted on the REQUEST BODY, not on a model getter: the field existed on the
+      // model the whole time, and the only place it went missing was the payload.
+      final Map<String, dynamic>? posted = await postedBodyFor(isPublic: true);
+
+      expect(posted, isNotNull, reason: 'The create never reached the network.');
+      expect(posted!['is_public'], isTrue);
+    });
+
+    test('a private choice is posted as private, not coerced to public', () async {
+      // The other direction, so the assertion above cannot be satisfied by a
+      // hardcoded true.
+      final Map<String, dynamic>? posted = await postedBodyFor(isPublic: false);
+
+      expect(posted!['is_public'], isFalse);
+    });
+  });
 }

@@ -912,6 +912,13 @@ class StatusPageController extends MagicController
         'brand_color': _wireBrandColor(draft.brandColor),
         'logo_text': draft.logoText,
         'description': draft.description,
+        // The second half of a dropped write. This map enumerates the wire fields
+        // explicitly, so a field the editor collects and this list omits is filled into
+        // the draft, shown to the operator, and then silently discarded on the way out.
+        // `is_public` was missing from BOTH ends: the editor had no control and this map
+        // had no entry, which is why every page created in the product stayed private and
+        // answered 404 with nothing in the UI able to change it.
+        'is_public': draft.isPublic,
         'subscriptions_enabled': draft.subscriptionsEnabled,
       });
     if (existing) {
