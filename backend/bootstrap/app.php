@@ -38,6 +38,21 @@ return Application::configure(basePath: dirname(__DIR__))
         // the file so every route in it speaks the language its URL asks for; it
         // is session-free and cookie-free by design.
         then: function (): void {
+            // Both files register a route for `/`: the marketing pages on the apex, the
+            // status pages behind a `{slug}.<host>` domain constraint. Order between them
+            // does NOT decide which wins, cached or not, and it was once reported that it
+            // did. It does not: `RouteCollection` keeps host-constrained routes in their
+            // own bucket and matches it first, and the compiled matcher `artisan optimize`
+            // produces compiles the host regex into the match. Verified against production,
+            // which runs cached routes and resolves `{slug}.uptizm.com/` to
+            // `status.show.subdomain`.
+            //
+            // The earlier report came from a machine where `status_pages.subdomain_host`
+            // was unset, so the subdomain route was never registered at all and the apex
+            // route answered by default. That is a configuration difference, not a routing
+            // defect. `SubdomainAddressingTest` now compiles the collection and asserts the
+            // precedence with the host configured, so the question cannot be reopened by
+            // whoever next runs the suite on an unconfigured machine.
             Route::middleware(['static', SetMarketingLocale::class])
                 ->group(base_path('routes/marketing.php'));
 

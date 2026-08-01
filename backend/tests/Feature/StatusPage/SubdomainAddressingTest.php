@@ -11,6 +11,7 @@ use App\Models\Team;
 use App\Models\User;
 use FlutterSdk\MagicStarter\Support\MigrationHelper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -118,14 +119,41 @@ class SubdomainAddressingTest extends TestCase
         // their own `$domainRoutes` bucket and matches that bucket before the
         // unconstrained one, so registration order never decided it.
         //
-        // Caveat this test cannot see: the suite always runs against an
-        // uncached collection. With `route:cache` (which `artisan optimize` runs
-        // on deploy) the compiled matcher goes by registration order instead,
-        // and the apex route wins here. That is a live defect with its own
-        // follow-up, not something this assertion is pinning.
         $page = $this->makePage('acme', isPublic: true);
 
         $this->get('http://acme.'.self::HOST.'/')->assertSee($page->name);
+    }
+
+    public function test_the_compiled_route_collection_keeps_the_subdomain_too(): void
+    {
+        /*
+         * The gap the test above genuinely had: it runs against an UNCACHED collection,
+         * and production runs a cached one, because `artisan optimize` is part of every
+         * deploy. Those are two different matchers, so a suite that only ever exercises
+         * the first cannot speak for the second.
+         *
+         * It was once reported that the cached matcher goes by registration order and lets
+         * the apex route swallow every subdomain. It does not, and this is the assertion
+         * that settles it rather than leaving the claim in a comment. The report came from
+         * a machine with `status_pages.subdomain_host` unset, where the subdomain route is
+         * never registered at all and the apex answers by default: a configuration
+         * difference wearing a routing defect's clothes.
+         *
+         * Compiled in memory rather than through `route:cache`, so the run leaves no
+         * artefact behind for the next test or the next developer.
+         */
+        $this->assertNotNull(
+            config('status_pages.subdomain_host'),
+            'Subdomain addressing is switched off in this environment, so this test would prove nothing.',
+        );
+
+        $compiled = app('router')->getRoutes()->toCompiledRouteCollection(app('router'), app());
+
+        $subdomain = $compiled->match(Request::create('http://acme.'.self::HOST.'/'));
+        $apex = $compiled->match(Request::create('http://'.self::HOST.'/'));
+
+        $this->assertSame('status.show.subdomain', $subdomain->getName());
+        $this->assertSame('landing', $apex->getName());
     }
 
     public function test_private_page_on_its_subdomain_is_a_four_oh_four(): void
