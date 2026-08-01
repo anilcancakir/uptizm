@@ -181,5 +181,6 @@
     "The form is taking a short break.": "Form kısa bir mola veriyor.",
     "More messages arrived this minute than this form accepts, so yours was not sent.": "Bu dakika içinde formun kabul ettiğinden daha fazla mesaj geldi, bu yüzden sizinki gönderilmedi.",
     "Your text is still below. Send it again in a minute, or write to us:": "Yazdığınız metin aşağıda duruyor. Bir dakika sonra yeniden gönderin ya da bize yazın:",
-    "This form only accepts messages sent from this page. Please write your message here.": "Bu form yalnızca bu sayfadan gönderilen mesajları kabul eder. Lütfen mesajınızı burada yazın."
+    "This form only accepts messages sent from this page. Please write your message here.": "Bu form yalnızca bu sayfadan gönderilen mesajları kabul eder. Lütfen mesajınızı burada yazın.",
+    "Not published yet": "Henüz yayımlanmadı"
 }

@@ -114,6 +114,20 @@ the contract too, on a paid plan as well as on the free one.
 </details>
 
 <details>
+<summary>If I withdraw in the first 14 days, is the AI I used taken off the refund?</summary>
+
+No, nothing is deducted. An AI analysis is not priced separately and there is no charge per
+analysis: a paid plan entitles it, and the free plan includes
+[[faq.free_ai_trials]] AI monitor setups before that feature asks you to move up, so it is a
+metered entitlement inside the plan rather than a line item. Charging a consumer for what was
+supplied during a withdrawal period is
+open only to a trader who collected an express request to start and an acknowledgement at the
+moment of purchase, and this checkout collects neither. Section 7 of the [Terms](/terms) is the
+full version, including how to withdraw.
+
+</details>
+
+<details>
 <summary>How do I get my data deleted?</summary>
 
 Deleting your account removes your API tokens and your profile photo, then deletes the

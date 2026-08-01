@@ -217,6 +217,37 @@ class FaqPageTest extends TestCase
         $this->get($this->pathFor('tr'))->assertDontSee('Faturalandırma ayarlarınızdan');
     }
 
+    public function test_the_refund_answer_deducts_nothing_for_consumed_ai(): void
+    {
+        /*
+         * The answer to the question the operator actually asked, and it is a no: an AI
+         * analysis is an entitlement inside the plan rather than a separately priced unit
+         * (`config/plans.php` carries `limits.ai` as a capability level and
+         * `limits.ai_analysis_trials` as the free-tier meter, and no price), and
+         * `BillingController::checkout()` collects neither the CRD Art. 8(8) express request nor
+         * the acknowledgement, so Art. 14(4)(a) leaves the consumer bearing no cost at all for
+         * what was supplied inside the withdrawal period. The figure comes from the catalog, as
+         * every figure on this page does.
+         *
+         * Full reasoning and sources: research/librarian-identity-and-ai-refunds.md section 2,
+         * and `TermsPageTest` pins the Terms clause this answer summarises.
+         */
+        $trials = (string) Arr::get(
+            Arr::first((array) config('plans.tiers'), fn (array $tier): bool => ($tier['id'] ?? null) === 'free'),
+            'limits.ai_analysis_trials',
+        );
+
+        $this->get($this->pathFor('en'))
+            ->assertSee('14 days')
+            ->assertSee('nothing is deducted')
+            ->assertSee($trials.' AI monitor setups');
+
+        $this->get($this->pathFor('tr'))
+            ->assertSee('14 gün')
+            ->assertSee('hiçbir kesinti')
+            ->assertSee($trials.' AI monitör kurulumu');
+    }
+
     public function test_the_alert_channels_equal_the_notification_channel_enum(): void
     {
         $expected = [

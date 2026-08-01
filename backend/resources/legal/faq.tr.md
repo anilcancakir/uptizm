@@ -117,6 +117,19 @@ silmek de sözleşmeyi sona erdirir: ücretsiz planda olduğu gibi ücretli plan
 </details>
 
 <details>
+<summary>İlk 14 gün içinde cayarsam kullandığım AI geri ödemeden düşülür mü?</summary>
+
+Hayır, hiçbir kesinti yapılmaz. Bir AI analizi ayrıca fiyatlanmıyor ve analiz başına bir ücret
+yok: ücretli planlar analizi planın kapsamında verir, ücretsiz plan ise o özellik sizi üst plana
+yönlendirmeden önce [[faq.free_ai_trials]] AI monitör kurulumu içerir; yani analiz, ayrı bir
+kalem değil, plan içinde ölçülen bir haktır. Cayma süresi içinde ifa edilen için tüketiciden
+bedel istemek, yalnızca ifaya başlanması yönündeki açık talebi ve bilgilendirilmiş kabulü satın
+alma anında almış olan satıcıya açıktır; bu ödeme akışı ikisini de toplamıyor. Ayrıntısı ve nasıl
+cayılacağı [Kullanım Koşulları](/tr/terms) metninin 7. bölümünde.
+
+</details>
+
+<details>
 <summary>Verilerimin silinmesini nasıl sağlarım?</summary>
 
 Hesabınızı silmek API token'larınızı ve profil fotoğrafınızı kaldırır, ardından kullanıcı
