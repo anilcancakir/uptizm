@@ -150,11 +150,45 @@ class StatusPageControllerTest extends TestCase
         $response->assertStatus(200);
         $response->assertJsonPath(
             'data.public_url',
-            route('status.show', ['slug' => 'mine']),
+            rtrim((string) config('app.url'), '/').'/s/mine',
         );
 
         // And that URL resolves: a 200 from the public, unauthenticated page.
         $this->get($response->json('data.public_url'))->assertStatus(200);
+    }
+
+    public function test_public_url_ignores_the_host_the_api_was_called_on(): void
+    {
+        /*
+         * The defect this pins, which reached production: `public_url` was built with
+         * `route()`, and `route()` resolves an absolute URL against the host the request
+         * arrived on. The Flutter client calls this API at `api.<host>`, so the editor
+         * displayed `https://api.uptizm.com/s/<slug>` and the operator copied the API
+         * host into a customer email.
+         *
+         * The assertion above cannot catch it: in the test environment the request host
+         * and `app.url` are the same string, so a `route()`-built value and a
+         * config-built one are identical and the test passes either way. Only a request
+         * from a DIFFERENT host separates them, which is what this does.
+         */
+        $team = $this->actingAsTeamMember();
+        $page = $this->makeStatusPage($team->id, 'mine');
+
+        $expected = rtrim((string) config('app.url'), '/').'/s/mine';
+
+        // An ABSOLUTE url, not a `Host` header in the headers array: the test client
+        // builds its request from the given path and ignores a Host header passed that
+        // way, so the header form leaves the request on the default host and the
+        // assertion below passes against the bug it is meant to catch. Verified by
+        // reverting the fix and watching this test stay green until the url changed.
+        $host = parse_url((string) config('app.url'), PHP_URL_HOST);
+        $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?: 'http';
+
+        $response = $this->getJson("{$scheme}://api.{$host}/api/v1/status-pages/{$page->id}");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.public_url', $expected);
+        $this->assertStringNotContainsString('api.', (string) $response->json('data.public_url'));
     }
 
     public function test_show_masks_cross_team_page_as_404(): void

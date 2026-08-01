@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\StatusPage;
 
-use App\Enums\DomainMode;
 use App\Http\ViewModels\StatusPageViewModel;
 use App\Models\StatusPage;
 use App\Services\StatusPages\StatusPageAssembler;
@@ -203,19 +202,6 @@ class ShowStatusPageController
      */
     protected function canonicalUrl(StatusPage $page): string
     {
-        $base = rtrim((string) config('app.url'), '/');
-        $scheme = parse_url($base, PHP_URL_SCHEME) ?: 'https';
-
-        if ($page->domain_mode === DomainMode::Custom && is_string($page->custom_domain) && $page->custom_domain !== '') {
-            return $scheme.'://'.$page->custom_domain.'/';
-        }
-
-        $subdomainHost = config('status_pages.subdomain_host');
-
-        if ($page->domain_mode === DomainMode::Subdomain && is_string($subdomainHost) && $subdomainHost !== '') {
-            return $scheme.'://'.$page->slug.'.'.$subdomainHost.'/';
-        }
-
-        return $base.'/s/'.$page->slug;
+        return $page->publicUrl();
     }
 }

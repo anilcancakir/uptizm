@@ -225,6 +225,42 @@ class StatusPage extends Model
      * Resolve implicit route binding by `slug` instead of the primary key,
      * since a status page is addressed publicly by its slug.
      */
+    /**
+     * The one URL this page should be shared, indexed and linked under.
+     *
+     * BUILT FROM CONFIGURATION, NEVER FROM THE INCOMING REQUEST. `route()` resolves an
+     * absolute URL against whatever host the request arrived on, and this application
+     * answers on more than one: the Flutter client calls the API at `api.<host>`, so a
+     * resource built with `route()` handed the operator
+     * `https://api.uptizm.com/s/<slug>` to paste into a customer email. The API host is
+     * not where a customer reads a status page.
+     *
+     * It lives on the model rather than in the controller that first needed it, because
+     * the address is a property OF the page: the rendered page's canonical tag and the
+     * API resource the editor displays have to be the same string, and they were not.
+     *
+     * `domain_mode` picks the form. A mode whose prerequisite is missing (a custom
+     * domain that is not set, a subdomain host that is not configured) falls back to the
+     * path form, which always resolves.
+     */
+    public function publicUrl(): string
+    {
+        $base = rtrim((string) config('app.url'), '/');
+        $scheme = parse_url($base, PHP_URL_SCHEME) ?: 'https';
+
+        if ($this->domain_mode === DomainMode::Custom && is_string($this->custom_domain) && $this->custom_domain !== '') {
+            return $scheme.'://'.$this->custom_domain.'/';
+        }
+
+        $subdomainHost = config('status_pages.subdomain_host');
+
+        if ($this->domain_mode === DomainMode::Subdomain && is_string($subdomainHost) && $subdomainHost !== '') {
+            return $scheme.'://'.$this->slug.'.'.$subdomainHost.'/';
+        }
+
+        return $base.'/s/'.$this->slug;
+    }
+
     public function getRouteKeyName(): string
     {
         return 'slug';

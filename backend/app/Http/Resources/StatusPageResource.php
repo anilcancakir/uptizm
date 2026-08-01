@@ -70,9 +70,13 @@ class StatusPageResource extends JsonResource
             // status/<slug>"), which no route answers: an operator who copied
             // it handed their customers a 404. The public URL is the backend's
             // fact, so the backend states it.
+            // NOT route(): it resolves against the request host, and the client calls
+            // this API at `api.<host>`, so the editor was showing an address on the API
+            // host for the operator to paste into a customer email. The model composes it
+            // from configuration and honours `domain_mode`.
             'public_url' => $this->resource->slug === null
                 ? null
-                : route('status.show', ['slug' => $this->resource->slug]),
+                : $this->resource->publicUrl(),
             'is_public' => (bool) $this->resource->is_public,
             'subscriptions_enabled' => (bool) $this->resource->subscriptions_enabled,
             'monitors' => $this->whenLoaded('monitors', function (): array {
