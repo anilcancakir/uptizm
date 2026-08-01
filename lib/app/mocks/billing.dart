@@ -99,7 +99,11 @@ const List<Plan> plans = [
       'Unlimited monitors · 5-second checks · dedicated relays',
       'Unlimited status pages & subscribers · audience-specific pages',
       'Unlimited responders · SAML & SCIM · custom roles',
-      'Custom retention · SLA · invoicing',
+      // No SLA here either. This is a test fixture rather than a customer-facing
+      // surface, but `config/plans.php` dropped the claim because nothing measures
+      // availability against a promise or credits a breach, and a fixture that still
+      // carries it is how the sentence gets copied back into the real catalogue.
+      'Custom retention · invoicing',
     ],
     limits: PlanLimits(
       monitors: null,

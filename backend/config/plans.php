@@ -110,7 +110,12 @@ return [
         [
             'id' => 'business',
             'name' => 'Business',
-            'tagline' => 'Scaling teams with real SLAs.',
+            // No SLA in this line, and none anywhere else. Nothing measures
+            // availability against a promise, nothing credits a breach, and the Terms,
+            // the FAQ and the landing page all say plainly that no percentage is
+            // promised. A tagline on a card-purchasable tier is the last place to
+            // contradict them.
+            'tagline' => 'Scaling teams, on the fastest checks we run.',
             'monthly' => 119,
             'annual' => 99,
             'currency' => 'usd',
@@ -148,7 +153,10 @@ return [
                 'Unlimited monitors · 5-second checks',
                 'Unlimited status pages & subscribers',
                 'Unlimited responders',
-                'SLA & invoicing',
+                // Invoicing stays because it is real. The SLA that stood beside it does
+                // not: it was the only place in the product still promising an
+                // availability figure, and every page states the opposite.
+                'Invoicing and custom terms',
             ],
             'responder_add_on' => null,
             'recommended' => false,
