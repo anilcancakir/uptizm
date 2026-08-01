@@ -14,13 +14,21 @@
      footer on the page's base tone, which is the conventional recessed treatment. --}}
 <footer class="border-t border-border bg-surface">
     <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
-        {{-- Three columns, and the language list is deliberately NOT a fourth.
-             Discovering the other language does not depend on it: the <head> carries a
-             full hreflang set including x-default, which is the signal a crawler
-             actually follows, and the header renders the same links in the markup with
-             no JavaScript in the way. A fourth column here only repeated them. --}}
-        <div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
-            <div class="lg:col-span-2">
+        {{-- On desktop: the brand on the left and the three link columns beside it, all on
+             ONE row. Twelve tracks rather than four, because the brand needs half the width
+             for its tagline while a link column needs a sixth; four equal columns would
+             either crush the tagline or leave the links adrift.
+
+             6 + 2 + 2 + 2 fills the row exactly. It also degrades correctly on a legal
+             page, where `$sections` is empty and the Product column is not rendered at all:
+             the remaining three keep their widths instead of stretching to redistribute.
+
+             The language list is deliberately not a fourth link column. Discovering the
+             other language does not depend on it: the <head> carries a full hreflang set
+             including x-default, which is the signal a crawler follows, and the header
+             renders the same links in the markup with no JavaScript in the way. --}}
+        <div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-12">
+            <div class="sm:col-span-2 lg:col-span-6">
                 <div class="flex items-center gap-2.5">
                     @include('marketing.brand-mark')
                     <span class="text-title-lg text-fg">{{ config('app.name') }}</span>
@@ -32,7 +40,7 @@
             </div>
 
             @if ($sections !== [])
-                <div>
+                <div class="lg:col-span-2">
                     <h2 class="text-label-sm uppercase tracking-[0.12em] text-fg-muted">{{ __('Product') }}</h2>
 
                     <ul class="mt-3 space-y-2">
@@ -48,7 +56,7 @@
                 </div>
             @endif
 
-            <div>
+            <div class="lg:col-span-2">
                 <h2 class="text-label-sm uppercase tracking-[0.12em] text-fg-muted">{{ __('Account') }}</h2>
 
                 <ul class="mt-3 space-y-2">
@@ -81,7 +89,7 @@
                  all four were absent from this footer until the pages existed, and
                  `ChromeTest` still pins the absence of every footer cliche with nothing
                  behind it. --}}
-            <div>
+            <div class="lg:col-span-2">
                 <h2 class="text-label-sm uppercase tracking-[0.12em] text-fg-muted">{{ __('Legal') }}</h2>
 
                 <ul class="mt-3 space-y-2">
