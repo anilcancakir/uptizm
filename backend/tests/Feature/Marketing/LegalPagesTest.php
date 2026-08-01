@@ -231,6 +231,50 @@ class LegalPagesTest extends TestCase
         }
     }
 
+    public function test_no_document_renders_an_identity_row_without_a_value(): void
+    {
+        /*
+         * The other half of the placeholder rule above, and the one the identity change made
+         * necessary. The operator's legal name, address, telephone, KEP address and registry
+         * id came out of the repository and are empty until the Service launches, so every
+         * page that names one has to render the absence rather than a gap. A page can fail
+         * that in two ways the placeholder walk cannot see: an empty replacement, which leaves
+         * a labelled row with nothing after the label, and a value that never reached the
+         * template at all.
+         *
+         * Asserted with the slots explicitly EMPTIED rather than trusting the deployment's own
+         * state, so this stays a real check on a deployment that has already filled them, and
+         * across all eight URLs because the shape is a property of the shared pipeline rather
+         * than of one document.
+         */
+        config([
+            'legal.operator' => null,
+            'legal.address' => null,
+            'legal.phone' => null,
+            'legal.kep_address' => null,
+            'legal.registry_number' => null,
+            'legal.tax_number' => null,
+            'legal.tax_number_kind' => null,
+        ]);
+
+        foreach (self::PAGES as $page) {
+            foreach ($this->supported() as $locale) {
+                $path = $this->pathFor($locale, $page);
+                $html = $this->get($path)->assertOk()->getContent();
+
+                // `- **Label:** [[placeholder]]` renders as `<li><strong>Label:</strong> value`.
+                foreach (['</strong></li>', '</strong> </li>'] as $dangling) {
+                    $this->assertStringNotContainsString(
+                        $dangling,
+                        $html,
+                        "GET {$path} renders a labelled row whose value is missing, which reads as a broken page ".
+                        'rather than as a detail that is not published yet.',
+                    );
+                }
+            }
+        }
+    }
+
     public function test_every_table_of_contents_link_lands_on_a_heading_that_exists(): void
     {
         /*

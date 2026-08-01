@@ -120,18 +120,22 @@ class ShowPrivacyController
      * `[[privacy.check_days]]` on the page instead of as a legal sentence with a hole in it,
      * and `LegalPagesTest` fails on exactly that.
      *
-     * The operator's tax number is deliberately NOT here. It is the e-Commerce Art. 5
-     * identity disclosure and it belongs to the Terms page; for this operator it is a
-     * national identity number, and a privacy notice is the last page that should publish one
-     * it has no reason to.
+     * The operator's tax number and registry id are deliberately NOT here. They are the
+     * e-Commerce Art. 5 identity disclosure and they belong to the Terms page; for an esnaf
+     * the tax number is a national identity number, and a privacy notice is the last page
+     * that should publish one it has no reason to.
+     *
+     * The two identity values it DOES carry route through {@see self::identity()}: both are
+     * personal data the repository no longer holds, so the row renders the absence rather
+     * than a blank while the Service is unlaunched.
      *
      * @return array<string, string>
      */
     protected function replacements(): array
     {
         return [
-            '[[legal.operator]]' => (string) config('legal.operator'),
-            '[[legal.address]]' => (string) config('legal.address'),
+            '[[legal.operator]]' => $this->identity('operator'),
+            '[[legal.address]]' => $this->identity('address'),
             '[[legal.contact_email]]' => (string) config('legal.contact_email'),
             '[[legal.rights_email]]' => (string) config('legal.rights_email'),
             '[[legal.authority]]' => (string) config('legal.authority'),
@@ -154,6 +158,28 @@ class ShowPrivacyController
             '[[privacy.session_cookie]]' => (string) config('session.cookie'),
             '[[privacy.session_minutes]]' => (string) config('session.lifetime'),
         ];
+    }
+
+    /**
+     * One identity value from the catalog, or the honest absence the notice publishes while
+     * the slot is empty.
+     *
+     * Duplicated from {@see ShowTermsController::identity()} rather than extracted: two
+     * callers is not an abstraction, and the pair a notice needs (who the controller is, and
+     * where) is a smaller set than the Art. 5 disclosure block. The rule both share is the
+     * one that matters: never an empty string, never a dash, never a guess, because the
+     * operator's name and address are personal data the repository does not hold until the
+     * Service launches and a reader must be able to tell that from a rendering fault.
+     */
+    protected function identity(string $key): string
+    {
+        $value = config("legal.{$key}");
+
+        if (! is_string($value) || trim($value) === '') {
+            return __('Not published yet');
+        }
+
+        return $value;
     }
 
     /**
