@@ -23,6 +23,8 @@ use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\CheckAggregateService;
 use App\Services\Monitoring\RelayClient;
 use App\Support\Monitoring\CheckResult;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -166,10 +168,20 @@ class MonitorController extends Controller
 
     /**
      * Fire an immediate one-off probe across the monitor's regions.
+     *
+     * Gated by a per-monitor cooldown ({@see Monitor::MANUAL_CHECK_COOLDOWN_SECONDS})
+     * claimed via {@see self::claimManualCheck()}. The route itself carries no
+     * throttle: this is a per-resource cooldown, not a per-route rate limit,
+     * and a route limiter cannot express "once per minute per monitor"
+     * cleanly.
      */
-    public function test(Request $request, Monitor $monitor): Response
+    public function test(Request $request, Monitor $monitor): Response|JsonResponse
     {
         $this->authorizeTeam($request, $monitor);
+
+        if (! $this->claimManualCheck($monitor)) {
+            return $this->manualCheckCooldownResponse($monitor);
+        }
 
         $this->dispatchChecks($monitor);
 
@@ -394,5 +406,56 @@ class MonitorController extends Controller
         foreach ($monitor->regions ?? [] as $region) {
             PerformMonitorCheck::dispatch($monitor, $region);
         }
+    }
+
+    /**
+     * Atomically claim the manual-check cooldown for [$monitor].
+     *
+     * A single conditional UPDATE, not a find-then-save: the WHERE clause
+     * re-checks the cooldown at the database, not against the possibly stale
+     * in-memory [$monitor]. Of two concurrent requests, at most one UPDATE
+     * affects a row, so the caller can dispatch on the strength of the
+     * affected-row count alone, with no separate read to race against.
+     */
+    protected function claimManualCheck(Monitor $monitor): bool
+    {
+        $affected = Monitor::query()
+            ->where('id', $monitor->id)
+            ->where(function (Builder $query): void {
+                $query->whereNull('last_manual_check_at')
+                    ->orWhere(
+                        'last_manual_check_at',
+                        '<=',
+                        now()->subSeconds(Monitor::MANUAL_CHECK_COOLDOWN_SECONDS),
+                    );
+            })
+            ->update(['last_manual_check_at' => now()]);
+
+        return $affected > 0;
+    }
+
+    /**
+     * Build the 429 refusal for a manual check still on cooldown.
+     *
+     * Re-reads `last_manual_check_at` rather than trusting [$monitor]'s
+     * in-memory copy, so the remaining seconds reflect whichever concurrent
+     * request actually won the claim.
+     */
+    protected function manualCheckCooldownResponse(Monitor $monitor): JsonResponse
+    {
+        $lastManualCheckAt = Monitor::query()
+            ->where('id', $monitor->id)
+            ->value('last_manual_check_at');
+
+        $elapsedSeconds = $lastManualCheckAt !== null
+            ? (int) floor(now()->diffInSeconds(Carbon::parse($lastManualCheckAt), true))
+            : 0;
+
+        $remainingSeconds = max(1, Monitor::MANUAL_CHECK_COOLDOWN_SECONDS - $elapsedSeconds);
+
+        return response()->json([
+            'message' => 'A manual check for this monitor was run recently.',
+            'retry_after_seconds' => $remainingSeconds,
+        ], HttpResponse::HTTP_TOO_MANY_REQUESTS);
     }
 }

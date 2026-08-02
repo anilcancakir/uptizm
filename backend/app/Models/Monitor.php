@@ -6,6 +6,7 @@ use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Http\Controllers\Api\V1\MonitorController;
 use DateTimeInterface;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Builder;
@@ -42,6 +43,15 @@ class Monitor extends Model
      * outage still opens an incident on the next tick.
      */
     public const int DEFAULT_INCIDENT_THRESHOLD = 2;
+
+    /**
+     * Minimum number of seconds between two manual checks on the same
+     * monitor. Enforced by an atomic conditional UPDATE on
+     * `last_manual_check_at` (see
+     * {@see MonitorController::test()}), not a
+     * route throttle: a route limiter cannot express "per monitor" cleanly.
+     */
+    public const int MANUAL_CHECK_COOLDOWN_SECONDS = 60;
 
     /**
      * @var array<int, string>
@@ -106,6 +116,9 @@ class Monitor extends Model
         // Set only when the edge refused to run a probe, and cleared by the next
         // probe that reached the target. See CheckPersistenceService.
         'last_probe_error_at' => 'datetime',
+        // Cooldown marker for the manual `test()` endpoint; see
+        // self::MANUAL_CHECK_COOLDOWN_SECONDS.
+        'last_manual_check_at' => 'datetime',
         'ssl_alert_threshold_days' => 'integer',
         // `status` is the administrative state (active/paused), a plain string;
         // MonitorStatus (up/down/degraded/paused) is the health cast for `last_status`.
