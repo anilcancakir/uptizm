@@ -24,8 +24,11 @@ Schedule::job(new ScheduleMonitorChecks)
 // Roll yesterday's monitor_checks into the monitor_daily_uptime strip so
 // the public status page can render its uptime bars without scanning the
 // raw check table on every request.
+// Hourly, not nightly. The strip's last cell is TODAY, so a once-a-day run left
+// every status page showing its most recent day as unmeasured until the following
+// morning. Hourly is ample: the strip's granularity is a whole day.
 Schedule::job(new AggregateMonitorDailyUptime)
-    ->dailyAt('00:15')
+    ->hourly()
     ->onOneServer()
     ->name('monitoring:daily-uptime');
 
