@@ -47,6 +47,7 @@ class EntitlementController extends MagicController
     statusPages: null,
     subscribers: null,
     responders: null,
+    regions: null,
     ai: AiLevel.custom,
     whiteLabel: true,
     privatePages: true,
@@ -236,6 +237,10 @@ class EntitlementController extends MagicController
     final remaining = limit - respondersUsed;
     return remaining < 0 ? 0 : remaining;
   }
+
+  /// The plan's maximum probe regions selectable per monitor, or null when
+  /// unlimited. Mirrors the backend's `PlanGate::maxRegionsPerMonitor()`.
+  int? get maxRegionsPerMonitor => currentLimits.regions;
 
   /// The name of the cheapest plan whose limits satisfy [pred], for an
   /// "Available on `<Plan>`" nudge (e.g. the first tier that unlocks private

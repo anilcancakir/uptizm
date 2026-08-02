@@ -559,20 +559,59 @@ class _MonitorFormState extends State<MonitorForm> {
   }
 
   /// Builds the Regions multi-select grid.
+  ///
+  /// Gated the same way the check-interval field is: the picker's cap is
+  /// resolved against the live entitlement in a [ListenableBuilder] so it
+  /// re-locks the instant the real plan lands, rather than staying permissive
+  /// forever (see the class docblock on [EntitlementController.instance]).
   Widget _buildRegionsField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_regions_label'),
       hint: trans('uptizm.monitors.form_regions_hint'),
       error: _regionsError,
-      child: RegionPicker(
-        regions: _regionOptions,
-        value: _regions,
-        onChanged: (next) => setState(() {
-          _regions = next;
-          _regionsError = null;
-        }),
+      child: ListenableBuilder(
+        listenable: _entitlement,
+        builder: (context, _) => RegionPicker(
+          regions: _regionOptions,
+          value: _regions,
+          onChanged: (next) => setState(() {
+            _regions = next;
+            _regionsError = null;
+          }),
+          maxSelected: _regionCap(),
+          lockedPlanName: _regionLockedPlanName(),
+        ),
       ),
     );
+  }
+
+  /// The effective region-selection cap: the plan's allowance, or the
+  /// monitor's own stored region count when that count already exceeds it.
+  ///
+  /// Mirrors the backend's delta-only gate (`StoreMonitorRequest`): it refuses
+  /// only when the submitted count exceeds BOTH the allowance and the count
+  /// already stored on the monitor, so a grandfathered monitor stays at its
+  /// stored count (never below it) while a new pick beyond that is still
+  /// refused. On a create there is nothing stored, so the allowance binds
+  /// normally. Returns null (unlimited) when the plan has no region cap.
+  int? _regionCap() {
+    final int? allowance = _entitlement.maxRegionsPerMonitor;
+    if (allowance == null) return null;
+
+    final int stored = widget.isEdit ? widget.initialRegions.length : 0;
+    return stored > allowance ? stored : allowance;
+  }
+
+  /// The cheapest plan that would unlock one more region than [_regionCap],
+  /// for the "Available on `<Plan>`" nudge a locked tile shows.
+  String? _regionLockedPlanName() {
+    final int? cap = _regionCap();
+    if (cap == null) return null;
+
+    final String name = _entitlement.planNameUnlocking(
+      (limits) => limits.regions == null || limits.regions! > cap,
+    );
+    return name.isEmpty ? null : name;
   }
 
   /// Builds the Uptime SLO target select.

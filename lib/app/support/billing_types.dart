@@ -29,6 +29,18 @@ class PlanLimits {
   /// Responders included before the per-seat add-on; `null` = unlimited.
   final int? responders;
 
+  /// Maximum probe regions selectable per monitor; `null` = unlimited.
+  ///
+  /// Mirrors the backend's `PlanGate::maxRegionsPerMonitor()`
+  /// (`config('plans.tiers.*.limits.regions')`), the allowance
+  /// `StoreMonitorRequest::withValidator` enforces on the delta between the
+  /// submitted region count and the monitor's already-stored count.
+  ///
+  /// Defaulted (not required): every existing [PlanLimits] call site predates
+  /// this field, and an absent wire value or an un-updated fixture should read
+  /// as unlimited rather than force every constructor site to be touched.
+  final int? regions;
+
   /// Deepest AI capability unlocked at this tier.
   final AiLevel ai;
 
@@ -47,6 +59,7 @@ class PlanLimits {
     required this.statusPages,
     required this.subscribers,
     required this.responders,
+    this.regions,
     required this.ai,
     required this.whiteLabel,
     required this.privatePages,
@@ -66,6 +79,7 @@ class PlanLimits {
       statusPages: (map['status_pages'] as num?)?.toInt(),
       subscribers: (map['subscribers'] as num?)?.toInt(),
       responders: (map['responders'] as num?)?.toInt(),
+      regions: (map['regions'] as num?)?.toInt(),
       ai: _aiLevelFromWire(map['ai'] as String?),
       whiteLabel: (map['white_label'] as bool?) ?? false,
       privatePages: (map['private_pages'] as bool?) ?? false,

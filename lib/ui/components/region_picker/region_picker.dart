@@ -28,12 +28,23 @@ class Region {
 /// (driven by the tile tap) to avoid double toggles. Ported from the design lab
 /// `RegionPicker`.
 ///
+/// [maxSelected] caps how many regions may be selected at once, mirroring the
+/// team's billing entitlement (the caller resolves the effective cap, see
+/// `MonitorForm._buildRegionsField`). Once [value] reaches the cap, every
+/// UNSELECTED tile renders locked: dimmed, untappable, and its label suffixed
+/// with a " · " + [lockedPlanName] plan name, the same "Available on `<Plan>`"
+/// treatment the check-interval field already uses. An already-selected tile is
+/// NEVER locked, even past the cap, so a grandfathered monitor's stored regions
+/// stay visibly selected and removable rather than silently dropped.
+///
 /// ### Example:
 /// ```dart
 /// RegionPicker(
 ///   regions: regions,
 ///   value: selected,
 ///   onChanged: (next) => setState(() => selected = next),
+///   maxSelected: 1,
+///   lockedPlanName: 'Pro',
 /// )
 /// ```
 @immutable
@@ -50,6 +61,18 @@ class RegionPicker extends StatelessWidget {
   /// Optional extra classNames appended to the root slot.
   final String? className;
 
+  /// Maximum number of regions selectable at once, or `null` for unlimited.
+  ///
+  /// Enforced only against adding a new region: once [value] reaches this cap,
+  /// unselected tiles lock. A tile already present in [value] beyond the cap
+  /// (a grandfathered monitor's stored regions) is left selected and stays
+  /// removable, mirroring the backend's delta-only gate.
+  final int? maxSelected;
+
+  /// Plan name suffix shown on a locked tile's label, e.g. `'Pro'` renders
+  /// `'US West · Pro'`. Ignored while [maxSelected] is null or unreached.
+  final String? lockedPlanName;
+
   /// Creates a [RegionPicker].
   const RegionPicker({
     super.key,
@@ -57,31 +80,47 @@ class RegionPicker extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.className,
+    this.maxSelected,
+    this.lockedPlanName,
   });
 
   @override
   Widget build(BuildContext context) {
     final slots = regionPickerRecipe(variants: const <String, String>{});
+    final bool capReached =
+        maxSelected != null && value.length >= maxSelected!;
     return WDiv(
       className: className == null
           ? slots['root']
           : '${slots['root']} $className',
-      children: [for (final region in regions) _tile(region, slots)],
+      children: [
+        for (final region in regions) _tile(region, slots, capReached),
+      ],
     );
   }
 
-  Widget _tile(Region region, Map<String, String> slots) {
+  Widget _tile(Region region, Map<String, String> slots, bool capReached) {
     final selected = value.contains(region.value);
+    final bool locked = !selected && capReached;
     final optionClass = selected
         ? '${slots['option']} ${slots['optionSelected']}'
+        : locked
+        ? '${slots['option']} ${slots['optionLocked']}'
         : slots['option'];
 
+    final String label = locked && lockedPlanName != null
+        ? '${region.label} · $lockedPlanName'
+        : region.label;
+
     return WAnchor(
-      onTap: () => onChanged(
-        selected
-            ? value.where((entry) => entry != region.value).toList()
-            : [...value, region.value],
-      ),
+      isDisabled: locked,
+      onTap: locked
+          ? null
+          : () => onChanged(
+              selected
+                  ? value.where((entry) => entry != region.value).toList()
+                  : [...value, region.value],
+            ),
       child: WDiv(
         className: optionClass,
         children: [
@@ -91,7 +130,12 @@ class RegionPicker extends StatelessWidget {
           // flex-1 + truncate so a long label (e.g. a monitor name or metric
           // label) shrinks and ellipsizes within the tile instead of forcing a
           // horizontal overflow in a narrow column.
-          WText(region.label, className: 'flex-1 min-w-0 truncate text-fg'),
+          WText(
+            label,
+            className: locked
+                ? 'flex-1 min-w-0 truncate text-fg-disabled'
+                : 'flex-1 min-w-0 truncate text-fg',
+          ),
         ],
       ),
     );

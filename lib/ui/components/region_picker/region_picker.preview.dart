@@ -6,8 +6,11 @@ import 'region_picker.dart';
 /// Static variant-matrix preview for [RegionPicker].
 ///
 /// Mirrors the design lab `RegionPicker.preview.tsx`: two regions start
-/// selected; tapping tiles updates the controlled selection. One preview class
-/// per file; discovered by `previews:refresh`.
+/// selected; tapping tiles updates the controlled selection. Renders both
+/// states the plan-gate step added: an uncapped picker (no `maxSelected`) and
+/// a capped one (a Free-style one-region allowance) where the unselected
+/// tiles lock with the "Available on `<Plan>`" nudge. One preview class per
+/// file; discovered by `previews:refresh`.
 class RegionPickerPreview extends StatefulWidget {
   /// Creates the RegionPicker preview.
   const RegionPickerPreview({super.key});
@@ -26,17 +29,35 @@ class _RegionPickerPreviewState extends State<RegionPickerPreview> {
     Region(label: 'AP Northeast', value: 'ap-northeast', flag: '🇯🇵'),
   ];
 
-  List<String> _selected = const ['us-east', 'eu-west'];
+  List<String> _uncappedSelected = const ['us-east', 'eu-west'];
+  List<String> _cappedSelected = const ['us-east'];
 
   @override
   Widget build(BuildContext context) {
     return WDiv(
       className: 'flex flex-col gap-6 p-6 max-w-xl',
-      child: RegionPicker(
-        regions: _regions,
-        value: _selected,
-        onChanged: (next) => setState(() => _selected = next),
-      ),
+      children: [
+        WText(
+          'Uncapped (Pro/Business/Enterprise: no region limit)',
+          className: 'text-sm font-medium text-fg',
+        ),
+        RegionPicker(
+          regions: _regions,
+          value: _uncappedSelected,
+          onChanged: (next) => setState(() => _uncappedSelected = next),
+        ),
+        WText(
+          'Capped (Free: one region), the rest locked',
+          className: 'text-sm font-medium text-fg',
+        ),
+        RegionPicker(
+          regions: _regions,
+          value: _cappedSelected,
+          onChanged: (next) => setState(() => _cappedSelected = next),
+          maxSelected: 1,
+          lockedPlanName: 'Pro',
+        ),
+      ],
     );
   }
 }

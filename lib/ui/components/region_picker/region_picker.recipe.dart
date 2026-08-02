@@ -17,6 +17,8 @@ import 'package:magic/magic.dart';
 /// root           — responsive grid (2 cols, 3 at sm)
 /// option         — one clickable region tile (base, unselected appearance)
 /// optionSelected — extra classes appended when the tile is selected
+/// optionLocked   — extra classes appended when the tile is capped by the
+///                  team's plan (unselected and the selection is at its cap)
 /// ```
 const WindSlotRecipe regionPickerRecipe = WindSlotRecipe(
   slots: {
@@ -24,5 +26,6 @@ const WindSlotRecipe regionPickerRecipe = WindSlotRecipe(
     'option':
         'flex flex-row items-center gap-2 min-h-11 min-w-0 rounded-md border border-color-border px-3 text-sm text-fg',
     'optionSelected': 'bg-primary-container text-primary border-primary',
+    'optionLocked': 'opacity-60 border-color-border-subtle',
   },
 );

@@ -4,10 +4,11 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/entitlement_controller.dart';
+import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/services/billing/billing_service.dart';
-import 'package:uptizm/app/support/billing_types.dart' show Plan;
+import 'package:uptizm/app/support/billing_types.dart' show Plan, PlanLimits;
 import 'package:uptizm/app/support/team_types.dart'
     show PaymentMethod, UsageStat;
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
@@ -19,10 +20,17 @@ import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart'
 /// the three reads the controller depends on are implemented; the
 /// purchase-action methods this form never touches throw loudly.
 class _FakeBilling implements BillingService {
-  _FakeBilling({this.entitlementPlan});
+  _FakeBilling({this.entitlementPlan, List<Plan>? catalog})
+    : _catalog = catalog ?? plans;
 
   /// The plan id `currentEntitlement` resolves to.
   final String? entitlementPlan;
+
+  /// The catalog `getPlans` resolves to. Defaults to the shared design-lab
+  /// fixture; a test that needs a specific `limits.regions` value (the shared
+  /// fixture predates that field and defaults it to null/unlimited) supplies
+  /// its own catalog instead.
+  final List<Plan> _catalog;
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
@@ -35,7 +43,7 @@ class _FakeBilling implements BillingService {
   }
 
   @override
-  Future<List<Plan>> getPlans() async => plans;
+  Future<List<Plan>> getPlans() async => _catalog;
 
   @override
   Future<List<UsageStat>> getUsage() async => const [];
@@ -724,6 +732,214 @@ void main() {
           reason:
               'An edit must never override the stored interval toward the '
               'plan floor',
+        );
+      },
+    );
+  });
+
+  group('MonitorForm regions gate from entitlement', () {
+    /// A one-region Free tier and a five-region Pro tier, built locally rather
+    /// than pulled from the shared `app/mocks/billing.dart` fixture: that
+    /// fixture predates `PlanLimits.regions` and defaults every tier to
+    /// unlimited, which would defeat both tests below.
+    const Plan freeOneRegion = Plan(
+      id: 'free',
+      name: 'Free',
+      tagline: 'Kick the tires, solo projects.',
+      monthly: 0,
+      annual: 0,
+      aiLine: '',
+      features: [],
+      limits: PlanLimits(
+        monitors: 1,
+        checkIntervalSec: 180,
+        statusPages: 1,
+        subscribers: 100,
+        responders: 1,
+        regions: 1,
+        ai: AiLevel.inbox,
+        whiteLabel: false,
+        privatePages: false,
+        sso: false,
+      ),
+    );
+
+    const Plan proFiveRegions = Plan(
+      id: 'pro',
+      name: 'Pro',
+      tagline: 'Startups and small teams that page.',
+      monthly: 34,
+      annual: 29,
+      aiLine: '',
+      features: [],
+      recommended: true,
+      limits: PlanLimits(
+        monitors: 50,
+        checkIntervalSec: 30,
+        statusPages: 3,
+        subscribers: 1000,
+        responders: 3,
+        regions: 5,
+        ai: AiLevel.analysis,
+        whiteLabel: false,
+        privatePages: false,
+        sso: false,
+      ),
+    );
+
+    testWidgets(
+      'a Free entitlement allows exactly one region and locks the rest',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 1600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final controller = EntitlementController(
+          billing: _FakeBilling(
+            entitlementPlan: 'free',
+            catalog: const [freeOneRegion, proFiveRegions],
+          ),
+        );
+        Magic.findOrPut(() => controller);
+        await controller.reload();
+
+        Map<String, dynamic>? captured;
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              initialName: 'API gateway',
+              initialUrl: 'https://api.example.com/health',
+              // Start at exactly the Free allowance (one region), so the
+              // cap is not already broken before the user touches anything.
+              initialRegions: const ['us-east'],
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (fields) async {
+                captured = fields;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // A second, unselected region must render locked with the same
+        // "Available on <Plan>" nudge the interval field already uses.
+        expect(
+          find.textContaining('US West · Pro'),
+          findsOneWidget,
+          reason:
+              'Once the one-region cap is reached, an unselected tile must '
+              'lock and show the cheapest plan that unlocks another region',
+        );
+
+        // Tapping the locked tile must not add it to the selection.
+        final Finder lockedTile = find.ancestor(
+          of: find.textContaining('US West · Pro'),
+          matching: find.byType(WAnchor),
+        );
+        expect(lockedTile, findsOneWidget);
+        await tester.tap(lockedTile);
+        await tester.pump();
+
+        final Finder submitButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submitButton);
+        await tester.pump();
+        await tester.tap(submitButton);
+        await tester.pump();
+
+        expect(captured, isNotNull);
+        expect(
+          captured!['regions'],
+          equals(['us-east']),
+          reason:
+              'Tapping a locked region tile must never add it to the '
+              'selection, so the save must still post only the one region',
+        );
+      },
+    );
+
+    testWidgets(
+      'editing a grandfathered 5-region monitor keeps all five selected '
+      'and the form saveable',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 1600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // The monitor was created on a plan with all 5 regions and the team
+        // has since downgraded to Free (1 region); the backend's delta-only
+        // gate keeps a monitor at its stored count, refusing only an
+        // increase, so editing it must round-trip all five untouched.
+        final controller = EntitlementController(
+          billing: _FakeBilling(
+            entitlementPlan: 'free',
+            catalog: const [freeOneRegion, proFiveRegions],
+          ),
+        );
+        Magic.findOrPut(() => controller);
+        await controller.reload();
+
+        const List<String> fiveRegions = [
+          'us-east',
+          'us-west',
+          'eu-west',
+          'eu-central',
+          'ap',
+        ];
+
+        Map<String, dynamic>? captured;
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              isEdit: true,
+              initialName: 'Checkout',
+              initialUrl: 'https://checkout.example.com/health',
+              initialType: 'http',
+              initialRegions: fiveRegions,
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (fields) async {
+                captured = fields;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // None of the five must render locked (a locked tile would carry the
+        // " · <Plan>" suffix): a grandfathered monitor's stored regions must
+        // never be silently dropped or shown as unreachable.
+        expect(
+          find.textContaining(' · Pro'),
+          findsNothing,
+          reason:
+              'A monitor already holding 5 regions must not show any of its '
+              'own stored regions as locked',
+        );
+
+        final Finder submitButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submitButton);
+        await tester.pump();
+        await tester.tap(submitButton);
+        await tester.pump();
+
+        expect(captured, isNotNull);
+        expect(
+          captured!['regions'],
+          equals(fiveRegions),
+          reason:
+              'A grandfathered monitor must keep all five stored regions and '
+              'the form must stay saveable on the current (downgraded) plan',
         );
       },
     );
