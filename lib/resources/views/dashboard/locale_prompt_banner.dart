@@ -14,19 +14,29 @@ import '../../../app/services/locale_onboarding_gate.dart';
 /// timezone auto-detected at boot (the applied [Lang] locale and the applied
 /// [DateManager] timezone) as a quiet suggestion rather than a gate.
 ///
-/// Visibility is decided once in [initState] from [LocaleOnboardingGate], the
-/// same device-scoped first-run flag the removed routing guard used: the banner
-/// shows only while the gate is unset AND a user is authenticated. Every action
-/// (Confirm, Change, Dismiss) marks the gate, so the banner never reappears on
-/// this device after any interaction.
+/// Whether the banner has anything to say is [shouldShow], read from
+/// [LocaleOnboardingGate], the same device-scoped first-run flag the removed
+/// routing guard used: it speaks only while the gate is unset AND a user is
+/// authenticated. Every action (Confirm, Change, Dismiss) marks the gate and
+/// then calls [onResolved], so the banner never reappears on this device after
+/// any interaction.
+///
+/// THE CALLER MUST GATE ON [shouldShow] RATHER THAN MOUNT THIS UNCONDITIONALLY.
+/// A widget that renders nothing still occupies a slot in a Wind flex, whose gap
+/// injection inserts a spacer between every pair of children, a zero-size one
+/// included. Mounted unconditionally inside the dashboard's `gap-6` intro
+/// column, this banner held 24px above the page header on every launch after
+/// the first, and the dashboard title sat a notch lower than the title on every
+/// other page in the product. That is why hiding is the caller's decision and
+/// this widget carries no `visible` state of its own.
 ///
 /// - **Confirm** persists the applied locale/timezone through the profile
 ///   update path ([MagicStarterProfileController.doUpdateProfile], the
-///   canonical `locale`/`timezone` wire keys), then marks the gate and hides.
-/// - **Change** marks the gate, hides, then routes to the EXISTING language
-///   settings page (`/settings/language`); it never builds its own picker.
-/// - **Dismiss** (the `✕`) marks the gate and hides, keeping the detected
-///   defaults already applied at boot.
+///   canonical `locale`/`timezone` wire keys), then marks the gate.
+/// - **Change** marks the gate, then routes to the EXISTING language settings
+///   page (`/settings/language`); it never builds its own picker.
+/// - **Dismiss** (the `✕`) marks the gate, keeping the detected defaults
+///   already applied at boot.
 ///
 /// Styled after the dashboard's "Right now" [AiInsight] banner (rounded, tinted
 /// surface, an icon tile, message, and inline text-actions) using Wind semantic
@@ -34,34 +44,32 @@ import '../../../app/services/locale_onboarding_gate.dart';
 @immutable
 class LocalePromptBanner extends StatefulWidget {
   /// Creates the [LocalePromptBanner].
-  const LocalePromptBanner({super.key});
+  const LocalePromptBanner({super.key, required this.onResolved});
+
+  /// Called after any action marks the one-time gate, so the caller can drop
+  /// the banner from the tree. Re-reading [shouldShow] then returns false.
+  final VoidCallback onResolved;
+
+  /// Whether this device still owes the user the one-time locale prompt.
+  ///
+  /// The auth read is guarded behind the container binding (mirroring
+  /// [LocaleOnboardingGate.load]'s `Magic.bound('log')` check): the running app
+  /// always binds `auth`, but widget tests that mount the dashboard without an
+  /// auth container must not crash on this first-run probe.
+  static bool get shouldShow {
+    if (!Magic.bound('auth') || !Auth.check()) return false;
+
+    return !LocaleOnboardingGate.instance.isCompleted;
+  }
 
   @override
   State<LocalePromptBanner> createState() => _LocalePromptBannerState();
 }
 
 class _LocalePromptBannerState extends State<LocalePromptBanner> {
-  /// Whether the banner is currently shown.
-  ///
-  /// Resolved once at mount: the banner appears only for an authenticated user
-  /// whose device has not yet completed the one-time locale prompt. Any action
-  /// flips this to `false` for the rest of the session.
-  late bool _visible;
-
   /// Guards the Confirm action against double submission while its profile
   /// update is in flight.
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // Guard the auth read behind the container binding (mirroring
-    // [LocaleOnboardingGate.load]'s `Magic.bound('log')` check): the running
-    // app always binds `auth`, but widget tests that mount the dashboard
-    // without an auth container must not crash on this first-run probe.
-    final bool authed = Magic.bound('auth') && Auth.check();
-    _visible = authed && !LocaleOnboardingGate.instance.isCompleted;
-  }
 
   /// Resolves the human label for the currently applied locale.
   ///
@@ -96,32 +104,30 @@ class _LocalePromptBannerState extends State<LocalePromptBanner> {
     // 2. Close the one-time gate so the banner never reappears on this device.
     await LocaleOnboardingGate.instance.markCompleted();
 
-    // 3. Hide the banner and release the double-tap guard.
-    if (mounted) {
-      setState(() {
-        _busy = false;
-        _visible = false;
-      });
-    }
+    // 3. Release the double-tap guard, then hand the hide decision back to the
+    //    caller. Order matters: the caller drops this widget on being told, and
+    //    a setState after that runs against an unmounted state.
+    if (mounted) setState(() => _busy = false);
+    widget.onResolved();
   }
 
-  /// Marks the gate, hides, then opens the existing language settings page.
+  /// Marks the gate, hands back the hide decision, then opens the existing
+  /// language settings page.
   Future<void> _change() async {
     await LocaleOnboardingGate.instance.markCompleted();
-    if (mounted) setState(() => _visible = false);
+    widget.onResolved();
     MagicRoute.to('/settings/language');
   }
 
-  /// Marks the gate and hides, keeping the detected defaults.
+  /// Marks the gate and hands back the hide decision, keeping the detected
+  /// defaults.
   Future<void> _dismiss() async {
     await LocaleOnboardingGate.instance.markCompleted();
-    if (mounted) setState(() => _visible = false);
+    widget.onResolved();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_visible) return const SizedBox.shrink();
-
     final String message = trans('uptizm.onboarding.banner_detected', {
       'language': _currentLanguageLabel(),
       'timezone': DateManager.instance.timezoneName,

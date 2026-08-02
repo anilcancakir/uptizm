@@ -8,6 +8,7 @@ import 'package:uptizm/app/enums/incident_lifecycle.dart'
 import 'package:uptizm/app/mocks/incidents.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/resources/views/dashboard/dashboard_view.dart';
+import 'package:uptizm/resources/views/dashboard/locale_prompt_banner.dart';
 import 'package:uptizm/ui/components/ai_insight/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/layouts/page_container.dart';
@@ -329,6 +330,28 @@ void main() {
 
     expect(find.byType(PageContainer), findsOneWidget);
   });
+
+  // A widget that renders nothing still occupies a slot in a Wind flex: gap
+  // injection is `List.generate(children.length * 2 - 1, ...)`, so it inserts a
+  // SizedBox between EVERY pair of children, a zero-size one included. The
+  // first-run locale banner self-hides on every launch after the first, and
+  // sitting unconditionally in the intro column's `gap-6` it kept 24px above
+  // the page header for the rest of the app's life: the dashboard title sat a
+  // notch lower than the title on every other page in the product. The banner
+  // has to be absent from the tree, not merely invisible.
+  testWidgets(
+    'DashboardView keeps the locale banner out of the tree when it has nothing '
+    'to say',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const DashboardView()));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LocalePromptBanner), findsNothing);
+    },
+  );
 
   testWidgets('DashboardView renders the AI fleet-summary banner', (
     tester,

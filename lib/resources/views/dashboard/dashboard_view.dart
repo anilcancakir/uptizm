@@ -104,15 +104,22 @@ class _DashboardViewState
       child: WDiv(
         className: 'flex flex-col gap-8',
         children: [
-          // 1. Intro block: the first-run locale prompt banner (self-hides
-          //    after the first launch / any action), then the page header and
-          //    the "Right now" AI fleet-summary banner, matching the React
-          //    source placement (header -> banner -> KPI row). The inner gap-6
-          //    keeps the 24px header rhythm.
+          // 1. Intro block: the first-run locale prompt banner, then the page
+          //    header and the "Right now" AI fleet-summary banner, matching the
+          //    React source placement (header -> banner -> KPI row). The inner
+          //    gap-6 keeps the 24px header rhythm.
+          //
+          //    The banner is INCLUDED CONDITIONALLY, not left to hide itself: a
+          //    zero-size child still consumes a gap slot in a Wind flex, so a
+          //    self-hiding banner here kept 24px above the page header on every
+          //    launch after the first and pushed the dashboard title lower than
+          //    the title on every other page. Resolving it rebuilds this view,
+          //    at which point `shouldShow` is false and it leaves the tree.
           WDiv(
             className: 'flex flex-col gap-6',
             children: [
-              const LocalePromptBanner(),
+              if (LocalePromptBanner.shouldShow)
+                LocalePromptBanner(onResolved: () => setState(() {})),
               _buildHeader(),
               _buildFleetSummary(),
             ],

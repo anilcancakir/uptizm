@@ -222,8 +222,13 @@ void main() {
 
   /// Wraps the banner as the `/` route so [MagicRoute.to] navigation and the
   /// [Magic.toast] overlay both resolve through the real router.
+  ///
+  /// The route mounts [_BannerHost] rather than the banner directly because
+  /// hiding is the CALLER's decision: the banner carries no `visible` state, so
+  /// a harness that mounted it unconditionally would keep it on screen after an
+  /// action and test a contract the app does not use.
   Widget wrapRouted() {
-    MagicRoute.page('/', () => const LocalePromptBanner());
+    MagicRoute.page('/', () => const _BannerHost());
     MagicRoute.page(
       '/settings/language',
       () => const SizedBox.shrink(key: ValueKey('language-stub')),
@@ -341,6 +346,28 @@ void main() {
         find.byKey(const ValueKey('locale-prompt-banner')),
         findsNothing,
       );
+      // ABSENT, not merely invisible: a zero-size child still consumes a gap
+      // slot in the Wind flex the dashboard mounts this in, which is how a
+      // silent banner pushed the page header down 24px for good.
+      expect(find.byType(LocalePromptBanner), findsNothing);
     },
   );
+}
+
+/// Mirrors the dashboard's call site: gate on [LocalePromptBanner.shouldShow],
+/// and drop the banner from the tree when it resolves.
+class _BannerHost extends StatefulWidget {
+  const _BannerHost();
+
+  @override
+  State<_BannerHost> createState() => _BannerHostState();
+}
+
+class _BannerHostState extends State<_BannerHost> {
+  @override
+  Widget build(BuildContext context) {
+    if (!LocalePromptBanner.shouldShow) return const SizedBox.shrink();
+
+    return LocalePromptBanner(onResolved: () => setState(() {}));
+  }
 }
