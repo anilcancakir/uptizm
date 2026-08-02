@@ -241,8 +241,15 @@ class ComponentDailyUptimeService
 
             $days[] = [
                 'date' => $key,
-                'worst_status' => $row->worst_status ?? 'operational',
-                'uptime_percent' => (float) ($row->uptime_percent ?? 100.0),
+                // A day with no row is a day nobody measured, and it says so. It used
+                // to default to `operational` at 100%, which meant a monitor whose
+                // first probe had not run yet published ninety green days and
+                // "100.00%" on a page the customer's own users read. Null travels to
+                // the view, which already resolves an unrecognised status to the
+                // NEUTRAL family rather than borrowing `up`, so the cell renders as
+                // "not measured" instead of "passed".
+                'worst_status' => $row->worst_status ?? null,
+                'uptime_percent' => $row === null ? null : (float) $row->uptime_percent,
                 'total_checks' => (int) ($row->total_checks ?? 0),
                 'failed_checks' => (int) ($row->failed_checks ?? 0),
             ];

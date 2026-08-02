@@ -27,6 +27,12 @@ use Tests\TestCase;
  * contradicts the banner above it is worse than no colour at all. So each case
  * pins all three together, and one case pins that every status the presentation
  * map knows has an SVG on disk to point at.
+ *
+ * The dot is a design token and the tab is a hex, which is not a contradiction: a
+ * `<meta>` and an SVG file can neither read a custom property nor be handed a light
+ * and a dark value from here, so the tab keeps one hex per status while the page
+ * follows the reader's colour scheme. They agree on the status and its family. What
+ * this pins is that the pairing per status stays intact.
  */
 class StatusFaviconTest extends TestCase
 {
@@ -38,9 +44,9 @@ class StatusFaviconTest extends TestCase
     public static function statuses(): array
     {
         return [
-            'healthy monitor' => [MonitorStatus::Up, 'operational', '#22c55e', 'bg-green-500'],
-            'down monitor' => [MonitorStatus::Down, 'major_outage', '#ef4444', 'bg-red-500'],
-            'degraded monitor' => [MonitorStatus::Degraded, 'degraded', '#f59e0b', 'bg-amber-500'],
+            'healthy monitor' => [MonitorStatus::Up, 'operational', '#30A556', 'bg-up'],
+            'down monitor' => [MonitorStatus::Down, 'major_outage', '#DF202E', 'bg-down'],
+            'degraded monitor' => [MonitorStatus::Degraded, 'degraded', '#E69825', 'bg-degraded'],
         ];
     }
 
@@ -73,7 +79,7 @@ class StatusFaviconTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('favicon/unknown-16.svg', escape: false);
-        $response->assertSee('<meta name="theme-color" content="#9ca3af">', escape: false);
+        $response->assertSee('<meta name="theme-color" content="#79828A">', escape: false);
         $response->assertDontSee('favicon/operational-16.svg', escape: false);
     }
 
@@ -101,11 +107,16 @@ class StatusFaviconTest extends TestCase
         }
     }
 
-    public function test_an_unrecognised_status_falls_back_to_a_file_that_exists(): void
+    public function test_an_unrecognised_status_falls_back_to_the_neutral_tab(): void
     {
-        $this->assertSame('operational', StatusPresentation::faviconStem('something-new'));
-        $this->assertSame('#22c55e', StatusPresentation::themeColor('something-new'));
-        $this->assertSame('bg-green-500', StatusPresentation::dotClass('something-new'));
+        // It used to fall back to `operational`, which was chosen for a file that
+        // certainly exists. `unknown` has artwork on disk too, and it is the honest
+        // answer: a status this map does not recognise is one nobody can vouch for,
+        // so the tab must not go green for it. The absence-of-verdict entry is the
+        // only fallback that is both safe and true.
+        $this->assertSame('unknown', StatusPresentation::faviconStem('something-new'));
+        $this->assertSame('#79828A', StatusPresentation::themeColor('something-new'));
+        $this->assertSame('bg-paused', StatusPresentation::dotClass('something-new'));
     }
 
     protected function makePage(string $slug, MonitorStatus $monitorStatus): StatusPage

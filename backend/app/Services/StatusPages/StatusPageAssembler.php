@@ -125,7 +125,7 @@ class StatusPageAssembler
      * @return array<int, array{
      *     label: string,
      *     status: string,
-     *     uptimePercent: float,
+     *     uptimePercent: float|null,
      *     strip: array<int, array{date: string, status: string}>,
      * }>
      */
@@ -314,6 +314,12 @@ class StatusPageAssembler
         return match ($status) {
             MonitorStatus::Down => 'major_outage',
             MonitorStatus::Degraded => 'degraded',
+            // A monitor nobody has probed yet has no verdict, and `default` used to
+            // hand it `operational`: a component published as healthy on the strength
+            // of nothing. It resolves to the neutral family instead, the same one the
+            // unmeasured days in its strip use, so the row reads "not measured"
+            // rather than "passed".
+            null => self::STATUS_UNKNOWN,
             default => 'operational',
         };
     }
@@ -323,13 +329,22 @@ class StatusPageAssembler
      *
      * @param  array<int, array<string, mixed>>  $strip
      */
-    protected function uptimePercent(array $strip): float
+    protected function uptimePercent(array $strip): ?float
     {
-        if ($strip === []) {
-            return 100.0;
-        }
+        // Averaged over the days that were actually MEASURED, and null when none
+        // were. Returning 100.0 for an empty strip published a figure nothing stood
+        // behind, and averaging a gap-filled 100 alongside real days quietly pulled
+        // a partial history up toward perfect. Null reaches the view as an em space
+        // rather than a number, because "we do not know yet" and "no downtime" are
+        // different claims and only one of them is ours to make.
+        $percents = array_values(array_filter(
+            array_column($strip, 'uptime_percent'),
+            static fn (?float $percent): bool => $percent !== null,
+        ));
 
-        $percents = array_column($strip, 'uptime_percent');
+        if ($percents === []) {
+            return null;
+        }
 
         return round(array_sum($percents) / count($percents), 2);
     }

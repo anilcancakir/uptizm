@@ -71,9 +71,11 @@ class ComponentDailyUptimeServiceTest extends TestCase
         $this->assertCount(90, $strips[$healthy->id]);
         $this->assertCount(90, $strips[$flaky->id]);
 
-        // The gap-filled healthy monitor stays operational; the seeded flaky
-        // day paints its real outage color on its own strip only.
-        $this->assertSame('operational', $strips[$healthy->id][89]['worst_status']);
+        // A gap-filled day is NULL, not `operational`. It used to be the latter, which
+        // is how a monitor whose first probe had not run published ninety green days
+        // and "100.00%" to a customer's own users. The seeded flaky day still paints
+        // its real outage colour on its own strip only.
+        $this->assertNull($strips[$healthy->id][88]['worst_status']);
         $this->assertSame('major_outage', $strips[$flaky->id][89]['worst_status']);
     }
 
