@@ -6,6 +6,7 @@ use App\Mail\ScheduledMaintenanceAnnounced;
 use App\Models\ScheduledMaintenance;
 use App\Models\StatusPage;
 use App\Models\StatusPageSubscriber;
+use App\Services\StatusPages\StatusPageAssembler;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Collection;
@@ -74,7 +75,7 @@ class AnnounceScheduledMaintenance implements ShouldQueue
 
     public function __construct(public ScheduledMaintenance $maintenance) {}
 
-    public function handle(): void
+    public function handle(StatusPageAssembler $assembler): void
     {
         // 1. Claim the announcement. A spent claim ends the job here, so this is
         //    also the whole answer to "what happens if this runs twice".
@@ -93,8 +94,20 @@ class AnnounceScheduledMaintenance implements ShouldQueue
         //    nullable it then has to pretend to handle. The component names are
         //    read here rather than inside the mailable so the pivot is not
         //    reloaded once per recipient.
+        //
+        //    The names come from the ASSEMBLER, not from the window's own pivot.
+        //    Reading the pivot directly is what this job did first, and it named
+        //    components the page owner had deliberately hidden
+        //    (`show_on_status_page = false`, paused, degraded-only-while-up) and
+        //    used internal monitor names where the page publishes a
+        //    `custom_label`. Those names reach self-selected public subscribers
+        //    from our own sending domain, so the mail has to answer the same
+        //    question the page does: what may the public see.
         $page = $this->maintenance->statusPage()->firstOrFail();
-        $componentNames = $this->maintenance->monitors()->pluck('name')->all();
+        $componentNames = $assembler->publicComponentLabels(
+            $page,
+            $this->maintenance->monitors()->pluck('monitors.id')->all(),
+        );
 
         // 3. Fan out, one queued mail per recipient. Never `Mail::to()->send()`:
         //    a synchronous fan-out would hold the worker open across one

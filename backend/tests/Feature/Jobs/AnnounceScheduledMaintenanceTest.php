@@ -284,20 +284,131 @@ class AnnounceScheduledMaintenanceTest extends TestCase
         $page = $this->makeStatusPage($team);
         $this->makeOptedInSubscriber($page, 'opted-in@example.com');
         $monitor = $this->makeMonitor($team, 'Checkout API');
+        $this->publishOnPage($page, $monitor);
 
+        $this->announceWindowFor($page, $monitor);
+
+        Mail::assertQueued(
+            ScheduledMaintenanceAnnounced::class,
+            fn (ScheduledMaintenanceAnnounced $mail): bool => $mail->componentNames === ['Checkout API'],
+        );
+    }
+
+    /**
+     * The mail publishes the PAGE'S label, not the internal monitor name.
+     *
+     * `custom_label` exists so a team can call a component "Checkout" in public
+     * while the monitor stays "prod-checkout-api-eu" internally. The mail read
+     * the window's own pivot and so published the internal name to every
+     * subscriber, on every announcement for any renamed component.
+     */
+    public function test_the_announcement_uses_the_pages_custom_label_over_the_monitor_name(): void
+    {
+        Mail::fake();
+
+        $team = $this->actingAsTeamMember();
+        $page = $this->makeStatusPage($team);
+        $this->makeOptedInSubscriber($page, 'opted-in@example.com');
+        $monitor = $this->makeMonitor($team, 'prod-checkout-api-eu');
+        $this->publishOnPage($page, $monitor, 'Checkout');
+
+        $this->announceWindowFor($page, $monitor);
+
+        Mail::assertQueued(
+            ScheduledMaintenanceAnnounced::class,
+            fn (ScheduledMaintenanceAnnounced $mail): bool => $mail->componentNames === ['Checkout'],
+        );
+    }
+
+    /**
+     * A component the page HIDES is not named in the mail.
+     *
+     * `show_on_status_page = false` is the one control a team has for deciding
+     * what the public may know a component even exists. A window may legitimately
+     * attach such a monitor (suppression is the other half of the feature), so
+     * the write is allowed and the READ is what has to be filtered: otherwise
+     * strangers get "Affected components: payments-db-internal" from our own
+     * sending domain, for a row the page deliberately withholds.
+     */
+    public function test_the_announcement_omits_a_component_the_page_does_not_show(): void
+    {
+        Mail::fake();
+
+        $team = $this->actingAsTeamMember();
+        $page = $this->makeStatusPage($team);
+        $this->makeOptedInSubscriber($page, 'opted-in@example.com');
+        $shown = $this->makeMonitor($team, 'Checkout API');
+        $hidden = $this->makeMonitor($team, 'payments-db-internal');
+        $this->publishOnPage($page, $shown);
+        $this->publishOnPage($page, $hidden, visible: false);
+
+        $this->announceWindowFor($page, $shown, $hidden);
+
+        Mail::assertQueued(
+            ScheduledMaintenanceAnnounced::class,
+            fn (ScheduledMaintenanceAnnounced $mail): bool => $mail->componentNames === ['Checkout API'],
+        );
+    }
+
+    /**
+     * A monitor never attached to the announcing page is not named either.
+     *
+     * Nothing validates that `monitor_ids` belong to the submitted
+     * `status_page_id`, on purpose: a suppression-only window on an internal
+     * monitor is legitimate and still has to name a page. So the mail carries
+     * only what that page publishes.
+     */
+    public function test_the_announcement_omits_a_monitor_not_on_the_announcing_page(): void
+    {
+        Mail::fake();
+
+        $team = $this->actingAsTeamMember();
+        $page = $this->makeStatusPage($team);
+        $this->makeOptedInSubscriber($page, 'opted-in@example.com');
+        $elsewhere = $this->makeMonitor($team, 'Checkout API');
+
+        $this->announceWindowFor($page, $elsewhere);
+
+        Mail::assertQueued(
+            ScheduledMaintenanceAnnounced::class,
+            fn (ScheduledMaintenanceAnnounced $mail): bool => $mail->componentNames === [],
+        );
+    }
+
+    /**
+     * Attach a monitor to a status page the way the admin endpoint does.
+     *
+     * `visible` drives `show_on_status_page`, which lives on the MONITOR rather
+     * than on the pivot; `label` is the pivot's `custom_label`.
+     */
+    protected function publishOnPage(
+        StatusPage $page,
+        Monitor $monitor,
+        ?string $label = null,
+        bool $visible = true,
+    ): void {
+        $monitor->update(['show_on_status_page' => $visible]);
+
+        $page->monitors()->attach($monitor->id, [
+            'display_order' => 0,
+            'custom_label' => $label,
+        ]);
+    }
+
+    /**
+     * Create a window on `$page` through the real endpoint, attaching the given
+     * monitors, which dispatches the announcement.
+     */
+    protected function announceWindowFor(StatusPage $page, Monitor ...$monitors): void
+    {
         $this->postJson('/api/v1/scheduled-maintenances', [
             'status_page_id' => $page->id,
             'title' => 'Database upgrade',
             'description' => 'Rolling PostgreSQL 17 upgrade.',
             'starts_at' => '2026-09-01T22:00:00Z',
             'ends_at' => '2026-09-02T00:00:00Z',
-            'monitor_ids' => [$monitor->id],
+            'monitor_ids' => array_map(static fn (Monitor $m): string => (string) $m->id, $monitors),
         ])->assertStatus(201);
-
-        Mail::assertQueued(
-            ScheduledMaintenanceAnnounced::class,
-            fn (ScheduledMaintenanceAnnounced $mail): bool => in_array('Checkout API', $mail->componentNames, true),
-        );
     }
 
     /**

@@ -157,6 +157,34 @@ class StatusPageAssembler
      *     strip: array<int, array{date: string, status: string}>,
      * }>
      */
+    /**
+     * The labels `$page` actually PUBLISHES for the given monitors: the visible
+     * set intersected with `$monitorIds`, each rendered as the page's own
+     * `custom_label` when it has one.
+     *
+     * Public, because the subscriber announcement mail needs the same answer the
+     * page renders and got it wrong by reading the window's raw pivot instead:
+     * that named a component the operator had hidden, and used the internal
+     * monitor name where the page publishes a friendly one. Visibility is a
+     * presentation-time decision over one authoritative id set, so every
+     * surface that shows a component name to the public resolves it here.
+     *
+     * @param  list<string>  $monitorIds  Candidates to intersect with the visible set.
+     * @return list<string>
+     */
+    public function publicComponentLabels(StatusPage $page, array $monitorIds): array
+    {
+        if ($monitorIds === []) {
+            return [];
+        }
+
+        return $this->visibleMonitors($page)
+            ->whereIn('id', $monitorIds)
+            ->map(static fn (Monitor $monitor): string => $monitor->pivot?->custom_label ?? $monitor->name)
+            ->values()
+            ->all();
+    }
+
     protected function buildComponents(Collection $monitors, array $strips): array
     {
         $components = [];
