@@ -286,6 +286,13 @@ class _MonitorFormState extends State<MonitorForm> {
   /// through this form; only an API-set interval lands here.
   int? _customIntervalSec;
 
+  /// Whether the user has explicitly picked a check interval.
+  ///
+  /// Once true, [_onEntitlementChanged] stops re-seeding [_intervalValue] from
+  /// the entitlement floor: a deliberate user pick always wins over a floor
+  /// that resolves after the fact.
+  bool _intervalTouchedByUser = false;
+
   @override
   void initState() {
     super.initState();
@@ -297,10 +304,18 @@ class _MonitorFormState extends State<MonitorForm> {
         ? null
         : intervalTokenForSeconds(intervalSec);
     if (intervalSec != null && intervalToken == null) {
+      // Editing a monitor whose real interval matches no preset: keep it
+      // verbatim, the entitlement floor never applies to an explicit stored
+      // value (see [_defaultIntervalToken]'s docblock).
       _customIntervalSec = intervalSec;
       _intervalValue = _customIntervalToken;
+    } else if (intervalSec != null) {
+      // Editing a monitor whose real interval matches a preset exactly: show
+      // that preset verbatim, even if the team's CURRENT plan would now lock
+      // it, rather than silently snapping it toward today's floor.
+      _intervalValue = intervalToken!;
     } else {
-      _intervalValue = intervalToken ?? widget.initialInterval;
+      _intervalValue = _defaultIntervalToken();
     }
     _regions = List<String>.from(widget.initialRegions);
     _advanced = widget.startAdvanced;
@@ -319,6 +334,62 @@ class _MonitorFormState extends State<MonitorForm> {
     // so the escalation controller's own bootstrap never runs here and the select
     // would render its empty state forever.
     _escalation.reload();
+
+    // The entitlement floor arrives asynchronously (`.instance` only kicks off
+    // its own load, it does not await it), so the seeded default above reads a
+    // pre-fetch permissive floor of 0 on the very first frame. Listen for the
+    // real plan landing and re-seed once, the same way [_escalation.reload]
+    // above self-triggers this form's OTHER secondary controller read.
+    _entitlement.addListener(_onEntitlementChanged);
+  }
+
+  @override
+  void dispose() {
+    _entitlement.removeListener(_onEntitlementChanged);
+    super.dispose();
+  }
+
+  /// Re-seeds [_intervalValue] once the real entitlement lands, unless the
+  /// user already picked an interval or this form is editing a monitor's real
+  /// stored value (never overridden by the plan floor, see [initState]).
+  void _onEntitlementChanged() {
+    if (widget.initialIntervalSec != null || _intervalTouchedByUser) return;
+
+    final String next = _defaultIntervalToken();
+    if (next == _intervalValue) return;
+    setState(() => _intervalValue = next);
+  }
+
+  /// Resolves the create-time default interval token: [widget.initialInterval]
+  /// as the baseline (the plain `'30s'` literal, or the AI review's own
+  /// recommendation), raised to the entitlement's floor when the baseline
+  /// would otherwise land the operator on a locked option.
+  ///
+  /// Only ever raises the baseline, never lowers it: a baseline that already
+  /// clears the floor (e.g. an AI recommendation on a faster plan) is left
+  /// alone. This never runs for an EDIT of a real stored interval ([initState]
+  /// routes that value through [intervalTokenForSeconds] instead), so a
+  /// monitor's own configuration is never touched by a plan change.
+  String _defaultIntervalToken() {
+    final int baselineSeconds = kIntervalSeconds[widget.initialInterval] ?? 0;
+    final int floorSeconds = _entitlement.minCheckIntervalSec;
+    if (floorSeconds <= baselineSeconds) return widget.initialInterval;
+
+    return _ceilToOfferedToken(floorSeconds);
+  }
+
+  /// The fastest offered [kCheckIntervals] token whose duration is at least
+  /// [seconds] (the plan floor), falling back to the slowest offered token
+  /// when the floor exceeds every preset (there is no Enterprise-fast preset
+  /// below the fastest option either, so [kCheckIntervals]'s own extremes
+  /// bound the result on both sides).
+  String _ceilToOfferedToken(int seconds) {
+    for (final MetricOption option in kCheckIntervals) {
+      if ((kIntervalSeconds[option.value] ?? 0) >= seconds) {
+        return option.value;
+      }
+    }
+    return kCheckIntervals.last.value;
   }
 
   /// Whether the monitor is an HTTP check (React `isHttp`). Gates the advanced
@@ -458,6 +529,7 @@ class _MonitorFormState extends State<MonitorForm> {
               setState(() {
                 _intervalValue = value;
                 _intervalError = null;
+                _intervalTouchedByUser = true;
               });
             }
           },

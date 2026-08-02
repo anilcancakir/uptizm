@@ -3,10 +3,66 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:uptizm/app/controllers/entitlement_controller.dart';
+import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/models/monitor.dart';
+import 'package:uptizm/app/services/billing/billing_service.dart';
+import 'package:uptizm/app/support/billing_types.dart' show Plan;
+import 'package:uptizm/app/support/team_types.dart'
+    show PaymentMethod, UsageStat;
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
 import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart'
     show KeyValueRow;
+
+/// In-memory [BillingService] fake feeding [EntitlementController] a fixed
+/// plan id, mirroring the fake in `entitlement_controller_test.dart`. Only
+/// the three reads the controller depends on are implemented; the
+/// purchase-action methods this form never touches throw loudly.
+class _FakeBilling implements BillingService {
+  _FakeBilling({this.entitlementPlan});
+
+  /// The plan id `currentEntitlement` resolves to.
+  final String? entitlementPlan;
+
+  @override
+  Future<BillingEntitlement> currentEntitlement() async {
+    return BillingEntitlement(
+      plan: entitlementPlan,
+      status: 'active',
+      aiAnalysisTrialsRemaining: null,
+      raw: {'plan': entitlementPlan, 'status': 'active'},
+    );
+  }
+
+  @override
+  Future<List<Plan>> getPlans() async => plans;
+
+  @override
+  Future<List<UsageStat>> getUsage() async => const [];
+
+  @override
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> swap({required String plan}) => throw UnimplementedError();
+
+  @override
+  Future<void> cancel() => throw UnimplementedError();
+
+  @override
+  Future<String> openPortal({String? returnUrl}) => throw UnimplementedError();
+
+  @override
+  Future<BillingInvoicesPage> getInvoices({String? cursor}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<PaymentMethod> getPaymentMethod() => throw UnimplementedError();
+}
 
 /// In-memory language loader supplying the [trans] keys [MonitorForm]
 /// exercises, mirroring the pattern in `test/resources/views/monitor_form_test.dart`.
@@ -36,6 +92,7 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_escalation_none': 'Team default',
       'uptizm.monitors.form_escalation_empty': 'No escalation policies yet.',
       'uptizm.monitors.interval_custom': 'Every :seconds seconds',
+      'uptizm.monitors.interval_30s': 'Every 30 seconds',
       'uptizm.monitors.interval_3m': 'Every 3 minutes',
       'uptizm.monitors.form_advanced_label': 'Advanced configuration',
       'uptizm.monitors.form_advanced_hint': 'HTTP method, headers, timeout.',
@@ -450,5 +507,225 @@ void main() {
       expect(captured!.containsKey('ssl_tracking'), isTrue);
       expect(captured!.containsKey('auth_config'), isTrue);
     });
+  });
+
+  group('MonitorForm interval default from entitlement', () {
+    /// Finds the interval [MSSelect], identified by carrying a `'3m'` option
+    /// (the Free-tier floor token), rather than by position among the form's
+    /// several selects (SLO, escalation, interval).
+    MSSelect<String> intervalSelect(WidgetTester tester) {
+      return tester.widget<MSSelect<String>>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MSSelect<String> &&
+              widget.options.any((o) => o.value == '3m'),
+        ),
+      );
+    }
+
+    testWidgets(
+      'a Free entitlement seeds the create form on 3m, unlocked, once the '
+      'plan resolves (not the pre-fetch permissive default)',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 1600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // Register the fake-backed singleton BEFORE the form resolves
+        // EntitlementController.instance in initState, so the form's own
+        // self-trigger (`_ensureLoading`) drives this fake rather than a real
+        // network call. The instance is left UNLOADED at this point on
+        // purpose: the form must still land on the right default once the
+        // async load resolves, not only when the plan is already warm.
+        final controller = EntitlementController(
+          billing: _FakeBilling(entitlementPlan: 'free'),
+        );
+        Magic.findOrPut(() => controller);
+
+        Map<String, dynamic>? captured;
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              initialName: 'API gateway',
+              initialUrl: 'https://api.example.com/health',
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (fields) async {
+                captured = fields;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // Let the fake billing reads resolve and the form react to the
+        // now-loaded entitlement.
+        for (var i = 0; i < 20 && !controller.isLoaded; i++) {
+          await tester.pump(const Duration(milliseconds: 1));
+        }
+        await tester.pump();
+
+        final MSSelect<String> select = intervalSelect(tester);
+        expect(
+          select.value,
+          equals('3m'),
+          reason: 'A Free entitlement floor (180s) must seed the default at '
+              'the nearest offered token, 3m, not the locked 30s literal',
+        );
+        final SelectOption<String> option3m = select.options.firstWhere(
+          (o) => o.value == '3m',
+        );
+        expect(
+          option3m.disabled,
+          isFalse,
+          reason: '3m is exactly the Free floor, so it must not be locked',
+        );
+
+        final Finder submitButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submitButton);
+        await tester.pump();
+        await tester.tap(submitButton);
+        await tester.pump();
+
+        expect(captured, isNotNull);
+        expect(
+          captured!['check_interval_sec'],
+          equals(180),
+          reason: 'The POSTED interval must be the Free floor in seconds, '
+              'not just the visible 3m label',
+        );
+      },
+    );
+
+    testWidgets(
+      'a Pro entitlement still seeds the create form on 30s',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 1600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final controller = EntitlementController(
+          billing: _FakeBilling(entitlementPlan: 'pro'),
+        );
+        Magic.findOrPut(() => controller);
+
+        Map<String, dynamic>? captured;
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              initialName: 'API gateway',
+              initialUrl: 'https://api.example.com/health',
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (fields) async {
+                captured = fields;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+
+        for (var i = 0; i < 20 && !controller.isLoaded; i++) {
+          await tester.pump(const Duration(milliseconds: 1));
+        }
+        await tester.pump();
+
+        final MSSelect<String> select = intervalSelect(tester);
+        expect(
+          select.value,
+          equals('30s'),
+          reason: 'A Pro entitlement floor (30s) leaves the 30s default in '
+              'place; nothing forces it up',
+        );
+        final SelectOption<String> option30s = select.options.firstWhere(
+          (o) => o.value == '30s',
+        );
+        expect(option30s.disabled, isFalse);
+
+        final Finder submitButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submitButton);
+        await tester.pump();
+        await tester.tap(submitButton);
+        await tester.pump();
+
+        expect(captured, isNotNull);
+        expect(captured!['check_interval_sec'], equals(30));
+      },
+    );
+
+    testWidgets(
+      'editing an existing monitor still shows its stored interval even '
+      'when it is now locked under the loaded plan',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 1600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // The monitor was created on a faster plan and stored at 60s (1m);
+        // the team now sits on Free (floor 180s), which would lock 1m. The
+        // edit form must still show and post the monitor's real interval,
+        // never silently snap it up to the new floor.
+        final controller = EntitlementController(
+          billing: _FakeBilling(entitlementPlan: 'free'),
+        );
+        Magic.findOrPut(() => controller);
+        await controller.reload();
+
+        Map<String, dynamic>? captured;
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              isEdit: true,
+              initialName: 'Checkout',
+              initialUrl: 'https://checkout.example.com/health',
+              initialType: 'http',
+              initialIntervalSec: 60,
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (fields) async {
+                captured = fields;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final MSSelect<String> select = intervalSelect(tester);
+        expect(
+          select.value,
+          equals('1m'),
+          reason: 'The monitor\'s own stored interval must render verbatim, '
+              'even though it is now locked under the current plan',
+        );
+
+        final Finder submitButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submitButton);
+        await tester.pump();
+        await tester.tap(submitButton);
+        await tester.pump();
+
+        expect(captured, isNotNull);
+        expect(
+          captured!['check_interval_sec'],
+          equals(60),
+          reason:
+              'An edit must never override the stored interval toward the '
+              'plan floor',
+        );
+      },
+    );
   });
 }
