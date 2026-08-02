@@ -31,6 +31,13 @@ readonly class StatusPageViewModel
      * @param  string  $overallStatus  Rolled-up status on the severity ladder.
      * @param  string  $overallLabel  Human label for {@see $overallStatus}.
      * @param array<int, array{
+     *     title: string,
+     *     description: string|null,
+     *     startsAt: string,
+     *     endsAt: string,
+     *     state: 'in_progress'|'scheduled',
+     * }> $maintenances                                              Open and upcoming maintenance windows, earliest first.
+     * @param array<int, array{
      *     label: string,
      *     status: string,
      *     uptimePercent: float,
@@ -57,6 +64,7 @@ readonly class StatusPageViewModel
         public array $page,
         public string $overallStatus,
         public string $overallLabel,
+        public array $maintenances,
         public array $components,
         public array $incidents,
         public string $generatedAt,
@@ -75,6 +83,7 @@ readonly class StatusPageViewModel
             'page' => $this->page,
             'overallStatus' => $this->overallStatus,
             'overallLabel' => $this->overallLabel,
+            'maintenances' => $this->maintenances,
             'components' => $this->components,
             'incidents' => $this->incidents,
             'generatedAt' => $this->generatedAt,
@@ -84,6 +93,13 @@ readonly class StatusPageViewModel
     /**
      * Rehydrate from the {@see self::toArray()} form a cache hit returns.
      *
+     * `maintenances` is read defensively because a cache hit can predate the
+     * deploy that introduced it: the public page keeps its payload for 60
+     * seconds, so for up to a minute after a release this method is handed an
+     * array written by the previous version of the assembler. Every other key
+     * has existed since the cache was introduced. This is a cache-shape
+     * tolerance, not an optional field: the assembler always writes it.
+     *
      * @param  array<string, mixed>  $data
      */
     public static function fromArray(array $data): self
@@ -92,6 +108,7 @@ readonly class StatusPageViewModel
             page: $data['page'],
             overallStatus: $data['overallStatus'],
             overallLabel: $data['overallLabel'],
+            maintenances: $data['maintenances'] ?? [],
             components: $data['components'],
             incidents: $data['incidents'],
             generatedAt: $data['generatedAt'],

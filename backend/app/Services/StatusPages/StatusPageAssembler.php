@@ -5,9 +5,11 @@ namespace App\Services\StatusPages;
 use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Http\ViewModels\StatusPageViewModel;
+use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
+use App\Models\ScheduledMaintenance;
 use App\Models\StatusPage;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -25,6 +27,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *   - The 90-day strips are batch-loaded in one query (no N+1 per component).
  *   - The overall banner rolls the visible components up the severity ladder.
  *   - Only PUBLIC incident updates are loaded, grouped by day (Cachet pattern).
+ *   - Maintenance windows are scoped to the page they were announced on AND to
+ *     its visible monitors, so planned work can never publish a component the
+ *     page hides.
  *
  * The result is a {@see StatusPageViewModel}: a field-allowlisted object that
  * carries no monitor url / auth_config / internal id / team_id.
@@ -37,6 +42,22 @@ class StatusPageAssembler
      * update within this window.
      */
     protected const int RECENT_INCIDENT_DAYS = 14;
+
+    /**
+     * Forward horizon (in days) of maintenance windows surfaced on the public
+     * page. A window is shown while it is open, and from this far ahead of its
+     * start.
+     *
+     * "Open now or starting soon" needs a definite bound, and a week is the one
+     * this surface earns. It is the span an operator schedules inside and the
+     * span a visitor can still act on: rescheduling a deployment, holding off an
+     * import, warning their own users. A window a month out changes nobody's
+     * afternoon, and this section sits ABOVE the components, so anything that
+     * cannot be acted on yet is pushing the actual health of the service further
+     * down the page. Nothing is lost by waiting: a window beyond the horizon
+     * simply appears once it comes within a week of starting.
+     */
+    public const int UPCOMING_MAINTENANCE_DAYS = 7;
 
     /**
      * Overall status for a page with no published components.
@@ -57,12 +78,15 @@ class StatusPageAssembler
     public function build(StatusPage $page): StatusPageViewModel
     {
         // 1. Scope visible components at the DB level (fail-closed presentation).
+        //    This id set is the ONLY set anything else on this page may draw
+        //    from: the strips, the incidents and the maintenance windows are all
+        //    keyed on it, so a monitor the page hides cannot surface through a
+        //    side channel.
         $monitors = $this->visibleMonitors($page);
+        $monitorIds = $monitors->pluck('id')->all();
 
         // 2. Batch-load every 90-day strip in a single rollup query.
-        $strips = $this->uptime->last90DaysForMonitors(
-            $monitors->pluck('id')->all(),
-        );
+        $strips = $this->uptime->last90DaysForMonitors($monitorIds);
 
         // 3. Shape components and roll their statuses up the severity ladder.
         //
@@ -82,12 +106,16 @@ class StatusPageAssembler
             page: $this->buildPage($page),
             overallStatus: $overallStatus,
             overallLabel: $this->overallLabel($overallStatus),
+            // Planned work first in the read model as well as on the page: a
+            // visitor arriving during a window should read "this was announced"
+            // before reading the red it explains.
+            maintenances: $this->buildMaintenances($page, $monitorIds),
             components: $components,
             // Scope incidents to the VISIBLE monitors only: an incident title
             // embeds the monitor name ("{name} is down"), so pulling incidents
             // for a hidden/paused component would leak its name even though its
             // row is hidden from the page.
-            incidents: $this->buildIncidents($monitors->pluck('id')->all()),
+            incidents: $this->buildIncidents($monitorIds),
             // Assembly time travels in the cached array, so "updated Xm ago"
             // reflects the age of the cached snapshot, not the render time.
             generatedAt: CarbonImmutable::now()->toIso8601String(),
@@ -151,6 +179,68 @@ class StatusPageAssembler
         }
 
         return $components;
+    }
+
+    /**
+     * Maintenance windows this page announces that are open right now or start
+     * within {@see self::UPCOMING_MAINTENANCE_DAYS}, earliest start first (so an
+     * in-progress window always heads the list).
+     *
+     * Two scopes, and on a public surface both are load-bearing:
+     *
+     *   - `status_page_id`. An operator picks the page a window is announced on.
+     *     A monitor can be published on several pages, so without this scope one
+     *     team's internal-facing page would drag its wording onto the
+     *     customer-facing one.
+     *   - An intersection with the page's VISIBLE monitors. A window's title and
+     *     description describe work on a named component ("Upgrading the
+     *     payments database"), so announcing one announces that the component
+     *     exists. A window whose monitors are all hidden or paused therefore
+     *     publishes nothing at all.
+     *
+     * A window from ANOTHER TEAM can satisfy neither: the page id belongs to one
+     * tenant, and so does every id in the visible set.
+     *
+     * The state is derived here rather than in Blade, because the payload is
+     * cached for 60 seconds and its boundaries are busted by
+     * {@see BustStatusPageCacheForMaintenanceBoundaries}; a template asking the
+     * clock would disagree with the snapshot it was rendered from.
+     *
+     * @param  array<int, int|string>  $monitorIds  The page's visible monitor ids.
+     * @return array<int, array{
+     *     title: string,
+     *     description: string|null,
+     *     startsAt: string,
+     *     endsAt: string,
+     *     state: 'in_progress'|'scheduled',
+     * }>
+     */
+    protected function buildMaintenances(StatusPage $page, array $monitorIds): array
+    {
+        if ($monitorIds === []) {
+            return [];
+        }
+
+        $now = CarbonImmutable::now();
+
+        return ScheduledMaintenance::query()
+            ->where('status_page_id', $page->getKey())
+            // Open or upcoming: it has not finished, and it starts inside the
+            // horizon. A finished window is history; the incidents section is
+            // where any consequence of it lives.
+            ->where('ends_at', '>=', $now)
+            ->where('starts_at', '<=', $now->addDays(self::UPCOMING_MAINTENANCE_DAYS))
+            ->whereHas('monitors', fn (Builder $monitors) => $monitors->whereIn('monitors.id', $monitorIds))
+            ->orderBy('starts_at')
+            ->get()
+            ->map(fn (ScheduledMaintenance $window): array => [
+                'title' => $window->title,
+                'description' => $window->description,
+                'startsAt' => $window->starts_at->toIso8601String(),
+                'endsAt' => $window->ends_at->toIso8601String(),
+                'state' => $window->starts_at->lessThanOrEqualTo($now) ? 'in_progress' : 'scheduled',
+            ])
+            ->all();
     }
 
     /**
