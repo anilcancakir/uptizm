@@ -15,6 +15,22 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
+        {{--
+            The page's colours come from custom properties that flip on
+            `prefers-color-scheme` (resources/css/app.css), so the DOCUMENT already
+            follows the reader. This tells the browser to bring its own furniture
+            along: the scrollbar, the subscribe form's field chrome, its autofill
+            treatment and the focus ring are all UA-painted, and without this
+            declaration they stay light on a dark page and the form ends up the one
+            light rectangle on the surface.
+
+            A meta rather than a CSS declaration because this shell is not the only
+            document in the flow: the subscribe result pages carry the same tag and
+            no layout, and app.css is shared with the marketing surface, whose scheme
+            behaviour is not this pass's to change.
+        --}}
+        <meta name="color-scheme" content="light dark">
+
         <title>{{ $vm->page['name'] }}</title>
 
         <link rel="canonical" href="{{ $canonicalUrl }}">
@@ -48,7 +64,7 @@
 
         @vite(['resources/css/app.css'])
     </head>
-    <body class="min-h-screen bg-gray-50 text-gray-900 antialiased">
+    <body class="min-h-screen bg-surface text-fg antialiased">
         <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
             @yield('content')
         </div>

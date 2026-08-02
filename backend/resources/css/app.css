@@ -70,6 +70,13 @@
     --app-paused: #79828a;
     --app-paused-soft: #f1f3f6;
     --app-paused-soft-foreground: #555d65;
+    /* `info` carries a state with no health impact: a maintenance window, or an
+       incident that is being watched rather than fought. Blue precisely because it
+       is neither the brand green nor a health colour, so it cannot be misread as
+       either. Only the badge pair is ported; the solid tone arrives when a surface
+       needs a dot or strong text in this family. */
+    --app-info-soft: #dbefff;
+    --app-info-soft-foreground: #005dd1;
     --app-ai: #6e59e2;
     --app-ai-soft: #ece8ff;
     --app-ai-soft-foreground: #5f40d5;
@@ -106,6 +113,8 @@
         --app-paused: #999fa6;
         --app-paused-soft: #23272b;
         --app-paused-soft-foreground: #aab1b7;
+        --app-info-soft: #00265d;
+        --app-info-soft-foreground: #b0d4ff;
         --app-ai: #9e8afa;
         --app-ai-soft: #2b195a;
         --app-ai-soft-foreground: #d6d0ff;
@@ -170,7 +179,16 @@ main[id] {
     --color-down: var(--app-down);
     --color-down-soft: var(--app-down-soft);
     --color-down-soft-foreground: var(--app-down-soft-foreground);
+    /* Every family the surfaces use has to be re-exported HERE, not merely defined
+       above: Tailwind emits a utility only for a token it can see in this block, and
+       an unknown utility is a silent no-op rather than an error. `bg-paused-soft`
+       was exactly that until the status page needed it, an element with no
+       background and nothing failing to say so. */
     --color-paused: var(--app-paused);
+    --color-paused-soft: var(--app-paused-soft);
+    --color-paused-soft-foreground: var(--app-paused-soft-foreground);
+    --color-info-soft: var(--app-info-soft);
+    --color-info-soft-foreground: var(--app-info-soft-foreground);
     --color-ai: var(--app-ai);
     --color-ai-soft: var(--app-ai-soft);
     --color-ai-soft-foreground: var(--app-ai-soft-foreground);

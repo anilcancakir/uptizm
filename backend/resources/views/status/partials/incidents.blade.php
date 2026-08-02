@@ -5,25 +5,40 @@
     postmortems never reach this view, the assembler filters both out).
 --}}
 @php
+    /*
+     * The lifecycle badge, on the status vocabulary's soft tones: `-soft` for the
+     * background and `-soft-foreground` for the text, which is the pair those two
+     * tones exist for.
+     *
+     * The mapping keeps the reading each state already had, and the two judgement
+     * calls are these. `identified` was orange, and there is no orange family: of
+     * the two it could collapse into it takes `down`, because an identified incident
+     * is one whose cause is known and whose impact is still live, which reads with
+     * the urgency of an outage rather than of slowness. And `detected` stays
+     * NEUTRAL: it means the alert fired and no human has reached it yet, so the page
+     * has nothing to characterise beyond "we know". Anything unrecognised lands
+     * there too, one step from green rather than in it.
+     */
     $lifecycleBadgeClass = static fn (string $lifecycle): string => match ($lifecycle) {
-        'resolved' => 'bg-green-100 text-green-800',
-        'monitoring', 'mitigated' => 'bg-blue-100 text-blue-800',
-        'identified' => 'bg-orange-100 text-orange-800',
-        'investigating' => 'bg-amber-100 text-amber-800',
-        default => 'bg-gray-100 text-gray-800',
+        'resolved' => 'bg-up-soft text-up-soft-foreground',
+        'monitoring', 'mitigated' => 'bg-info-soft text-info-soft-foreground',
+        'identified' => 'bg-down-soft text-down-soft-foreground',
+        'investigating' => 'bg-degraded-soft text-degraded-soft-foreground',
+        'detected' => 'bg-paused-soft text-paused-soft-foreground',
+        default => 'bg-paused-soft text-paused-soft-foreground',
     };
 @endphp
 
-<section class="mb-6 rounded-lg border border-gray-200 bg-white">
-    <h2 class="border-b border-gray-200 px-5 py-3 text-sm font-semibold text-gray-500 uppercase">Incidents</h2>
+<section class="mb-6 rounded-lg border border-border bg-surface-container">
+    <h2 class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">Incidents</h2>
 
     @if ($vm->incidents === [])
-        <p class="px-5 py-6 text-sm text-gray-500">No incidents reported.</p>
+        <p class="px-5 py-6 text-sm text-fg-muted">No incidents reported.</p>
     @else
-        <div class="divide-y divide-gray-100">
+        <div class="divide-y divide-border-subtle">
             @foreach ($vm->incidents as $group)
                 <div class="px-5 py-4">
-                    <h3 class="mb-3 text-sm font-semibold text-gray-500">
+                    <h3 class="mb-3 text-sm font-semibold text-fg-muted">
                         {{ \Illuminate\Support\Carbon::parse($group['day'])->format('F j, Y') }}
                     </h3>
 
@@ -35,17 +50,17 @@
                                     <span class="rounded-full px-2 py-0.5 text-xs font-medium {{ $lifecycleBadgeClass($entry['lifecycle']) }}">
                                         {{ str_replace('_', ' ', $entry['lifecycle']) }}
                                     </span>
-                                    <time datetime="{{ $entry['startedAt'] }}" class="text-xs text-gray-500">
+                                    <time datetime="{{ $entry['startedAt'] }}" class="text-xs text-fg-muted">
                                         started {{ \Illuminate\Support\Carbon::parse($entry['startedAt'])->diffForHumans() }}
                                     </time>
                                 </div>
 
                                 @if ($entry['updates'] !== [])
-                                    <ul class="mt-2 space-y-2 border-l border-gray-200 pl-4">
+                                    <ul class="mt-2 space-y-2 border-l border-border pl-4">
                                         @foreach ($entry['updates'] as $update)
                                             <li class="text-sm">
-                                                <p class="text-gray-700">{{ $update['message'] }}</p>
-                                                <p class="text-xs text-gray-500">
+                                                <p class="text-fg">{{ $update['message'] }}</p>
+                                                <p class="text-xs text-fg-muted">
                                                     {{ $update['actor'] }} &middot;
                                                     <time datetime="{{ $update['displayAt'] }}">
                                                         {{ \Illuminate\Support\Carbon::parse($update['displayAt'])->diffForHumans() }}
@@ -57,10 +72,13 @@
                                 @endif
 
                                 @if (($entry['postmortem'] ?? null) !== null)
-                                    <div class="mt-3 rounded-md bg-gray-50 px-4 py-3">
-                                        <h4 class="text-xs font-semibold text-gray-500 uppercase">Postmortem</h4>
-                                        <p class="mt-1 text-sm whitespace-pre-line text-gray-700">{{ $entry['postmortem']['body'] }}</p>
-                                        <p class="mt-1 text-xs text-gray-500">
+                                    {{-- A panel nested inside the card, so it steps UP the surface
+                                         hierarchy (surface-container -> -high) rather than reaching for
+                                         a shadow. DESIGN.md expresses depth tonally. --}}
+                                    <div class="mt-3 rounded-md bg-surface-container-high px-4 py-3">
+                                        <h4 class="text-xs font-semibold text-fg-muted uppercase">Postmortem</h4>
+                                        <p class="mt-1 text-sm whitespace-pre-line text-fg">{{ $entry['postmortem']['body'] }}</p>
+                                        <p class="mt-1 text-xs text-fg-muted">
                                             published
                                             <time datetime="{{ $entry['postmortem']['publishedAt'] }}">
                                                 {{ \Illuminate\Support\Carbon::parse($entry['postmortem']['publishedAt'])->diffForHumans() }}

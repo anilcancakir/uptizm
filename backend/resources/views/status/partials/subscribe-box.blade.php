@@ -5,22 +5,36 @@
     status page runs on the session-less `static` middleware group, so there
     is no session to mint one from.
 --}}
-<section class="mb-6 rounded-lg border border-gray-200 bg-white px-5 py-4">
-    <h2 class="mb-1 text-sm font-semibold text-gray-500 uppercase">Subscribe to updates</h2>
-    <p class="mb-3 text-sm text-gray-500">Get an email when {{ $vm->page['name'] }} posts a new incident.</p>
+@php
+    // Tenant data, sanitised to a hex literal upstream, and the only inline colour
+    // on the page. See partials/brand-header.blade.php for why a fixed colour takes
+    // a fixed white label instead of a token that would flip out from under it.
+    $brandColor = $vm->page['brand_color'] ?? null;
+@endphp
+
+<section class="mb-6 rounded-lg border border-border bg-surface-container px-5 py-4">
+    <h2 class="mb-1 text-sm font-semibold text-fg-muted uppercase">Subscribe to updates</h2>
+    <p class="mb-3 text-sm text-fg-muted">Get an email when {{ $vm->page['name'] }} posts a new incident.</p>
 
     <form method="POST" action="{{ route('status.subscribe', $vm->page['slug']) }}" class="flex flex-col gap-2 sm:flex-row">
+        {{-- `rounded-base` (8px), not `md`: DESIGN.md puts inputs and small controls
+             on 8px and buttons on 12px, and this field was the one element on the page
+             using a radius its own design system assigns to something else. --}}
         <input
             type="email"
             name="email"
             required
             placeholder="you@example.com"
-            class="w-full flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+            class="w-full flex-1 rounded-base border border-border bg-surface-container-high px-3 py-2 text-sm text-fg outline-none focus-visible:border-primary"
         >
         <button
             type="submit"
-            class="rounded-md px-4 py-2 text-sm font-semibold text-white"
-            style="background-color: {{ $vm->page['brand_color'] ?? '#111827' }}"
+            @class([
+                'rounded-md px-4 py-2 text-sm font-semibold',
+                'text-white' => $brandColor !== null,
+                'bg-primary text-on-primary' => $brandColor === null,
+            ])
+            @if ($brandColor !== null) style="background-color: {{ $brandColor }}" @endif
         >
             Subscribe
         </button>
