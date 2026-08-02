@@ -96,10 +96,6 @@ void main() {
       }
     });
 
-    test('faqItems is non-empty', () {
-      expect(faqItems, isNotEmpty);
-    });
-
     test('defaultNotificationPrefs is non-empty', () {
       expect(defaultNotificationPrefs, isNotEmpty);
     });

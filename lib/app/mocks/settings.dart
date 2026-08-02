@@ -7,7 +7,6 @@ import '../support/settings_types.dart'
         ChangelogChange,
         ChangelogRelease,
         DeviceSession,
-        FaqItem,
         NotificationPref;
 
 /// **Settings-domain mock fixtures.**
@@ -429,28 +428,3 @@ const List<ChangelogRelease> changelog = [
 // Help
 // ---------------------------------------------------------------------------
 
-/// FAQ fixtures from the React `HelpSettingsPage`.
-const List<FaqItem> faqItems = [
-  FaqItem(
-    question: 'How does Uptizm detect incidents?',
-    answer:
-        'Uptizm runs synthetic checks from multiple regions and watches your '
-        'custom metrics. When checks fail or a metric breaches its band, it '
-        "opens an incident, automatically or for your approval, depending on "
-        "your team's AI mode.",
-  ),
-  FaqItem(
-    question: 'Where do alerts get delivered?',
-    answer:
-        'Team-level channels (email, SMS, Slack, Microsoft Teams, webhook) '
-        "are set under your team's notification channels. Personal delivery "
-        '(in-app, web push) is in your account notifications.',
-  ),
-  FaqItem(
-    question: 'Can the AI act on my infrastructure?',
-    answer:
-        'No. Uptizm observes from the outside and only reasons from its own '
-        'checks and your metrics. It suggests where to look and can manage '
-        'the incident, but it never touches your systems.',
-  ),
-];

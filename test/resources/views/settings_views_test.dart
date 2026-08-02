@@ -3,9 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
-import 'package:uptizm/app/mocks/settings.dart';
 import 'package:uptizm/resources/views/settings/changelog_settings_view.dart';
-import 'package:uptizm/resources/views/settings/help_settings_view.dart';
 
 /// In-memory language loader supplying every [trans] key exercised by the
 /// About & support settings sub-pages (help and changelog). The
@@ -19,18 +17,10 @@ class _SettingsViewsLangLoader implements TranslationLoader {
       // Help.
       'uptizm.settings.help_title': 'Help & support',
       'uptizm.settings.help_description': 'Answers, guides, and contact.',
-      'uptizm.settings.help_search_placeholder': 'Search help',
-      'uptizm.settings.help_faq_heading': 'Frequently asked',
       'uptizm.settings.help_contact_heading': 'Contact support',
       'uptizm.settings.help_contact_note': 'We usually reply quickly.',
       'uptizm.settings.help_contact_email_button': 'Email support',
       'uptizm.settings.help_contact_chat_button': 'Start a chat',
-      'uptizm.settings.help_link_docs_label': 'Documentation',
-      'uptizm.settings.help_link_docs_url': 'uptizm.com/docs',
-      'uptizm.settings.help_link_api_label': 'API reference',
-      'uptizm.settings.help_link_api_url': 'uptizm.com/api',
-      'uptizm.settings.help_link_community_label': 'Community',
-      'uptizm.settings.help_link_community_url': 'community.uptizm.com',
 
       // Changelog.
       'uptizm.settings.changelog_title': 'Changelog',
@@ -79,26 +69,12 @@ void main() {
   // HelpSettingsView
   // ---------------------------------------------------------------------------
 
-  group('HelpSettingsView', () {
-    testWidgets('renders the FAQ heading and the first question by default', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 6000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const HelpSettingsView(), size: const Size(1280, 6000)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(
-        find.text(trans('uptizm.settings.help_faq_heading')),
-        findsOneWidget,
-      );
-      expect(find.text(faqItems.first.question), findsOneWidget);
-    });
-  });
+  // The Help view's own coverage moved to
+  // test/resources/views/settings/help_settings_view_test.dart, which asserts
+  // the URL handed to the launcher. Nothing is asserted here any more: the
+  // in-app FAQ accordion this group covered was deleted deliberately, because
+  // the web FAQ derives its figures from config while the Dart copy was typed
+  // by hand and had already started contradicting the plan limits.
 
   // ---------------------------------------------------------------------------
   // ChangelogSettingsView

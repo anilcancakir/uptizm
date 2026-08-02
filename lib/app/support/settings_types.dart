@@ -119,14 +119,3 @@ class ChangelogRelease {
   });
 }
 
-/// A single frequently-asked question and its answer.
-@immutable
-class FaqItem {
-  /// The question text.
-  final String question;
-
-  /// The answer text.
-  final String answer;
-
-  const FaqItem({required this.question, required this.answer});
-}
