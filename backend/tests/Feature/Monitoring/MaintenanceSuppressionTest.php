@@ -19,6 +19,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Services\Monitoring\CheckPersistenceService;
+use App\Services\OnCall\EscalationDispatcher;
 use App\Support\Monitoring\CheckResult;
 use Carbon\CarbonInterface;
 use Closure;
@@ -119,6 +120,106 @@ class MaintenanceSuppressionTest extends TestCase
 
         Notification::assertSentTo($user, IncidentOpened::class);
         Queue::assertPushed(DispatchEscalationStep::class);
+    }
+
+    /**
+     * THE CASE THE QUEUE-TIME ASSERTIONS COULD NOT REACH.
+     *
+     * `escalate()` only ENQUEUES delayed jobs, so every other ladder assertion
+     * in this file (`Queue::assertNotPushed(DispatchEscalationStep::class)`)
+     * answers for queue time and says nothing about the step that fires minutes
+     * later. The gap that hid in it: an incident opens with no window anywhere,
+     * the ladder is queued, the operator then schedules the window, and the
+     * pending step fires INSIDE it. That is the most natural operator sequence
+     * there is, and it paged the on-call straight through planned work.
+     *
+     * So this one runs the step for real, at fire time, and asserts silence.
+     */
+    public function test_a_window_opened_after_the_incident_withholds_a_pending_escalation_step(): void
+    {
+        [$team, $user] = $this->makeTeam();
+        $monitor = $this->makeMonitor($team, 'API');
+        $page = $this->makePage($team, 'ops', $monitor);
+        $step = $this->makeUserEscalationStep($team, $user);
+
+        // 1. The incident opens with no window in existence: the ladder queues.
+        Notification::fake();
+        Queue::fake();
+        $this->drivePersist($monitor, MonitorStatus::Down);
+
+        Queue::assertPushed(DispatchEscalationStep::class);
+        $incident = Incident::query()->latest('created_at')->firstOrFail();
+
+        // 2. Only NOW does the operator schedule the window, open right now.
+        $this->makeWindow($team, $page, [$monitor], now()->subMinute(), now()->addMinutes(59));
+
+        // 3. Re-fake so the open's own page (already asserted elsewhere) does not
+        //    count, then fire the pending step the way the queue would.
+        Notification::fake();
+        app(EscalationDispatcher::class)->pageStep((string) $incident->id, (string) $step->id);
+
+        Notification::assertNothingSent();
+    }
+
+    /**
+     * The mirror of the case above: a step whose window has already CLOSED by
+     * the time it fires must page. The guard reads the clock at fire time, so
+     * it has to let this one through, and asserting only the silent direction
+     * would pass just as well against a guard that never pages at all.
+     */
+    public function test_a_step_firing_after_its_window_closed_still_pages(): void
+    {
+        [$team, $user] = $this->makeTeam();
+        $monitor = $this->makeMonitor($team, 'API');
+        $page = $this->makePage($team, 'ops', $monitor);
+        $step = $this->makeUserEscalationStep($team, $user);
+
+        Notification::fake();
+        Queue::fake();
+        $this->drivePersist($monitor, MonitorStatus::Down);
+        $incident = Incident::query()->latest('created_at')->firstOrFail();
+
+        // A window that ended an hour ago suppresses nothing.
+        $this->makeWindow($team, $page, [$monitor], now()->subHours(2), now()->subHour());
+
+        Notification::fake();
+        app(EscalationDispatcher::class)->pageStep((string) $incident->id, (string) $step->id);
+
+        Notification::assertSentTo($user, IncidentOpened::class);
+    }
+
+    /**
+     * Scope, at fire time: an incident carrying one monitor under planned work
+     * AND one genuinely down monitor is a real outage and must still page.
+     * "Every attached monitor is covered" is the rule; "any" would mute this.
+     */
+    public function test_a_step_pages_when_only_some_of_the_incident_monitors_are_covered(): void
+    {
+        [$team, $user] = $this->makeTeam();
+        $underMaintenance = $this->makeMonitor($team, 'API');
+        $unrelated = $this->makeMonitor($team, 'Checkout');
+        $page = $this->makePage($team, 'ops', $underMaintenance, $unrelated);
+        $step = $this->makeUserEscalationStep($team, $user);
+
+        Notification::fake();
+        Queue::fake();
+        $this->drivePersist($underMaintenance, MonitorStatus::Down);
+        $incident = Incident::query()->latest('created_at')->firstOrFail();
+
+        // Correlate a second, unplanned monitor onto the same incident, with the
+        // same pivot payload ThresholdEvaluator writes (both component-status
+        // columns are NOT NULL).
+        $incident->monitors()->attach($unrelated->id, [
+            'component_status_at_start' => MonitorStatus::Down->value,
+            'component_status_current' => MonitorStatus::Down->value,
+        ]);
+
+        $this->makeWindow($team, $page, [$underMaintenance], now()->subMinute(), now()->addMinutes(59));
+
+        Notification::fake();
+        app(EscalationDispatcher::class)->pageStep((string) $incident->id, (string) $step->id);
+
+        Notification::assertSentTo($user, IncidentOpened::class);
     }
 
     public function test_a_window_that_does_not_suppress_alerts_still_pages(): void
@@ -394,6 +495,28 @@ class MaintenanceSuppressionTest extends TestCase
         ]);
 
         return $policy;
+    }
+
+    /**
+     * A one-step ladder that pages a NAMED USER rather than the on-call
+     * rotation, so firing a step needs no schedule or rotation fixture: the
+     * fire-time cases care about whether the step pages at all, not about who
+     * it resolves to.
+     */
+    protected function makeUserEscalationStep(Team $team, User $user): EscalationStep
+    {
+        $policy = EscalationPolicy::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Primary On-Call Policy',
+        ]);
+
+        return EscalationStep::query()->create([
+            'escalation_policy_id' => $policy->id,
+            'position' => 0,
+            'delay_minutes' => 5,
+            'target_type' => EscalationTargetType::User,
+            'target_id' => $user->id,
+        ]);
     }
 
     /**

@@ -15,7 +15,6 @@ use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\OnCall\EscalationDispatcher;
 use App\Services\StatusPages\StatusPageCache;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Notifications\Notification as NotificationInstance;
 use Illuminate\Support\Facades\Cache;
@@ -168,15 +167,19 @@ class IncidentDispatcher
      *
      * `suppress_alerts` is the switch; a window created with it off announces
      * the work publicly and still pages.
+     *
+     * The open-and-suppressing half is `ScheduledMaintenance::openSuppressing()`,
+     * shared with the escalation ladder so the two paging paths cannot drift
+     * apart on what "inside a window" means. The team predicate narrows, never
+     * widens: no request can attach a foreign monitor today, so it removes
+     * nothing, and it means a foreign window can never silence this team even
+     * if that ever changes.
      */
     protected function openSuppressingWindow(Monitor $monitor): ?ScheduledMaintenance
     {
-        $now = CarbonImmutable::now();
-
         return ScheduledMaintenance::query()
-            ->where('suppress_alerts', true)
-            ->where('starts_at', '<=', $now)
-            ->where('ends_at', '>=', $now)
+            ->openSuppressing()
+            ->where('scheduled_maintenances.team_id', $monitor->team_id)
             ->whereHas(
                 'monitors',
                 fn (Builder $monitors): Builder => $monitors->whereKey($monitor->getKey()),

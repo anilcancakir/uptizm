@@ -8,10 +8,12 @@ use App\Models\EscalationPolicy;
 use App\Models\EscalationStep;
 use App\Models\Incident;
 use App\Models\OnCallSchedule;
+use App\Models\ScheduledMaintenance;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Services\Monitoring\IncidentDispatcher;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -74,13 +76,27 @@ class EscalationDispatcher
             return;
         }
 
-        // 2. Idempotency: one page per (incident, step). `Cache::add` is atomic,
+        // 2. An open maintenance window withholds this step. IncidentDispatcher
+        //    already checked when the ladder was QUEUED, but `escalate()` only
+        //    enqueues delayed jobs, so the queue-time answer cannot speak for a
+        //    step that fires minutes later: a window scheduled after the incident
+        //    opened (the most natural operator sequence there is) used to page the
+        //    on-call straight through planned work. Suppression deliberately
+        //    leaves the incident open and active, so the lifecycle check above
+        //    cannot stand in for this one. Checked BEFORE the idempotency claim,
+        //    matching the resolved-incident short-circuit: a withheld step
+        //    consumes no marker, so a retry after the window closes still pages.
+        if ($this->isUnderMaintenance($incident)) {
+            return;
+        }
+
+        // 3. Idempotency: one page per (incident, step). `Cache::add` is atomic,
         //    so a re-dispatch of the same pair is a no-op.
         if (! Cache::add($this->guardKey($incidentId, $stepId), true, now()->addDay())) {
             return;
         }
 
-        // 3. Resolve the step and page its target.
+        // 4. Resolve the step and page its target.
         $step = EscalationStep::find($stepId);
 
         if ($step === null) {
@@ -88,6 +104,57 @@ class EscalationDispatcher
         }
 
         $this->pageTarget($incident, $step);
+    }
+
+    /**
+     * Whether EVERY monitor attached to this incident is inside an open
+     * suppressing maintenance window, evaluated against the clock now.
+     *
+     * "Every", not "the primary one", and not "any". An incident with a
+     * monitor under planned work AND a monitor that is genuinely down is a
+     * real outage, and IncidentDispatcher already put the reasoning on record:
+     * silencing an outage nobody planned for is a far more expensive failure
+     * than a page an operator expected. Today every incident-opening path
+     * attaches exactly one monitor, so the three rules behave identically;
+     * this is the one that stays correct when correlated incidents start
+     * attaching several.
+     *
+     * An incident with no attached monitor is never suppressed: there is
+     * nothing to prove planned work against.
+     */
+    protected function isUnderMaintenance(Incident $incident): bool
+    {
+        /** @var list<string> $monitorIds */
+        $monitorIds = $incident->monitors()->pluck('monitors.id')->all();
+
+        if ($monitorIds === []) {
+            return false;
+        }
+
+        $suppressed = ScheduledMaintenance::suppressedMonitorIds($incident->team_id, $monitorIds);
+
+        if (count($suppressed) < count($monitorIds)) {
+            return false;
+        }
+
+        $this->logSuppression($incident, $monitorIds);
+
+        return true;
+    }
+
+    /**
+     * Record a withheld escalation step at info level, mirroring the shape
+     * IncidentDispatcher logs so `pail` answers "why did nobody get paged"
+     * for both paging paths with one query.
+     *
+     * @param  list<string>  $monitorIds  The attached monitors, all suppressed.
+     */
+    protected function logSuppression(Incident $incident, array $monitorIds): void
+    {
+        Log::info('Escalation step suppressed by an open maintenance window.', [
+            'incident_id' => $incident->getKey(),
+            'monitor_ids' => $monitorIds,
+        ]);
     }
 
     /**
