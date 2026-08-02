@@ -234,7 +234,7 @@ class StoreMonitorRequestTest extends TestCase
     }
 
     /**
-     * A valid create payload targeting a public host across two regions.
+     * A valid create payload targeting a public host from a single region.
      *
      * @return array<string, mixed>
      */
@@ -242,8 +242,10 @@ class StoreMonitorRequestTest extends TestCase
     {
         return [
             'name' => 'API Health',
-            // 180s is the Free tier's fastest allowed interval, so the base
-            // payload is plan-valid for the default (Free) acting team.
+            // 180s is the Free tier's fastest allowed interval and one region is
+            // its per-monitor allowance, so the base payload is plan-valid for
+            // the default (Free) acting team. Region enforcement itself is
+            // covered in MonitorControllerTest.
             'type' => 'http',
             'url' => 'https://example.com/health',
             'method' => 'get',
@@ -251,7 +253,6 @@ class StoreMonitorRequestTest extends TestCase
             'timeout_sec' => 30,
             'regions' => [
                 'us-east',
-                'eu-west',
             ],
             'expected_status_code' => 200,
         ];

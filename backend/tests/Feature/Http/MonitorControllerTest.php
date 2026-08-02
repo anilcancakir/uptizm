@@ -3,6 +3,7 @@
 namespace Tests\Feature\Http;
 
 use App\Enums\AiMode;
+use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
 use App\Enums\Plan;
 use App\Http\Controllers\Api\V1\MonitorController;
@@ -51,9 +52,18 @@ class MonitorControllerTest extends TestCase
     public function test_store_creates_monitor_and_returns_check_interval_sec(): void
     {
         Queue::fake();
-        $this->actingAsTeamMember();
+        $team = $this->actingAsTeamMember();
+        // Paid, because the fan-out this asserts needs more than the one region
+        // Free allows; the interval assertion below holds on either tier.
+        $team->forceFill(['plan' => Plan::Pro->value])->save();
 
-        $response = $this->postJson('/api/v1/monitors', $this->validPayload());
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'regions' => [
+                'us-east',
+                'eu-west',
+            ],
+        ]);
 
         $response->assertStatus(201);
         $response->assertJsonPath('data.check_interval_sec', 180);
@@ -189,6 +199,90 @@ class MonitorControllerTest extends TestCase
 
         $response->assertStatus(201);
         $response->assertJsonPath('data.check_interval_sec', 30);
+    }
+
+    public function test_free_team_cannot_create_a_monitor_beyond_its_region_allowance(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // Free allows one region per monitor and a create has nothing stored to
+        // grandfather, so the allowance binds on the payload alone.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'regions' => [
+                'us-east',
+                'eu-west',
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('regions');
+        Queue::assertNothingPushed();
+    }
+
+    public function test_a_grandfathered_monitor_saves_at_its_stored_region_count(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id, ['regions' => MonitorRegion::values()]);
+
+        // A team that downgraded to Free keeps the regions it already had: an
+        // edit that does not INCREASE the count must stay saveable, otherwise a
+        // typo fix locks the operator out of their own monitor.
+        $response = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'name' => 'API Health (renamed)',
+            'regions' => MonitorRegion::values(),
+        ]);
+
+        $response->assertStatus(200);
+
+        $fresh = $monitor->fresh();
+        $this->assertSame('API Health (renamed)', $fresh->name);
+        $this->assertSame(MonitorRegion::values(), $fresh->regions);
+    }
+
+    public function test_a_grandfathered_monitor_cannot_increase_its_region_count(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $stored = [
+            'us-east',
+            'us-west',
+            'eu-west',
+        ];
+        $monitor = $this->makeMonitor($team->id, ['regions' => $stored]);
+
+        // Three regions are grandfathered; a fourth is a new purchase the Free
+        // allowance refuses.
+        $response = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'regions' => [
+                ...$stored,
+                'eu-central',
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('regions');
+        $this->assertSame($stored, $monitor->fresh()->regions);
+    }
+
+    public function test_a_scalar_regions_payload_is_a_422_not_a_500(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // `regions` is attacker-controlled: counting a scalar would raise a
+        // TypeError inside the validator and answer 500 on an authenticated
+        // endpoint (the same class of bug bootstrap/app.php documents for
+        // `email[]=x`).
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'regions' => 'notanarray',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('regions');
     }
 
     public function test_show_masks_cross_team_monitor_as_404(): void
@@ -358,7 +452,7 @@ class MonitorControllerTest extends TestCase
     }
 
     /**
-     * A valid create payload targeting a public host across two regions.
+     * A valid create payload targeting a public host from a single region.
      *
      * @return array<string, mixed>
      */
@@ -491,9 +585,11 @@ class MonitorControllerTest extends TestCase
             'method' => 'get',
             'check_interval_sec' => 180,
             'timeout_sec' => 30,
+            // One region for the same reason as the 180s interval: the base
+            // payload stays plan-valid for the default (Free) acting team, and
+            // the region tests override it to exercise the allowance.
             'regions' => [
                 'us-east',
-                'eu-west',
             ],
             'expected_status_code' => 200,
         ];

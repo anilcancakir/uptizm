@@ -14,6 +14,7 @@ use App\Support\Monitoring\HostGuard;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -59,14 +60,23 @@ class StoreMonitorRequest extends FormRequest
 
     /**
      * Enforce the team's plan caps after field validation: the monitor-count
-     * quota (create only) and the fastest-check-interval floor (create and
-     * update). Both surface as 422 errors with an upgrade-oriented message the
-     * client shows verbatim, so a Free team cannot silently exceed its tier.
+     * quota (create only), the fastest-check-interval floor, and the
+     * regions-per-monitor allowance (both create and update). All three
+     * surface as 422 errors with an upgrade-oriented message the client shows
+     * verbatim, so a Free team cannot silently exceed its tier.
      *
      * The count guard is skipped on an update ({@see UpdateMonitorRequest}
      * inherits this) because editing an existing monitor does not add one; only
      * the interval floor still applies, so a paid-tier interval cannot survive
      * a downgrade-then-edit.
+     *
+     * The region allowance is enforced on the DELTA, not on the payload: it
+     * refuses only when the submitted count exceeds both the plan allowance and
+     * the count already stored on the monitor. The client posts the full field
+     * map on every edit, so a payload-only gate would refuse a downgraded team
+     * fixing a typo on a grandfathered multi-region monitor. Gating the delta
+     * keeps that monitor editable at its stored count and still refuses any
+     * increase; on create nothing is stored, so the allowance binds normally.
      */
     public function withValidator(Validator $validator): void
     {
@@ -77,7 +87,8 @@ class StoreMonitorRequest extends FormRequest
             }
 
             $gate = new PlanGate;
-            $isCreate = ! ($this->route('monitor') instanceof Monitor);
+            $monitor = $this->route('monitor');
+            $isCreate = ! ($monitor instanceof Monitor);
 
             if ($isCreate) {
                 $limit = $gate->monitorLimit($team);
@@ -95,6 +106,23 @@ class StoreMonitorRequest extends FormRequest
                 $validator->errors()->add(
                     'check_interval_sec',
                     "Your {$gate->planLabel($team)} plan checks at most every {$floor}s. Upgrade for faster checks.",
+                );
+            }
+
+            // `regions` is attacker-controlled and reaches this callback even
+            // when the `array` rule already rejected it, so a non-array counts
+            // as zero rather than being counted: counting a scalar raises a
+            // TypeError here, which answers 500 on an authenticated endpoint.
+            $submitted = $this->input('regions');
+            $submittedCount = is_array($submitted) ? count($submitted) : 0;
+            $stored = ($isCreate || ! is_array($monitor->regions)) ? [] : $monitor->regions;
+            $allowance = $gate->maxRegionsPerMonitor($team);
+
+            if ($submittedCount > $allowance && $submittedCount > count($stored)) {
+                $noun = Str::plural('region', $allowance);
+                $validator->errors()->add(
+                    'regions',
+                    "Your {$gate->planLabel($team)} plan checks from at most {$allowance} {$noun} per monitor. Upgrade to add more.",
                 );
             }
         });
