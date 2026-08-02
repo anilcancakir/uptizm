@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Controllers\Api\V1\NotificationChannelController;
 use App\Http\Controllers\Api\V1\OnCallController;
+use App\Http\Controllers\Api\V1\ScheduledMaintenanceController;
 use App\Http\Controllers\Api\V1\StatusPageController;
 use App\Http\Controllers\Api\V1\StatusPagePreviewImageController;
 use Illuminate\Http\JsonResponse;
@@ -244,6 +245,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.status-pages.subscribers.store');
     Route::delete('status-pages/{statusPage:id}/subscribers/{subscriber}', [StatusPageController::class, 'removeSubscriber'])
         ->name('api.v1.status-pages.subscribers.destroy');
+
+    // Planned maintenance windows, announced on a status page. The parameter is
+    // renamed off the resource's own `scheduled_maintenance` default so the
+    // controller can type-hint a camelCase `$maintenance` and stay readable.
+    Route::apiResource('scheduled-maintenances', ScheduledMaintenanceController::class)
+        ->parameters(['scheduled-maintenances' => 'maintenance']);
 
     Route::get('on-call/current', [OnCallController::class, 'current'])
         ->name('api.v1.on-call.current');
