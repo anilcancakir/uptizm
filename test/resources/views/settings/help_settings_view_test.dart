@@ -37,7 +37,6 @@ class _HelpSettingsLangLoader implements TranslationLoader {
       'uptizm.settings.help_contact_heading': 'Contact support',
       'uptizm.settings.help_contact_note': 'We usually reply quickly.',
       'uptizm.settings.help_contact_email_button': 'Email support',
-      'uptizm.settings.help_contact_chat_button': 'Start a chat',
     };
   }
 }
@@ -97,7 +96,13 @@ void main() {
         reason: 'the contact card heading renders',
       );
       expect(find.text('Email support'), findsOneWidget);
-      expect(find.text('Start a chat'), findsOneWidget);
+      expect(
+        find.text('Start a chat'),
+        findsNothing,
+        reason:
+            'the chat button opened the same contact page as its neighbour, '
+            'and no chat channel exists in the product to start',
+      );
     });
 
     testWidgets('the FAQ accordion and its hardcoded entries are gone', (
@@ -133,18 +138,18 @@ void main() {
       );
     });
 
-    testWidgets('tapping "Start a chat" opens the locale-correct contact URL', (
+    testWidgets('the card offers exactly one way out to the website', (
       tester,
     ) async {
       await tester.pumpWidget(wrap(const HelpSettingsView()));
       await tester.pump();
 
-      await tester.tap(find.text('Start a chat'));
-      await tester.pump();
-
       expect(
-        adapter.launched.map((Uri url) => url.toString()).toList(),
-        ['https://uptizm.com/contact'],
+        find.byType(MSButton),
+        findsOneWidget,
+        reason:
+            'two buttons wired to one URL read as two support channels; the '
+            'card offers one',
       );
     });
 

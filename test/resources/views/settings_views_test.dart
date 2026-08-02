@@ -20,7 +20,6 @@ class _SettingsViewsLangLoader implements TranslationLoader {
       'uptizm.settings.help_contact_heading': 'Contact support',
       'uptizm.settings.help_contact_note': 'We usually reply quickly.',
       'uptizm.settings.help_contact_email_button': 'Email support',
-      'uptizm.settings.help_contact_chat_button': 'Start a chat',
 
       // Changelog.
       'uptizm.settings.changelog_title': 'Changelog',

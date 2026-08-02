@@ -6,12 +6,13 @@ import '../../../app/support/web_links.dart';
 
 /// **Help & support settings sub-page (`/settings/help`).**
 ///
-/// A single "Contact support" [MSCard] whose two buttons open the website's
+/// A single "Contact support" [MSCard] whose one button opens the website's
 /// Contact page through [WebLinks.contact] and [Launch.url], the same
 /// mechanism `UptizmHubExtras` already uses for the legal rows.
 ///
-/// This page used to also carry a search input, an in-app FAQ accordion, and
-/// an external-links card (Documentation/API/Community). All three are gone:
+/// This page used to also carry a search input, an in-app FAQ accordion, an
+/// external-links card (Documentation/API/Community), and a second "Start a
+/// chat" button. All of them are gone:
 ///
 /// - The FAQ accordion duplicated answers the marketing site's own FAQ page
 ///   already derives from config (region count, plan limits, retention). A
@@ -21,6 +22,10 @@ import '../../../app/support/web_links.dart';
 ///   that do not exist on the marketing site (`backend/routes/marketing.php`
 ///   registers only `privacy`, `terms`, `contact` and `faq`); inventing a
 ///   URL for a page that is not there is worse than not offering the row.
+/// - The "Start a chat" button opened the very same Contact page as its
+///   neighbour, so it was a second label for one action, and there is no chat
+///   channel anywhere in the product to start. Offering it promised a support
+///   channel that does not exist.
 ///
 /// ### Example
 /// ```dart
@@ -55,13 +60,6 @@ class HelpSettingsView extends StatelessWidget {
                     onPressed: () => Launch.url(WebLinks.contact),
                     child: WText(
                       trans('uptizm.settings.help_contact_email_button'),
-                    ),
-                  ),
-                  MSButton(
-                    intent: ButtonIntent.secondary,
-                    onPressed: () => Launch.url(WebLinks.contact),
-                    child: WText(
-                      trans('uptizm.settings.help_contact_chat_button'),
                     ),
                   ),
                 ],
