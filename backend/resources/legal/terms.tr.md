@@ -8,27 +8,17 @@ uygulanmaz.
 
 ## Hizmeti kim işletiyor
 
-- **İşletmeci:** [[legal.operator]]
-- **Ticari ad:** [[legal.trade_name]]
-- **Merkez adresi:** [[legal.address]]
-- **E-posta:** [[legal.contact_email]]
-- **Kişisel veri talepleri:** [[legal.rights_email]]
-- **Telefon:** [[legal.phone]]
-- **KEP adresi:** [[legal.kep_address]]
-- **MERSİS numarası:** [[legal.registry_number]]
-- **[[legal.tax_number_label]]:** [[legal.tax_number]]
-
-Yukarıdaki satırlardan biri bir bilginin henüz yayımlanmadığını yazıyorsa, durum gerçekten
-budur; sayfada bir arıza yok. Hizmet henüz yayına alınmadı. Sözleşmeyi kurduğunuz tarafın
-sicile kayıtlı kimlik bilgileri, kaydedildikleri biçimde ve tüm sitenin okuduğu tek bir
-kaynaktan bu blokta yayımlanır; blok tam görünsün diye hiçbir satır tahminle doldurulmaz.
-Bu bilgiler yayımlanana kadar işletmeciye ulaşan kanal yukarıdaki e-posta adresidir ve o
-bugün çalışıyor.
-
-Son iki satır birlikte değil, birbirinin alternatifidir. Ticaret siciline kayıtlı bir tacir
-MERSİS numarasını yayımlar; kayıtlı olmayan bir esnaf ise vergi kimlik numarasını yayımlar.
-Hangisi geçerliyse dolan satır odur; diğeri, sizden bir bilgi saklanmış olmaksızın
-yayımlanmamış kalabilir.
+<ul>
+[[legal.operator_row]]
+[[legal.trade_name_row]]
+[[legal.address_row]]
+[[legal.contact_email_row]]
+[[legal.rights_email_row]]
+[[legal.phone_row]]
+[[legal.kep_address_row]]
+[[legal.registry_number_row]]
+[[legal.tax_number_row]]
+</ul>
 
 Avrupa Birliği'nde herhangi bir işyeri, şube, ofis veya temsilci bulunmuyor; böyle bir iddia
 da yok. Hizmet Türkiye'den işletiliyor.

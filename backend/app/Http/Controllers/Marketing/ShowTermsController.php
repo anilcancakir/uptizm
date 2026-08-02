@@ -23,15 +23,17 @@ use Illuminate\Support\Arr;
  * contracting party is, and it appears in two languages. A transcribed copy of it in
  * eight Markdown files would drift the day any of those facts changed.
  *
- * WHY HALF OF THAT BLOCK RENDERS AN ABSENCE INSTEAD OF A VALUE
+ * WHY HALF OF THAT BLOCK HAS NO ROW AT ALL RIGHT NOW
  *
  * The operator's legal name, registered address, telephone, KEP address and registry
  * identifier are not in this repository at all: they are personal data, the Service has
  * not launched, and the registered company details arrive with the launch. Those slots are
- * therefore empty, and {@see self::identity()} renders the absence rather than a blank.
- * A blank after a label reads as a rendering fault, a dash reads as "not applicable", and
- * an invented value would be a false statement about who the reader is contracting with.
- * It is the same shape the shell already uses for `legal.effective_date`.
+ * therefore empty, and {@see self::identityRow()} omits the row entirely rather than
+ * rendering a blank, a dash, a "not published yet" notice or an invented value. A blank
+ * after a label reads as a rendering fault, a notice reads as an announcement the operator
+ * did not ask this page to make, and an invented value would be a false statement about who
+ * the reader is contracting with. The block grows one row at a time as `config/legal.php`
+ * is filled in, never sooner.
  */
 class ShowTermsController
 {
@@ -65,7 +67,7 @@ class ShowTermsController
      * `LegalDocument` applies these AFTER its cache read, so a config change reaches the
      * page without the Markdown file having to be re-saved. An unmapped placeholder
      * survives into the output verbatim rather than vanishing, so a forgotten entry here
-     * shows up as `[[legal.address]]` on the page instead of as a legal sentence with a
+     * shows up as `[[legal.address_row]]` on the page instead of as a legal sentence with a
      * hole in it, and `LegalPagesTest` fails on exactly that.
      *
      * Three of these are not identity fields and are here for the same reason the landing
@@ -76,25 +78,29 @@ class ShowTermsController
      * probe from, a currency we do not charge in, or an AI allowance the plan gate does not
      * grant.
      *
-     * The six identity values that can be unfilled route through {@see self::identity()};
-     * the trade name, the two inboxes and the authority do not, because the prose
-     * interpolates them mid-sentence and each carries a real value today. An honest absence
-     * is a value for a labelled row and nonsense inside a clause, and `TermsPageTest`
-     * enforces exactly that split against the Markdown source.
+     * The `_row` placeholders resolve to a whole `<li>` element, or to the empty string that
+     * drops the row from the page entirely; `resources/legal/terms.*.md` wraps them in a raw
+     * `<ul>` HTML block for that reason (see {@see self::row()}). The six identity slots that
+     * can be unfilled route through {@see self::identityRow()}; the trade name, the two
+     * inboxes and the authority never route through it because each carries a real value
+     * today, and the two inboxes also interpolate mid-sentence elsewhere in the document
+     * through their own bare placeholder, which must never resolve to anything but a value.
      *
      * @return array<string, string>
      */
     protected function replacements(): array
     {
         return [
-            '[[legal.operator]]' => $this->identity('operator'),
+            '[[legal.operator_row]]' => $this->identityRow(__('Operator'), 'operator'),
+            '[[legal.trade_name_row]]' => $this->row(__('Trading name'), (string) config('legal.trade_name')),
+            '[[legal.address_row]]' => $this->identityRow(__('Registered address'), 'address'),
+            '[[legal.contact_email_row]]' => $this->row(__('Email'), (string) config('legal.contact_email')),
+            '[[legal.rights_email_row]]' => $this->row(__('Data protection requests'), (string) config('legal.rights_email')),
+            '[[legal.phone_row]]' => $this->identityRow(__('Telephone'), 'phone'),
+            '[[legal.kep_address_row]]' => $this->identityRow(__('KEP address'), 'kep_address'),
+            '[[legal.registry_number_row]]' => $this->identityRow(__('MERSİS number'), 'registry_number'),
+            '[[legal.tax_number_row]]' => $this->identityRow($this->taxNumberLabel(), 'tax_number'),
             '[[legal.trade_name]]' => (string) config('legal.trade_name'),
-            '[[legal.address]]' => $this->identity('address'),
-            '[[legal.phone]]' => $this->identity('phone'),
-            '[[legal.kep_address]]' => $this->identity('kep_address'),
-            '[[legal.registry_number]]' => $this->identity('registry_number'),
-            '[[legal.tax_number]]' => $this->identity('tax_number'),
-            '[[legal.tax_number_label]]' => $this->taxNumberLabel(),
             '[[legal.contact_email]]' => (string) config('legal.contact_email'),
             '[[legal.rights_email]]' => (string) config('legal.rights_email'),
             '[[legal.authority]]' => (string) config('legal.authority'),
@@ -105,23 +111,40 @@ class ShowTermsController
     }
 
     /**
-     * One identity value from the catalog, or the honest absence the page publishes while
-     * the slot is empty.
+     * One `<li>` fragment for the identity block: a label and a value.
      *
-     * Never an empty string, never a dash, never a guess. The five slots this covers are
-     * personal data the repository does not hold (see the class docblock and
-     * `config/legal.php`), so "unfilled" is the normal state until the Service launches and
-     * the reader has to be able to tell that apart from a broken page.
+     * Built as raw HTML rather than Markdown, because {@see LegalDocument::applyReplacements()}
+     * runs `strtr` AFTER the Markdown-to-HTML pass: a `**bold**` marker inserted here would
+     * ship as two literal asterisks instead of a `<strong>` tag. `resources/legal/terms.*.md`
+     * wraps the whole identity list in a raw `<ul>` HTML block for exactly that reason
+     * (CommonMark passes a block opened by a block-level tag through untouched), and every
+     * row inside it is either one of these fragments or the empty string {@see self::identityRow()}
+     * returns for an unset slot.
      */
-    protected function identity(string $key): string
+    protected function row(string $label, string $value): string
+    {
+        return sprintf('<li><strong>%s:</strong> %s</li>', e($label), e($value));
+    }
+
+    /**
+     * One identity row for a slot that can be unset, or the empty string that drops the row
+     * from the page entirely.
+     *
+     * The six slots this covers are personal data the repository does not hold (see the
+     * class docblock and `config/legal.php`), so "unfilled" is the normal state until the
+     * Service launches. This used to render a "Not published yet" notice in the row's place;
+     * the operator asked for the row itself to disappear instead, so the block prints only
+     * what is genuinely known today.
+     */
+    protected function identityRow(string $label, string $key): string
     {
         $value = config("legal.{$key}");
 
         if (! is_string($value) || trim($value) === '') {
-            return __('Not published yet');
+            return '';
         }
 
-        return $value;
+        return $this->row($label, $value);
     }
 
     /**

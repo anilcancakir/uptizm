@@ -88,7 +88,7 @@ class TermsPageTest extends TestCase
 
             // The inbox this deployment really carries: a business address, and the one value
             // in the block that has to come from config rather than from the prose today.
-            $response->assertDontSee('info@kodizm.com');
+            $response->assertDontSee('hello@uptizm.com');
         }
 
         config([
@@ -105,20 +105,14 @@ class TermsPageTest extends TestCase
         }
     }
 
-    public function test_an_unfilled_identity_slot_renders_an_honest_absence_and_never_a_blank(): void
+    public function test_an_unset_identity_slot_renders_no_row_at_all(): void
     {
         /*
-         * The whole point of taking the personal values out of the repository: with the slots
-         * empty the block must still read as a block. A blank after a label reads as a
-         * rendering fault, a dash reads as "not applicable", and an invented value is a false
-         * statement about who the reader is contracting with, so the page says the detail is
-         * not published yet and names the channel that does work.
-         *
-         * The phrase is asserted on the ENGLISH page only, matching the tax-label test below:
-         * it is a `__()` string and `lang/tr.json` is the orchestrator's file, so pinning the
-         * Turkish wording here would pin a key this change does not own. The Turkish page is
-         * covered by the language-independent half, which is the assertion that matters most
-         * anyway: no identity row may render with its value missing.
+         * The operator asked for the absence itself to disappear rather than be announced: a
+         * row whose slot is unset must not render at all, not "Not published yet", not a blank
+         * after the label, not a dash. Both halves are asserted: the phrase that used to stand
+         * in for the absence is gone, and none of the six labels survive either, because a
+         * label with nothing after it is the same defect wearing a different word.
          */
         config([
             'legal.operator' => null,
@@ -130,13 +124,11 @@ class TermsPageTest extends TestCase
             'legal.tax_number_kind' => null,
         ]);
 
-        $this->get('/terms')->assertOk()->assertSee('Not published yet');
+        $this->get('/terms')->assertOk()->assertDontSee('Not published yet');
 
         foreach ($this->supported() as $locale) {
             $html = $this->get($this->pathFor($locale))->assertOk()->getContent();
 
-            // `- **Label:** [[placeholder]]` renders as `<li><strong>Label:</strong> value`,
-            // so an empty replacement leaves the list item ending right after the label.
             foreach (['</strong></li>', '</strong> </li>'] as $dangling) {
                 $this->assertStringNotContainsString(
                     $dangling,
@@ -145,33 +137,47 @@ class TermsPageTest extends TestCase
                 );
             }
         }
+
+        // The label rows themselves, asserted on the English page only: they are `__()`
+        // strings and `lang/tr.json` is the orchestrator's file, matching the tax-label split
+        // below. A label surviving with nothing after it would not trip the dangling check
+        // above (the value slot never had `</strong>` immediately before `</li>` in the first
+        // place once the whole row is gone), so this is the assertion that actually proves the
+        // row vanished rather than merely lost its value.
+        $response = $this->get('/terms');
+
+        foreach (['Operator:', 'Registered address:', 'Telephone:', 'KEP address:', 'MERSİS number:'] as $label) {
+            $response->assertDontSee($label);
+        }
     }
 
-    public function test_an_absent_identity_value_is_never_interpolated_into_a_sentence(): void
+    public function test_the_identity_rows_never_leak_into_running_prose(): void
     {
         /*
-         * The structural rule that keeps the honest absence coherent. "Not published yet" is a
-         * value for a labelled row and nonsense in the middle of a clause ("send notice to Not
-         * published yet"), so every placeholder that can resolve to it may appear ONLY as a
-         * list-row value. The inboxes, the trade name and the authority are the placeholders
-         * that DO appear mid-sentence, and they are the ones this deployment fills today.
+         * The six slots that can be unset render through a `_row` placeholder that resolves to
+         * a whole `<li>` or to nothing, never to a bare value, so an absence can never surface
+         * mid-sentence the way a bare `[[legal.address]]`-style placeholder could. This pins
+         * the mechanism itself: none of the six bare placeholders survive in the source, and
+         * every one of them has a `_row` counterpart.
          */
         $rowOnly = ['operator', 'address', 'phone', 'kep_address', 'registry_number', 'tax_number'];
 
         foreach ($this->supported() as $locale) {
-            foreach (preg_split('/\R/u', $this->source($locale)) ?: [] as $number => $line) {
-                foreach ($rowOnly as $key) {
-                    if (! str_contains($line, "[[legal.{$key}]]")) {
-                        continue;
-                    }
+            $source = $this->source($locale);
 
-                    $this->assertMatchesRegularExpression(
-                        '/^- \*\*/u',
-                        $line,
-                        "The Terms source in \"{$locale}\" line ".($number + 1)." puts [[legal.{$key}]] outside the ".
-                        'identity block, where an unfilled slot would read as a sentence with "Not published yet" in it.',
-                    );
-                }
+            foreach ($rowOnly as $key) {
+                $this->assertStringNotContainsString(
+                    "[[legal.{$key}]]",
+                    $source,
+                    "The Terms source in \"{$locale}\" still carries the bare [[legal.{$key}]] placeholder; an ".
+                    'unset value must route through the `_row` variant instead of reaching running prose.',
+                );
+
+                $this->assertStringContainsString(
+                    "[[legal.{$key}_row]]",
+                    $source,
+                    "The Terms source in \"{$locale}\" is missing the [[legal.{$key}_row]] placeholder.",
+                );
             }
         }
     }
@@ -189,8 +195,15 @@ class TermsPageTest extends TestCase
          * translator strings this step does not own (lang/tr.json is written by the
          * orchestrator), and `Tax number` plus `VAT number` already have Turkish keys, which
          * is why the default label is asserted in both languages.
+         *
+         * `legal.tax_number` is filled with an obviously-fake value here: the row that
+         * carries this label disappears entirely while the number itself is unset (see
+         * `test_an_unset_identity_slot_renders_no_row_at_all`), so a label test has to give
+         * the row a value before it can say anything about which label it carries.
          */
         $this->assertNull(config('legal.tax_number_kind'), 'A kind is configured, so this test no longer proves anything.');
+
+        config(['legal.tax_number' => '0000000000']);
 
         $this->get('/terms')->assertSee('Tax number');
         $this->get('/tr/terms')->assertSee('Vergi numarası');

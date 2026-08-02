@@ -125,18 +125,19 @@ class ShowPrivacyController
      * the tax number is a national identity number, and a privacy notice is the last page
      * that should publish one it has no reason to.
      *
-     * The two identity values it DOES carry route through {@see self::identity()}: both are
-     * personal data the repository no longer holds, so the row renders the absence rather
-     * than a blank while the Service is unlaunched.
+     * The two identity values it DOES carry route through {@see self::identityRow()}: both are
+     * personal data the repository no longer holds, so the row is omitted entirely rather
+     * than rendered as a blank or a notice while the Service is unlaunched.
      *
      * @return array<string, string>
      */
     protected function replacements(): array
     {
         return [
-            '[[legal.operator]]' => $this->identity('operator'),
-            '[[legal.address]]' => $this->identity('address'),
-            '[[legal.contact_email]]' => (string) config('legal.contact_email'),
+            '[[legal.operator_row]]' => $this->identityRow(__('Operator'), 'operator'),
+            '[[legal.address_row]]' => $this->identityRow(__('Address'), 'address'),
+            '[[legal.contact_email_row]]' => $this->row(__('General contact'), (string) config('legal.contact_email')),
+            '[[legal.rights_email_row]]' => $this->row(__('Anything about your own data'), (string) config('legal.rights_email')),
             '[[legal.rights_email]]' => (string) config('legal.rights_email'),
             '[[legal.authority]]' => (string) config('legal.authority'),
             // The one retention window the database's own policy was attached from
@@ -161,25 +162,38 @@ class ShowPrivacyController
     }
 
     /**
-     * One identity value from the catalog, or the honest absence the notice publishes while
-     * the slot is empty.
+     * One `<li>` fragment for the identity block: a label and a value.
      *
-     * Duplicated from {@see ShowTermsController::identity()} rather than extracted: two
-     * callers is not an abstraction, and the pair a notice needs (who the controller is, and
-     * where) is a smaller set than the Art. 5 disclosure block. The rule both share is the
-     * one that matters: never an empty string, never a dash, never a guess, because the
-     * operator's name and address are personal data the repository does not hold until the
-     * Service launches and a reader must be able to tell that from a rendering fault.
+     * Duplicated from {@see ShowTermsController::row()} rather than extracted: two callers is
+     * not an abstraction. Built as raw HTML because {@see LegalDocument::applyReplacements()}
+     * runs `strtr` AFTER the Markdown-to-HTML pass, so `resources/legal/privacy.*.md` wraps
+     * the identity list in a raw `<ul>` HTML block for the same reason the Terms page does.
      */
-    protected function identity(string $key): string
+    protected function row(string $label, string $value): string
+    {
+        return sprintf('<li><strong>%s:</strong> %s</li>', e($label), e($value));
+    }
+
+    /**
+     * One identity row for a slot that can be unset, or the empty string that drops the row
+     * from the page entirely.
+     *
+     * Duplicated from {@see ShowTermsController::identityRow()} rather than extracted: two
+     * callers is not an abstraction, and the pair a notice needs (who the controller is, and
+     * where) is a smaller set than the Art. 5 disclosure block. This used to render a "Not
+     * published yet" notice in the row's place; the operator asked for the row itself to
+     * disappear instead, because the operator's name and address are personal data the
+     * repository does not hold until the Service launches.
+     */
+    protected function identityRow(string $label, string $key): string
     {
         $value = config("legal.{$key}");
 
         if (! is_string($value) || trim($value) === '') {
-            return __('Not published yet');
+            return '';
         }
 
-        return $value;
+        return $this->row($label, $value);
     }
 
     /**

@@ -28,14 +28,14 @@ sorumlusunun verisi üzerinde tek başına işlem yapmaz ve bunu sessiz kalmak y
 
 ## Kim sorumlu ve nasıl ulaşılır
 
-- **İşletmeci:** [[legal.operator]]
-- **Adres:** [[legal.address]]
-- **Genel iletişim:** [[legal.contact_email]]
-- **Kendi verinizle ilgili her konu:** [[legal.rights_email]]
+<ul>
+[[legal.operator_row]]
+[[legal.address_row]]
+[[legal.contact_email_row]]
+[[legal.rights_email_row]]
+</ul>
 
-Hizmet Türkiye'den işletiliyor. Yukarıdaki bir satır bir bilginin henüz yayımlanmadığını
-yazıyorsa, Hizmet henüz yayına alınmamış demektir; yayına alındığında o satır dolar ve bugün
-çalışan kanal yukarıdaki iletişim adresidir. Üç
+Hizmet Türkiye'den işletiliyor. Üç
 eksik, siz keşfedin diye bırakılmak yerine burada yazıyor:
 **Avrupa Birliği içinde bir temsilci bulunmuyor**, oysa bu ürünün yaptığı türden sürekli izleme
 tam olarak böyle bir temsilcinin var olma sebebidir; bu boşluk gizlenmiyor, bilinerek kabul

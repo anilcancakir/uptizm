@@ -481,7 +481,7 @@ class PrivacyPageTest extends TestCase
                 ->assertSee('1 Test Street, Example')
                 ->assertSee('someone@example.test')
                 ->assertSee('rights@example.test')
-                ->assertDontSee('info@kodizm.com')
+                ->assertDontSee('hello@uptizm.com')
                 ->assertDontSee('0000000000');
         }
 
@@ -499,25 +499,25 @@ class PrivacyPageTest extends TestCase
         }
     }
 
-    public function test_an_unfilled_identity_slot_renders_an_honest_absence_and_never_a_blank(): void
+    public function test_an_unset_identity_slot_renders_no_row_at_all(): void
     {
         /*
-         * `legal.operator` and `legal.address` are empty until the Service launches, and this
-         * notice names both. A blank after the label would read as a rendering fault and an
-         * invented value would be a false statement about who holds the data, so the row says
-         * the detail is not published yet and the contact address above it works today.
+         * `legal.operator` and `legal.address` are empty until the Service launches. The
+         * operator asked for the row to disappear rather than announce the absence, so neither
+         * label may survive with nothing after it, and the phrase that used to stand in for the
+         * gap ("Not published yet") is gone outright.
          *
-         * The phrase is asserted on the English page only: it is a `__()` string and
+         * The label assertion runs on the English page only: it is a `__()` string and
          * `lang/tr.json` is the orchestrator's file, so pinning the Turkish wording here would
-         * pin a key this change does not own. The dangling-row guard is language-independent
-         * and runs on both.
+         * pin a key this change does not own. The dangling-row guard is language-independent and
+         * runs on both.
          */
         config([
             'legal.operator' => null,
             'legal.address' => null,
         ]);
 
-        $this->get('/privacy')->assertOk()->assertSee('Not published yet');
+        $this->get('/privacy')->assertOk()->assertDontSee('Not published yet');
 
         foreach (['/privacy', '/tr/privacy'] as $path) {
             $html = $this->get($path)->assertOk()->getContent();
@@ -530,6 +530,10 @@ class PrivacyPageTest extends TestCase
                 );
             }
         }
+
+        $this->get('/privacy')
+            ->assertDontSee('Operator:')
+            ->assertDontSee('Address:');
     }
 
     public function test_the_three_absences_are_stated_and_never_filled_in_with_a_name(): void

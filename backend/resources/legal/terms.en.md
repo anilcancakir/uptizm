@@ -7,27 +7,17 @@ law that protects you, the law wins and the term does not apply.
 
 ## Who operates this service
 
-- **Operator:** [[legal.operator]]
-- **Trading name:** [[legal.trade_name]]
-- **Registered address:** [[legal.address]]
-- **Email:** [[legal.contact_email]]
-- **Data protection requests:** [[legal.rights_email]]
-- **Telephone:** [[legal.phone]]
-- **KEP address:** [[legal.kep_address]]
-- **MERSİS number:** [[legal.registry_number]]
-- **[[legal.tax_number_label]]:** [[legal.tax_number]]
-
-Where a line above says a detail is not published yet, that is the fact and not a fault in
-the page. The Service has not launched. The registered identity of the party you would be
-contracting with is published in that block as it is registered, from one catalog the whole
-site reads, and nothing in it is filled in with a guess to make the block look complete.
-Until it is filled, the email address above is the channel that reaches the operator, and
-it works today.
-
-The last two lines are alternatives rather than a pair. A trader entered in the trade
-register publishes a MERSİS number; a tradesperson who is not entered publishes a tax
-number instead. Whichever applies is the one that gets filled, so the other may stay
-unpublished without anything being kept from you.
+<ul>
+[[legal.operator_row]]
+[[legal.trade_name_row]]
+[[legal.address_row]]
+[[legal.contact_email_row]]
+[[legal.rights_email_row]]
+[[legal.phone_row]]
+[[legal.kep_address_row]]
+[[legal.registry_number_row]]
+[[legal.tax_number_row]]
+</ul>
 
 There is no establishment, branch, office or representative in the European Union, and none
 is claimed. The Service is operated from Türkiye.

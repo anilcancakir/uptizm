@@ -21,10 +21,10 @@
 | yet, so it published them before anything was being sold. The operator's
 | decision is that the registered company details arrive WITH the launch. Until
 | then every one of those slots is null, nothing personal ships in this
-| repository, and the pages render the absence honestly instead of a blank, a
-| dash or an invented value (see `identity()` in ShowTermsController and
-| ShowPrivacyController, which is the same shape the shell already uses for
-| `effective_date`).
+| repository, and the pages OMIT the row entirely rather than rendering a
+| blank, a dash, a "not published yet" notice or an invented value (see
+| `identityRow()` in ShowTermsController and ShowPrivacyController). The pages
+| grow one identity row at a time as this catalog is filled in, never sooner.
 |
 | WHAT MUST BE FILLED BEFORE THESE PAGES GO LIVE
 |
@@ -105,15 +105,17 @@ return [
     // general contact channel). A BUSINESS address, not personal data, and it
     // keeps its default because it is the channel every page falls back to
     // while the identity block above is unfilled: the Contact page is built
-    // around it.
-    'contact_email' => env('LEGAL_CONTACT_EMAIL', 'info@kodizm.com'),
+    // around it. On the product's own domain rather than the operator's
+    // former placeholder inbox, because this is the address the pages now
+    // publish as the whole of the identity block that renders today.
+    'contact_email' => env('LEGAL_CONTACT_EMAIL', 'hello@uptizm.com'),
 
     // The address a data subject uses to exercise a GDPR/KVKK rights request
     // (access, deletion, correction). Currently the same inbox as
     // `contact_email`, per the operator; kept as a distinct key because the
     // two addresses are allowed to diverge later without touching every page
     // that names the general contact address.
-    'rights_email' => env('LEGAL_RIGHTS_EMAIL', 'info@kodizm.com'),
+    'rights_email' => env('LEGAL_RIGHTS_EMAIL', 'hello@uptizm.com'),
 
     // GDPR Art. 27: a non-EU controller offering services to EU data subjects
     // and engaging in continuous monitoring should designate an EU

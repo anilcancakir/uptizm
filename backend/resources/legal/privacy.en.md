@@ -27,13 +27,14 @@ going quiet.
 
 ## Who is responsible, and how to reach them
 
-- **Operator:** [[legal.operator]]
-- **Address:** [[legal.address]]
-- **General contact:** [[legal.contact_email]]
-- **Anything about your own data:** [[legal.rights_email]]
+<ul>
+[[legal.operator_row]]
+[[legal.address_row]]
+[[legal.contact_email_row]]
+[[legal.rights_email_row]]
+</ul>
 
-Operated from Türkiye. A line above saying a detail is not published yet means the Service has
-not launched; it appears there once it does, and the contact address works now. Three absences, stated
+Operated from Türkiye. Three absences, stated
 rather than left for you to find: there is **no representative in the European Union**, although
 continuous monitoring of this kind is what such a representative exists for, and that gap is
 recorded and accepted rather than papered over; there is no data protection officer, because the
