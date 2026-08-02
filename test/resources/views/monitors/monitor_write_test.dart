@@ -863,6 +863,68 @@ void main() {
       },
     );
 
+    // Found by walking the real create screen, not by this suite: the form's
+    // own default is TWO regions, the cap only locks tiles that are not already
+    // selected, and a create-time default is nobody's deliberate pick. So a
+    // Free operator opened the screen with a selection their plan refuses and
+    // would have learned it from a 422 on save, which is the failure this whole
+    // gate exists to prevent. The test above sidesteps it by passing a
+    // one-region baseline; this one uses the default the screen actually ships.
+    testWidgets(
+      'the create form never opens a Free plan above its region allowance',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 1600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final controller = EntitlementController(
+          billing: _FakeBilling(
+            entitlementPlan: 'free',
+            catalog: const [freeOneRegion, proFiveRegions],
+          ),
+        );
+        Magic.findOrPut(() => controller);
+        await controller.reload();
+
+        Map<String, dynamic>? captured;
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              initialName: 'API gateway',
+              initialUrl: 'https://api.example.com/health',
+              // No initialRegions override: this is the shipped default.
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (fields) async {
+                captured = fields;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final Finder submitButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submitButton);
+        await tester.pump();
+        await tester.tap(submitButton);
+        await tester.pump();
+
+        expect(captured, isNotNull);
+        expect(
+          (captured!['regions'] as List).length,
+          equals(1),
+          reason:
+              'A Free plan allows one region, so the create form must not '
+              'post two just because two is the built-in default',
+        );
+      },
+    );
+
     testWidgets(
       'editing a grandfathered 5-region monitor keeps all five selected '
       'and the form saveable',

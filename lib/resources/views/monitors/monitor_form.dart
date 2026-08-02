@@ -293,6 +293,13 @@ class _MonitorFormState extends State<MonitorForm> {
   /// that resolves after the fact.
   bool _intervalTouchedByUser = false;
 
+  /// Whether the user has explicitly changed the region selection.
+  ///
+  /// Same contract as [_intervalTouchedByUser]: once true,
+  /// [_onEntitlementChanged] stops trimming [_regions] to the plan allowance,
+  /// because a deliberate pick outranks a default.
+  bool _regionsTouchedByUser = false;
+
   @override
   void initState() {
     super.initState();
@@ -317,7 +324,7 @@ class _MonitorFormState extends State<MonitorForm> {
     } else {
       _intervalValue = _defaultIntervalToken();
     }
-    _regions = List<String>.from(widget.initialRegions);
+    _regions = _defaultRegions();
     _advanced = widget.startAdvanced;
     _headers = List<KeyValueRow>.from(widget.initialHeaders);
     _policy = widget.initialPolicy;
@@ -353,11 +360,48 @@ class _MonitorFormState extends State<MonitorForm> {
   /// user already picked an interval or this form is editing a monitor's real
   /// stored value (never overridden by the plan floor, see [initState]).
   void _onEntitlementChanged() {
-    if (widget.initialIntervalSec != null || _intervalTouchedByUser) return;
+    final List<String> nextRegions = _defaultRegions();
+    final bool regionsChanged =
+        !widget.isEdit &&
+        !_regionsTouchedByUser &&
+        nextRegions.length != _regions.length;
+
+    if (widget.initialIntervalSec != null || _intervalTouchedByUser) {
+      if (regionsChanged) setState(() => _regions = nextRegions);
+
+      return;
+    }
 
     final String next = _defaultIntervalToken();
-    if (next == _intervalValue) return;
-    setState(() => _intervalValue = next);
+    if (next == _intervalValue && !regionsChanged) return;
+    setState(() {
+      _intervalValue = next;
+      if (regionsChanged) _regions = nextRegions;
+    });
+  }
+
+  /// Resolves the create-time region selection: [widget.initialRegions],
+  /// truncated to the plan's allowance.
+  ///
+  /// The baseline default is two regions, which is more than Free allows, and
+  /// the picker deliberately never locks an ALREADY SELECTED tile (that is what
+  /// keeps a grandfathered monitor's stored regions from being silently
+  /// dropped). Without this the create form would therefore open a Free
+  /// operator on a selection their own plan refuses, and the first thing they
+  /// would learn is a 422 on save, which is the exact failure the region gate
+  /// exists to prevent.
+  ///
+  /// Never applies on an EDIT: a stored selection is the monitor's own
+  /// configuration and outranks the plan, exactly as the server's delta rule
+  /// allows.
+  List<String> _defaultRegions() {
+    final List<String> baseline = List<String>.from(widget.initialRegions);
+    if (widget.isEdit) return baseline;
+
+    final int? allowance = _entitlement.maxRegionsPerMonitor;
+    if (allowance == null || baseline.length <= allowance) return baseline;
+
+    return baseline.take(allowance).toList();
   }
 
   /// Resolves the create-time default interval token: [widget.initialInterval]
@@ -577,6 +621,9 @@ class _MonitorFormState extends State<MonitorForm> {
           onChanged: (next) => setState(() {
             _regions = next;
             _regionsError = null;
+            // A deliberate pick outranks the plan-derived default, so the
+            // entitlement landing later must not overwrite it.
+            _regionsTouchedByUser = true;
           }),
           maxSelected: _regionCap(),
           lockedPlanName: _regionLockedPlanName(),
