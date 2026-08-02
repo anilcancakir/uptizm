@@ -160,8 +160,19 @@ class ContentArchiveSchemaTest extends TestCase
         $this->assertTrue(Schema::hasTable('monitor_content_versions'));
         $this->assertTrue(Schema::hasColumn('monitor_checks', 'content_hash'));
 
-        $this->artisan('migrate:rollback', ['--step' => 2])
-            ->assertExitCode(0);
+        // Target the two migrations under test BY PATH rather than by a step
+        // count. The step-count form was a deliberate tripwire: its comment
+        // below records that a third migration landing after these two would
+        // take this test red rather than let it quietly roll back somebody
+        // else's work. That tripwire fired the first time an unrelated feature
+        // added a migration, which is the outcome it was designed to force.
+        // Naming the two files keeps the original guarantee (exactly these two
+        // roll back, nothing beyond them) without coupling it to what else the
+        // project has migrated since.
+        $this->artisan('migrate:rollback', ['--path' => [
+            'database/migrations/2026_08_01_000000_add_content_hashes_to_monitor_checks_table.php',
+            'database/migrations/2026_08_01_000001_create_monitor_content_versions_table.php',
+        ]])->assertExitCode(0);
 
         $this->assertFalse(
             Schema::hasTable('monitor_content_versions'),
