@@ -6,7 +6,6 @@ use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
-use App\Http\Controllers\Api\V1\MonitorController;
 use DateTimeInterface;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Builder;
@@ -47,9 +46,16 @@ class Monitor extends Model
     /**
      * Minimum number of seconds between two manual checks on the same
      * monitor. Enforced by an atomic conditional UPDATE on
-     * `last_manual_check_at` (see
-     * {@see MonitorController::test()}), not a
-     * route throttle: a route limiter cannot express "per monitor" cleanly.
+     * `last_manual_check_at` in the manual-check endpoint
+     * (`POST api/v1/monitors/{id}/test`), not a route throttle: a route
+     * limiter cannot express "per monitor" cleanly.
+     *
+     * The endpoint is named by its route rather than by its controller class
+     * on purpose. A `{@see}` on the controller reads better but costs a real
+     * `use App\Http\Controllers\...` in a domain model, because Pint's
+     * `fully_qualified_strict_types` fixer rewrites an inline FQCN back to a
+     * short name and restores the import. The route is the stabler address
+     * anyway.
      */
     public const int MANUAL_CHECK_COOLDOWN_SECONDS = 60;
 

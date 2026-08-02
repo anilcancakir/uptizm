@@ -1,13 +1,14 @@
 <?php
 
-use App\Http\Controllers\Api\V1\MonitorController;
+use App\Models\Monitor;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
  * Adds `last_manual_check_at`: the cooldown marker for `POST
- * monitors/{id}/test` (see {@see MonitorController::test()}).
+ * api/v1/monitors/{id}/test`, whose cooldown constant lives on
+ * {@see Monitor::MANUAL_CHECK_COOLDOWN_SECONDS}.
  *
  * It is claimed by a single conditional UPDATE rather than read-then-written,
  * so two concurrent manual-check requests cannot both pass the gate and
