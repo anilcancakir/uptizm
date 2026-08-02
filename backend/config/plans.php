@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\MonitorRegion;
+
 /*
 |--------------------------------------------------------------------------
 | Plan Catalog
@@ -35,8 +37,6 @@
 |   - per-tier history windows (retention is a single global 90-day Timescale
 |     policy on both hypertables; it is not plan-gated, so "3-day" understated
 |     Free and "1-year" overstated Business)
-|   - "all regions" as a paid feature (every tier can select all five; the enum
-|     is not gated by plan)
 |
 */
 
@@ -67,6 +67,7 @@ return [
                 'status_pages' => 1,
                 'subscribers' => 100,
                 'responders' => 1,
+                'regions' => 1,
                 'ai' => 'inbox',
                 // AI monitor analysis is open on Free, but metered: this many
                 // successful setups, then the plan wall. Paid tiers entitle it
@@ -100,6 +101,7 @@ return [
                 'status_pages' => 3,
                 'subscribers' => 1000,
                 'responders' => 3,
+                'regions' => count(MonitorRegion::cases()),
                 'ai' => 'analysis',
                 'white_label' => false,
                 'private_pages' => false,
@@ -134,6 +136,7 @@ return [
                 'status_pages' => 10,
                 'subscribers' => 10000,
                 'responders' => 10,
+                'regions' => count(MonitorRegion::cases()),
                 'ai' => 'auto',
                 'white_label' => true,
                 'private_pages' => true,
@@ -166,6 +169,7 @@ return [
                 'status_pages' => null,
                 'subscribers' => null,
                 'responders' => null,
+                'regions' => count(MonitorRegion::cases()),
                 'ai' => 'custom',
                 'white_label' => true,
                 'private_pages' => true,

@@ -2,6 +2,7 @@
 
 namespace App\Services\Billing;
 
+use App\Enums\MonitorRegion;
 use App\Exceptions\PlanUpgradeRequiredException;
 use App\Models\Monitor;
 use App\Models\StatusPage;
@@ -69,6 +70,17 @@ class PlanGate
     public function minCheckIntervalSec(Team $team): int
     {
         return (int) ($this->limits($team)['check_interval_sec'] ?? 5);
+    }
+
+    /**
+     * How many regions a single monitor may check from. Defaults to the most
+     * permissive cap (every region) when the plan carries no catalog cap, so
+     * an unrecognized or missing tier never regresses a monitor already
+     * running on multiple regions.
+     */
+    public function maxRegionsPerMonitor(Team $team): int
+    {
+        return (int) ($this->limits($team)['regions'] ?? count(MonitorRegion::cases()));
     }
 
     /** Whether the plan allows white-labelling status pages. */
