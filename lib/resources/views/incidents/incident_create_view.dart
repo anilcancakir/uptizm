@@ -5,10 +5,13 @@ import 'package:magic_starter/magic_starter.dart';
 import 'incident_form_support.dart';
 import '../monitors/monitor_metrics_support.dart';
 import '../../../app/controllers/incident_controller.dart';
+import '../../../app/controllers/maintenance_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
+import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/enums/ai_confidence.dart' show AiConfidence;
 import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
+import '../../../app/models/status_page.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/layouts/page_container.dart';
@@ -63,11 +66,17 @@ enum _IncidentKind {
 /// are auto-width inside a `flex flex-row justify-end gap-3` row (never `w-full`
 /// in a Row, which forces unbounded width and aborts the layout).
 ///
+/// ### Both kinds write
 /// Submitting the incident kind fires `POST /incidents` via
 /// [IncidentController.create] with the form's real `monitor_id`/`severity`/
-/// `title`/`message`, then navigates to the incidents list; the maintenance
-/// kind has no backend counterpart yet, so it stays the navigation-only mock.
-/// Cancel always just navigates back.
+/// `title`/`message`. Submitting the maintenance kind fires
+/// `POST /scheduled-maintenances` via [MaintenanceController.create] with the
+/// window's `status_page_id`/`title`/`description`/`starts_at`/`ends_at`/
+/// `monitor_ids` (see [_buildMaintenanceFields]); the backend announces it to
+/// the page's confirmed subscribers and holds paging for the attached monitors
+/// while it is open. Both navigate to the incidents list on success and paint a
+/// server 422 into the matching inline error slot. Cancel always just navigates
+/// back.
 ///
 /// ### Example
 /// ```dart
@@ -86,8 +95,26 @@ class IncidentCreateView extends MagicStatefulView<IncidentController> {
 
 class _IncidentCreateViewState
     extends MagicStatefulViewState<IncidentController, IncidentCreateView> {
-  /// The route both submit and cancel return to (mock: nothing persists).
+  /// The route cancel returns to, and the back-affordance fallback.
+  ///
+  /// Both write paths navigate there from their own controller on success, so
+  /// this constant is the cancel/back leg only.
   static const String _doneRoute = '/incidents';
+
+  /// How far ahead the default maintenance window opens, and how long it runs.
+  ///
+  /// The window bounds are never null (the picker is seeded in [initState]), so
+  /// the form needs no required-window copy and the operator can submit the
+  /// default slot as-is. An hour out on the next quarter hour is a plausible
+  /// planned slot; "right now, mid-minute" is not.
+  static const Duration _defaultWindowLeadTime = Duration(hours: 1);
+
+  /// The default window's duration.
+  static const Duration _defaultWindowDuration = Duration(hours: 1);
+
+  /// Minutes per step of the window pickers' time row. Matches the quarter-hour
+  /// rounding of the seeded default so stepping stays on clean boundaries.
+  static const int _windowMinuteStep = 15;
 
   /// The active incident kind (React `kind`, default `incident`).
   _IncidentKind _kind = _IncidentKind.incident;
@@ -120,11 +147,32 @@ class _IncidentCreateViewState
   /// `down`; maintenance pins it to `info`).
   String _impact = 'down';
 
-  /// The maintenance-window start, as a raw string (React `startsAt`).
-  String _startsAt = '';
+  /// The maintenance-window start, as a LOCAL [DateTime] (React `startsAt`).
+  ///
+  /// Local because that is what the operator picks and reads back; the
+  /// conversion to UTC happens once, on the way out, in
+  /// [_buildMaintenanceFields]. Dart's [DateTime] cannot carry an arbitrary
+  /// offset (dart-lang/sdk#54993, closed as by-design), so a naive local string
+  /// crossing the wire silently loses the operator's offset against a database
+  /// session pinned to UTC.
+  late DateTime _startsAt;
 
-  /// The maintenance-window end, as a raw string (React `endsAt`).
-  String _endsAt = '';
+  /// Inline validation error for the Starts field, or null when it is valid.
+  ///
+  /// Server-side only: the field cannot be blank (see [_startsAt]), so there is
+  /// no client-side check to run, and the backend is the only thing that can
+  /// reject a window's start.
+  String? _startsAtError;
+
+  /// The maintenance-window end, as a LOCAL [DateTime] (React `endsAt`).
+  late DateTime _endsAt;
+
+  /// Inline validation error for the Ends field, or null when it is valid.
+  ///
+  /// Painted by the backend's `after:starts_at` rejection, which is the one
+  /// window rule the client does not duplicate: the server owns it and its
+  /// message already names the constraint.
+  String? _endsAtError;
 
   /// The first public update (React `message`).
   String _message = '';
@@ -162,13 +210,20 @@ class _IncidentCreateViewState
       });
     }
 
-    // 1. Read the AI-promotion suggestion id from the router query itself; the
+    // 1. Seed the maintenance window on the next clean quarter hour. Both
+    //    bounds are non-null for the rest of the view's life, which is what
+    //    lets the datetime pickers stay uncontrolled-by-null and the wire map
+    //    convert unconditionally.
+    _startsAt = _nextQuarterHour().add(_defaultWindowLeadTime);
+    _endsAt = _startsAt.add(_defaultWindowDuration);
+
+    // 2. Read the AI-promotion suggestion id from the router query itself; the
     //    page builder gets no query params, so the view resolves them here.
     final String? fromId = MagicRouter.instance.queryParameters['from'];
     final Incident? suggestion = controller.incidentById(fromId);
     _suggestion = suggestion;
 
-    // 2. Seed the form. With a resolved suggestion, prefill title/affected/
+    // 3. Seed the form. With a resolved suggestion, prefill title/affected/
     //    severity from the promoted anomaly; otherwise start blank at the React
     //    defaults.
     if (suggestion != null) {
@@ -190,6 +245,23 @@ class _IncidentCreateViewState
 
   /// Whether the current kind is scheduled maintenance (React `isMaintenance`).
   bool get _isMaintenance => _kind == _IncidentKind.maintenance;
+
+  /// The wall clock rounded UP to the next quarter hour, seconds dropped.
+  ///
+  /// The seed for the default window bounds: a planned slot reads as a clean
+  /// time, and a value already on a [_windowMinuteStep] boundary keeps the time
+  /// row's stepping on clean boundaries too.
+  DateTime _nextQuarterHour() {
+    final DateTime now = DateTime.now();
+    final DateTime floor = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute - (now.minute % _windowMinuteStep),
+    );
+    return floor.add(const Duration(minutes: _windowMinuteStep));
+  }
 
   /// Resolves a monitor display name to its stable id, or `null` when the
   /// suggestion's monitor is not in the fixture (the affected list then stays
@@ -409,26 +481,99 @@ class _IncidentCreateViewState
     );
   }
 
-  /// Builds the maintenance-only Starts + Ends inputs, two columns from `sm`.
+  /// Builds the maintenance-only Starts + Ends window pickers, two columns from
+  /// `sm`.
+  ///
+  /// Wind's [WDatePickerMode.dateTime] is the control: it captures a date AND a
+  /// time of day and hands back a full local [DateTime], which is what a
+  /// maintenance window needs and what the two free-text inputs that used to sit
+  /// here could never guarantee.
   Widget _buildScheduleFields() {
     return WDiv(
       className: 'grid grid-cols-1 sm:grid-cols-2 gap-5',
       children: [
         MSFormField(
           label: trans('uptizm.incidents.form_starts_label'),
-          child: MSInput(
+          error: _startsAtError,
+          child: _buildWindowPicker(
+            slot: 'starts',
+            label: trans('uptizm.incidents.form_starts_label'),
             value: _startsAt,
-            onChanged: (value) => setState(() => _startsAt = value),
+            hasError: _startsAtError != null,
+            onChanged: (value) => setState(() {
+              _startsAt = value;
+              _startsAtError = null;
+            }),
           ),
         ),
         MSFormField(
           label: trans('uptizm.incidents.form_ends_label'),
-          child: MSInput(
+          error: _endsAtError,
+          child: _buildWindowPicker(
+            slot: 'ends',
+            label: trans('uptizm.incidents.form_ends_label'),
             value: _endsAt,
-            onChanged: (value) => setState(() => _endsAt = value),
+            hasError: _endsAtError != null,
+            // The end bound cannot precede the start bound, so the picker
+            // refuses those days outright rather than letting the operator
+            // submit into the backend's `after:starts_at` rejection.
+            minDate: _startsAt,
+            onChanged: (value) => setState(() {
+              _endsAt = value;
+              _endsAtError = null;
+            }),
           ),
         ),
       ],
+    );
+  }
+
+  /// Builds one window bound's datetime picker.
+  ///
+  /// The label and the error message live in the surrounding [MSFormField] (the
+  /// form's own slots), so the picker renders neither: its built-in label and
+  /// error styling carries raw palette classes, which this app's token-only rule
+  /// forbids. The trigger mirrors [MSInput]'s recipe, error variant included,
+  /// through the `error:` state Wind resolves from [WDatePicker.states].
+  ///
+  /// [value] seeds the field ONCE, as any [FormField] does: the picked value
+  /// afterwards lives in the field's own state and reaches this view through
+  /// [onChanged]. That is why nothing here moves a bound programmatically; a
+  /// write to [_startsAt] / [_endsAt] the field never heard about would leave
+  /// the trigger showing a time the form no longer holds.
+  Widget _buildWindowPicker({
+    required String slot,
+    required String label,
+    required DateTime value,
+    required bool hasError,
+    required ValueChanged<DateTime> onChanged,
+    DateTime? minDate,
+  }) {
+    return WFormDatePicker(
+      // Stable per bound: the pair is unmounted whole when the kind switches
+      // (which re-seeds both from this state) and must never swap identity
+      // while it is mounted, since that would close an open popover mid-edit.
+      key: ValueKey<String>('maintenance-window-$slot'),
+      mode: WDatePickerMode.dateTime,
+      initialValue: value,
+      minDate: minDate,
+      minuteStep: _windowMinuteStep,
+      // The trigger's Semantics label, not visible copy: a bound always has a
+      // value, so the placeholder never renders. Passing the field name keeps
+      // the control announced as "Starts" / "Ends" instead of wind's untranslated
+      // default.
+      placeholder: label,
+      // The popover's two labels have no dedicated key in the incidents
+      // namespace and this step does not own the lang assets; both of these
+      // exist and are translated, so the popover stays localized.
+      timeLabel: trans('uptizm.monitors.check_col_time'),
+      doneLabel: trans('common.done'),
+      states: hasError ? const {'error'} : const {},
+      className:
+          'w-full rounded-lg border px-3 py-2.5 text-sm text-fg '
+          'bg-surface-container-high border-color-border '
+          'error:border-bg-destructive',
+      onChanged: onChanged,
     );
   }
 
@@ -557,22 +702,24 @@ class _IncidentCreateViewState
   }
 
   /// Submits the form: runs the client-side required checks first, then threads
-  /// the real field values into [IncidentController.create] so `POST /incidents`
-  /// fires (the maintenance kind has no backend counterpart, so it stays the
-  /// navigation-only mock).
+  /// the real field values into the write that matches the kind, so either
+  /// `POST /incidents` ([IncidentController.create]) or
+  /// `POST /scheduled-maintenances` ([MaintenanceController.create]) fires.
   ///
   /// A blank required field surfaces inline via [_validateClientSide] without a
-  /// round trip. Only when the client checks pass does it await
-  /// [IncidentController.create]; a non-empty result (a server 422) is a
-  /// field-error map keyed by the posted wire field names, which
-  /// [_applyServerErrors] paints under the matching fields. A returned key the
-  /// form owns no slot for is surfaced as the generic error toast.
+  /// round trip. Only when the client checks pass does it await the write; a
+  /// non-empty result (a server 422) is a field-error map keyed by the posted
+  /// wire field names, which [_applyServerErrors] paints under the matching
+  /// fields. A returned key the form owns no slot for is surfaced as the generic
+  /// error toast (`status_page_id` is the one that matters: the form resolves
+  /// that field rather than collecting it, so a team with no status page at all
+  /// hears the reason from the server instead of watching a silent no-op).
   Future<void> _onSubmit() async {
     if (!_validateClientSide()) return;
 
-    final Map<String, String> serverErrors = await controller.create(
-      _isMaintenance ? null : _buildCreateFields(),
-    );
+    final Map<String, String> serverErrors = _isMaintenance
+        ? await _submitMaintenance()
+        : await controller.create(_buildCreateFields());
     if (!mounted || serverErrors.isEmpty) return;
 
     final Map<String, String> unmapped = _applyServerErrors(serverErrors);
@@ -592,6 +739,12 @@ class _IncidentCreateViewState
   /// guards [_buildCreateFields]'s `_affected.first` read). Both slots are
   /// always written (a passing check clears its slot) so a previously shown
   /// error never lingers after a corrected resubmit.
+  ///
+  /// Both kinds run the same two checks. The maintenance endpoint would in fact
+  /// accept a window with no `monitor_ids`, but such a window suppresses no
+  /// alert and renders no component on the status page, so the form keeps
+  /// requiring one. The window bounds need no check at all: they are seeded and
+  /// picked, never blank ([_startsAt]).
   bool _validateClientSide() {
     final String? titleError = _title.trim().isEmpty
         ? trans('uptizm.incidents.form_title_error_required')
@@ -611,6 +764,10 @@ class _IncidentCreateViewState
   /// Routes a backend 422 field-error map (keyed by the wire field names the
   /// form posts) into the inline error slots, returning the entries that map to
   /// no known field so the caller can surface them another way.
+  ///
+  /// Both kinds' wire names are handled: `monitor_id` (incident) and
+  /// `monitor_ids`, including its per-entry `monitor_ids.0` form (maintenance),
+  /// share the affected-monitors slot, and the two window bounds have their own.
   Map<String, String> _applyServerErrors(Map<String, String> errors) {
     final Map<String, String> unmapped = {};
     setState(() {
@@ -620,12 +777,97 @@ class _IncidentCreateViewState
             _titleError = entry.value;
           case 'monitor_id':
             _affectedError = entry.value;
+          case 'starts_at':
+            _startsAtError = entry.value;
+          case 'ends_at':
+            _endsAtError = entry.value;
+          case final String key when key.startsWith('monitor_ids'):
+            _affectedError = entry.value;
           default:
             unmapped[entry.key] = entry.value;
         }
       }
     });
     return unmapped;
+  }
+
+  /// Persists the maintenance window through [MaintenanceController.create],
+  /// resolving the status page it is announced on first.
+  ///
+  /// Returns the same field-error map contract [_onSubmit] expects. With no
+  /// status page resolvable at all, the `status_page_id` key is simply left out
+  /// and the backend's own required-field 422 is what the operator sees: the one
+  /// thing this path must never do is what it did before, which is report
+  /// success for a window nothing wrote.
+  Future<Map<String, String>> _submitMaintenance() async {
+    final String? statusPageId = await _resolveStatusPageId();
+    if (!mounted) return const {};
+
+    return MaintenanceController.instance.create(
+      _buildMaintenanceFields(statusPageId),
+    );
+  }
+
+  /// Resolves the status page the window is announced on.
+  ///
+  /// The form collects no page (the maintenance kind has no control for one, and
+  /// this step does not own the lang assets a new labelled field would need), so
+  /// it is derived: the first page publishing one of the affected monitors,
+  /// falling back to the team's first page. That ordering matters, because the
+  /// announcement goes to THAT page's subscribers and its window renders on THAT
+  /// page; picking a page unrelated to the affected components would mail the
+  /// wrong audience.
+  ///
+  /// Awaits a roster fetch when the cache is cold: `StatusPageController` is
+  /// read here as a secondary controller, and `onInit` never fires for one, so
+  /// nothing else would have loaded it.
+  Future<String?> _resolveStatusPageId() async {
+    final StatusPageController pages = StatusPageController.instance;
+    if (pages.statusPages.isEmpty) {
+      await pages.reload();
+    }
+
+    final List<StatusPage> roster = pages.statusPages;
+    if (roster.isEmpty) return null;
+
+    final Set<String> affected = _affected.toSet();
+    for (final StatusPage page in roster) {
+      if (page.monitorIds.any(affected.contains)) return page.id;
+    }
+
+    return roster.first.id;
+  }
+
+  /// Builds the `POST /scheduled-maintenances` field map
+  /// (`StoreScheduledMaintenanceRequest`): the resolved [statusPageId], the
+  /// trimmed `title`, the first update as the public `description` (omitted when
+  /// blank, matching the rule's `nullable`), the two window bounds, and the
+  /// affected monitors as the `monitor_ids` pivot list.
+  ///
+  /// **Every datetime crosses the wire as UTC.** `.toUtc().toIso8601String()` is
+  /// the conversion, and the trailing `Z` is the point: Dart's [DateTime] cannot
+  /// carry an arbitrary offset, so a naive local string would arrive at a
+  /// database session pinned to UTC and shift the window by the operator's
+  /// offset, opening and closing planned work at the wrong hour.
+  ///
+  /// Two fields the endpoint accepts are deliberately absent. `suppress_alerts`
+  /// is `sometimes` and defaults to true in both the schema and the model, and
+  /// the form exposes no control for it, so posting a client-side default would
+  /// be this view asserting a choice the operator never made. `announced_at` is
+  /// the backend's announce-once guard and no request class accepts it.
+  Map<String, dynamic> _buildMaintenanceFields(String? statusPageId) {
+    final Map<String, dynamic> fields = <String, dynamic>{
+      'status_page_id': ?statusPageId,
+      'title': _title.trim(),
+      'starts_at': _startsAt.toUtc().toIso8601String(),
+      'ends_at': _endsAt.toUtc().toIso8601String(),
+      'monitor_ids': List<String>.from(_affected),
+    };
+    final String description = _message.trim();
+    if (description.isNotEmpty) {
+      fields['description'] = description;
+    }
+    return fields;
   }
 
   /// Builds the `POST /incidents` field map (`StoreIncidentRequest`):
