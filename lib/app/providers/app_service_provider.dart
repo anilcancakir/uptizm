@@ -8,6 +8,7 @@ import '../services/locale_application_service.dart';
 import '../services/realtime_service.dart';
 import '../support/web_links.dart';
 import '../../ui/layouts/app_layout.dart';
+import '../../ui/layouts/page_container.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
 
 /// Application Service Provider.
@@ -129,6 +130,13 @@ class AppServiceProvider extends ServiceProvider {
       'layout.app',
       (child) => AppLayout(child: child),
     );
+
+    // Magic Starter: cap its settings pages at uptizm's own page width. Sharing
+    // the shell is not enough to look like one app: the starter's scaffold
+    // centres its own column, and at its wider default the settings header
+    // started 64px further out per side than the header on every other page.
+    MagicStarter.manager.settingsMaxWidthClassName =
+        PageContainer.maxWidthClassName;
 
     // Magic Starter: Inject uptizm's Team + About groups into the settings hub
     // via its footer slot. The starter owns Account/Security/Preferences; these

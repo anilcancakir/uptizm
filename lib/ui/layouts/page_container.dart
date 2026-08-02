@@ -31,6 +31,15 @@ import 'package:magic/magic.dart';
 /// ```
 @immutable
 class PageContainer extends StatelessWidget {
+  /// The one content width every page in the app shares.
+  ///
+  /// Exposed as a constant because a second surface has to agree with it:
+  /// magic_starter's settings scaffold caps its own column, and left at the
+  /// starter's wider default it centred the settings pages 64px further out per
+  /// side than every other page inside the same shell (see
+  /// `AppServiceProvider.boot`).
+  static const String maxWidthClassName = 'max-w-6xl';
+
   /// The page content laid out inside the shared container.
   final Widget child;
 
@@ -53,7 +62,7 @@ class PageContainer extends StatelessWidget {
         //    max-w-6xl centered via mx-auto; padding widens at sm:/lg:.
         className:
             '''
-          w-full max-w-6xl mx-auto
+          w-full $maxWidthClassName mx-auto
           px-4 sm:px-5 lg:px-8
           pt-6 sm:pt-8 pb-24
           ${className ?? ''}
