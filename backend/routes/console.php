@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\AggregateMonitorDailyUptime;
+use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
 use App\Jobs\PruneContentArchive;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Jobs\ScheduleSslChecks;
@@ -60,3 +61,14 @@ Schedule::job(new SweepAiSuggestions)
     ->withoutOverlapping()
     ->onOneServer()
     ->name('monitoring:sweep-ai-suggestions');
+
+// Bust the public status-page cache when a maintenance window opens or closes.
+// Every other bust in this system hangs off a write; a window's boundaries are
+// timestamps, so nothing happens in the application when the clock crosses them
+// and the page keeps serving a read model built before the window existed.
+// Every minute, because a boundary is minute-grained.
+Schedule::job(new BustStatusPageCacheForMaintenanceBoundaries)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('status-pages:bust-maintenance-boundaries');

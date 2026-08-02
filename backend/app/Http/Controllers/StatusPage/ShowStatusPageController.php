@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\StatusPage;
 
 use App\Http\ViewModels\StatusPageViewModel;
+use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
 use App\Models\StatusPage;
 use App\Services\StatusPages\StatusPageAssembler;
 use Illuminate\Http\Request;
@@ -40,6 +41,16 @@ class ShowStatusPageController
      * seeded-URL workflow already in use.
      */
     public const string PREVIEW_TOKEN_HEADER = 'X-Preview-Token';
+
+    /**
+     * Cache-key prefix of a public page's cached read model.
+     *
+     * Public because the key is forgotten from OUTSIDE this controller: the
+     * maintenance-boundary sweep ({@see BustStatusPageCacheForMaintenanceBoundaries})
+     * busts it when a window opens or closes, and a second literal over there
+     * would drift from this one the day the key changes.
+     */
+    public const string CACHE_KEY_PREFIX = 'status-page:';
 
     public function __construct(
         protected StatusPageAssembler $assembler,
@@ -82,7 +93,7 @@ class ShowStatusPageController
         // 4. Public path: cache the plain-array read model (never the object)
         //    and rehydrate it for the view.
         $data = Cache::remember(
-            "status-page:{$page->slug}",
+            self::CACHE_KEY_PREFIX.$page->slug,
             60,
             fn (): array => $this->assembler->build($page)->toArray(),
         );

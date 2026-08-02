@@ -10,12 +10,16 @@ use App\Events\MonitorStatusChanged;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\NotificationChannel;
+use App\Models\ScheduledMaintenance;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\OnCall\EscalationDispatcher;
 use App\Services\StatusPages\StatusPageCache;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Notifications\Notification as NotificationInstance;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -56,6 +60,12 @@ class IncidentDispatcher
      * recovery alerts stays silent. The broadcasts are a live UI refresh, not a
      * page, so they ignore the `alert_on_*` gate entirely.
      *
+     * A second gate sits in front of the paging paths: an open
+     * {@see ScheduledMaintenance} window withholds every page for the monitors
+     * ATTACHED TO IT, so planned work does not wake anyone. It withholds the
+     * page only: the incident still opens, still broadcasts, and still busts the
+     * public page's cache.
+     *
      * @param  Monitor  $monitor  The monitor whose evaluation produced the outcome.
      * @param  array{
      *     opened: ?Incident,
@@ -66,18 +76,32 @@ class IncidentDispatcher
      */
     public function dispatch(Monitor $monitor, array $outcome): void
     {
+        // 0. Resolve the planned window (if any) muting this monitor right now.
+        //    Only a lifecycle change can page, so a quiet evaluation never pays
+        //    for the query, and a suppression is logged rather than taken
+        //    silently: an unexplained missing page is indistinguishable from a
+        //    broken alert pipeline.
+        $suppressedBy = $outcome['opened'] !== null || $outcome['resolved'] !== null
+            ? $this->openSuppressingWindow($monitor)
+            : null;
+
+        if ($suppressedBy !== null) {
+            $this->logSuppression($monitor, $suppressedBy, $outcome['opened'] ?? $outcome['resolved']);
+        }
+
         // 1. A threshold open pages the team, gated on the down-alert flag, then
         //    fans out to the team's enabled integration channels (Slack/webhook)
         //    under the same gate: a muted monitor stays silent everywhere.
-        if ($outcome['opened'] !== null && $monitor->alert_on_down) {
+        if ($outcome['opened'] !== null && $monitor->alert_on_down && $suppressedBy === null) {
             $opened = new IncidentOpened($outcome['opened']);
             Notification::send($outcome['opened']->team->users, $opened);
             $this->dispatchChannels($outcome['opened'], $opened, 'opened');
         }
 
         // 2. A recovery clears the page, gated on the recover-alert flag, and
-        //    mirrors the open path's channel fan-out.
-        if ($outcome['resolved'] !== null && $monitor->alert_on_recover) {
+        //    mirrors the open path's channel fan-out. Also withheld inside a
+        //    window: relief from a page nobody received is noise.
+        if ($outcome['resolved'] !== null && $monitor->alert_on_recover && $suppressedBy === null) {
             $resolved = new IncidentResolved($outcome['resolved']);
             Notification::send($outcome['resolved']->team->users, $resolved);
             $this->dispatchChannels($outcome['resolved'], $resolved, 'resolved');
@@ -123,10 +147,58 @@ class IncidentDispatcher
         //    This is an additive side effect on `opened`: it queues the paging
         //    chain (on-call resolution + delayed step jobs) without touching the
         //    notification/broadcast/cache ordering above. A team with no policy
-        //    escalates to nothing (the dispatcher no-ops).
-        if ($outcome['opened'] !== null) {
+        //    escalates to nothing (the dispatcher no-ops). The ladder is the
+        //    loudest page of all, so an open window withholds it too, and unlike
+        //    step 1 it is ungated by `alert_on_down`, so this check is the only
+        //    thing standing between planned work and a 3am phone call.
+        if ($outcome['opened'] !== null && $suppressedBy === null) {
             $this->escalationDispatcher->escalate($outcome['opened']);
         }
+    }
+
+    /**
+     * The open, alert-suppressing maintenance window this monitor is attached
+     * to, or null when it is not inside one.
+     *
+     * Deliberately narrow, and the narrowness is the point: the match is on the
+     * window's OWN pivot rows and on the clock sitting between its own bounds.
+     * Widening it to the team or to the containing status page would silence a
+     * genuine outage on a monitor nobody planned work for, which is a far more
+     * expensive failure than a page an operator expected.
+     *
+     * `suppress_alerts` is the switch; a window created with it off announces
+     * the work publicly and still pages.
+     */
+    protected function openSuppressingWindow(Monitor $monitor): ?ScheduledMaintenance
+    {
+        $now = CarbonImmutable::now();
+
+        return ScheduledMaintenance::query()
+            ->where('suppress_alerts', true)
+            ->where('starts_at', '<=', $now)
+            ->where('ends_at', '>=', $now)
+            ->whereHas(
+                'monitors',
+                fn (Builder $monitors): Builder => $monitors->whereKey($monitor->getKey()),
+            )
+            ->first();
+    }
+
+    /**
+     * Record a withheld page at info level, naming the monitor and the window
+     * so `pail` answers "why did nobody get paged" without a database session.
+     *
+     * @param  Incident|null  $incident  The lifecycle incident the page belonged to.
+     */
+    protected function logSuppression(Monitor $monitor, ScheduledMaintenance $window, ?Incident $incident): void
+    {
+        Log::info('Incident paging suppressed by an open maintenance window.', [
+            'monitor_id' => $monitor->getKey(),
+            'scheduled_maintenance_id' => $window->getKey(),
+            'incident_id' => $incident?->getKey(),
+            'window_starts_at' => $window->starts_at?->toIso8601String(),
+            'window_ends_at' => $window->ends_at?->toIso8601String(),
+        ]);
     }
 
     /**
