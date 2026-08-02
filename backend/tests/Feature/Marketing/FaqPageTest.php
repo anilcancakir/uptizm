@@ -7,6 +7,7 @@ use App\Enums\MonitorType;
 use App\Enums\NotificationChannelType;
 use App\Services\Ai\IncidentAnalysisPayload;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -97,23 +98,31 @@ class FaqPageTest extends TestCase
          * answer counts. The nouns are per-locale because they are the document's words, not a
          * translator string: the FAQ Markdown is authored per language and only digits and
          * proper nouns route through a placeholder.
+         *
+         * The English noun is stored SINGULAR and pluralized here against the live config
+         * value, which is what makes this a real guard rather than a mirror. The Markdown
+         * types its nouns ("[[faq.free_regions]] region"), so an expectation that typed the
+         * same singular would render "2 region" on both sides and pass while shipping broken
+         * copy. Deriving the plural means raising a Free limit off 1 fails HERE, naming the
+         * answer whose wording has to follow. Turkish stores the noun as written, because a
+         * Turkish noun after a numeral does not take the plural suffix.
          */
         $nouns = [
             'en' => [
-                'monitors' => '%s monitor',
-                'status_pages' => '%s status page',
-                'subscribers' => '%s email subscribers',
-                'responders' => '%s responder',
-                'ai_analysis_trials' => '%s free AI monitor setups',
-                'regions' => '%s region',
+                'monitors' => 'monitor',
+                'status_pages' => 'status page',
+                'subscribers' => 'email subscriber',
+                'responders' => 'responder',
+                'ai_analysis_trials' => 'free AI monitor setup',
+                'regions' => 'region',
             ],
             'tr' => [
-                'monitors' => '%s monitör',
-                'status_pages' => '%s durum sayfası',
-                'subscribers' => '%s e-posta abonesi',
-                'responders' => '%s nöbetçi',
-                'ai_analysis_trials' => '%s ücretsiz AI monitör kurulumu',
-                'regions' => '%s bölge',
+                'monitors' => 'monitör',
+                'status_pages' => 'durum sayfası',
+                'subscribers' => 'e-posta abonesi',
+                'responders' => 'nöbetçi',
+                'ai_analysis_trials' => 'ücretsiz AI monitör kurulumu',
+                'regions' => 'bölge',
             ],
         ];
 
@@ -126,7 +135,11 @@ class FaqPageTest extends TestCase
             $value = (string) Arr::get($free, "limits.{$key}");
 
             foreach ($this->supported() as $locale) {
-                $this->get($this->pathFor($locale))->assertSee(sprintf($nouns[$locale][$key], $value));
+                $noun = $locale === 'en'
+                    ? Str::plural($nouns['en'][$key], (int) $value)
+                    : $nouns[$locale][$key];
+
+                $this->get($this->pathFor($locale))->assertSee("{$value} {$noun}");
             }
         }
     }
