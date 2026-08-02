@@ -14,6 +14,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * secret credential, but both are hidden from array/JSON output since
  * they are single-purpose access tokens with no reason to leak.
  *
+ * Two timestamps look alike and are not: `confirmed_at` says the row is active,
+ * while `opt_in_confirmed_at` says THIS system recorded a click on a confirm
+ * link for this address. Only the public confirm endpoint may write the second
+ * one, and outbound announcements select on it alone, because rows written
+ * before it existed carry `confirmed_at` with no way to tell a proven opt-in
+ * from a pasted address.
+ *
  * Relationships:
  * - belongs to {@see StatusPage} (the page this subscriber follows)
  */
@@ -31,6 +38,7 @@ class StatusPageSubscriber extends Model
         'unsubscribe_token',
         'subscribed_at',
         'confirmed_at',
+        'opt_in_confirmed_at',
         'newsletter_opt_in',
     ];
 
@@ -48,6 +56,7 @@ class StatusPageSubscriber extends Model
     protected $casts = [
         'subscribed_at' => 'datetime',
         'confirmed_at' => 'datetime',
+        'opt_in_confirmed_at' => 'datetime',
         'newsletter_opt_in' => 'boolean',
     ];
 

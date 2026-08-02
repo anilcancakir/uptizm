@@ -235,7 +235,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     Route::get('status-pages/{statusPage:id}/subscribers', [StatusPageController::class, 'listSubscribers'])
         ->name('api.v1.status-pages.subscribers.index');
+    // Throttled by name because one accepted request queues a confirmation mail
+    // to an address the operator typed, and `api/v1` is otherwise unthrottled.
+    // The plan's per-page cap bounds how many subscribers a page may hold; this
+    // bounds the rate at which mail leaves for them.
     Route::post('status-pages/{statusPage:id}/subscribers', [StatusPageController::class, 'addSubscriber'])
+        ->middleware('throttle:status-page-subscriber-add')
         ->name('api.v1.status-pages.subscribers.store');
     Route::delete('status-pages/{statusPage:id}/subscribers/{subscriber}', [StatusPageController::class, 'removeSubscriber'])
         ->name('api.v1.status-pages.subscribers.destroy');

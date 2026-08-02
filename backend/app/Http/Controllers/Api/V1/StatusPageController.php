@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateStatusPageRequest;
 use App\Http\Resources\StatusPageResource;
 use App\Http\Resources\StatusPageSubscriberResource;
 use App\Jobs\RenderStatusPagePreview;
+use App\Mail\StatusPageSubscribeConfirmation;
 use App\Models\Monitor;
 use App\Models\StatusPage;
 use App\Models\StatusPageSubscriber;
@@ -20,6 +21,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -279,14 +281,25 @@ class StatusPageController extends Controller
     }
 
     /**
-     * Direct-add a subscriber to a status page owned by the current team.
+     * Add a subscriber to a status page owned by the current team, through the
+     * same double opt-in the public {@see SubscribeController} enforces.
      *
-     * Unlike the public {@see SubscribeController}
-     * double opt-in, an admin add is trusted: the subscriber is created already
-     * confirmed (`confirmed_at = now()`, no `confirmed_token`) and NO
-     * confirmation mail is sent. The email rule mirrors the public store; the
-     * dedupe on the `(status_page_id, email)` unique constraint returns the
-     * existing row rather than leaking a constraint-violation 500.
+     * There is no trusted add. An operator typing an address proves nothing
+     * about whether its owner asked for mail, and this endpoint is reachable by
+     * any member of any team, so a free account could otherwise turn its
+     * subscriber allowance into that many unsolicited messages from the
+     * product's own authenticated sending domain. The row is created UNCONFIRMED
+     * with a `confirmed_token`, the same confirmation mail the public path sends
+     * is QUEUED to the entered address only, and neither `confirmed_at` nor
+     * `opt_in_confirmed_at` is written here: only clicking the link sets those,
+     * and the announcement path selects on the latter.
+     *
+     * Two behaviours predate the consent change and are preserved. The email
+     * rule mirrors the public store, and the dedupe on the
+     * `(status_page_id, email)` unique constraint returns the existing row
+     * rather than leaking a constraint-violation 500 (and sends no second mail,
+     * so a repeat add is not a way to re-mail an address). The plan's per-page
+     * subscriber cap is enforced before any row or mail exists.
      */
     public function addSubscriber(Request $request, StatusPage $statusPage): JsonResponse
     {
@@ -319,14 +332,20 @@ class StatusPageController extends Controller
             ]);
         }
 
-        // 2. Trusted direct-add: create an already-confirmed subscriber with an
-        //    unsubscribe token but no confirm token and no double opt-in mail.
+        // 2. Mint an UNCONFIRMED subscriber, mirroring the public flow's shape
+        //    exactly: a confirm token, an unsubscribe token, and no consent
+        //    timestamp of either kind until the recipient clicks.
         $subscriber = $statusPage->subscribers()->create([
             'email' => $email,
+            'confirmed_token' => Str::random(48),
             'unsubscribe_token' => Str::random(48),
             'subscribed_at' => now(),
-            'confirmed_at' => now(),
         ]);
+
+        // 3. Queued, not sent inline like the public path: this request is
+        //    answered by an Octane worker, and a third-party transport call on
+        //    the request path blocks it for the whole handshake.
+        Mail::to($email)->queue(new StatusPageSubscribeConfirmation($statusPage, $subscriber));
 
         return StatusPageSubscriberResource::make($subscriber)
             ->response()

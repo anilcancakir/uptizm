@@ -114,8 +114,15 @@ class SubscribeController
             abort(404);
         }
 
+        // This is the ONLY place `opt_in_confirmed_at` is ever written, from
+        // either the public or the operator surface. It records that a click on a
+        // confirm link reached this system for this address, which is what the
+        // outbound announcement path selects recipients on: `confirmed_at` alone
+        // cannot distinguish a proven opt-in from a row an operator typed in
+        // before the add path required a click.
         $subscriber->update([
             'confirmed_at' => now(),
+            'opt_in_confirmed_at' => now(),
             'confirmed_token' => null,
         ]);
 

@@ -213,6 +213,38 @@ return Application::configure(basePath: dirname(__DIR__))
             ],
         );
 
+        // Bound the operator-side subscriber add. REQUIRED for the same reason the
+        // preview-render trigger above is: `api/v1` never calls throttleApi(), so
+        // nothing else caps how fast an authenticated member can spend this
+        // endpoint, and since the add now mints an unconfirmed row and queues a
+        // confirmation mail, each accepted request is one message to a THIRD
+        // PARTY. The plan's per-page cap bounds the total; this bounds the rate,
+        // so a harvested list cannot be turned into a burst of mail from the
+        // product's own sending domain.
+        //
+        // Same two buckets as the render trigger, and the actor bucket is
+        // deliberately no looser: one member is held accountable, while the page
+        // bucket bounds the aggregate a whole team could otherwise multiply.
+        //
+        // Note what is NOT a key here. This route carries a submitted `email`,
+        // and keying on it would put an attacker-controlled value into the
+        // limiter, which is where `email[]=x` became an unauthenticated 500 plus
+        // a stack trace on the two public write paths (see `$submittedEmailKey`
+        // at the top of this callback). It buys nothing on this route either: the
+        // actor is already known and is the accountable party, so the submitted
+        // value never reaches a key at all. The page key is `$request->path()`,
+        // which carries the page id and is always a string; a route PARAMETER
+        // would not be safe to reach for, because `ThrottleRequests` sorts ahead
+        // of `SubstituteBindings` today and behind it after any priority change,
+        // so the value would silently switch between a string and a model.
+        RateLimiter::for(
+            'status-page-subscriber-add',
+            fn (Request $request) => [
+                Limit::perMinute(10)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
+                Limit::perMinute(20)->by('page:'.$request->path()),
+            ],
+        );
+
         // The public contact form. TWO buckets here, and a third that deliberately
         // is NOT here.
         //
