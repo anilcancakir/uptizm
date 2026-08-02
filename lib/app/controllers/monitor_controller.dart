@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -154,6 +156,23 @@ class MonitorController extends MagicController
     reload();
   }
 
+  /// Cancels every pending manual-check cooldown [Timer] (see
+  /// [_startCooldown]) before the base class marks this controller disposed.
+  ///
+  /// This controller is a long-lived singleton the widget tree never
+  /// disposes, so in practice each cooldown timer already self-cancels once
+  /// it reaches zero; this is the defensive backstop for the case where the
+  /// controller itself is torn down (e.g. a test's `Magic.flush()`) while one
+  /// is still running.
+  @override
+  void onClose() {
+    for (final Timer timer in _cooldownTimers.values) {
+      timer.cancel();
+    }
+    _cooldownTimers.clear();
+    super.onClose();
+  }
+
   /// Non-destructive list refresh: republishes the inventory from [Monitor.all]
   /// (`GET /monitors`) on a non-empty fetch, preserving the previously loaded
   /// inventory otherwise so the list view never flickers into an empty state
@@ -261,6 +280,63 @@ class MonitorController extends MagicController
   }
 
   // ---------------------------------------------------------------------------
+  // Manual-check cooldown
+  // ---------------------------------------------------------------------------
+
+  /// Remaining manual-check cooldown, in whole seconds, keyed by monitor id.
+  /// Populated by [_startCooldown] when [runCheckNow] is refused with a 429
+  /// (see the backend's `manualCheckCooldownResponse()`); absent for a
+  /// monitor that is not currently cooling down.
+  final Map<String, int> _cooldownSecondsRemaining = {};
+
+  /// The ticking [Timer] counting a monitor's cooldown down to zero, keyed by
+  /// monitor id. Cancels itself once the cooldown reaches zero (see
+  /// [_startCooldown]); [onClose] cancels any still running defensively.
+  final Map<String, Timer> _cooldownTimers = {};
+
+  /// The remaining manual-check cooldown, in whole seconds, for monitor [id].
+  /// `null` means the monitor is not currently cooling down, so the "Check
+  /// now" action is available. The view polls this synchronously in `build()`
+  /// and rebuilds on every tick via [refreshUI].
+  int? cooldownSecondsFor(String id) => _cooldownSecondsRemaining[id];
+
+  /// Starts (or restarts) the manual-check cooldown countdown for monitor
+  /// [id] at [seconds] remaining.
+  ///
+  /// Ticks once a second, decrementing the remaining count and notifying
+  /// listeners so the "Check now" button re-renders its countdown label; this
+  /// is a local clock, never a re-ask of the server for the remaining time.
+  /// Self-cancels (and clears the entry) once the cooldown reaches zero, so
+  /// the button re-enables without any further network round-trip.
+  void _startCooldown(String id, int seconds) {
+    _cooldownTimers[id]?.cancel();
+    _cooldownSecondsRemaining[id] = seconds;
+    refreshUI();
+
+    _cooldownTimers[id] = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final int remaining = (_cooldownSecondsRemaining[id] ?? 1) - 1;
+      if (remaining <= 0) {
+        timer.cancel();
+        _cooldownTimers.remove(id);
+        _cooldownSecondsRemaining.remove(id);
+      } else {
+        _cooldownSecondsRemaining[id] = remaining;
+      }
+      refreshUI();
+    });
+  }
+
+  /// Extracts `retry_after_seconds` from a 429 cooldown response body (the
+  /// backend's `manualCheckCooldownResponse()` shape), defaulting to 1 second
+  /// when the body is malformed or the key is absent so the button still
+  /// recovers rather than staying disabled forever.
+  int _retryAfterSeconds(MagicResponse response) {
+    final Object? data = response.data;
+    if (data is! Map<String, dynamic>) return 1;
+    return (data['retry_after_seconds'] as num?)?.toInt() ?? 1;
+  }
+
+  // ---------------------------------------------------------------------------
   // Business actions
   // ---------------------------------------------------------------------------
 
@@ -329,7 +405,11 @@ class MonitorController extends MagicController
   ///
   /// No-op when [id] resolves to no cached monitor. A failed request logs and
   /// surfaces an error toast rather than silently doing nothing, since the
-  /// operator explicitly asked for a check.
+  /// operator explicitly asked for a check. A 429 is not a failure: it means
+  /// the per-monitor cooldown is still running (every manual check queues a
+  /// real signed relay call per region, so the cooldown exists to stop the
+  /// button from spending money), and starts the countdown in
+  /// [cooldownSecondsFor] instead of the error toast.
   Future<void> runCheckNow(String id) async {
     final Monitor? monitor = _cachedById(id);
     if (monitor == null) return;
@@ -337,6 +417,11 @@ class MonitorController extends MagicController
     try {
       final response = await Http.post('/monitors/$id/test');
       if (!response.successful) {
+        if (response.statusCode == 429) {
+          _startCooldown(id, _retryAfterSeconds(response));
+          return;
+        }
+
         Log.error(
           '[MonitorController.runCheckNow] $id: ${response.errorMessage}',
         );

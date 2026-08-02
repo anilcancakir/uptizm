@@ -39,6 +39,7 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.monitors.tab_metrics': 'Metrics',
       'uptizm.monitors.tab_incidents': 'Incidents',
       'uptizm.monitors.action_check_now': 'Check now',
+      'uptizm.monitors.action_check_now_cooldown': 'Wait :secondss',
       'uptizm.monitors.action_pause': 'Pause',
       'uptizm.monitors.action_resume': 'Resume',
       'uptizm.monitors.action_edit': 'Edit',
@@ -98,6 +99,12 @@ class _MonitorDetailLangLoader implements TranslationLoader {
 }
 
 void main() {
+  // Captured so an individual test can layer a `stub()` on top (e.g. the
+  // manual-check `/monitors/:id/test` response) without losing the shared
+  // checks/response-times/incidents stubs below; `stub()` inserts at index 0,
+  // so it takes priority over these without replacing them.
+  late FakeNetworkDriver fakeNetwork;
+
   setUp(() async {
     MagicApp.reset();
     Magic.flush();
@@ -109,7 +116,7 @@ void main() {
     // left unstubbed and degrades to a no-op in the controller, leaving the
     // seeded inventory below as the `monitorById` source; the `checks` /
     // `response-times` stubs populate the Overview chart + recent-checks table.
-    Http.fake({
+    fakeNetwork = Http.fake({
       '*response-times*': Http.response({
         'data': [
           {
@@ -515,4 +522,95 @@ void main() {
       expect(find.text('Marketing site slow'), findsNothing);
     },
   );
+
+  group('manual-check cooldown', () {
+    testWidgets(
+      'a faked 429 disables Check now and counts the remaining seconds down, '
+      'then re-enables when the cooldown elapses',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 2200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        fakeNetwork.stub(
+          'monitors/api/test',
+          Http.response({
+            'message': 'A manual check for this monitor was run recently.',
+            'retry_after_seconds': 3,
+          }, 429),
+        );
+
+        await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+        await settleSkeleton(tester);
+
+        final Finder checkNowButton = find.byKey(
+          const ValueKey('check-now-button'),
+        );
+        expect(tester.widget<MSButton>(checkNowButton).disabled, isFalse);
+
+        await tester.tap(checkNowButton);
+        await tester.pump();
+
+        expect(tester.widget<MSButton>(checkNowButton).disabled, isTrue);
+        expect(
+          find.text(
+            trans('uptizm.monitors.action_check_now_cooldown', {
+              'seconds': 3,
+            }),
+          ),
+          findsOneWidget,
+        );
+        expect(MonitorController.instance.cooldownSecondsFor('api'), 3);
+
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          find.text(
+            trans('uptizm.monitors.action_check_now_cooldown', {
+              'seconds': 2,
+            }),
+          ),
+          findsOneWidget,
+        );
+
+        // Advance past the remainder of the cooldown so the countdown's
+        // Timer self-cancels (never leaks a pending Timer past this test).
+        await tester.pump(const Duration(seconds: 2));
+
+        expect(tester.widget<MSButton>(checkNowButton).disabled, isFalse);
+        expect(
+          find.text(trans('uptizm.monitors.action_check_now')),
+          findsOneWidget,
+        );
+        expect(MonitorController.instance.cooldownSecondsFor('api'), isNull);
+      },
+    );
+
+    testWidgets(
+      'a successful 202 leaves Check now enabled with no cooldown',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 2200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        fakeNetwork.stub('monitors/api/test', Http.response(null, 202));
+
+        await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+        await settleSkeleton(tester);
+
+        final Finder checkNowButton = find.byKey(
+          const ValueKey('check-now-button'),
+        );
+        await tester.tap(checkNowButton);
+        await tester.pump();
+
+        expect(tester.widget<MSButton>(checkNowButton).disabled, isFalse);
+        expect(
+          find.text(trans('uptizm.monitors.action_check_now')),
+          findsOneWidget,
+        );
+        expect(MonitorController.instance.cooldownSecondsFor('api'), isNull);
+        fakeNetwork.assertSent(
+          (r) => r.method == 'POST' && r.url == '/monitors/api/test',
+        );
+      },
+    );
+  });
 }

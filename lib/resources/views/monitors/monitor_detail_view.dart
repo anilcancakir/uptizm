@@ -368,7 +368,10 @@ class _MonitorDetailViewState
   /// - **Check now**: a secondary [Button] that queues an out-of-schedule check
   ///   across every configured region. Hidden while the monitor is paused,
   ///   because a paused monitor is deliberately not being checked and offering
-  ///   the action there would contradict the state next to it.
+  ///   the action there would contradict the state next to it. Disabled with
+  ///   a decreasing remaining-seconds label while
+  ///   [MonitorController.cooldownSecondsFor] reports an active per-monitor
+  ///   cooldown (see [_buildCheckNowButton]).
   /// - **Pause/Resume**: a secondary [Button]. A paused monitor shows "Resume"
   ///   and surfaces a resumed toast immediately; an active monitor shows
   ///   "Pause" and opens a pause [MagicStarterConfirmDialog].
@@ -385,13 +388,7 @@ class _MonitorDetailViewState
       WDiv(
         className: 'wrap items-center gap-2',
         children: [
-          if (!paused)
-            MSButton(
-              intent: ButtonIntent.secondary,
-              size: ButtonSize.sm,
-              onPressed: () => controller.runCheckNow(monitor.id),
-              child: WText(trans('uptizm.monitors.action_check_now')),
-            ),
+          if (!paused) _buildCheckNowButton(monitor),
           MSButton(
             intent: ButtonIntent.secondary,
             size: ButtonSize.sm,
@@ -417,6 +414,34 @@ class _MonitorDetailViewState
         ],
       ),
     ];
+  }
+
+  /// Builds the "Check now" action. While
+  /// [MonitorController.cooldownSecondsFor] reports an active per-monitor
+  /// cooldown for [monitor] (the backend refused the last attempt with a
+  /// 429; see [MonitorController.runCheckNow]) the button disables via the
+  /// recipe's own `disabled:opacity-50` token (no raw colour) and its label
+  /// counts the remaining seconds down instead of firing another request;
+  /// there is no polling here, the countdown ticks off the controller's own
+  /// local clock.
+  Widget _buildCheckNowButton(Monitor monitor) {
+    final int? cooldown = controller.cooldownSecondsFor(monitor.id);
+    return MSButton(
+      key: const ValueKey('check-now-button'),
+      intent: ButtonIntent.secondary,
+      size: ButtonSize.sm,
+      disabled: cooldown != null,
+      onPressed: cooldown != null
+          ? null
+          : () => controller.runCheckNow(monitor.id),
+      child: WText(
+        cooldown != null
+            ? trans('uptizm.monitors.action_check_now_cooldown', {
+                'seconds': cooldown,
+              })
+            : trans('uptizm.monitors.action_check_now'),
+      ),
+    );
   }
 
   /// Resumes a paused monitor, or opens the pause confirm dialog before pausing.
