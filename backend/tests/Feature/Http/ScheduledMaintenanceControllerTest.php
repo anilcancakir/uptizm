@@ -176,7 +176,21 @@ class ScheduledMaintenanceControllerTest extends TestCase
 
         $response->assertStatus(201);
         $response->assertJsonPath('data.announced_at', null);
-        $this->assertNull(ScheduledMaintenance::query()->findOrFail($response->json('data.id'))->announced_at);
+
+        // The client's value must be ignored, which is what this test is about.
+        // It is deliberately NOT asserted as null in the database: the
+        // announcement job claims `announced_at` before it mails anybody, and
+        // the suite runs the queue synchronously, so by the time the POST
+        // returns the claim has legitimately stamped the column. Asserting null
+        // here would pin the absence of the announce-once guard rather than the
+        // rejection of a client-supplied timestamp.
+        $this->assertNotSame(
+            '2026-08-01T10:00:00+00:00',
+            ScheduledMaintenance::query()
+                ->findOrFail($response->json('data.id'))
+                ->announced_at
+                ?->toIso8601String(),
+        );
     }
 
     public function test_store_accepts_an_explicit_suppress_alerts_false(): void

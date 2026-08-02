@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreScheduledMaintenanceRequest;
 use App\Http\Requests\UpdateScheduledMaintenanceRequest;
 use App\Http\Resources\ScheduledMaintenanceResource;
+use App\Jobs\AnnounceScheduledMaintenance;
 use App\Models\ScheduledMaintenance;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,7 +56,17 @@ class ScheduledMaintenanceController extends Controller
     }
 
     /**
-     * Plan a maintenance window for the current team.
+     * Plan a maintenance window for the current team, and announce it to the
+     * page's confirmed subscribers.
+     *
+     * The announcement is dispatched from HERE and from nowhere else: an edit
+     * must not re-mail a window the subscribers already heard about, and a delete
+     * must not mail at all. It is dispatched AFTER the transaction commits, so a
+     * worker (or, in the test suite, the sync connection) can never pick the job
+     * up while the window and its pivot are still invisible to other
+     * connections. Whether the mail actually goes out is the job's own decision:
+     * it claims `announced_at` atomically first, which is what makes a retried or
+     * re-dispatched job a no-op.
      */
     public function store(StoreScheduledMaintenanceRequest $request): JsonResponse
     {
@@ -72,6 +83,8 @@ class ScheduledMaintenanceController extends Controller
 
             return $window;
         });
+
+        AnnounceScheduledMaintenance::dispatch($window);
 
         return ScheduledMaintenanceResource::make($window->load(self::DETAIL_RELATIONS))
             ->response()
