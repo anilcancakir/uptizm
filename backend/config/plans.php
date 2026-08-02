@@ -40,6 +40,10 @@ use App\Enums\MonitorRegion;
 |
 */
 
+// The Free tier's region allowance, read once here so the marketing bullet below and the
+// `limits.regions` gate PlanGate/Step 5 enforce can never say two different numbers.
+$freeRegionAllowance = 1;
+
 return [
 
     'tiers' => [
@@ -53,7 +57,7 @@ return [
             'currency' => 'usd',
             'ai_line' => 'AI anomaly inbox, plus 3 free AI monitor setups.',
             'features' => [
-                '1 monitor · 3-minute checks · all 5 regions',
+                sprintf('1 monitor · 3-minute checks · %d region', $freeRegionAllowance),
                 '1 status page · 100 subscribers',
                 '1 responder · Slack, Teams, PagerDuty & webhook alerts',
                 'TLS expiry alerts · response-metric bounds',
@@ -67,7 +71,7 @@ return [
                 'status_pages' => 1,
                 'subscribers' => 100,
                 'responders' => 1,
-                'regions' => 1,
+                'regions' => $freeRegionAllowance,
                 'ai' => 'inbox',
                 // AI monitor analysis is open on Free, but metered: this many
                 // successful setups, then the plan wall. Paid tiers entitle it

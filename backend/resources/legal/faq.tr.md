@@ -28,7 +28,7 @@ aralığı her zaman seçebilirsiniz.
 <details>
 <summary>Free plan neleri içeriyor?</summary>
 
-[[faq.region_count]] bölgenin tamamından, en sık [[faq.free_interval_seconds]] saniyede
+[[faq.free_regions]] bölgeden, en sık [[faq.free_interval_seconds]] saniyede
 bir kontrol edilen [[faq.free_monitors]] monitör. En fazla
 [[faq.free_subscribers]] e-posta abonesi alabilen [[faq.free_status_pages]] durum sayfası. Aşağıdaki kanalların
 tamamı üzerinden uyarı gönderebilen [[faq.free_responders]] nöbetçi. TLS sertifika süresi

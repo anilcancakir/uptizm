@@ -28,7 +28,7 @@ interval than your plan's floor.
 <summary>What does the free plan include?</summary>
 
 [[faq.free_monitors]] monitor, checked as often as every [[faq.free_interval_seconds]]
-seconds, from all [[faq.region_count]] regions. [[faq.free_status_pages]] status page
+seconds, from [[faq.free_regions]] region. [[faq.free_status_pages]] status page
 with up to [[faq.free_subscribers]] email subscribers. [[faq.free_responders]] responder,
 alerting over every channel below. TLS expiry alerts and response-metric bounds. The AI
 anomaly inbox is included, plus [[faq.free_ai_trials]] free AI monitor setups before that

@@ -105,6 +105,7 @@ class FaqPageTest extends TestCase
                 'subscribers' => '%s email subscribers',
                 'responders' => '%s responder',
                 'ai_analysis_trials' => '%s free AI monitor setups',
+                'regions' => '%s region',
             ],
             'tr' => [
                 'monitors' => '%s monitör',
@@ -112,6 +113,7 @@ class FaqPageTest extends TestCase
                 'subscribers' => '%s e-posta abonesi',
                 'responders' => '%s nöbetçi',
                 'ai_analysis_trials' => '%s ücretsiz AI monitör kurulumu',
+                'regions' => '%s bölge',
             ],
         ];
 
@@ -120,13 +122,43 @@ class FaqPageTest extends TestCase
             fn (array $tier): bool => ($tier['id'] ?? null) === 'free',
         );
 
-        foreach (['monitors', 'status_pages', 'subscribers', 'responders', 'ai_analysis_trials'] as $key) {
+        foreach (['monitors', 'status_pages', 'subscribers', 'responders', 'ai_analysis_trials', 'regions'] as $key) {
             $value = (string) Arr::get($free, "limits.{$key}");
 
             foreach ($this->supported() as $locale) {
                 $this->get($this->pathFor($locale))->assertSee(sprintf($nouns[$locale][$key], $value));
             }
         }
+    }
+
+    public function test_the_free_region_count_follows_the_config_rather_than_a_literal(): void
+    {
+        /*
+         * The Free plan's region allowance dropped from "all 5 regions" to a real gate
+         * (`config/plans.php` `limits.regions`, {@see \App\Services\Billing\PlanGate}). A
+         * transcribed "5" would keep telling every reader the old promise regardless of
+         * what the plan catalog actually allows, exactly the trap the retention test above
+         * already guards against for a different figure.
+         */
+        $deployed = (string) Arr::get(
+            Arr::first((array) config('plans.tiers'), fn (array $tier): bool => ($tier['id'] ?? null) === 'free'),
+            'limits.regions',
+        );
+
+        $this->assertNotSame('2', $deployed, 'The deployed allowance equals the probe value, so this test proves nothing.');
+
+        $tiers = (array) config('plans.tiers');
+        $freeIndex = array_search('free', array_column($tiers, 'id'), true);
+        $tiers[$freeIndex]['limits']['regions'] = 2;
+        config(['plans.tiers' => $tiers]);
+
+        $this->get($this->pathFor('en'))
+            ->assertSee('2 region')
+            ->assertDontSee($deployed.' region');
+
+        $this->get($this->pathFor('tr'))
+            ->assertSee('2 bölge')
+            ->assertDontSee($deployed.' bölge');
     }
 
     public function test_the_retention_figure_equals_the_timescale_config(): void

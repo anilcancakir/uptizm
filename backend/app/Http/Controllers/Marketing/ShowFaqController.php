@@ -82,6 +82,7 @@ class ShowFaqController
             '[[faq.free_subscribers]]' => (string) $this->tierLimit($tiers, 'free', 'subscribers'),
             '[[faq.free_responders]]' => (string) $this->tierLimit($tiers, 'free', 'responders'),
             '[[faq.free_ai_trials]]' => (string) $this->tierLimit($tiers, 'free', 'ai_analysis_trials'),
+            '[[faq.free_regions]]' => (string) $this->tierLimit($tiers, 'free', 'regions'),
             '[[faq.retention_days]]' => (string) config('timescale.retention.raw_days'),
             '[[faq.alert_channels]]' => Arr::join($this->alertChannels(), ', '),
             '[[faq.ai_char_limit]]' => (string) IncidentAnalysisPayload::UNTRUSTED_FIELD_MAX_LENGTH,
