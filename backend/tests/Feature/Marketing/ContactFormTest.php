@@ -12,6 +12,7 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
@@ -446,6 +447,86 @@ class ContactFormTest extends TestCase
         Mail::assertQueued(ContactMessage::class, 1);
     }
 
+    public function test_a_turnstile_refusal_caused_by_our_own_secret_is_logged_as_an_operator_fault(): void
+    {
+        /*
+         * THE CUTOVER FAILURE, and the only one a visitor cannot report usefully. A
+         * mis-copied secret makes siteverify answer `invalid-input-secret` for EVERY
+         * submission, and the visitor reads the same "Verification failed" a bot reads, so
+         * the form refuses the entire world and nothing anywhere says why. The verdict stays
+         * code-agnostic on purpose; what changes is that the reason is written down, and a
+         * fault that is OURS is written down louder than a refusal that is theirs.
+         *
+         * Faked, never verified against Cloudflare's always-fail secret: that key answers
+         * `invalid-input-response`, which is a visitor-fault code, so it cannot exercise this
+         * branch at all, and it would put a live network call into a suite where every other
+         * Turnstile case deliberately makes none.
+         */
+        $this->openTheGate();
+        config(['services.turnstile.secret_key' => 'a-mistyped-secret']);
+        Mail::fake();
+        Log::spy();
+        Http::fake([
+            'challenges.cloudflare.com/*' => Http::response([
+                'success' => false,
+                'error-codes' => ['invalid-input-secret'],
+            ]),
+        ]);
+
+        $response = $this->post('/contact', $this->payload([
+            'cf-turnstile-response' => 'a-token',
+        ]));
+
+        // The visitor's half of the contract is untouched: the same generic message as any
+        // other refusal, and never Cloudflare's vocabulary.
+        $response->assertStatus(422);
+        $response->assertSee('Verification failed. Please try again.');
+        $response->assertDontSee('invalid-input-secret');
+
+        Log::shouldHaveReceived('warning')->once()->withArgs(
+            fn (mixed $message, mixed $context): bool => $this->contextNames($context, 'invalid-input-secret'),
+        );
+
+        Log::shouldHaveReceived('error')->once()->withArgs(
+            fn (mixed $message, mixed $context): bool => $this->contextNames($context, 'invalid-input-secret'),
+        );
+
+        Mail::assertNothingQueued();
+    }
+
+    public function test_an_ordinary_bot_refusal_is_recorded_without_blaming_the_deployment(): void
+    {
+        /*
+         * The control that makes the assertion above mean something: logging EVERY refusal at
+         * error level would page whoever watches the log for every bot that ever hits the
+         * form, and the loud line would stop being a signal. `invalid-input-response` is the
+         * ordinary case (a stale, replayed or absent-from-the-widget token), so it is
+         * recorded and nothing more.
+         */
+        $this->openTheGate();
+        config(['services.turnstile.secret_key' => 'a-secret']);
+        Mail::fake();
+        Log::spy();
+        Http::fake([
+            'challenges.cloudflare.com/*' => Http::response([
+                'success' => false,
+                'error-codes' => ['invalid-input-response'],
+            ]),
+        ]);
+
+        $this->post('/contact', $this->payload([
+            'cf-turnstile-response' => 'a-stale-token',
+        ]))->assertStatus(422);
+
+        Log::shouldHaveReceived('warning')->once()->withArgs(
+            fn (mixed $message, mixed $context): bool => $this->contextNames($context, 'invalid-input-response'),
+        );
+
+        Log::shouldNotHaveReceived('error');
+
+        Mail::assertNothingQueued();
+    }
+
     // ---------------------------------------------------------------------
     // The limiter: two route buckets, plus the global one the controller spends
     // ---------------------------------------------------------------------
@@ -835,6 +916,22 @@ class ContactFormTest extends TestCase
             SendContactMessageController::TIMESTAMP_FIELD => $this->formToken(10),
             ...$overrides,
         ];
+    }
+
+    /**
+     * Whether a log context carries a given siteverify error code.
+     *
+     * `mixed` and guarded rather than typed as an array, because a Mockery argument matcher
+     * that raises a `TypeError` on an unexpected shape reads as "the call never happened"
+     * instead of as the failure it is.
+     */
+    protected function contextNames(mixed $context, string $code): bool
+    {
+        if (! is_array($context) || ! is_array($context['error_codes'] ?? null)) {
+            return false;
+        }
+
+        return in_array($code, $context['error_codes'], true);
     }
 
     /**

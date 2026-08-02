@@ -61,8 +61,20 @@ return [
             // ],
         ],
 
+        /*
+         * The production transport (`MAIL_MAILER=resend`), and the one the contact form's
+         * deliverability gate is waiting for; `SendContactMessageController` lists `resend`
+         * among its sending transports, so the form renders as soon as this is the default
+         * and the from-address is real. The key is named here rather than left to
+         * `services.resend.key`, so that one env name (`RESEND_KEY`) appears in
+         * `.env.example`, in `deploy/README.md` and in the config that reads it. Sending
+         * also needs `composer require resend/resend-php`: Laravel only SUGGESTS it, and the
+         * transport is constructed lazily, so a missing package surfaces as a fatal inside
+         * the queued job rather than at boot.
+         */
         'resend' => [
             'transport' => 'resend',
+            'key' => env('RESEND_KEY'),
         ],
 
         'sendmail' => [

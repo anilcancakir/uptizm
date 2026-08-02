@@ -5,7 +5,9 @@ namespace App\Rules;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Verifies a Cloudflare Turnstile token against the siteverify endpoint.
@@ -27,6 +29,16 @@ use Illuminate\Support\Facades\Http;
  *
  * This rule is only ever attached when `services.turnstile.secret_key` is filled; see
  * `SendContactMessageController::rules()` for the dormancy gate.
+ *
+ * THE VERDICT IS CODE-AGNOSTIC, THE LOG IS NOT
+ *
+ * A refusal is a refusal: nothing below branches on which code Cloudflare returned, and
+ * nothing should, because the visitor-facing message must not vary with a bot's mistake and
+ * because the code table is Cloudflare's to change. But the visitor's message is also the
+ * only trace a refusal used to leave, and it reads identically whether a bot was turned away
+ * or the deployment is holding the wrong secret and refusing everybody. So every non-success
+ * writes its codes to the log, and the three codes that mean the fault is OURS get a second,
+ * louder line.
  */
 class TurnstileRule implements ValidationRule
 {
@@ -40,6 +52,24 @@ class TurnstileRule implements ValidationRule
      * holding an open request, and a slow CAPTCHA is indistinguishable from a broken one.
      */
     private const TIMEOUT_SECONDS = 10;
+
+    /**
+     * The siteverify codes that mean the DEPLOYMENT is broken rather than the submission.
+     *
+     * `missing-input-secret` and `invalid-input-secret` are a blank or mis-copied
+     * `TURNSTILE_SECRET_KEY`, and `bad-request` is a malformed call to siteverify: none of
+     * the three can be produced by anything a visitor does, and each of them refuses every
+     * legitimate visitor for as long as it lasts. Every other code (a stale, replayed or
+     * absent token, an internal error at Cloudflare) is ordinary traffic and is only
+     * recorded.
+     *
+     * @var list<string>
+     */
+    private const OPERATOR_FAULT_CODES = [
+        'missing-input-secret',
+        'invalid-input-secret',
+        'bad-request',
+    ];
 
     /**
      * Run the validation rule.
@@ -80,7 +110,46 @@ class TurnstileRule implements ValidationRule
         }
 
         if ($response->json('success') !== true) {
+            $this->recordRefusal($response->json('error-codes'));
+
             $fail(__('Verification failed. Please try again.'));
         }
+    }
+
+    /**
+     * Write down why siteverify refused, since the visitor's message deliberately cannot.
+     *
+     * @param  mixed  $codes  Whatever sat under `error-codes`; siteverify documents a list of
+     *                        strings, and an absent or malformed value is normalized away
+     *                        rather than trusted, because this runs on a public endpoint.
+     */
+    private function recordRefusal(mixed $codes): void
+    {
+        // 1. Normalize to a list of strings. `Arr::wrap(null)` is `[]`, so an answer carrying
+        //    no `error-codes` at all still logs, with an empty list saying exactly that.
+        $codes = array_values(array_filter(
+            Arr::wrap($codes),
+            static fn (mixed $code): bool => is_string($code),
+        ));
+
+        // 2. Every refusal, whoever's fault it is.
+        Log::warning('Turnstile refused a contact form submission.', [
+            'error_codes' => $codes,
+        ]);
+
+        $ourFault = array_values(array_intersect($codes, self::OPERATOR_FAULT_CODES));
+
+        if ($ourFault === []) {
+            return;
+        }
+
+        // 3. And the distinct line for the failure that is ours, at a level nobody filters
+        //    out: while one of these codes is coming back, the contact form is rejecting
+        //    every human who fills it in, and the page they see says nothing about it.
+        Log::error(
+            'Turnstile is rejecting every submission because of this deployment, not the visitor. '
+            .'Check TURNSTILE_SECRET_KEY against the widget it was issued for.',
+            ['error_codes' => $ourFault],
+        );
     }
 }

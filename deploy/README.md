@@ -108,7 +108,7 @@ rather than pretending to work.
 |---|---|
 | `ANTHROPIC_API_KEY` | AI triage is inert. No suggestion is invented. |
 | `STRIPE_KEY` / `STRIPE_SECRET` / `STRIPE_WEBHOOK_SECRET` | Billing endpoints answer, but no checkout completes and the webhook cannot verify a signature. |
-| `MAIL_*` (a real SMTP provider) | Mail goes to the log. No status-page subscriber receives a confirmation, and no alert email is sent. Cloudflare Email Routing on this domain **receives** only; sending needs a provider. |
+| `MAIL_MAILER` / `RESEND_KEY` | Mail goes to the log. No status-page subscriber receives a confirmation, no alert email is sent, and the contact form is not rendered at all. Cloudflare Email Routing on this domain **receives** only; sending needs a provider. The cutover is the next section. |
 | `APP_OWN_STATUS_PAGE_URL` | The landing page footer has no link to a status page of our own. Every competitor in this category publishes one, so its absence is visible. |
 
 Two of those now change what the landing page SAYS, not just what the product
@@ -125,6 +125,123 @@ leaving a false one:
 So the page currently goes live in a reduced form. Set the mail transport and an
 AI key first if you want it whole. `LandingPageTest` pins both directions of both
 gates, so neither can be quietly inverted.
+
+## Turning on mail, the contact form and the captcha
+
+One transport carries the contact form, the status-page subscriber
+confirmations and every alert email, and all three are inert until it is real.
+This is a one-time cutover with four parts: a Resend key, the domain's DNS
+records, the Turnstile key pair, and the contact address. None of them can be
+done from the repository, which is why they are here and not in a migration.
+
+**1. Install the transport.** `resend` is already the mailer in
+`backend/config/mail.php` and already on the contact form's sending-transport
+allowlist, but Laravel only *suggests* the SDK, so it is not in `composer.lock`:
+
+```bash
+sudo -u uptizm -H bash
+cd ~/htdocs/uptizm.com/backend
+php8.5 /usr/local/bin/composer require resend/resend-php
+```
+
+`php8.5` explicitly, for the same reason the deploy section below uses it: the
+default `composer` on this box resolves under PHP 8.3 while the site runs 8.5.
+The transport is constructed lazily, so a missing package does not fail at boot;
+it fails inside the queued job, after the visitor has been told the message was
+accepted.
+
+**2. Verify the sending domain in Resend.** Add the domain there and take the
+`send.` subdomain Resend offers rather than the apex: it keeps sending
+reputation off the name Email Routing already receives on. Resend then prints
+the records to create (an MX and an SPF `TXT` on that subdomain, and a DKIM
+`TXT` at `resend._domainkey`). Paste them exactly as printed; the values are
+account- and region-specific, so a remembered one is a wrong one.
+
+Three things about adding them in the Cloudflare dashboard:
+
+- Anything Resend gives you as a `CNAME` must be **DNS only** (grey cloud).
+  Cloudflare proxies new CNAMEs by default, and a proxied mail record resolves
+  to the edge address instead of the provider.
+- **One SPF `TXT` per name, ever.** Email Routing already publishes
+  `v=spf1 include:_spf.mx.cloudflare.net ~all` on the apex for receiving, and
+  two SPF records on one name is a permanent error under RFC 7208 that fails
+  *every* check, including the one that was working before. If Resend's SPF
+  lands on a name that already has one, merge the `include:` into the existing
+  record rather than adding a second record.
+- Do not delete the Email Routing MX records while adding these. Sending and
+  receiving are independent, and those are what make `info@uptizm.com` arrive:
+  the address the contact page prints as its fallback.
+
+DMARC is not required for delivery and is worth adding once SPF and DKIM verify:
+one `TXT` at `_dmarc` reading `v=DMARC1; p=none; rua=mailto:<a mailbox you
+read>` reports without rejecting anything.
+
+**3. Point the application at it.** In `backend/.env`:
+
+```
+MAIL_MAILER=resend
+RESEND_KEY=<from the Resend dashboard>
+MAIL_FROM_ADDRESS=noreply@send.uptizm.com
+MAIL_FROM_NAME=Uptizm
+LEGAL_CONTACT_EMAIL=info@uptizm.com
+LEGAL_RIGHTS_EMAIL=info@uptizm.com
+```
+
+`MAIL_FROM_ADDRESS` has to be on the domain that was verified, and it has to
+stop being the framework's `hello@example.com`: that placeholder is one of the
+things the contact form's gate refuses, so leaving it renders no form even with
+a working transport. `LEGAL_CONTACT_EMAIL` is both the address the form sends
+*to* and the fallback printed on the page whenever the form is withheld; the
+gate runs `FILTER_VALIDATE_EMAIL` over it, so it must be one valid address and
+not two, and Email Routing has to forward it to a mailbox somebody reads.
+`LEGAL_RIGHTS_EMAIL` is the GDPR/KVKK rights channel published beside it; both
+still default to `info@kodizm.com`, which is the wrong domain for this product.
+
+```bash
+php8.5 artisan config:clear && php8.5 artisan optimize
+exit
+supervisorctl restart uptizm:*
+```
+
+The restart is not optional: Octane holds the config in memory for the life of a
+worker, so an `.env` edit without it changes nothing that is serving traffic.
+
+**4. Turn on Turnstile.** Cloudflare dashboard > Turnstile > add a Managed
+widget for `uptizm.com`, then put **both** keys in `backend/.env`:
+
+```
+TURNSTILE_SITE_KEY=<the widget's site key>
+TURNSTILE_SECRET_KEY=<the widget's secret>
+```
+
+Both or neither. With neither, the widget is dormant, the page loads no
+Cloudflare script and the form works without a captcha. With only the secret,
+the page renders no widget while the POST demands a token, so every visitor is
+refused with "Please complete the verification challenge" and none of them can
+tell you why. Restart as above; these are config too.
+
+**5. Read the log for a day afterwards.** A mis-copied secret is invisible from
+the outside: siteverify answers `invalid-input-secret` and the visitor reads the
+same generic "Verification failed" a bot reads. `TurnstileRule` therefore writes
+the reason down, and separates whose fault it is:
+
+```bash
+sudo -u uptizm -H bash -c 'cd ~/htdocs/uptizm.com/backend && php8.5 artisan pail --filter=Turnstile'
+```
+
+`Turnstile refused a contact form submission` at **warning** is ordinary traffic
+being turned away. `Turnstile is rejecting every submission because of this
+deployment` at **error** means the key pair is wrong and nobody can reach us
+through the form at all; fix the secret before anything else. The rule never
+changes what the visitor is told, so this line is the only signal there is.
+
+**6. Confirm it end to end.** Load `https://uptizm.com/contact` and check that a
+form renders at all: no form means the gate is still closed, and the cause is
+one of `MAIL_MAILER`, `MAIL_FROM_ADDRESS` or `LEGAL_CONTACT_EMAIL`. Send a
+message, watch the job in Horizon, and confirm the delivery in the Resend
+dashboard. The page says "accepted" and never "arrived" because the send is
+queued, so the provider's dashboard is the only place the actual delivery is
+visible.
 
 ## Rebuilding the Flutter client
 
