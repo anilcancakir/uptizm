@@ -1,0 +1,22 @@
+# Uptizm. Everything published on this host is meant to be crawled: the marketing
+# pages, the legal documents, the service catalog at /status and every published
+# service page. Nothing here is disallowed, and the service pages in particular must
+# stay crawlable, since being findable is the entire reason they exist.
+#
+# Customer status pages under /s/ are public by their owner's choice and are left
+# crawlable too; a private one answers 404 to everybody, crawler or not.
+#
+# The Sitemap line has to be an absolute URL (the robots.txt format requires it) and
+# this is a static file the web server hands over without touching PHP, so the host
+# cannot be read from APP_URL here. It names the sitemap INDEX; the index names its
+# two segments, so a new segment needs no change to this file.
+#
+# There is deliberately nothing that notifies a search engine of a change. Google
+# retired the sitemap ping endpoint and says calling it does nothing useful, and the
+# Indexing API only covers JobPosting and BroadcastEvent, neither of which this site
+# publishes. Discovery is this line and nothing else.
+
+User-agent: *
+Disallow:
+
+Sitemap: https://uptizm.com/sitemap.xml
