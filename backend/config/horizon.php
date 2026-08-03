@@ -197,9 +197,28 @@ return [
     */
 
     'defaults' => [
+        /*
+        | `feeds` (the catalog's official-status-feed ingestion) rides
+        | supervisor-1 deliberately. `previews` and `content` below each earned
+        | their own supervisor for a documented reason (a headless Chromium far
+        | past this worker's memory ceiling; an rclone FUSE mount that can park a
+        | process in an uninterruptible syscall). Feed ingestion is ordinary
+        | outbound HTTP with a 10s timeout and a hard 60s-per-service floor, so
+        | it has no such reason and a supervisor of its own would only add
+        | processes to pay for. It sits LAST in the list because a single worker
+        | drains these in order and a third party's status feed must never be
+        | picked up ahead of a customer's uptime check.
+        |
+        | THIS LINE IS HALF OF A TWO-PLACE REGISTRATION. The other half is the
+        | `queue:listen --queue=` list in composer.json's `scripts.dev`, which is
+        | what drains the queue locally; this file is what drains it on the
+        | server. With only the local half, the schedule fires, jobs queue,
+        | `schedule:list` looks correct, and no feed is ever ingested in
+        | production.
+        */
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['scheduling', 'checks', 'processing', 'aggregates', 'ssl', 'ai', 'default'],
+            'queue' => ['scheduling', 'checks', 'processing', 'aggregates', 'ssl', 'ai', 'default', 'feeds'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,

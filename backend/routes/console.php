@@ -2,6 +2,7 @@
 
 use App\Jobs\AggregateMonitorDailyUptime;
 use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
+use App\Jobs\IngestServiceFeeds;
 use App\Jobs\PruneContentArchive;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Jobs\ScheduleSslChecks;
@@ -72,3 +73,20 @@ Schedule::job(new BustStatusPageCacheForMaintenanceBoundaries)
     ->withoutOverlapping()
     ->onOneServer()
     ->name('status-pages:bust-maintenance-boundaries');
+
+// Poll each published catalog service's official status feed (supervisor `feeds`
+// queue, single-server, unique lock prevents overlap with a still-enqueuing
+// fan-out).
+//
+// Two minutes, not one, and the number is derived rather than chosen:
+// FeedFetcher::MIN_INTERVAL_SECONDS is a hard 60-second floor per service,
+// enforced against the newest snapshot's `fetched_at`. A fetch lands a moment
+// AFTER the tick that ordered it, so on a one-minute schedule every other tick
+// would arrive fractionally inside the floor and refuse, making the real cadence
+// two minutes while `schedule:list` advertised one. This states the true cadence
+// instead.
+Schedule::job(new IngestServiceFeeds)
+    ->everyTwoMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('services:ingest-feeds');
