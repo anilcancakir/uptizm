@@ -11,6 +11,7 @@ use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -29,6 +30,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * - has many {@see MonitorCheck} (probe execution history)
  * - has many {@see MonitorMetric} (user-defined extraction rules)
  * - has many {@see Incident} (primary-monitor hint)
+ * - belongs to many {@see Service} via `service_monitor` (catalog services
+ *   this monitor provides the own-measurement for; empty for every ordinary
+ *   customer monitor)
  */
 class Monitor extends Model
 {
@@ -200,6 +204,21 @@ class Monitor extends Model
     public function incidents(): HasMany
     {
         return $this->hasMany(Incident::class, 'primary_monitor_id');
+    }
+
+    /**
+     * Catalog services this monitor provides the own-measurement for: the
+     * inverse of {@see Service::monitors()}. `withPivot()` is declared on
+     * both sides of the relation because Filament's `pivotData()` and
+     * `AttachAction` (a later step's Monitor resource) need it on both ends,
+     * not just the owning side.
+     *
+     * @return BelongsToMany<Service>
+     */
+    public function services(): BelongsToMany
+    {
+        return $this->belongsToMany(Service::class, 'service_monitor')
+            ->withPivot('label');
     }
 
     /**
