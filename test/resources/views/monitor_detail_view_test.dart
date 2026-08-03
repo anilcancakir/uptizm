@@ -610,11 +610,81 @@ void main() {
         fakeNetwork.assertSent(
           (r) => r.method == 'POST' && r.url == '/monitors/api/test',
         );
+
+        // Drain the result watch a 202 starts. It re-reads the monitor a few
+        // times looking for the queued check to land, and the fake returns the
+        // same monitor forever, so it spends its whole budget. Left pending, the
+        // binding fails the test for a timer outliving the tree, which is a fair
+        // complaint about the harness rather than about the cooldown this case
+        // is actually asserting.
+        await tester.pump(const Duration(seconds: 13));
       },
     );
   });
 
   group('first check reaching the screen', () {
+    testWidgets(
+      'a queued manual check is re-read until its result lands',
+      (tester) async {
+        // The other half of the same live-session defect. `runCheckNow` refreshed
+        // once, immediately, and its docblock deferred anything later to "the
+        // team's realtime channel". But MonitorStatusChanged fires on a status
+        // TRANSITION, so a manual check confirming an already-up monitor
+        // broadcasts nothing: the operator pressed the button and the table never
+        // gained the row. Verified live, with the database at two checks while
+        // one row showed on screen.
+        //
+        // The immediate refresh cannot see the result either: the probe is queued
+        // and lands a second or two afterwards, the same queue-time versus
+        // fire-time trap as the alert-suppression guard.
+        MonitorController.instance.seedForTest(monitorFixtures);
+
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            const MonitorDetailView(id: 'api'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await settleSkeleton(tester);
+
+        int monitorReads() => fakeNetwork.recorded
+            .map((entry) => entry.$1)
+            .where((r) => r.method == 'GET' && r.url == '/monitors/api')
+            .length;
+
+        final int beforeReads = monitorReads();
+
+        await MonitorController.instance.runCheckNow('api');
+        await tester.pump();
+
+        final int afterImmediate = monitorReads();
+        expect(
+          afterImmediate,
+          greaterThan(beforeReads),
+          reason: 'the immediate refresh still happens',
+        );
+
+        // Let the watch tick. Each tick re-reads the monitor, and each read
+        // notifies, which is what carries a landed check onto the screen.
+        await tester.pump(const Duration(seconds: 5));
+
+        expect(
+          monitorReads(),
+          greaterThan(afterImmediate),
+          reason:
+              'the queued result is looked for AFTER the request, not only at '
+              'the moment it was made',
+        );
+
+        // Bounded, not a forever poll: drain the rest of the budget so the
+        // binding sees no timer outliving the tree.
+        await tester.pump(const Duration(seconds: 13));
+      },
+    );
+
     testWidgets(
       'a monitor with no check yet says so instead of an empty table',
       (tester) async {

@@ -170,8 +170,21 @@ class MonitorController extends MagicController
       timer.cancel();
     }
     _cooldownTimers.clear();
+    for (final Timer timer in _resultWatchTimers.values) {
+      timer.cancel();
+    }
+    _resultWatchTimers.clear();
+    _resultWatchAttempts.clear();
+    _closed = true;
     super.onClose();
   }
+
+  /// Whether this controller has been torn down.
+  ///
+  /// Read by [_watchForManualCheckResult], which sleeps between reads and must
+  /// not touch a disposed controller (or hit the network) after a teardown,
+  /// which in a test is a `Magic.flush()` mid-poll.
+  bool _closed = false;
 
   /// Non-destructive list refresh: republishes the inventory from [Monitor.all]
   /// (`GET /monitors`) on a non-empty fetch, preserving the previously loaded
@@ -393,6 +406,75 @@ class MonitorController extends MagicController
     }
   }
 
+  /// How many times a queued manual check is re-read before giving up, and how
+  /// long between reads. Six reads two seconds apart covers a probe that has
+  /// been measured at well under a second, with room for a busy worker, and
+  /// stops rather than polling forever if the check never lands.
+  static const int _manualCheckPollAttempts = 6;
+
+  /// The gap between those reads.
+  static const Duration _manualCheckPollInterval = Duration(seconds: 2);
+
+  /// The pending result-watch [Timer] per monitor id, so a teardown can cancel
+  /// it. Kept in the same shape as [_cooldownTimers] and cancelled in the same
+  /// place, because a bare `Future.delayed` chain cannot be cancelled and the
+  /// widget-test binding rightly fails a test that disposes the tree with a
+  /// timer still pending.
+  final Map<String, Timer> _resultWatchTimers = {};
+
+  /// How many reads each monitor's watch has already spent.
+  final Map<String, int> _resultWatchAttempts = {};
+
+  /// Re-reads monitor [id] until its `last_checked_at` moves past [before], or
+  /// the poll budget runs out.
+  ///
+  /// The immediate `refreshOne` in [runCheckNow] cannot see the result: the
+  /// probe is queued and lands a second or two later, so a refresh at request
+  /// time answers about the state BEFORE the check. Each read notifies
+  /// listeners, which is what lets the detail screen swap its chart and table in
+  /// (see `MonitorDetailView._onMonitorChanged`).
+  ///
+  /// Stops on the first read that shows movement, so the common case costs one
+  /// extra request.
+  void _watchForManualCheckResult(String id, DateTime? before) {
+    _stopResultWatch(id);
+    _resultWatchAttempts[id] = 0;
+    _scheduleResultWatch(id, before);
+  }
+
+  /// Queues the next read in [id]'s watch.
+  void _scheduleResultWatch(String id, DateTime? before) {
+    _resultWatchTimers[id] = Timer(_manualCheckPollInterval, () async {
+      final int attempt = (_resultWatchAttempts[id] ?? 0) + 1;
+      _resultWatchAttempts[id] = attempt;
+
+      await refreshOne(id);
+
+      if (_closed) return;
+
+      final DateTime? landed = _cachedById(id)?.lastCheckedAt?.toDateTime;
+      if (landed != null && landed != before) {
+        _stopResultWatch(id);
+
+        return;
+      }
+
+      if (attempt >= _manualCheckPollAttempts) {
+        _stopResultWatch(id);
+
+        return;
+      }
+
+      _scheduleResultWatch(id, before);
+    });
+  }
+
+  /// Cancels and forgets [id]'s watch.
+  void _stopResultWatch(String id) {
+    _resultWatchTimers.remove(id)?.cancel();
+    _resultWatchAttempts.remove(id);
+  }
+
   /// Runs an out-of-schedule check for the monitor [id] via
   /// `POST /monitors/:id/test`, then refreshes that monitor.
   ///
@@ -400,8 +482,13 @@ class MonitorController extends MagicController
   /// every configured region and runs at the edge, so the result does not exist
   /// yet when this returns. The toast therefore says the check was QUEUED
   /// rather than claiming a result, and [refreshOne] picks up whatever has
-  /// landed by the time it resolves; anything later arrives over the team's
-  /// realtime channel like any scheduled check.
+  /// landed by the time it resolves.
+  ///
+  /// Anything later is picked up by [_watchForManualCheckResult], NOT by the
+  /// realtime channel. This docblock used to defer to that channel, and it was
+  /// wrong: `MonitorStatusChanged` fires on a status TRANSITION, so a manual
+  /// check confirming an already-up monitor is still up broadcasts nothing. The
+  /// operator pressed a button, waited, and watched the screen not move.
   ///
   /// No-op when [id] resolves to no cached monitor. A failed request logs and
   /// surfaces an error toast rather than silently doing nothing, since the
@@ -440,7 +527,9 @@ class MonitorController extends MagicController
           'name': monitor.name,
         }),
       );
+      final DateTime? before = monitor.lastCheckedAt?.toDateTime;
       await refreshOne(id);
+      _watchForManualCheckResult(id, before);
     } catch (error) {
       Log.error('[MonitorController.runCheckNow] $id failed: $error');
       Magic.error(
