@@ -665,7 +665,9 @@
       "form_regions_cap_notice_one": ":plan planınız monitör başına 1 bölgeden kontrol eder.",
       "form_regions_cap_notice_other": ":plan planınız monitör başına :count bölgeden kontrol eder.",
       "form_regions_cap_notice_upgrade_one": ":plan planınız monitör başına 1 bölgeden kontrol eder. :upgrade aynı anda daha fazlasından kontrol eder.",
-      "form_regions_cap_notice_upgrade_other": ":plan planınız monitör başına :count bölgeden kontrol eder. :upgrade aynı anda daha fazlasından kontrol eder."
+      "form_regions_cap_notice_upgrade_other": ":plan planınız monitör başına :count bölgeden kontrol eder. :upgrade aynı anda daha fazlasından kontrol eder.",
+      "checks_pending_title": "İlk kontrol bekleniyor",
+      "checks_pending_description": "İlk probe kuyruğa alındı ve monitörün kontrol aralığında koşacak. Sonuçlar kendiliğinden burada görünecek, yenilemenize gerek yok."
     },
     "status": {
       "up": "Çalışıyor",

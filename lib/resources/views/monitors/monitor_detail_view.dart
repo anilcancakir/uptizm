@@ -135,6 +135,18 @@ class _MonitorDetailViewState
   /// which case [UptimeBar] renders its own empty track.
   List<UptimeSegment> _uptimeSegments = const [];
 
+  /// The monitor's `last_checked_at` the three lists above were fetched
+  /// against, so a controller notify refetches only when a NEW check landed.
+  ///
+  /// Without this the lists were fetched exactly once per mount. A monitor
+  /// opened right after creation therefore kept an EMPTY checks table and an
+  /// empty chart for as long as the screen stayed open, while the KPI row above
+  /// them filled in with a real latency: the KPI reads the monitor resource,
+  /// which the realtime reload refreshes, and these three are local state
+  /// nothing refreshed. Reported from a live session, and it reads as the page
+  /// being half broken.
+  DateTime? _fetchedAgainstCheckedAt;
+
   /// Single-series descriptor for the live response-time chart.
   static const List<MetricSeries> _liveResponseSeries = [
     MetricSeries(key: 'response', label: 'Response', tone: ChartTone.up),
@@ -156,12 +168,39 @@ class _MonitorDetailViewState
     super.initState();
     _startLoading();
     _incidents.addListener(_onIncidents);
+    controller.addListener(_onMonitorChanged);
   }
 
   @override
   void dispose() {
     _incidents.removeListener(_onIncidents);
+    controller.removeListener(_onMonitorChanged);
     super.dispose();
+  }
+
+  /// Re-fetch the check-derived lists when a new check has landed for this
+  /// monitor.
+  ///
+  /// The controller notifies on every reload, including the coalesced one
+  /// `RealtimeService` runs on a `monitor.status` broadcast, so this is where a
+  /// live check reaches the chart and the table. Gated on `last_checked_at`
+  /// changing, because a notify happens for plenty of reasons that leave this
+  /// monitor's history untouched and three HTTP fetches per notify would be a
+  /// self-inflicted load.
+  ///
+  /// No skeleton: the content is already on screen and the operator is watching
+  /// it, so the new data swaps in place. `_fetchData` owns the `setState`.
+  void _onMonitorChanged() {
+    if (!mounted) return;
+
+    final DateTime? checkedAt = controller
+        .monitorById(widget.id)
+        ?.lastCheckedAt
+        ?.toDateTime;
+    if (checkedAt == null || checkedAt == _fetchedAgainstCheckedAt) return;
+
+    _fetchedAgainstCheckedAt = checkedAt;
+    unawaited(_fetchData());
   }
 
   /// Re-render the incident-derived surfaces when the roster lands or changes.
@@ -199,6 +238,12 @@ class _MonitorDetailViewState
     _recentChecks = const [];
     _responseData = const [];
     _uptimeSegments = const [];
+    // Seed the refetch marker with what the mount fetch is about to read, so
+    // the controller notify this same `refreshOne` triggers is recognised as
+    // the fetch already in flight rather than a new check.
+    _fetchedAgainstCheckedAt = id == null
+        ? null
+        : controller.monitorById(id)?.lastCheckedAt?.toDateTime;
     unawaited(_fetchData());
   }
 
@@ -848,7 +893,21 @@ class _MonitorDetailViewState
               trans('uptizm.monitors.section_recent_checks'),
               className: 'text-sm font-medium text-fg',
             ),
-            CheckHistoryTable(rows: _recentChecks),
+            if (_recentChecks.isEmpty && monitor.lastCheckedAt == null)
+              // A monitor whose first probe has not landed yet. The bare table
+              // (a header and no rows) read as broken, especially right after a
+              // create, when the KPI row above it already shows a latency. The
+              // `lastCheckedAt == null` half matters: an empty list on a monitor
+              // that HAS been checked is a failed fetch or a pruned window, and
+              // claiming "waiting for the first check" there would be a guess.
+              MSEmptyState(
+                title: trans('uptizm.monitors.checks_pending_title'),
+                description: trans(
+                  'uptizm.monitors.checks_pending_description',
+                ),
+              )
+            else
+              CheckHistoryTable(rows: _recentChecks),
           ],
         ),
       ],

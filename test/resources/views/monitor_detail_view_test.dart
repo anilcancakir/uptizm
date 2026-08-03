@@ -613,4 +613,171 @@ void main() {
       },
     );
   });
+
+  group('first check reaching the screen', () {
+    testWidgets(
+      'a monitor with no check yet says so instead of an empty table',
+      (tester) async {
+        // Reported from a live session: opened right after a create, the KPI row
+        // showed a real latency while the checks table below rendered a header
+        // and nothing else, which reads as a half-broken page.
+        //
+        // The shared harness stubs `*checks` with two rows for EVERY monitor, so
+        // a brand-new monitor has to be given the empty history it really has;
+        // otherwise this asserts against a fixture no fresh monitor could hold.
+        Http.fake({
+          '*checks': Http.response({'data': const <Map<String, dynamic>>[]}),
+          '*response-times*': Http.response({
+            'data': const <Map<String, dynamic>>[],
+          }),
+        });
+
+        MonitorController.instance.seedForTest([
+          Monitor.fromMap({
+            'id': 'brand-new',
+            'name': 'Brand New',
+            'url': 'https://brand-new.test/health',
+            'type': 'http',
+            'method': 'get',
+            'status': 'active',
+            'check_interval_sec': 180,
+            'regions': ['eu-central'],
+            // No last_checked_at, no last_status: the first probe is queued.
+          }),
+        ]);
+
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            const MonitorDetailView(id: 'brand-new'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await settleSkeleton(tester);
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(trans('uptizm.monitors.checks_pending_title')),
+          findsOneWidget,
+          reason: 'the waiting state replaces the bare table',
+        );
+        expect(
+          find.byType(CheckHistoryTable),
+          findsNothing,
+          reason: 'a header with no rows is what looked broken',
+        );
+      },
+    );
+
+    testWidgets(
+      'a newly landed check refetches the history without a remount',
+      (tester) async {
+        // The core of the live-session defect: the three check-derived lists
+        // were fetched once per mount, so the realtime reload refreshed the
+        // monitor resource (hence the KPI) while the chart and table kept the
+        // empty result of the mount fetch forever.
+        Monitor seed(String? checkedAt) => Monitor.fromMap({
+          'id': 'landing',
+          'name': 'Landing',
+          'url': 'https://landing.test/health',
+          'type': 'http',
+          'method': 'get',
+          'status': 'active',
+          'last_status': 'up',
+          'check_interval_sec': 180,
+          'regions': ['eu-central'],
+          'last_checked_at': ?checkedAt,
+        });
+
+        MonitorController.instance.seedForTest([seed(null)]);
+
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            const MonitorDetailView(id: 'landing'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await settleSkeleton(tester);
+
+        int checkFetches() => fakeNetwork.recorded
+            .map((entry) => entry.$1)
+            .where((r) => r.method == 'GET' && r.url.contains('/checks'))
+            .length;
+
+        final int beforeFetches = checkFetches();
+
+        // The first check lands: the backend broadcast makes RealtimeService
+        // reload the controller, which republishes the monitor with a
+        // last_checked_at. That notify is the only signal this screen gets.
+        MonitorController.instance.seedForTest([
+          seed('2026-08-03T12:00:00.000000Z'),
+        ]);
+        await tester.pumpAndSettle();
+
+        expect(
+          checkFetches(),
+          greaterThan(beforeFetches),
+          reason:
+              'a new last_checked_at must re-fetch the history; without it the '
+              'table stays at whatever the mount fetch returned',
+        );
+      },
+    );
+
+    testWidgets(
+      'an unrelated controller notify does not refetch the history',
+      (tester) async {
+        // The gate matters as much as the refetch: the controller notifies for
+        // plenty of reasons that leave this monitor's history untouched, and
+        // three HTTP fetches per notify would be a self-inflicted load.
+        Monitor seed(String name) => Monitor.fromMap({
+          'id': 'steady',
+          'name': name,
+          'url': 'https://steady.test/health',
+          'type': 'http',
+          'method': 'get',
+          'status': 'active',
+          'last_status': 'up',
+          'check_interval_sec': 180,
+          'regions': ['eu-central'],
+          'last_checked_at': '2026-08-03T12:00:00.000000Z',
+        });
+
+        MonitorController.instance.seedForTest([seed('Steady')]);
+
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            const MonitorDetailView(id: 'steady'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await settleSkeleton(tester);
+
+        int checkFetches() => fakeNetwork.recorded
+            .map((entry) => entry.$1)
+            .where((r) => r.method == 'GET' && r.url.contains('/checks'))
+            .length;
+
+        final int beforeFetches = checkFetches();
+
+        // Same last_checked_at, different name: a notify with no new check.
+        MonitorController.instance.seedForTest([seed('Steady renamed')]);
+        await tester.pumpAndSettle();
+
+        expect(
+          checkFetches(),
+          beforeFetches,
+          reason: 'no new check means no refetch',
+        );
+      },
+    );
+  });
 }

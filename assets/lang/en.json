@@ -665,7 +665,9 @@
       "form_regions_cap_notice_one": "Your :plan plan checks from 1 region per monitor.",
       "form_regions_cap_notice_other": "Your :plan plan checks from :count regions per monitor.",
       "form_regions_cap_notice_upgrade_one": "Your :plan plan checks from 1 region per monitor. :upgrade probes from more at once.",
-      "form_regions_cap_notice_upgrade_other": "Your :plan plan checks from :count regions per monitor. :upgrade probes from more at once."
+      "form_regions_cap_notice_upgrade_other": "Your :plan plan checks from :count regions per monitor. :upgrade probes from more at once.",
+      "checks_pending_title": "Waiting for the first check",
+      "checks_pending_description": "The first probe is queued and runs on this monitor's interval. Results appear here on their own, no refresh needed."
     },
     "status": {
       "up": "Operational",
