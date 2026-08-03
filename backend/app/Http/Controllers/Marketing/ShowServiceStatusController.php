@@ -12,6 +12,7 @@ use App\Support\Marketing\LegalDocument;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -204,6 +205,12 @@ class ShowServiceStatusController
             'feed' => $data['feed'],
             'divergence' => $data['divergence'],
             'generatedAt' => $data['generatedAt'],
+            // The banner reads "updated 25 seconds ago" the way the customer status
+            // page's does. Computed here rather than in the view because the read
+            // model is CACHED for a minute: deriving it at render time means the
+            // phrase tracks the reader's clock instead of freezing at the moment the
+            // payload was assembled, which is the whole point of a relative label.
+            'generatedAtAgo' => Carbon::parse($data['generatedAt'])->diffForHumans(),
             'hubPath' => $this->hubPath(),
             // The two evidence bounds as view data rather than as fully qualified
             // constants inside the template, the same way the contact page takes
