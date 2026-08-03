@@ -517,6 +517,83 @@ class StatusPageRenderTest extends TestCase
      * Creates an active incident with one public update on the given monitor,
      * so the public page's incidents section has an entry to render.
      */
+    public function test_the_incident_timeline_reads_newest_first_with_a_status_and_a_utc_stamp(): void
+    {
+        /*
+         * Reported from a live session, against the shape of a status page the
+         * reporter already reads daily: an operator acknowledged an incident, added
+         * an update, and the public page listed the messages as anonymous
+         * sentences. The status of each update was in the read model from the start
+         * and the template never printed it, so a visitor could not tell the
+         * resolution from the first acknowledgement without reading the prose.
+         *
+         * Three things are asserted, because all three were wrong: the status
+         * prefix, the ABSOLUTE UTC stamp (a relative "15 minutes ago" is unreadable
+         * a day later, differs on every reload and cannot be quoted in a ticket),
+         * and the newest-first order a visitor arriving mid-incident needs.
+         */
+        $page = $this->makePageWithMonitor('timeline', isPublic: true);
+        $monitor = $page->monitors()->first();
+
+        $incident = $this->seedPublicIncident($page->team, $monitor, 'Checkout is slow');
+
+        // A later update, so the order is observable. The relation orders
+        // display_at ASC, so without the reverse this one renders SECOND.
+        IncidentUpdate::query()->create([
+            'incident_id' => $incident->id,
+            'message' => 'Back to baseline, keeping an eye on it.',
+            'actor' => 'human',
+            'status' => IncidentStatus::Monitoring,
+            'is_public' => true,
+            'autonomous' => false,
+            'display_at' => now()->addMinutes(30),
+        ]);
+
+        $html = $this->get('/s/timeline')->assertOk()->getContent();
+
+        $this->assertStringContainsString('Monitoring', $html);
+        $this->assertStringContainsString('Investigating', $html);
+        $this->assertMatchesRegularExpression(
+            '/\d{2}:\d{2} UTC/',
+            $html,
+            'each update carries an absolute UTC stamp, not a relative one',
+        );
+        $this->assertStringNotContainsString('minutes ago', $html);
+
+        $this->assertLessThan(
+            mb_strpos($html, 'We are investigating elevated latency.'),
+            mb_strpos($html, 'Back to baseline, keeping an eye on it.'),
+            'the newest update comes first, the way a visitor arriving mid-incident reads it',
+        );
+    }
+
+    public function test_a_human_actor_is_not_printed_and_a_non_human_one_is(): void
+    {
+        // "human" is internal vocabulary that tells a customer nothing. An update
+        // the AI wrote is the opposite: something they are owed.
+        $page = $this->makePageWithMonitor('actors', isPublic: true);
+        $monitor = $page->monitors()->first();
+
+        $incident = $this->seedPublicIncident($page->team, $monitor, 'Checkout is slow');
+
+        IncidentUpdate::query()->create([
+            'incident_id' => $incident->id,
+            'message' => 'Latency correlates with the deploy at 14:02.',
+            'actor' => 'ai',
+            'status' => IncidentStatus::Identified,
+            'is_public' => true,
+            'autonomous' => true,
+            'display_at' => now()->addMinutes(5),
+        ]);
+
+        $html = $this->get('/s/actors')->assertOk()->getContent();
+
+        $this->assertStringContainsString('Latency correlates with the deploy', $html);
+        $this->assertStringContainsString('ai', $html);
+        $this->assertStringNotContainsString('&middot; human', $html);
+        $this->assertStringNotContainsString('· human', $html);
+    }
+
     protected function seedPublicIncident(Team $team, Monitor $monitor, string $title): Incident
     {
         $incident = Incident::query()->create([

@@ -355,13 +355,21 @@ class StatusPageAssembler
                     'publishedAt' => $incident->postmortem_published_at->toIso8601String(),
                 ]
                 : null,
+            // NEWEST FIRST. The relation orders `display_at` ascending, which is
+            // what the operator-facing timeline wants (read the incident forwards).
+            // A public history reads the other way: a visitor arriving mid-incident
+            // wants the latest word at the top, which is how every status page they
+            // have already seen behaves. Reversed here rather than on the relation,
+            // so the in-app timeline keeps its chronological order.
             'updates' => $incident->updates
+                ->reverse()
                 ->map(static fn (IncidentUpdate $update): array => [
                     'message' => $update->message,
                     'actor' => $update->actor,
                     'displayAt' => $update->display_at->toIso8601String(),
                     'status' => $update->status->value,
                 ])
+                ->values()
                 ->all(),
         ];
     }

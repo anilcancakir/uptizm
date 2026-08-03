@@ -1,8 +1,13 @@
 {{--
     Recent public incidents, grouped by the day they started. Each entry shows
-    its title, a lifecycle badge, when it started, its public updates, and a
-    published postmortem when one exists (internal-only updates and UNPUBLISHED
-    postmortems never reach this view, the assembler filters both out).
+    its title, a lifecycle badge, when it started, its public updates NEWEST
+    FIRST, and a published postmortem when one exists (internal-only updates and
+    UNPUBLISHED postmortems never reach this view, the assembler filters both
+    out).
+
+    Each update prints its own status label and an absolute UTC timestamp, which
+    is the shape a reader already knows from every other status page and the only
+    shape that survives being read a day later or quoted in a ticket.
 --}}
 @php
     /*
@@ -19,6 +24,25 @@
      * has nothing to characterise beyond "we know". Anything unrecognised lands
      * there too, one step from green rather than in it.
      */
+    /*
+     * The per-update status label, the "Resolved - ", "Investigating - " prefix
+     * every status page a visitor has already read puts in front of the message.
+     *
+     * The status was in the read model from the start and the template simply
+     * never printed it, so the history read as a stack of anonymous sentences: a
+     * visitor could not tell which line was the resolution and which was the
+     * first acknowledgement without inferring it from the prose.
+     */
+    $updateStatusLabel = static fn (string $status): string => match ($status) {
+        'detected' => 'Detected',
+        'investigating' => 'Investigating',
+        'identified' => 'Identified',
+        'monitoring' => 'Monitoring',
+        'mitigated' => 'Mitigated',
+        'resolved' => 'Resolved',
+        default => ucfirst(str_replace('_', ' ', $status)),
+    };
+
     $lifecycleBadgeClass = static fn (string $lifecycle): string => match ($lifecycle) {
         'resolved' => 'bg-up-soft text-up-soft-foreground',
         'monitoring', 'mitigated' => 'bg-info-soft text-info-soft-foreground',
@@ -51,7 +75,7 @@
                                         {{ str_replace('_', ' ', $entry['lifecycle']) }}
                                     </span>
                                     <time datetime="{{ $entry['startedAt'] }}" class="text-xs text-fg-muted">
-                                        started {{ \Illuminate\Support\Carbon::parse($entry['startedAt'])->diffForHumans() }}
+                                        started {{ \Illuminate\Support\Carbon::parse($entry['startedAt'])->utc()->format('M j, H:i') }} UTC
                                     </time>
                                 </div>
 
@@ -59,12 +83,31 @@
                                     <ul class="mt-2 space-y-2 border-l border-border pl-4">
                                         @foreach ($entry['updates'] as $update)
                                             <li class="text-sm">
-                                                <p class="text-fg">{{ $update['message'] }}</p>
+                                                <p class="text-fg">
+                                                    <span class="font-semibold">{{ $updateStatusLabel($update['status']) }}</span>
+                                                    <span class="text-fg-muted">&ndash;</span>
+                                                    {{ $update['message'] }}
+                                                </p>
+
+                                                {{-- ABSOLUTE, and in UTC. "15 minutes ago" is
+                                                     useless in a history: it is unreadable a day
+                                                     later, it differs on every reload, and it
+                                                     cannot be quoted in a ticket. UTC because a
+                                                     status page is read from every timezone and
+                                                     the server's own is nobody's answer.
+
+                                                     The actor is printed only when it is NOT a
+                                                     human: "human" is internal vocabulary that
+                                                     tells a customer nothing, while an AI-written
+                                                     update is something they are owed. --}}
                                                 <p class="text-xs text-fg-muted">
-                                                    {{ $update['actor'] }} &middot;
                                                     <time datetime="{{ $update['displayAt'] }}">
-                                                        {{ \Illuminate\Support\Carbon::parse($update['displayAt'])->diffForHumans() }}
+                                                        {{ \Illuminate\Support\Carbon::parse($update['displayAt'])->utc()->format('M j, H:i') }} UTC
                                                     </time>
+
+                                                    @if ($update['actor'] !== 'human')
+                                                        &middot; {{ $update['actor'] }}
+                                                    @endif
                                                 </p>
                                             </li>
                                         @endforeach
