@@ -17,12 +17,13 @@ use Illuminate\Database\Seeder;
  * verification pass.
  *
  * The environment guard is a positive branch rather than an early return so
- * {@see SystemTeamSeeder} can sit OUTSIDE it and still run last. Both halves of
- * that are load-bearing: the system team is reference data the service catalog
- * cannot work without, so it must exist in production too, and it must be
- * created AFTER the demo seeders, because {@see StatusPageSeeder} picks its demo
- * team with an unordered `Team::query()->first()` and would otherwise be free to
- * hang the demo status page off uptizm's own internal team.
+ * {@see SystemTeamSeeder} and {@see ServiceCatalogSeeder} can sit OUTSIDE it and
+ * still run last. Both halves of that are load-bearing: the system team and its
+ * catalog are reference data the service pages cannot work without, so they must
+ * exist in production too, and they must be created AFTER the demo seeders,
+ * because {@see StatusPageSeeder} picks its demo team with an unordered
+ * `Team::query()->first()` and would otherwise be free to hang the demo status
+ * page off uptizm's own internal team.
  */
 class DatabaseSeeder extends Seeder
 {
@@ -76,5 +77,11 @@ class DatabaseSeeder extends Seeder
         //    the public service catalog's monitors. Last on purpose, so the demo
         //    seeders above cannot pick it up as "the first team".
         $this->call(SystemTeamSeeder::class);
+
+        // 8. The catalog itself, also in every environment, and necessarily
+        //    AFTER the team above: every service's own-measurement monitor
+        //    belongs to it. Each service is seeded UNPUBLISHED with its terms
+        //    unreviewed, so this creates nothing publicly visible.
+        $this->call(ServiceCatalogSeeder::class);
     }
 }
