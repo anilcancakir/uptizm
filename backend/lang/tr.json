@@ -232,5 +232,9 @@
     "What :service publishes itself": ":service kendisinin yayımladığı",
     "What Uptizm measured": "Uptizm'in ölçtüğü",
     "What Uptizm measured reaching :endpoint, and what :service publishes on its own status feed, side by side with both sources labelled.": "Uptizm'in :endpoint uç noktasına erişerek ölçtüğü ile :service kendi durum akışında yayımladığı, iki kaynak da etiketlenmiş halde yan yana.",
-    "What Uptizm measures about :service, and what :service publishes itself, each labelled with where it came from.": ":service hakkında Uptizm'in ölçtüğü ile :service kendisinin yayımladığı, her biri nereden geldiği etiketlenmiş halde."
+    "What Uptizm measures about :service, and what :service publishes itself, each labelled with where it came from.": ":service hakkında Uptizm'in ölçtüğü ile :service kendisinin yayımladığı, her biri nereden geldiği etiketlenmiş halde.",
+    "We are reaching :endpoint from some regions and not others.": ":endpoint uç noktasına bazı bölgelerden erişiyoruz, bazılarından erişemiyoruz.",
+    ":count of :total regions did not report it healthy. We do not call that an outage yet.": ":total bölgeden :count tanesi sağlıklı bildirmedi. Bunu henüz bir kesinti olarak adlandırmıyoruz.",
+    "No region reached :endpoint on our last check, and we do not call that an outage yet.": "Son kontrolümüzde hiçbir bölge :endpoint uç noktasına erişemedi ve bunu henüz bir kesinti olarak adlandırmıyoruz.",
+    "Every region reached :endpoint, but not all of them normally.": "Her bölge :endpoint uç noktasına erişti, ancak hepsi normal şekilde değil."
 }
