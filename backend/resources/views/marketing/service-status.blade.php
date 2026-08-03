@@ -57,7 +57,7 @@
         where `status/partials/brand-header.blade.php` has one. The only structured
         data is `WebPage`; `Organization` would misrepresent whose page this is.
 --}}
-@extends('marketing.layout')
+@extends('marketing.service-layout')
 
 @section('title', $title.' | '.config('app.name'))
 
@@ -81,9 +81,6 @@
         };
     @endphp
 
-    {{-- The customer status page's container, so the two documents sit at the same
-         measure and rhythm. --}}
-    <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         {{-- WebPage and nothing else. Organization or SoftwareApplication here
              would claim this page speaks for the service it names, which is a named
              violation of Google's own structured-data policy, and the FAQ rich
@@ -100,15 +97,43 @@
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}
         </script>
 
-        {{-- The status page's brand header, minus the logo tile: provider artwork is
-             forbidden plan-wide, and a tile bearing somebody else's initials is
-             exactly the stylised-mark use the trademark reasoning refused. --}}
+        {{-- The status page's brand header, with the service's own mark where a
+             customer's page carries theirs.
+
+             The mark is SELF-HOSTED and inlined from `resources/svg/brands/`: loading
+             it from a CDN or the provider's own host would make that party a recipient
+             of every visitor's IP address and falsify what
+             `resources/legal/privacy.en.md` publishes about this surface reaching no
+             third-party host. Six of the eight seeded services ship one; OpenAI and
+             Slack do not, because the CC0 dataset the rest came from removes a brand
+             when its owner asks, and they fall back to the monogram.
+
+             `brand_color` is TENANT-STYLE DATA and not a design token, so it is an
+             inline style and the foreground over it is a FIXED white rather than
+             `text-on-primary`, which would flip to near-black in dark mode over a
+             colour that did not move and turn a legible tile unreadable. Exactly the
+             treatment and exactly the reasoning of
+             `status/partials/brand-header.blade.php`. Without a colour the tile takes
+             the product's own brand pair, which is that file's own fallback too. --}}
         <header class="pb-6">
             <p class="text-label-sm text-fg-muted">
                 <a href="{{ $hubPath }}" class="underline underline-offset-2 hover:text-fg">{{ __('All services') }}</a>
             </p>
 
-            <h1 class="mt-3 text-xl font-semibold text-fg">{{ $title }}</h1>
+            <div class="mt-3 flex items-center gap-3">
+                <div
+                    @class([
+                        'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-lg font-semibold',
+                        '[&>svg]:h-7 [&>svg]:w-7 [&>svg]:fill-current',
+                        'text-white' => $service['brandColor'] !== null,
+                        'bg-primary text-on-primary' => $service['brandColor'] === null,
+                    ])
+                    @if ($service['brandColor'] !== null) style="background-color: {{ $service['brandColor'] }}" @endif
+                    aria-hidden="true"
+                >@if ($service['logo'] !== null){!! $service['logo'] !!}@else{{ $service['monogram'] }}@endif</div>
+
+                <h1 class="text-xl font-semibold text-fg">{{ $title }}</h1>
+            </div>
 
             {{-- The non-affiliation line, in the FIRST screen rather than only in the
                  footnotes: the page carries somebody else's trademark in its title,
@@ -136,8 +161,14 @@
                 </span>
             </div>
 
+            {{-- The relative phrase and nothing else, the way the customer status
+                 page's banner reads. The exact instant stays in `datetime`, which the
+                 shell's script rewrites into the reader's own zone, so the short text
+                 costs no precision. The cache caveat that used to sit here was a
+                 paragraph of implementation detail in the most prominent line on the
+                 page; it belongs in the footnote, and that is where it went. --}}
             <time datetime="{{ $generatedAt }}" class="text-sm text-fg-muted">
-                {{ __('Assembled at :time. Readings on this page are cached for up to a minute.', ['time' => $generatedAt]) }}
+                {{ __('updated :ago', ['ago' => $generatedAtAgo]) }}
             </time>
         </section>
 
@@ -393,5 +424,8 @@
         <p class="mt-10 border-t border-border-subtle pt-4 text-label-sm text-fg-muted">
             {{ __(':service and its logo are trademarks of their owner. This page is published by Uptizm, is not affiliated with :service, and quotes their published status only where it says so.', ['service' => $service['name']]) }}
         </p>
-    </div>
+
+        <p class="mt-2 text-label-sm text-fg-muted">
+            {{ __('Assembled at :time. Readings on this page are cached for up to a minute.', ['time' => $generatedAt]) }}
+        </p>
 @endsection

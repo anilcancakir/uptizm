@@ -18,12 +18,11 @@
     "N services operational" figure: rolling eight third parties into one number
     would be exactly the blended claim this catalog refuses to publish.
 --}}
-@extends('marketing.layout')
+@extends('marketing.service-layout')
 
 @section('title', $title.' | '.config('app.name'))
 
 @section('content')
-    <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         {{-- WebPage only, like every page on this surface. --}}
         <script type="application/ld+json">
             {!! json_encode([
@@ -58,7 +57,24 @@
 
         @foreach ($services as $entry)
             <section class="mb-6 rounded-lg border border-border bg-surface-container">
-                <h2 class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">
+                {{-- The same tile the service's own page carries, at header-bar size.
+                     It matters more here than there: this is eight rows a reader
+                     scans, and a mark is what makes one findable at a glance. Same
+                     rules as the page header, including the fixed white foreground
+                     over an operator-set colour and the monogram fallback for a
+                     service this catalog ships no mark for. --}}
+                <h2 class="flex items-center gap-3 border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">
+                    <span
+                        @class([
+                            'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-semibold',
+                            '[&>svg]:h-4 [&>svg]:w-4 [&>svg]:fill-current',
+                            'text-white' => $entry['service']['brandColor'] !== null,
+                            'bg-primary text-on-primary' => $entry['service']['brandColor'] === null,
+                        ])
+                        @if ($entry['service']['brandColor'] !== null) style="background-color: {{ $entry['service']['brandColor'] }}" @endif
+                        aria-hidden="true"
+                    >@if ($entry['service']['logo'] !== null){!! $entry['service']['logo'] !!}@else{{ $entry['service']['monogram'] }}@endif</span>
+
                     <a href="{{ $entry['path'] }}" class="underline underline-offset-2 hover:text-fg">
                         {{ $entry['service']['name'] }}
                     </a>
@@ -151,5 +167,4 @@
                 [&_code]:rounded-sm [&_code]:bg-surface-container-high [&_code]:px-1 [&_code]:font-mono [&_code]:text-body-md
                 [&_hr]:my-10 [&_hr]:border-border-subtle"
         >{!! $document['html'] !!}</div>
-    </div>
 @endsection

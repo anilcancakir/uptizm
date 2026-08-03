@@ -1077,4 +1077,80 @@ class ServiceStatusPageTest extends TestCase
     {
         return app('router')->getRoutes()->match(Request::create($path, 'GET'));
     }
+
+    public function test_the_header_tile_carries_the_mark_self_hosted_and_never_from_a_third_party(): void
+    {
+        /*
+         * The catalog ships six of its eight marks under `resources/svg/brands/` and
+         * inlines them. The self-hosting is the load-bearing half, not the logo:
+         * `resources/legal/privacy.en.md` publishes that this read-only surface reaches
+         * NO third-party host, so pulling a mark from a CDN, a favicon service or the
+         * provider's own domain would make that party a recipient of every visitor's IP
+         * and falsify a published statement. That is the regression this test exists to
+         * catch, because "just use an <img src>" is the obvious thing a future
+         * contributor would reach for.
+         */
+        $service = $this->publish(['slug' => 'github', 'name' => 'GitHub']);
+        $service->forceFill(['brand_color' => '#181717'])->save();
+
+        // The read model is cached for a minute and `publish()` may already have warmed
+        // it, so this measures the render rather than the cache.
+        Cache::flush();
+
+        // A mark this catalog actually ships, so the branch under test is reachable.
+        $logo = resource_path('svg/brands/github.svg');
+        $this->assertFileExists($logo, 'The bundled marks are gone, so this asserts nothing.');
+
+        $html = $this->get($this->pagePath('en', 'github'))->assertOk()->getContent();
+
+        // Asserted piecewise rather than with one regex spanning the whole tag: Blade's
+        // `@class` and the conditional `style` do not promise an attribute order, and a
+        // test that encodes one breaks on a reformat rather than on a regression.
+        $this->assertStringContainsString('background-color: #181717', $html);
+        $this->assertStringContainsString('text-white', $html);
+        // The mark itself, inlined from the repository.
+        $this->assertStringContainsString('<svg', $html);
+        $this->assertStringContainsString('<title>GitHub</title>', $html);
+
+        // NOTHING is fetched. No image element and no remote reference of any kind.
+        $this->assertSame(0, substr_count($html, '<img'));
+        $this->assertStringNotContainsString('og:image', $html);
+        foreach (['clearbit', 'googleusercontent', 'gstatic', 'favicon', 'cdn.'] as $thirdParty) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $thirdParty,
+                $html,
+                "The header tile is reaching a third-party host ({$thirdParty}), which the privacy notice says this surface never does.",
+            );
+        }
+    }
+
+    public function test_a_service_with_no_mark_or_colour_falls_back_to_its_monogram(): void
+    {
+        /*
+         * OpenAI and Slack have neither, and the reason is why this branch must keep
+         * working rather than be treated as a corner case: the CC0 dataset the other
+         * six marks came from removes a brand when its owner asks, so those two
+         * absences ARE the two objections. The fallback is the product's own brand pair
+         * and the service's initials.
+         *
+         * Two words in the fixture name, so both initials: EP.
+         */
+        $service = $this->publish();
+        $service->forceFill(['brand_color' => null])->save();
+
+        Cache::flush();
+
+        $html = $this->get($this->pagePath('en'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('bg-primary text-on-primary', $html);
+        $this->assertMatchesRegularExpression('/>\s*EP\s*</', $html);
+        $this->assertStringNotContainsString('background-color', $html);
+
+        // And never a monitoring-status colour behind the name: an amber or red tile on
+        // a status page reads as a warning about the service it labels. A deterministic
+        // per-service accent was tried and reverted for exactly that.
+        foreach (['bg-degraded', 'bg-down', 'bg-up', 'bg-paused', 'bg-info', 'bg-ai'] as $statusFamily) {
+            $this->assertStringNotContainsString('rounded-lg '.$statusFamily, $html);
+        }
+    }
 }

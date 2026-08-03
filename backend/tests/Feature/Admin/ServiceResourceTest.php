@@ -238,4 +238,50 @@ class ServiceResourceTest extends TestCase
             'check_interval_sec' => 60,
         ]);
     }
+
+    public function test_the_brand_colour_only_accepts_a_full_hex_literal(): void
+    {
+        /*
+         * This value is interpolated into an inline `style="background-color: ..."` on a
+         * PUBLIC page, which makes the field the one place operator input reaches CSS
+         * unescaped by design. So the rule is a strict 7-character hex and the test
+         * covers the shapes somebody would actually try: a shorthand, a CSS keyword, a
+         * function, and a breakout attempt.
+         *
+         * Shorthand is refused rather than expanded so the stored string and the
+         * rendered string are never two different things.
+         */
+        $staff = $this->staffUser();
+
+        foreach (['#fff', 'red', 'rgb(1,2,3)', '#181717; background-image: url(https://evil.test/x)', '#12345g'] as $rejected) {
+            Livewire::actingAs($staff)
+                ->test(CreateService::class)
+                ->fillForm([
+                    'slug' => 'colour-'.md5($rejected),
+                    'name' => 'Colour Probe',
+                    'category' => 'cloud',
+                    'status_source' => ServiceStatusSource::None->value,
+                    'display_order' => 0,
+                    'brand_color' => $rejected,
+                ])
+                ->call('create')
+                ->assertHasFormErrors(['brand_color']);
+        }
+
+        // Control: a real one is accepted, so the rule is not simply refusing everything.
+        Livewire::actingAs($staff)
+            ->test(CreateService::class)
+            ->fillForm([
+                'slug' => 'colour-accepted',
+                'name' => 'Colour Probe',
+                'category' => 'cloud',
+                'status_source' => ServiceStatusSource::None->value,
+                'display_order' => 0,
+                'brand_color' => '#181717',
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $this->assertSame('#181717', Service::query()->where('slug', 'colour-accepted')->value('brand_color'));
+    }
 }

@@ -194,7 +194,7 @@ class ServicePageAssembler
 
     /**
      * @return array{
-     *     service: array{slug: string, name: string, category: string|null},
+     *     service: array{slug: string, name: string, category: string|null, monogram: string, brandColor: string|null, logo: string|null},
      *     own: array<string, mixed>,
      *     feed: array<string, mixed>|null,
      *     divergence: bool,
@@ -214,6 +214,9 @@ class ServicePageAssembler
                 'slug' => $service->slug,
                 'name' => $service->name,
                 'category' => $service->category,
+                'monogram' => $this->monogram($service->name),
+                'brandColor' => $service->brand_color,
+                'logo' => $this->logo($service->slug),
             ],
             'own' => $own,
             'feed' => $feed,
@@ -704,6 +707,99 @@ class ServicePageAssembler
     protected function diverges(?bool $own, ?bool $feed): bool
     {
         return $own !== null && $feed !== null && $own !== $feed;
+    }
+
+    /**
+     * Two letters standing in for the service, for the header tile.
+     *
+     * A MONOGRAM AND NEVER A LOGO, and that distinction is legal rather than
+     * aesthetic. The plan forbids fetching, storing or serving provider artwork,
+     * on *Toyota v. Tabari*: the same opinion that cleared plain-text use of
+     * somebody else's mark refused stylised use of it. Initials rendered as text
+     * are the plain-text half. An image of their logo is the half that was refused,
+     * and on a page whose entire job is saying "this is not their official status
+     * page" it would say the opposite louder than any disclaimer.
+     *
+     * The customer status page's tile works the same way
+     * (`status/partials/brand-header.blade.php` renders `logo_text` or the first two
+     * characters of the name), so this is the house pattern rather than a
+     * workaround: that tile has never been an image either.
+     *
+     * First letters of the first two words when there are two, so "Google Cloud"
+     * reads GC rather than Go; otherwise the first two characters, natural case.
+     *
+     * NO PER-SERVICE COLOUR ACCOMPANIES IT, and that was a considered reversal. A
+     * deterministic accent keyed on the slug looked like the obvious way to tell
+     * eight tiles apart, until the rendered page showed GitHub carrying
+     * `bg-degraded`: this product's token palette is the brand colour plus the six
+     * MONITORING STATUS families (up, down, degraded, paused, info, ai), so every
+     * candidate accent is a status colour, and an amber tile beside a green banner
+     * on a status page reads as a warning about the service. There is no neutral
+     * accent family to draw from, and inventing one is a `DESIGN.md` change rather
+     * than a view decision.
+     *
+     * So the tile takes `bg-primary text-on-primary`, which is exactly what
+     * `status/partials/brand-header.blade.php` uses for a customer who has set no
+     * brand colour of their own. Uniform tiles, and the NAME does the
+     * distinguishing. If per-service colour is wanted later it belongs on the
+     * service row as an operator-set value, with the trade-dress caveat that the
+     * provider's own official colour is the one thing it must not be.
+     *
+     * MONOGRAMS CAN COLLIDE and that is accepted: the seeded catalog already has two
+     * Cl (Claude, Cloudflare). Left alone because the tile never appears without the
+     * full name beside it, on the page header and in the hub's section heading alike,
+     * so the name does the identifying and the tile is decoration. Every scheme that
+     * would disambiguate them (Cl/Cf, dropping vowels, a per-service override) needs
+     * knowledge of the specific pair rather than a rule, and a rule nobody can state
+     * is worse than two tiles that look alike next to two different names.
+     */
+    protected function monogram(string $name): string
+    {
+        $words = preg_split('/\s+/', trim($name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        if (count($words) >= 2) {
+            // Two words, two initials, both capitalised: "Google Cloud" reads GC
+            // rather than Go.
+            return mb_strtoupper(mb_substr($words[0], 0, 1).mb_substr($words[1], 0, 1));
+        }
+
+        // One word keeps its natural case, so "GitHub" reads Gi and not GI. The
+        // customer status page's tile does the same ("Fl" for FlutterSDK): shouting
+        // two letters at somebody is not a brand mark.
+        return mb_strtoupper(mb_substr($name, 0, 1)).mb_substr($name, 1, 1);
+    }
+
+    /**
+     * The service's own mark, as inline SVG, or null when this catalog does not ship
+     * one for it.
+     *
+     * SELF-HOSTED AND INLINE, never a remote URL, and that is not a performance
+     * choice. `resources/legal/privacy.en.md` publishes that the read-only public
+     * surface reaches no third-party host at all, and
+     * `ShowPrivacyController::thirdPartyScriptCount()` derives that claim from
+     * configuration. Loading a mark from Clearbit, a favicon service or the
+     * provider's own CDN would make that party a recipient of every visitor's IP
+     * address and falsify a published statement, which is a worse outcome than
+     * having no logo. Inline rather than an `<img src>` for the same reason it is
+     * self-hosted: no second request, and it inherits `currentColor` so it works in
+     * both colour schemes.
+     *
+     * Six of the eight seeded services have a file; OpenAI and Slack do not, and the
+     * reason is worth keeping: the CC0 `simple-icons` dataset these were taken from
+     * carries neither, because that project removes a brand when its owner asks. So
+     * the two absences are the two objections, and hunting the marks down elsewhere
+     * would be routing around a refusal. They render their monogram instead.
+     *
+     * The files are trusted repository content, which is what makes the unescaped
+     * echo in the view safe; nothing on this path is visitor input, and a slug that
+     * reached the filesystem is bounded by `ShowServiceStatusController::SLUG_PATTERN`
+     * before it ever gets here.
+     */
+    protected function logo(string $slug): ?string
+    {
+        $path = resource_path('svg/brands/'.$slug.'.svg');
+
+        return is_file($path) ? (string) file_get_contents($path) : null;
     }
 
     /**

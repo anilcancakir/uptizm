@@ -82,6 +82,20 @@ class ServiceForm
                             $fail($exception->errors()['status_source_url'][0]);
                         }
                     }),
+                TextInput::make('brand_color')
+                    ->label('Brand colour')
+                    ->helperText('The header tile\'s background, as #rrggbb. Leave empty to use Uptizm\'s own brand colour and the service\'s initials.')
+                    ->maxLength(7)
+                    /*
+                     * A strict 7-character hex and nothing else, because this value is
+                     * interpolated into an inline `style="background-color: ..."` on a
+                     * public page. Anything looser is a CSS injection point on the one
+                     * surface that renders operator input unescaped by design, and
+                     * `#fff` shorthand is rejected rather than expanded so the stored
+                     * value and the rendered value are always the same string.
+                     */
+                    ->rule('regex:/^#[0-9a-fA-F]{6}$/')
+                    ->placeholder('#181717'),
                 TextInput::make('terms_url')
                     ->label('Terms URL')
                     ->url()

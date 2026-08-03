@@ -58,6 +58,15 @@ class ServiceCatalogSeeder extends Seeder
     /**
      * The eight v1 services.
      *
+     * `brand_color` is the header tile's accent, and it is NULL for OpenAI and Slack
+     * on purpose: the CC0 `simple-icons` dataset every other colour here is cited
+     * from carries neither brand, because that project removes a brand when its owner
+     * asks. Typing their colour from memory would be an unsourced claim about somebody
+     * else's mark on a page that refuses unsourced claims about their availability, so
+     * those two keep the product's own brand pair and their monogram. Same rule as the
+     * logos: six of the eight ship one, two do not, and the two that do not are
+     * precisely the two whose owners objected.
+     *
      * `status_source` is the CANDIDATE feed for the terms review, not a licence
      * to poll. Slack and Stripe are `None` on evidence rather than omission:
      * `status.slack.com` 301s cross-host to `slack-status.com` and publishes a
@@ -68,11 +77,12 @@ class ServiceCatalogSeeder extends Seeder
      * configured. `None` is the honest state: those two publish on uptizm's own
      * measurement alone.
      *
-     * @var list<array{slug: string, name: string, category: string, status_source: ServiceStatusSource, status_source_url: string|null, probe_url: string, probe_label: string, terms_note: string}>
+     * @var list<array{slug: string, brand_color: string|null, name: string, category: string, status_source: ServiceStatusSource, status_source_url: string|null, probe_url: string, probe_label: string, terms_note: string}>
      */
     private const array SERVICES = [
         [
             'slug' => 'github',
+            'brand_color' => '#181717',
             'name' => 'GitHub',
             'category' => 'developer-tools',
             'status_source' => ServiceStatusSource::StatuspageV2,
@@ -84,6 +94,7 @@ class ServiceCatalogSeeder extends Seeder
         ],
         [
             'slug' => 'claude',
+            'brand_color' => '#D97757',
             'name' => 'Claude',
             'category' => 'ai',
             'status_source' => ServiceStatusSource::StatuspageV2,
@@ -96,6 +107,7 @@ class ServiceCatalogSeeder extends Seeder
         ],
         [
             'slug' => 'openai',
+            'brand_color' => null,
             'name' => 'OpenAI',
             'category' => 'ai',
             'status_source' => ServiceStatusSource::StatuspageV2,
@@ -107,6 +119,7 @@ class ServiceCatalogSeeder extends Seeder
         ],
         [
             'slug' => 'cloudflare',
+            'brand_color' => '#F38020',
             'name' => 'Cloudflare',
             'category' => 'cloud',
             'status_source' => ServiceStatusSource::StatuspageV2,
@@ -119,6 +132,7 @@ class ServiceCatalogSeeder extends Seeder
         ],
         [
             'slug' => 'google-cloud',
+            'brand_color' => '#4285F4',
             'name' => 'Google Cloud',
             'category' => 'cloud',
             'status_source' => ServiceStatusSource::GoogleCloud,
@@ -130,6 +144,7 @@ class ServiceCatalogSeeder extends Seeder
         ],
         [
             'slug' => 'slack',
+            'brand_color' => null,
             'name' => 'Slack',
             'category' => 'communication',
             'status_source' => ServiceStatusSource::None,
@@ -142,6 +157,7 @@ class ServiceCatalogSeeder extends Seeder
         ],
         [
             'slug' => 'stripe',
+            'brand_color' => '#635BFF',
             'name' => 'Stripe',
             'category' => 'payments',
             'status_source' => ServiceStatusSource::None,
@@ -154,6 +170,7 @@ class ServiceCatalogSeeder extends Seeder
         ],
         [
             'slug' => 'vercel',
+            'brand_color' => '#000000',
             'name' => 'Vercel',
             'category' => 'developer-tools',
             'status_source' => ServiceStatusSource::StatuspageV2,
@@ -194,6 +211,7 @@ class ServiceCatalogSeeder extends Seeder
                 'status_source' => $definition['status_source'],
                 'status_source_url' => $definition['status_source_url'],
                 'terms_note' => $definition['terms_note'],
+                'brand_color' => $definition['brand_color'],
                 // Both false/null by schema default; stated because they are the
                 // publication gate rather than an oversight.
                 'is_published' => false,
