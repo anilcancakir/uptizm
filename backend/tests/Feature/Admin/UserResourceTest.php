@@ -66,6 +66,93 @@ class UserResourceTest extends TestCase
             ->assertSchemaComponentDoesNotExist('two_factor_recovery_codes');
     }
 
+    public function test_changing_an_address_from_the_panel_invalidates_its_verification(): void
+    {
+        /*
+         * The product's own profile action nulls `email_verified_at` on any address
+         * change (`UpdateUserProfile.php:112-120`). Without the same rule here a panel
+         * save produced a state the product guarantees cannot exist: an unconfirmed
+         * address wearing a verified stamp.
+         *
+         * The reason it is an access-control test and not a data-hygiene one:
+         * `User::canAccessPanel()` grants the console on
+         * `email IN staff_emails AND hasVerifiedEmail() AND 2FA`, so moving an
+         * allowlisted address onto another verified, 2FA-enrolled account would have
+         * granted that account the panel at runtime, with no deploy. The second half
+         * of this test is that exact scenario.
+         */
+        $staff = $this->staffUser();
+        $subject = User::factory()->create([
+            'email' => 'before@example.com',
+            'email_verified_at' => now(),
+            'locale' => 'en',
+        ]);
+
+        $this->assertTrue($subject->hasVerifiedEmail());
+
+        Livewire::actingAs($staff)
+            ->test(EditUser::class, ['record' => $subject->getKey()])
+            ->fillForm([
+                'name' => $subject->name,
+                'email' => 'after@example.com',
+                'locale' => $subject->locale,
+            ])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $subject->refresh();
+
+        $this->assertSame('after@example.com', $subject->email);
+        $this->assertNull($subject->email_verified_at);
+        $this->assertFalse($subject->hasVerifiedEmail());
+    }
+
+    public function test_moving_an_allowlisted_address_onto_another_account_does_not_hand_it_the_panel(): void
+    {
+        /*
+         * The address moved to must be allowlisted AND held by no existing row.
+         *
+         * The first version of this test moved the acting staff member's OWN address
+         * onto the other account, which `UserForm`'s `->unique(ignoreRecord: true)`
+         * rejects outright: the save failed, the address never moved, and the
+         * assertion passed just as happily with the `EditUser` hook reverted. It
+         * asserted the unique rule, not the fix. A second allowlisted address that no
+         * row holds is what actually exercises the takeover path.
+         */
+        $vacant = 'ops-second@uptizm.com';
+        $staff = $this->staffUser();
+        config()->set('uptizm.staff_emails', [$staff->email, $vacant]);
+
+        // A second account already satisfying the other two gate conditions, so the
+        // allowlisted address is the only thing it still needs.
+        $other = User::factory()->create(['email' => 'outsider@example.com', 'locale' => 'en']);
+        $other->forceFill([
+            'email_verified_at' => now(),
+            'two_factor_secret' => encrypt('x'),
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+
+        $this->assertFalse($other->canAccessPanel(Filament::getPanel(User::STAFF_PANEL_ID)));
+
+        Livewire::actingAs($staff)
+            ->test(EditUser::class, ['record' => $other->getKey()])
+            ->fillForm([
+                'name' => $other->name,
+                'email' => $vacant,
+                'locale' => $other->locale,
+            ])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $other->refresh();
+
+        // The address DID move, which is what makes the rest of this meaningful.
+        $this->assertSame($vacant, $other->email);
+        // And it arrived unverified, so the gate still refuses.
+        $this->assertNull($other->email_verified_at);
+        $this->assertFalse($other->canAccessPanel(Filament::getPanel(User::STAFF_PANEL_ID)));
+    }
+
     public function test_editing_a_users_name_persists_and_leaves_the_password_hash_untouched(): void
     {
         $staff = $this->staffUser();
