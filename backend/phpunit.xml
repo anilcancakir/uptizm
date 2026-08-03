@@ -40,6 +40,15 @@
         <!-- Routes are registered at boot, before a test can set config(), so the
              subdomain status-page route needs its host from the environment. -->
         <env name="STATUS_PAGE_SUBDOMAIN_HOST" value="uptizm.test"/>
+        <!-- The staff panel's host, declared here for the same reason as the line
+             above: PanelIsolationTest asserts that the panel owns the ROOT of a host
+             that sits UNDER the wildcard status-page domain, which is the only
+             arrangement in which the production-only collision it guards can happen
+             at all. Left to a developer's own .env the value drifts (a local
+             ADMIN_HOST=admin.localhost shares no parent with uptizm.test), the
+             wildcard could never have matched it, and the guard fails loudly rather
+             than certifying a tautology. Which it did. -->
+        <env name="ADMIN_HOST" value="admin.uptizm.test"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
