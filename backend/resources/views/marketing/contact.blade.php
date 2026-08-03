@@ -265,19 +265,28 @@
 
                     {{-- The honeypot.
 
-                         VISIBLE AND LABELLED, not `display: none`. A hidden trap is hidden
-                         from a text browser and a CSS-blocked client too, so a real person
-                         fills it in and is refused with no idea why. This one asks in plain
-                         language to be left empty, sits outside the tab order
-                         (`tabindex="-1"`) and is hidden from assistive technology
-                         (`aria-hidden="true"`), so a keyboard or screen-reader visitor never
-                         lands on it, while a form-filling bot that submits every input it
-                         finds trips over it.
+                         LABELLED AND CSS-CLIPPED (`sr-only`), never `display: none`. The
+                         distinction matters and the first version got the balance wrong by
+                         rendering it in full view: every sighted visitor was shown an empty
+                         box captioned "Leave this field empty", which reads as a bug on the
+                         one page that exists to be trusted.
+
+                         A clip strictly dominates that. `sr-only` positions the field out of
+                         view without removing it, so a text browser or a CSS-blocked client
+                         still renders the label and the input, and the label tells that
+                         visitor exactly what to do: the protection the visible version was
+                         reaching for, kept. `display: none` would NOT keep it, which is why
+                         it stays banned (and asserted against).
+
+                         It also sits outside the tab order (`tabindex="-1"`) and out of the
+                         accessibility tree (`aria-hidden="true"`), so a keyboard or screen
+                         reader visitor never lands on it, while a form-filling bot that
+                         submits every input it parses out of the DOM trips over it.
 
                          The field name is a decoy that browser autofill has nothing to match:
                          `name`, `email`, `url`, `website`, `phone`, `company` and `address`
                          are all autofill targets and would fire on real visitors. --}}
-                    <div aria-hidden="true">
+                    <div aria-hidden="true" class="sr-only">
                         <label
                             for="contact-{{ $honeypotField }}"
                             class="block text-label-sm text-fg-muted"

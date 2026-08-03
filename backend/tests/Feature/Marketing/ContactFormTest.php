@@ -336,9 +336,15 @@ class ContactFormTest extends TestCase
     {
         /*
          * A `display: none` honeypot is invisible to a CSS-blocked client too, so somebody
-         * on a text browser or a screen reader fills it in and is silently refused. The
-         * field is therefore visible, labelled "leave this empty", out of the tab order and
-         * hidden from assistive technology.
+         * on a text browser fills it in and is silently refused. The field is therefore
+         * labelled "leave this empty", out of the tab order, hidden from assistive
+         * technology, and CSS-CLIPPED rather than removed.
+         *
+         * The clip is asserted, not just the absence of `display: none`. Reading only the
+         * ban left the field in FULL VIEW, so every sighted visitor was shown an empty box
+         * captioned "Leave this field empty" on the page that exists to be trusted. `sr-only`
+         * satisfies both halves: out of sight under CSS, still rendered (label included)
+         * without it.
          */
         $this->openTheGate();
 
@@ -349,6 +355,11 @@ class ContactFormTest extends TestCase
         $this->assertStringContainsString('aria-hidden="true"', $html);
         $this->assertStringNotContainsString('display: none', $html);
         $this->assertStringNotContainsString('display:none', $html);
+        $this->assertMatchesRegularExpression(
+            '/<div[^>]*aria-hidden="true"[^>]*class="[^"]*\bsr-only\b/',
+            $html,
+            'The honeypot must be clipped out of view, not rendered for every visitor to read.',
+        );
     }
 
     public function test_the_honeypot_is_not_named_after_anything_browser_autofill_targets(): void
