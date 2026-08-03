@@ -236,5 +236,9 @@
     "We are reaching :endpoint from some regions and not others.": ":endpoint uç noktasına bazı bölgelerden erişiyoruz, bazılarından erişemiyoruz.",
     ":count of :total regions did not report it healthy. We do not call that an outage yet.": ":total bölgeden :count tanesi sağlıklı bildirmedi. Bunu henüz bir kesinti olarak adlandırmıyoruz.",
     "No region reached :endpoint on our last check, and we do not call that an outage yet.": "Son kontrolümüzde hiçbir bölge :endpoint uç noktasına erişemedi ve bunu henüz bir kesinti olarak adlandırmıyoruz.",
-    "Every region reached :endpoint, but not all of them normally.": "Her bölge :endpoint uç noktasına erişti, ancak hepsi normal şekilde değil."
+    "Every region reached :endpoint, but not all of them normally.": "Her bölge :endpoint uç noktasına erişti, ancak hepsi normal şekilde değil.",
+    "We have nothing recent enough to report.": "Bildirebileceğimiz kadar yeni bir ölçümümüz yok.",
+    "We could not reach what we watch.": "İzlediğimiz uç noktaya erişemedik.",
+    "Not everything we watch is answering normally.": "İzlediğimiz her şey normal yanıt vermiyor.",
+    "Everything we watch is answering normally.": "İzlediğimiz her şey normal yanıt veriyor."
 }
