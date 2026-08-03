@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\Plan;
+use App\Services\Billing\PlanGate;
+use App\Support\Services\SystemTeam;
 use FlutterSdk\MagicStarter\Models\Team as MagicStarterTeam;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Storage;
@@ -34,11 +36,19 @@ class Team extends MagicStarterTeam
     /**
      * The attributes that should be cast.
      *
+     * `is_system` marks the one internal team that owns the public service
+     * catalog's monitors ({@see SystemTeam}). It is cast here and deliberately
+     * ABSENT from {@see self::$fillable}: it buys unlimited plan caps in
+     * {@see PlanGate::limits()}, so a mass-assigned `is_system` on any
+     * team-create path would be a free upgrade. The resolver writes it with
+     * `forceFill()` and is the only writer.
+     *
      * @var array<string, string>
      */
     protected $casts = [
         'plan' => Plan::class,
         'trial_ends_at' => 'datetime',
+        'is_system' => 'boolean',
     ];
 
     /**
