@@ -4,7 +4,6 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/on_call_controller.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 
 /// In-memory loader feeding the on-call schedule prose so [trans] returns
 /// short, wrappable strings instead of raw key tokens, mirroring the other
@@ -165,7 +164,7 @@ void main() {
     await tester.pumpWidget(wrap(const OnCallScheduleView()));
     await tester.pump();
 
-    expect(find.byType(PageContainer), findsOneWidget);
+    expect(find.byType(MSPageContainer), findsOneWidget);
     // The hero name and the ring row both come from the API payload.
     expect(find.text('Real Responder'), findsWidgets);
     expect(find.text('Second Responder'), findsOneWidget);
@@ -192,7 +191,7 @@ void main() {
     await tester.pumpWidget(wrap(const OnCallScheduleView()));
     await tester.pump();
 
-    expect(find.byType(PageContainer), findsOneWidget);
+    expect(find.byType(MSPageContainer), findsOneWidget);
     expect(find.text('No on-call schedule yet'), findsOneWidget);
     expect(find.text('Create schedule'), findsOneWidget);
     // No hero card, no rotation card, no "on call now" claim at all

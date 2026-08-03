@@ -5,7 +5,6 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/controllers/notification_channel_controller.dart';
 import '../../../app/enums/channel_type.dart' show ChannelType;
-import '../../../ui/layouts/page_container.dart';
 
 /// **The team notification channels screen (`/teams/notifications`).**
 ///
@@ -148,7 +147,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
 
   @override
   Widget build(BuildContext context) {
-    return PageContainer(
+    return MSPageContainer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

@@ -22,7 +22,7 @@ class ChangelogSettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MSSettingsScaffold(
+    return MSPageScaffold(
       title: trans('uptizm.settings.changelog_title'),
       subtitle: trans('uptizm.settings.changelog_description'),
       backLabel: trans('uptizm.settings.hub_title'),

@@ -15,7 +15,6 @@ import '../../../app/support/escalation_support.dart'
         escalationTargetFromKey,
         escalationTargetKey,
         escalationTargetOptions;
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Escalation Policy editor screen (`/teams/escalation/new` + `/:id`).**
 ///
@@ -374,9 +373,9 @@ class _EscalationPolicyEditorViewState
     }
 
     // 2. A plain Flutter Column scaffolds the page body so each leaf receives a
-    //    bounded width from PageContainer; Wind utilities appear only on the
+    //    bounded width from MSPageContainer; Wind utilities appear only on the
     //    leaf containers below.
-    return PageContainer(
+    return MSPageContainer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -390,7 +389,7 @@ class _EscalationPolicyEditorViewState
 
   /// Builds the graceful not-found state for an unknown policy id.
   Widget _buildNotFound() {
-    return PageContainer(
+    return MSPageContainer(
       child: MSEmptyState(
         icon: Icons.route_outlined,
         title: trans('uptizm.teams.escalation_editor_title_edit'),

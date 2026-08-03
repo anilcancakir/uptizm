@@ -13,7 +13,6 @@ import 'package:uptizm/resources/views/status/status_page_subscribers_view.dart'
 import 'package:uptizm/resources/views/status/status_pages_list_view.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 
 import '../../support/skeleton_matchers.dart';
 
@@ -356,7 +355,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(PageContainer), findsOneWidget);
+      expect(find.byType(MSPageContainer), findsOneWidget);
       for (final StatusPage page in statusPages) {
         expect(find.text(page.name!), findsOneWidget);
       }
@@ -431,7 +430,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(PageContainer), findsOneWidget);
+      expect(find.byType(MSPageContainer), findsOneWidget);
       expect(
         find.text(trans('uptizm.status.editor_title_new')),
         findsOneWidget,
@@ -1237,7 +1236,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(PageContainer), findsOneWidget);
+      expect(find.byType(MSPageContainer), findsOneWidget);
       for (final Subscriber s in subs) {
         expect(find.text(s.email), findsOneWidget);
       }

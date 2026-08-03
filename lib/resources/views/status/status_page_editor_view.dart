@@ -20,7 +20,6 @@ import '../../../app/models/status_page.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/components/status_page_preview/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Page editor screen (`/status/new` + `/status/:id`).**
 ///
@@ -577,7 +576,7 @@ class _StatusPageEditorViewState
 
     // 2. Compose the page body as a Wind flex column: the 24px header rhythm is
     //    carried by gap-6, not a SizedBox spacer.
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [_buildHeader(), _buildBody()],
@@ -587,7 +586,7 @@ class _StatusPageEditorViewState
 
   /// Builds the graceful not-found state for an unknown status-page id.
   Widget _buildNotFound() {
-    return PageContainer(
+    return MSPageContainer(
       child: MSEmptyState(
         icon: Icons.public_off_outlined,
         title: trans('uptizm.status.list_empty_title'),

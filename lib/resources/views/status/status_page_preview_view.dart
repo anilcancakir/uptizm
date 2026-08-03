@@ -7,7 +7,6 @@ import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/support/status_page_support.dart' show pageUrl;
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/status_page_preview/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The full-screen status-page preview screen.**
 ///
@@ -75,7 +74,7 @@ class _StatusPagePreviewViewState
     //    browser-framed mockup of the public page inside a scroll area. The
     //    24px header rhythm is carried by gap-6, not a SizedBox spacer.
     final String pageName = page.name ?? '';
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
@@ -157,7 +156,7 @@ class _StatusPagePreviewViewState
   ///
   /// Mirrors the React `StatusPageNotFound` copy, localized through [trans].
   Widget _buildNotFound() {
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

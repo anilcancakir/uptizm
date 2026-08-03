@@ -7,7 +7,6 @@ import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/support/status_page_types.dart' show Subscriber;
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Page Subscribers screen.**
 ///
@@ -113,7 +112,7 @@ class _StatusPageSubscribersViewState
     // per-page cache, so a sibling page having loaded says nothing about this
     // one (see [StatusPageController.hasResolvedSubscribers]).
     final bool rosterResolved = controller.hasResolvedSubscribers(page.id);
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
@@ -416,7 +415,7 @@ class _StatusPageSubscribersViewState
   /// Builds the graceful not-found state shown when
   /// [StatusPageController.configById] returns null.
   Widget _buildNotFound() {
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

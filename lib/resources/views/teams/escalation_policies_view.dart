@@ -8,7 +8,6 @@ import '../../../app/models/escalation_policy.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../app/support/escalation_support.dart' show escalationDelayLabel;
 import '../../../ui/components/status_dot/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Escalation Policies list screen (`/teams/escalation`).**
 ///
@@ -67,9 +66,9 @@ class _EscalationPoliciesViewState
   Widget build(BuildContext context) {
     final List<EscalationPolicy> policies = controller.policies;
     // A plain Flutter Column scaffolds the page body so each descendant gets
-    // a proper bounded width from PageContainer (same discipline as
+    // a proper bounded width from MSPageContainer (same discipline as
     // StatusPagesListView / OnCallScheduleView).
-    return PageContainer(
+    return MSPageContainer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

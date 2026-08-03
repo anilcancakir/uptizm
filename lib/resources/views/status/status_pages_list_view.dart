@@ -11,7 +11,6 @@ import '../../../app/support/status_page_support.dart'
 import '../../../app/support/status_page_types.dart' show PublicComponent;
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/status_badge/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Status Pages list screen.**
 ///
@@ -24,7 +23,7 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// Layout follows the same discipline as [IncidentsListView]: a plain Flutter
 /// [Column] scaffolds the page body so leaf components receive a bounded
-/// full-width constraint from the shared [PageContainer]; Wind utilities only
+/// full-width constraint from the shared [MSPageContainer]; Wind utilities only
 /// appear on leaf containers, never as the outermost flex-scroll context.
 ///
 /// Composition mirrors `StatusPagesListPage.tsx`:
@@ -117,7 +116,7 @@ class _StatusPagesListViewState
   Widget build(BuildContext context) {
     // Compose the page body as a Wind flex column: the 24px header rhythm is
     // carried by gap-6, not a SizedBox spacer.
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

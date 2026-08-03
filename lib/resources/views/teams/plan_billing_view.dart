@@ -9,7 +9,6 @@ import '../../../app/support/team_types.dart'
 import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
 import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// The billing cycle a plan's price is shown for.
 enum BillingCycle {
@@ -344,7 +343,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
   @override
   Widget build(BuildContext context) {
-    return PageContainer(
+    return MSPageContainer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

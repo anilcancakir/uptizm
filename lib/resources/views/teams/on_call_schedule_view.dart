@@ -19,7 +19,6 @@ import '../../../app/support/team_types.dart'
         OnCallRotationSlot,
         TeamResponder;
 import '../../../ui/components/status_dot/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **On-call schedule screen (`/teams/on-call`).**
 ///
@@ -103,7 +102,7 @@ class _OnCallScheduleViewState
 
   @override
   Widget build(BuildContext context) {
-    return PageContainer(
+    return MSPageContainer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

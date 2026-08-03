@@ -6,7 +6,6 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 
 /// In-memory loader feeding the escalation-editor prose so [trans] returns
 /// short, wrappable strings instead of raw key tokens, mirroring the other
@@ -80,7 +79,7 @@ void main() {
       await tester.pumpWidget(wrap(const EscalationPolicyEditorView()));
       await tester.pump();
 
-      expect(find.byType(PageContainer), findsOneWidget);
+      expect(find.byType(MSPageContainer), findsOneWidget);
       // The single default rung's target select renders its selected label.
       expect(find.text('On-call rotation'), findsOneWidget);
       // None of the removed free-string channel labels survive.
