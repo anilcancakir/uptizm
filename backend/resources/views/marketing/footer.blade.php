@@ -98,6 +98,13 @@
                         ['path' => 'terms', 'label' => __('Terms')],
                         ['path' => 'contact', 'label' => __('Contact')],
                         ['path' => 'faq', 'label' => __('FAQ')],
+                        {{-- Not a legal notice, but it is a content page registered
+                             through the same `$documents` loop, and ChromeTest requires
+                             every one of those to be reachable from the footer in the
+                             language being read. It also has a reader who needs to find
+                             it without knowing the URL: an operator whose access log just
+                             showed them UptizmBot. --}}
+                        ['path' => 'bot', 'label' => __('UptizmBot')],
                     ] as $documentLink)
                         <li>
                             <a

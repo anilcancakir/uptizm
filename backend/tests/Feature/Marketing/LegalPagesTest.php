@@ -43,6 +43,11 @@ class LegalPagesTest extends TestCase
         'terms',
         'contact',
         'faq',
+        // Not a legal document, but it is a content page registered through the same
+        // `$documents` loop, so every property this suite pins (cookie-free, its own
+        // canonical, the full hreflang set, no surviving `[[placeholder]]`, a 404 for
+        // a language we do not speak) applies to it identically and for free.
+        'bot',
     ];
 
     /**
