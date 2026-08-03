@@ -2,15 +2,20 @@
 
 namespace Tests\Feature\Services;
 
+use App\Enums\AiMode;
 use App\Enums\ComponentStatus;
 use App\Enums\IncidentImpact;
+use App\Enums\MonitorRegion;
+use App\Enums\MonitorType;
 use App\Enums\ServiceStatusSource;
 use App\Jobs\IngestServiceFeed;
 use App\Jobs\IngestServiceFeeds;
+use App\Models\Monitor;
 use App\Models\Service;
 use App\Models\ServiceFeedSnapshot;
 use App\Services\Services\FeedFetcher;
 use App\Support\Monitoring\HostGuard;
+use App\Support\Services\SystemTeam;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -673,7 +678,7 @@ class IngestServiceFeedsTest extends TestCase
      */
     private function makeService(array $attributes = []): Service
     {
-        return Service::factory()->create(array_merge([
+        $service = Service::factory()->create(array_merge([
             'slug' => 'example-provider',
             'name' => 'Example Provider',
             'category' => 'cloud',
@@ -682,6 +687,37 @@ class IngestServiceFeedsTest extends TestCase
             'terms_reviewed_at' => now()->subMonth(),
             'is_published' => true,
         ], $attributes));
+
+        /*
+         * A monitor, because a published service in reality always has one:
+         * `Service::canPublish()` requires it and the catalog seeder attaches one at
+         * creation. Without it these fixtures modelled a state the product forbids,
+         * and that mattered the moment `scopeDueForFeedIngest()` gained its
+         * monitor predicate: every service here became ineligible at once and two
+         * tests went red. Attaching one here is what makes the fixtures honest AND
+         * lets the no-monitor case be tested by detaching, which is how it happens.
+         */
+        $service->monitors()->attach($this->makeCatalogMonitor()->getKey());
+
+        return $service->fresh() ?? $service;
+    }
+
+    /**
+     * A system-team monitor of the shape the catalog seeder creates.
+     */
+    private function makeCatalogMonitor(): Monitor
+    {
+        return Monitor::query()->create([
+            'team_id' => SystemTeam::resolve()->getKey(),
+            'name' => 'Example Provider (example.test)',
+            'type' => MonitorType::Http,
+            'url' => 'https://example.test',
+            'check_interval_sec' => 60,
+            'regions' => MonitorRegion::values(),
+            'ai_mode' => AiMode::Off,
+            'alert_on_down' => false,
+            'next_check_at' => now(),
+        ]);
     }
 
     /**
@@ -738,5 +774,31 @@ class IngestServiceFeedsTest extends TestCase
     private function googleBody(): string
     {
         return (string) file_get_contents(base_path('tests/fixtures/feeds/google-cloud-incidents.json'));
+    }
+
+    public function test_a_service_with_no_monitor_left_is_never_fetched(): void
+    {
+        /*
+         * The sixth predicate, exercised with the other five satisfied.
+         *
+         * The READ side stopped trusting `is_published` once a service could lose its
+         * last monitor and keep the flag (`Service::scopePubliclyVisible()`), but this
+         * scope went on trusting it, so a service whose public page answers 404 kept
+         * drawing its provider's feed every couple of minutes: outbound traffic to a
+         * third party for a document nobody can read.
+         */
+        $service = $this->makeService();
+
+        // Control: the fan-out DOES pick it up while it still has its monitor, so the
+        // assertion below cannot pass because the fan-out is simply broken.
+        Queue::fake();
+        (new IngestServiceFeeds)->handle();
+        Queue::assertPushed(IngestServiceFeed::class);
+
+        $service->monitors()->detach();
+
+        Queue::fake();
+        (new IngestServiceFeeds)->handle();
+        Queue::assertNothingPushed();
     }
 }
