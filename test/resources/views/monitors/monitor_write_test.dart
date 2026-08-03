@@ -788,7 +788,7 @@ void main() {
     );
 
     testWidgets(
-      'a Free entitlement allows exactly one region and locks the rest',
+      'a Free entitlement is one region, swapped rather than locked',
       (tester) async {
         await tester.binding.setSurfaceSize(const Size(1200, 1600));
         addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -824,23 +824,35 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        // A second, unselected region must render locked with the same
-        // "Available on <Plan>" nudge the interval field already uses.
+        // No tile advertises a plan. Reported from a live session: at a cap of
+        // one every other tile read "EU West · Pro", which blames the region.
+        // No region is gated (every plan probes from every region); the plan
+        // limits HOW MANY at once, so the suffix invited an upgrade for a
+        // reason that does not exist.
         expect(
-          find.textContaining('US West · Pro'),
-          findsOneWidget,
-          reason:
-              'Once the one-region cap is reached, an unselected tile must '
-              'lock and show the cheapest plan that unlocks another region',
+          find.textContaining('· Pro'),
+          findsNothing,
+          reason: 'the count limit is not a property of any one region',
         );
 
-        // Tapping the locked tile must not add it to the selection.
-        final Finder lockedTile = find.ancestor(
-          of: find.textContaining('US West · Pro'),
-          matching: find.byType(WAnchor),
+        // It is stated once, under the grid, with the real allowance and the
+        // plan that raises it.
+        expect(
+          find.text(
+            trans('uptizm.monitors.form_regions_cap_notice_upgrade_one', {
+              'count': '1',
+              'plan': 'Free',
+              'upgrade': 'Pro',
+            }),
+          ),
+          findsOneWidget,
+          reason: 'one honest line replaces five misleading suffixes',
         );
-        expect(lockedTile, findsOneWidget);
-        await tester.tap(lockedTile);
+
+        // At a cap of one the grid is a radio group: tapping another region
+        // SWAPS. Locking it left a Free operator unable to change region at
+        // all, since the only route was clearing the selection first.
+        await tester.tap(find.text('US West'));
         await tester.pump();
 
         final Finder submitButton = find.widgetWithText(
@@ -855,10 +867,68 @@ void main() {
         expect(captured, isNotNull);
         expect(
           captured!['regions'],
-          equals(['us-east']),
+          equals(['us-west']),
           reason:
-              'Tapping a locked region tile must never add it to the '
-              'selection, so the save must still post only the one region',
+              'the tap replaced the selection rather than being refused, and '
+              'the cap still holds at exactly one region',
+        );
+      },
+    );
+
+    testWidgets(
+      'a Free operator cannot clear their only region',
+      (tester) async {
+        // `regions` is `required|array|min:1` on the backend, so an empty
+        // selection has nowhere to go. At a cap of one, a tap on the SELECTED
+        // tile is therefore a no-op rather than a route to a guaranteed 422.
+        await tester.binding.setSurfaceSize(const Size(1200, 1600));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final controller = EntitlementController(
+          billing: _FakeBilling(
+            entitlementPlan: 'free',
+            catalog: const [freeOneRegion, proFiveRegions],
+          ),
+        );
+        Magic.findOrPut(() => controller);
+        await controller.reload();
+
+        Map<String, dynamic>? captured;
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              initialName: 'API gateway',
+              initialUrl: 'https://api.example.com/health',
+              initialRegions: const ['us-east'],
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (fields) async {
+                captured = fields;
+                return <String, String>{};
+              },
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        await tester.tap(find.text('US East'));
+        await tester.pump();
+
+        final Finder submitButton = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submitButton);
+        await tester.pump();
+        await tester.tap(submitButton);
+        await tester.pump();
+
+        expect(
+          captured!['regions'],
+          equals(['us-east']),
+          reason: 'the selected tile stays selected at a cap of one',
         );
       },
     );

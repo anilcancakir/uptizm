@@ -626,7 +626,7 @@ class _MonitorFormState extends State<MonitorForm> {
             _regionsTouchedByUser = true;
           }),
           maxSelected: _regionCap(),
-          lockedPlanName: _regionLockedPlanName(),
+          capNotice: _regionCapNotice(),
         ),
       ),
     );
@@ -649,16 +649,39 @@ class _MonitorFormState extends State<MonitorForm> {
     return stored > allowance ? stored : allowance;
   }
 
-  /// The cheapest plan that would unlock one more region than [_regionCap],
-  /// for the "Available on `<Plan>`" nudge a locked tile shows.
-  String? _regionLockedPlanName() {
+  /// One line stating the region allowance and the cheapest plan that raises it.
+  ///
+  /// Replaces the per-tile " · `<Plan>`" suffix the picker used to render. That
+  /// suffix was copied from the check-interval field, where it is right because a
+  /// 30-second interval genuinely is gated. No REGION is gated: every plan can
+  /// probe from every region, and the plan limits how many at once. Suffixing
+  /// "EU West" with "Pro" therefore blamed the region and invited an upgrade for
+  /// a reason that does not exist.
+  ///
+  /// Null when the plan has no cap, or when no cheaper-plan upgrade would raise
+  /// it (nothing to nudge toward), so the grid then renders with no notice.
+  String? _regionCapNotice() {
     final int? cap = _regionCap();
     if (cap == null) return null;
 
-    final String name = _entitlement.planNameUnlocking(
+    final String upgrade = _entitlement.planNameUnlocking(
       (limits) => limits.regions == null || limits.regions! > cap,
     );
-    return name.isEmpty ? null : name;
+
+    // Counted copy takes the `_one` / `_other` key pair this app already uses
+    // for `fleet_open_incidents`, rather than writing "region(s)": a derived
+    // count beside a hand-typed noun is the half-derived claim that shipped
+    // "from 2 region" on the marketing FAQ.
+    final String suffix = cap == 1 ? '_one' : '_other';
+    final String key = upgrade.isEmpty
+        ? 'uptizm.monitors.form_regions_cap_notice$suffix'
+        : 'uptizm.monitors.form_regions_cap_notice_upgrade$suffix';
+
+    return trans(key, {
+      'count': '$cap',
+      'plan': _entitlement.planName,
+      'upgrade': upgrade,
+    });
   }
 
   /// Builds the Uptime SLO target select.

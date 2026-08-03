@@ -30,12 +30,25 @@ class Region {
 ///
 /// [maxSelected] caps how many regions may be selected at once, mirroring the
 /// team's billing entitlement (the caller resolves the effective cap, see
-/// `MonitorForm._buildRegionsField`). Once [value] reaches the cap, every
-/// UNSELECTED tile renders locked: dimmed, untappable, and its label suffixed
-/// with a " · " + [lockedPlanName] plan name, the same "Available on `<Plan>`"
-/// treatment the check-interval field already uses. An already-selected tile is
-/// NEVER locked, even past the cap, so a grandfathered monitor's stored regions
-/// stay visibly selected and removable rather than silently dropped.
+/// `MonitorForm._buildRegionsField`). How the cap reads depends on its size,
+/// because a cap of one is a different question from a cap of three:
+///
+/// - **Cap of 1**: the grid behaves as a RADIO group. Tapping another region
+///   swaps the selection, and the selected tile cannot be cleared (the backend
+///   requires `regions` `min:1`, so an empty selection has nowhere to go).
+///   Nothing is locked.
+/// - **Cap above 1, reached**: every UNSELECTED tile renders locked, dimmed and
+///   untappable. An already-selected tile is NEVER locked, even past the cap, so
+///   a grandfathered monitor's stored regions stay visibly selected and
+///   removable rather than silently dropped.
+///
+/// No tile carries a plan-name suffix, and that is the point. The check-interval
+/// field suffixes a locked option with " · `<Plan>`" correctly, because a
+/// 30-second interval genuinely IS gated. No region is gated: every plan can
+/// probe from every region, and what a plan limits is HOW MANY at once. A
+/// "EU West · Pro" tile therefore blamed the wrong thing and would push an
+/// operator to upgrade for a reason that does not exist. The count limit is
+/// stated once, in [capNotice], under the grid.
 ///
 /// ### Example:
 /// ```dart
@@ -44,7 +57,7 @@ class Region {
 ///   value: selected,
 ///   onChanged: (next) => setState(() => selected = next),
 ///   maxSelected: 1,
-///   lockedPlanName: 'Pro',
+///   capNotice: 'Your Free plan checks from 1 region per monitor. Pro adds more.',
 /// )
 /// ```
 @immutable
@@ -69,9 +82,11 @@ class RegionPicker extends StatelessWidget {
   /// removable, mirroring the backend's delta-only gate.
   final int? maxSelected;
 
-  /// Plan name suffix shown on a locked tile's label, e.g. `'Pro'` renders
-  /// `'US West · Pro'`. Ignored while [maxSelected] is null or unreached.
-  final String? lockedPlanName;
+  /// One line under the grid explaining the count limit and which plan lifts
+  /// it, already localized by the caller. Rendered only when [maxSelected] is
+  /// set and smaller than the number of offered [regions], so an unlimited plan
+  /// (or a cap nothing bumps into) shows nothing.
+  final String? capNotice;
 
   /// Creates a [RegionPicker].
   const RegionPicker({
@@ -81,20 +96,40 @@ class RegionPicker extends StatelessWidget {
     required this.onChanged,
     this.className,
     this.maxSelected,
-    this.lockedPlanName,
+    this.capNotice,
   });
+
+  /// Whether the cap makes this a one-of-N choice rather than a capped
+  /// multi-select.
+  bool get _isSingleChoice => maxSelected == 1;
 
   @override
   Widget build(BuildContext context) {
     final slots = regionPickerRecipe(variants: const <String, String>{});
+    // A cap of 1 swaps instead of locking, so it never reports "reached".
     final bool capReached =
-        maxSelected != null && value.length >= maxSelected!;
-    return WDiv(
+        !_isSingleChoice && maxSelected != null && value.length >= maxSelected!;
+    final bool showNotice =
+        capNotice != null &&
+        maxSelected != null &&
+        maxSelected! < regions.length;
+
+    final Widget grid = WDiv(
       className: className == null
           ? slots['root']
           : '${slots['root']} $className',
       children: [
         for (final region in regions) _tile(region, slots, capReached),
+      ],
+    );
+
+    if (!showNotice) return grid;
+
+    return WDiv(
+      className: 'flex flex-col gap-2',
+      children: [
+        grid,
+        WText(capNotice!, className: 'text-xs text-fg-muted'),
       ],
     );
   }
@@ -108,19 +143,9 @@ class RegionPicker extends StatelessWidget {
         ? '${slots['option']} ${slots['optionLocked']}'
         : slots['option'];
 
-    final String label = locked && lockedPlanName != null
-        ? '${region.label} · $lockedPlanName'
-        : region.label;
-
     return WAnchor(
       isDisabled: locked,
-      onTap: locked
-          ? null
-          : () => onChanged(
-              selected
-                  ? value.where((entry) => entry != region.value).toList()
-                  : [...value, region.value],
-            ),
+      onTap: locked ? null : () => _onTileTap(region, selected),
       child: WDiv(
         className: optionClass,
         children: [
@@ -131,13 +156,33 @@ class RegionPicker extends StatelessWidget {
           // label) shrinks and ellipsizes within the tile instead of forcing a
           // horizontal overflow in a narrow column.
           WText(
-            label,
+            region.label,
             className: locked
                 ? 'flex-1 min-w-0 truncate text-fg-disabled'
                 : 'flex-1 min-w-0 truncate text-fg',
           ),
         ],
       ),
+    );
+  }
+
+  /// Reports the next selection for a tap on [region].
+  ///
+  /// At a cap of one the tap REPLACES the selection, and a tap on the already
+  /// selected tile is a no-op: clearing it would leave zero regions, which the
+  /// backend rejects (`regions` is `required|array|min:1`), and the operator's
+  /// actual intent at that cap is always "probe from this one instead".
+  void _onTileTap(Region region, bool selected) {
+    if (_isSingleChoice) {
+      if (selected) return;
+      onChanged(<String>[region.value]);
+      return;
+    }
+
+    onChanged(
+      selected
+          ? value.where((entry) => entry != region.value).toList()
+          : [...value, region.value],
     );
   }
 }
