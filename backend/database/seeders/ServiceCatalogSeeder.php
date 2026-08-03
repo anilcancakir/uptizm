@@ -56,17 +56,6 @@ use Illuminate\Database\Seeder;
 class ServiceCatalogSeeder extends Seeder
 {
     /**
-     * Check cadence for a catalog monitor, in seconds.
-     *
-     * One minute: these monitors back a public page that says when uptizm last
-     * measured the endpoint, and a coarser cadence would date the claim. The
-     * system team is exempt from the plan interval floor
-     * (`PlanGate::limits()`), so this is a product decision rather than a
-     * plan-tier one.
-     */
-    private const int CHECK_INTERVAL_SECONDS = 60;
-
-    /**
      * The eight v1 services.
      *
      * `status_source` is the CANDIDATE feed for the terms review, not a licence
@@ -186,9 +175,15 @@ class ServiceCatalogSeeder extends Seeder
         $team = SystemTeam::resolve();
 
         foreach (self::SERVICES as $definition) {
-            // 2. Idempotent by slug, and create-only: a re-seed must not
-            //    overwrite an operator's terms review or source choice.
-            if (Service::query()->where('slug', $definition['slug'])->exists()) {
+            // 2. Idempotent by slug, and create-only for everything an OPERATOR
+            //    owns: a re-seed must not overwrite a terms review or a source
+            //    choice. The one exception is the outbound identity below, which
+            //    is ours and not theirs.
+            $existing = Service::query()->where('slug', $definition['slug'])->first();
+
+            if ($existing !== null) {
+                $this->identifyProbes($team, $existing);
+
                 continue;
             }
 
@@ -236,13 +231,85 @@ class ServiceCatalogSeeder extends Seeder
             'type' => MonitorType::Http,
             'method' => HttpMethod::Get,
             'url' => $definition['probe_url'],
-            'check_interval_sec' => self::CHECK_INTERVAL_SECONDS,
+            'check_interval_sec' => (int) config('uptizm.catalog_probe_interval_sec'),
             // Every region the relay supports: a public claim about a global
             // service is only honest if it was measured from more than one place.
             'regions' => MonitorRegion::values(),
+            /*
+             * IDENTIFY THIS TRAFFIC. This is the larger of the two channels this
+             * catalog opens on a provider, by a wide margin: every region, every
+             * catalog probe interval, against the provider's own homepage, versus one
+             * feed request every two minutes with a 60-second floor.
+             *
+             * It went out anonymous. The edge worker sends
+             * `probe.request_headers ?? {}` (`regional-probe.ts:327`), so with no
+             * headers on the row the probe carried no User-Agent and no way for the
+             * operator on the other end to find out who we were or ask us to stop.
+             * The whole basis on which this catalog is defensible is being
+             * identifiable and contactable, and `/bot` cannot serve that purpose for
+             * traffic that never names it.
+             *
+             * Same string the feed ingester sends, so one page answers for both
+             * channels and an operator correlating their logs sees one product.
+             */
+            'request_headers' => [
+                'User-Agent' => (string) config('uptizm.bot_user_agent'),
+            ],
             'ai_mode' => AiMode::Off,
             'alert_on_down' => false,
             'next_check_at' => now(),
         ]);
+    }
+
+    /**
+     * Make sure every monitor already attached to this service identifies itself.
+     *
+     * A BACKFILL, and it exists because the first version of this fix only set
+     * `request_headers` on the CREATE path. Every environment seeded before that
+     * change, including the dev database used for this plan's live QA, kept a null
+     * value, and null is not a harmless default here: `RelayClient` forwards
+     * `$monitor->request_headers` and the edge worker sends
+     * `probe.request_headers ?? {}` (`regional-probe.ts:327`), with no User-Agent
+     * injected anywhere else on that path. So the larger of the two channels this
+     * catalog opens on a provider stayed anonymous while `/bot`, the page addressed
+     * to exactly those providers' operators, had begun stating that both channels
+     * identify themselves. A page that claims a courtesy the traffic does not
+     * extend is worse than no page.
+     *
+     * Converges rather than overwrites: an operator who added their own header
+     * keeps it, and only the `User-Agent` key is asserted. Runs on every re-seed,
+     * which is what makes it a backfill rather than a migration.
+     *
+     * `tests/Feature/Services/ServiceCatalogSeederTest.php` covers the
+     * already-exists branch, which nothing covered before this, and covers the
+     * refusal to touch a customer's monitor.
+     */
+    private function identifyProbes(Team $team, Service $service): void
+    {
+        $agent = (string) config('uptizm.bot_user_agent');
+
+        foreach ($service->monitors as $monitor) {
+            /*
+             * SYSTEM-TEAM MONITORS ONLY. `ServiceForm`'s monitor select is
+             * deliberately cross-team (Step 9's staff resource has no team scope), so
+             * an operator can attach a CUSTOMER's monitor to a catalog service. This
+             * seeder runs in every environment on every `db:seed`, and rewriting a
+             * paying customer's outbound probe headers because their monitor happens
+             * to be attached here would be a seeder writing rows it does not own.
+             */
+            if ($monitor->team_id !== $team->getKey()) {
+                continue;
+            }
+
+            $headers = (array) ($monitor->request_headers ?? []);
+
+            if (($headers['User-Agent'] ?? null) === $agent) {
+                continue;
+            }
+
+            $headers['User-Agent'] = $agent;
+
+            $monitor->forceFill(['request_headers' => $headers])->save();
+        }
     }
 }

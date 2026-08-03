@@ -8,6 +8,8 @@ use App\Enums\MonitorType;
 use App\Enums\ServiceStatusSource;
 use App\Models\Monitor;
 use App\Models\Service;
+use App\Models\Team;
+use App\Models\User;
 use App\Support\Services\SystemTeam;
 use Database\Seeders\ServiceCatalogSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -173,5 +175,114 @@ class ServiceCatalogSeederTest extends TestCase
 
         $this->assertSame(ServiceStatusSource::StatuspageV2, $github->status_source);
         $this->assertSame('https://www.githubstatus.com/api/v2/summary.json', $github->status_source_url);
+    }
+
+    public function test_a_re_seed_backfills_the_identifying_user_agent_on_existing_monitors(): void
+    {
+        /*
+         * The already-exists branch, which nothing covered before this and which is
+         * where the first version of the User-Agent fix silently did nothing.
+         *
+         * `run()` skips a service whose slug is present, so setting `request_headers`
+         * only on the CREATE path left every environment seeded before that change
+         * probing anonymously: `RelayClient` forwards `$monitor->request_headers` and
+         * the edge worker sends `probe.request_headers ?? {}`, with no User-Agent
+         * injected anywhere else. Meanwhile `/bot`, the page addressed to exactly the
+         * operators receiving that traffic, had begun stating that both channels
+         * identify themselves. A page claiming a courtesy the traffic does not extend
+         * is worse than no page.
+         */
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $monitors = Monitor::query()->whereHas('services')->get();
+        $this->assertNotEmpty($monitors, 'No catalog monitors were seeded, so this asserts nothing.');
+
+        // Simulate an environment seeded before the fix. The column is NOT NULL, so
+        // the real pre-fix state is an EMPTY array rather than null, which carries no
+        // User-Agent just the same.
+        foreach ($monitors as $monitor) {
+            $monitor->forceFill(['request_headers' => []])->save();
+        }
+
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $agent = (string) config('uptizm.bot_user_agent');
+
+        foreach (Monitor::query()->whereHas('services')->get() as $monitor) {
+            $this->assertSame(
+                $agent,
+                $monitor->request_headers['User-Agent'] ?? null,
+                'A re-seed left an existing catalog monitor probing without a User-Agent.',
+            );
+        }
+    }
+
+    public function test_the_backfill_preserves_a_header_an_operator_added(): void
+    {
+        // Converges rather than overwrites: only the User-Agent key is asserted.
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $monitor = Monitor::query()->whereHas('services')->firstOrFail();
+        $monitor->forceFill(['request_headers' => ['X-Operator' => 'keep-me']])->save();
+
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $headers = $monitor->fresh()->request_headers;
+
+        $this->assertSame('keep-me', $headers['X-Operator'] ?? null);
+        $this->assertSame((string) config('uptizm.bot_user_agent'), $headers['User-Agent'] ?? null);
+    }
+
+    public function test_the_backfill_never_touches_a_monitor_the_system_team_does_not_own(): void
+    {
+        /*
+         * `ServiceForm`'s monitor select is deliberately cross-team, so an operator can
+         * attach a CUSTOMER's monitor to a catalog service. This seeder runs in every
+         * environment on every `db:seed`, and the first version of the backfill
+         * iterated every attached monitor, so it would have rewritten that customer's
+         * outbound probe headers. A seeder must not write rows it does not own.
+         */
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $service = Service::query()->where('slug', 'github')->firstOrFail();
+
+        $customerTeam = Team::query()->create([
+            'user_id' => User::factory()->create()->id,
+            'name' => 'Acme Ops',
+            'personal_team' => false,
+        ]);
+
+        $customerMonitor = Monitor::query()->create([
+            'team_id' => $customerTeam->getKey(),
+            'name' => 'Acme API',
+            'type' => MonitorType::Http,
+            'url' => 'https://acme.test/health',
+            'check_interval_sec' => 60,
+            'request_headers' => ['X-Acme' => 'theirs'],
+        ]);
+
+        $service->monitors()->attach($customerMonitor->getKey());
+
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $headers = $customerMonitor->fresh()->request_headers;
+
+        $this->assertSame('theirs', $headers['X-Acme'] ?? null);
+        $this->assertArrayNotHasKey(
+            'User-Agent',
+            $headers,
+            'The catalog seeder rewrote the headers of a monitor belonging to a customer team.',
+        );
+
+        // Control: the system team's own monitor for that service DID get the header,
+        // so this test cannot pass because the backfill stopped working entirely.
+        $ours = $service->fresh()->monitors
+            ->firstWhere('team_id', SystemTeam::resolve()->getKey());
+
+        $this->assertNotNull($ours);
+        $this->assertSame(
+            (string) config('uptizm.bot_user_agent'),
+            $ours->request_headers['User-Agent'] ?? null,
+        );
     }
 }
