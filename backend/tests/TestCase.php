@@ -6,6 +6,7 @@ use App\Models\StatusPage;
 use App\Services\StatusPages\StatusPagePreviewRenderer;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -66,5 +67,36 @@ abstract class TestCase extends BaseTestCase
                 }
             },
         );
+    }
+
+    /**
+     * Reset Livewire's process-global state between tests.
+     *
+     * Rendering any Livewire component, which is what every Filament panel page
+     * is, sets `SupportAutoInjectedAssets::$hasRenderedAComponentThisRequest`. That
+     * flag is STATIC, so it outlives PHPUnit's per-test application rebuild: once
+     * one test renders a panel page, Livewire injects its `<style>` and `<script>`
+     * block into every later response in the same process, including responses
+     * from route files that never involve Livewire at all.
+     *
+     * That is not cosmetic. It broke two pre-existing suites that assert on exact
+     * HTML, and both failed ONLY in a full run while passing in isolation, which
+     * is the hardest shape of failure to attribute:
+     *
+     *   - `Marketing\ContactFormTest::test_the_honeypot_is_reachable_and_labelled_rather_than_display_none`,
+     *     because the injected CSS contains `display: none`.
+     *   - `StatusPage\SubscribeTest::test_a_second_subscribe_with_the_same_email_is_deduped`.
+     *
+     * Flushed here rather than in the panel suites themselves because the panel
+     * resource tests are numerous and each new one would otherwise have to
+     * remember, and a forgotten reset shows up as a failure in somebody else's
+     * unrelated test file. Uses Livewire's own documented flush seam, so no
+     * assertion anywhere had to be weakened to accommodate the panel.
+     */
+    protected function tearDown(): void
+    {
+        Livewire::flushState();
+
+        parent::tearDown();
     }
 }
