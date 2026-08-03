@@ -1,14 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/incident_controller.dart';
+import '../../../app/controllers/maintenance_controller.dart';
 import '../../../app/models/incident.dart';
+import '../../../app/models/scheduled_maintenance.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
+import '../../../app/enums/status_key.dart' show StatusKey;
+import '../../../app/support/formatters.dart' show formatMonthDayTime;
 import '../../../ui/components/incident_card/incident_card.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
+import '../../../ui/components/status_badge/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
 /// **The Incidents list screen.**
@@ -41,7 +48,8 @@ class IncidentsListView extends MagicStatefulView<IncidentController> {
   State<IncidentsListView> createState() => _IncidentsListViewState();
 }
 
-/// The four incident filter tabs from `IncidentsListPage.tsx:21-31`.
+/// The incident filter tabs from `IncidentsListPage.tsx:21-31`, plus the
+/// maintenance tab this screen grew afterwards.
 enum _IncidentFilter {
   /// Every incident regardless of lifecycle or ownership.
   all,
@@ -54,6 +62,20 @@ enum _IncidentFilter {
 
   /// Lifecycle is [IncidentLifecycle.resolved].
   resolved,
+
+  /// Scheduled maintenance windows, NOT incidents.
+  ///
+  /// The odd one out on purpose. A window is not an incident: it has no
+  /// lifecycle, no severity and no on-call, so it is a different list rather
+  /// than a filter over the same one, and it deliberately does not feed the
+  /// counts row above (an ACTIVE count that included planned work would say a
+  /// team is in trouble when it is doing maintenance).
+  ///
+  /// It lives here because this is where a window is created (`/incidents/new`
+  /// under its maintenance kind) and where a create lands. Before this tab the
+  /// backend's index, show, update and destroy endpoints had no caller at all: a
+  /// window could be created and then only ever seen on the PUBLIC status page.
+  maintenance,
 }
 
 class _IncidentsListViewState
@@ -65,11 +87,49 @@ class _IncidentsListViewState
   /// The current search query, matched against title and monitor name.
   String _query = '';
 
+  /// The maintenance roster, read as a SECONDARY controller.
+  ///
+  /// This view is not its backing controller, so magic's `onInit` never fires
+  /// for it and nothing else would fetch the roster: the tab rendered "0 of 0"
+  /// against a database holding a window, with no request in the log. The first
+  /// load is therefore triggered from [initState], and the listener is what
+  /// carries it onto the screen when it lands.
+  final MaintenanceController _maintenance = MaintenanceController.instance;
+
   @override
   void initState() {
     Magic.findOrPut(IncidentController.new);
     super.initState();
+
+    // `?tab=maintenance` selects the tab, which is how a create lands on the
+    // list that actually contains what it just made. A page builder receives
+    // only PATH params, so the query is read from the router here.
+    if (MagicRouter.instance.queryParameters['tab'] == 'maintenance') {
+      _filter = _IncidentFilter.maintenance;
+    }
+
+    _maintenance.addListener(_onMaintenanceChanged);
+    // Refetched on EVERY mount, not only the first, mirroring what
+    // [RefetchesOnMount] already does for the incident roster: a window created
+    // in another tab, by a teammate, or through the API would otherwise stay
+    // invisible here until the app restarted. The skeleton is keyed on
+    // `resolvedOnce`, so a revisit refreshes in place instead of flashing.
+    unawaited(_maintenance.load());
   }
+
+  @override
+  void dispose() {
+    _maintenance.removeListener(_onMaintenanceChanged);
+    super.dispose();
+  }
+
+  /// Rebuilds when the maintenance roster lands or changes.
+  void _onMaintenanceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Whether the maintenance tab is the active one.
+  bool get _isMaintenanceTab => _filter == _IncidentFilter.maintenance;
 
   /// Incidents that satisfy the active filter and search query.
   List<Incident> get _visible {
@@ -80,6 +140,10 @@ class _IncidentsListViewState
         _IncidentFilter.open => i.lifecycle != IncidentLifecycle.resolved,
         _IncidentFilter.ai => i.aiOwned,
         _IncidentFilter.resolved => i.lifecycle == IncidentLifecycle.resolved,
+        // The maintenance tab renders its own list, so this getter is never
+        // consulted under it; matching nothing keeps the switch exhaustive
+        // without inventing an incident meaning for a window.
+        _IncidentFilter.maintenance => false,
       };
       if (!matchesFilter) return false;
 
@@ -225,6 +289,7 @@ class _IncidentsListViewState
               trans('uptizm.incidents.filter_open'),
               trans('uptizm.incidents.filter_ai'),
               trans('uptizm.incidents.filter_resolved'),
+              trans('uptizm.incidents.filter_maintenance'),
             ],
             selectedIndex: _filter.index,
             onChanged: (i) =>
@@ -235,10 +300,15 @@ class _IncidentsListViewState
         // The count is desktop-only: on mobile it eats width the tabs need, so
         // hide it below the md breakpoint and let the tabs use the full row.
         WText(
-          trans('uptizm.monitors.count_of', {
-            'visible': '${_visible.length}',
-            'total': '${controller.incidents.length}',
-          }),
+          _isMaintenanceTab
+              ? trans('uptizm.monitors.count_of', {
+                  'visible': '${_maintenance.windows.length}',
+                  'total': '${_maintenance.windows.length}',
+                })
+              : trans('uptizm.monitors.count_of', {
+                  'visible': '${_visible.length}',
+                  'total': '${controller.incidents.length}',
+                }),
           className:
               'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
@@ -254,6 +324,8 @@ class _IncidentsListViewState
   /// flight, or an [MSEmptyState] when the active filter + query matches no
   /// incidents.
   Widget _buildList() {
+    if (_isMaintenanceTab) return _buildMaintenanceList();
+
     final visible = _visible;
 
     // Loading is not emptiness. Without this branch a team with open incidents
@@ -277,6 +349,137 @@ class _IncidentsListViewState
             onTap: () => MagicRoute.to('/incidents/${incident.id}'),
           ),
       ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Maintenance list
+  // ---------------------------------------------------------------------------
+
+  /// Builds the maintenance-window list for the Maintenance tab.
+  ///
+  /// A skeleton until the roster has resolved once, because an empty list before
+  /// the first fetch is not the same claim as "nothing planned".
+  Widget _buildMaintenanceList() {
+    if (!_maintenance.resolvedOnce) return _buildSkeleton();
+
+    final List<ScheduledMaintenance> windows = _maintenance.windows;
+    if (windows.isEmpty) return _buildMaintenanceEmptyState();
+
+    return WDiv(
+      className: 'flex flex-col gap-3',
+      children: [
+        for (final ScheduledMaintenance window in windows)
+          _buildMaintenanceCard(window),
+      ],
+    );
+  }
+
+  /// One window: its phase badge, title, affected components, and bounds, with
+  /// a Cancel action.
+  Widget _buildMaintenanceCard(ScheduledMaintenance window) {
+    final DateTime? startsAt = window.startsAt;
+    final DateTime? endsAt = window.endsAt;
+
+    return MSCard(
+      child: WDiv(
+        className: 'flex flex-col gap-2 p-4',
+        children: [
+          WDiv(
+            className: 'flex flex-row items-center gap-2',
+            children: [
+              StatusBadge(
+                _maintenancePhaseKey(startsAt, endsAt),
+                label: _maintenancePhaseLabel(startsAt, endsAt),
+              ),
+              WText(
+                window.title,
+                className: 'flex-1 min-w-0 truncate text-sm font-medium text-fg',
+              ),
+            ],
+          ),
+
+          // The affected components, by the names the window carries, so the
+          // operator can tell two windows on the same page apart.
+          if (window.monitorNames.isNotEmpty)
+            WText(
+              window.monitorNames.join(', '),
+              className: 'text-xs text-fg-muted',
+            ),
+
+          WDiv(
+            className: 'flex flex-row items-center gap-3',
+            children: [
+              WText(
+                _maintenanceWindowRange(startsAt, endsAt),
+                className:
+                    'flex-1 min-w-0 truncate font-mono text-xs tabular-nums '
+                    'text-fg-muted',
+              ),
+              MSButton(
+                intent: ButtonIntent.secondary,
+                onPressed: () => _maintenance.delete(window.id),
+                child: WText(trans('uptizm.incidents.maintenance_cancel')),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The status tone for a window's phase.
+  ///
+  /// `info` while it is upcoming or running (planned work is not a fault), and
+  /// the neutral `paused` tone once it is over, so a finished window does not
+  /// keep drawing the eye.
+  StatusKey _maintenancePhaseKey(DateTime? startsAt, DateTime? endsAt) {
+    if (endsAt != null && endsAt.isBefore(DateTime.now())) {
+      return StatusKey.paused;
+    }
+
+    return StatusKey.info;
+  }
+
+  /// The phase label: scheduled, in progress, or finished.
+  String _maintenancePhaseLabel(DateTime? startsAt, DateTime? endsAt) {
+    final DateTime now = DateTime.now();
+
+    if (endsAt != null && endsAt.isBefore(now)) {
+      return trans('uptizm.incidents.maintenance_phase_finished');
+    }
+    if (startsAt != null && startsAt.isAfter(now)) {
+      return trans('uptizm.incidents.maintenance_phase_scheduled');
+    }
+
+    return trans('uptizm.incidents.maintenance_phase_active');
+  }
+
+  /// The window bounds in the operator's own timezone.
+  ///
+  /// [formatMonthDayTime] rather than a new formatter: it already converts to
+  /// local and deliberately avoids month NAMES, which would leak untranslated
+  /// English into every non-English locale. Local is the right frame here
+  /// because the wire carries UTC (`starts_at` / `ends_at` are posted through
+  /// `toUtc()`) while an operator planning work reads the clock on their wall.
+  String _maintenanceWindowRange(DateTime? startsAt, DateTime? endsAt) {
+    if (startsAt == null || endsAt == null) return '';
+
+    return '${formatMonthDayTime(startsAt)} → ${formatMonthDayTime(endsAt)}';
+  }
+
+  /// The Maintenance tab's own empty state: no windows planned.
+  Widget _buildMaintenanceEmptyState() {
+    return WDiv(
+      className: 'rounded-xl border border-dashed border-color-border',
+      child: MSEmptyState(
+        title: trans('uptizm.incidents.maintenance_empty_title'),
+        description: trans('uptizm.incidents.maintenance_empty_description'),
+        action: MSButton(
+          onPressed: () => MagicRoute.to('/incidents/new'),
+          child: WText(trans('uptizm.incidents.maintenance_empty_action')),
+        ),
+      ),
     );
   }
 

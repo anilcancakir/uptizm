@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/incident_controller.dart';
+import 'package:uptizm/app/controllers/maintenance_controller.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import 'package:uptizm/app/mocks/incidents.dart';
@@ -256,6 +257,137 @@ void main() {
       ),
     );
   }
+
+  group('IncidentsListView maintenance tab', () {
+    /// Stubs `GET /scheduled-maintenances` with [payload] so the tab's
+    /// refetch-on-mount returns it.
+    ///
+    /// The tab refetches on EVERY mount (a window created in another tab or via
+    /// the API must not stay invisible), so a seeded roster alone would be
+    /// overwritten by the fetch. Stubbing exercises the real read path.
+    void stubWindows(List<Map<String, dynamic>> payload) {
+      Http.fake({
+        '*scheduled-maintenances': Http.response({'data': payload}),
+      });
+      Magic.singleton('log', () => LogManager());
+    }
+
+    /// The wire shape of [window], as the index resource returns it.
+    Map<String, dynamic> windowPayload({
+      String id = 'w1',
+      String title = 'Db update',
+      required String startsAt,
+      required String endsAt,
+    }) => <String, dynamic>{
+      'id': id,
+      'status_page_id': 'page-1',
+      'title': title,
+      'starts_at': startsAt,
+      'ends_at': endsAt,
+      'suppress_alerts': true,
+      'monitors': const [
+        {'monitor_id': 'checkout', 'name': 'Checkout'},
+      ],
+    };
+
+    testWidgets('the tab lists the team windows instead of incidents', (
+      tester,
+    ) async {
+      // Reported plainly: a window was created, the app landed on Incidents, and
+      // the screen said "No incidents yet". The backend's index / show / update /
+      // destroy endpoints all shipped with no caller, so the only surface that
+      // ever showed a window was the PUBLIC status page.
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      stubWindows([
+        windowPayload(
+          startsAt: '2026-09-01T22:00:00.000000Z',
+          endsAt: '2026-09-02T00:00:00.000000Z',
+        ),
+      ]);
+      addTearDown(() => MaintenanceController.instance.seedForTest(const []));
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      await tester.tap(find.text(trans('uptizm.incidents.filter_maintenance')));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Db update'), findsOneWidget);
+      expect(
+        find.text('Checkout'),
+        findsOneWidget,
+        reason: 'the affected components tell two windows on one page apart',
+      );
+      expect(
+        find.byType(IncidentCard),
+        findsNothing,
+        reason: 'a window is not an incident and must not render as one',
+      );
+    });
+
+    testWidgets('an empty roster says no maintenance is planned', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      stubWindows(const []);
+      addTearDown(() => MaintenanceController.instance.seedForTest(const []));
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      await tester.tap(find.text(trans('uptizm.incidents.filter_maintenance')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(trans('uptizm.incidents.maintenance_empty_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.incidents.empty_never_had_title')),
+        findsNothing,
+        reason: 'the incident empty state must not answer for maintenance',
+      );
+    });
+
+    testWidgets('a finished window reads as finished, not as scheduled', (
+      tester,
+    ) async {
+      // The phase is derived from the clock, so a window that has already run
+      // must not keep claiming it is upcoming.
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final DateTime now = DateTime.now().toUtc();
+      stubWindows([
+        windowPayload(
+          title: 'Finished work',
+          startsAt: now.subtract(const Duration(hours: 3)).toIso8601String(),
+          endsAt: now.subtract(const Duration(hours: 2)).toIso8601String(),
+        ),
+      ]);
+      addTearDown(() => MaintenanceController.instance.seedForTest(const []));
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      await tester.tap(find.text(trans('uptizm.incidents.filter_maintenance')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(trans('uptizm.incidents.maintenance_phase_finished')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.incidents.maintenance_phase_scheduled')),
+        findsNothing,
+      );
+    });
+  });
 
   // ---------------------------------------------------------------------------
   // IncidentsListView

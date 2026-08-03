@@ -951,7 +951,16 @@
       "form_status_page_label": "Durum sayfası",
       "form_status_page_hint": "Pencere burada duyurulur ve bu sayfanın onaylı abonelerine e-posta gider.",
       "form_status_page_empty": "Henüz durum sayfanız yok. Bakım penceresi bir durum sayfası üzerinden duyurulur, önce bir durum sayfası oluşturun.",
-      "form_status_page_error_required": "Bu pencerenin duyurulacağı durum sayfasını seçin."
+      "form_status_page_error_required": "Bu pencerenin duyurulacağı durum sayfasını seçin.",
+      "filter_maintenance": "Bakım",
+      "maintenance_cancel": "İptal et",
+      "maintenance_deleted_title": "Bakım penceresi iptal edildi",
+      "maintenance_phase_scheduled": "Planlandı",
+      "maintenance_phase_active": "Sürüyor",
+      "maintenance_phase_finished": "Tamamlandı",
+      "maintenance_empty_title": "Planlanmış bakım yok",
+      "maintenance_empty_description": "Bir pencere planlayın; Uptizm bunu durum sayfasında duyurur ve pencere sürerken etkilenen bileşenlerin uyarılarını tutar.",
+      "maintenance_empty_action": "Pencere planla"
     },
     "settings": {
       "hub_title": "Ayarlar",
