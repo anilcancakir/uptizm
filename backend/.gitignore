@@ -18,6 +18,14 @@
 /public/fonts-manifest.dev.json
 /public/hot
 /public/storage
+# Filament's published assets (~4MB, mostly woff2 and JS bundles). Regenerated on
+# every install by the `filament:upgrade` hook the installer added to
+# composer.json's post-autoload-dump, so committing them is redundant binary churn
+# on each Filament bump. Scoped to the `filament` subdirectory rather than to
+# /public/css and /public/js, so the app's own assets there would still be tracked.
+/public/css/filament
+/public/fonts/filament
+/public/js/filament
 /storage/*.key
 /storage/pail
 /vendor
