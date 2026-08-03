@@ -1,0 +1,56 @@
+[
+    {
+        "id": "wsOpen7cKLPFEjMuFHnrC",
+        "number": "17569714520011",
+        "begin": "2026-08-03T07:45:00+00:00",
+        "created": "2026-08-03T08:02:00+00:00",
+        "end": null,
+        "modified": "2026-08-03T09:01:00+00:00",
+        "external_desc": "Some users are unable to send attachments in Gmail",
+        "updates": [
+            {
+                "created": "2026-08-03T08:02:00+00:00",
+                "modified": "2026-08-03T08:02:00+00:00",
+                "when": "2026-08-03T08:02:00+00:00",
+                "text": "We are aware of the issue and are investigating.",
+                "status": "SERVICE_DISRUPTION"
+            }
+        ],
+        "status_impact": "SERVICE_DISRUPTION",
+        "severity": "medium",
+        "service_key": "gmailKey3gY4xhLtE1jjR",
+        "service_name": "Gmail",
+        "affected_products": [
+            {
+                "title": "Gmail",
+                "id": "gmailKey3gY4xhLtE1jjR"
+            }
+        ],
+        "uri": "incidents/wsOpen7cKLPFEjMuFHnrC",
+        "currently_affected_locations": [],
+        "previously_affected_locations": []
+    },
+    {
+        "id": "wsClosed7cKLPFEjMuFHn",
+        "number": "17569714520044",
+        "begin": "2026-07-30T11:00:00+00:00",
+        "created": "2026-07-30T11:20:00+00:00",
+        "end": "2026-07-30T14:10:00+00:00",
+        "modified": "2026-07-30T14:15:00+00:00",
+        "external_desc": "Google Drive file previews failed to load",
+        "updates": [],
+        "status_impact": "SERVICE_DISRUPTION",
+        "severity": "medium",
+        "service_key": "driveKey3gY4xhLtE1jjR",
+        "service_name": "Google Drive",
+        "affected_products": [
+            {
+                "title": "Google Drive",
+                "id": "driveKey3gY4xhLtE1jjR"
+            }
+        ],
+        "uri": "incidents/wsClosed7cKLPFEjMuFHn",
+        "currently_affected_locations": [],
+        "previously_affected_locations": []
+    }
+]

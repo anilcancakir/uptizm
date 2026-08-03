@@ -1,0 +1,110 @@
+[
+    {
+        "id": "ow5Y7cKLPFEjMuFHnrCs",
+        "number": "17569714516815",
+        "begin": "2026-08-03T08:14:00+00:00",
+        "created": "2026-08-03T08:37:38+00:00",
+        "end": null,
+        "modified": "2026-08-03T09:05:00+00:00",
+        "external_desc": "Increased error rates for Cloud Networking egress in multiple regions",
+        "updates": [
+            {
+                "created": "2026-08-03T08:37:38+00:00",
+                "modified": "2026-08-03T08:37:38+00:00",
+                "when": "2026-08-03T08:37:38+00:00",
+                "text": "We are investigating elevated error rates.",
+                "status": "SERVICE_DISRUPTION"
+            }
+        ],
+        "status_impact": "SERVICE_DISRUPTION",
+        "severity": "medium",
+        "service_key": "5MpKAZk3gY4xhLtE1jjR",
+        "service_name": "Google Cloud Networking",
+        "affected_products": [
+            {
+                "title": "Google Cloud Networking",
+                "id": "5MpKAZk3gY4xhLtE1jjR"
+            },
+            {
+                "title": "Cloud Load Balancing",
+                "id": "L4Vfz9dCbaFdvJp4qhTX"
+            }
+        ],
+        "uri": "incidents/ow5Y7cKLPFEjMuFHnrCs",
+        "currently_affected_locations": [
+            {
+                "title": "Multi-region: us",
+                "id": "us"
+            }
+        ],
+        "previously_affected_locations": []
+    },
+    {
+        "id": "closed1CrPFEjMuFHnrCs",
+        "number": "17569714516999",
+        "begin": "2026-07-29T10:00:00+00:00",
+        "created": "2026-07-29T10:12:00+00:00",
+        "end": "2026-07-29T13:40:00+00:00",
+        "modified": "2026-07-29T13:45:00+00:00",
+        "external_desc": "Cloud Storage requests failed in europe-west1",
+        "updates": [],
+        "status_impact": "SERVICE_OUTAGE",
+        "severity": "high",
+        "service_key": "storagekeyGY4xhLtE1jjR",
+        "service_name": "Google Cloud Storage",
+        "affected_products": [
+            {
+                "title": "Google Cloud Storage",
+                "id": "storagekeyGY4xhLtE1jjR"
+            }
+        ],
+        "uri": "incidents/closed1CrPFEjMuFHnrCs",
+        "currently_affected_locations": [],
+        "previously_affected_locations": [
+            {
+                "title": "europe-west1",
+                "id": "europe-west1"
+            }
+        ]
+    },
+    {
+        "id": "nullproductsPFEjMuFHnr",
+        "number": "17569714517001",
+        "begin": "2026-08-03T07:00:00+00:00",
+        "created": "2026-08-03T07:05:00+00:00",
+        "end": null,
+        "modified": "2026-08-03T07:05:00+00:00",
+        "external_desc": "An open incident whose affected_products is null",
+        "updates": null,
+        "status_impact": "SERVICE_INFORMATION",
+        "severity": "low",
+        "affected_products": null,
+        "uri": "incidents/nullproductsPFEjMuFHnr",
+        "an_unexpected_new_field": {
+            "nested": true
+        }
+    },
+    {
+        "external_desc": "An open incident with no uri, no begin and no id",
+        "end": null,
+        "affected_products": [
+            {
+                "title": "Google Cloud Dataflow",
+                "id": "dataflowKeyGY4xhLtE1jj"
+            }
+        ]
+    },
+    null,
+    {
+        "id": "noDescPFEjMuFHnrCs",
+        "begin": "2026-08-03T06:00:00+00:00",
+        "end": null,
+        "affected_products": [
+            {
+                "title": "Google Cloud Networking",
+                "id": "5MpKAZk3gY4xhLtE1jjR"
+            }
+        ],
+        "uri": "incidents/noDescPFEjMuFHnrCs"
+    }
+]
