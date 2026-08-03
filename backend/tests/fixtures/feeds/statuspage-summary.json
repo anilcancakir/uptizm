@@ -1,0 +1,237 @@
+{
+    "page": {
+        "id": "kctbh9vrtdwd",
+        "name": "Example Provider",
+        "url": "https://status.example.com",
+        "time_zone": "Etc/UTC",
+        "updated_at": "2026-08-03T09:12:44.221Z"
+    },
+    "status": {
+        "indicator": "major",
+        "description": "Partial System Outage"
+    },
+    "components": [
+        {
+            "id": "8l4ygp009s5s",
+            "name": "Git Operations",
+            "status": "operational",
+            "created_at": "2017-01-31T20:01:46.621Z",
+            "updated_at": "2026-08-03T09:00:00.000Z",
+            "position": 1,
+            "description": "Push and pull over SSH and HTTPS",
+            "showcase": false,
+            "group_id": null,
+            "page_id": "kctbh9vrtdwd",
+            "group": false,
+            "only_show_if_degraded": false
+        },
+        {
+            "id": "brv1bkgrwx7q",
+            "name": "API Requests",
+            "status": "degraded_performance",
+            "created_at": "2017-01-31T20:01:46.621Z",
+            "updated_at": "2026-08-03T09:05:00.000Z",
+            "position": 2,
+            "description": null,
+            "showcase": false,
+            "group_id": null,
+            "page_id": "kctbh9vrtdwd",
+            "group": false,
+            "only_show_if_degraded": false
+        },
+        {
+            "id": "4230lsnqdsld",
+            "name": "Webhooks",
+            "status": "partial_outage",
+            "created_at": "2017-01-31T20:01:46.621Z",
+            "updated_at": "2026-08-03T09:06:00.000Z",
+            "position": 3,
+            "description": null,
+            "showcase": false,
+            "group_id": null,
+            "page_id": "kctbh9vrtdwd",
+            "group": false,
+            "only_show_if_degraded": false
+        },
+        {
+            "id": "0l2p9nhqnxpd",
+            "name": "Actions",
+            "status": "major_outage",
+            "created_at": "2019-11-13T18:00:24.256Z",
+            "updated_at": "2026-08-03T09:07:00.000Z",
+            "position": 4,
+            "description": null,
+            "showcase": false,
+            "group_id": null,
+            "page_id": "kctbh9vrtdwd",
+            "group": false,
+            "only_show_if_degraded": false
+        },
+        {
+            "id": "hs2f6q0ynzqd",
+            "name": "Scheduled Window",
+            "status": "under_maintenance",
+            "created_at": "2019-11-13T18:00:24.256Z",
+            "updated_at": "2026-08-03T09:08:00.000Z",
+            "position": 5,
+            "description": null,
+            "showcase": false,
+            "group_id": null,
+            "page_id": "kctbh9vrtdwd",
+            "group": false,
+            "only_show_if_degraded": false
+        },
+        {
+            "id": "9jbrmpvzz4jh",
+            "name": "Missing Status Field",
+            "created_at": "2019-11-13T18:00:24.256Z",
+            "updated_at": "2026-08-03T09:09:00.000Z",
+            "position": 6,
+            "group": false
+        },
+        {
+            "id": "nx2wpv5sq8rz",
+            "name": "Extra Field Component",
+            "status": "operational",
+            "position": 7,
+            "group": false,
+            "an_unexpected_new_field": {
+                "nested": [
+                    1,
+                    2,
+                    3
+                ]
+            }
+        },
+        {
+            "id": "z1s0v8k1qh6f",
+            "name": "Platform",
+            "status": "major_outage",
+            "position": 8,
+            "group": true,
+            "components": [
+                "0l2p9nhqnxpd"
+            ]
+        },
+        null,
+        {
+            "id": "no-name-at-all",
+            "status": "operational",
+            "group": false
+        }
+    ],
+    "incidents": [
+        {
+            "id": "zqxk3hpzhbz9",
+            "name": "Informational notice about a completed migration",
+            "status": "investigating",
+            "created_at": "2026-08-03T08:30:00.000Z",
+            "updated_at": "2026-08-03T08:35:00.000Z",
+            "monitoring_at": null,
+            "resolved_at": null,
+            "impact": "none",
+            "shortlink": "https://stspg.io/zqxk3hpzhbz9",
+            "started_at": "2026-08-03T08:30:00.000Z",
+            "page_id": "kctbh9vrtdwd",
+            "incident_updates": [
+                {
+                    "id": "9bxk1t6qzz0m",
+                    "status": "investigating",
+                    "body": "We are looking into reports of slow migrations.",
+                    "created_at": "2026-08-03T08:30:00.000Z"
+                }
+            ]
+        },
+        {
+            "id": "n7v0dlwqfmqk",
+            "name": "Elevated latency on API requests",
+            "status": "identified",
+            "created_at": "2026-08-03T08:40:00.000Z",
+            "updated_at": "2026-08-03T08:55:00.000Z",
+            "monitoring_at": null,
+            "resolved_at": null,
+            "impact": "minor",
+            "shortlink": "https://stspg.io/n7v0dlwqfmqk",
+            "started_at": "2026-08-03T08:40:00.000Z",
+            "page_id": "kctbh9vrtdwd",
+            "incident_updates": []
+        },
+        {
+            "id": "c1n3wq8pkq2b",
+            "name": "Webhook deliveries are delayed",
+            "status": "monitoring",
+            "created_at": "2026-08-03T08:45:00.000Z",
+            "updated_at": "2026-08-03T09:00:00.000Z",
+            "monitoring_at": "2026-08-03T09:00:00.000Z",
+            "resolved_at": null,
+            "impact": "major",
+            "shortlink": "https://stspg.io/c1n3wq8pkq2b",
+            "started_at": "2026-08-03T08:45:00.000Z",
+            "page_id": "kctbh9vrtdwd",
+            "incident_updates": []
+        },
+        {
+            "id": "qq7lz0zbvw1t",
+            "name": "Actions runners are unavailable",
+            "status": "investigating",
+            "created_at": "2026-08-03T09:01:00.000Z",
+            "updated_at": "2026-08-03T09:07:00.000Z",
+            "monitoring_at": null,
+            "resolved_at": null,
+            "impact": "critical",
+            "shortlink": "https://stspg.io/qq7lz0zbvw1t",
+            "started_at": "2026-08-03T09:01:00.000Z",
+            "page_id": "kctbh9vrtdwd",
+            "incident_updates": []
+        },
+        {
+            "id": "p05kq1jt7z9x",
+            "name": "Post-incident analysis of the June packet loss",
+            "status": "postmortem",
+            "created_at": "2026-06-11T10:00:00.000Z",
+            "updated_at": "2026-06-14T10:00:00.000Z",
+            "monitoring_at": "2026-06-11T12:00:00.000Z",
+            "resolved_at": "2026-06-11T13:00:00.000Z",
+            "impact": "major",
+            "shortlink": "https://stspg.io/p05kq1jt7z9x",
+            "started_at": "2026-06-11T10:00:00.000Z",
+            "page_id": "kctbh9vrtdwd",
+            "incident_updates": []
+        },
+        {
+            "id": "r4mn8wq0zzld",
+            "name": "Resolved: cache eviction storm",
+            "status": "resolved",
+            "created_at": "2026-07-28T10:00:00.000Z",
+            "updated_at": "2026-07-28T11:30:00.000Z",
+            "monitoring_at": "2026-07-28T11:00:00.000Z",
+            "resolved_at": "2026-07-28T11:30:00.000Z",
+            "impact": "minor",
+            "shortlink": "https://stspg.io/r4mn8wq0zzld",
+            "started_at": "2026-07-28T10:00:00.000Z",
+            "page_id": "kctbh9vrtdwd",
+            "incident_updates": []
+        },
+        {
+            "id": "v9kk2z1qp7wm",
+            "name": "Status vocabulary this catalog has never seen",
+            "status": "a_status_statuspage_has_not_published_yet",
+            "created_at": "2026-08-03T09:10:00.000Z",
+            "updated_at": "2026-08-03T09:10:00.000Z",
+            "impact": "an_impact_statuspage_has_not_published_yet",
+            "shortlink": "https://stspg.io/v9kk2z1qp7wm",
+            "started_at": "2026-08-03T09:10:00.000Z",
+            "page_id": "kctbh9vrtdwd"
+        },
+        {
+            "id": "b8zq0wk1nn4p",
+            "name": "Incident with no started_at and no shortlink",
+            "status": "investigating",
+            "impact": "minor",
+            "page_id": "kctbh9vrtdwd"
+        },
+        null
+    ],
+    "scheduled_maintenances": [],
+    "an_unexpected_top_level_field": true
+}
