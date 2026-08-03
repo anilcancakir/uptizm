@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Marketing;
 
+use App\Enums\MonitorRegion;
 use App\Services\Services\FeedFetcher;
 use App\Support\Marketing\ChromeData;
 use App\Support\Marketing\LegalDocument;
@@ -90,7 +91,38 @@ class ShowBotController
             // what this page says against what their access log shows.
             '[[bot.user_agent]]' => (string) config('uptizm.bot_user_agent'),
             '[[bot.contact_email]]' => (string) config('legal.contact_email'),
+            /*
+             * The availability check: the LARGER of the two channels, and the one this
+             * page originally denied the existence of.
+             *
+             * Read from `uptizm.catalog_probe_interval_sec`, the same key the seeder
+             * builds these monitors from, and NOT from the monitor rows. Querying them
+             * here is the obvious idea and it is wrong: these content pages are served
+             * without a database (`LegalPagesTest` runs them with no connection), so a
+             * query 500s the page. The cost of the config indirection is real and worth
+             * stating: an operator who retunes one catalog monitor in the panel
+             * desynchronises this figure, so the copy speaks of the configured cadence
+             * rather than promising each monitor's own.
+             *
+             * The daily total is spelled out because a per-region interval understates
+             * what an operator sees: five regions on a one-minute cadence is not one
+             * request a minute.
+             */
+            '[[bot.probe_regions]]' => (string) count(MonitorRegion::cases()),
+            '[[bot.probe_interval_seconds]]' => (string) $this->probeIntervalSeconds(),
+            '[[bot.probe_daily_requests]]' => number_format(
+                count(MonitorRegion::cases()) * intdiv(86400, $this->probeIntervalSeconds()),
+            ),
         ];
+    }
+
+    /**
+     * The catalog probe cadence, from the config the seeder builds its monitors
+     * from, floored at 1 so a misconfigured 0 cannot divide by zero on a public page.
+     */
+    protected function probeIntervalSeconds(): int
+    {
+        return max(1, (int) config('uptizm.catalog_probe_interval_sec'));
     }
 
     /**

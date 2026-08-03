@@ -1,26 +1,39 @@
-Uptizm runs one automated client that reads other companies' public status feeds. If it
+Uptizm sends you two kinds of automated request, and this page describes both. If either
 showed up in your access log and you want to know what it is, or you want it to stop, this
-page is the whole answer. Every figure below comes from the code that actually makes the
-requests, so it cannot promise a cadence the client does not keep.
+page is the whole answer. The figures below come from this deployment's own configuration
+rather than from prose somebody updated by hand, so they track what we run. One caveat we
+would rather state than have you catch: the availability check's cadence is the configured
+default, and an individual check that has been retuned may differ from it.
 
-## How to recognise it
+## How to recognise them
 
-It identifies itself on every request:
+Both identify themselves with the same string on every request:
 
 ```
 [[bot.user_agent]]
 ```
 
-It never pretends to be a browser, and it never sends a browser User-Agent.
+Neither pretends to be a browser, and neither sends a browser User-Agent.
 
-## What it requests, and how often
+## 1. The availability check
 
-It fetches one document per service: the public status feed you already publish for
-everybody, at the URL a person at Uptizm reviewed and recorded by hand. It reads nothing
-else on your site. It does not crawl, it does not follow links, and it does not look for
-anything you have not published.
+This is the larger of the two, so it comes first. We request **one URL** on your service,
+usually your homepage, and record whether it answered and how quickly. That is the
+measurement we publish, and it is the only reason the page about your service exists.
 
-The shortest gap between two requests for the same service is
+It runs from **[[bot.probe_regions]] regions**, each about every
+**[[bot.probe_interval_seconds]] seconds**, which works out to roughly
+**[[bot.probe_daily_requests]] requests a day** to that one URL. It is a plain GET. It
+reads no other page, follows no links, submits no forms and looks for nothing you have not
+published.
+
+## 2. The status-feed read
+
+If your service publishes a machine-readable status feed and a person at Uptizm has
+reviewed your terms and recorded that review, we also read that feed so we can show what
+you say about yourself next to what we measured.
+
+The shortest gap between two of these for the same service is
 **[[bot.min_interval_seconds]] seconds**, and that floor is enforced against the last
 recorded fetch rather than by a timer, so a restart, a duplicate schedule tick or a retry
 cannot make it faster.
@@ -32,20 +45,25 @@ header exchange and no body.
 It does not follow redirects. If your feed moves, our request stops at the redirect and a
 person has to update the address, because the new host is one nobody has reviewed yet.
 
-## How it backs off
+## How they back off
 
-If you answer `429 Too Many Requests` or `403 Forbidden`, it disables that feed
-immediately and stops asking. It does not retry, and nothing turns it back on
-automatically: a person has to look at why it was refused and clear it by hand.
+If you answer `429 Too Many Requests` or `403 Forbidden` to the **feed** read, it disables
+that feed immediately and stops asking. It does not retry, and nothing turns it back on
+automatically: a person has to look at why it was refused and clear it by hand. A `403` is
+a complete and permanent answer and we would rather you send one than have to block us.
 
-That is the intended way to make it stop. A `403` is a complete and permanent answer, and
-we would rather you send one than have to block us at the network.
+The **availability check** does not stop itself that way, and we would rather say so than
+let you find out. It keeps requesting on its schedule and records what came back, because
+a refusal is itself a measurement and publishing "they refuse our requests" is more honest
+than publishing nothing. If you want that one stopped, the section below is the way.
 
 ## How to reach a person
 
-If you would prefer we did not read your feed at all, or you want a different cadence, or
-you just want to know why we are there, write to [[bot.contact_email]] and say which
-domain you are asking about. We will remove it.
+If you would prefer we did not request anything at all, or you want a different cadence, or
+you just want to know why we are there, write to [[bot.contact_email]] and say which domain
+you are asking about. We will remove your service from the catalog, which stops both
+clients. Blocking the User-Agent works too, and we will read that as the answer it is
+rather than routing around it.
 
 ## What it is for
 

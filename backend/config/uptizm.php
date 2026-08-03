@@ -127,4 +127,29 @@ return [
     */
 
     'bot_user_agent' => env('UPTIZM_BOT_USER_AGENT', 'UptizmBot/1.0 (+https://uptizm.com/bot)'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Catalog probe cadence
+    |--------------------------------------------------------------------------
+    |
+    | How often, in seconds, each catalog monitor checks its provider endpoint.
+    | `ServiceCatalogSeeder` builds its monitors from this, and the public `/bot`
+    | page states it as the availability check's cadence.
+    |
+    | It lives here rather than as a constant on the seeder for one reason: the
+    | `/bot` page has to describe this traffic to the operator receiving it, and a
+    | marketing controller importing a seeder is the wrong direction. It cannot be
+    | read from the monitor rows either, tempting as that is, because these content
+    | pages are served without a database (`LegalPagesTest` runs them with no
+    | connection at all) and a query here would 500 them.
+    |
+    | One minute: these monitors back a public page that says when uptizm last
+    | measured the endpoint, and a coarser cadence would date the claim. The system
+    | team is exempt from the plan interval floor, so this is a product decision
+    | rather than a plan-tier one.
+    |
+    */
+
+    'catalog_probe_interval_sec' => (int) env('UPTIZM_CATALOG_PROBE_INTERVAL_SEC', 60),
 ];
