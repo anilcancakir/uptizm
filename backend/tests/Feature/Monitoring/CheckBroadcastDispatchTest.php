@@ -30,8 +30,10 @@ use Tests\TestCase;
  * The concurrency-critical guarantee lives here too: the prior status is read
  * INSIDE the per-monitor lock, so two serialized regions of the same monitor
  * observe a single transition and never double-broadcast an up->down flip.
- * Paused transitions and the first-ever (null prior) status are suppressed so
- * a config action or initial seeding never floods the live dashboard.
+ * A paused transition is suppressed: it is a config action, not a check outcome.
+ * The first-ever (null prior) status is NOT suppressed, and used to be. That is
+ * the one result an operator is actually waiting for, and the client debounces a
+ * burst into one reload, so batching beats dropping.
  */
 class CheckBroadcastDispatchTest extends TestCase
 {
@@ -105,18 +107,49 @@ class CheckBroadcastDispatchTest extends TestCase
         Event::assertNotDispatched(MonitorStatusChanged::class);
     }
 
-    public function test_the_first_ever_check_suppresses_the_null_prior_transition(): void
+    public function test_the_first_ever_check_broadcasts_with_a_null_previous_status(): void
     {
         Event::fake([IncidentBroadcast::class, MonitorStatusChanged::class]);
         Notification::fake();
         $monitor = $this->makeMonitor(lastStatus: null, incidentThreshold: 10);
         $service = $this->service();
 
-        // The first status a brand-new monitor records has no prior to flip
-        // from; reconcile-on-nav picks it up, not a live badge broadcast.
+        // This assertion is INVERTED from what it was, deliberately. A brand-new
+        // monitor's first result was suppressed on the reasoning that
+        // reconcile-on-nav would pick it up; it only picks it up for an operator
+        // who navigates, and the operator who just saved the monitor is standing
+        // on the list watching a Pending row that never changed. The client
+        // re-arms a 400ms debounce over a SET of reload targets, so the seeding
+        // burst that suppression was guarding against collapses into one reload
+        // anyway.
         $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-1', status: MonitorStatus::Down));
 
-        Event::assertNotDispatched(MonitorStatusChanged::class);
+        Event::assertDispatched(
+            MonitorStatusChanged::class,
+            function (MonitorStatusChanged $event) use ($monitor): bool {
+                return $event->monitor->is($monitor)
+                    && $event->from === null
+                    && $event->to === MonitorStatus::Down;
+            },
+        );
+    }
+
+    public function test_the_second_region_of_a_first_ever_check_stays_silent(): void
+    {
+        Event::fake([IncidentBroadcast::class, MonitorStatusChanged::class]);
+        Notification::fake();
+        $monitor = $this->makeMonitor(lastStatus: null, incidentThreshold: 10);
+        $service = $this->service();
+
+        // Only ONE region can see the null prior. The prior status is read inside
+        // the monitor lock before the denorm UPDATE, so the region that follows
+        // observes the committed status and falls through the unchanged guard.
+        // Without this, un-suppressing the null prior would broadcast once per
+        // region of every newly created monitor.
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'first-a', status: MonitorStatus::Down));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'first-b', status: MonitorStatus::Down, region: 'eu-west-1'));
+
+        Event::assertDispatchedTimes(MonitorStatusChanged::class, 1);
     }
 
     public function test_two_regions_of_the_same_flip_broadcast_the_transition_only_once(): void
@@ -230,11 +263,15 @@ class CheckBroadcastDispatchTest extends TestCase
     /**
      * Build a CheckResult carrying the given status for a direct persist call.
      */
-    protected function makeResult(Monitor $monitor, string $probeRunId, MonitorStatus $status): CheckResult
-    {
+    protected function makeResult(
+        Monitor $monitor,
+        string $probeRunId,
+        MonitorStatus $status,
+        string $region = 'us-east-1',
+    ): CheckResult {
         return new CheckResult(
             monitorId: (string) $monitor->id,
-            region: 'us-east-1',
+            region: $region,
             checkedAt: new DateTimeImmutable,
             status: $status,
             statusCode: $status === MonitorStatus::Up ? 200 : 503,

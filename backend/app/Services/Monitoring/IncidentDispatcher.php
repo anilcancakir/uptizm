@@ -69,7 +69,7 @@ class IncidentDispatcher
      * @param  array{
      *     opened: ?Incident,
      *     resolved: ?Incident,
-     *     status_change: array{from: MonitorStatus, to: MonitorStatus}|null
+     *     status_change: array{from: ?MonitorStatus, to: MonitorStatus}|null
      * }  $outcome  The evaluator result: opened/resolved incident refs plus the
      *   in-lock health transition (any slot null when nothing changed).
      */
@@ -119,11 +119,15 @@ class IncidentDispatcher
         }
 
         // 4. Broadcast the monitor health flip to the same live dashboard, only
-        //    when the in-lock read recorded a real transition. The guard (prior
-        //    non-null, changed, not paused) already ran inside the transaction,
-        //    so a set `status_change` is always a broadcastable flip. `$monitor`
-        //    was refreshed in place post-UPDATE, so the payload reads fresh
+        //    when the in-lock read recorded a real transition. The guard
+        //    (changed, not paused) already ran inside the transaction, so a set
+        //    `status_change` is always a broadcastable flip. `$monitor` was
+        //    refreshed in place post-UPDATE, so the payload reads fresh
         //    last_checked_at / last_response_ms.
+        //
+        //    `from` may be NULL: that is a brand-new monitor's first result, the
+        //    one an operator is most likely to be watching for. The event types
+        //    it `?MonitorStatus` and sends `previous_status` through `?->value`.
         if ($outcome['status_change'] !== null) {
             event(new MonitorStatusChanged(
                 $monitor,

@@ -238,7 +238,7 @@ class CheckPersistenceService
      * @return array{
      *     0: MonitorCheck,
      *     1: array<string, float>,
-     *     2: array{from: MonitorStatus, to: MonitorStatus}|null
+     *     2: array{from: ?MonitorStatus, to: MonitorStatus}|null
      * } The persisted check, the numeric samples keyed by metric key, and the
      *   status transition when the monitor flipped health (null otherwise).
      */
@@ -335,17 +335,35 @@ class CheckPersistenceService
     /**
      * Decide whether a health flip should reach the live dashboard.
      *
-     * Three guards, all load-bearing:
+     * Two guards:
      *  1. A `paused` result is a config action, not a check outcome, and never
      *     broadcasts.
-     *  2. A null prior is the first-ever status of a brand-new monitor;
-     *     reconcile-on-nav / the reconnect refetch picks it up, not a live badge
-     *     flip, so it is suppressed to avoid a storm on initial seeding.
-     *  3. An unchanged status is not a transition.
+     *  2. An unchanged status is not a transition.
      *
-     * @return array{from: MonitorStatus, to: MonitorStatus}|null The transition
-     *                                                            or null when no
-     *                                                            broadcast is due.
+     * A NULL prior is a transition and does broadcast. It is the first-ever
+     * status of a brand-new monitor, which is exactly the moment an operator is
+     * watching: they save the monitor, `store()` sets `next_check_at` to now and
+     * queues the probes, and the row sits on Pending until something tells the
+     * screen otherwise. This used to be suppressed "to avoid a storm on initial
+     * seeding", deferring to reconcile-on-nav, which only helps an operator who
+     * navigates; standing on the list after a create, nothing ever arrived.
+     *
+     * The storm concern is already answered on the client and answered better:
+     * `RealtimeService._markDirty` re-arms a 400ms debounce and drains a SET, so
+     * a burst (a seeder writing many monitors, or several regions landing
+     * together) collapses into one reload per target. Suppression loses the
+     * event; debouncing merely batches it. Only ONE region can produce the null
+     * prior anyway: the prior status is read inside the monitor lock before the
+     * denorm UPDATE, so the regions that follow observe the committed status and
+     * fall through guard 2.
+     *
+     * `MonitorStatusChanged` was always built for this: its `$from` is typed
+     * `?MonitorStatus` and `broadcastWith()` sends `previous_status` through
+     * `?->value`. The event and this detector simply disagreed.
+     *
+     * @return array{from: ?MonitorStatus, to: MonitorStatus}|null The transition
+     *                                                             or null when no
+     *                                                             broadcast is due.
      */
     protected function detectStatusChange(?MonitorStatus $prior, MonitorStatus $current): ?array
     {
@@ -353,7 +371,7 @@ class CheckPersistenceService
             return null;
         }
 
-        if ($prior === null || $prior === $current) {
+        if ($prior === $current) {
             return null;
         }
 
