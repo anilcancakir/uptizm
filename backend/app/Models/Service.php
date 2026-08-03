@@ -6,10 +6,12 @@ use App\Enums\ServiceStatusSource;
 use App\Support\Monitoring\HostGuard;
 use Database\Factories\ServiceFactory;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -120,6 +122,75 @@ class Service extends Model
     }
 
     /**
+     * Scope to the services a feed-ingest tick may fetch.
+     *
+     * Five predicates, and every one of them is a refusal somebody committed to:
+     * only PUBLISHED services (nothing else has a page for a reading to appear
+     * on), only ones with a real feed and a URL to fetch it from, only ones whose
+     * terms a human reviewed and recorded, and never one an operator (or an
+     * automatic `429`/`403` disable) turned off.
+     *
+     * `app/Services/Services/FeedFetcher.php` re-checks all of these except
+     * `is_published` on the individual row, because a service can change between
+     * the fan-out and the fetch, and because the fetcher must be able to name
+     * which condition refused it. The two may only diverge with the fetcher the
+     * stricter of the pair. (Named by PATH, not `{@see}`: Pint's
+     * `fully_qualified_strict_types` fixer would restore a real `use` statement
+     * for it, and a domain model importing a service class is a layering
+     * inversion. Same reasoning as `Monitor::MANUAL_CHECK_COOLDOWN_SECONDS`.)
+     * `tests/Feature/Services/IngestServiceFeedsTest.php` exercises each
+     * predicate with the other four satisfied, so a green suite cannot mean
+     * "something excluded it".
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeDueForFeedIngest(Builder $query): Builder
+    {
+        return $query
+            ->where('is_published', true)
+            ->where('status_source', '!=', ServiceStatusSource::None->value)
+            ->whereNotNull('status_source_url')
+            ->whereNotNull('terms_reviewed_at')
+            ->whereNull('feed_disabled_at');
+    }
+
+    /**
+     * Stop polling this service's feed, recording when and why.
+     *
+     * Written when a provider answers `429` or `403`: this catalog does not
+     * retry into somebody else's rate limiter, it stops and waits for a human.
+     * Nothing clears these two columns automatically, and that is the point: an
+     * operator who has fixed the cause clears them from the panel.
+     */
+    public function disableFeed(string $reason): void
+    {
+        $this->forceFill([
+            'feed_disabled_at' => now(),
+            'feed_disabled_reason' => Str::limit($reason, 250, ''),
+        ])->save();
+    }
+
+    /**
+     * Record that this service's published content actually changed.
+     *
+     * `content_changed_at` is the SOLE input to the public sitemap's `lastmod`,
+     * and Google discounts an untrustworthy `lastmod` sitewide, so this method
+     * has exactly one caller condition: the newly parsed feed reading hashed
+     * differently from the previous one
+     * (`FeedFetcher::recordReading()`). A routine
+     * poll, a `304`, and a failed fetch must all leave it alone, which is why
+     * this is a named method rather than an inline `update()` somebody could
+     * copy to the wrong branch.
+     */
+    public function markContentChanged(): void
+    {
+        $this->forceFill([
+            'content_changed_at' => now(),
+        ])->save();
+    }
+
+    /**
      * Monitors providing this service's own-measurement: the plan's Must
      * Have that a status page always carries uptizm's OWN probe as
      * first-class content, never only a re-rendered provider feed. The
@@ -151,7 +222,7 @@ class Service extends Model
      * strict-ordering guarantee it advertises; on UUID keys it does not run at
      * all.
      *
-     * The tie-breaker it was providing is not missed here: feed ingestion
+     * The tie-breaker it was providing is not missed here: `FeedFetcher`
      * enforces a 60 second floor per service, so two snapshots cannot share a
      * `fetched_at` in practice, and if they somehow did, either is an equally
      * true answer to "the latest fetch".
