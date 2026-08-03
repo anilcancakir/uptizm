@@ -98,6 +98,76 @@ void main() {
     expect(resolved.name, equals('API'));
   });
 
+  test('reload keeps the measured uptime a list fetch cannot carry', () async {
+    // `GET /monitors/:id` measures uptime_24h / slo_uptime_7d / slo_uptime_30d
+    // from the raw check stream; `GET /monitors` deliberately does NOT (it would
+    // cost an N+1 of aggregate queries per row), so the list sends them as null.
+    // Both write into the same inventory, so a list fetch that replaces the
+    // collection wholesale erases what the show fetch measured, and the detail
+    // screen's reliability section reads "not enough data yet" for a monitor
+    // that has been checked for days. On production the list is fetched about
+    // ten times more often than the show, so the erasure always wins.
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {
+        'id': 'api',
+        'name': 'API',
+        'uptime_24h': 100,
+        'slo_uptime_7d': 99.94,
+        'slo_uptime_30d': 99.91,
+      }),
+    ]);
+
+    Http.fake({
+      'monitors': Http.response({
+        'data': [
+          {
+            'id': 'api',
+            'name': 'API',
+            'last_status': 'up',
+            'last_response_ms': 120,
+            'uptime_24h': null,
+            'slo_uptime_7d': null,
+            'slo_uptime_30d': null,
+          },
+        ],
+      }),
+    });
+
+    await controller.reload();
+
+    final Monitor? refreshed = controller.monitorById('api');
+    expect(refreshed, isNotNull);
+    expect(refreshed!.sloUptime7d, equals(99.94));
+    expect(refreshed.sloUptime30d, equals(99.91));
+    expect(refreshed.uptime24h, equals(100.0));
+    // The list stays authoritative for everything it DOES measure.
+    expect(refreshed.status, equals(StatusKey.up));
+    expect(refreshed.responseMs, equals(120));
+  });
+
+  test('reload does not invent a measurement the show fetch never made', () async {
+    // The carry-forward is one-directional: it only rescues a value the show
+    // fetch actually measured. A monitor the operator has never opened has no
+    // measured uptime anywhere, and the list must not gain one.
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {'id': 'api', 'name': 'API'}),
+    ]);
+
+    Http.fake({
+      'monitors': Http.response({
+        'data': [
+          {'id': 'api', 'name': 'API', 'slo_uptime_7d': null},
+        ],
+      }),
+    });
+
+    await controller.reload();
+
+    expect(controller.monitorById('api')!.sloUptime7d, isNull);
+  });
+
   test('monitorById returns null for an unknown or null id', () {
     final MonitorController controller = MonitorController.instance;
 

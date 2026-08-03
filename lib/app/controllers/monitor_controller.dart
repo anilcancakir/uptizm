@@ -108,6 +108,19 @@ class MonitorController extends MagicController
   static MonitorController get instance =>
       Magic.findOrPut(MonitorController.new);
 
+  /// The attributes only `GET /monitors/:id` measures: the trailing 24h, 7-day
+  /// and 30-day uptime, computed from the raw check stream.
+  ///
+  /// Named once here because [_withMeasuredUptime] has to know exactly which
+  /// fields a list row cannot speak for. Adding a show-only measurement to
+  /// `MonitorController::show` on the backend means adding its key here, or the
+  /// next list reload silently nulls it out again.
+  static const List<String> _measuredUptimeAttributes = [
+    'uptime_24h',
+    'slo_uptime_7d',
+    'slo_uptime_30d',
+  ];
+
   /// In-memory cache of the monitor inventory, populated by [reload] and kept
   /// warm by the per-monitor background refresh in [monitorById]. Empty until
   /// the first successful fetch resolves.
@@ -214,8 +227,51 @@ class MonitorController extends MagicController
       return;
     }
 
-    _monitors = fetched;
+    _monitors = _withMeasuredUptime(fetched);
     refreshUI();
+  }
+
+  /// Carries the measured-uptime attributes from the inventory being replaced
+  /// onto [fetched], so a list reload cannot erase what a show fetch measured.
+  ///
+  /// Required because the two endpoints hydrate into the SAME inventory while
+  /// measuring different things. `GET /monitors/:id` computes the trailing 24h /
+  /// 7d / 30d uptime from the raw check stream; `GET /monitors` deliberately does
+  /// not (one aggregate query per row is an N+1 across the whole inventory), so a
+  /// list row carries those fields as null. [reload] replaces the collection
+  /// wholesale, so without this the null wins and the detail screen's reliability
+  /// section reads "not enough data yet" for a monitor that has been checked for
+  /// days. The list is fetched far more often than the show, so the erasure wins
+  /// essentially always, and it looked like a backend bug rather than a merge one.
+  ///
+  /// Fills a null from a non-null and never the reverse: the list stays
+  /// authoritative for every field it actually returns, and a monitor whose
+  /// detail page was never opened keeps its honest no-data state instead of
+  /// gaining a figure nothing measured.
+  List<Monitor> _withMeasuredUptime(List<Monitor> fetched) {
+    if (_monitors.isEmpty) return fetched;
+
+    // 1. Index what is already known, so the carry-forward stays O(n) rather
+    //    than scanning the inventory once per fetched row.
+    final Map<String, Monitor> known = {
+      for (final Monitor monitor in _monitors) monitor.id: monitor,
+    };
+
+    // 2. Rescue each measured field the incoming row does not carry.
+    for (final Monitor monitor in fetched) {
+      final Monitor? prior = known[monitor.id];
+      if (prior == null) continue;
+
+      for (final String key in _measuredUptimeAttributes) {
+        final Object? measured = prior.getAttribute(key);
+
+        if (measured != null && monitor.getAttribute(key) == null) {
+          monitor.setAttribute(key, measured);
+        }
+      }
+    }
+
+    return fetched;
   }
 
   /// Drops the previous session's monitor inventory, publishes the cleared
