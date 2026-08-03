@@ -11,11 +11,10 @@ import '../../../app/models/incident.dart';
 import '../../../app/models/scheduled_maintenance.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
-import '../../../app/enums/status_key.dart' show StatusKey;
 import '../../../app/support/formatters.dart' show formatMonthDayTime;
 import '../../../ui/components/incident_card/incident_card.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
-import '../../../ui/components/status_badge/index.dart';
+import '../../../ui/components/maintenance_card/index.dart';
 import '../../../ui/layouts/page_container.dart';
 
 /// **The Incidents list screen.**
@@ -375,93 +374,56 @@ class _IncidentsListViewState
     );
   }
 
-  /// One window: its phase badge, title, affected components, and bounds, with
-  /// a Cancel action.
+  /// One window, rendered by [MaintenanceCard].
+  ///
+  /// The card is a component rather than markup here, and it is built from the
+  /// same parts as [IncidentCard] (a stripe, a badge row, the title, a mono meta
+  /// row) because these rows sit in the same list and have to read as the same
+  /// kind of object. The first attempt was hand-rolled markup in this view and
+  /// looked it: a very tall card with three unweighted lines in the top-left and
+  /// Cancel floating in the middle of the empty right half.
+  ///
+  /// Formatting stays here: the view owns the locale and the timezone decision
+  /// (the wire is UTC, an operator reads their own clock), so the card takes the
+  /// range already rendered.
   Widget _buildMaintenanceCard(ScheduledMaintenance window) {
     final DateTime? startsAt = window.startsAt;
     final DateTime? endsAt = window.endsAt;
+    final MaintenancePhase phase = MaintenancePhase.resolve(startsAt, endsAt);
 
-    return MSCard(
-      child: WDiv(
-        className: 'flex flex-col gap-2 p-4',
-        children: [
-          WDiv(
-            className: 'flex flex-row items-center gap-2',
-            children: [
-              StatusBadge(
-                _maintenancePhaseKey(startsAt, endsAt),
-                label: _maintenancePhaseLabel(startsAt, endsAt),
-              ),
-              WText(
-                window.title,
-                className: 'flex-1 min-w-0 truncate text-sm font-medium text-fg',
-              ),
-            ],
-          ),
-
-          // The affected components, by the names the window carries, so the
-          // operator can tell two windows on the same page apart.
-          if (window.monitorNames.isNotEmpty)
-            WText(
-              window.monitorNames.join(', '),
-              className: 'text-xs text-fg-muted',
-            ),
-
-          WDiv(
-            className: 'flex flex-row items-center gap-3',
-            children: [
-              WText(
-                _maintenanceWindowRange(startsAt, endsAt),
-                className:
-                    'flex-1 min-w-0 truncate font-mono text-xs tabular-nums '
-                    'text-fg-muted',
-              ),
-              MSButton(
-                intent: ButtonIntent.secondary,
-                onPressed: () => _maintenance.delete(window.id),
-                child: WText(trans('uptizm.incidents.maintenance_cancel')),
-              ),
-            ],
-          ),
-        ],
-      ),
+    return MaintenanceCard(
+      title: window.title,
+      phase: phase,
+      phaseLabel: _maintenancePhaseLabel(phase),
+      components: window.monitorNames,
+      range: _maintenanceWindowRange(startsAt, endsAt),
+      suppressesAlerts: window.suppressAlerts,
+      suppressLabel: trans('uptizm.incidents.maintenance_alerts_held'),
+      onCancel: () => _maintenance.delete(window.id),
+      cancelLabel: trans('uptizm.incidents.maintenance_cancel'),
     );
   }
 
-  /// The status tone for a window's phase.
-  ///
-  /// `info` while it is upcoming or running (planned work is not a fault), and
-  /// the neutral `paused` tone once it is over, so a finished window does not
-  /// keep drawing the eye.
-  StatusKey _maintenancePhaseKey(DateTime? startsAt, DateTime? endsAt) {
-    if (endsAt != null && endsAt.isBefore(DateTime.now())) {
-      return StatusKey.paused;
-    }
-
-    return StatusKey.info;
-  }
-
-  /// The phase label: scheduled, in progress, or finished.
-  String _maintenancePhaseLabel(DateTime? startsAt, DateTime? endsAt) {
-    final DateTime now = DateTime.now();
-
-    if (endsAt != null && endsAt.isBefore(now)) {
-      return trans('uptizm.incidents.maintenance_phase_finished');
-    }
-    if (startsAt != null && startsAt.isAfter(now)) {
-      return trans('uptizm.incidents.maintenance_phase_scheduled');
-    }
-
-    return trans('uptizm.incidents.maintenance_phase_active');
-  }
+  /// The phase in the operator's language.
+  String _maintenancePhaseLabel(MaintenancePhase phase) => switch (phase) {
+    MaintenancePhase.finished => trans(
+      'uptizm.incidents.maintenance_phase_finished',
+    ),
+    MaintenancePhase.upcoming => trans(
+      'uptizm.incidents.maintenance_phase_scheduled',
+    ),
+    MaintenancePhase.active => trans(
+      'uptizm.incidents.maintenance_phase_active',
+    ),
+  };
 
   /// The window bounds in the operator's own timezone.
   ///
   /// [formatMonthDayTime] rather than a new formatter: it already converts to
   /// local and deliberately avoids month NAMES, which would leak untranslated
-  /// English into every non-English locale. Local is the right frame here
-  /// because the wire carries UTC (`starts_at` / `ends_at` are posted through
-  /// `toUtc()`) while an operator planning work reads the clock on their wall.
+  /// English into every non-English locale. Local is the right frame because the
+  /// wire carries UTC (`starts_at` / `ends_at` are posted through `toUtc()`)
+  /// while an operator planning work reads the clock on their wall.
   String _maintenanceWindowRange(DateTime? startsAt, DateTime? endsAt) {
     if (startsAt == null || endsAt == null) return '';
 

@@ -960,7 +960,8 @@
       "maintenance_phase_finished": "Tamamlandı",
       "maintenance_empty_title": "Planlanmış bakım yok",
       "maintenance_empty_description": "Bir pencere planlayın; Uptizm bunu durum sayfasında duyurur ve pencere sürerken etkilenen bileşenlerin uyarılarını tutar.",
-      "maintenance_empty_action": "Pencere planla"
+      "maintenance_empty_action": "Pencere planla",
+      "maintenance_alerts_held": "Uyarılar tutuluyor"
     },
     "settings": {
       "hub_title": "Ayarlar",

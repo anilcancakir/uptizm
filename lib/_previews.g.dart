@@ -20,6 +20,7 @@ import 'ui/components/incident_card/incident_card.preview.dart';
 import 'ui/components/incident_timeline/incident_timeline.preview.dart';
 import 'ui/components/key_value_editor/key_value_editor.preview.dart';
 import 'ui/components/kpi_stat_card/kpi_stat_card.preview.dart';
+import 'ui/components/maintenance_card/maintenance_card.preview.dart';
 import 'ui/components/metric_chart/metric_chart.preview.dart';
 import 'ui/components/monitor_list_row/monitor_list_row.preview.dart';
 import 'ui/components/notification_center/notification_center.preview.dart';
@@ -102,6 +103,11 @@ List<PreviewEntry> previewEntries() {
       label: 'KpiStatCard',
       slug: 'kpi_stat_card',
       builder: (_) => const KpiStatCardPreview(),
+    ),
+    PreviewEntry(
+      label: 'MaintenanceCard',
+      slug: 'maintenance_card',
+      builder: (_) => const MaintenanceCardPreview(),
     ),
     PreviewEntry(
       label: 'MetricChart',
