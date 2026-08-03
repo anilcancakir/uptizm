@@ -129,6 +129,38 @@ class ServiceCatalogTest extends TestCase
         $this->assertSame('API endpoint', $viaMonitor->first()->pivot->label);
     }
 
+    public function test_the_latest_feed_snapshot_relation_does_not_aggregate_over_the_uuid_key(): void
+    {
+        /*
+         * A SQL-SHAPE assertion, deliberately, and the only kind that can work
+         * here. `latestOfMany('fetched_at')` appends a tie-breaker aggregate over
+         * the primary key, compiling to `MAX("service_feed_snapshots"."id")`.
+         * These keys are UUIDs and PostgreSQL has no `max(uuid)`, so production
+         * threw `SQLSTATE[42883] function max(uuid) does not exist` on every call,
+         * against an empty table included. This suite runs SQLite, whose `max()`
+         * accepts text, so all 1342 tests passed over a relation that was dead on
+         * the server and the ingestion step only found it by querying PostgreSQL
+         * by hand.
+         *
+         * So asserting on the RESULT would prove nothing: it passes on SQLite
+         * either way. The query itself is the only driver-independent evidence.
+         */
+        $sql = (new Service)->latestFeedSnapshot()->toSql();
+
+        // The control: assert the query is the one we think it is before reading
+        // anything into what is missing from it.
+        $this->assertStringContainsString('service_feed_snapshots', $sql);
+        $this->assertStringContainsString('fetched_at', $sql);
+
+        $this->assertStringNotContainsStringIgnoringCase(
+            'max(',
+            $sql,
+            'The latestFeedSnapshot relation compiles an aggregate again. If that aggregate is over the '
+            .'UUID primary key, every call throws on PostgreSQL while this SQLite suite stays green. Use '
+            .'`latest(...)`, not `latestOfMany(...)`.',
+        );
+    }
+
     /**
      * Build a persisted team owned by a fresh factory user, mirroring the
      * rest of the suite's team construction (see `MonitorTestEndpointTest`).

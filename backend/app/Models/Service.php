@@ -137,13 +137,34 @@ class Service extends Model
 
     /**
      * Most recent fetch of this service's official status feed, or null for
-     * a `status_source` of `none` or a service a later ingestion step has
-     * not yet fetched.
+     * a `status_source` of `none` or a service ingestion has not reached yet.
+     *
+     * `latest()` and NOT `latestOfMany()`, and the difference is the whole
+     * comment. `latestOfMany('fetched_at')` always appends a tie-breaker
+     * aggregate over the primary key, so it compiles to
+     * `MAX("service_feed_snapshots"."id")`. This table's keys are UUIDs
+     * (`MigrationHelper::usesUuids()`), and PostgreSQL has no `max(uuid)`:
+     * production threw `SQLSTATE[42883] function max(uuid) does not exist` on
+     * EVERY call, including against an empty table. SQLite's `max()` accepts
+     * text, so the entire test suite passed over a relation that could not run
+     * on the server for a moment. Do not "restore" `latestOfMany()` for the
+     * strict-ordering guarantee it advertises; on UUID keys it does not run at
+     * all.
+     *
+     * The tie-breaker it was providing is not missed here: feed ingestion
+     * enforces a 60 second floor per service, so two snapshots cannot share a
+     * `fetched_at` in practice, and if they somehow did, either is an equally
+     * true answer to "the latest fetch".
+     *
+     * `tests/Feature/Services/ServiceCatalogTest.php` pins the SQL SHAPE rather
+     * than the behaviour, because a behavioural test would pass on SQLite while
+     * the server burned. Any driver-independent assertion has to look at the
+     * query, not the result.
      *
      * @return HasOne<ServiceFeedSnapshot>
      */
     public function latestFeedSnapshot(): HasOne
     {
-        return $this->hasOne(ServiceFeedSnapshot::class)->latestOfMany('fetched_at');
+        return $this->hasOne(ServiceFeedSnapshot::class)->latest('fetched_at');
     }
 }
