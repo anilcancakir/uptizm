@@ -941,7 +941,11 @@
       "timeline_auto_mode": "Auto mode",
       "affected_count_one": ":count monitor affected",
       "affected_count_other": ":count monitors affected",
-      "form_prefill_title": "Investigating anomaly on :monitor"
+      "form_prefill_title": "Investigating anomaly on :monitor",
+      "form_status_page_label": "Status page",
+      "form_status_page_hint": "The window is announced here, and its confirmed subscribers are emailed.",
+      "form_status_page_empty": "You have no status page yet. A maintenance window is announced on one, so create a status page first.",
+      "form_status_page_error_required": "Pick the status page this window is announced on."
     },
     "settings": {
       "hub_title": "Settings",

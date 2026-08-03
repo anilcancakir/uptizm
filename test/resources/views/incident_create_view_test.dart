@@ -443,5 +443,139 @@ void main() {
         (r) => r.method == 'POST' && r.url == '/scheduled-maintenances',
       );
     });
+
+    testWidgets('a team with no status page is told so before it submits', (
+      tester,
+    ) async {
+      // The defect this pins, reported from a live session: the form used to
+      // RESOLVE `status_page_id` silently and omit the key when the team owned
+      // no page, so a fully filled window came back as
+      // "The status page id field is required" under an unexpected-error toast,
+      // naming a field the form never showed. The roster is deliberately left
+      // empty here; every other maintenance test seeds one page, which is why
+      // none of them could see this.
+      final fake = Http.fake();
+      registerRoutes();
+
+      MonitorController.instance.seedForTest(monitorFixtures);
+      addTearDown(() => MonitorController.instance.seedForTest(const []));
+      StatusPageController.instance.seedForTest(const <StatusPage>[]);
+
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const IncidentCreateView()));
+      await tester.pump();
+
+      await tester.tap(
+        find.text(trans('uptizm.incidents.form_kind_maintenance')),
+      );
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.incidents.form_status_page_empty')),
+        findsOneWidget,
+        reason:
+            'the reason and the remedy replace the select, rather than the '
+            'operator discovering the requirement from a 422',
+      );
+
+      // Fill everything ELSE, so the missing page is the only thing blocking
+      // the submit. Without this the title and affected-monitor checks would
+      // block it anyway and the no-POST assertion below would prove nothing.
+      await tester.enterText(
+        find.widgetWithText(
+          MSInput,
+          trans('uptizm.incidents.form_title_placeholder_maintenance'),
+        ),
+        'Database upgrade',
+      );
+      await tester.pump();
+
+      await tester.tap(find.text(monitorFixtures.first.name ?? ''));
+      await tester.pump();
+
+      await submit(tester);
+
+      expect(
+        find.text(trans('uptizm.incidents.form_status_page_error_required')),
+        findsOneWidget,
+        reason: 'the missing page surfaces in its own inline slot',
+      );
+      fake.assertNotSent(
+        (r) => r.method == 'POST' && r.url == '/scheduled-maintenances',
+      );
+    });
+
+    testWidgets('the picked status page is the one the window is posted on', (
+      tester,
+    ) async {
+      // Two pages, and the affected monitor belongs to NEITHER, so the seeded
+      // default falls back to the first. Picking the second must win: the page
+      // decides which public page renders the window and which confirmed
+      // subscribers are mailed, so an arbitrary default may never be final.
+      final StatusPage second = StatusPage.fromMap(<String, dynamic>{
+        'id': 'page-2',
+        'name': 'Second Status',
+        'slug': 'second',
+        'monitor_ids': const <String>[],
+      });
+
+      final fake = Http.fake();
+      registerRoutes();
+
+      MonitorController.instance.seedForTest(monitorFixtures);
+      addTearDown(() => MonitorController.instance.seedForTest(const []));
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _publicPage,
+        second,
+      ]);
+      addTearDown(() => StatusPageController.instance.seedForTest(const []));
+
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const IncidentCreateView()));
+      await tester.pump();
+
+      await tester.tap(
+        find.text(trans('uptizm.incidents.form_kind_maintenance')),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.widgetWithText(
+          MSInput,
+          trans('uptizm.incidents.form_title_placeholder_maintenance'),
+        ),
+        'Database upgrade',
+      );
+      await tester.pump();
+
+      await tester.tap(find.text(monitorFixtures.first.name ?? ''));
+      await tester.pump();
+
+      // Open the page select and choose the second entry.
+      await tester.tap(find.text(_publicPage.name ?? ''));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Second Status').last);
+      await tester.pumpAndSettle();
+
+      await submit(tester);
+
+      final MagicRequest post = fake.recorded
+          .map((entry) => entry.$1)
+          .firstWhere(
+            (r) => r.method == 'POST' && r.url == '/scheduled-maintenances',
+          );
+      final Map<String, dynamic> body = (post.data as Map)
+          .cast<String, dynamic>();
+
+      expect(
+        body['status_page_id'],
+        equals('page-2'),
+        reason: 'the operator pick reaches the wire, not the seeded default',
+      );
+    });
   });
 }

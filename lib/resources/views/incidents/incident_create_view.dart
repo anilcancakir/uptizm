@@ -174,6 +174,27 @@ class _IncidentCreateViewState
   /// message already names the constraint.
   String? _endsAtError;
 
+  /// The status page a maintenance window is announced on, or null when the
+  /// roster has not landed yet or the team owns no page at all.
+  ///
+  /// Collected rather than resolved. This field used to be derived silently:
+  /// the submit picked the first page publishing an affected monitor, else an
+  /// arbitrary one, and posted nothing when the team had no page. A team with
+  /// no status page therefore filled in the whole form and got
+  /// "The status page id field is required" under a generic error toast,
+  /// naming a field the form never showed. The choice is load-bearing (it
+  /// decides which public page the window renders on and which subscribers are
+  /// mailed), so the operator makes it.
+  String? _statusPageId;
+
+  /// Inline validation error for the Status-page field, or null when valid.
+  String? _statusPageError;
+
+  /// The team's status pages, projected live from the roster the same way
+  /// [_monitorOptions] projects monitors.
+  List<StatusPage> get _statusPageOptions =>
+      StatusPageController.instance.statusPages;
+
   /// The first public update (React `message`).
   String _message = '';
 
@@ -241,6 +262,46 @@ class _IncidentCreateViewState
       _affected = <String>[];
       _severity = 'critical';
     }
+
+    // 4. The status-page roster feeds the maintenance-only page field. Loaded
+    //    the same way as the monitor inventory, and for the same reason: read
+    //    as a secondary controller, `onInit` never fires for one, so nothing
+    //    else would have fetched it. Seeded rather than left null so the common
+    //    single-page team never has to touch the field, and seeded LAST because
+    //    the preference reads `_affected`, which step 3 above assigns.
+    Magic.findOrPut(StatusPageController.new);
+    if (StatusPageController.instance.statusPages.isEmpty) {
+      StatusPageController.instance.reload().then((_) {
+        if (mounted) setState(_seedStatusPage);
+      });
+    } else {
+      _seedStatusPage();
+    }
+  }
+
+  /// Preselects the status page a window would most likely be announced on:
+  /// the first page that publishes one of the affected monitors, else the first
+  /// page in the roster. Leaves an operator's own pick alone, and leaves the
+  /// field empty when the team owns no page.
+  ///
+  /// This is the same preference the old silent resolution used, kept as a
+  /// DEFAULT rather than a decision: the field shows which page it landed on,
+  /// and the operator can change it.
+  void _seedStatusPage() {
+    if (_statusPageId != null) return;
+
+    final List<StatusPage> roster = _statusPageOptions;
+    if (roster.isEmpty) return;
+
+    final Set<String> affected = _affected.toSet();
+    for (final StatusPage page in roster) {
+      if (page.monitorIds.any(affected.contains)) {
+        _statusPageId = page.id;
+        return;
+      }
+    }
+
+    _statusPageId = roster.first.id;
   }
 
   /// Whether the current kind is scheduled maintenance (React `isMaintenance`).
@@ -423,6 +484,7 @@ class _IncidentCreateViewState
           _buildTypeField(),
           _buildTitleField(),
           _buildAffectedField(),
+          if (_isMaintenance) _buildStatusPageField(),
           if (_isMaintenance) _buildScheduleFields() else _buildSeverityField(),
           _buildImpactField(),
           _buildFirstUpdateField(),
@@ -478,6 +540,52 @@ class _IncidentCreateViewState
           _affectedError = null;
         }),
       ),
+    );
+  }
+
+  /// Builds the maintenance-only Status-page field.
+  ///
+  /// A window is announced ON a page: `status_page_id` is `required` in
+  /// `StoreScheduledMaintenanceRequest` and NOT NULL behind a cascading foreign
+  /// key, and the page decides which public page renders the window and which
+  /// confirmed subscribers are mailed. So the field is shown even when the team
+  /// owns exactly one page, because "which page" is never a detail.
+  ///
+  /// With no page at all, the select is replaced by the reason and the remedy.
+  /// The submit is blocked by [_validateClientSide] in that state rather than
+  /// posting a request the backend is guaranteed to reject.
+  Widget _buildStatusPageField() {
+    final List<StatusPage> roster = _statusPageOptions;
+
+    return MSFormField(
+      label: trans('uptizm.incidents.form_status_page_label'),
+      hint: roster.isEmpty
+          ? null
+          : trans('uptizm.incidents.form_status_page_hint'),
+      error: _statusPageError,
+      child: roster.isEmpty
+          ? WText(
+              trans('uptizm.incidents.form_status_page_empty'),
+              className: 'text-sm text-fg-muted',
+            )
+          : MSSelect<String>(
+              value: _statusPageId,
+              options: roster
+                  .map(
+                    (StatusPage page) => SelectOption<String>(
+                      value: page.id,
+                      label: page.name ?? page.slug ?? '',
+                    ),
+                  )
+                  .toList(),
+              onChange: (String? value) {
+                if (value == null) return;
+                setState(() {
+                  _statusPageId = value;
+                  _statusPageError = null;
+                });
+              },
+            ),
     );
   }
 
@@ -711,9 +819,10 @@ class _IncidentCreateViewState
   /// non-empty result (a server 422) is a field-error map keyed by the posted
   /// wire field names, which [_applyServerErrors] paints under the matching
   /// fields. A returned key the form owns no slot for is surfaced as the generic
-  /// error toast (`status_page_id` is the one that matters: the form resolves
-  /// that field rather than collecting it, so a team with no status page at all
-  /// hears the reason from the server instead of watching a silent no-op).
+  /// error toast. `status_page_id` is no longer one of those: the form collects
+  /// it in a labelled field and refuses to submit without it, because relying on
+  /// the server here produced "The status page id field is required" under an
+  /// unexpected-error toast, about a field the operator had never seen.
   Future<void> _onSubmit() async {
     if (!_validateClientSide()) return;
 
@@ -753,12 +862,23 @@ class _IncidentCreateViewState
         ? trans('uptizm.incidents.form_affected_error_required')
         : null;
 
+    // Maintenance only: the window needs a page to be announced on. Checked
+    // here so a team with no status page is told what to do BEFORE filling the
+    // form in, instead of hearing "The status page id field is required" from
+    // the server about a field that used to be invisible.
+    final String? statusPageError = _isMaintenance && _statusPageId == null
+        ? trans('uptizm.incidents.form_status_page_error_required')
+        : null;
+
     setState(() {
       _titleError = titleError;
       _affectedError = affectedError;
+      _statusPageError = statusPageError;
     });
 
-    return titleError == null && affectedError == null;
+    return titleError == null &&
+        affectedError == null &&
+        statusPageError == null;
   }
 
   /// Routes a backend 422 field-error map (keyed by the wire field names the
@@ -781,6 +901,8 @@ class _IncidentCreateViewState
             _startsAtError = entry.value;
           case 'ends_at':
             _endsAtError = entry.value;
+          case 'status_page_id':
+            _statusPageError = entry.value;
           case final String key when key.startsWith('monitor_ids'):
             _affectedError = entry.value;
           default:
@@ -799,43 +921,13 @@ class _IncidentCreateViewState
   /// and the backend's own required-field 422 is what the operator sees: the one
   /// thing this path must never do is what it did before, which is report
   /// success for a window nothing wrote.
+  /// Posts the window on the page the operator picked in
+  /// [_buildStatusPageField], which [_validateClientSide] has already proved
+  /// non-null.
   Future<Map<String, String>> _submitMaintenance() async {
-    final String? statusPageId = await _resolveStatusPageId();
-    if (!mounted) return const {};
-
     return MaintenanceController.instance.create(
-      _buildMaintenanceFields(statusPageId),
+      _buildMaintenanceFields(_statusPageId),
     );
-  }
-
-  /// Resolves the status page the window is announced on.
-  ///
-  /// The form collects no page (the maintenance kind has no control for one, and
-  /// this step does not own the lang assets a new labelled field would need), so
-  /// it is derived: the first page publishing one of the affected monitors,
-  /// falling back to the team's first page. That ordering matters, because the
-  /// announcement goes to THAT page's subscribers and its window renders on THAT
-  /// page; picking a page unrelated to the affected components would mail the
-  /// wrong audience.
-  ///
-  /// Awaits a roster fetch when the cache is cold: `StatusPageController` is
-  /// read here as a secondary controller, and `onInit` never fires for one, so
-  /// nothing else would have loaded it.
-  Future<String?> _resolveStatusPageId() async {
-    final StatusPageController pages = StatusPageController.instance;
-    if (pages.statusPages.isEmpty) {
-      await pages.reload();
-    }
-
-    final List<StatusPage> roster = pages.statusPages;
-    if (roster.isEmpty) return null;
-
-    final Set<String> affected = _affected.toSet();
-    for (final StatusPage page in roster) {
-      if (page.monitorIds.any(affected.contains)) return page.id;
-    }
-
-    return roster.first.id;
   }
 
   /// Builds the `POST /scheduled-maintenances` field map
