@@ -299,10 +299,12 @@ class DashboardController extends MagicController
     }
   }
 
-  /// Refreshes the `GET /dashboard/ai-inbox` list. The backend always
-  /// returns an empty list today (AI triage is deferred); this still hits
-  /// the real endpoint rather than hardcoding the empty result, so the inbox
-  /// picks up entries the moment the backend starts populating them.
+  /// Refreshes the `GET /dashboard/ai-inbox` list.
+  ///
+  /// The endpoint is live: it returns the team's pending `AiSuggestion` rows,
+  /// which the backend's `SweepAiSuggestions` job creates every two minutes for
+  /// any monitor whose `ai_mode` is `suggest` or `auto`. An empty list means the
+  /// fleet has no open anomaly right now, not that the feature is unfinished.
   Future<void> _reloadAiInbox() async {
     try {
       final response = await Http.get('/dashboard/ai-inbox');
