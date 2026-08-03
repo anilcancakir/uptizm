@@ -45,6 +45,12 @@ return [
         'www', 'api', 'app', 'admin', 'panel', 'console', 'dashboard',
         'status', 'uptizm',
 
+        // The service catalog (a staff-curated public marketing surface):
+        // `services`/`service` are its public route prefixes, and `filament`
+        // names the admin-panel package itself, so none of the three can be
+        // claimed as a status-page subdomain label.
+        'services', 'service', 'filament',
+
         // Mail. `autodiscover` and `autoconfig` are probed by mail clients;
         // `postmaster`, `hostmaster`, `webmaster` and `abuse` are the addresses
         // a certificate authority will accept for domain-control validation.
