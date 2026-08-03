@@ -2,6 +2,7 @@
 
 use App\Jobs\AggregateMonitorDailyUptime;
 use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
+use App\Jobs\DispatchWeeklyDigests;
 use App\Jobs\IngestServiceFeeds;
 use App\Jobs\PruneContentArchive;
 use App\Jobs\ScheduleMonitorChecks;
@@ -62,6 +63,25 @@ Schedule::job(new SweepAiSuggestions)
     ->withoutOverlapping()
     ->onOneServer()
     ->name('monitoring:sweep-ai-suggestions');
+
+// Fan out one weekly digest per team entitled to read one (supervisor `ai`
+// queue, single-server, unique lock prevents overlap with a still-enqueuing
+// fan-out).
+//
+// This trigger was missing entirely: GenerateWeeklyDigest was written, tested and
+// plan-gated, but nothing outside the test suite ever dispatched it, so
+// `GET /incidents/digest` answered 404 forever on a Business plan.
+//
+// Monday 06:00 UTC, and the day follows from the job's own window rather than
+// taste: it digests the seven days ending at TODAY's UTC start-of-day, so a
+// Monday run covers the previous Monday through Sunday, a whole calendar week
+// with no partial day at either end. The hour is after the 03:00 SSL fan-out and
+// the 04:10 archive prune, so the three heavy jobs do not contend.
+Schedule::job(new DispatchWeeklyDigests)
+    ->weeklyOn(1, '06:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('ai:dispatch-weekly-digests');
 
 // Bust the public status-page cache when a maintenance window opens or closes.
 // Every other bust in this system hangs off a write; a window's boundaries are

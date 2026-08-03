@@ -29,7 +29,7 @@ class DigestController extends Controller
     {
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
-            (new PlanGate)->assertAiLevel($team, 'auto', 'The AI weekly digest');
+            (new PlanGate)->assertAiLevel($team, GenerateWeeklyDigest::AI_LEVEL, 'The AI weekly digest');
         }
 
         $digest = TeamDigest::query()

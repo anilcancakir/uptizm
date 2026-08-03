@@ -49,6 +49,17 @@ class GenerateWeeklyDigest implements ShouldQueue
     private const MAX_INCIDENTS = 20;
 
     /**
+     * The AI tier a team's plan must reach for the weekly digest.
+     *
+     * Declared once and read by both sides of the feature, because the two have
+     * to agree: `DispatchWeeklyDigests` decides who a digest is generated FOR
+     * and `DigestController` decides who may READ one. A literal in each place
+     * would let them drift into generating rows nobody can fetch, or skipping
+     * teams that are entitled to one.
+     */
+    public const string AI_LEVEL = 'auto';
+
+    /**
      * @param  string  $teamId  The team the digest is generated for.
      */
     public function __construct(
