@@ -23,13 +23,14 @@ use Illuminate\Support\Facades\Cache;
  * list). A row therefore cannot say something the page it links to would
  * contradict, and neither can invent a blended verdict.
  *
- * The listing predicate here (published AND terms reviewed) is the same one
- * `app/Services/Services/SitemapBuilder.php` lists services under, and the two
- * must stay in step: a page the hub links to and the sitemap omits, or the
- * reverse, is a crawl error either way. Not extracted into a scope, because
- * `app/Models/Service.php` already carries `scopeDueForFeedIngest()` for a
- * different five-predicate question and this plan's own rule is that a shared
- * helper waits for a third caller.
+ * The listing predicate is `Service::scopePubliclyVisible()`, shared with the
+ * service page's own 404 gate and with `app/Services/Services/SitemapBuilder.php`.
+ * All three must agree: a page the hub links to and the sitemap omits, or the
+ * reverse, is a crawl error either way. It became a scope once there were three
+ * callers, and the third one arrived for a reason worth recording, namely that
+ * `is_published` alone was not sufficient. A service that lost its last monitor
+ * kept the flag and its page published nothing but a re-rendered provider feed,
+ * so publication is now re-derived on read rather than trusted from the column.
  *
  * `tests/Feature/Marketing/ServiceStatusPageTest.php` and
  * `tests/Feature/Marketing/SitemapTest.php` pin both halves.
@@ -85,6 +86,9 @@ class ShowServiceIndexController
             // As view data rather than a fully qualified constant in the template,
             // matching the service page and `marketing/contact.blade.php`.
             'staleAfterSeconds' => ServicePageAssembler::STALE_AFTER_SECONDS,
+            // The middle verdict, so a hub row can withhold the affirmative claim
+            // exactly the way the detail page does.
+            'mixedVerdict' => ServicePageAssembler::VERDICT_MIXED,
             'document' => $this->document->render(self::DOCUMENT, $locale, $this->replacements($services)),
         ]);
     }
@@ -103,13 +107,21 @@ class ShowServiceIndexController
     protected function rows(): array
     {
         return Service::query()
-            ->where('is_published', true)
-            ->whereNotNull('terms_reviewed_at')
+            // The one predicate the page and the sitemap also use, so the hub cannot
+            // list a service whose own page 404s. It includes "still has a monitor",
+            // which the published flag alone does not guarantee once an operator has
+            // detached one; see `Service::scopePubliclyVisible()`.
+            ->publiclyVisible()
             ->orderBy('display_order')
             ->orderBy('name')
             ->with([
                 'monitors',
-                'latestFeedSnapshot',
+                // NOT eager-loaded. An eager-loaded `hasOne()->latest()` applies no
+                // per-parent limit, so Eloquent fetches EVERY snapshot row for every
+                // service in this result and discards all but one each. The lazy read
+                // inside the assembler uses `first()` and is bounded. A fixture with
+                // three rows can never show the difference; a provider that returns no
+                // ETag gets a fresh row every couple of minutes forever.
             ])
             ->get()
             ->map(fn (Service $service): array => [

@@ -144,8 +144,11 @@ class SitemapBuilder
         ];
 
         $services = Service::query()
-            ->where('is_published', true)
-            ->whereNotNull('terms_reviewed_at')
+            // Same predicate as the hub and the page. A sitemap advertising a URL
+            // that 404s is worse than one that omits it, and before this scope
+            // existed the sitemap listed any published service even after it had
+            // lost the own-measurement its page requires.
+            ->publiclyVisible()
             ->orderBy('display_order')
             ->orderBy('name')
             ->get([

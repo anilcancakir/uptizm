@@ -124,14 +124,15 @@ class Service extends Model
     /**
      * Scope to the services a feed-ingest tick may fetch.
      *
-     * Five predicates, and every one of them is a refusal somebody committed to:
+     * SIX predicates, and every one of them is a refusal somebody committed to:
      * only PUBLISHED services (nothing else has a page for a reading to appear
      * on), only ones with a real feed and a URL to fetch it from, only ones whose
      * terms a human reviewed and recorded, and never one an operator (or an
      * automatic `429`/`403` disable) turned off.
      *
      * `app/Services/Services/FeedFetcher.php` re-checks all of these except
-     * `is_published` on the individual row, because a service can change between
+     * `is_published` and the monitor check on the individual row, because a service
+     * can change between
      * the fan-out and the fetch, and because the fetcher must be able to name
      * which condition refused it. The two may only diverge with the fetcher the
      * stricter of the pair. (Named by PATH, not `{@see}`: Pint's
@@ -139,7 +140,7 @@ class Service extends Model
      * for it, and a domain model importing a service class is a layering
      * inversion. Same reasoning as `Monitor::MANUAL_CHECK_COOLDOWN_SECONDS`.)
      * `tests/Feature/Services/IngestServiceFeedsTest.php` exercises each
-     * predicate with the other four satisfied, so a green suite cannot mean
+     * predicate with the other five satisfied, so a green suite cannot mean
      * "something excluded it".
      *
      * @param  Builder<self>  $query
@@ -152,7 +153,46 @@ class Service extends Model
             ->where('status_source', '!=', ServiceStatusSource::None->value)
             ->whereNotNull('status_source_url')
             ->whereNotNull('terms_reviewed_at')
-            ->whereNull('feed_disabled_at');
+            ->whereNull('feed_disabled_at')
+            // Sixth predicate, and it closes a leak the read side had already fixed
+            // on its own. `scopePubliclyVisible()` stopped trusting `is_published`
+            // once a service could lose its last monitor and keep the flag; this
+            // scope kept trusting it, so a service whose page 404s went on drawing
+            // its provider's feed every couple of minutes. Outbound traffic to a
+            // third party for a document nobody can read.
+            ->whereHas('monitors');
+    }
+
+    /**
+     * Scope to the services that may appear on the public surface: the hub, a
+     * page of their own, and the sitemap.
+     *
+     * The three conditions are exactly {@see self::canPublish()} plus the operator
+     * having actually flipped the switch, and the third one is the load-bearing
+     * addition. `canPublish()` guards the publish TRANSITION only, so a service
+     * that was legitimately published and then lost its last monitor (an operator
+     * detaching it, or a monitor delete cascading the pivot row) keeps
+     * `is_published = true` while having no own-measurement left. That page
+     * returned 200 with nothing on it but a re-rendered provider feed, which is
+     * the one thing this catalog promised never to publish and the exact
+     * thin-content exposure its scaled-content risk was accepted against.
+     *
+     * So publication is re-derived on every READ rather than trusted from the
+     * column. Enforcing it here instead of in each caller is what keeps the hub,
+     * the page and the sitemap from disagreeing about which services exist, and
+     * the three of them are the three callers that earn this extraction.
+     *
+     * `whereHas` and not a join: a service with two monitors must appear once.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopePubliclyVisible(Builder $query): Builder
+    {
+        return $query
+            ->where('is_published', true)
+            ->whereNotNull('terms_reviewed_at')
+            ->whereHas('monitors');
     }
 
     /**

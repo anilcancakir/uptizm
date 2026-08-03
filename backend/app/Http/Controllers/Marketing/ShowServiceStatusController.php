@@ -128,11 +128,20 @@ class ShowServiceStatusController
         // would silently receive the language on `/tr/status/github`.
         $slug = (string) $request->route('slug');
 
+        // The shape guard already bounded the slug; this reads the row so each
+        // refusal below can name its own reason. The publication predicate itself
+        // lives in `Service::scopePubliclyVisible()` and is asserted immediately
+        // after, so this controller, the hub and the sitemap cannot drift.
         $service = Service::query()
             ->where('slug', $slug)
             ->with([
                 'monitors',
-                'latestFeedSnapshot',
+                // NOT eager-loaded. An eager-loaded `hasOne()->latest()` applies no
+                // per-parent limit, so Eloquent fetches EVERY snapshot row for every
+                // service in this result and discards all but one each. The lazy read
+                // inside the assembler uses `first()` and is bounded. A fixture with
+                // three rows can never show the difference; a provider that returns no
+                // ETag gets a fresh row every couple of minutes forever.
             ])
             ->first();
 
@@ -143,6 +152,38 @@ class ShowServiceStatusController
         // (`Service` uses `$guarded = []`), so this is not implied by the check
         // above.
         abort_if($service->terms_reviewed_at === null, 404);
+
+        /*
+         * 4. It has no monitor of its own left, so the only thing this page could
+         *    show is the provider's own feed re-rendered.
+         *
+         *    `Service::canPublish()` guards the publish TRANSITION and nothing
+         *    re-checks it afterwards, so a service published legitimately and then
+         *    stripped of its last monitor (an operator detaching it, or a monitor
+         *    delete cascading the `service_monitor` row) keeps `is_published = true`.
+         *    Reproduced: the page answered 200 and rendered "we have no endpoint of
+         *    our own attached to this service yet" as its entire substance. That is
+         *    the one page this catalog promised not to publish.
+         *
+         *    Re-derived on read rather than repaired on write, because the write
+         *    paths that can reach the state are several and the read path is one.
+         *    `Service::scopePubliclyVisible()` is the same predicate the hub and the
+         *    sitemap use, so the three cannot disagree about what exists.
+         */
+        abort_if($service->monitors->isEmpty(), 404);
+
+        /*
+         * And the belt to those braces: the four refusals above are written out one
+         * per reason so a test can break exactly one, but the AUTHORITATIVE predicate
+         * is the scope the hub and the sitemap list under. Re-asserting it here means
+         * a future widening applied to the scope cannot leave this page serving 200
+         * for a row the other two surfaces have already dropped, which is the mirror
+         * image of the bug the scope was extracted to fix.
+         */
+        abort_if(
+            ! Service::query()->publiclyVisible()->whereKey($service->getKey())->exists(),
+            404,
+        );
 
         $locale = app()->getLocale();
 
@@ -170,6 +211,9 @@ class ShowServiceStatusController
             // these appear in are already dense enough.
             'staleAfterSeconds' => ServicePageAssembler::STALE_AFTER_SECONDS,
             'agreeingRegions' => ServicePageAssembler::MIN_AGREEING_REGIONS,
+            // The middle verdict, so the view can withhold the affirmative claim
+            // without restating the ladder value as a literal.
+            'mixedVerdict' => ServicePageAssembler::VERDICT_MIXED,
             'document' => $this->document->render(self::DOCUMENT, $locale, $this->replacements($service, $data)),
         ]);
     }
