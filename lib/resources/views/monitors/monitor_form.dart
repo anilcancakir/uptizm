@@ -62,12 +62,26 @@ class MonitorForm extends StatefulWidget {
   /// that exact value.
   final int? initialIntervalSec;
 
-  /// Initial selected probe-region values. Defaults to `['us-east', 'eu-west']`
-  /// (React `initialRegions`).
+  /// Initial selected probe-region values. Defaults to a SINGLE region,
+  /// `['eu-central']`.
+  ///
+  /// One region, not two, and Frankfurt rather than US East. The Free plan
+  /// allows exactly one, so a two-region default was a selection the cheapest
+  /// plan could not save (see [_defaultRegions]); and picking further regions on
+  /// the operator's behalf spends real probe budget on a guess. EU Central is
+  /// the closest region to where this product is operated from, so it is the
+  /// least surprising single default. Paid plans add more from the picker.
   final List<String> initialRegions;
 
-  /// Initial request headers. Defaults to a single `Authorization: Bearer …`
-  /// row (React `initialHeaders`).
+  /// Initial request headers. Defaults to EMPTY.
+  ///
+  /// The React original seeded a demo `Authorization: Bearer …` row, and that
+  /// placeholder was being SAVED: every monitor created by hand sent a literal
+  /// `Bearer …` (a real U+2026) to the target. On an endpoint that validates
+  /// auth, that is a 401 and a healthy monitor reading as down; the ellipsis is
+  /// also non-ASCII, which the fetch spec does not allow in a header value, so
+  /// the edge worker logged a warning on every probe. A demo value belongs in
+  /// the preview, not in the create default.
   final List<KeyValueRow> initialHeaders;
 
   /// Initial escalation-policy id, or `null` for "no policy pinned".
@@ -147,10 +161,8 @@ class MonitorForm extends StatefulWidget {
     this.initialUrl = '',
     this.initialInterval = '30s',
     this.initialIntervalSec,
-    this.initialRegions = const ['us-east', 'eu-west'],
-    this.initialHeaders = const [
-      KeyValueRow(key: 'Authorization', value: 'Bearer …'),
-    ],
+    this.initialRegions = const ['eu-central'],
+    this.initialHeaders = const <KeyValueRow>[],
     this.initialPolicy,
     this.initialSlo = '99.9',
     this.initialMethod = 'get',

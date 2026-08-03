@@ -423,7 +423,7 @@ class _MonitorCreateViewState
       ),
       initialRegions: analysis != null && analysis.recommendedRegions.isNotEmpty
           ? analysis.recommendedRegions
-          : const ['us-east', 'eu-west', 'ap'],
+          : const ['eu-central'],
       initialHeaders: const [
         KeyValueRow(key: 'Accept', value: 'application/json'),
       ],

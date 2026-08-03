@@ -108,8 +108,10 @@ class _MonitorEditViewState
           //    written over the operator's configuration. That is not
           //    hypothetical - while this passed only name/url/regions, renaming a
           //    monitor reset its method, interval, timeout and SLO, and replaced
-          //    its real request headers with the placeholder
-          //    `Authorization: Bearer …`, which then went out on every probe.
+          //    its real request headers with what was then the create default, a
+          //    placeholder `Authorization: Bearer …` that went out on every
+          //    probe. That default is empty now, which removes the payload but
+          //    not the reason to seed every field.
           //    `isEdit` additionally stops the form posting defaults for the
           //    settings it exposes no control for (auth, tags, status-page and
           //    SSL flags), so those survive a save.

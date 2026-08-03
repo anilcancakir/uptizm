@@ -84,10 +84,11 @@ String? intervalTokenForSeconds(int seconds) {
 
 /// Projects a `request_headers` wire map into the editor's ordered row shape.
 ///
-/// An empty map yields an empty list rather than a placeholder row: the form's
-/// create-time default carries an illustrative `Authorization: Bearer …` row,
-/// and seeding that into an EDIT would send the literal placeholder to the
-/// monitored endpoint on every probe.
+/// An empty map yields an empty list, never a placeholder row. The form's
+/// create-time default used to carry an illustrative `Authorization: Bearer …`
+/// row and that placeholder reached real probes; the default is empty now, and
+/// this function stays explicit about it because a header the operator never
+/// typed must never be sent to their endpoint.
 List<KeyValueRow> keyValueRowsFromMap(Map<String, dynamic> headers) {
   return [
     for (final MapEntry<String, dynamic> entry in headers.entries)
