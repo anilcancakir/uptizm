@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
@@ -221,6 +222,95 @@ void main() {
       final MonitorController controller = MonitorController.instance;
 
       expect(() => controller.delete('does-not-exist'), returnsNormally);
+    });
+
+    testWidgets('a successful create lands on the new monitor detail route', (
+      tester,
+    ) async {
+      // Reported after a live create: clicking Create dropped the operator on
+      // the LIST, so they had to hunt for the row they had just made and were
+      // told nothing about the check. `store()` sets next_check_at to now and
+      // queues the probes, so the detail screen is where what they just asked
+      // for actually happens (it shows "Waiting for the first check", then swaps
+      // the real chart and table in).
+      Http.fake({
+        '*monitors': Http.response({
+          'data': {'id': 'brand-new-id', 'name': 'Fresh', 'type': 'http'},
+        }),
+      });
+
+      // The router has to be MOUNTED for `currentLocation` to report anything:
+      // `MagicRoute.to` asks GoRouter to navigate, and the location is read back
+      // off the router's own state, which only exists under a widget tree.
+      MagicRouter.reset();
+      MagicRoute.page('/monitors', () => const SizedBox());
+      MagicRoute.page('/monitors/:id', () => const SizedBox());
+      addTearDown(MagicRouter.reset);
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: MagicRouter.instance.routerConfig),
+      );
+      await tester.pump();
+
+      final MonitorController controller = MonitorController.instance;
+
+      await controller.create(<String, dynamic>{
+        'name': 'Fresh',
+        'url': 'https://fresh.test/health',
+        'type': 'http',
+        'method': 'get',
+        'check_interval_sec': 180,
+        'timeout_sec': 30,
+        'regions': const <String>['eu-central'],
+      });
+
+      await tester.pumpAndSettle();
+
+      expect(
+        MagicRouter.instance.currentLocation,
+        '/monitors/brand-new-id',
+        reason: 'the create opens the monitor it just made, not the list',
+      );
+    });
+
+    testWidgets('a create with no id in the response falls back to the list', (
+      tester,
+    ) async {
+      // The fallback is not decoration: without an id there is no detail route
+      // to open, and navigating to `/monitors/` would resolve to a not-found
+      // screen for a monitor that was in fact created.
+      Http.fake({
+        '*monitors': Http.response({
+          'data': {'name': 'Fresh', 'type': 'http'},
+        }),
+      });
+
+      // The router has to be MOUNTED for `currentLocation` to report anything:
+      // `MagicRoute.to` asks GoRouter to navigate, and the location is read back
+      // off the router's own state, which only exists under a widget tree.
+      MagicRouter.reset();
+      MagicRoute.page('/monitors', () => const SizedBox());
+      MagicRoute.page('/monitors/:id', () => const SizedBox());
+      addTearDown(MagicRouter.reset);
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: MagicRouter.instance.routerConfig),
+      );
+      await tester.pump();
+
+      final MonitorController controller = MonitorController.instance;
+
+      await controller.create(<String, dynamic>{
+        'name': 'Fresh',
+        'url': 'https://fresh.test/health',
+        'type': 'http',
+        'method': 'get',
+        'check_interval_sec': 180,
+        'timeout_sec': 30,
+        'regions': const <String>['eu-central'],
+      });
+
+      await tester.pumpAndSettle();
+
+      expect(MagicRouter.instance.currentLocation, '/monitors');
     });
 
     test('create does not throw and does not notify listeners', () {

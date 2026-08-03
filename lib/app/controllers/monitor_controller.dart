@@ -582,6 +582,15 @@ class MonitorController extends MagicController
   /// mass-assigns them into a fresh [Monitor] and persists it through the ORM
   /// (`POST /monitors`), then reloads the inventory before navigating.
   ///
+  /// A successful create lands on the NEW MONITOR'S DETAIL route, not the list.
+  /// `store()` sets `next_check_at` to now and queues the probes, so the detail
+  /// screen is where the thing the operator just asked for actually happens: it
+  /// shows "Waiting for the first check" and then swaps the real chart and table
+  /// in when the result lands. Dropping them on the list instead made them hunt
+  /// for the row they had just created and told them nothing about the check.
+  /// Falls back to the list when the save returned no id (and for the
+  /// navigation-only call, which has no monitor to open).
+  ///
   /// Returns the backend per-field validation errors (single message per field,
   /// keyed by the wire field name) so the form can render a server 422 inline;
   /// an empty map means success (or a navigation-only call). A `false` save that
@@ -600,8 +609,15 @@ class MonitorController extends MagicController
         return const {};
       }
       await reload();
+
+      final String id = monitor.id;
+      MagicRoute.to(id.isEmpty ? '/monitors' : '/monitors/$id');
+
+      return const {};
     }
+
     MagicRoute.to('/monitors');
+
     return const {};
   }
 
