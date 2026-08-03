@@ -23,7 +23,7 @@
 @section('title', $title.' | '.config('app.name'))
 
 @section('content')
-    <div class="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:py-16">
+    <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         {{-- WebPage only, like every page on this surface. --}}
         <script type="application/ld+json">
             {!! json_encode([
@@ -36,26 +36,30 @@
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}
         </script>
 
-        <h1 class="text-section text-fg">{{ $title }}</h1>
+        <header class="pb-6">
+            <h1 class="text-xl font-semibold text-fg">{{ $title }}</h1>
 
-        <p class="mt-3 text-body-md text-fg-muted">
+            <p class="mt-2 text-sm text-fg-muted">
             {{ __('Every name below is a trademark of its owner. Uptizm is independent of all of them: we measure one public endpoint per service from our own regions, and quote each provider\'s published status where we quote it at all.') }}
-        </p>
+            </p>
+        </header>
 
         @if ($services === [])
             {{-- Nothing published yet is a real state on a fresh install: the
                  catalog seeder creates every service UNPUBLISHED with its terms
                  unreviewed, because publishing is a human decision. Said plainly
                  rather than rendered as an empty list somebody reads as a bug. --}}
-            <p class="mt-10 rounded-lg border border-border bg-surface-container p-5 text-body-lg text-fg-muted">
-                {{ __('No service pages are published yet.') }}
-            </p>
+            <section class="mb-6 rounded-lg border border-border bg-surface-container">
+                <p class="px-5 py-6 text-sm text-fg-muted">
+                    {{ __('No service pages are published yet.') }}
+                </p>
+            </section>
         @endif
 
         @foreach ($services as $entry)
-            <section class="mt-6 rounded-lg border border-border bg-surface-container p-5">
-                <h2 class="text-title-lg text-fg">
-                    <a href="{{ $entry['path'] }}" class="underline underline-offset-2 hover:text-primary">
+            <section class="mb-6 rounded-lg border border-border bg-surface-container">
+                <h2 class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">
+                    <a href="{{ $entry['path'] }}" class="underline underline-offset-2 hover:text-fg">
                         {{ $entry['service']['name'] }}
                     </a>
                 </h2>
@@ -125,7 +129,7 @@
                 @endif
 
                 @if ($entry['divergence'])
-                    <p class="pt-3 text-body-md text-fg-muted">
+                    <p class="border-t border-border-subtle bg-surface-container-high px-5 py-3 text-sm text-fg-muted">
                         {{ __('Our measurement and theirs do not agree right now. Both are on the page.') }}
                     </p>
                 @endif

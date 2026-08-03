@@ -34,6 +34,12 @@
     for a minute, so the relative phrase can trail the clock by up to that minute.
     The exact timestamp beside it cannot, which is why both are rendered: the
     same trade the customer status page makes with its own "updated Xm ago".
+
+    LAYOUT: this row carries its own `px-5 py-4` and its own bottom divider, so it
+    sits flush inside a bordered section card exactly the way a component row does
+    on the customer status page (`status/partials/components.blade.php`). The
+    including page supplies the card, never padding of its own, or the dividers stop
+    reaching the card's edges.
 --}}
 @php
     /*
@@ -60,7 +66,7 @@
             : __(':count minutes ago', ['count' => intdiv($ageSeconds, 60)]));
 @endphp
 
-<div class="flex flex-col gap-1 border-b border-border-subtle py-4 last:border-b-0">
+<div class="flex flex-col gap-1 border-b border-border-subtle px-5 py-4 last:border-b-0">
     <div class="flex flex-wrap items-center gap-2">
         <span
             class="h-2.5 w-2.5 shrink-0 rounded-full {{ \App\Support\StatusPages\StatusPresentation::dotClass((string) $status) }}"

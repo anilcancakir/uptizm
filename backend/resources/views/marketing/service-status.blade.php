@@ -2,6 +2,21 @@
     One published catalog service: what Uptizm measured, what the provider
     publishes, and nothing synthesized from the two.
 
+    WHY THIS LOOKS LIKE THE CUSTOMER STATUS PAGE
+
+    It is the same kind of document, so it wears the same clothes: the container,
+    the banner, the bordered section cards with an uppercase header bar, the
+    component-row layout and the 90-day strip are all `resources/views/status/`'s,
+    reusing `App\Support\StatusPages\StatusPresentation` for every dot so a colour
+    here can never disagree with a colour there.
+
+    What it does NOT borrow is `status/layout.blade.php`. That layout hardcodes
+    `<html lang="en">` and emits no hreflang, so a page served from it cannot carry
+    a second language or a canonical per locale. These pages exist to be found in
+    two languages, so they are registered on the marketing surface and extend
+    `marketing.layout` for the head, while the BODY follows the status page. Both
+    surfaces are registered outside the `web` group and set no cookie.
+
     WHAT THIS PAGE MUST SUPPLY (all from ShowServiceStatusController)
 
       `App\Support\Marketing\ChromeData` spread into the view data, plus:
@@ -14,19 +29,21 @@
       $generatedAt when this read model was assembled (it is cached for a minute)
       $hubPath     the catalog hub, in the language being read
       $document    `LegalDocument::render()`'s ['html' => ..., 'toc' => [...]]
-      $staleAfterSeconds, $agreeingRegions
-                   ServicePageAssembler's two evidence bounds, handed over as view
-                   data rather than dereferenced here as fully qualified constants,
-                   the way `marketing/contact.blade.php` takes its field names
+      $staleAfterSeconds, $agreeingRegions, $mixedVerdict
+                   ServicePageAssembler's bounds and its middle verdict, handed over
+                   as view data rather than dereferenced here as fully qualified
+                   constants, the way `marketing/contact.blade.php` takes its field
+                   names
 
     THE FOUR THINGS THIS TEMPLATE MAY NOT DO
 
     1.  No percentage, anywhere. Uptizm probes ONE endpoint of one product, so a
         percentage on this page would imply coverage it does not have and would
-        read as the provider's uptime. The 90-day strip is rendered as day-by-day
-        reachability of the NAMED endpoint with no figure beside it, and the read
-        model carries no percentage to be tempted by. This is the same defect class
-        as the fabricated SLO this repo already removed once.
+        read as the provider's uptime. This is the one place the design deliberately
+        DIVERGES from the customer status page, which does print a percent beside
+        each component strip: that page measures a customer's own systems for the
+        customer, and this one measures one endpoint of somebody else's. The strip
+        is rendered with an em dash where that page puts a figure.
     2.  No bare fact of the world. Every sentence is either first person ("we
         reached ...") or a quote ("they report ..."), and every one carries a
         provenance chip and a timestamp, which is what `provenance-row` exists to
@@ -36,15 +53,37 @@
         BESIDE both of them and explains why disagreeing is expected.
     4.  No provider artwork. No logo, no `og:image`, no `<img>` at all: a court
         cleared plain-text use of somebody else's mark in the same opinion that
-        refused stylised use of it. The only structured data is `WebPage`;
-        `Organization` would misrepresent whose page this is.
+        refused stylised use of it. This is also why the header has no logo tile
+        where `status/partials/brand-header.blade.php` has one. The only structured
+        data is `WebPage`; `Organization` would misrepresent whose page this is.
 --}}
 @extends('marketing.layout')
 
 @section('title', $title.' | '.config('app.name'))
 
 @section('content')
-    <div class="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:py-16">
+    @php
+        /*
+         * The banner's own sentence, from the roll-up verdict. Scoped to "what we
+         * watch" rather than to the service, because uptizm watches one endpoint per
+         * monitor and the banner must not read as a verdict on the provider's whole
+         * product. Same three-way honesty as the per-endpoint rows below.
+         */
+        $bannerHeadline = match ($own['status']) {
+            \App\Services\StatusPages\StatusPageAssembler::STATUS_UNKNOWN
+                => __('We have nothing recent enough to report.'),
+            \App\Services\Services\ServicePageAssembler::VERDICT_UNREACHABLE
+                => __('We could not reach what we watch.'),
+            $mixedVerdict
+                => __('Not everything we watch is answering normally.'),
+            default
+                => __('Everything we watch is answering normally.'),
+        };
+    @endphp
+
+    {{-- The customer status page's container, so the two documents sit at the same
+         measure and rhythm. --}}
+    <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         {{-- WebPage and nothing else. Organization or SoftwareApplication here
              would claim this page speaks for the service it names, which is a named
              violation of Google's own structured-data policy, and the FAQ rich
@@ -61,74 +100,105 @@
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}
         </script>
 
-        <p class="text-label-sm text-fg-muted">
-            <a href="{{ $hubPath }}" class="underline underline-offset-2 hover:text-fg">{{ __('All services') }}</a>
-        </p>
+        {{-- The status page's brand header, minus the logo tile: provider artwork is
+             forbidden plan-wide, and a tile bearing somebody else's initials is
+             exactly the stylised-mark use the trademark reasoning refused. --}}
+        <header class="pb-6">
+            <p class="text-label-sm text-fg-muted">
+                <a href="{{ $hubPath }}" class="underline underline-offset-2 hover:text-fg">{{ __('All services') }}</a>
+            </p>
 
-        <h1 class="mt-3 text-section text-fg">{{ $title }}</h1>
+            <h1 class="mt-3 text-xl font-semibold text-fg">{{ $title }}</h1>
 
-        {{-- The non-affiliation line, in the FIRST screen rather than only in the
-             footnotes: the page carries somebody else's trademark in its title, and
-             a reader has to be able to tell whose page this is before reading a
-             single status. Repeated at the end for anybody who arrives at an
-             anchor. --}}
-        <p class="mt-3 text-body-md text-fg-muted">
-            {{ __('An independent view by Uptizm. We are not affiliated with, endorsed by or sponsored by :service, and :service is a trademark of its owner.', ['service' => $service['name']]) }}
-        </p>
+            {{-- The non-affiliation line, in the FIRST screen rather than only in the
+                 footnotes: the page carries somebody else's trademark in its title,
+                 and a reader has to be able to tell whose page this is before reading
+                 a single status. Repeated at the end for anybody who arrives at an
+                 anchor. --}}
+            <p class="mt-2 text-sm text-fg-muted">
+                {{ __('An independent view by Uptizm. We are not affiliated with, endorsed by or sponsored by :service, and :service is a trademark of its owner.', ['service' => $service['name']]) }}
+            </p>
+        </header>
 
-        <section class="mt-10" aria-labelledby="own-measurement">
-            <h2 id="own-measurement" class="text-title-lg text-fg">{{ __('What Uptizm measured') }}</h2>
+        {{-- The overall banner, the customer status page's signature element. It
+             carries the provenance chip like every other status statement here: the
+             banner is a claim too, and an unlabelled one would be the page's most
+             prominent unattributed fact. --}}
+        <section class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-container px-5 py-4">
+            <div class="flex items-center gap-3">
+                <span
+                    class="h-3 w-3 shrink-0 rounded-full {{ \App\Support\StatusPages\StatusPresentation::dotClass((string) $own['status']) }}"
+                    aria-hidden="true"
+                ></span>
+                <span class="text-lg font-semibold text-fg">{{ $bannerHeadline }}</span>
+                <span class="rounded-full bg-surface-container-high px-2 py-0.5 text-label-sm text-fg-muted">
+                    {{ __('Measured by Uptizm') }}
+                </span>
+            </div>
+
+            <time datetime="{{ $generatedAt }}" class="text-sm text-fg-muted">
+                {{ __('Assembled at :time. Readings on this page are cached for up to a minute.', ['time' => $generatedAt]) }}
+            </time>
+        </section>
+
+        <section class="mb-6 rounded-lg border border-border bg-surface-container" aria-labelledby="own-measurement">
+            <h2 id="own-measurement" class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">
+                {{ __('What Uptizm measured') }}
+            </h2>
 
             @if ($own['endpoints'] === [])
-                {{-- Unreachable for a published service: `Service::canPublish()`
-                     requires at least one attached monitor precisely so this page
-                     can never be only a re-rendered provider feed. Rendered
-                     honestly rather than as an empty section, because a page that
-                     silently dropped its own-measurement block would be exactly
-                     the thin content this catalog refuses to publish. --}}
-                <p class="mt-4 text-body-lg text-fg-muted">
+                {{-- Unreachable for a published service: `Service::scopePubliclyVisible()`
+                     requires an attached monitor on every read precisely so this page
+                     can never be only a re-rendered provider feed. Rendered honestly
+                     rather than as an empty section, because a page that silently
+                     dropped its own-measurement block would be exactly the thin
+                     content this catalog refuses to publish. --}}
+                <p class="px-5 py-6 text-sm text-fg-muted">
                     {{ __('We have no endpoint of our own attached to this service yet, so there is nothing here we measured.') }}
                 </p>
             @endif
 
             @foreach ($own['endpoints'] as $endpoint)
-                <div class="mt-4 rounded-lg border border-border bg-surface-container p-5">
-                    @include('marketing.partials.provenance-row', [
-                        'provenance' => $own['provenance'],
-                        'provider' => $service['name'],
-                        'status' => $endpoint['status'],
-                        {{-- Three verdicts and not two. The middle one exists because
-                             the page used to claim "we reached it normally" while its
-                             fresh regions were reporting down: the streak that gates
-                             `reportsProblem` resets on any non-down result, so a
-                             partial outage never satisfies it. Withholding the claim
-                             is the honest answer, not asserting the opposite one. --}}
-                        'headline' => $endpoint['stale']
-                            ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
-                            : ($endpoint['reportsProblem']
-                                ? __('We could not reach :endpoint.', ['endpoint' => $endpoint['label']])
-                                : ($endpoint['status'] === $mixedVerdict
-                                    ? ($endpoint['downRegions'] === 0
-                                        ? __('Every region reached :endpoint, but not all of them normally.', ['endpoint' => $endpoint['label']])
-                                        : ($endpoint['upRegions'] === 0
-                                            ? __('No region reached :endpoint on our last check, and we do not call that an outage yet.', ['endpoint' => $endpoint['label']])
-                                            : __('We are reaching :endpoint from some regions and not others.', ['endpoint' => $endpoint['label']])))
-                                    : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']]))),
-                        'detail' => $endpoint['stale']
-                            ? __('Nothing has been measured in the last :count seconds, so we do not know. We do not show you the last value we happened to have.', ['count' => $staleAfterSeconds])
-                            : ($endpoint['responseMs'] === null
-                                ? __('Answered from :count regions.', ['count' => $endpoint['regionCount']])
-                                : __(':ms ms on average, across the :count regions that answered.', ['ms' => $endpoint['responseMs'], 'count' => $endpoint['regionCount']])),
-                        'timestamp' => $endpoint['checkedAt'],
-                        'ageSeconds' => $endpoint['ageSeconds'],
-                    ])
+                @include('marketing.partials.provenance-row', [
+                    'provenance' => $own['provenance'],
+                    'provider' => $service['name'],
+                    'status' => $endpoint['status'],
+                    {{-- Four verdicts and not two. The middle rung exists because the
+                         page used to claim "we reached it normally" while its fresh
+                         regions were reporting down: the streak that gates
+                         `reportsProblem` resets on any non-down result, so a partial
+                         outage never satisfies it. Withholding the claim is the honest
+                         answer, not asserting the opposite one. Its three wordings
+                         exist because one sentence was false in two of the three
+                         states, and `downRegions === 0` is tested FIRST because
+                         all-degraded satisfies both conditions. --}}
+                    'headline' => $endpoint['stale']
+                        ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
+                        : ($endpoint['reportsProblem']
+                            ? __('We could not reach :endpoint.', ['endpoint' => $endpoint['label']])
+                            : ($endpoint['status'] === $mixedVerdict
+                                ? ($endpoint['downRegions'] === 0
+                                    ? __('Every region reached :endpoint, but not all of them normally.', ['endpoint' => $endpoint['label']])
+                                    : ($endpoint['upRegions'] === 0
+                                        ? __('No region reached :endpoint on our last check, and we do not call that an outage yet.', ['endpoint' => $endpoint['label']])
+                                        : __('We are reaching :endpoint from some regions and not others.', ['endpoint' => $endpoint['label']])))
+                                : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']]))),
+                    'detail' => $endpoint['stale']
+                        ? __('Nothing has been measured in the last :count seconds, so we do not know. We do not show you the last value we happened to have.', ['count' => $staleAfterSeconds])
+                        : ($endpoint['responseMs'] === null
+                            ? __('Answered from :count regions.', ['count' => $endpoint['regionCount']])
+                            : __(':ms ms on average, across the :count regions that answered.', ['ms' => $endpoint['responseMs'], 'count' => $endpoint['regionCount']])),
+                    'timestamp' => $endpoint['checkedAt'],
+                    'ageSeconds' => $endpoint['ageSeconds'],
+                ])
 
+                <div class="border-b border-border-subtle px-5 pb-4 last:border-b-0">
                     {{-- The stricter public bar, stated instead of merely applied.
                          One region having a bad minute is not something this page
                          will call an outage, and saying so is more useful than
                          hiding the dissent. --}}
                     @if (! $endpoint['reportsProblem'] && $endpoint['dissentingRegions'] > 0)
-                        <p class="pt-3 text-body-md text-fg-muted">
+                        <p class="text-sm text-fg-muted">
                             {{ __('One or more regions disagreed (:count of :total). We report a problem only after :threshold consecutive failures AND at least :quorum regions agreeing, because a public page contradicting the provider needs to be right rather than fast.', [
                                 'count' => $endpoint['dissentingRegions'],
                                 'total' => $endpoint['regionCount'],
@@ -138,10 +208,12 @@
                         </p>
                     @endif
 
+                    {{-- Per-region readings, in the component-row layout: dot and
+                         label left, figure right, tabular so the numbers line up. --}}
                     @if ($endpoint['readings'] !== [])
-                        <ul class="mt-4 space-y-2">
+                        <ul class="mt-3">
                             @foreach ($endpoint['readings'] as $reading)
-                                <li class="flex flex-wrap items-center justify-between gap-2 text-body-md text-fg-muted">
+                                <li class="flex items-center justify-between gap-3 py-1.5 text-sm text-fg-muted">
                                     <span class="flex items-center gap-2">
                                         <span
                                             class="h-2 w-2 shrink-0 rounded-full {{ \App\Support\StatusPages\StatusPresentation::dotClass($reading['ladder']) }}"
@@ -162,110 +234,127 @@
                         </ul>
                     @endif
 
+                    {{-- The 90-day strip, laid out exactly as the customer status
+                         page's component strip, with ONE deliberate difference: where
+                         that page prints a percentage beside it, this prints an em
+                         dash. See rule 1 in the file header. --}}
                     @if ($endpoint['strip'] !== null)
-                        <p class="mt-5 text-label-sm text-fg-muted">
+                        <div class="mt-4 flex items-center gap-3">
+                            <div class="flex gap-px" aria-hidden="true">
+                                @foreach ($endpoint['strip'] as $day)
+                                    <span
+                                        class="h-4 w-1 rounded-sm {{ \App\Support\StatusPages\StatusPresentation::dotClass((string) $day['status']) }}"
+                                        title="{{ $day['date'] }}: {{ $day['status'] ?? __('not measured') }}"
+                                    ></span>
+                                @endforeach
+                            </div>
+
+                            <span class="text-sm text-fg-muted tabular-nums">&mdash;</span>
+                        </div>
+
+                        <p class="mt-2 text-label-sm text-fg-muted">
                             {{ __('Uptizm reachability of :endpoint, last :days days. One cell per day. A day we did not measure stays neutral rather than green, and no percentage is published: we probe this one endpoint, not the whole product.', [
                                 'endpoint' => $endpoint['label'],
                                 'days' => count($endpoint['strip']),
                             ]) }}
                         </p>
-
-                        <div class="mt-2 flex gap-px" aria-hidden="true">
-                            @foreach ($endpoint['strip'] as $day)
-                                <span
-                                    class="h-4 w-1 rounded-sm {{ \App\Support\StatusPages\StatusPresentation::dotClass((string) $day['status']) }}"
-                                    title="{{ $day['date'] }}: {{ $day['status'] ?? __('not measured') }}"
-                                ></span>
-                            @endforeach
-                        </div>
                     @endif
                 </div>
             @endforeach
         </section>
 
         @if ($feed !== null)
-            <section class="mt-10" aria-labelledby="provider-feed">
-                <h2 id="provider-feed" class="text-title-lg text-fg">
+            <section class="mb-6 rounded-lg border border-border bg-surface-container" aria-labelledby="provider-feed">
+                <h2 id="provider-feed" class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">
                     {{ __('What :service publishes itself', ['service' => $service['name']]) }}
                 </h2>
 
-                <div class="mt-4 rounded-lg border border-border bg-surface-container p-5">
-                    {{-- The dot on this row is deliberately NEUTRAL whatever they
-                         published, and the word carries the meaning instead. Their
-                         `none|minor|major|critical` vocabulary is not this product's
-                         `up|down|degraded`, and their "minor" can mean one
-                         sub-product is slow, so recolouring their word into our
-                         palette would be exactly the translation this page refuses
-                         to make. Their per-component statuses below DO carry their
-                         real colours: that vocabulary is byte-identical to this
-                         repo's own, so it is not a translation. --}}
-                    @include('marketing.partials.provenance-row', [
-                        'provenance' => $feed['provenance'],
-                        'provider' => $service['name'],
-                        'status' => null,
-                        'headline' => $feed['error'] !== null
-                            ? __('We could not read their status feed.')
-                            : ($feed['indicator'] === null
-                                ? __('They publish no overall status word.')
-                                : __('They report: :indicator', ['indicator' => $feed['indicator']])),
-                        'detail' => $feed['error'] !== null
-                            ? $feed['error']
-                            : ($feed['stale']
-                                ? __('This is what they published then, not necessarily what they publish now: it is older than our :count second freshness bound.', ['count' => $staleAfterSeconds])
-                                : __('Quoted from their own status feed, unchanged.')),
-                        'timestamp' => $feed['fetchedAt'],
-                        'ageSeconds' => $feed['ageSeconds'],
-                    ])
+                {{-- The dot on this row is deliberately NEUTRAL whatever they
+                     published, and the word carries the meaning instead. Their
+                     `none|minor|major|critical` vocabulary is not this product's
+                     `up|down|degraded`, and their "minor" can mean one sub-product is
+                     slow, so recolouring their word into our palette would be exactly
+                     the translation this page refuses to make. Their per-component
+                     statuses below DO carry their real colours: that vocabulary is
+                     byte-identical to this repo's own, so it is not a translation. --}}
+                @include('marketing.partials.provenance-row', [
+                    'provenance' => $feed['provenance'],
+                    'provider' => $service['name'],
+                    'status' => null,
+                    'headline' => $feed['error'] !== null
+                        ? __('We could not read their status feed.')
+                        : ($feed['indicator'] === null
+                            ? __('They publish no overall status word.')
+                            : __('They report: :indicator', ['indicator' => $feed['indicator']])),
+                    'detail' => $feed['error'] !== null
+                        ? $feed['error']
+                        : ($feed['stale']
+                            ? __('This is what they published then, not necessarily what they publish now: it is older than our :count second freshness bound.', ['count' => $staleAfterSeconds])
+                            : __('Quoted from their own status feed, unchanged.')),
+                    'timestamp' => $feed['fetchedAt'],
+                    'ageSeconds' => $feed['ageSeconds'],
+                ])
 
-                    @if ($feed['components'] !== [])
-                        <ul class="mt-4 space-y-2">
-                            @foreach ($feed['components'] as $component)
-                                <li class="flex flex-wrap items-center justify-between gap-2 text-body-md text-fg-muted">
-                                    <span class="flex items-center gap-2">
-                                        <span
-                                            class="h-2 w-2 shrink-0 rounded-full {{ \App\Support\StatusPages\StatusPresentation::dotClass($component['ladder']) }}"
-                                            aria-hidden="true"
-                                        ></span>
-                                        {{ $component['label'] }}
-                                    </span>
+                {{-- Their components, in the same row layout as ours above, so a
+                     reader compares like with like. Their WORD on the right where our
+                     rows put a latency. --}}
+                @if ($feed['components'] !== [])
+                    <ul class="border-b border-border-subtle px-5 py-2 last:border-b-0">
+                        @foreach ($feed['components'] as $component)
+                            <li class="flex items-center justify-between gap-3 py-1.5 text-sm text-fg-muted">
+                                <span class="flex items-center gap-2">
+                                    <span
+                                        class="h-2 w-2 shrink-0 rounded-full {{ \App\Support\StatusPages\StatusPresentation::dotClass($component['ladder']) }}"
+                                        aria-hidden="true"
+                                    ></span>
+                                    {{ $component['label'] }}
+                                </span>
 
-                                    {{-- Their word, printed as their word. A component
-                                         status they published that this repo has no case
-                                         for is unknown, never operational. --}}
-                                    <span>{{ $component['status'] ?? __('not published') }}</span>
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
+                                {{-- Their word, printed as their word. A component
+                                     status they published that this repo has no case
+                                     for is unknown, never operational. --}}
+                                <span>{{ $component['status'] ?? __('not published') }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
 
-                    @if ($feed['incidents'] !== [])
-                        <ul class="mt-4 space-y-3">
-                            @foreach ($feed['incidents'] as $incident)
-                                <li class="text-body-md text-fg-muted">
-                                    {{-- Their incident, as their claim. Nothing here
-                                         opens an incident of ours on their behalf. --}}
-                                    <span class="text-fg">{{ $incident['title'] }}</span>
+                {{-- Their open incidents, in the customer status page's incident
+                     shape: title, a badge, a timestamp, and a link out. Nothing here
+                     opens an incident of OURS on their behalf. --}}
+                @if ($feed['incidents'] !== [])
+                    <ul class="divide-y divide-border-subtle">
+                        @foreach ($feed['incidents'] as $incident)
+                            <li class="px-5 py-4">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="font-medium text-fg">{{ $incident['title'] }}</span>
 
                                     @if ($incident['impact'] !== null)
-                                        <span class="text-fg-muted">&middot; {{ $incident['impact'] }}</span>
+                                        <span class="rounded-full bg-surface-container-high px-2 py-0.5 text-xs font-medium text-fg-muted">
+                                            {{ $incident['impact'] }}
+                                        </span>
                                     @endif
 
                                     @if ($incident['startedAt'] !== null)
-                                        <span class="text-fg-muted">&middot; {{ $incident['startedAt'] }}</span>
+                                        <time datetime="{{ $incident['startedAt'] }}" class="text-xs text-fg-muted">
+                                            {{ $incident['startedAt'] }}
+                                        </time>
                                     @endif
+                                </div>
 
-                                    @if ($incident['url'] !== null)
+                                @if ($incident['url'] !== null)
+                                    <p class="mt-1">
                                         <a
                                             href="{{ $incident['url'] }}"
                                             rel="nofollow noopener"
-                                            class="text-primary underline underline-offset-2"
+                                            class="text-sm text-primary underline underline-offset-2"
                                         >{{ __('Their update') }}</a>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                </div>
+                                    </p>
+                                @endif
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
             </section>
         @endif
 
@@ -274,10 +363,12 @@
                  the gap instead of resolving it. There is no third answer here on
                  purpose: uptizm watches one endpoint from the outside, the provider
                  can see its own internals, and both of those can be true at once. --}}
-            <section class="mt-10 rounded-lg border border-border bg-surface-container-high p-5" aria-labelledby="divergence">
-                <h2 id="divergence" class="text-title-lg text-fg">{{ __('These two do not agree right now') }}</h2>
+            <section class="mb-6 rounded-lg border border-border bg-surface-container-high" aria-labelledby="divergence">
+                <h2 id="divergence" class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">
+                    {{ __('These two do not agree right now') }}
+                </h2>
 
-                <p class="mt-3 text-body-lg text-fg-muted">
+                <p class="px-5 py-4 text-sm text-fg-muted">
                     {{ __('Our measurement and :service own status feed are saying different things, and both are shown above with their sources. That is expected rather than a fault: we reach one endpoint from outside their network, while they can see systems we cannot. We will not average the two or pick a winner for you.', ['service' => $service['name']]) }}
                 </p>
             </section>
@@ -285,9 +376,7 @@
 
         {{-- The localized prose. `LegalDocument` runs CommonMark with unsafe links
              disabled over admin-curated files in version control, which is what
-             makes the unescaped echo safe; nothing on this path is visitor input.
-             The styling matches `content-page`'s, so the reading experience is the
-             same as on every other document page. --}}
+             makes the unescaped echo safe; nothing on this path is visitor input. --}}
         <div
             class="mt-10
                 [&_p]:mt-4 [&_p]:text-body-lg [&_p]:text-fg-muted
@@ -303,10 +392,6 @@
 
         <p class="mt-10 border-t border-border-subtle pt-4 text-label-sm text-fg-muted">
             {{ __(':service and its logo are trademarks of their owner. This page is published by Uptizm, is not affiliated with :service, and quotes their published status only where it says so.', ['service' => $service['name']]) }}
-        </p>
-
-        <p class="mt-2 text-label-sm text-fg-muted">
-            {{ __('Assembled at :time. Readings on this page are cached for up to a minute.', ['time' => $generatedAt]) }}
         </p>
     </div>
 @endsection
