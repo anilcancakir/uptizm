@@ -544,8 +544,25 @@ class ServiceStatusPageTest extends TestCase
 
     public function test_the_headline_holds_when_two_regions_fail_below_the_threshold(): void
     {
-        // The other half: two regions agree, but the monitor's own streak has not
-        // crossed its threshold, so a public page still says nothing.
+        /*
+         * Two regions agree the endpoint is down, but the monitor's own streak has
+         * not crossed its threshold, so this page does NOT call it an outage.
+         *
+         * WHAT THIS TEST USED TO ASSERT, AND WHY THAT WAS THE BUG
+         *
+         * It asserted only `assertDontSee('We could not reach ...')`, i.e. that the
+         * page withheld the NEGATIVE claim, and never what the page actually said.
+         * What it said was "We reached github.com normally" with a green dot, while
+         * both fresh regions were reporting down. An absence-only assertion cannot
+         * tell withholding a claim from asserting its opposite, which is exactly how
+         * that shipped.
+         *
+         * That state is not a corner case either. `consecutive_fails` resets to 0 on
+         * ANY non-down result from ANY region
+         * (`CheckPersistenceService.php:305-315`), so while even one region still
+         * succeeds the streak cannot climb and a partial outage stays here for its
+         * whole duration.
+         */
         $service = $this->publish(monitorAttributes: [
             'incident_threshold' => 3,
             'consecutive_fails' => 1,
@@ -556,7 +573,170 @@ class ServiceStatusPageTest extends TestCase
 
         $this->get($this->pagePath('en'))
             ->assertOk()
-            ->assertDontSee('We could not reach '.self::ENDPOINT.'.');
+            // Still no outage claim.
+            ->assertDontSee('We could not reach '.self::ENDPOINT.'.')
+            // And, the half that was missing: no claim of normality either.
+            ->assertDontSee('We reached '.self::ENDPOINT.' normally.')
+            // What it DOES say.
+            // Both fresh readings say down, so "some regions and not others" would be
+            // false: NO region reached it. The rung withholds the outage claim without
+            // asserting a reachability that did not happen.
+            ->assertSee('No region reached '.self::ENDPOINT.' on our last check, and we do not call that an outage yet.')
+            ->assertSee('One or more regions disagreed');
+    }
+
+    public function test_a_published_service_that_lost_its_last_monitor_disappears_from_every_surface(): void
+    {
+        /*
+         * `Service::canPublish()` guards the publish TRANSITION only, and nothing
+         * re-checked it afterwards. So a service published legitimately and then
+         * stripped of its last monitor kept `is_published = true`, and its page
+         * answered 200 with the provider's re-rendered feed as its entire substance:
+         * exactly the page this catalog promised never to publish, and the exact
+         * thin-content exposure its scaled-content risk was accepted against.
+         *
+         * Reproduced against the dev database before the fix (page 200, body
+         * containing "no endpoint of our own"), which is why the predicate is now
+         * re-derived on read in all three places rather than trusted from the column.
+         * All three are asserted here, because fixing one surface and not the others
+         * produces a sitemap advertising a URL that 404s.
+         */
+        $service = $this->publish();
+
+        // Control: it IS on every surface while it still has its monitor.
+        $this->get($this->pagePath('en'))->assertOk();
+        $this->get($this->hubPath('en'))->assertOk()->assertSee($service->name);
+        $this->get('/sitemap-services.xml')->assertOk()->assertSee($this->pagePath('en'), escape: false);
+
+        $service->monitors()->detach();
+
+        /*
+         * Both public reads sit behind a deliberate 60-second `Cache::remember`, and
+         * the control requests above warmed it. Flushed here so this test measures the
+         * predicate rather than the cache window. The window itself is intended: a
+         * withdrawal takes up to a minute to leave the hub, which is bounded staleness
+         * rather than a wrong page, and the ingester's targeted forget covers the
+         * feed-driven case.
+         */
+        Cache::flush();
+
+        // Still flagged published: the column is deliberately untouched, since the
+        // point is that the READ path no longer trusts it.
+        $this->assertTrue($service->fresh()->is_published);
+        $this->assertFalse($service->fresh()->canPublish());
+
+        $this->get($this->pagePath('en'))->assertNotFound();
+        $this->get($this->pagePath('tr'))->assertNotFound();
+        $this->get($this->hubPath('en'))->assertOk()->assertDontSee($service->name);
+        $this->get('/sitemap-services.xml')->assertOk()->assertDontSee($this->pagePath('en'), escape: false);
+    }
+
+    public function test_the_hub_is_never_more_confident_than_the_page_it_links_to(): void
+    {
+        /*
+         * The hub rendered only two verdicts while the detail page rendered three,
+         * so a row on `/status` asserted "we reached it normally" over an endpoint
+         * whose own page was already qualifying that claim. A summary may be shorter
+         * than the page; it may not be more confident.
+         */
+        $service = $this->publish(monitorAttributes: [
+            'incident_threshold' => 3,
+            'consecutive_fails' => 1,
+        ]);
+
+        $this->fail_($service, MonitorRegion::USEast);
+        $this->fail_($service, MonitorRegion::EUWest);
+
+        $this->get($this->hubPath('en'))
+            ->assertOk()
+            ->assertDontSee('We reached '.self::ENDPOINT.' normally.')
+            ->assertSee('No region reached '.self::ENDPOINT.' on our last check, and we do not call that an outage yet.');
+    }
+
+    public function test_a_single_region_failure_withholds_the_claim_without_inventing_one(): void
+    {
+        /*
+         * One configured region, reporting down, below the threshold. `downRegions` is
+         * 1 so the outage quorum is not met, and the affirmative rung is refused
+         * because no region succeeded.
+         *
+         * This fixture did not exist when the `upRegions === 0` arm was added, so
+         * deleting that arm left the whole suite green. The arm changes what a public
+         * page SAYS, and this plan's own conventions require a test in the same change.
+         */
+        $service = $this->publish(monitorAttributes: [
+            'incident_threshold' => 3,
+            'consecutive_fails' => 1,
+            'regions' => [MonitorRegion::USEast->value],
+        ]);
+
+        $this->fail_($service, MonitorRegion::USEast);
+
+        $this->get($this->pagePath('en'))
+            ->assertOk()
+            ->assertDontSee('We reached '.self::ENDPOINT.' normally.')
+            ->assertDontSee('We could not reach '.self::ENDPOINT.'.')
+            // And specifically NOT the "some and not others" wording, which would be
+            // false of a single region that failed.
+            ->assertDontSee('We are reaching '.self::ENDPOINT.' from some regions and not others.')
+            ->assertSee('No region reached '.self::ENDPOINT.' on our last check, and we do not call that an outage yet.');
+    }
+
+    public function test_every_region_answering_degraded_says_so_rather_than_claiming_normality(): void
+    {
+        /*
+         * The other state the rung reaches, and the one where the branch ORDER matters.
+         * Every region answered, none is down, so `upRegions` is 0 AND `downRegions` is
+         * 0. Testing `upRegions === 0` first would print "no region reached it" over
+         * readings where every region did.
+         */
+        $service = $this->publish(monitorAttributes: [
+            'incident_threshold' => 3,
+            'consecutive_fails' => 0,
+        ]);
+
+        $this->check($service, MonitorRegion::USEast, MonitorStatus::Degraded, 40, 210);
+        $this->check($service, MonitorRegion::EUWest, MonitorStatus::Degraded, 40, 240);
+
+        $this->get($this->pagePath('en'))
+            ->assertOk()
+            ->assertDontSee('We reached '.self::ENDPOINT.' normally.')
+            ->assertDontSee('No region reached '.self::ENDPOINT.' on our last check, and we do not call that an outage yet.')
+            ->assertSee('Every region reached '.self::ENDPOINT.', but not all of them normally.');
+    }
+
+    public function test_the_mixed_state_is_translated_and_suppresses_the_divergence_sentence(): void
+    {
+        /*
+         * Two assertions that belong together because they are the two ways the new
+         * rung could be half-finished.
+         *
+         * TRANSLATION: the earlier localisation pass translated the strings that
+         * existed then, and `__()` falls back to its English source in silence, so a
+         * NEW string publishes English under `hreflang="tr"`. That is the same defect
+         * recurring, which is why this asserts the Turkish page rather than trusting
+         * the pass that came before it.
+         *
+         * DIVERGENCE: the rung's only reach past the words on the page is
+         * `healthyFrom()` mapping it to null, so a mixed own-block holds no opinion
+         * and the divergence sentence stays away. That is correct (an amber own-block
+         * and a provider reporting trouble do not disagree) and it is exactly what a
+         * future contributor mapping the rung to `false` would break.
+         */
+        $service = $this->publish(monitorAttributes: [
+            'incident_threshold' => 3,
+            'consecutive_fails' => 1,
+        ]);
+
+        $this->fail_($service, MonitorRegion::USEast);
+        $this->fail_($service, MonitorRegion::EUWest);
+
+        $this->get($this->pagePath('tr'))
+            ->assertOk()
+            ->assertSee('hiçbir bölge', escape: false)
+            ->assertDontSee('No region reached '.self::ENDPOINT.' on our last check, and we do not call that an outage yet.')
+            // The divergence sentence must be absent: the own block has no opinion.
+            ->assertDontSee('Bizim ölçümümüz ile onların bildirdiği şu anda uyuşmuyor.', escape: false);
     }
 
     public function test_the_headline_reports_a_problem_once_both_conditions_hold(): void

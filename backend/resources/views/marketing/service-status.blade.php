@@ -97,11 +97,23 @@
                         'provenance' => $own['provenance'],
                         'provider' => $service['name'],
                         'status' => $endpoint['status'],
+                        {{-- Three verdicts and not two. The middle one exists because
+                             the page used to claim "we reached it normally" while its
+                             fresh regions were reporting down: the streak that gates
+                             `reportsProblem` resets on any non-down result, so a
+                             partial outage never satisfies it. Withholding the claim
+                             is the honest answer, not asserting the opposite one. --}}
                         'headline' => $endpoint['stale']
                             ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
                             : ($endpoint['reportsProblem']
                                 ? __('We could not reach :endpoint.', ['endpoint' => $endpoint['label']])
-                                : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']])),
+                                : ($endpoint['status'] === $mixedVerdict
+                                    ? ($endpoint['downRegions'] === 0
+                                        ? __('Every region reached :endpoint, but not all of them normally.', ['endpoint' => $endpoint['label']])
+                                        : ($endpoint['upRegions'] === 0
+                                            ? __('No region reached :endpoint on our last check, and we do not call that an outage yet.', ['endpoint' => $endpoint['label']])
+                                            : __('We are reaching :endpoint from some regions and not others.', ['endpoint' => $endpoint['label']])))
+                                    : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']]))),
                         'detail' => $endpoint['stale']
                             ? __('Nothing has been measured in the last :count seconds, so we do not know. We do not show you the last value we happened to have.', ['count' => $staleAfterSeconds])
                             : ($endpoint['responseMs'] === null

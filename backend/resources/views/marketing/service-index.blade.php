@@ -65,16 +65,36 @@
                         'provenance' => $entry['own']['provenance'],
                         'provider' => $entry['service']['name'],
                         'status' => $endpoint['status'],
+                        {{-- The same three verdicts the detail page uses, and for the
+                             same reason. The hub used to render only two, so a row
+                             here asserted "we reached it normally" while the page it
+                             links to was already qualifying that claim. A summary is
+                             allowed to be shorter than the page; it is not allowed to
+                             be more confident than it. --}}
                         'headline' => $endpoint['stale']
                             ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
                             : ($endpoint['reportsProblem']
                                 ? __('We could not reach :endpoint.', ['endpoint' => $endpoint['label']])
-                                : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']])),
+                                : ($endpoint['status'] === $mixedVerdict
+                                    ? ($endpoint['downRegions'] === 0
+                                        ? __('Every region reached :endpoint, but not all of them normally.', ['endpoint' => $endpoint['label']])
+                                        : ($endpoint['upRegions'] === 0
+                                            ? __('No region reached :endpoint on our last check, and we do not call that an outage yet.', ['endpoint' => $endpoint['label']])
+                                            : __('We are reaching :endpoint from some regions and not others.', ['endpoint' => $endpoint['label']])))
+                                    : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']]))),
                         'detail' => $endpoint['stale']
                             ? __('Nothing has been measured in the last :count seconds, so we do not know.', ['count' => $staleAfterSeconds])
-                            : ($endpoint['responseMs'] === null
-                                ? __('Answered from :count regions.', ['count' => $endpoint['regionCount']])
-                                : __(':ms ms on average, across the :count regions that answered.', ['ms' => $endpoint['responseMs'], 'count' => $endpoint['regionCount']])),
+                            : ($endpoint['dissentingRegions'] > 0 && ! $endpoint['reportsProblem']
+                                // ANY dissent, not just enough of it to reach the mixed
+                                // rung. One down region, or every region answering
+                                // `degraded`, left the hub printing "reached normally"
+                                // while the page it links to printed the dissent
+                                // paragraph. A summary may be shorter than the page; it
+                                // may not be more confident.
+                                ? __(':count of :total regions did not report it healthy. We do not call that an outage yet.', ['count' => $endpoint['dissentingRegions'], 'total' => $endpoint['regionCount']])
+                                : ($endpoint['responseMs'] === null
+                                    ? __('Answered from :count regions.', ['count' => $endpoint['regionCount']])
+                                    : __(':ms ms on average, across the :count regions that answered.', ['ms' => $endpoint['responseMs'], 'count' => $endpoint['regionCount']]))),
                         'timestamp' => $endpoint['checkedAt'],
                         'ageSeconds' => $endpoint['ageSeconds'],
                     ])
@@ -93,7 +113,12 @@
                             : ($entry['feed']['indicator'] === null
                                 ? __('They publish no overall status word.')
                                 : __('They report: :indicator', ['indicator' => $entry['feed']['indicator']])),
-                        'detail' => null,
+                        // The staleness hedge the detail page carries. Hardcoding null
+                        // here let a quote from a feed that was auto-disabled hours ago
+                        // read in the present tense next to a fresh timestamp.
+                        'detail' => $entry['feed']['stale']
+                            ? __('This is what they published then, not necessarily what they publish now: it is older than our :count second freshness bound.', ['count' => $staleAfterSeconds])
+                            : null,
                         'timestamp' => $entry['feed']['fetchedAt'],
                         'ageSeconds' => $entry['feed']['ageSeconds'],
                     ])

@@ -114,6 +114,46 @@ class ServicePageAssembler
     public const string VERDICT_UNREACHABLE = 'major_outage';
 
     /**
+     * Fresh readings exist, at least {@see self::MIN_AGREEING_REGIONS} of them
+     * report the endpoint down, and the monitor's own streak has NOT crossed its
+     * `incident_threshold`. Neither "we reached it normally" nor "we could not
+     * reach it" is true of that state, so it gets its own rung.
+     *
+     * WITHOUT THIS RUNG THE PAGE PUBLISHED A FALSE POSITIVE
+     *
+     * The verdict used to fall through to {@see self::VERDICT_REACHED} whenever
+     * `reportsProblem` was false, so a page could say "We reached github.com
+     * normally" with a green dot while every fresh region was reporting down. The
+     * two conditions behind `reportsProblem` are not independent, which is what
+     * made that reachable rather than theoretical:
+     * `CheckPersistenceService.php:305-315` resets `consecutive_fails` to 0 on ANY
+     * non-down result from ANY region, so while even one region still succeeds the
+     * streak cannot climb, the conjunction can never be satisfied, and a partial
+     * or flapping outage stayed pinned at the affirmative claim for its whole
+     * duration.
+     *
+     * `degraded` and not `partial_outage`, though the latter is the more literal
+     * description: `partial_outage` shares `down`'s red
+     * (`StatusPresentation.php:49`), and red would assert the outage this rung
+     * exists to say we are NOT yet calling. Amber says what is true, that
+     * something is wrong and uptizm is not willing to name it yet.
+     *
+     * ITS ONE FUNCTIONAL REACH, beyond the words on the page: {@see self::healthyFrom()}
+     * maps it to null through the default arm, so a mixed own-block holds no opinion
+     * and {@see self::diverges()} therefore stays silent. That is correct rather than
+     * incidental. An amber own-block and a provider reporting a problem do not
+     * disagree, and before this rung existed the page printed "they do not agree" on
+     * top of an own claim that was itself false. Do NOT map this rung to `false`: it
+     * would print a divergence on every two-region blip against an all-clear feed.
+     *
+     * Pinned by `tests/Feature/Marketing/ServiceStatusPageTest.php`, which asserts
+     * what the page SAYS in this state rather than only what it does not say, and
+     * asserts the divergence suppression. The absence-only assertion is how the false
+     * positive shipped.
+     */
+    public const string VERDICT_MIXED = 'degraded';
+
+    /**
      * Upper bound on the check rows read per endpoint while reducing to the
      * latest reading per region.
      *
@@ -211,18 +251,28 @@ class ServicePageAssembler
             $endpoints[] = $this->endpoint($monitor, $withStrip ? ($strips[$monitor->id] ?? []) : null);
         }
 
-        // The service-level verdict is the worst of its endpoints', and "worst"
-        // here has only three rungs on purpose (see rule 3): unreachable when an
-        // endpoint cleared BOTH conditions, unknown when nothing is fresh enough
-        // to speak for, otherwise reached. A degraded or single-region failure is
-        // visible in the per-region rows and in the strip, and is deliberately
-        // not a headline claim.
+        // The service-level verdict is the worst of its endpoints', across FOUR
+        // rungs: unreachable when an endpoint cleared both conditions, unknown
+        // when nothing is fresh enough to speak for, MIXED when a fresh endpoint
+        // is seeing enough regions fail to be a real signal without having
+        // crossed its streak threshold, otherwise reached.
+        //
+        // The mixed rung is not decoration. This roll-up previously fell through
+        // to `reached` in that case, so the hub and the headline both published
+        // "we reached it normally" over an endpoint whose fresh regions were
+        // failing. See VERDICT_MIXED for why the streak cannot be relied on to
+        // catch a partial outage.
         $reportsProblem = $endpoints !== [] && in_array(true, array_column($endpoints, 'reportsProblem'), true);
         $fresh = array_values(array_filter($endpoints, static fn (array $endpoint): bool => ! $endpoint['stale']));
+        $mixed = array_values(array_filter(
+            $fresh,
+            static fn (array $endpoint): bool => $endpoint['status'] === self::VERDICT_MIXED,
+        ));
 
         $status = match (true) {
             $reportsProblem => self::VERDICT_UNREACHABLE,
             $fresh === [] => StatusPageAssembler::STATUS_UNKNOWN,
+            $mixed !== [] => self::VERDICT_MIXED,
             default => self::VERDICT_REACHED,
         };
 
@@ -265,8 +315,13 @@ class ServicePageAssembler
         // to have crossed its `incident_threshold` AND the failure has to be
         // agreed by more than one region.
         $threshold = $monitor->incident_threshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD;
+        $downRegions = count($down);
+        $upRegions = count(array_filter(
+            $readings,
+            static fn (array $reading): bool => $reading['status'] === MonitorStatus::Up->value,
+        ));
         $reportsProblem = $monitor->consecutive_fails >= $threshold
-            && count($down) >= self::MIN_AGREEING_REGIONS;
+            && $downRegions >= self::MIN_AGREEING_REGIONS;
 
         return [
             // The host that was actually probed, and the page names it in every
@@ -283,9 +338,29 @@ class ServicePageAssembler
             'status' => match (true) {
                 $readings === [] => StatusPageAssembler::STATUS_UNKNOWN,
                 $reportsProblem => self::VERDICT_UNREACHABLE,
+                // Enough fresh regions report down to be a real signal, but the
+                // streak has not crossed the threshold. Neither claim is true, so
+                // the middle rung says so rather than falling through to the
+                // affirmative one. See VERDICT_MIXED for why this is reachable.
+                $downRegions >= self::MIN_AGREEING_REGIONS => self::VERDICT_MIXED,
+                $upRegions === 0 => self::VERDICT_MIXED,
+                // The affirmative rung has to earn itself. Failing the OUTAGE bar is
+                // not evidence of normality: with a single fresh reading that says
+                // down, `$downRegions` is 1, the quorum is not met, and the old
+                // `default` published "we reached it normally" over a reading that
+                // said the opposite. Reachable without a race, because the monitor
+                // form lets an operator narrow a catalog monitor to one region.
+                // MIN_AGREEING_REGIONS governs the outage claim only; the positive
+                // claim needs at least one region that actually succeeded.
                 default => self::VERDICT_REACHED,
             },
             'reportsProblem' => $reportsProblem,
+            'downRegions' => $downRegions,
+            // Needed by the view, not just here: the mixed rung has three honest
+            // wordings and only `upRegions` tells them apart. Without it the rung
+            // said "from some regions and not others" over a reading where NO region
+            // reached the endpoint, and over one where every region answered.
+            'upRegions' => $upRegions,
             'dissentingRegions' => count(array_filter(
                 $readings,
                 static fn (array $reading): bool => $reading['status'] !== MonitorStatus::Up->value,
