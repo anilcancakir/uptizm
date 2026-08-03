@@ -94,11 +94,23 @@ class ContentArchiveConfigTest extends TestCase
     {
         Storage::disk(config('content-archive.disk'))->put('probe.txt', 'content');
 
-        $realRoot = storage_path('app/private/monitor-content');
+        // Assert on THIS test's own write, not on the directory being globally
+        // empty. The emptiness check read as stricter and was in fact broken: a
+        // developer machine where the app has ever really run holds archived
+        // bodies under this root (the ArchiveContent job writes them, which is
+        // the product working), and the test then failed for a reason that has
+        // nothing to do with whether the fake is installed. It also failed in
+        // the worst polarity, green in CI and red locally.
+        $realFile = storage_path('app/private/monitor-content/probe.txt');
+
+        $this->assertFileDoesNotExist(
+            $realFile,
+            'A write to the content disk reached the real filesystem, so TestCase::setUp() is not faking it.',
+        );
 
         $this->assertTrue(
-            ! is_dir($realRoot) || glob($realRoot.'/*') === [],
-            'A write to the content disk reached the real filesystem, so TestCase::setUp() is not faking it.',
+            Storage::disk(config('content-archive.disk'))->exists('probe.txt'),
+            'The write did not land on the fake either, so this test proved nothing.',
         );
     }
 }
