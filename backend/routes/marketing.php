@@ -1,11 +1,16 @@
 <?php
 
 use App\Http\Controllers\Marketing\SendContactMessageController;
+use App\Http\Controllers\Marketing\ShowBotController;
 use App\Http\Controllers\Marketing\ShowContactController;
 use App\Http\Controllers\Marketing\ShowFaqController;
 use App\Http\Controllers\Marketing\ShowLandingController;
 use App\Http\Controllers\Marketing\ShowPrivacyController;
+use App\Http\Controllers\Marketing\ShowServiceIndexController;
+use App\Http\Controllers\Marketing\ShowServiceStatusController;
+use App\Http\Controllers\Marketing\ShowSitemapController;
 use App\Http\Controllers\Marketing\ShowTermsController;
+use App\Services\Services\SitemapBuilder;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -126,6 +131,10 @@ $documents = [
     'terms' => ShowTermsController::class,
     'contact' => ShowContactController::class,
     'faq' => ShowFaqController::class,
+    // The contact point `config('uptizm.bot_user_agent')` advertises on every feed
+    // request the service catalog makes. It has to resolve: an operator who does not
+    // want us reading their feed needs somewhere to find out who we are and say so.
+    'bot' => ShowBotController::class,
 ];
 
 foreach ($documents as $page => $controller) {
@@ -151,6 +160,97 @@ foreach ($documents as $page => $controller) {
             ->name($page.'.localized');
     }
 }
+
+/*
+ * The public service catalog: the hub at `/status`, and one page per PUBLISHED
+ * service at `/status/{slug}`.
+ *
+ * The paths mirror the documents above exactly, per language: the default language
+ * on the apex, every other language behind its prefix, the default language's
+ * prefixed form a 301 so there is one URL per language per page for hreflang to
+ * name. `Route::redirect` substitutes the `{slug}` into its destination (the
+ * framework's `RedirectController` binds the destination as a route and passes the
+ * matched parameters through), so the redirect keeps the visitor on the service
+ * they asked for instead of dropping them on the hub.
+ *
+ * THE CONSTRAINT IS ON THE LOCALE, AND ON NOTHING ELSE
+ *
+ * The `whereIn` is the same one every localized route here carries, for the same
+ * reason: unconstrained, `/{locale}/status` would answer `/de/status` and
+ * `/xx/status` with the English page under a 200, which invites a crawler to index
+ * one document at unbounded addresses, and the one-segment form would be a bare
+ * two-letter catch-all that swallows `/up`, the health check nginx and the deploy
+ * script poll.
+ *
+ * What is deliberately NOT here is a `whereIn` built from the published slugs.
+ * This file runs on EVERY console boot, so a query here would hit `services`
+ * before that table exists during a fresh `php artisan migrate`, and
+ * `php artisan optimize` would freeze the slug list into the route cache so a
+ * newly published service 404s until the next deploy. The slug carries a static
+ * SHAPE pattern instead, and publication (plus the terms review) is enforced in
+ * the controller with `abort_if(..., 404)`, exactly as `/s/{slug}` gates itself.
+ *
+ * The route NAMES are `services.index` / `services.show`. Not `status.show`: that
+ * name belongs to the customer status page (`routes/status.php:22`) and is read by
+ * `StatusPagePreviewRenderer` and `status/partials/footer.blade.php`, so
+ * re-registering it would silently retarget an existing named route and break the
+ * customer preview.
+ *
+ * Both are throttled by the named limiter `ShowServiceStatusController::LIMITER`
+ * registered in `bootstrap/app.php`; that constant's docblock explains why this
+ * reuses the existing bucket rather than adding one here.
+ */
+Route::get('/'.ShowServiceStatusController::PATH, ShowServiceIndexController::class)
+    ->middleware('throttle:'.ShowServiceStatusController::LIMITER)
+    ->name('services.index');
+
+Route::redirect('/'.$defaultLocale.'/'.ShowServiceStatusController::PATH, '/'.ShowServiceStatusController::PATH, 301);
+
+if ($prefixedLocales !== []) {
+    Route::get('/{locale}/'.ShowServiceStatusController::PATH, ShowServiceIndexController::class)
+        ->whereIn('locale', $prefixedLocales)
+        ->middleware('throttle:'.ShowServiceStatusController::LIMITER)
+        ->name('services.index.localized');
+}
+
+Route::get('/'.ShowServiceStatusController::PATH.'/{slug}', ShowServiceStatusController::class)
+    ->where('slug', ShowServiceStatusController::SLUG_PATTERN)
+    ->middleware('throttle:'.ShowServiceStatusController::LIMITER)
+    ->name('services.show');
+
+Route::redirect(
+    '/'.$defaultLocale.'/'.ShowServiceStatusController::PATH.'/{slug}',
+    '/'.ShowServiceStatusController::PATH.'/{slug}',
+    301,
+);
+
+if ($prefixedLocales !== []) {
+    Route::get('/{locale}/'.ShowServiceStatusController::PATH.'/{slug}', ShowServiceStatusController::class)
+        ->whereIn('locale', $prefixedLocales)
+        ->where('slug', ShowServiceStatusController::SLUG_PATTERN)
+        ->middleware('throttle:'.ShowServiceStatusController::LIMITER)
+        ->name('services.show.localized');
+}
+
+/*
+ * The sitemap index and its two segments.
+ *
+ * ONE URL each, with no locale prefix and no locale variants, because a sitemap is
+ * not a page a visitor reads in a language: every entry inside it carries every
+ * language as an `xhtml:link` alternate instead, composed from the same
+ * `ChromeData` the pages build their own hreflang from.
+ *
+ * `sitemap.xml` is the INDEX and contains no `<url>` element; the two segments are
+ * the url sets. Segmenting by template is what makes an indexing problem
+ * diagnosable per template in Search Console rather than as one flat list.
+ *
+ * `robots.txt` is NOT here: it is a static file under `public/`, served by the web
+ * server without touching PHP, which is also why the Laravel test client cannot
+ * assert it and the QA curl does.
+ */
+Route::get('/'.SitemapBuilder::INDEX_PATH, [ShowSitemapController::class, 'index'])->name('sitemap.index');
+Route::get('/'.SitemapBuilder::MARKETING_PATH, [ShowSitemapController::class, 'marketing'])->name('sitemap.marketing');
+Route::get('/'.SitemapBuilder::SERVICES_PATH, [ShowSitemapController::class, 'services'])->name('sitemap.services');
 
 /*
  * The contact form's write path: the only unauthenticated write on this surface.
