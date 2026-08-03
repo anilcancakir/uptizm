@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/ui/components/assistant/index.dart';
 import 'package:uptizm/ui/layouts/app_layout.dart';
 import 'package:uptizm/ui/layouts/bottom_nav.dart';
 import 'package:uptizm/ui/layouts/mobile_top_bar.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 import 'package:uptizm/ui/layouts/sidebar.dart';
 
 /// Feeds the floating assistant's greeting + chrome so [trans] returns real
@@ -68,7 +68,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('AppLayout responsive switch', () {
-    const layout = AppLayout(child: PageContainer(child: WText('content')));
+    const layout = AppLayout(child: MSPageContainer(child: WText('content')));
 
     testWidgets('renders the desktop Sidebar at wide width (>= lg)', (
       tester,
@@ -150,7 +150,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('AppLayout floating AI assistant', () {
-    const layout = AppLayout(child: PageContainer(child: WText('content')));
+    const layout = AppLayout(child: MSPageContainer(child: WText('content')));
 
     testWidgets('mounts exactly one Assistant at desktop and mobile widths', (
       tester,

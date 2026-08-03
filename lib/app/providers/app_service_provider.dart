@@ -8,7 +8,6 @@ import '../services/locale_application_service.dart';
 import '../services/realtime_service.dart';
 import '../support/web_links.dart';
 import '../../ui/layouts/app_layout.dart';
-import '../../ui/layouts/page_container.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
 
 /// Application Service Provider.
@@ -131,12 +130,23 @@ class AppServiceProvider extends ServiceProvider {
       (child) => AppLayout(child: child),
     );
 
-    // Magic Starter: cap its settings pages at uptizm's own page width. Sharing
-    // the shell is not enough to look like one app: the starter's scaffold
-    // centres its own column, and at its wider default the settings header
-    // started 64px further out per side than the header on every other page.
-    MagicStarter.manager.settingsMaxWidthClassName =
-        PageContainer.maxWidthClassName;
+    // Magic Starter: uptizm's page geometry, for every page in the app.
+    //
+    // This is the single place the app decides how wide a page is and how far
+    // its content sits from the edges. `MSPageContainer` reads it, and every
+    // page goes through `MSPageContainer` (uptizm's own views directly, the
+    // starter's account pages through `MSPageScaffold`), so nothing can drift.
+    // Sharing the shell was not enough to look like one app: while each surface
+    // carried its own answer, the settings header started 64px further out per
+    // side than every other page and the team pages capped at nothing at all.
+    //
+    // The values: `max-w-6xl` is the shared content width from DESIGN.md.
+    // Horizontal margins ride the 8pt grid (16px compact, 20px regular, 32px
+    // wide). `pb-24` (96px) is the one non-obvious part: the Assistant FAB
+    // floats bottom-right OVER the content region, and without that clearance it
+    // covered the last row of every scrolled page.
+    MagicStarter.manager.pageContainerClassName =
+        'max-w-6xl px-4 sm:px-5 lg:px-8 pt-6 sm:pt-8 pb-24';
 
     // Magic Starter: Inject uptizm's Team + About groups into the settings hub
     // via its footer slot. The starter owns Account/Security/Preferences; these
