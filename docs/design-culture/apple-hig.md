@@ -122,7 +122,7 @@ dense cramped layouts.
 ## See also
 
 - [DESIGN.md](../DESIGN.md): the 17 semantic token definitions and color values for this app
-- [wind-responsive.md](wind-responsive.md): breakpoints, PageContainer, safe-area, sidebar vs bottom nav
+- [wind-responsive.md](wind-responsive.md): breakpoints, MSPageContainer, safe-area, sidebar vs bottom nav
 - [accessibility-wcag.md](accessibility-wcag.md): contrast requirements and design:lint enforcement
 - [motion-interaction.md](motion-interaction.md): easing, duration, and reduced-motion patterns in Flutter
 - [material-design-3.md](material-design-3.md): M3 alternative when Material feel is preferred

@@ -74,7 +74,7 @@ The following patterns are how generated or rushed UI gives itself away. Avoid a
   `p-6`(24px) `p-8`(32px) `p-12`(48px) `p-16`(64px). If a value is not on the scale, snap to
   the nearest step; never invent an arbitrary offset.
 - Do not fill available width. Constrain text columns via a `ConstrainedBox` with
-  `maxWidth: 600` (equivalent to `max-w-prose`). Use `PageContainer` for page shells. See
+  `maxWidth: 600` (equivalent to `max-w-prose`). Use `MSPageContainer` for page shells. See
   [wind-responsive.md](wind-responsive.md).
 - Dense data UIs (tables, dashboards) use a compressed scale (drop one or two steps), not a
   different arbitrary set.
@@ -162,7 +162,7 @@ EmptyState(
   contrast tiers. Reserve `bg-primary` for the single primary action per view; secondary actions
   use Button `secondary` or `ghost` variant.
 - Spacing: use the 4px Wind scale (`gap-4`/`p-4`/`gap-6`) and keep inside < between < section.
-  Wrap text columns in a `ConstrainedBox`; use `PageContainer` for page shells.
+  Wrap text columns in a `ConstrainedBox`; use `MSPageContainer` for page shells.
 - Color: consume the 17 semantic tokens from DESIGN.md. On a colored surface use the matching
   `on-*` token; never use `text-fg-muted` on a filled background.
 - Depth: `rounded-lg` for cards/dialogs, `rounded-md` for buttons. Prefer
@@ -175,7 +175,7 @@ EmptyState(
 - [DESIGN.md](../DESIGN.md): token definitions, typography scale, spacing scale
 - [accessibility-wcag.md](accessibility-wcag.md): contrast requirements
 - [material-design-3.md](material-design-3.md): M3 role-to-token mapping
-- [wind-responsive.md](wind-responsive.md): layout patterns and PageContainer
+- [wind-responsive.md](wind-responsive.md): layout patterns and MSPageContainer
 - [motion-interaction.md](motion-interaction.md): loading states, skeleton, transition patterns
 
 ## Sources

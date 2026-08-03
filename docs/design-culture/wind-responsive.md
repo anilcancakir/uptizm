@@ -31,44 +31,66 @@ Wind has no CSS `@media` query mechanism; the breakpoint resolution runs inside 
 using the current `MediaQuery` width. Do not try to use CSS media queries or `LayoutBuilder`
 directly for layout decisions that are already expressible as Wind breakpoint prefixes.
 
-## PageContainer
+## MSPageContainer
 
-`PageContainer` (from magic_starter) constrains the content width and applies consistent
-horizontal gutters. Always wrap page-level content in `PageContainer`; do not build custom max-
-width constraints per-screen.
+`MSPageContainer` (from magic_starter) is the one page container in the app. It constrains the
+content width, applies the horizontal gutters and the vertical rhythm, and guards the horizontal
+safe area. Always wrap page-level content in it; never build a per-screen max-width constraint.
 
 ```dart
-PageContainer(
-  child: WDiv(
-    className: 'flex flex-col gap-6 py-6',
-    children: [...],
-  ),
+MSPageContainer(
+  children: [
+    MSPageHeader(title: 'Monitors', actions: [newMonitorButton]),
+    monitorTable,
+  ],
 )
 ```
 
-`PageContainer` sets `maxWidth: 1200px` and the horizontal padding:
+The geometry is not the container's to decide. It reads
+`MagicStarter.manager.pageContainerClassName`, which `AppServiceProvider.boot()` sets once for the
+whole app:
 
-- Mobile: `px-4` (16px each side)
-- `md:` and above: `px-6` (24px each side)
+```dart
+MagicStarter.manager.pageContainerClassName =
+    'max-w-6xl px-4 sm:px-5 lg:px-8 pt-6 sm:pt-8 pb-24';
+```
 
-Do not add extra horizontal padding inside `PageContainer`; let it handle the gutters.
+So the current values are `max-w-6xl` for the content width, gutters of 16px compact, 20px from
+`sm:`, 32px from `lg:`, a `pt-6 sm:pt-8` top offset, and a `pb-24` bottom pad. That last one is the
+only non-obvious value: the Assistant FAB floats bottom-right over the content region, and without
+96px of clearance it covers the last row of a scrolled page.
+
+The starter's own account pages (settings, profile, teams, notifications) read the same value
+through `MSPageScaffold`, which composes `MSPageContainer`. That is what keeps a settings page and a
+monitors page on the same grid inside the same shell.
+
+Do not add extra horizontal padding inside `MSPageContainer`; let it handle the gutters. A page that
+genuinely needs to tune one axis passes `className`, which is appended after the shared geometry:
+
+```dart
+MSPageContainer(
+  className: 'pb-0', // This page ends with its own sticky footer bar.
+  child: pageBody,
+)
+```
 
 ## Safe area handling
 
-On iOS and Android, system UI (status bar, home indicator, notch) can overlap content. Always
-wrap the root of a full-screen page in `SafeArea`:
+On iOS and Android, system UI (status bar, home indicator, notch) can overlap content.
+
+A routed page does not handle this itself. `MSPageContainer` already guards the horizontal insets
+(`SafeArea` with `top: false, bottom: false`), so content never slides under a rounded display
+corner. The vertical insets belong to the shell: `AppLayout`'s top bar and bottom nav are flow
+children that already clear the status bar and the home indicator, so a page that adds its own
+`SafeArea` double-insets.
+
+Only a surface rendered OUTSIDE the layout shell (an overlay, a fullscreen sheet) handles the
+vertical insets itself:
 
 ```dart
-// In a page-level build method
-Scaffold(
-  body: SafeArea(
-    child: PageContainer(child: content),
-  ),
-)
+// An overlay mounted above the shell, not a routed page.
+SafeArea(child: overlayContent)
 ```
-
-`AppLayout` and `GuestLayout` apply `SafeArea` at the shell level; views rendered inside the
-layout shell do NOT need to re-wrap in `SafeArea`.
 
 For custom bottom actions (a sticky CTA at the bottom of the screen), account for the home
 indicator via `MediaQuery.viewPaddingOf(context).bottom`:
@@ -168,7 +190,7 @@ ConstrainedBox(
 )
 ```
 
-Inside `PageContainer`, text naturally hits the container max-width. For individual narrow
+Inside `MSPageContainer`, text naturally hits the container max-width. For individual narrow
 columns (auth forms, settings cards) apply an inner `ConstrainedBox(maxWidth: 480)`.
 
 ## WindRecipe with responsive variants
