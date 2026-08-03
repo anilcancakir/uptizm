@@ -5,21 +5,16 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/resources/views/settings/changelog_settings_view.dart';
 
-/// In-memory language loader supplying every [trans] key exercised by the
-/// About & support settings sub-pages (help and changelog). The
-/// account/security/preferences sub-pages moved to magic_starter and the legal
-/// documents moved to the website, so their keys are gone. Short, wrappable
-/// strings avoid RenderFlex overflow at the test viewport.
+/// In-memory language loader supplying every [trans] key exercised by the one
+/// remaining About & support sub-page, the changelog. The account/security/
+/// preferences sub-pages moved to magic_starter, the legal documents and the FAQ
+/// moved to the website, and the Help page went with them, so their keys are
+/// gone. Short, wrappable strings avoid RenderFlex overflow at the test
+/// viewport.
 class _SettingsViewsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
     return {
-      // Help.
-      'uptizm.settings.help_title': 'Help & support',
-      'uptizm.settings.help_description': 'Answers, guides, and contact.',
-      'uptizm.settings.help_contact_heading': 'Contact support',
-      'uptizm.settings.help_contact_note': 'We usually reply quickly.',
-      'uptizm.settings.help_contact_email_button': 'Email support',
 
       // Changelog.
       'uptizm.settings.changelog_title': 'Changelog',
@@ -64,16 +59,12 @@ void main() {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // HelpSettingsView
-  // ---------------------------------------------------------------------------
-
-  // The Help view's own coverage moved to
-  // test/resources/views/settings/help_settings_view_test.dart, which asserts
-  // the URL handed to the launcher. Nothing is asserted here any more: the
-  // in-app FAQ accordion this group covered was deleted deliberately, because
-  // the web FAQ derives its figures from config while the Dart copy was typed
-  // by hand and had already started contradicting the plan limits.
+  // The Help view is gone entirely, and so is its test file. Its FAQ accordion had
+  // already been deleted (the web FAQ derives its figures from config, while the
+  // Dart copy was typed by hand and had started contradicting the plan limits),
+  // which left a whole screen whose only content was a button to the Contact page
+  // the settings hub already links. The hub now links straight to the website's
+  // FAQ; `test/ui/layouts/uptizm_hub_extras_test.dart` owns that row.
 
   // ---------------------------------------------------------------------------
   // ChangelogSettingsView

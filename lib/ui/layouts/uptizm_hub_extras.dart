@@ -14,7 +14,7 @@ import '../../app/support/web_links.dart';
 ///
 /// 1. **Team** --- team-ops sub-pages (`/teams/notifications`, `/teams/escalation`,
 ///    `/teams/on-call`, `/teams/billing`).
-/// 2. **About & support** --- the in-app static pages (`/settings/help`,
+/// 2. **About & support** --- the in-app static page (`/settings/changelog`),
 ///    `/settings/changelog`) plus the three documents the WEBSITE owns
 ///    (Contact, Privacy, Terms), opened externally through [WebLinks].
 ///
@@ -107,19 +107,24 @@ class UptizmHubExtras extends StatelessWidget {
           ],
         ),
 
-        // 2. About & support: the two in-app static pages, then the three
-        //    documents the website owns. Contact / Privacy / Terms open the
+        // 2. About & support: one in-app page (the changelog), then the four
+        //    documents the website owns. FAQ / Contact / Privacy / Terms open the
         //    website in the active language (`/terms` in the default language,
         //    `/tr/terms` in Turkish), so the app never carries a second copy of
         //    a text the site already publishes.
+        //
+        //    FAQ replaced a `/settings/help` page that had already had its own
+        //    FAQ accordion deleted for exactly that reason, leaving a screen whose
+        //    only remaining content was a button to the Contact page the row below
+        //    already offers. Linking straight out removes the extra hop.
         MSSettingsSection(
           header: trans('uptizm.settings.hub_group_about'),
           children: [
-            MSSettingsNavRow(
+            _externalRow(
               icon: _iconHelp,
-              title: trans('uptizm.settings.hub_help_title'),
-              subtitle: trans('uptizm.settings.hub_help_subtitle'),
-              to: '/settings/help',
+              title: trans('uptizm.settings.hub_faq_title'),
+              subtitle: trans('uptizm.settings.hub_faq_subtitle'),
+              url: WebLinks.faq,
             ),
             MSSettingsNavRow(
               icon: _iconChangelog,

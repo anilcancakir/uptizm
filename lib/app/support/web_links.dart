@@ -43,6 +43,15 @@ class WebLinks {
   /// Absolute URL of the Privacy Policy page, in the active language.
   static String get privacy => page('privacy');
 
+  /// Absolute URL of the FAQ page, in the active language.
+  ///
+  /// The settings hub links here instead of carrying an in-app FAQ. The website's
+  /// answers derive their figures from the same config and enums the product runs
+  /// on (region count, plan limits, retention), so a second copy in Dart drifts
+  /// the moment either changes, and the one that shipped had already started
+  /// contradicting the plan limits.
+  static String get faq => page('faq');
+
   /// Absolute URL of the Contact page, in the active language.
   static String get contact => page('contact');
 

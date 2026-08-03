@@ -99,7 +99,16 @@ void main() {
         findsOneWidget,
       );
 
-      expect(find.text('uptizm.settings.hub_help_title'), findsOneWidget);
+      expect(find.text('uptizm.settings.hub_faq_title'), findsOneWidget);
+      expect(
+        find.text('uptizm.settings.hub_help_title'),
+        findsNothing,
+        reason:
+            'the in-app Help page is gone: its FAQ accordion had already been '
+            'deleted (the website derives those figures from config, a Dart copy '
+            'drifts) and all that was left was a button to the Contact page the '
+            'row below already offers',
+      );
       expect(
         find.text('uptizm.settings.hub_changelog_title'),
         findsOneWidget,
@@ -121,6 +130,7 @@ void main() {
       await tester.pump();
 
       for (final String key in [
+        'uptizm.settings.hub_faq_title',
         'uptizm.settings.hub_contact_title',
         'uptizm.settings.hub_privacy_title',
         'uptizm.settings.hub_terms_title',
@@ -135,6 +145,7 @@ void main() {
       expect(
         adapter.launched.map((Uri url) => url.toString()).toList(),
         [
+          'https://uptizm.com/faq',
           'https://uptizm.com/contact',
           'https://uptizm.com/privacy',
           'https://uptizm.com/terms',

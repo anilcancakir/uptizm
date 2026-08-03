@@ -11,7 +11,6 @@ import '../resources/views/monitors/monitor_detail_view.dart';
 import '../resources/views/monitors/monitor_edit_view.dart';
 import '../resources/views/monitors/monitors_list_view.dart';
 import '../resources/views/settings/changelog_settings_view.dart';
-import '../resources/views/settings/help_settings_view.dart';
 import '../resources/views/status/status_page_editor_view.dart';
 import '../resources/views/status/status_page_preview_view.dart';
 import '../resources/views/status/status_page_subscribers_view.dart';
@@ -62,7 +61,6 @@ import '../ui/layouts/app_layout.dart';
 ///   in-app full-screen mockup of the public status page.
 /// - `/status/:id/subscribers` — [StatusPageSubscribersView] inside
 ///   [AppLayout]; subscriber management for a status page.
-/// - `/settings/help` — [HelpSettingsView] inside [AppLayout].
 /// - `/settings/changelog` — [ChangelogSettingsView] inside [AppLayout].
 /// - `/teams/notifications` — [NotificationChannelsView] inside [AppLayout].
 /// - `/teams/escalation` — [EscalationPoliciesView] inside [AppLayout].
@@ -222,11 +220,6 @@ void registerAppRoutes() {
       //     only the domain-specific static pages the starter does not provide.
       //     All static paths (no :id), so registration order carries no
       //     first-match concern.
-      MagicRoute.page(
-        '/settings/help',
-        () => const HelpSettingsView(),
-      ).title('uptizm.titles.help').transition(RouteTransition.none);
-
       MagicRoute.page(
         '/settings/changelog',
         () => const ChangelogSettingsView(),
