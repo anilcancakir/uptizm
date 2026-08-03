@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use FlutterSdk\MagicStarter\Traits\HasGuestSupport;
 use FlutterSdk\MagicStarter\Traits\HasNotifications;
@@ -16,7 +18,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable implements HasLocalePreference, MustVerifyEmailContract
+class User extends Authenticatable implements FilamentUser, HasLocalePreference, MustVerifyEmailContract
 {
     use ConditionallyUsesUuids;
     use HasApiTokens;
@@ -28,6 +30,18 @@ class User extends Authenticatable implements HasLocalePreference, MustVerifyEma
     use MustVerifyEmail;
     use Notifiable;
     use TwoFactorAuthenticatable;
+
+    /**
+     * The id of the Filament panel this gate speaks for.
+     *
+     * Declared by `App\Providers\Filament\AdminPanelProvider::panel()` through
+     * `->id('admin')`; repeated here because `canAccessPanel()` receives the panel
+     * and must not answer for one it knows nothing about. The two are kept in step
+     * by `StaffGateTest::test_the_staff_panel_id_matches_the_registered_panel()`,
+     * so renaming the panel fails that test instead of silently locking every
+     * member of staff out.
+     */
+    public const STAFF_PANEL_ID = 'admin';
 
     /**
      * The attributes that are mass assignable.
@@ -77,5 +91,92 @@ class User extends Authenticatable implements HasLocalePreference, MustVerifyEma
     public function preferredLocale(): ?string
     {
         return $this->locale;
+    }
+
+    /**
+     * Determine whether this user may reach the staff back-office panel.
+     *
+     * This method is the ONLY control in front of `config('uptizm.admin_host')`.
+     * The panel's login page is publicly reachable on that host and the console
+     * behind it carries cross-team CRUD over every user, team and monitor in the
+     * product, so a false returned here is the difference between a password and a
+     * password plus an allowlist plus a second factor. Every branch below is
+     * pinned by `tests/Feature/Admin/StaffGateTest.php`.
+     *
+     * WHY THE CONTRACT ITSELF MATTERS
+     *
+     * Without `FilamentUser` on this model, `Filament\Http\Middleware\Authenticate`
+     * (`vendor/filament/filament/src/Http/Middleware/Authenticate.php:34-41`) falls
+     * back to `config('app.env') !== 'local'`, which admits EVERY authenticated
+     * user on a developer machine and denies everyone elsewhere with no allowlist
+     * involved either way. Implementing it replaces a guess about the environment
+     * with a decision about the person.
+     *
+     * FAIL-CLOSED IN EVERY DIRECTION
+     *
+     * An empty allowlist denies everyone, which is why membership is asserted
+     * rather than absence being treated as permissive, and why an address that
+     * normalises to an empty string is rejected before the comparison: `null`
+     * would otherwise match an empty entry a hand-edited config could carry.
+     * `config/uptizm.php` already lower-cases and trims the list at load, but a
+     * test injecting the array through `config()` bypasses that entirely, so both
+     * sides are normalised again here. That is deliberate duplication, not
+     * distrust of the config file.
+     *
+     * WHICH SECOND-FACTOR SIGNAL, AND WHY NOT THE OTHERS
+     *
+     * `hasEnabledTwoFactorAuthentication()` reads `two_factor_confirmed_at`, which
+     * is the only signal meaning CONFIRMED. `two_factor_secret` is weaker by a
+     * wide margin: `EnableTwoFactorAuthentication` writes the secret and NULLS the
+     * confirmation, and only `ConfirmTwoFactorAuthentication` sets it, so a secret
+     * on its own describes a setup that was started and abandoned. The helper's
+     * name says "enabled" while its body means "confirmed", and it lives in a
+     * sibling package we bump ourselves, so
+     * `StaffGateTest::test_a_secret_without_a_confirmation_is_not_a_second_factor()`
+     * pins the meaning rather than the call: an upgrade repointing that helper at
+     * the secret would go red there instead of quietly widening this gate.
+     *
+     * THE ONE HOLE IN "VERIFIED", AND WHAT CLOSES IT
+     *
+     * `hasVerifiedEmail()` comes from the starter's `MustVerifyEmail` trait, which
+     * returns true unconditionally for a guest because a guest has no address to
+     * verify. So that condition is vacuous for guests and cannot be the thing
+     * keeping one out. What keeps one out is step 2: `CreateGuestUser` force-fills
+     * `email` to `null`, so a guest can never normalise to an allowlisted address,
+     * and guest auth is not even enabled here (`config/magic-starter.php:47`).
+     * Both halves of that reasoning are pinned, so neither can rot unnoticed.
+     */
+    public function canAccessPanel(Panel $panel): bool
+    {
+        // 1. Answer for the staff panel alone. There is exactly one panel today,
+        //    so this branch is unreachable in practice and is here for the day it
+        //    is not: a second panel must state its own rule rather than silently
+        //    inherit staff semantics, and denial is the safe way to force that.
+        if ($panel->getId() !== self::STAFF_PANEL_ID) {
+            return false;
+        }
+
+        // 2. The candidate address, normalised on this side too. An empty result
+        //    (a guest, or a user row with no address) is refused here so it can
+        //    never meet an empty allowlist entry further down.
+        $email = mb_strtolower(trim((string) $this->email));
+
+        if ($email === '') {
+            return false;
+        }
+
+        // 3. Allowlist membership. `(array)` guards a scalar override of the config
+        //    value; a strict `in_array()` guards the usual loose-comparison traps.
+        $allowlist = array_map(
+            static fn (mixed $entry): string => mb_strtolower(trim((string) $entry)),
+            (array) config('uptizm.staff_emails', []),
+        );
+
+        if (! in_array($email, $allowlist, true)) {
+            return false;
+        }
+
+        // 4. A verified address and a CONFIRMED second factor, both required.
+        return $this->hasVerifiedEmail() && $this->hasEnabledTwoFactorAuthentication();
     }
 }

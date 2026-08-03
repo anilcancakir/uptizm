@@ -79,10 +79,21 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
  * directory for the call shape keeps returning nothing;
  * `PanelIsolationTest::test_the_panel_has_no_tenancy()` is the executable form.
  *
- * The panel is UNGATED as shipped by this file: `->login()` admits any user
- * Filament can authenticate. The access control is `User::canAccessPanel()`
- * (config allowlist, verified email, confirmed second factor). Until that exists,
- * this host is a cross-team admin console behind nothing but a password.
+ * WHERE THE ACCESS CONTROL ACTUALLY LIVES, WHICH IS NOT HERE
+ *
+ * `->login()` below admits any user Filament can authenticate, so this file on its
+ * own gates nothing. The control is `User::canAccessPanel()`, which requires all
+ * three of: membership of `config('uptizm.staff_emails')`, a verified address, and a
+ * CONFIRMED second factor. Filament calls it from
+ * `Filament\Http\Middleware\Authenticate`, and that middleware falls back to
+ * `config('app.env') !== 'local'` when the user model does not implement
+ * `FilamentUser`, which would admit every authenticated user on a dev box and
+ * consult no allowlist at all. So the gate is load-bearing in a way that is invisible
+ * from this file: removing the `implements FilamentUser` on the model does not break
+ * anything here, it silently opens the console.
+ * `tests/Feature/Admin/StaffGateTest.php` pins it, including an HTTP case proving the
+ * panel really does consult the gate rather than merely that the method returns
+ * false.
  */
 class AdminPanelProvider extends PanelProvider
 {
