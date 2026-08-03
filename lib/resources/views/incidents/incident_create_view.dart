@@ -14,7 +14,6 @@ import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// The incident kind: a real incident, or a scheduled maintenance window.
 ///
@@ -59,7 +58,7 @@ enum _IncidentKind {
 ///
 /// ### Layout + token discipline
 /// A plain Flutter [Column] scaffolds the page body inside the shared
-/// [PageContainer]; Wind utilities appear only on the leaf containers. The AI
+/// [MSPageContainer]; Wind utilities appear only on the leaf containers. The AI
 /// banner uses the dedicated `bg-ai-wash` / `border-ai-soft` / `bg-ai-soft` /
 /// `text-ai` tokens (no opacity-on-alias like the React `from-ai-soft/50`,
 /// which does not expand in Wind) and no raw color anywhere. The footer buttons
@@ -353,7 +352,7 @@ class _IncidentCreateViewState
     // The page body is a Wind flex column: the outer `gap-6` (24px) separates
     // the header from the body block, and the body block nests its own `gap-6`
     // between the optional AI banner, the form card, and the footer.
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

@@ -7,7 +7,6 @@ import '../../../app/enums/ai_confidence.dart';
 import '../../../app/support/digest_types.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Weekly AI digest screen at `/incidents/digest`.**
 ///
@@ -91,7 +90,7 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
 
   @override
   Widget build(BuildContext context) {
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-8',
         children: [

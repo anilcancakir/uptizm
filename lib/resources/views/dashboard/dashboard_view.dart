@@ -13,7 +13,6 @@ import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/incident_card/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
-import '../../../ui/layouts/page_container.dart';
 import 'locale_prompt_banner.dart';
 
 /// **The Dashboard home screen.**
@@ -46,7 +45,7 @@ import 'locale_prompt_banner.dart';
 /// state and no actions, so the controller is data-only (accepted thin
 /// controller). The routed app shell wraps this
 /// content (sidebar / bottom nav) at the routing layer; this widget only
-/// renders the page body inside the shared [PageContainer].
+/// renders the page body inside the shared [MSPageContainer].
 ///
 /// ### Example
 /// ```dart
@@ -89,7 +88,7 @@ class _DashboardViewState
     // held and a populated team landed on the create-your-first-monitor hero
     // until the fetch answered. The skeleton has to come first.
     if (controller.isFirstLoad) {
-      return PageContainer(child: _buildSkeleton());
+      return MSPageContainer(child: _buildSkeleton());
     }
 
     // Zero-monitor teams get a single focused hero instead of the full grid.
@@ -97,10 +96,10 @@ class _DashboardViewState
     // so the KPI row and the (necessarily empty) incident / monitor / AI
     // sections would only manufacture a "populated" dashboard out of zeros.
     if (controller.monitorCount == 0) {
-      return PageContainer(child: _buildEmptyDashboard());
+      return MSPageContainer(child: _buildEmptyDashboard());
     }
 
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-8',
         children: [

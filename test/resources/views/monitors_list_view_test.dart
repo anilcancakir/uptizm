@@ -12,7 +12,6 @@ import '../../support/skeleton_matchers.dart';
 import 'package:uptizm/resources/views/monitors/monitors_list_view.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 
 /// In-memory loader feeding the monitors page prose so [trans] returns short,
 /// wrappable strings instead of raw key tokens. Without this, the full dot-
@@ -154,11 +153,11 @@ void main() {
     );
   });
 
-  testWidgets('wraps its content in a PageContainer', (tester) async {
+  testWidgets('wraps its content in a MSPageContainer', (tester) async {
     await tester.pumpWidget(wrap(const MonitorsListView()));
     await tester.pump();
 
-    expect(find.byType(PageContainer), findsOneWidget);
+    expect(find.byType(MSPageContainer), findsOneWidget);
   });
 
   testWidgets('renders the four filter tabs', (tester) async {

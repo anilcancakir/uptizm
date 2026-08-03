@@ -11,7 +11,6 @@ import 'package:uptizm/resources/views/dashboard/dashboard_view.dart';
 import 'package:uptizm/resources/views/dashboard/locale_prompt_banner.dart';
 import 'package:uptizm/ui/components/ai_insight/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/monitor_list_row/index.dart';
 import '../../support/skeleton_matchers.dart';
@@ -319,7 +318,7 @@ void main() {
     expect(find.byType(IncidentCard), findsNWidgets(activeCount));
   });
 
-  testWidgets('DashboardView wraps its content in a PageContainer', (
+  testWidgets('DashboardView wraps its content in a MSPageContainer', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 2400));
@@ -328,7 +327,7 @@ void main() {
     await tester.pumpWidget(wrap(const DashboardView()));
     await tester.pumpAndSettle();
 
-    expect(find.byType(PageContainer), findsOneWidget);
+    expect(find.byType(MSPageContainer), findsOneWidget);
   });
 
   // A widget that renders nothing still occupies a slot in a Wind flex: gap

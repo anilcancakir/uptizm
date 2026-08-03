@@ -20,7 +20,6 @@ import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/incident_timeline/index.dart'
     show IncidentTimeline;
 import '../../../ui/components/status_badge/index.dart';
-import '../../../ui/layouts/page_container.dart';
 import 'incident_form_support.dart';
 
 /// **The Incident Detail screen.**
@@ -68,7 +67,7 @@ import 'incident_form_support.dart';
 /// off the incident, never mirrored locally; only the genuinely transient
 /// compose state (the lifecycle toggle, the update composer body, and the
 /// postmortem editor's open/dirty text) lives in this view. The body is a Wind
-/// flex column (`gap-*` carries the section rhythm); the shared [PageContainer]
+/// flex column (`gap-*` carries the section rhythm); the shared [MSPageContainer]
 /// bounds the width.
 ///
 /// ### Example
@@ -256,7 +255,7 @@ class _IncidentDetailViewState
     //    between the header block and the body sections; the header block nests
     //    a `gap-4` (16px) between the header and its chip row, and the body
     //    block a `gap-8` (32px) between each section.
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
@@ -1017,7 +1016,7 @@ class _IncidentDetailViewState
   /// Reuses the incidents error-load copy as a calm "couldn't load this
   /// incident" message rather than crashing on an unknown route id.
   Widget _buildNotFound() {
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

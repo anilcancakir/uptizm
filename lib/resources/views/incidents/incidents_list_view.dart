@@ -15,7 +15,6 @@ import '../../../app/support/formatters.dart' show formatMonthDayTime;
 import '../../../ui/components/incident_card/incident_card.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/maintenance_card/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Incidents list screen.**
 ///
@@ -28,7 +27,7 @@ import '../../../ui/layouts/page_container.dart';
 /// Reads the incident fixtures through [IncidentController]; this is a mock
 /// screen with no mutations, so the binding is read-only. The page body is a
 /// Wind flex column (`gap-*` carries the section rhythm, not `SizedBox`
-/// spacers); the shared [PageContainer] bounds the width.
+/// spacers); the shared [MSPageContainer] bounds the width.
 ///
 /// Composition mirrors `IncidentsListPage.tsx`:
 ///   header → counts row → search + filter row → incident list or empty state.
@@ -168,7 +167,7 @@ class _IncidentsListViewState
     // block from the search block; the header block nests its own `gap-6` (24px)
     // between header and counts, and the search block a `gap-4` (16px) between
     // its search input, filter row, and list.
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-8',
         children: [

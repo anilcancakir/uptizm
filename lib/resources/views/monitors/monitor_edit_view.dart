@@ -6,7 +6,6 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
-import '../../../ui/layouts/page_container.dart';
 import 'monitor_form.dart';
 import 'monitor_form_support.dart' show keyValueRowsFromMap;
 
@@ -27,7 +26,7 @@ import 'monitor_form_support.dart' show keyValueRowsFromMap;
 /// back to `/monitors` when [id] is null.
 ///
 /// Layout discipline mirrors [MonitorDetailView]: a plain Flutter [Column]
-/// scaffolds the page body inside [PageContainer] so leaf components receive
+/// scaffolds the page body inside [MSPageContainer] so leaf components receive
 /// bounded constraints rather than an unbounded Wind flex context.
 ///
 /// ### Example
@@ -84,9 +83,9 @@ class _MonitorEditViewState
       return _buildNotFound();
     }
 
-    // 2. A Wind flex column scaffolds the page body inside PageContainer with a
+    // 2. A Wind flex column scaffolds the page body inside MSPageContainer with a
     //    24px (gap-6) header->form rhythm; each leaf stays bounded.
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
@@ -150,7 +149,7 @@ class _MonitorEditViewState
   /// [MonitorDetailView] so the two screens behave consistently on an unknown
   /// route id.
   Widget _buildNotFound() {
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

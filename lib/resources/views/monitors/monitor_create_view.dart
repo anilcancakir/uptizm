@@ -9,7 +9,6 @@ import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/ai_confidence.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
-import '../../../ui/layouts/page_container.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 
 /// The setup mode: AI-assisted or manual hand configuration.
@@ -62,7 +61,7 @@ enum _AiStep {
 /// expand in Wind) and no raw color anywhere.
 ///
 /// Layout discipline mirrors [MonitorDetailView]: a plain Flutter [Column]
-/// scaffolds the page body inside the shared [PageContainer], and Wind
+/// scaffolds the page body inside the shared [MSPageContainer], and Wind
 /// utilities appear only on leaf containers. The footer buttons inside the
 /// embedded form are auto-width (never `w-full` inside a `flex-row`).
 ///
@@ -195,8 +194,8 @@ class _MonitorCreateViewState
   Widget build(BuildContext context) {
     // The page body is a Wind flex column with a uniform 24px (gap-6) rhythm
     // between the header, the mode picker, and the mode/step body; each leaf
-    // still receives a bounded width from PageContainer.
-    return PageContainer(
+    // still receives a bounded width from MSPageContainer.
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

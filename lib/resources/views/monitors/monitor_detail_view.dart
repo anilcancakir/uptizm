@@ -26,7 +26,6 @@ import '../../../ui/components/metric_chart/index.dart';
 import '../../../ui/components/slo_budget_card/index.dart';
 import '../../../ui/components/status_badge/index.dart';
 import '../../../ui/components/uptime_bar/index.dart';
-import '../../../ui/layouts/page_container.dart';
 import 'monitor_metrics_tab.dart';
 
 /// **The Monitor Detail screen.**
@@ -56,7 +55,7 @@ import 'monitor_metrics_tab.dart';
 ///
 /// Layout discipline mirrors [DashboardView] / [MonitorsListView]: a plain
 /// Flutter [Column] scaffolds the page body so each leaf component receives a
-/// bounded, well-formed width constraint from the shared [PageContainer]
+/// bounded, well-formed width constraint from the shared [MSPageContainer]
 /// rather than an unbounded Wind flex-scroll regime. Wind utilities appear
 /// only on leaf containers, never as the outermost flex context. This keeps
 /// the dense MetricChart + CheckHistoryTable + KPI grid from overflowing on a
@@ -353,10 +352,10 @@ class _MonitorDetailViewState
     final bool paused = monitor.status == StatusKey.paused;
 
     // 2. A Wind flex column scaffolds the page body (24px header->body rhythm
-    //    via gap-6); each leaf receives a bounded width from PageContainer,
+    //    via gap-6); each leaf receives a bounded width from MSPageContainer,
     //    keeping the dense leaves from overflowing on mobile. The header always
     //    shows; only the body below it gates on _loading.
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [
@@ -1028,7 +1027,7 @@ class _MonitorDetailViewState
   /// Reuses the monitors error-load copy as a calm "couldn't load this
   /// monitor" message rather than crashing on an unknown route id.
   Widget _buildNotFound() {
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-6',
         children: [

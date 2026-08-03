@@ -14,7 +14,6 @@ import 'package:uptizm/ui/components/metric_chart/index.dart';
 import 'package:uptizm/ui/components/slo_budget_card/index.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
 import 'package:uptizm/ui/components/uptime_bar/index.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 
 import '../../support/monitor_fixtures.dart';
 import '../../support/skeleton_matchers.dart';
@@ -326,7 +325,7 @@ void main() {
     expect(bar.segments, hasLength(90));
   });
 
-  testWidgets('MonitorDetailView wraps its content in a PageContainer', (
+  testWidgets('MonitorDetailView wraps its content in a MSPageContainer', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 2200));
@@ -335,7 +334,7 @@ void main() {
     await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
     await settleSkeleton(tester);
 
-    expect(find.byType(PageContainer), findsOneWidget);
+    expect(find.byType(MSPageContainer), findsOneWidget);
   });
 
   testWidgets(

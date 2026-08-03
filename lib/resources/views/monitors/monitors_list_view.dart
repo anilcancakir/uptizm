@@ -10,7 +10,6 @@ import '../../../app/models/monitor.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
-import '../../../ui/layouts/page_container.dart';
 
 /// **The Monitors list screen.**
 ///
@@ -22,7 +21,7 @@ import '../../../ui/layouts/page_container.dart';
 ///
 /// Layout follows the same discipline as [DashboardView]: a plain Flutter
 /// [Column] scaffolds the page so leaf components receive a bounded
-/// full-width constraint from the shared [PageContainer]; Wind utilities only
+/// full-width constraint from the shared [MSPageContainer]; Wind utilities only
 /// appear on leaf containers, never as the outermost flex-scroll context.
 ///
 /// Composition mirrors `MonitorsListPage.tsx`:
@@ -162,7 +161,7 @@ class _MonitorsListViewState
     // not SizedBox spacers. The outer gap-8 (32px) separates the header+KPI
     // group from the filter+list group; each inner group nests its own rhythm
     // (gap-6 = 24px header->KPI, gap-4 = 16px filter->list).
-    return PageContainer(
+    return MSPageContainer(
       child: WDiv(
         className: 'flex flex-col gap-8',
         children: [

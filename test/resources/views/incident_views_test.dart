@@ -13,7 +13,6 @@ import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
 import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
 import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
-import 'package:uptizm/ui/layouts/page_container.dart';
 
 import '../../support/incident_fixtures.dart';
 import '../../support/monitor_fixtures.dart';
@@ -404,7 +403,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(PageContainer), findsOneWidget);
+      expect(find.byType(MSPageContainer), findsOneWidget);
       expect(find.byType(IncidentCard), findsNWidgets(incidents.length));
     });
 
@@ -546,7 +545,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(PageContainer), findsOneWidget);
+      expect(find.byType(MSPageContainer), findsOneWidget);
 
       // The title Input is present with the incident-kind placeholder (the
       // default kind, blank suggestion).
