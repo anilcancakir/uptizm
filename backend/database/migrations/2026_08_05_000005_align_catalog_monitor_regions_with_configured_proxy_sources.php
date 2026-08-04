@@ -5,6 +5,7 @@ use App\Http\Controllers\Marketing\ShowBotController;
 use App\Models\Service;
 use App\Services\Proxy\ProxyPool;
 use App\Services\Services\ServicePageAssembler;
+use App\Support\Proxy\ProxyRegions;
 use Database\Seeders\ServiceCatalogSeeder;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
@@ -30,12 +31,9 @@ use Illuminate\Support\Facades\DB;
  * overstates our coverage. `ScheduleMonitorChecks` also keeps fanning checks out
  * to regions {@see ProxyPool::hasRegion()} was always going to refuse.
  *
- * The expression below is the seeder's and the controller's, character for
- * character: region keys whose `location` is non-empty. Filtering on `location`
- * rather than on key membership is load-bearing, because `config/proxy.php`
- * DECLARES all three regions statically and only the env-driven value says
- * whether this deployment sourced one; its own docblock calls an empty location
- * "DECLARED BUT UNUSABLE".
+ * The region set comes from {@see ProxyRegions}, the one function the seeder and
+ * the `/bot` page also read, so a backfill cannot write a region set that
+ * disagrees with what those two publish.
  *
  * ## Why it can decline to run
  *
@@ -55,10 +53,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $regions = array_keys(array_filter(
-            (array) config('proxy.sources', []),
-            static fn (array $source): bool => filled($source['location'] ?? null),
-        ));
+        $regions = ProxyRegions::sourced();
 
         if (count($regions) < ServicePageAssembler::MIN_AGREEING_REGIONS) {
             return;

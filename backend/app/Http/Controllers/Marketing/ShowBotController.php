@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Marketing;
 use App\Services\Services\FeedFetcher;
 use App\Support\Marketing\ChromeData;
 use App\Support\Marketing\LegalDocument;
+use App\Support\Proxy\ProxyRegions;
 use Database\Seeders\ServiceCatalogSeeder;
 use Illuminate\Contracts\View\View;
 
@@ -128,27 +129,22 @@ class ShowBotController
     /**
      * The number of regions a catalog monitor actually carries.
      *
-     * The regions under `config('proxy.sources')` that carry a non-empty
-     * `location`, the SAME filter {@see ServiceCatalogSeeder::catalogRegions()}
-     * seeds a monitor's `regions` column from, and NOT a database query: this
-     * page is rendered with no connection available (see the class docblock
-     * above), so reading the monitor rows here would 500 it. Counting every
-     * DECLARED key regardless of `location` would overcount: `config/proxy.php`
-     * lists all three regions statically, and only the env-driven `location`
-     * says whether a deployment actually sourced one (its own docblock calls
-     * an empty location "DECLARED BUT UNUSABLE"). Counting
-     * `MonitorRegion::cases()` instead (as this used to) published the number
-     * of regions the relay KNOWS about rather than the number a catalog
+     * {@see ProxyRegions} is the shared answer, and sharing it is the point:
+     * {@see ServiceCatalogSeeder::catalogRegions()} stamps a monitor's `regions`
+     * column from the same list, so this page cannot publish a count the seeded
+     * monitors do not carry. It reads config rather than the database because
+     * this page is rendered with no connection available (see the class docblock
+     * above), so querying the monitor rows here would 500 it.
+     *
+     * Counting `MonitorRegion::cases()` instead (as this used to) published the
+     * number of regions the relay KNOWS about rather than the number a catalog
      * monitor can actually reach, which overstated both this figure and the
-     * daily-request total below it once the seeder stopped claiming every
-     * region by default.
+     * daily-request total below it once the seeder stopped claiming every region
+     * by default.
      */
     protected function probeRegionCount(): int
     {
-        return count(array_filter(
-            (array) config('proxy.sources', []),
-            static fn (array $source): bool => filled($source['location'] ?? null),
-        ));
+        return ProxyRegions::sourcedCount();
     }
 
     /**

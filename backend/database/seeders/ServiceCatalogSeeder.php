@@ -6,13 +6,13 @@ use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorType;
 use App\Enums\ServiceStatusSource;
-use App\Http\Controllers\Marketing\ShowBotController;
 use App\Http\Controllers\Marketing\ShowServiceStatusController;
 use App\Models\Monitor;
 use App\Models\Service;
 use App\Models\Team;
 use App\Services\Proxy\ProxyPool;
 use App\Services\Services\ServicePageAssembler;
+use App\Support\Proxy\ProxyRegions;
 use App\Support\Services\SystemTeam;
 use Illuminate\Database\Seeder;
 use RuntimeException;
@@ -242,9 +242,24 @@ class ServiceCatalogSeeder extends Seeder
     }
 
     /**
-     * The regions a catalog monitor is seeded with: exactly the region keys
-     * under `config('proxy.sources')` that carry a non-empty `location`, not
-     * every {@see MonitorRegion} case and not merely every DECLARED key.
+     * Whether a catalog can be seeded at all, asked BEFORE calling this seeder.
+     *
+     * {@see DatabaseSeeder} needs this because {@see self::catalogRegions()} throws, and
+     * `migrate:fresh --seed` is the documented way to reset a dev database: a developer
+     * not working on the catalog must still get a database. Wrapping the call in a
+     * `catch` would have answered that too, and worse, because it would have degraded
+     * EVERY RuntimeException from anywhere inside this seeder into a console warning in
+     * every environment. Asking first swallows nothing.
+     */
+    public static function canSeed(): bool
+    {
+        return ProxyRegions::sourcedCount() >= ServicePageAssembler::MIN_AGREEING_REGIONS;
+    }
+
+    /**
+     * The regions a catalog monitor is seeded with: the sourced proxy regions,
+     * not every {@see MonitorRegion} case and not merely every DECLARED key.
+     * {@see ProxyRegions} carries why the filter is what it is.
      *
      * Reading the full enum (as this used to) let a catalog monitor claim a
      * region with no configured exit at all.
@@ -255,23 +270,6 @@ class ServiceCatalogSeeder extends Seeder
      * back, and `ScheduleMonitorChecks` fanned a check out to a region
      * {@see ProxyPool::hasRegion()} was always going to
      * refuse.
-     *
-     * Filtering on `location` rather than trusting key membership alone
-     * matters because `config/proxy.php` DECLARES all three regions
-     * statically; only the env-driven `location` value says whether a given
-     * deployment actually sourced one. Its own docblock calls an empty
-     * location "DECLARED BUT UNUSABLE", and `ProxyPool::hasRegion()` treats
-     * key membership as necessary but not sufficient for exactly that reason.
-     * A seeder trusting the key alone would keep seeding every region even
-     * after an operator blanked one out to disable it.
-     *
-     * `config('proxy.sources')` and NOT a database query: {@see ShowBotController}
-     * reads the exact same expression, filtered the exact same way, for its
-     * own region count and daily-request figure, and it cannot query the
-     * database to cross-check it (those pages are served with no connection
-     * available). Config is the one signal both places can read identically;
-     * a seeder-only filter would let the two publish two different counts
-     * again, which is the defect this step exists to close.
      *
      * Throws below {@see ServicePageAssembler::MIN_AGREEING_REGIONS} (2): that
      * is the mathematical floor the consensus check itself enforces, below
@@ -284,30 +282,9 @@ class ServiceCatalogSeeder extends Seeder
      *
      * @return list<string>
      */
-    /**
-     * Whether a catalog can be seeded at all, asked BEFORE calling this seeder.
-     *
-     * {@see DatabaseSeeder} needs this because the region precondition below throws, and
-     * `migrate:fresh --seed` is the documented way to reset a dev database: a developer
-     * not working on the catalog must still get a database. Wrapping the call in a
-     * `catch` would have answered that too, and worse, because it would have degraded
-     * EVERY RuntimeException from anywhere inside this seeder into a console warning in
-     * every environment. Asking first swallows nothing.
-     */
-    public static function canSeed(): bool
-    {
-        return count(array_filter(
-            (array) config('proxy.sources', []),
-            static fn (array $source): bool => filled($source['location'] ?? null),
-        )) >= ServicePageAssembler::MIN_AGREEING_REGIONS;
-    }
-
     private function catalogRegions(): array
     {
-        $regions = array_keys(array_filter(
-            (array) config('proxy.sources', []),
-            static fn (array $source): bool => filled($source['location'] ?? null),
-        ));
+        $regions = ProxyRegions::sourced();
 
         if (count($regions) < ServicePageAssembler::MIN_AGREEING_REGIONS) {
             throw new RuntimeException(
