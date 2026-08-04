@@ -160,19 +160,42 @@ class ServiceCatalogSeederTest extends TestCase
     }
 
     /**
-     * Below two configured regions the seeder refuses outright, because two
-     * is `MIN_AGREEING_REGIONS`: an outage verdict is mathematically
-     * unreachable with fewer, regardless of what those regions measure.
+     * ONE region is enough to seed a catalog, and this is the case production is
+     * actually in.
+     *
+     * An earlier revision refused below two, on the reasoning that `MIN_AGREEING_REGIONS`
+     * makes an outage verdict unreachable with fewer. True, and not seeding's call:
+     * refusing there ships no catalog at all and the eight public pages do not exist,
+     * where seeding one region publishes a real reading and no claim beyond it. The real
+     * deploy proved the pair had drifted, too, with `canSeed()` answering yes on one
+     * region while the seeder still threw on two.
      */
-    public function test_it_throws_when_fewer_than_two_proxy_regions_are_configured(): void
+    public function test_a_single_probeable_region_seeds_a_catalog_that_carries_only_it(): void
     {
         config(['proxy.sources' => [
             'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
-        ]]);
+        ], 'proxy.direct_region' => '']);
 
-        $this->expectException(RuntimeException::class);
+        $this->assertTrue(ServiceCatalogSeeder::canSeed(), 'The gate and the seeder must agree.');
 
         $this->seed(ServiceCatalogSeeder::class);
+
+        $this->assertSame(['eu-west'], Monitor::query()->whereHas('services')->firstOrFail()->regions);
+    }
+
+    /**
+     * And the direct region alone is enough, which is the shape of a deployment with
+     * no proxy provider wired: nothing is SOURCED, but this server can still measure.
+     */
+    public function test_the_direct_region_alone_makes_a_catalog_seedable(): void
+    {
+        config(['proxy.sources' => [], 'proxy.direct_region' => 'eu-central']);
+
+        $this->assertTrue(ServiceCatalogSeeder::canSeed());
+
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $this->assertSame(['eu-central'], Monitor::query()->whereHas('services')->firstOrFail()->regions);
     }
 
     /**
@@ -203,17 +226,20 @@ class ServiceCatalogSeederTest extends TestCase
     }
 
     /**
-     * The throw side of the same guard: three regions are DECLARED but only
-     * one carries a location, so the seeder must refuse exactly as it would
-     * if the other two keys were absent outright.
+     * The throw side of the guard: regions are DECLARED but none is usable and no
+     * direct region is named, so there is nowhere to probe from at all. Seeding then
+     * would create eight monitors that refuse every check and eight pages that publish
+     * nothing, which is worse than no catalog.
      */
-    public function test_it_throws_when_only_one_declared_region_actually_has_a_location(): void
+    public function test_it_throws_when_there_is_nowhere_to_probe_from(): void
     {
         config(['proxy.sources' => [
-            'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
+            'eu-west' => ['kind' => 'url', 'location' => ''],
             'us-east' => ['kind' => 'url', 'location' => ''],
             'ap' => ['kind' => 'url', 'location' => ''],
-        ]]);
+        ], 'proxy.direct_region' => '']);
+
+        $this->assertFalse(ServiceCatalogSeeder::canSeed(), 'The gate and the seeder must agree.');
 
         $this->expectException(RuntimeException::class);
 

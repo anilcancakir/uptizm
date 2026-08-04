@@ -271,14 +271,16 @@ class ServiceCatalogSeeder extends Seeder
      * {@see ProxyPool::hasRegion()} was always going to
      * refuse.
      *
-     * Throws below {@see ServicePageAssembler::MIN_AGREEING_REGIONS} (2): that
-     * is the mathematical floor the consensus check itself enforces, below
-     * which an outage verdict can never be reached regardless of what the
-     * regions measure. Deliberately looser than `config('proxy.minimum_regions')`
-     * (3, the operational floor that survives one dead region, see
-     * `config/proxy.php`): a seeder that only refused below 3 would still
-     * ship a catalog whose outage claim is structurally unreachable at
-     * exactly 2.
+     * Throws only when there is NOWHERE to probe from, which is the question
+     * seeding actually asks. An earlier revision threw below
+     * {@see ServicePageAssembler::MIN_AGREEING_REGIONS} (2) instead, on the
+     * reasoning that a monitor below the quorum can never reach an outage verdict.
+     * That is true and it is not seeding's call: refusing there ships NO catalog at
+     * all, so eight public pages do not exist, where seeding one region publishes a
+     * real reading and no claim beyond it. The quorum stays enforced where it always
+     * was, in the assembler, which renders "Only 1 region answered our last check"
+     * and never an outage verdict; the claim then strengthens by itself as regions
+     * are added.
      *
      * @return list<string>
      */
@@ -286,12 +288,15 @@ class ServiceCatalogSeeder extends Seeder
     {
         $regions = ProxyRegions::probeable();
 
-        if (count($regions) < ServicePageAssembler::MIN_AGREEING_REGIONS) {
+        // The guard and {@see self::canSeed()} ask the SAME question, and they have to:
+        // production caught them disagreeing, with `canSeed()` answering "yes, one
+        // region" while this threw on a two-region floor, so the seed failed after the
+        // precondition had cleared it.
+        if ($regions === []) {
             throw new RuntimeException(
-                'ServiceCatalogSeeder requires at least '.ServicePageAssembler::MIN_AGREEING_REGIONS
-                .' proxy regions with a configured source in config(\'proxy.sources\'); only '.count($regions)
-                .' ('.implode(', ', $regions).') carry one. A catalog monitor seeded with fewer can never '
-                .'reach outage consensus.',
+                'ServiceCatalogSeeder has nowhere to probe from: no region carries a proxy source in '
+                ."config('proxy.sources') and config('proxy.direct_region') names none either, so every "
+                .'catalog monitor it seeded would refuse every check and the pages would publish nothing.',
             );
         }
 
