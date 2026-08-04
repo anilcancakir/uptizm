@@ -60,3 +60,9 @@ pubspec_overrides.yaml
 
 # playwright-cli scratch snapshots from browser debugging sessions.
 .playwright-cli/
+
+CLAUDE.local.md
+
+# Nested worktrees. The convention is a sibling (../uptizm-<slug>), but an agent
+# tool may still create one here and it must never be committable.
+.claude/worktrees/

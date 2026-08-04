@@ -598,8 +598,17 @@ class LocalProbeEngineTest extends TestCase
         $this->assertNull($reading->responseBodyPreview);
         $this->assertNull($reading->content);
 
-        $this->assertSame(0, $observed['written'], 'The engine downloaded part of the response body.');
+        // The direction, not the byte count: `written` is what the origin managed to
+        // push into the socket before the engine's abort reached it, and how much a
+        // kernel buffers before the RST is a platform fact, not the engine's. macOS
+        // reports 0 here and Linux reported 2.5 MiB for the same correct behaviour.
+        // What the test is actually about is that the whole body is never pulled.
         $this->assertGreaterThan(0, $observed['declared']);
+        $this->assertLessThan(
+            $observed['declared'],
+            $observed['written'],
+            'The engine downloaded the whole response body.',
+        );
 
         $this->assertNotNull($reading->responseMs);
 

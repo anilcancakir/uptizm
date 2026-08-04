@@ -1,7 +1,8 @@
 ---
-paths:
-  - "lib/**"
+applyTo: "lib/**"
 ---
+
+<!-- GENERATED from .claude/rules/design.md by bin/sync-instructions. Edit that file, not this one. -->
 
 # Design Rules (UI surface)
 

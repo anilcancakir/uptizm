@@ -1,3 +1,5 @@
+<!-- GENERATED from AGENTS.md by bin/sync-instructions. Edit that file, not this one. -->
+
 <!-- Canonical agent instructions for this repository, shared by every tool. AGENTS.md is the only hand-edited copy: CLAUDE.md is a symlink to it and .github/copilot-instructions.md is generated from it by bin/sync-instructions. Edit AGENTS.md, then run that script. -->
 # AGENTS.md
 
@@ -75,4 +77,3 @@ The five path-scoped rules are `design.md` (tokens and the component contract, `
 
 After editing this file or any rule, run `bin/sync-instructions` to regenerate the `.github/` mirrors. CI fails when they are out of date.
 
-@DESIGN.md

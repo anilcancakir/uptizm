@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+#
+# The verification gate for this repository. Runs every suite that guards a
+# change, fans them out across cores, and reports one line per job.
+#
+# Usage:
+#   bin/check                  every suite (analyze, dart tests, pint, php tests, worker typecheck)
+#   bin/check --fast           only the static passes: analyze + pint + typecheck
+#   bin/check flutter          one half only; also `backend` and `worker`
+#   bin/check flutter backend  several halves
+#
+# Jobs run concurrently and each one buffers its own output, so the logs are
+# printed grouped per job at the end instead of interleaved into noise. The exit
+# code is non-zero when any job failed, and the summary names which.
+#
+# Why bash and not an artisan command: several agents work this repo in parallel
+# worktrees, and `bin/fsa` takes an AOT recompile lock per invocation. A shell
+# script has nothing to contend over.
+
+set -u -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
+
+FAST=0
+SCOPES=""
+
+usage() {
+    cat <<'USAGE'
+bin/check - the verification gate for this repository.
+
+  bin/check                  every suite (analyze, dart tests, pint, php tests, worker typecheck)
+  bin/check --fast           only the static passes: analyze + pint + typecheck
+  bin/check flutter          one half only; also `backend` and `worker`
+  bin/check flutter backend  several halves
+
+Jobs run concurrently, each buffering its own output, so failing logs are printed
+grouped per job instead of interleaved. Exits non-zero when any job failed and
+names which one.
+USAGE
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --fast) FAST=1 ;;
+        flutter | backend | worker) SCOPES="$SCOPES $arg" ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "check: unknown argument '$arg' (expected --fast, flutter, backend, or worker)" >&2
+            exit 2
+            ;;
+    esac
+done
+
+[ -z "$SCOPES" ] && SCOPES="flutter backend worker"
+
+wants() {
+    case " $SCOPES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# Half the cores to each of the two heavy suites, so running them together does
+# not oversubscribe the machine. Two is the floor; one process per suite spends
+# more time on framework boot than on tests.
+cores() {
+    if command -v nproc >/dev/null 2>&1; then
+        nproc
+    elif command -v sysctl >/dev/null 2>&1; then
+        sysctl -n hw.ncpu 2>/dev/null || echo 4
+    else
+        echo 4
+    fi
+}
+
+TOTAL_CORES="$(cores)"
+LANE=$((TOTAL_CORES / 2))
+[ "$LANE" -lt 2 ] && LANE=2
+
+# A worktree for this repo has to be a SIBLING of it, not nested inside it.
+# The eleven packages are declared as `path: ../<pkg>`, so from
+# `<repo>/.claude/worktrees/<name>` they resolve to `.claude/worktrees/magic` and do
+# not exist. A generated pubspec_overrides.yaml does fix resolution, and it does NOT
+# fix `flutter analyze`, which reads pubspec.yaml itself and reports eight
+# path_does_not_exist warnings that no override file can silence. So the layout is
+# the fix:
+#
+#   git worktree add ../uptizm-<slug> -b feature/<slug>
+#
+# From there `../magic` is the same directory the main checkout means, and nothing
+# needs generating.
+require_sibling_layout() {
+    wants flutter || return 0
+    [ -d ../magic ] && return 0
+
+    echo "check: ../magic is not next to this checkout, so the sibling packages cannot resolve." >&2
+    echo "check: create the worktree beside the repo instead of inside it:" >&2
+    echo "check:   git worktree add ../uptizm-<slug> -b feature/<slug>" >&2
+    exit 1
+}
+
+# A worktree also has none of the gitignored runtime files the suites need, and each
+# absence fails in its own confusing way: no `.env` and flutter_dotenv defaults
+# BROADCAST_CONNECTION to null, no `backend/.env` and artisan aborts before saying
+# why, no `.artisan/plugins.json` and every plugin command disappears, no
+# `backend/public/build` and `@vite` throws under every page test.
+bootstrap_ignored_files() {
+    local common_dir main_root file
+    common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+    main_root="$(dirname "$common_dir")"
+
+    [ "$main_root" = "$REPO_ROOT" ] && return 0
+    [ -d "$main_root" ] || return 0
+
+    for file in .env backend/.env .artisan/plugins.json backend/public/build \
+        backend/workers/regional-checker/.dev.vars; do
+        if [ ! -e "$REPO_ROOT/$file" ] && [ -e "$main_root/$file" ]; then
+            mkdir -p "$(dirname "$REPO_ROOT/$file")"
+            cp -R "$main_root/$file" "$REPO_ROOT/$file"
+            echo "check: copied $file from the main worktree at $main_root"
+        fi
+    done
+}
+
+# `composer install` is the one bootstrap step this script will not do for you: a
+# branch that touches composer.lock must be tested against its own vendor tree, and
+# symlinking the main worktree's would quietly test the wrong one.
+require_backend_vendor() {
+    wants backend || return 0
+    [ -f backend/vendor/autoload.php ] && return 0
+
+    echo "check: backend/vendor is absent here. Run: (cd backend && composer install)" >&2
+    exit 1
+}
+
+# The marketing and status views call `@vite`, which throws when the manifest is
+# absent, and `public/build` is gitignored. Without it every page test fails with
+# an error that names Vite and looks nothing like the feature under test.
+ensure_vite_manifest() {
+    wants backend || return 0
+    [ -f backend/public/build/manifest.json ] && return 0
+
+    echo "check: building backend assets (no vite manifest yet)"
+    # `npm ci` needs a lockfile and exits non-zero without one, so fall back rather
+    # than reporting an asset failure that is really a missing package-lock.json.
+    ( cd backend && { npm ci --silent || npm install --silent; } && npm run build --silent ) >/dev/null 2>&1 ||
+        echo "check: asset build failed; the page tests will fail on the vite manifest" >&2
+}
+
+require_sibling_layout
+bootstrap_ignored_files
+require_backend_vendor
+ensure_vite_manifest
+
+# Resolve dependencies BEFORE fanning out, then run the two flutter commands with
+# `--no-pub`. Each of them resolves on its own by default, and concurrently they
+# race on `.dart_tool` and on `ios/Flutter/ephemeral`, which fails with a
+# read-only-volume error that has nothing to do with the code. Serializing this
+# step is not enough on its own: they re-resolve even after a warm `pub get`, so
+# the flag is what actually removes the race. The worker needs the same treatment
+# for a different reason: `npm run typecheck` cannot run without node_modules.
+prepare() {
+    local failed=0
+
+    if wants flutter; then
+        echo "check: resolving dart dependencies"
+        flutter pub get >/dev/null || failed=1
+    fi
+
+    if wants worker && [ ! -d backend/workers/regional-checker/node_modules ]; then
+        echo "check: installing worker dependencies"
+        ( cd backend/workers/regional-checker && npm ci ) >/dev/null || failed=1
+    fi
+
+    if [ "$failed" -ne 0 ]; then
+        echo "check: dependency resolution failed" >&2
+        exit 1
+    fi
+}
+
+JOB_NAMES=""
+JOB_PIDS=""
+
+LOG_DIR="$(mktemp -d)" || exit 1
+# Kill the suites on the way out too: a tool-call timeout would otherwise leave
+# paratest and flutter test chewing every core while their log directory is deleted
+# from under them.
+trap 'rm -rf "$LOG_DIR"; [ -n "$JOB_PIDS" ] && kill $JOB_PIDS 2>/dev/null' EXIT INT TERM
+
+start() {
+    local name="$1"
+    shift
+    ( "$@" ) >"$LOG_DIR/$name.log" 2>&1 &
+    JOB_PIDS="$JOB_PIDS $!"
+    JOB_NAMES="$JOB_NAMES $name"
+}
+
+run_flutter_analyze() { flutter analyze --no-pub; }
+run_flutter_test() { flutter test --no-pub --concurrency="$LANE"; }
+run_backend_pint() { cd backend && vendor/bin/pint --test; }
+# `config:clear` first, exactly as composer.json's test script does. A
+# bootstrap/cache/config.php left by any artisan optimize outranks phpunit.xml's
+# DB_CONNECTION=sqlite, and the suite would then migrate:fresh the real dev database.
+run_backend_test() {
+    cd backend && php artisan config:clear >/dev/null && php artisan test --parallel --processes="$LANE"
+}
+run_worker_typecheck() { cd backend/workers/regional-checker && npm run --silent typecheck; }
+
+echo "check: ${SCOPES# } | $TOTAL_CORES cores, $LANE per suite$([ "$FAST" -eq 1 ] && echo ' | static only')"
+prepare
+echo
+
+wants flutter && start "flutter-analyze" run_flutter_analyze
+wants backend && start "backend-pint" run_backend_pint
+wants worker && start "worker-typecheck" run_worker_typecheck
+
+if [ "$FAST" -eq 0 ]; then
+    wants flutter && start "flutter-test" run_flutter_test
+    wants backend && start "backend-test" run_backend_test
+fi
+
+# Collect in launch order so the summary is stable run to run.
+FAILED=""
+set -- $JOB_PIDS
+for name in $JOB_NAMES; do
+    pid="$1"
+    shift
+    if wait "$pid"; then
+        printf '  ok    %s\n' "$name"
+    else
+        printf '  FAIL  %s\n' "$name"
+        FAILED="$FAILED $name"
+    fi
+done
+
+if [ -n "$FAILED" ]; then
+    for name in $FAILED; do
+        echo
+        echo "───── $name ─────"
+        cat "$LOG_DIR/$name.log"
+    done
+    echo
+    echo "check: failed:${FAILED}"
+    exit 1
+fi
+
+echo
+echo "check: all green | ${SCOPES# }$([ "$FAST" -eq 1 ] && echo ' | static only, no tests ran')"

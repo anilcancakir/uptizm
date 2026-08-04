@@ -305,7 +305,15 @@ class ContentDedupeTest extends TestCase
         // 2. Delete it the instant the claim statement has run: the exact window
         //    a concurrent failure hook occupies in production.
         DB::listen(function (QueryExecuted $query): void {
-            if (! str_contains($query->sql, 'insert or ignore into "monitor_content_versions"')) {
+            // Matched dialect-neutrally on purpose. `insertOrIgnore` compiles to
+            // `insert or ignore into ...` on SQLite and `insert into ... on conflict
+            // do nothing` on PostgreSQL, so pinning the SQLite spelling meant this
+            // hook never fired on the engine production runs: the row never vanished,
+            // the window this test exists to model never opened, and the test passed
+            // for the wrong reason on one engine and failed on the other.
+            $sql = strtolower(ltrim($query->sql));
+
+            if (! str_starts_with($sql, 'insert') || ! str_contains($sql, 'monitor_content_versions')) {
                 return;
             }
 

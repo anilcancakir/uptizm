@@ -1,0 +1,211 @@
+name: CI
+
+# The gate on every pull request. `bin/check` is the same thing locally; these
+# jobs exist so a green claim is a measurement rather than a report.
+#
+# The Flutter job clones the eleven fluttersdk siblings because `pubspec.yaml`
+# resolves them by path (`../<pkg>`), which is how this app is developed. That
+# has one known and legitimate red: when a change here depends on a sibling API
+# that has not merged yet, the analyze step fails with "undefined". The fix is to
+# land the sibling PR, not to change this app.
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Only for pull requests: cancelling a master run would leave that commit with no
+  # green record at all.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  instructions:
+    name: Instruction mirrors
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: CLAUDE.md is a symlink to AGENTS.md
+        run: |
+          if [ ! -L CLAUDE.md ] || [ "$(readlink CLAUDE.md)" != "AGENTS.md" ]; then
+            echo "CLAUDE.md must be a symlink to AGENTS.md so both tools read one file." >&2
+            exit 1
+          fi
+      - name: .github mirrors are current
+        run: bin/sync-instructions --check
+
+  flutter:
+    name: Flutter (analyze + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out uptizm
+        uses: actions/checkout@v7
+        with:
+          path: uptizm
+
+      # `pubspec.yaml` points at ../<pkg>, so the siblings have to sit next to the
+      # checkout. All eleven are public repositories in the fluttersdk org, and the
+      # directory name is what the path override expects (artisan, dusk, telescope
+      # and wind* differ from their package names).
+      - name: Check out the fluttersdk siblings
+        run: |
+          set -euo pipefail
+          for repo in magic magic_deeplink magic_devtools magic_notifications \
+                      magic_social_auth magic_starter artisan dusk telescope \
+                      wind wind_diagnostics_contracts; do
+            git clone --depth 1 "https://github.com/fluttersdk/$repo.git" "$repo"
+          done
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # `.env` is gitignored but has to exist: it is a bundled pubspec asset, and
+      # flutter_dotenv throws at boot without it.
+      - name: Seed the environment file
+        working-directory: uptizm
+        run: cp .env.example .env
+
+      - name: Resolve dependencies
+        working-directory: uptizm
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: uptizm
+        run: flutter analyze
+
+      - name: Test
+        working-directory: uptizm
+        run: flutter test --concurrency=4
+
+  # PHP 8.5 rather than the ^8.3 that composer.json declares. That constraint is
+  # stale: the committed lock resolves symfony 8.1, which requires php >=8.4.1, so
+  # `composer install` on 8.3 dies in a wall of "Problem N" lines that read like a
+  # corrupt lock and are really a platform mismatch. 8.5 is also what the server
+  # runs, so CI measures the same engine production does.
+  backend-sqlite:
+    name: Backend (pint + tests, SQLite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_sqlite, sqlite3, redis, bcmath, intl, zip, gd
+          coverage: none
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+      # The probe classifier's behaviour is libcurl-version-dependent, and the code
+      # documents measuring it through PHP rather than the curl CLI, which is a
+      # different build. Printing it here makes that triage one glance instead of a
+      # round trip.
+      - name: Report the libcurl build
+        run: |
+          php -r 'echo "libcurl ".curl_version()["version"].PHP_EOL;'
+      # The marketing and status views call @vite, which throws when the manifest is
+      # absent, and public/build is gitignored. Without this step every page test
+      # fails with a Vite error that looks nothing like the feature under test.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Build assets
+        run: npm ci && npm run build
+      - name: Pint
+        run: vendor/bin/pint --test
+      - name: Tests
+        run: php artisan test --parallel --processes=4
+
+  backend-postgres:
+    name: Backend (tests, PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    # Production is PostgreSQL and the suite's default SQLite has hidden two real
+    # defects: `insert or ignore` swallowing a unique violation that PostgreSQL
+    # raises, and a session timezone shifting every timestamptz write. This job is
+    # the one that would have caught both.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: uptizm_test
+          POSTGRES_USER: uptizm
+          POSTGRES_PASSWORD: secret
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: uptizm_test
+      DB_USERNAME: uptizm
+      DB_PASSWORD: secret
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_pgsql, pgsql, redis, bcmath, intl, zip, gd
+          coverage: none
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+      # The probe classifier's behaviour is libcurl-version-dependent, and the code
+      # documents measuring it through PHP rather than the curl CLI, which is a
+      # different build. Printing it here makes that triage one glance instead of a
+      # round trip.
+      - name: Report the libcurl build
+        run: |
+          php -r 'echo "libcurl ".curl_version()["version"].PHP_EOL;'
+      # The marketing and status views call @vite, which throws when the manifest is
+      # absent, and public/build is gitignored. Without this step every page test
+      # fails with a Vite error that looks nothing like the feature under test.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Build assets
+        run: npm ci && npm run build
+      - name: Tests
+        run: php artisan test
+
+  worker:
+    name: Regional checker (typecheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend/workers/regional-checker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck

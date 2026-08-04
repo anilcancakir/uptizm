@@ -1,7 +1,7 @@
 ---
 name: Uptizm
 description: >
-  Uptime, incident, and status-page monitoring mock built on the magic
+  Uptime, incident, and status-page monitoring built on the magic
   framework and magic_starter. Single-brand green, Wind semantic tokens, Geist
   typography, and a dedicated monitoring status vocabulary.
 colors:
@@ -217,9 +217,8 @@ components:
 
 ## Overview
 
-Uptizm is a monitoring product mock: uptime checks, incident timelines, and a
-public status page, built on the magic framework plus magic_starter starter
-kit. Its design system is built around a single green brand with Material 3
+Uptizm is a monitoring product: uptime checks, incident timelines, and public
+status pages, built on the magic framework plus the magic_starter starter kit. Its design system is built around a single green brand with Material 3
 role semantics, Wind utility tokens, a dedicated monitoring status vocabulary,
 and a mobile-first responsive layout.
 

@@ -181,11 +181,17 @@ class StatusPageAssemblerTest extends TestCase
      * exact SSRF shape StatusPageRenderTest forbids at the markup level.
      *
      * The write paths already validate the pattern, so this is not reachable
-     * through the API. The guard exists because the column carries no
-     * constraint: a seeder, an import or a console command bypasses the request
-     * rules, and the render-safety control must not depend on validation staying
-     * correct forever. Note the value is written with a mass update here
-     * precisely to model those bypass paths.
+     * through the API. The guard exists because a seeder, an import or a console
+     * command bypasses the request rules, and the render-safety control must not
+     * depend on validation staying correct forever. The value is written with a
+     * mass update here precisely to model those bypass paths.
+     *
+     * The payloads are all nine characters or shorter, and that is not arbitrary:
+     * the column is `string('brand_color', 9)`, which PostgreSQL enforces and
+     * SQLite ignores. So a long CSS injection cannot reach the column on the engine
+     * production runs at all, and testing one here would only have proved that
+     * SQLite is lax. What the sanitiser is actually for is a hostile value that
+     * FITS, which is what these cases are.
      *
      * @param  string  $brandColor  The stored value.
      * @param  string|null  $expected  What the read model should carry.
@@ -216,9 +222,10 @@ class StatusPageAssemblerTest extends TestCase
             'six digit hex passes' => ['#008560', '#008560'],
             'eight digit hex passes' => ['#008560ff', '#008560ff'],
             'uppercase hex passes' => ['#00AB60', '#00AB60'],
-            'a second declaration is dropped' => ['red; background-image: url(https://evil.example.com/x.png)', null],
-            'a bare url is dropped' => ['url(https://evil.example.com/x.png)', null],
-            'a css import is dropped' => ['#008560; @import url(https://evil.example.com/x.css)', null],
+            'a second declaration is dropped' => ['red;x:y', null],
+            'a bare url is dropped' => ['url(#x)', null],
+            'a css import is dropped' => ['#008560;', null],
+            'a bare keyword is dropped' => ['inherit', null],
             'a named colour is dropped' => ['red', null],
             'a hex without the hash is dropped' => ['008560', null],
             'an empty string is dropped' => ['', null],
