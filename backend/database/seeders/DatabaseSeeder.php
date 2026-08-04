@@ -6,6 +6,7 @@ use App\Models\User;
 use FlutterSdk\MagicStarter\Contracts\CreatesUsers;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Database\Seeder;
+use RuntimeException;
 
 /**
  * Seeds the database: the demo account in local/dev, and the reference data
@@ -82,6 +83,21 @@ class DatabaseSeeder extends Seeder
         //    AFTER the team above: every service's own-measurement monitor
         //    belongs to it. Each service is seeded UNPUBLISHED with its terms
         //    unreviewed, so this creates nothing publicly visible.
-        $this->call(ServiceCatalogSeeder::class);
+        //
+        //    The catalog seeder REFUSES to run without at least two proxy regions
+        //    carrying a source, because a monitor seeded below the outage quorum can
+        //    never reach consensus. That refusal is correct when someone asks for a
+        //    catalog directly, and wrong as a reason to take down the whole seed:
+        //    `migrate:fresh --seed` is the documented way to reset a dev database and
+        //    most developers here are not working on the catalog at all. So the
+        //    refusal is reported rather than propagated, and it is reported rather
+        //    than swallowed: the reason lands on the console and the catalog stays
+        //    inert, which is the same state `config/proxy.php` calls "declared but
+        //    unusable".
+        try {
+            $this->call(ServiceCatalogSeeder::class);
+        } catch (RuntimeException $e) {
+            $this->command?->warn('Skipped the service catalog: '.$e->getMessage());
+        }
     }
 }
