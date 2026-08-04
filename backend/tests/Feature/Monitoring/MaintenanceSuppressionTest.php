@@ -22,11 +22,8 @@ use App\Services\Monitoring\CheckPersistenceService;
 use App\Services\OnCall\EscalationDispatcher;
 use App\Support\Monitoring\CheckResult;
 use Carbon\CarbonInterface;
-use Closure;
 use DateTimeImmutable;
-use Illuminate\Console\Scheduling\CallbackEvent;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
-use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -34,8 +31,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
-use ReflectionFunction;
-use ReflectionProperty;
+use Tests\Concerns\FindsScheduledJobs;
 use Tests\TestCase;
 
 /**
@@ -52,6 +48,7 @@ use Tests\TestCase;
  */
 class MaintenanceSuppressionTest extends TestCase
 {
+    use FindsScheduledJobs;
     use RefreshDatabase;
 
     public function test_a_down_result_inside_an_open_window_opens_the_incident_without_paging(): void
@@ -383,42 +380,7 @@ class MaintenanceSuppressionTest extends TestCase
      */
     protected function scheduledBoundaryEvent(): ScheduledEvent
     {
-        $events = app(Schedule::class)->events();
-
-        $this->assertNotEmpty(
-            $events,
-            'The scheduler holds no events at all, so routes/console.php was never loaded and '
-            .'every assertion about the entry below would pass over an empty list.'
-        );
-
-        foreach ($events as $event) {
-            if ($this->scheduledJob($event) instanceof BustStatusPageCacheForMaintenanceBoundaries) {
-                return $event;
-            }
-        }
-
-        $this->fail('No scheduled entry dispatches '.BustStatusPageCacheForMaintenanceBoundaries::class.'.');
-    }
-
-    /**
-     * The job instance a `Schedule::job()` entry closes over, or null when the
-     * event is not one.
-     */
-    protected function scheduledJob(ScheduledEvent $event): ?object
-    {
-        if (! $event instanceof CallbackEvent) {
-            return null;
-        }
-
-        $callback = (new ReflectionProperty($event, 'callback'))->getValue($event);
-
-        if (! $callback instanceof Closure) {
-            return null;
-        }
-
-        $job = (new ReflectionFunction($callback))->getClosureUsedVariables()['job'] ?? null;
-
-        return is_object($job) ? $job : null;
+        return $this->scheduledEventDispatching(BustStatusPageCacheForMaintenanceBoundaries::class);
     }
 
     /**

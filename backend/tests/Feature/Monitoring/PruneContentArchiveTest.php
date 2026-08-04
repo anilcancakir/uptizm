@@ -13,17 +13,13 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\ContentArchive;
 use Carbon\CarbonInterface;
-use Closure;
-use Illuminate\Console\Scheduling\CallbackEvent;
 use Illuminate\Console\Scheduling\Event;
-use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
-use ReflectionFunction;
-use ReflectionProperty;
 use RuntimeException;
+use Tests\Concerns\FindsScheduledJobs;
 use Tests\TestCase;
 use Throwable;
 
@@ -52,6 +48,7 @@ use Throwable;
  */
 class PruneContentArchiveTest extends TestCase
 {
+    use FindsScheduledJobs;
     use RefreshDatabase;
 
     /**
@@ -435,42 +432,7 @@ class PruneContentArchiveTest extends TestCase
      */
     protected function scheduledPruneEvent(): Event
     {
-        $events = app(Schedule::class)->events();
-
-        $this->assertNotEmpty(
-            $events,
-            'The scheduler holds no events at all, so routes/console.php was never loaded and '
-            .'every assertion about the entry below would pass over an empty list.'
-        );
-
-        foreach ($events as $event) {
-            if ($this->scheduledJob($event) instanceof PruneContentArchive) {
-                return $event;
-            }
-        }
-
-        $this->fail('No scheduled entry dispatches '.PruneContentArchive::class.'.');
-    }
-
-    /**
-     * The job instance a `Schedule::job()` entry closes over, or null when the
-     * event is not one.
-     */
-    protected function scheduledJob(Event $event): ?object
-    {
-        if (! $event instanceof CallbackEvent) {
-            return null;
-        }
-
-        $callback = (new ReflectionProperty($event, 'callback'))->getValue($event);
-
-        if (! $callback instanceof Closure) {
-            return null;
-        }
-
-        $job = (new ReflectionFunction($callback))->getClosureUsedVariables()['job'] ?? null;
-
-        return is_object($job) ? $job : null;
+        return $this->scheduledEventDispatching(PruneContentArchive::class);
     }
 
     /**
