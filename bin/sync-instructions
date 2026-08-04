@@ -69,12 +69,33 @@ for rule in "$RULES_DIR"/*.md; do
         ' "$rule"
     )"
 
+    # Fatal, not a skip: a skipped rule whose mirror was never committed leaves the
+    # staging tree and .github/instructions in agreement, so --check would report
+    # "up to date" while a whole path-scoped rule is invisible to Copilot. Only
+    # double-quoted globs in a block list are parsed; single quotes and the inline
+    # ["a","b"] form are not.
     if [ -z "$globs" ]; then
-        echo "sync-instructions: $rule has no quoted globs under paths:, skipping" >&2
-        continue
+        echo "sync-instructions: $rule has no double-quoted glob under a paths: block" >&2
+        exit 1
     fi
 
+    case "$globs" in
+        *,,* | ,* | *,)
+            echo "sync-instructions: $rule produced a malformed applyTo list: $globs" >&2
+            exit 1
+            ;;
+    esac
+
+
     body="$(awk 'NR == 1 && $0 == "---" { inside = 1; next } inside && $0 == "---" { inside = 0; body = 1; next } body' "$rule")"
+
+    # An empty body means the closing fence was not exactly `---` (a trailing space is
+    # enough). Left alone it writes a mirror with frontmatter and no rules, and
+    # `--check` still passes because it compares generated output to generated output.
+    if [ -z "$body" ]; then
+        echo "sync-instructions: $rule produced an empty body; check its closing --- fence" >&2
+        exit 1
+    fi
 
     {
         echo "---"

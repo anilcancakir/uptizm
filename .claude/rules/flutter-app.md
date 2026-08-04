@@ -23,7 +23,7 @@ Applies to `lib/` and `test/`. Token and component mechanics live in `.claude/ru
 
 - Controllers are `ChangeNotifier` state managers resolved from the container, and they are keyed by TYPE with a once-only `onInit`. A controller that survives a login or a team switch therefore serves the previous tenant's data. A secondary reader that uses `.instance` needs BOTH a self-triggered load and a listener; `onInit` alone never fires for a non-backing controller.
 - One cache written by both a list endpoint and a detail endpoint loses the detail-only fields on every list refetch. If a field appears only in `show`, do not let `index` overwrite the same cached model.
-- Domain enums are a wire contract with `backend/app/Enums/`. Decode with the `*FromWire()` helpers that fall back to a safe default, so a backend that ships a new case does not crash an older client. Never compare against a raw string literal at a call site.
+- Where a Dart enum mirrors a backend one, decode through its `*FromWire()` helper so a backend that ships a new case does not crash an older client. The mirror is partial and renamed: `MonitorStatus` is `StatusKey`, `IncidentStatus` is `IncidentLifecycle`, and `MonitorType`, `HttpMethod` and `MonitorRegion` have no Dart enum at all: they travel as bare strings. Those are the fields where a typo reaches the backend and comes back a silent 422, so validate them against the backend's set rather than trusting a call site.
 - Write paths are validated twice: client-side `required` before the request, and the server's 422 field errors mapped back onto the form. `lib/app/controllers/monitor_controller.dart` plus the monitor form is the reference implementation; copy its shape rather than inventing a second one.
 - A write that silently does nothing is usually a missing field in one of two lists: the Laravel `FormRequest` `rules()`, or the magic model's `fillable`. Check both before debugging further up.
 
@@ -31,7 +31,7 @@ Applies to `lib/` and `test/`. Token and component mechanics live in `.claude/ru
 
 - Multi-line collections stay expanded with a trailing comma on the last element. This is the repo's committed style and the reason `dart format` is not run here.
 - Imports group as `dart:`, then `package:` (including `magic`), then relative, with no further sorting inside a group.
-- Members order as constants, static fields, `final` instance fields, getters, constructors, private methods, public methods, then `@override`.
+- Fields first, then the constructor, then `build` or the lifecycle overrides last. Beyond that the tree is not consistent, so do not reorder an existing file to match a pattern.
 - No `part` / `part of` anywhere; every file stands alone.
 - Domain types carry no prefix (`StatusBadge`, not `WStatusBadge`); the `W` prefix belongs to Wind's own widgets. Suffixes are meaningful: `Controller`, `View`.
 

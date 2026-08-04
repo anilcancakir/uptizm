@@ -80,7 +80,7 @@ The 17 semantic alias keys:
 | `bg-success` | Success tone |
 | `bg-warning` | Warning tone |
 
-Each alias expands to a `'<light> dark:<dark>'` pair. Every `className` that sets a color MUST include the `dark:` counterpart. The alias system handles this automatically when you use the keys above.
+Each alias already expands to a `'<light> dark:<dark>'` pair (`lib/config/wind_theme.g.dart` shows `'bg-surface': 'bg-[#F9FAFB] dark:bg-[#07090C]'`), so write `bg-surface` on its own. Adding `dark:bg-surface` is nonsense. An explicit `dark:` is only ever needed for a raw arbitrary value, which the rule above already bans.
 
 To add or change a semantic token: edit `DESIGN.md` and run `dart run bin/dispatcher.dart design:sync`.
 
@@ -111,7 +111,6 @@ Each of these is a blocker, and the `component-visual-reviewer` flags every one.
 | Anti-pattern | Correct approach |
 |-------------|-----------------|
 | `Color(0xFF...)` or `Colors.*` in component code | A semantic alias key from the table above |
-| A color token without its `dark:` counterpart | Every alias expands to a light+dark pair |
 | Hardcoded pixels (`SizedBox(height: 13)`) | Wind spacing utilities on the 4px scale |
 | A one-off widget when a library component exists | Check `docs/component-registry.md` first |
 | `Icons.*` inline in a component body | Extract as `static const IconData _icon = Icons.x;` |

@@ -17,9 +17,9 @@ Domain behavior is specified in `docs/uptizm-system/` (product, architecture, da
 
 Several agents work this repo at the same time, so isolation is the default and `master` is never written directly.
 
-- Branch from `master` as `feature/<slug>` or `fix/<slug>`, and work in a worktree under `.claude/worktrees/<slug>`.
-- A fresh worktree lacks four gitignored files it needs in order to run: `.env`, `pubspec_overrides.yaml`, `backend/.env`, `.artisan/plugins.json`. `bin/check` copies them from the main worktree on first run. Do not hand-author them; a wrong `.env` fails silently rather than loudly.
-- Land the work as a PR against `master`. Direct pushes are refused and the CI checks are required, so a suite that only ran on one machine is not evidence.
+- Create the worktree BESIDE the repo, not inside it: `git worktree add ../uptizm-<slug> -b feature/<slug>`. The eleven sibling packages are declared as `path: ../<pkg>`, so from a nested `.claude/worktrees/<slug>` they resolve to a directory that does not exist, and `flutter analyze` reports eight `path_does_not_exist` warnings that no override file can silence. `bin/check` refuses to run in the wrong layout and tells you this.
+- `bin/check` then copies the gitignored files a worktree needs from the main checkout. Run `(cd backend && composer install)` yourself: a branch that touches `composer.lock` has to be tested against its own vendor tree.
+- Land the work as a PR against `master`, and let CI be the evidence rather than a local run.
 - Deploying is manual and stays manual. `deploy/README.md` is the procedure and it belongs to a human; no agent runs it.
 
 ## Verifying a change
@@ -47,10 +47,6 @@ A green suite is the floor, not the finish line. Anything a person clicks gets d
 - The eleven `fluttersdk` packages under `../` are separate public repositories. Reading them to understand behavior is expected and encouraged; changing one is a PR in that repo under its own rules, never an edit from here. `design:sync`, `design:lint`, `make:component`, and `previews:refresh` are `magic`'s commands, not this project's.
 - Secrets never enter the repo. This repository is public: `.env.production` holds only values that ship to every browser anyway, and server credentials live on the box.
 
-## The Flutter half ships open-source
-
-`lib/` is going to be extracted into its own public repository, so write it for a reader who arrives with no history: another model, cold, with only the code. `.claude/rules/flutter-app.md` states what that means concretely.
-
 ## Mirroring the boilerplate
 
 This repo was forked from `../magic_example`, which stays the ecosystem's boilerplate. A structural change here (a rule, a skill, the component contract, tooling like `bin/check`) is mirrored into `magic_example` as its own PR in that repo, in the same piece of work. Product code (monitoring, incidents, status pages, billing) does not travel.
@@ -58,8 +54,6 @@ This repo was forked from `../magic_example`, which stays the ecosystem's boiler
 ## Design-first, on every surface
 
 The design system is shared by all three halves and is enforced. `DESIGN.md` is the source of truth for tokens; the Flutter side generates from it (`design:sync` writes `lib/config/wind_theme.g.dart`), and the Laravel side hand-mirrors it in `backend/resources/css/app.css`, so a token value change is a two-file change. Read `DESIGN.md` before any UI work, and `docs/component-registry.md` before building a new widget.
-
-The monitoring status families (up/down/degraded/paused/info/ai) are deliberately outside `design:sync`: they are hand-authored in `lib/config/uptizm_status_tokens.dart` and merged into the theme in `lib/main.dart`.
 
 Regeneration commands, all through the dispatcher: `dart run bin/dispatcher.dart design:sync` (theme from `DESIGN.md`), `design:lint` (token check), `previews:refresh` (preview catalog), `make:component <Name> [--variants=intent,size] [--slots]` (the 4-file atomic folder under `lib/ui/components/<name>/`).
 

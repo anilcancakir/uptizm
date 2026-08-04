@@ -17,7 +17,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Only for pull requests: cancelling a master run would leave that commit with no
+  # green record at all.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -26,6 +28,7 @@ jobs:
   instructions:
     name: Instruction mirrors
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - name: CLAUDE.md is a symlink to AGENTS.md
@@ -40,6 +43,7 @@ jobs:
   flutter:
     name: Flutter (analyze + test)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Check out uptizm
         uses: actions/checkout@v7
@@ -90,6 +94,7 @@ jobs:
   backend-sqlite:
     name: Backend (pint + tests, SQLite)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: backend
@@ -129,6 +134,7 @@ jobs:
   backend-postgres:
     name: Backend (tests, PostgreSQL)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: backend
@@ -190,6 +196,7 @@ jobs:
   worker:
     name: Regional checker (typecheck)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend/workers/regional-checker
