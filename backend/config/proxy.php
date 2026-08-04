@@ -112,17 +112,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Minimum regions with a configured source
+    | The region this server probes from directly
     |--------------------------------------------------------------------------
     |
-    | The local probe engine requires at least this many regions with a
-    | configured proxy source to operate safely. The mathematical floor
-    | (MIN_AGREEING_REGIONS) is two, but that allows one dark region to
-    | reduce the reading count to one, triggering the catalog-page
-    | `STATUS_UNKNOWN` verdict on the exact class of failure the health
-    | alarm exists to catch. Three survives one dead region.
+    | A MonitorRegion value, or empty for none. The named region is probed
+    | WITHOUT a proxy, straight from this server, when it has no pool of its
+    | own; any other unsourced region keeps refusing, because there is
+    | nowhere else for it to egress from. A region that HAS a pool always
+    | prefers it, so this is a fallback and never the default path.
+    |
+    | It must name where this server actually is. One server is one vantage
+    | point, so this is a single region and never a list: two regions both
+    | probed from here would be the same probe twice, and counting them as
+    | two agreeing regions would fabricate the independence the catalog
+    | page's outage quorum exists to establish. Naming a region we do not
+    | sit in is the same fabrication one step earlier.
+    |
+    | Leaving it empty is the strictest setting (every unsourced region
+    | refuses, so nothing is measured and nothing is claimed).
     |
     */
 
-    'minimum_regions' => (int) env('UPTIZM_PROXY_MINIMUM_REGIONS', 3),
+    'direct_region' => env('UPTIZM_PROXY_DIRECT_REGION', ''),
 ];

@@ -2,6 +2,8 @@
 
 namespace App\Support\Proxy;
 
+use App\Enums\MonitorRegion;
+
 /**
  * The proxy regions a deployment can actually probe from.
  *
@@ -44,10 +46,52 @@ final class ProxyRegions
     }
 
     /**
+     * The region this server probes from directly, or null.
+     *
+     * Null rather than a throw for an unrecognised value, because this is read on
+     * the connectionless `/bot` path and by a seeder: an operator's typo must not
+     * take a public page down. It fails to the STRICT side, which is the region
+     * refusing every probe, so a typo shows up as "nothing is measured" rather
+     * than as a monitor claiming a region the enum does not have.
+     */
+    public static function directRegion(): ?string
+    {
+        $region = MonitorRegion::tryFrom((string) config('proxy.direct_region'));
+
+        return $region?->value;
+    }
+
+    /**
+     * Every region this deployment can actually take a reading from.
+     *
+     * The sourced regions plus the direct one, which is the question three callers
+     * really ask: the seeder deciding what to stamp on a monitor, `/bot` publishing
+     * how many regions the crawler will see, and the migration backfilling both.
+     * {@see self::sourced()} answers the narrower "has a pool", which is what the
+     * refresher needs and what the engine prefers.
+     *
+     * The direct region is appended rather than merged in position, and appears at
+     * most once even when it also carries a pool.
+     *
+     * @return list<string>
+     */
+    public static function probeable(): array
+    {
+        $regions = self::sourced();
+        $direct = self::directRegion();
+
+        if ($direct !== null && ! in_array($direct, $regions, true)) {
+            $regions[] = $direct;
+        }
+
+        return $regions;
+    }
+
+    /**
      * How many regions a catalog monitor can actually be probed from.
      */
-    public static function sourcedCount(): int
+    public static function probeableCount(): int
     {
-        return count(self::sourced());
+        return count(self::probeable());
     }
 }
