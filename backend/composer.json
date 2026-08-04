@@ -7,6 +7,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "ext-curl": "*",
         "filament/filament": "^4.12",
         "fluttersdk/magic-starter-laravel": "^0.0.5",
         "laravel/ai": "0.9.0",
