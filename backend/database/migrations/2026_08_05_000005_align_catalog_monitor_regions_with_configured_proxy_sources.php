@@ -53,7 +53,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $regions = ProxyRegions::sourced();
+        $regions = ProxyRegions::probeable();
 
         if (count($regions) < ServicePageAssembler::MIN_AGREEING_REGIONS) {
             return;

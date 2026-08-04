@@ -253,7 +253,7 @@ class ServiceCatalogSeeder extends Seeder
      */
     public static function canSeed(): bool
     {
-        return ProxyRegions::sourcedCount() >= ServicePageAssembler::MIN_AGREEING_REGIONS;
+        return ProxyRegions::probeable() !== [];
     }
 
     /**
@@ -284,7 +284,7 @@ class ServiceCatalogSeeder extends Seeder
      */
     private function catalogRegions(): array
     {
-        $regions = ProxyRegions::sourced();
+        $regions = ProxyRegions::probeable();
 
         if (count($regions) < ServicePageAssembler::MIN_AGREEING_REGIONS) {
             throw new RuntimeException(
