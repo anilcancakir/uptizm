@@ -19,7 +19,8 @@ Several agents work this repo at the same time, so isolation is the default and 
 
 - Create the worktree BESIDE the repo, not inside it: `git worktree add ../uptizm-<slug> -b feature/<slug>`. The eleven sibling packages are declared as `path: ../<pkg>`, so from a nested `.claude/worktrees/<slug>` they resolve to a directory that does not exist, and `flutter analyze` reports eight `path_does_not_exist` warnings that no override file can silence. `bin/check` refuses to run in the wrong layout and tells you this.
 - `bin/check` then copies the gitignored files a worktree needs from the main checkout. Run `(cd backend && composer install)` yourself: a branch that touches `composer.lock` has to be tested against its own vendor tree.
-- Land the work as a PR against `master`, and let CI be the evidence rather than a local run.
+- Land the work as a PR against `master`, and let CI be the evidence rather than a local run. All five checks are required and a review thread has to be resolved before a merge; force-pushing and deleting `master` are refused.
+- The backend suite runs twice in CI, once on SQLite and once on PostgreSQL, because production is PostgreSQL and the gap has hidden real defects: a caught constraint violation inside a transaction needs a SAVEPOINT on PostgreSQL or the whole transaction is poisoned, `jsonb` does not preserve object key order, and `varchar(n)` is enforced there and ignored by SQLite. To reproduce a PostgreSQL-only failure locally, point the suite at a real database (`DB_CONNECTION=pgsql DB_DATABASE=<db> php artisan test`); PHPUnit leaves an environment variable that is already set alone, so `phpunit.xml`'s SQLite pin gives way.
 - Deploying is manual and stays manual. `deploy/README.md` is the procedure and it belongs to a human; no agent runs it.
 
 ## Verifying a change
