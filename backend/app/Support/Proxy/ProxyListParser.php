@@ -26,15 +26,32 @@ class ProxyListParser
     /**
      * Matches one `host:port:username:password` line.
      *
-     * Group 1 (host) forbids a leading `:`, whitespace, or `#` so a
-     * comment-prefixed line can never match here (the caller's blank/`#`
-     * skip is a fast path, not the only guard). Group 2 (port) accepts only
-     * 1-5 digits; the 1-65535 range is then enforced in code because
+     * Group 1 (host) admits only what an IPv4 address or a hostname can
+     * contain, and that narrowness is a security boundary rather than
+     * tidiness. The host is interpolated into `'http://'.$host.':'.$port`
+     * to build `CURLOPT_PROXY`, so a character that can end the authority
+     * REPOINTS OUR EGRESS. Measured before this was tightened: a list line
+     * of `ignored@evil.example:8080:u:p` parsed cleanly and produced
+     * `http://ignored@evil.example:8080`, whose host is `evil.example`, so
+     * one poisoned line in a provider's list (or a compromised list URL)
+     * silently routed every catalog probe through an attacker's box, with
+     * the provider credentials attached. `@`, `/`, `?` and `#` are the
+     * characters that do it; allow-listing the legal charset closes all of
+     * them at once instead of blocking them one at a time.
+     *
+     * IPv6 is not expressible here at all, and cannot be: the wire format
+     * is colon-delimited, so an address containing colons could never be
+     * told apart from the field separators.
+     *
+     * A leading `:`, whitespace or `#` stays impossible, so a
+     * comment-prefixed line can never match (the caller's blank/`#` skip is
+     * a fast path, not the only guard). Group 2 (port) accepts only 1-5
+     * digits; the 1-65535 range is then enforced in code because
      * `\d{1,5}` alone still admits 99999. Groups 3 and 4 (username,
      * password) forbid `:` so a credential containing the field separator
      * is dropped instead of being silently mis-split across fields.
      */
-    protected const string LINE_PATTERN = '/^([^:\s#][^:]*):(\d{1,5}):([^:]+):([^:]+)$/';
+    protected const string LINE_PATTERN = '/^([A-Za-z0-9][A-Za-z0-9._-]*):(\d{1,5}):([^:]+):([^:]+)$/';
 
     /**
      * The legal TCP port range; a port outside it is dropped like any other

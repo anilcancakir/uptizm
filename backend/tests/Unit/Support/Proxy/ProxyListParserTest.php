@@ -133,7 +133,35 @@ class ProxyListParserTest extends TestCase
         $this->assertSame(
             'p@ss/word#1',
             $result[0]->password,
-            'The password must survive byte for byte; this parser never builds a URL.',
+            'The password must survive byte for byte: it reaches curl through CURLOPT_PROXYUSERPWD, '
+            .'never through the proxy URL, so no character in it can change where the request goes.',
         );
+    }
+
+    /**
+     * The HOST is the opposite case, and the asymmetry is the point.
+     *
+     * `LocalProbeEngine::egressOptions()` builds `CURLOPT_PROXY` as
+     * `'http://'.$host.':'.$port`, so a host character that can terminate the URL
+     * authority repoints our egress. Measured before the pattern was tightened:
+     * `ignored@evil.example` parsed cleanly and produced
+     * `http://ignored@evil.example:8080`, whose host is `evil.example`, which would
+     * have sent every catalog probe, and the provider credentials, through an
+     * attacker's box after one poisoned line in a provider list.
+     */
+    public function test_a_host_that_could_repoint_the_egress_is_dropped(): void
+    {
+        foreach (['ignored@evil.example', '1.2.3.4/x', '1.2.3.4?a=b', '1.2.3.4#f', '-leading.dash'] as $host) {
+            $this->assertSame(
+                [],
+                ProxyListParser::parse($host.':8080:user:pass'),
+                'A host containing ['.$host.'] must never reach the proxy URL builder.',
+            );
+        }
+
+        // The legal shapes still parse, or the guard would have disabled every pool.
+        foreach (['1.2.3.4', 'exit-eu-1.provider.example'] as $host) {
+            $this->assertCount(1, ProxyListParser::parse($host.':8080:user:pass'), $host.' is a legal host.');
+        }
     }
 }
