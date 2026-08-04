@@ -277,6 +277,10 @@ class CheckPersistenceService
                 // Where the probe ACTUALLY ran. `region` above is the region the
                 // caller asked for, which is not the same claim.
                 'colo' => $result->colo,
+                // The proxy exit a locally-produced check egressed through; null
+                // on a worker-produced check, which has `colo` instead. See
+                // CheckResult::$exitVia for why this is a separate column.
+                'exit_via' => $result->exitVia,
                 'checked_at' => $result->checkedAt,
                 'status' => $result->status,
                 'status_code' => $result->statusCode,

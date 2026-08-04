@@ -4,6 +4,8 @@ namespace App\Support\Monitoring;
 
 use App\Enums\MonitorStatus;
 use App\Services\Monitoring\CheckPersistenceService;
+use App\Services\Monitoring\LocalProbeEngine;
+use App\Services\Proxy\ProxyPool;
 use DateTimeImmutable;
 
 /**
@@ -56,6 +58,26 @@ readonly class CheckResult
          * payload replayed from before this field existed must still parse.
          */
         public ?string $colo = null,
+
+        /**
+         * The proxy exit a locally-produced check egressed through, as
+         * `host:port`.
+         *
+         * Extends the {@see $colo} reasoning rather than restating it: a
+         * proxy-derived `region` is an echo of what {@see ProxyPool} was asked
+         * for, not evidence of what actually carried the request, so this
+         * field is what makes one blocked or misbehaving exit distinguishable
+         * from every other reading in the same region. `colo` cannot hold it
+         * (`string(8)`, sized for a three-letter IATA code), so it is a
+         * separate column rather than a repurposed one.
+         *
+         * Null on every worker-produced check, which has a colo instead and no
+         * proxy exit to report; populated only by {@see LocalProbeEngine}.
+         * Deliberately never surfaced through a tenant-facing resource or
+         * view: it is operator evidence, and publishing a third-party exit
+         * invites the exact block-one-and-move-on dynamic the design refuses.
+         */
+        public ?string $exitVia = null,
 
         /**
          * True when the EDGE refused to run the probe, rather than the target
@@ -131,6 +153,12 @@ readonly class CheckResult
             colo: isset($payload['colo']) && $payload['colo'] !== ''
                 ? (string) $payload['colo']
                 : null,
+            // Absent-tolerant like `colo`: a worker payload never carries this
+            // key, and a payload replayed from before this field existed must
+            // still parse.
+            exitVia: isset($payload['exit_via']) && $payload['exit_via'] !== ''
+                ? (string) $payload['exit_via']
+                : null,
             probeRefused: (bool) ($payload['probe_refused'] ?? false),
             content: isset($payload['content']) ? (string) $payload['content'] : null,
             // Cut to 128 characters HERE, at the boundary where untrusted data
@@ -187,6 +215,7 @@ readonly class CheckResult
             'response_body_preview' => $this->responseBodyPreview,
             'probe_run_id' => $this->probeRunId,
             'colo' => $this->colo,
+            'exit_via' => $this->exitVia,
             'probe_refused' => $this->probeRefused,
             'content_type' => $this->contentType,
             'content_truncated' => $this->contentTruncated,
