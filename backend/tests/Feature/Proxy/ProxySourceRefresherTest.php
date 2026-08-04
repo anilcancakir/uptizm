@@ -6,6 +6,8 @@ use App\Jobs\RefreshProxySources;
 use App\Models\Proxy;
 use App\Models\ProxySource;
 use App\Services\Proxy\ProxySourceRefresher;
+use Cron\CronExpression;
+use DateTime;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -371,6 +373,48 @@ class ProxySourceRefresherTest extends TestCase
     }
 
     /**
+     * The expression has to FIRE on the cadence, which a string comparison alone
+     * does not check. An hour step of 23 looks like "every 23 hours" and is not, so this
+     * asserts the next four run times: the string test above pins the shape and this
+     * one pins that the shape means what the config value says. (No literal cron step
+     * in this docblock: an asterisk-slash pair closes the comment, which is how the
+     * first draft of this very block became a parse error.)
+     */
+    #[DataProvider('refreshCadenceFirings')]
+    public function test_the_cron_expression_fires_on_the_cadence_it_claims(
+        int $minutes,
+        array $expectedFirings,
+    ): void {
+        config(['proxy.refresh_minutes' => $minutes]);
+
+        $cron = new CronExpression(RefreshProxySources::cronExpression());
+        $at = new DateTime('2026-08-04 00:00:00');
+
+        $firings = [];
+        for ($i = 0; $i < count($expectedFirings); $i++) {
+            $at = $cron->getNextRunDate($at);
+            $firings[] = $at->format('d H:i');
+        }
+
+        $this->assertSame($expectedFirings, $firings);
+    }
+
+    /**
+     * @return array<string, array{int, list<string>}>
+     */
+    public static function refreshCadenceFirings(): array
+    {
+        return [
+            'hourly fires every hour' => [60, ['04 01:00', '04 02:00', '04 03:00', '04 04:00']],
+            'two hours fires every two' => [120, ['04 02:00', '04 04:00', '04 06:00', '04 08:00']],
+            // The assertion that reddens a clamp back onto an hour step of 23, which
+            // would give `04 23:00, 05 00:00, 05 23:00, 06 00:00` instead.
+            'a day fires once a day' => [1440, ['05 00:00', '06 00:00', '07 00:00', '08 00:00']],
+            'and so does anything longer' => [5000, ['05 00:00', '06 00:00', '07 00:00', '08 00:00']],
+        ];
+    }
+
+    /**
      * @return array<string, array{int|string, string}>
      */
     public static function refreshCadences(): array
@@ -382,9 +426,17 @@ class ProxySourceRefresherTest extends TestCase
             'the shipped default is truly hourly' => [60, '0 * * * *'],
             'a longer interval moves to the hour field' => [120, '0 */2 * * *'],
             'and keeps its step there' => [240, '0 */4 * * *'],
-            // A cron hour field has no step above 23, so a very long interval lands
-            // on the largest valid one instead of an expression cron rejects.
-            'an absurd interval stays a valid expression' => [5000, '0 */23 * * *'],
+            // A day or more cannot be an hour STEP: a step of 23 fires at 23:00 and
+            // then 00:00, an hour apart, before waiting 23 hours. So it becomes the
+            // daily expression, which is the only thing that fires once a day.
+            'exactly a day is daily, not a step of 24' => [1440, '0 0 * * *'],
+            // 23 hours stays an hour STEP, which fires at 00:00 and 23:00. That is
+            // the uneven wrap cron documents, and it is more frequent than asked
+            // rather than rarer, which is the direction this method rounds. Only a
+            // full day or more becomes daily, because only then is a step wrong in
+            // the other direction: it would fire LESS often than every 24 hours.
+            'twenty-three hours keeps the uneven step' => [1380, '0 */23 * * *'],
+            'an absurd interval is daily too' => [5000, '0 0 * * *'],
             'sub-hour intervals stay in the minute field' => [30, '*/30 * * * *'],
             'including a non-divisor, which is cron behaving as documented' => [45, '*/45 * * * *'],
             // This file loads on every artisan invocation, so a zero step here does

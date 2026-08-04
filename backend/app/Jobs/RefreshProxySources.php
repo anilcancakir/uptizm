@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ProxySource;
 use App\Services\Proxy\ProxySourceRefresher;
+use App\Support\Proxy\ProxyRegions;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable as FoundationQueueable;
@@ -52,10 +53,20 @@ class RefreshProxySources implements ShouldQueue
     use SerializesModels;
 
     /**
-     * The largest hour step a cron field accepts, so a very long interval lands
-     * on a daily expression rather than an invalid one.
+     * The interval at which the hour field stops being the right place to say it.
+     *
+     * A step is enumerated, not counted, in the hour field exactly as in the minute
+     * field, so 24 hours cannot be written as an hour step: measured through the
+     * vendored `Cron\CronExpression`, a step of 23 fires at 23:00 and then 00:00,
+     * one hour apart, before waiting 23 hours. Anything from a day upward therefore
+     * becomes the daily expression, which fires once and at a predictable time.
+     *
+     * An earlier revision clamped to a step of 23 instead and its docblock claimed
+     * that WAS daily. It was not, and the test asserted the same wrong string, so
+     * the pair certified the behaviour rather than catching it. This is the same
+     * mistake the minute-field clamp made, one field to the left.
      */
-    protected const int MAX_HOUR_STEP = 23;
+    protected const int HOURS_PER_DAY = 24;
 
     /**
      * This job's cron expression, derived from `config('proxy.refresh_minutes')`.
@@ -81,10 +92,17 @@ class RefreshProxySources implements ShouldQueue
      *
      * So an interval of an hour or more is expressed in the HOUR field instead,
      * where it means what it says: 60 becomes an every-hour expression and 120 an
-     * hour step of 2. Sub-hour values keep cron's own step semantics, including the
-     * uneven wrap a non-divisor produces (a step of 7 fires at 0, 7, ..., 56, then
-     * 4 minutes later); that is cron behaving as documented rather than a value
-     * this method mangled.
+     * hour step of 2. A day or more becomes the daily expression, because the hour
+     * field cannot spell a 24-hour step either ({@see self::HOURS_PER_DAY}).
+     *
+     * Between those, BOTH fields keep cron's own step semantics, including the
+     * uneven wrap a non-divisor produces: a minute step of 7 fires at 0, 7, ..., 56
+     * and then 4 minutes later, and an hour step of 7 fires at 0, 7, 14, 21 and then
+     * 3 hours later. That is cron behaving as documented rather than a value this
+     * method mangled, and an interval that is not a divisor of its field is the
+     * caller asking for something cron cannot express exactly. Values are rounded
+     * DOWN throughout (90 minutes becomes hourly), so the refresh is never rarer
+     * than asked.
      *
      * Nothing in this docblock may contain a literal asterisk-slash cron step.
      * Writing one closes the comment: the first draft of this block spelled the
@@ -100,11 +118,13 @@ class RefreshProxySources implements ShouldQueue
             return '*/'.$minutes.' * * * *';
         }
 
-        $hours = min(self::MAX_HOUR_STEP, intdiv($minutes, 60));
+        $hours = intdiv($minutes, 60);
 
-        return $hours === 1
-            ? '0 * * * *'
-            : '0 */'.$hours.' * * *';
+        return match (true) {
+            $hours === 1 => '0 * * * *',
+            $hours >= self::HOURS_PER_DAY => '0 0 * * *',
+            default => '0 */'.$hours.' * * *',
+        };
     }
 
     /**
@@ -128,11 +148,14 @@ class RefreshProxySources implements ShouldQueue
      */
     public function handle(ProxySourceRefresher $refresher): void
     {
-        foreach (config('proxy.sources') as $region => $spec) {
-            // An unconfigured region is declared but unusable; there is nothing to fetch.
-            if (($spec['location'] ?? '') === '') {
-                continue;
-            }
+        // Which regions carry a source is {@see ProxyRegions}' answer, not a fifth
+        // copy of the predicate. The copy this replaced asked `location === ''`
+        // while every other site asked `filled()`, and `blank()` TRIMS: a location
+        // of a single space was unsourced for the seeder, the migration and `/bot`,
+        // and still fetched here, manufacturing exactly the spurious `last_error`
+        // for an unwired region the guard exists to prevent.
+        foreach (ProxyRegions::sourced() as $region) {
+            $spec = (array) config('proxy.sources.'.$region);
 
             // Keep the DB row in sync with config on every tick (not only at first
             // creation), so a rotated `kind`/`location` env value takes effect on the
