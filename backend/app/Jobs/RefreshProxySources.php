@@ -52,6 +52,62 @@ class RefreshProxySources implements ShouldQueue
     use SerializesModels;
 
     /**
+     * The largest hour step a cron field accepts, so a very long interval lands
+     * on a daily expression rather than an invalid one.
+     */
+    protected const int MAX_HOUR_STEP = 23;
+
+    /**
+     * This job's cron expression, derived from `config('proxy.refresh_minutes')`.
+     *
+     * Schedule's fluent helpers have no "every N configurable minutes" method, so
+     * the cadence is a raw cron field, and a raw cron field built from env input
+     * has to be built defensively for two separate reasons.
+     *
+     * It cannot be interpolated unvalidated. `routes/console.php` loads on EVERY
+     * artisan invocation, so `UPTIZM_PROXY_REFRESH_MINUTES=0` (or any non-numeric
+     * value, which `(int)` makes 0) builds a zero step, throws `Invalid CRON field
+     * value` and takes down `schedule:list`, `migrate`, `config:clear`, everything,
+     * including the commands you would reach for to fix it. Measured: exit 1 on
+     * `schedule:list`.
+     *
+     * And it cannot simply be clamped into the minute field either, which an
+     * earlier revision did with `min(59, ...)`. A minute step of 59 is not "every
+     * 59 minutes": a cron step ENUMERATES matching values, so it fires at minute 0
+     * and minute 59, one minute apart, then waits 58. That silently mangled the
+     * SHIPPED default: `refresh_minutes` is 60, documented as hourly, and the clamp
+     * turned it into two adjacent refreshes an hour. Anything an operator set above
+     * 60 to ease load on a rate-limited provider was flattened the same way.
+     *
+     * So an interval of an hour or more is expressed in the HOUR field instead,
+     * where it means what it says: 60 becomes an every-hour expression and 120 an
+     * hour step of 2. Sub-hour values keep cron's own step semantics, including the
+     * uneven wrap a non-divisor produces (a step of 7 fires at 0, 7, ..., 56, then
+     * 4 minutes later); that is cron behaving as documented rather than a value
+     * this method mangled.
+     *
+     * Nothing in this docblock may contain a literal asterisk-slash cron step.
+     * Writing one closes the comment: the first draft of this block spelled the
+     * zero-step case out and PHP read the rest of the class as code, so every
+     * artisan command died with a ParseError, which is precisely the failure the
+     * paragraph above describes.
+     */
+    public static function cronExpression(): string
+    {
+        $minutes = max(1, (int) config('proxy.refresh_minutes'));
+
+        if ($minutes < 60) {
+            return '*/'.$minutes.' * * * *';
+        }
+
+        $hours = min(self::MAX_HOUR_STEP, intdiv($minutes, 60));
+
+        return $hours === 1
+            ? '0 * * * *'
+            : '0 */'.$hours.' * * *';
+    }
+
+    /**
      * One attempt per tick. A retry would re-fetch the same source before the
      * next scheduled refresh does so anyway, more politely and without
      * hammering a possibly-throttling provider a second time in the same

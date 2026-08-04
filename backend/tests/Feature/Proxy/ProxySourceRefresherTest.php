@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\FindsScheduledJobs;
 use Tests\TestCase;
 
@@ -353,6 +354,44 @@ class ProxySourceRefresherTest extends TestCase
 
         $this->assertTrue($event->withoutOverlapping, 'A slow refresh must not overlap the next scheduled tick.');
         $this->assertTrue($event->onOneServer, 'Only one server may run the refresh, or two would double-fetch every source.');
+    }
+
+    /**
+     * @param  int|string  $minutes  what an operator can actually put in `.env`,
+     *                               including the values `(int)` turns into 0
+     */
+    #[DataProvider('refreshCadences')]
+    public function test_the_configured_interval_becomes_a_cron_expression_that_means_it(
+        int|string $minutes,
+        string $expected,
+    ): void {
+        config(['proxy.refresh_minutes' => $minutes]);
+
+        $this->assertSame($expected, RefreshProxySources::cronExpression());
+    }
+
+    /**
+     * @return array<string, array{int|string, string}>
+     */
+    public static function refreshCadences(): array
+    {
+        return [
+            // The shipped default, and the case an earlier `min(59, ...)` clamp got
+            // wrong: it produced a minute step of 59, which fires at minute 0 and
+            // minute 59 and then waits 58, rather than hourly.
+            'the shipped default is truly hourly' => [60, '0 * * * *'],
+            'a longer interval moves to the hour field' => [120, '0 */2 * * *'],
+            'and keeps its step there' => [240, '0 */4 * * *'],
+            // A cron hour field has no step above 23, so a very long interval lands
+            // on the largest valid one instead of an expression cron rejects.
+            'an absurd interval stays a valid expression' => [5000, '0 */23 * * *'],
+            'sub-hour intervals stay in the minute field' => [30, '*/30 * * * *'],
+            'including a non-divisor, which is cron behaving as documented' => [45, '*/45 * * * *'],
+            // This file loads on every artisan invocation, so a zero step here does
+            // not fail one command, it fails all of them.
+            'zero cannot reach the cron field' => [0, '*/1 * * * *'],
+            'and neither can a non-numeric value' => ['sixty', '*/1 * * * *'],
+        ];
     }
 
     /**
