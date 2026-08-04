@@ -1,4 +1,4 @@
-<!-- Canonical agent instructions for this repository, shared by every tool. CLAUDE.md is a symlink to this file; .github/copilot-instructions.md is generated from it by bin/sync-instructions. Edit THIS file. -->
+<!-- Canonical agent instructions for this repository, shared by every tool. AGENTS.md is the only hand-edited copy: CLAUDE.md is a symlink to it and .github/copilot-instructions.md is generated from it by bin/sync-instructions. Edit AGENTS.md, then run that script. -->
 # AGENTS.md
 
 Guidance for any AI agent working in this repository (Claude Code, GitHub Copilot, Codex, opencode). This is the single canonical instruction file; see "Where the instructions live" at the bottom for how each tool reaches it.
