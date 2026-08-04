@@ -104,6 +104,22 @@ import 'package:flutter/material.dart' show Icons;  // only if icons are needed
 
 Never `import 'package:flutter/material.dart'` without `show`. Build exclusively on Wind W-widgets inside component bodies.
 
+## Anti-Patterns
+
+Each of these is a blocker, and the `component-visual-reviewer` flags every one.
+
+| Anti-pattern | Correct approach |
+|-------------|-----------------|
+| `Color(0xFF...)` or `Colors.*` in component code | A semantic alias key from the table above |
+| A color token without its `dark:` counterpart | Every alias expands to a light+dark pair |
+| Hardcoded pixels (`SizedBox(height: 13)`) | Wind spacing utilities on the 4px scale |
+| A one-off widget when a library component exists | Check `docs/component-registry.md` first |
+| `Icons.*` inline in a component body | Extract as `static const IconData _icon = Icons.x;` |
+| Several preview classes in one `.preview.dart` | One preview class per file |
+| CSS-only Wind utilities (`box-shadow`, `filter`, `transform`, `group-*`) | Unsupported in wind; use Flutter animation APIs |
+| Hand-editing `lib/config/wind_theme.g.dart` | `dart run bin/dispatcher.dart design:sync` |
+| Shipping a component with no preview | Add the preview, run `previews:refresh` |
+
 ## Release Boundary
 
 Preview files (`*.preview.dart`) and the generated `_previews.g.dart` are dev-only. They are excluded from release builds through the `magic_devtools` dev-package boundary and `kDebugMode`/`kReleaseMode` const-fold. Never import a preview file from production code.
