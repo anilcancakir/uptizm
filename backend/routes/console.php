@@ -5,6 +5,7 @@ use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
 use App\Jobs\DispatchWeeklyDigests;
 use App\Jobs\IngestServiceFeeds;
 use App\Jobs\PruneContentArchive;
+use App\Jobs\PruneExpiredAiSuggestions;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Jobs\ScheduleSslChecks;
 use App\Jobs\SweepAiSuggestions;
@@ -63,6 +64,24 @@ Schedule::job(new SweepAiSuggestions)
     ->withoutOverlapping()
     ->onOneServer()
     ->name('monitoring:sweep-ai-suggestions');
+
+// Delete the AI suggestions that expired without anyone acting on them
+// (supervisor `ai` queue, single-server, unique lock prevents overlap with a
+// still-running sweep).
+//
+// The sweep above creates a suggestion per fresh anomaly every two minutes and
+// stamps it to expire in seven days, but nothing ever deleted one: `expires_at`
+// was read only as a visibility filter in the inbox query, so an unactioned
+// suggestion left the UI and stayed in the table forever.
+//
+// Daily at 04:40, in the quiet band after the 03:00 SSL fan-out and the 04:10
+// archive prune and before the 06:00 Monday digest, so the housekeeping jobs never
+// share a tick.
+Schedule::job(new PruneExpiredAiSuggestions)
+    ->dailyAt('04:40')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('ai:prune-expired-suggestions');
 
 // Fan out one weekly digest per team entitled to read one (supervisor `ai`
 // queue, single-server, unique lock prevents overlap with a still-enqueuing
