@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Support\Services\SystemTeam;
 use Database\Seeders\ServiceCatalogSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -35,6 +36,27 @@ class ServiceCatalogSeederTest extends TestCase
      * would certify whatever the constant happened to contain.
      */
     private const int EXPECTED_SERVICE_COUNT = 8;
+
+    /**
+     * A default of three healthy proxy sources, mirroring what a working
+     * deployment's `config/proxy.php` looks like once every region has been
+     * sourced. `.env` ships every `UPTIZM_PROXY_*_SOURCE_LOCATION` empty by
+     * default, which `ServiceCatalogSeeder::catalogRegions()` now treats as
+     * "declared but unusable" and would refuse to seed from at all, so every
+     * test in this file that is not itself EXERCISING the region count needs
+     * a working default rather than the shipped one. The two tests that ARE
+     * exercising it override this in their own body.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['proxy.sources' => [
+            'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
+            'us-east' => ['kind' => 'url', 'location' => 'https://example.test/us-east.txt'],
+            'ap' => ['kind' => 'url', 'location' => 'https://example.test/ap.txt'],
+        ]]);
+    }
 
     public function test_it_seeds_eight_services(): void
     {
@@ -103,9 +125,99 @@ class ServiceCatalogSeederTest extends TestCase
             $this->assertSame(AiMode::Off, $monitor->ai_mode, "{$service->slug}'s monitor is not ai_mode off.");
             $this->assertFalse((bool) $monitor->alert_on_down, "{$service->slug}'s monitor pages on down.");
             $this->assertSame(MonitorType::Http, $monitor->type);
-            $this->assertSame(MonitorRegion::values(), $monitor->regions);
+            $this->assertSame(['eu-west', 'us-east', 'ap'], $monitor->regions);
             $this->assertNotNull($monitor->next_check_at, "{$service->slug}'s monitor never becomes due.");
         }
+    }
+
+    /**
+     * A catalog monitor's `regions` equals the regions actually configured
+     * with a proxy source, not every {@see MonitorRegion} case.
+     *
+     * Configured explicitly to two rather than trusting the deployment's own
+     * `config/proxy.php` (which already carries three): a test relying on the
+     * shipped count could not tell "seeded from config" from "seeded from the
+     * enum, and config happens to list every case too".
+     */
+    public function test_every_monitor_carries_exactly_the_configured_proxy_regions(): void
+    {
+        config(['proxy.sources' => [
+            'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
+            'us-east' => ['kind' => 'url', 'location' => 'https://example.test/us-east.txt'],
+        ]]);
+
+        $this->seed(ServiceCatalogSeeder::class);
+
+        foreach (Service::query()->get() as $service) {
+            $monitor = $service->monitors()->firstOrFail();
+
+            $this->assertSame(
+                ['eu-west', 'us-east'],
+                $monitor->regions,
+                "{$service->slug}'s monitor does not carry exactly the configured proxy regions.",
+            );
+        }
+    }
+
+    /**
+     * Below two configured regions the seeder refuses outright, because two
+     * is `MIN_AGREEING_REGIONS`: an outage verdict is mathematically
+     * unreachable with fewer, regardless of what those regions measure.
+     */
+    public function test_it_throws_when_fewer_than_two_proxy_regions_are_configured(): void
+    {
+        config(['proxy.sources' => [
+            'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
+        ]]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->seed(ServiceCatalogSeeder::class);
+    }
+
+    /**
+     * A region DECLARED in `config('proxy.sources')` with an empty `location`
+     * does not count as configured.
+     *
+     * `config/proxy.php` declares all three regions statically; only the
+     * env-driven `location` says whether a deployment actually sourced one,
+     * and its own docblock calls an empty location "DECLARED BUT UNUSABLE".
+     * A seeder trusting key membership alone (this file's first version of
+     * the fix did exactly that) would keep seeding a region an operator had
+     * deliberately blanked out to disable it, and `ProxyPool::hasRegion()`
+     * refuses to trust key membership alone for the identical reason.
+     */
+    public function test_a_declared_region_with_no_location_does_not_count_as_configured(): void
+    {
+        config(['proxy.sources' => [
+            'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
+            'us-east' => ['kind' => 'url', 'location' => 'https://example.test/us-east.txt'],
+            'ap' => ['kind' => 'url', 'location' => ''],
+        ]]);
+
+        $this->seed(ServiceCatalogSeeder::class);
+
+        $monitor = Monitor::query()->whereHas('services')->firstOrFail();
+
+        $this->assertSame(['eu-west', 'us-east'], $monitor->regions);
+    }
+
+    /**
+     * The throw side of the same guard: three regions are DECLARED but only
+     * one carries a location, so the seeder must refuse exactly as it would
+     * if the other two keys were absent outright.
+     */
+    public function test_it_throws_when_only_one_declared_region_actually_has_a_location(): void
+    {
+        config(['proxy.sources' => [
+            'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
+            'us-east' => ['kind' => 'url', 'location' => ''],
+            'ap' => ['kind' => 'url', 'location' => ''],
+        ]]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->seed(ServiceCatalogSeeder::class);
     }
 
     /**

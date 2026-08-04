@@ -4,14 +4,18 @@ namespace Database\Seeders;
 
 use App\Enums\AiMode;
 use App\Enums\HttpMethod;
-use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
 use App\Enums\ServiceStatusSource;
+use App\Http\Controllers\Marketing\ShowBotController;
+use App\Http\Controllers\Marketing\ShowServiceStatusController;
 use App\Models\Monitor;
 use App\Models\Service;
 use App\Models\Team;
+use App\Services\Proxy\ProxyPool;
+use App\Services\Services\ServicePageAssembler;
 use App\Support\Services\SystemTeam;
 use Illuminate\Database\Seeder;
+use RuntimeException;
 
 /**
  * Seeds the eight v1 catalog services, each with ONE system-team monitor
@@ -188,11 +192,17 @@ class ServiceCatalogSeeder extends Seeder
      */
     public function run(): void
     {
-        // 1. The team every catalog monitor belongs to, provisioned if absent.
+        // 1. The regions a fresh catalog monitor is allowed to claim, resolved
+        //    and validated BEFORE any row is written: a deployment with too few
+        //    configured proxy regions must never seed one that only claims a
+        //    fraction of them by accident.
+        $regions = $this->catalogRegions();
+
+        // 2. The team every catalog monitor belongs to, provisioned if absent.
         $team = SystemTeam::resolve();
 
         foreach (self::SERVICES as $definition) {
-            // 2. Idempotent by slug, and create-only for everything an OPERATOR
+            // 3. Idempotent by slug, and create-only for everything an OPERATOR
             //    owns: a re-seed must not overwrite a terms review or a source
             //    choice. The one exception is the outbound identity below, which
             //    is ours and not theirs.
@@ -219,16 +229,78 @@ class ServiceCatalogSeeder extends Seeder
                 'display_order' => 0,
             ]);
 
-            // 3. Attach the own-measurement, with the probed host as the public
+            // 4. Attach the own-measurement, with the probed host as the public
             //    label so the page can name WHAT was measured rather than
             //    implying coverage of the whole product.
             $service->monitors()->attach(
-                $this->createMonitor($team, $definition)->getKey(),
+                $this->createMonitor($team, $regions, $definition)->getKey(),
                 [
                     'label' => $definition['probe_label'],
                 ],
             );
         }
+    }
+
+    /**
+     * The regions a catalog monitor is seeded with: exactly the region keys
+     * under `config('proxy.sources')` that carry a non-empty `location`, not
+     * every {@see MonitorRegion} case and not merely every DECLARED key.
+     *
+     * Reading the full enum (as this used to) let a catalog monitor claim a
+     * region with no configured exit at all.
+     * {@see ShowServiceStatusController::replacements()}
+     * derives the published `[[service.region_count]]` from
+     * `max($monitor->regions)` per endpoint, so a monitor seeded with all
+     * five regions published a probe-region count the deployment could never
+     * back, and `ScheduleMonitorChecks` fanned a check out to a region
+     * {@see ProxyPool::hasRegion()} was always going to
+     * refuse.
+     *
+     * Filtering on `location` rather than trusting key membership alone
+     * matters because `config/proxy.php` DECLARES all three regions
+     * statically; only the env-driven `location` value says whether a given
+     * deployment actually sourced one. Its own docblock calls an empty
+     * location "DECLARED BUT UNUSABLE", and `ProxyPool::hasRegion()` treats
+     * key membership as necessary but not sufficient for exactly that reason.
+     * A seeder trusting the key alone would keep seeding every region even
+     * after an operator blanked one out to disable it.
+     *
+     * `config('proxy.sources')` and NOT a database query: {@see ShowBotController}
+     * reads the exact same expression, filtered the exact same way, for its
+     * own region count and daily-request figure, and it cannot query the
+     * database to cross-check it (those pages are served with no connection
+     * available). Config is the one signal both places can read identically;
+     * a seeder-only filter would let the two publish two different counts
+     * again, which is the defect this step exists to close.
+     *
+     * Throws below {@see ServicePageAssembler::MIN_AGREEING_REGIONS} (2): that
+     * is the mathematical floor the consensus check itself enforces, below
+     * which an outage verdict can never be reached regardless of what the
+     * regions measure. Deliberately looser than `config('proxy.minimum_regions')`
+     * (3, the operational floor that survives one dead region, see
+     * `config/proxy.php`): a seeder that only refused below 3 would still
+     * ship a catalog whose outage claim is structurally unreachable at
+     * exactly 2.
+     *
+     * @return list<string>
+     */
+    private function catalogRegions(): array
+    {
+        $regions = array_keys(array_filter(
+            (array) config('proxy.sources', []),
+            static fn (array $source): bool => filled($source['location'] ?? null),
+        ));
+
+        if (count($regions) < ServicePageAssembler::MIN_AGREEING_REGIONS) {
+            throw new RuntimeException(
+                'ServiceCatalogSeeder requires at least '.ServicePageAssembler::MIN_AGREEING_REGIONS
+                .' proxy regions with a configured source in config(\'proxy.sources\'); only '.count($regions)
+                .' ('.implode(', ', $regions).') carry one. A catalog monitor seeded with fewer can never '
+                .'reach outage consensus.',
+            );
+        }
+
+        return $regions;
     }
 
     /**
@@ -239,9 +311,10 @@ class ServiceCatalogSeeder extends Seeder
      * without it would sit outside the scheduler forever and the page would have
      * no own-measurement to show.
      *
+     * @param  list<string>  $regions
      * @param  array{name: string, probe_url: string, probe_label: string}  $definition
      */
-    private function createMonitor(Team $team, array $definition): Monitor
+    private function createMonitor(Team $team, array $regions, array $definition): Monitor
     {
         return Monitor::query()->create([
             'team_id' => $team->getKey(),
@@ -250,9 +323,10 @@ class ServiceCatalogSeeder extends Seeder
             'method' => HttpMethod::Get,
             'url' => $definition['probe_url'],
             'check_interval_sec' => (int) config('uptizm.catalog_probe_interval_sec'),
-            // Every region the relay supports: a public claim about a global
-            // service is only honest if it was measured from more than one place.
-            'regions' => MonitorRegion::values(),
+            // Exactly the regions {@see self::catalogRegions()} validated: a
+            // public claim about a global service is only honest if every region
+            // it names actually has a configured exit to measure from.
+            'regions' => $regions,
             /*
              * IDENTIFY THIS TRAFFIC. This is the larger of the two channels this
              * catalog opens on a provider, by a wide margin: every region, every

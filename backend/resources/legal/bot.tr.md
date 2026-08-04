@@ -67,6 +67,13 @@ neden orada olduğumuzu öğrenmek istiyorsanız, hangi alan adını sorduğunuz
 de durdurur. User-Agent değerini engellemeniz de işe yarar ve bunu etrafından dolaşmak
 yerine olduğu gibi bir cevap olarak kabul ederiz.
 
+Açıkça söylemekte fayda var: her iki kanal da bize ait tek bir adresten değil, dönüşümlü bir
+havuzdaki üçüncü taraf çıkış adreslerinden gelir; bu yüzden tek bir adresi engellemek
+gelecekteki her isteği kalıcı olarak dışarıda tutmaz. Bizi kalıcı olarak durdurmak
+istiyorsanız güvenilir yol, yukarıdaki gibi servisinizi katalogdan kaldırmamızı istemek ya da
+hangi adresten geldiğine bakmaksızın aynı şekilde kabul ettiğimiz User-Agent değerini
+engellemektir.
+
 ## Ne için var
 
 Uptizm, servis başına bağımsız bir sayfa yayımlar: herkese açık bir uç noktaya dair kendi

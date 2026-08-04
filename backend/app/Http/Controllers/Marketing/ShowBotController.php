@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Marketing;
 
-use App\Enums\MonitorRegion;
 use App\Services\Services\FeedFetcher;
 use App\Support\Marketing\ChromeData;
 use App\Support\Marketing\LegalDocument;
+use Database\Seeders\ServiceCatalogSeeder;
 use Illuminate\Contracts\View\View;
 
 /**
@@ -108,10 +108,10 @@ class ShowBotController
              * what an operator sees: five regions on a one-minute cadence is not one
              * request a minute.
              */
-            '[[bot.probe_regions]]' => (string) count(MonitorRegion::cases()),
+            '[[bot.probe_regions]]' => (string) $this->probeRegionCount(),
             '[[bot.probe_interval_seconds]]' => (string) $this->probeIntervalSeconds(),
             '[[bot.probe_daily_requests]]' => number_format(
-                count(MonitorRegion::cases()) * intdiv(86400, $this->probeIntervalSeconds()),
+                $this->probeRegionCount() * intdiv(86400, $this->probeIntervalSeconds()),
             ),
         ];
     }
@@ -123,6 +123,32 @@ class ShowBotController
     protected function probeIntervalSeconds(): int
     {
         return max(1, (int) config('uptizm.catalog_probe_interval_sec'));
+    }
+
+    /**
+     * The number of regions a catalog monitor actually carries.
+     *
+     * The regions under `config('proxy.sources')` that carry a non-empty
+     * `location`, the SAME filter {@see ServiceCatalogSeeder::catalogRegions()}
+     * seeds a monitor's `regions` column from, and NOT a database query: this
+     * page is rendered with no connection available (see the class docblock
+     * above), so reading the monitor rows here would 500 it. Counting every
+     * DECLARED key regardless of `location` would overcount: `config/proxy.php`
+     * lists all three regions statically, and only the env-driven `location`
+     * says whether a deployment actually sourced one (its own docblock calls
+     * an empty location "DECLARED BUT UNUSABLE"). Counting
+     * `MonitorRegion::cases()` instead (as this used to) published the number
+     * of regions the relay KNOWS about rather than the number a catalog
+     * monitor can actually reach, which overstated both this figure and the
+     * daily-request total below it once the seeder stopped claiming every
+     * region by default.
+     */
+    protected function probeRegionCount(): int
+    {
+        return count(array_filter(
+            (array) config('proxy.sources', []),
+            static fn (array $source): bool => filled($source['location'] ?? null),
+        ));
     }
 
     /**
