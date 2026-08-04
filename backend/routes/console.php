@@ -140,7 +140,13 @@ Schedule::job(new IngestServiceFeeds)
 // "every N configurable minutes" method, and a hardcoded literal would silently
 // drift out of sync with a changed UPTIZM_PROXY_REFRESH_MINUTES.
 Schedule::job(new RefreshProxySources)
-    ->cron('*/'.((int) config('proxy.refresh_minutes')).' * * * *')
+    // CLAMPED to 1..59 rather than trusted. This value is interpolated straight into a
+    // cron field, and `routes/console.php` loads on EVERY artisan invocation, so
+    // `UPTIZM_PROXY_REFRESH_MINUTES=0` (or any non-numeric value, which `(int)` makes 0)
+    // throws `Invalid CRON field value */0` and takes down `schedule:list`, `migrate`,
+    // `config:clear`, everything, including the commands you would reach for to fix it.
+    // Measured: exit 1 on `schedule:list` with the value unclamped.
+    ->cron('*/'.max(1, min(59, (int) config('proxy.refresh_minutes'))).' * * * *')
     ->withoutOverlapping()
     ->onOneServer()
     ->name('proxy:refresh-sources');

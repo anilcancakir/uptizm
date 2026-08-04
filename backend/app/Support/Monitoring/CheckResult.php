@@ -132,6 +132,11 @@ readonly class CheckResult
      *
      * @param  array<string, mixed>  $payload
      */
+    /**
+     * The `monitor_checks.exit_via` column width.
+     */
+    protected const int MAX_EXIT_VIA_LENGTH = 64;
+
     public static function fromWorkerPayload(array $payload): self
     {
         return new self(
@@ -156,8 +161,13 @@ readonly class CheckResult
             // Absent-tolerant like `colo`: a worker payload never carries this
             // key, and a payload replayed from before this field existed must
             // still parse.
+            // Cut to the column width at the same boundary and for the same reason as
+            // `content_type` below: PostgreSQL throws on an over-long value rather than
+            // trimming it, and a throw here happens INSIDE the persist transaction and
+            // loses the whole check row. Webshare lists IPs so 64 is generous today, but
+            // a hostname-based provider endpoint is not bounded by anything we control.
             exitVia: isset($payload['exit_via']) && $payload['exit_via'] !== ''
-                ? (string) $payload['exit_via']
+                ? mb_substr((string) $payload['exit_via'], 0, self::MAX_EXIT_VIA_LENGTH)
                 : null,
             probeRefused: (bool) ($payload['probe_refused'] ?? false),
             content: isset($payload['content']) ? (string) $payload['content'] : null,

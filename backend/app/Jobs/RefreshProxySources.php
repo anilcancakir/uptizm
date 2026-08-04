@@ -7,6 +7,7 @@ use App\Services\Proxy\ProxySourceRefresher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable as FoundationQueueable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -89,8 +90,15 @@ class RefreshProxySources implements ShouldQueue
             );
 
             try {
-                $refresher->refresh($source);
-            } catch (RequestException|RuntimeException $exception) {
+                $counts = $refresher->refresh($source);
+
+                // The refresher's own docblock argues the sweep predicate exists so a
+                // swept count "stays meaningful as a decay signal". It was computed here
+                // and thrown away, so a pool losing 200 exits in one tick emitted
+                // nothing: no log, no metric, no column. The drop count was already
+                // logged one layer down, which is what made the asymmetry visible.
+                Log::info('Proxy source refreshed.', ['region' => $source->region] + $counts);
+            } catch (ConnectionException|RequestException|RuntimeException $exception) {
                 // Recorded as data, not rethrown: a provider being unreachable is not
                 // this job failing, and rethrowing here would abort the loop and leave
                 // every region after this one un-refreshed until the next scheduled tick.

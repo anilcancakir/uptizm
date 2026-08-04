@@ -3,10 +3,10 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use App\Services\Services\ServicePageAssembler;
 use FlutterSdk\MagicStarter\Contracts\CreatesUsers;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Database\Seeder;
-use RuntimeException;
 
 /**
  * Seeds the database: the demo account in local/dev, and the reference data
@@ -89,15 +89,21 @@ class DatabaseSeeder extends Seeder
         //    never reach consensus. That refusal is correct when someone asks for a
         //    catalog directly, and wrong as a reason to take down the whole seed:
         //    `migrate:fresh --seed` is the documented way to reset a dev database and
-        //    most developers here are not working on the catalog at all. So the
-        //    refusal is reported rather than propagated, and it is reported rather
-        //    than swallowed: the reason lands on the console and the catalog stays
-        //    inert, which is the same state `config/proxy.php` calls "declared but
-        //    unusable".
-        try {
+        //    most developers here are not working on the catalog at all.
+        //
+        //    So the precondition is ASKED rather than caught. A try/catch around the
+        //    call would have degraded every RuntimeException from anywhere inside the
+        //    seeder into a console warning, in every environment, which is the silent
+        //    swallow this codebase's conventions forbid. Asking answers the same need
+        //    and hides nothing.
+        if (ServiceCatalogSeeder::canSeed()) {
             $this->call(ServiceCatalogSeeder::class);
-        } catch (RuntimeException $e) {
-            $this->command?->warn('Skipped the service catalog: '.$e->getMessage());
+        } else {
+            $this->command?->warn(
+                'Skipped the service catalog: fewer than '.ServicePageAssembler::MIN_AGREEING_REGIONS
+                .' proxy regions carry a source in config(\'proxy.sources\'), so a catalog monitor '
+                .'seeded now could never reach outage consensus.',
+            );
         }
     }
 }

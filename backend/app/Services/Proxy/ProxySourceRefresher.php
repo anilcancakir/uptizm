@@ -49,8 +49,10 @@ use Illuminate\Support\Facades\Log;
  *    proxy credentials as the payload. A blocked endpoint is dropped, never
  *    upserted, and the drop count is logged so an operator can tell a
  *    malicious list from a merely small one.
- * 5. UPSERT on `(host, port)`, the conflict target the migration's unique
- *    index enforces. A returning proxy is RESURRECTED (`enabled = true`,
+ * 5. UPSERT on `(host, port)`. Read-then-write via `updateOrCreate`, NOT an
+ *    `ON CONFLICT` statement: the unique index is a race backstop rather than the
+ *    mechanism, and claiming otherwise would send the next reader looking for a
+ *    guarantee that is not there. A returning proxy is RESURRECTED (`enabled = true`,
  *    `removed_at = null`, `failed_attempts = 0`): its prior penalty history
  *    does not survive re-appearing in the provider's list, because the
  *    provider re-listing it is itself evidence the exit is live again.
@@ -93,7 +95,8 @@ class ProxySourceRefresher
         // 3. An empty parse is a failed refresh in disguise: refuse to sweep on it.
         if ($parsedProxies === []) {
             $source->update([
-                'last_error' => "Refresh for region \"{$source->region}\" parsed 0 proxies; refusing to sweep the existing pool.",
+                'last_error' => "Refresh for region \"{$source->region}\" parsed 0 proxies; "
+                    .'refusing to sweep the existing pool.',
             ]);
 
             return [

@@ -284,6 +284,24 @@ class ServiceCatalogSeeder extends Seeder
      *
      * @return list<string>
      */
+    /**
+     * Whether a catalog can be seeded at all, asked BEFORE calling this seeder.
+     *
+     * {@see DatabaseSeeder} needs this because the region precondition below throws, and
+     * `migrate:fresh --seed` is the documented way to reset a dev database: a developer
+     * not working on the catalog must still get a database. Wrapping the call in a
+     * `catch` would have answered that too, and worse, because it would have degraded
+     * EVERY RuntimeException from anywhere inside this seeder into a console warning in
+     * every environment. Asking first swallows nothing.
+     */
+    public static function canSeed(): bool
+    {
+        return count(array_filter(
+            (array) config('proxy.sources', []),
+            static fn (array $source): bool => filled($source['location'] ?? null),
+        )) >= ServicePageAssembler::MIN_AGREEING_REGIONS;
+    }
+
     private function catalogRegions(): array
     {
         $regions = array_keys(array_filter(
