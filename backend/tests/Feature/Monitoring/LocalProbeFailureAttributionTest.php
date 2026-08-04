@@ -35,17 +35,23 @@ use Tests\TestCase;
  * SUCCESS would be worse, because it would reset a streak built by a real
  * outage.
  *
- * The evidence curl hands us is thin. A dead proxy and a dead target BOTH
- * surface as errno 7 (`CURLE_COULDNT_CONNECT`), so the error code is not the
- * discriminator. Only two codes name the proxy outright (5
- * `CURLE_COULDNT_RESOLVE_PROXY`, 97 `CURLE_PROXY`), plus one HTTP status that
- * cannot have come from the target at all (407, which only a proxy sends), plus
- * one MESSAGE: a CONNECT tunnel the proxy refused arrives as errno 56
- * (`CURLE_RECV_ERROR`), which a target resetting a connection also produces, so
- * there the wording is the only evidence and the errno stays ambiguous on its
- * own. Everything else is ambiguous too, and the only way to resolve it is to ask
- * a SECOND exit in the same region: if that one answers, the first exit was the
- * problem; if it fails the same way, the target genuinely is unreachable.
+ * The evidence curl hands us is thin, and the error CODE is not the
+ * discriminator. Two codes name the proxy outright (5
+ * `CURLE_COULDNT_RESOLVE_PROXY`, 97 `CURLE_PROXY`), and one HTTP status cannot
+ * have come from the target at all (407, which only a proxy sends). Everything
+ * else needs the MESSAGE, because libcurl overloads its codes and has moved this
+ * particular failure between two of them: a CONNECT reply the proxy refused
+ * arrives as errno 56 up to libcurl 8.19.0 and as errno 7 from 8.20.0, with the
+ * same wording either way, while errno 56 also covers a target resetting a
+ * connection and errno 7 also covers our own exit's port being shut. Worse, that
+ * one message covers BOTH blames: `response 407` is the proxy speaking about
+ * itself and `response 502` is the proxy reporting that the ORIGIN refused, which
+ * is a real outage. So the code inside the reply decides, the errno only narrows.
+ *
+ * Where the message names nothing, the failure is genuinely ambiguous and the only
+ * way to resolve it is to ask a SECOND exit in the same region: if that one
+ * answers, the first exit was the problem; if it fails the same way, the target
+ * genuinely is unreachable.
  *
  * So there are three outcomes, and this file pins the boundary between them:
  *
@@ -229,6 +235,55 @@ class LocalProbeFailureAttributionTest extends TestCase
         $this->assertNull($health->last_success_at);
     }
 
+    public function test_the_same_tunnel_refusal_is_the_targets_outage_on_the_errno_libcurl_moved_it_to(): void
+    {
+        // libcurl OVERLOADED errno 7. Up to 8.19.0 a non-2xx CONNECT reply returned
+        // `CURLE_RECV_ERROR` (56); from 8.20.0 the identical failure with the
+        // identical message returns `CURLE_COULDNT_CONNECT` (7). Verified in the
+        // shipped source at the tags: `curl-8_19_0:lib/cf-h1-proxy.c` returns
+        // `CURLE_RECV_ERROR` and `curl-8_20_0` / `curl-8_21_0` return
+        // `CURLE_COULDNT_CONNECT` beneath the same `failf(... "CONNECT tunnel
+        // failed, response %d" ...)`.
+        //
+        // So this is the case that CANNOT be classified by errno. This machine's PHP
+        // links 8.18.0, so no local measurement can reach it, and a blanket
+        // proxy-fault rule for errno 7 would convert every genuinely down HTTPS
+        // catalog target into a refusal that publishes nothing the moment the box's
+        // libcurl is upgraded, which the plan's own CVE remediation requires.
+        $monitor = $this->systemMonitor();
+        $this->makeProxy('us-east');
+        $this->makeProxy('us-east');
+        $this->scriptTarget([
+            $this->curlFailure(7, 'CONNECT tunnel failed, response 502'),
+            $this->curlFailure(7, 'CONNECT tunnel failed, response 502'),
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertSame(MonitorStatus::Down, $reading->status);
+        $this->assertFalse(
+            $reading->probeRefused,
+            'A proxy reporting that the ORIGIN refused is a verdict about the target, on either errno.',
+        );
+
+        foreach (Proxy::all() as $exit) {
+            $this->assertSame(0, $exit->failed_attempts, 'A real target outage must not drain the pool.');
+        }
+    }
+
+    public function test_a_407_stays_our_own_failure_on_the_errno_libcurl_moved_it_to(): void
+    {
+        // The other side of the same overload: on libcurl >= 8.20.0 a 407 CONNECT
+        // reply is ALSO errno 7. The message is what separates it from the 502
+        // above, and a 407 can only be the proxy speaking about itself, so this one
+        // is ours and must produce no verdict.
+        $this->assertARefusedTunnelIsOurOwnFailure(
+            errno: 7,
+            error: 'CONNECT tunnel failed, response 407',
+            expectedInMessage: 'CONNECT tunnel failed',
+        );
+    }
+
     public function test_a_tunnel_refused_over_the_origin_is_the_targets_outage_and_not_our_exits(): void
     {
         // The counterweight to the 407 tests below. curl spells EVERY non-2xx
@@ -297,8 +352,11 @@ class LocalProbeFailureAttributionTest extends TestCase
 
         $reading = $this->engine()->dispatch($monitor, 'us-east');
 
-        // A verdict, not a refusal: two independent exits could not reach the
-        // target, which is the closest thing to evidence this design can get.
+        // A verdict, not a refusal: two exits of the region could not reach the
+        // target, which is the closest thing to evidence this design can get. They
+        // are not INDEPENDENT (one region, one source, so one vendor), which is why
+        // the wording here is deliberate and why cross-vendor corroboration has to
+        // come from the cross-region quorum instead.
         $this->assertSame(MonitorStatus::Down, $reading->status);
         $this->assertFalse($reading->probeRefused);
         $this->assertNull($reading->statusCode);

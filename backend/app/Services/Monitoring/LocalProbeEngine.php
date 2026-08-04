@@ -162,7 +162,12 @@ use Throwable;
  * From that, {@see runAttemptLadder()} produces exactly three outcomes:
  *
  * - A READING, when an exit answered, or when every attempt made failed in a way
- *   we could not pin on ourselves (a `down` two independent exits agree on).
+ *   we could not pin on ourselves (a `down` two exits of the region agree on).
+ *   Note "two exits", NOT two independent ones: a region has at most one source
+ *   and every exit carries its `proxy_source_id`, so both attempts share one
+ *   vendor and their agreement is one vendor's word twice. Cross-vendor
+ *   independence would have to come from the cross-region quorum, and only if the
+ *   regions are sourced from different providers.
  * - A REFUSAL (`probeRefused`), when an attempt failed on OUR side and none
  *   answered, or when the region had no exit to try at all. It carries
  *   `status = down` on the wire for a reader that predates the flag, exactly as
@@ -215,82 +220,119 @@ class LocalProbeEngine implements ProbeTransport
      * code added on a guess converts a real outage into a refusal and stops paging
      * anyone.
      *
-     * 7 is `CURLE_COULDNT_CONNECT`, and it clears that bar only because of a
-     * precondition this engine enforces: every probe carries an explicit exit
-     * (`egressOptions()` sets `proxy` unconditionally, and `dispatch()` refuses a
-     * region whose pool is empty before any request is built), so the proxy is the
-     * ONLY host curl ever opens a TCP connection to. The target is reached by the
-     * proxy, never by us. Measured both directions on curl 8.7.1 against a local
-     * CONNECT proxy: with the proxy's port closed, `errno 7, Failed to connect to
-     * 127.0.0.1 port 18099`; with the proxy healthy and the ORIGIN refusing,
-     * `errno 56, CONNECT tunnel failed, response 502`. So a target refusal cannot
-     * surface as 7, and a 7 cannot be about the target.
+     * Deliberately NOT here: 7 (`CURLE_COULDNT_CONNECT`). It is usually about the
+     * proxy, because every probe carries an explicit exit (`egressOptions()` sets
+     * `proxy` unconditionally and `dispatch()` refuses an empty-pool region before
+     * a request is built), so the proxy is the only host curl opens a TCP
+     * connection to. But libcurl OVERLOADED it: from 8.20.0 a non-2xx CONNECT
+     * reply also returns 7 (`lib/cf-h1-proxy.c`, verified at the shipped tags,
+     * `curl-8_19_0` returns `CURLE_RECV_ERROR` and `curl-8_20_0` and
+     * `curl-8_21_0` return `CURLE_COULDNT_CONNECT`). A blanket 7 would therefore
+     * read a proxy's `response 502`, which is the ORIGIN refusing, as our own
+     * failure on any modern libcurl. So 7 is decided in {@see self::blamesTheProxy()}
+     * by its MESSAGE first and only defaults to ours when no tunnel is named.
      *
-     * That measurement is the whole justification, so it is also the thing to
-     * re-run before adding a direct (proxy-less) probe path here. On such a path 7
-     * would mean the target, and leaving it in this list would silence real
-     * outages: the honest `down` this engine owes eight public pages would become a
-     * refusal that publishes nothing.
+     * The version trap is not hypothetical here. This machine's PHP links libcurl
+     * 8.18.0 (`curl_version()`, and note the `curl` CLI is a different build at
+     * 8.7.1, so measuring with the CLI does not measure what the engine uses), and
+     * the plan's own risk register requires moving past 8.20.0 to escape a
+     * stale-proxy-password CVE. The classifier has to be right on both sides of
+     * that boundary without a runtime version branch.
+     *
+     * Also re-derive all of this before changing the proxy SCHEME. Under
+     * `socks5://` curl routes a SOCKS-layer failure about the ORIGIN into
+     * `CURLE_PROXY` (`lib/socks.c`), which is errno 97 and already in this list, so
+     * a scheme change would silence real outages through a code nobody touched.
      *
      * @var list<int>
      */
     protected const array PROXY_FAULT_ERRNOS = [
         5,
-        7,
         97,
     ];
 
     /**
-     * curl's error for a CONNECT tunnel the proxy refused to open.
+     * The errnos a failed CONNECT tunnel can arrive as, across curl generations.
      *
-     * Once the CONNECT reply headers are suppressed (see {@see self::egressOptions()}),
-     * a proxy answering 407 to CONNECT no longer arrives as a fabricated reading; it
-     * arrives as errno 56 (`CURLE_RECV_ERROR`) instead. That errno is NOT in
-     * {@see self::PROXY_FAULT_ERRNOS} on purpose, because 56 on its own is genuinely
-     * ambiguous: a target can also drop a connection mid-response. What disambiguates it
-     * is curl's own message, which names the tunnel.
+     * 56 (`CURLE_RECV_ERROR`) up to libcurl 8.19.0 and 7 (`CURLE_COULDNT_CONNECT`)
+     * from 8.20.0, for the same failure and the same message. Neither belongs in
+     * {@see self::PROXY_FAULT_ERRNOS}: 56 also covers a target dropping a
+     * connection mid-response, and 7 also covers our own exit's port being closed.
+     * The errno only says "a tunnel failure could be what this is"; the message
+     * decides what it actually was.
      *
-     * Every entry names 407, and that narrowness is load-bearing. curl spells the same
-     * error for EVERY non-2xx CONNECT reply (`CONNECT tunnel failed, response %d`), and
-     * 407 is the only code a proxy can only be speaking about itself; every other code
-     * is the proxy reporting on the ORIGIN. Measured on curl 8.7.1, the two differ by
-     * one number: a 407-answering proxy gives `response 407`, and a healthy proxy whose
-     * origin refused the connection gives `response 502`. An earlier revision matched
-     * the prefix alone, which read that 502 as our own exit's fault: every genuinely
-     * down HTTPS target would have been converted from an honest `down` into a refusal
-     * that publishes nothing, on the eight pages that exist to report exactly that.
-     * Leaving other codes ambiguous costs one alternate exit and still reaches a verdict.
+     * 28 is deliberately absent. `Proxy CONNECT aborted due to timeout` shares a
+     * signature below but a timeout inside CONNECT may be the proxy waiting on the
+     * TARGET, so it has to stay ambiguous.
      *
-     * Two 407 spellings, both matched, because the wording changed across curl 8.x:
-     * 8.7 and 8.18 say `CONNECT tunnel failed, response 407` (measured) and older 8.x
-     * says `Received HTTP code 407 from proxy after CONNECT`.
-     *
-     * @var list<string>
+     * @var list<int>
      */
-    protected const array TUNNEL_FAILURE_SIGNATURES = [
-        'CONNECT tunnel failed, response 407',
-        'HTTP code 407 from proxy after CONNECT',
-        // The proxy closing the socket mid-CONNECT-reply, with no status line to
-        // read at all (curl `lib/cf-h1-proxy.c`, measured as `Proxy CONNECT
-        // aborted`). It carries no response code, so it is not covered above, and
-        // it is unambiguous for a different reason: completing the handshake is
-        // the proxy's own protocol obligation and no target byte is involved.
-        // Without this a provider dying inside the handshake reads as ambiguous
-        // and publishes a fabricated outage about a target nothing ever reached.
-        'Proxy CONNECT aborted',
+    protected const array TUNNEL_FAILURE_ERRNOS = [
+        self::CONNECT_FAILED_ERRNO,
+        56,
     ];
 
     /**
-     * The errno a refused tunnel arrives as, and the gate the signatures sit behind.
-     *
-     * Matching the message ALONE was too loose in one direction that matters:
-     * `Proxy CONNECT aborted due to timeout` shares the prefix above but arrives as
-     * errno 28, and a timeout inside CONNECT may be the proxy waiting on the TARGET,
-     * so it has to stay ambiguous. Requiring the errno as well keeps the signature
-     * list growable without a substring reaching an errno it was never meant to
-     * describe.
+     * `CURLE_COULDNT_CONNECT`, which on this path means we never reached our own
+     * exit's port, EXCEPT when its message names a tunnel reply (libcurl >= 8.20.0).
      */
-    protected const int TUNNEL_FAILURE_ERRNO = 56;
+    protected const int CONNECT_FAILED_ERRNO = 7;
+
+    /**
+     * The prefix curl writes when the proxy ANSWERED the CONNECT with a status.
+     *
+     * Its presence means a tunnel reply exists, which is what lets the response
+     * code inside it decide the blame rather than the errno. Matching this prefix
+     * as a verdict on its own is the mistake to avoid: curl writes it for EVERY
+     * non-2xx reply, so it also covers the origin refusing.
+     */
+    protected const string TUNNEL_REPLY_MARKER = 'CONNECT tunnel failed, response ';
+
+    /**
+     * The CONNECT reply codes that can only be the proxy speaking about ITSELF.
+     *
+     * 407 `Proxy Authentication Required` is the whole list, because inside a
+     * CONNECT reply the proxy has no origin HTTP exchange to relay: 502/503/504 is
+     * it reporting that it could not reach the ORIGIN, which is a real outage and
+     * must stay a `down`. Measured on curl 8.7.1 against a local CONNECT proxy, the
+     * two cases differ by exactly one number: `response 407` versus `response 502`.
+     *
+     * A known gap, recorded rather than guessed at: a rented pool answering 403 or
+     * 429 to CONNECT (a concurrency cap, a lapsed bill) is also the proxy speaking
+     * about itself, and stays ambiguous here. Adding a code needs the same evidence
+     * 407 has, because every addition trades a fabricated outage for a silenced one.
+     *
+     * @var list<string>
+     */
+    protected const array PROXY_OWN_REPLY_CODES = [
+        '407',
+    ];
+
+    /**
+     * Messages that name a tunnel our exit never completed, with no reply to read.
+     *
+     * `Proxy CONNECT aborted` is the proxy closing the socket part-way through its
+     * CONNECT reply (curl `lib/cf-h1-proxy.c`). It carries no response code, so
+     * {@see self::PROXY_OWN_REPLY_CODES} cannot judge it, and it is unambiguous for
+     * a different reason: completing the handshake is the proxy's own protocol
+     * obligation and no target byte is involved. Without it, a provider dying inside
+     * the handshake reads as ambiguous and publishes a fabricated outage on eight
+     * pages about a target nothing ever reached.
+     *
+     * `Received HTTP code 407 from proxy after CONNECT` is curl's PRE-8.x wording
+     * for the 407 case (verified present at `curl-7_86_0:lib/http_proxy.c` and
+     * absent from `lib/cf-h1-proxy.c` and `lib/http_proxy.c` at `curl-8_0_0`,
+     * `curl-8_10_0`, `curl-8_18_0` and `curl-8_21_0`; the cfilter rewrite replaced
+     * it in 7.87.0). Kept for a deploy on an old distro libcurl, and labelled 7.x
+     * rather than "older 8.x", which is what an earlier revision of this docblock
+     * wrongly claimed.
+     *
+     * @var list<string>
+     */
+    protected const array TUNNEL_ABORTED_SIGNATURES = [
+        'Proxy CONNECT aborted',
+        'HTTP code 407 from proxy after CONNECT',
+    ];
 
     /**
      * The only HTTP status on this path that is not the target's answer.
@@ -774,6 +816,14 @@ class LocalProbeEngine implements ProbeTransport
      * Anything unrecognised answers FALSE, which is the safe default because
      * false means "ambiguous": it costs one alternate exit, where a wrong true
      * would suppress a real outage.
+     *
+     * The ORDER below is the whole design, because libcurl moved a failure between
+     * errnos across 8.19.0/8.20.0 while keeping its message identical. So the
+     * message is asked FIRST wherever a tunnel is named, and the errno decides only
+     * what the message left open. That way one classifier is correct on both curl
+     * generations with no runtime version check, and an upgrade of the box cannot
+     * silently re-point a branch. See {@see self::PROXY_FAULT_ERRNOS} for the tags
+     * the change was verified at.
      */
     protected function blamesTheProxy(Throwable $e): bool
     {
@@ -784,16 +834,42 @@ class LocalProbeEngine implements ProbeTransport
             return false;
         }
 
-        if (in_array((int) $errno, self::PROXY_FAULT_ERRNOS, true)) {
+        $errno = (int) $errno;
+        $message = (string) ($context['error'] ?? '');
+
+        // 1. The codes that name the proxy in their own definition.
+        if (in_array($errno, self::PROXY_FAULT_ERRNOS, true)) {
             return true;
         }
 
-        // A refused CONNECT tunnel is our exit's failure, not the target's answer, and
-        // it is only identifiable from curl's message: see
-        // TUNNEL_FAILURE_SIGNATURES for why the errno alone cannot decide it.
-        // Errno AND message, never the message alone: see TUNNEL_FAILURE_ERRNO.
-        return (int) $errno === self::TUNNEL_FAILURE_ERRNO
-            && Str::contains((string) ($context['error'] ?? ''), self::TUNNEL_FAILURE_SIGNATURES);
+        // 2. An errno a tunnel failure cannot arrive as is ambiguous, whatever it
+        //    says. This is what keeps `Proxy CONNECT aborted due to timeout`
+        //    (errno 28) out of the arms below.
+        if (! in_array($errno, self::TUNNEL_FAILURE_ERRNOS, true)) {
+            return false;
+        }
+
+        // 3. The proxy ANSWERED the CONNECT, so the code it answered with decides,
+        //    and only 407 is about the proxy. Returning from inside this branch
+        //    rather than falling through is deliberate: a 502 means the ORIGIN
+        //    refused, which is a real outage, and it must not reach arm 5 below and
+        //    be read as our own failure on a libcurl that reports it as errno 7.
+        if (Str::contains($message, self::TUNNEL_REPLY_MARKER)) {
+            return Str::contains($message, array_map(
+                static fn (string $code): string => self::TUNNEL_REPLY_MARKER.$code,
+                self::PROXY_OWN_REPLY_CODES,
+            ));
+        }
+
+        // 4. A tunnel that produced no reply at all: our exit's own half of the
+        //    handshake failed, and no target byte was ever involved.
+        if (Str::contains($message, self::TUNNEL_ABORTED_SIGNATURES)) {
+            return true;
+        }
+
+        // 5. Nothing named a tunnel. An errno 7 left here is the ordinary
+        //    couldn't-connect, and the only host we dial is the proxy.
+        return $errno === self::CONNECT_FAILED_ERRNO;
     }
 
     /**
@@ -985,6 +1061,20 @@ class LocalProbeEngine implements ProbeTransport
      * failure, where every exit fails to connect; that case is now decided where it
      * belongs, in {@see self::PROXY_FAULT_ERRNOS} (errno 7), so it arrives here as a
      * refusal and this branch sees it without needing to guess from a null field.
+     *
+     * One residual is ACCEPTED here rather than fixed, because the per-attempt data
+     * cannot separate it. A provider that accepts TCP and then never completes the
+     * CONNECT yields errno 28, which is ambiguous by this engine's own rule (a
+     * timeout inside CONNECT may be the proxy waiting on the target), so such a
+     * provider reads as healthy while publishing `down` readings. `connect_time`
+     * looked like the missing discriminator and is not: with a proxy in the path
+     * curl stamps `TIMER_CONNECT` only once the tunnel is up, so a black-holed
+     * proxy IP and a proxy that accepts and hangs both measure `connect_time = 0.0`.
+     * What stands between that and a public outage claim is the CROSS-REGION quorum
+     * ({@see ServicePageAssembler::MIN_AGREEING_REGIONS}), and it only helps if the
+     * regions are sourced from different vendors, which is an ops fact this code
+     * cannot see. The remaining lever would be cross-monitor correlation inside one
+     * region and tick, which belongs in the alarm rather than in a verdict.
      *
      * `healthy_proxy_count` is read fresh from {@see Proxy} on every write
      * rather than trusted from an earlier one: the refresher that owns the

@@ -127,6 +127,52 @@ class DarkRegionAlarmTest extends TestCase
         $this->assertNull($health->fresh()->alarmed_at);
     }
 
+    public function test_a_mixed_tick_leaves_the_region_healthy_whichever_probe_wrote_last(): void
+    {
+        // Eight catalog monitors share a region, so a tick can be MIXED: some
+        // monitors refuse (their exit died mid-tick) while others answer. The engine
+        // writes `last_failure_at`/`last_success_at` per (monitor, region), so which
+        // one lands last is write-order dependent, and the alarm job's predicate
+        // compares exactly those two columns.
+        //
+        // The pair that makes the race harmless is asserted here: the engine clears
+        // the streak on EVERY non-refused probe, and the job increments at most once
+        // per tick. So a region that carried even one real request cannot reach the
+        // threshold, and reaching it requires whole intervals with no success at all.
+        // Refusal LAST on purpose, which is the ordering that leaves
+        // `last_failure_at >= last_success_at` and would otherwise increment.
+        $answering = $this->systemMonitor();
+
+        $this->makeProxy('us-east');
+        $this->fakeTarget(200);
+        $this->engine()->dispatch($answering, 'us-east');
+
+        // Now empty the pool under the region and probe again: this one refuses.
+        Proxy::query()->update(['enabled' => false]);
+        $this->engine()->dispatch($this->systemMonitor(), 'us-east');
+
+        $health = ProbeRegionHealth::query()->where('region', 'us-east')->sole();
+        $this->assertNotNull($health->last_failure_at);
+        $this->assertNotNull($health->last_success_at);
+
+        (new AlarmDarkProbeRegions)->handle();
+
+        $this->assertSame(
+            1,
+            $health->fresh()->consecutive_empty_intervals,
+            'A mixed tick may flicker the streak by one; what matters is the next success clearing it.',
+        );
+
+        // The next interval carries a real request again, and that is what must
+        // erase the flicker rather than letting three mixed ticks alarm.
+        Proxy::query()->update(['enabled' => true]);
+        $this->fakeTarget(200);
+        $this->engine()->dispatch($answering, 'us-east');
+
+        $this->assertSame(0, $health->fresh()->consecutive_empty_intervals);
+        $this->assertNull($health->fresh()->alarmed_at);
+    }
+
     public function test_a_refusal_advances_last_failure_at_and_increments_the_streak(): void
     {
         // `us-west` is a legal MonitorRegion with no entry in
