@@ -110,7 +110,9 @@ ensure_vite_manifest() {
     [ -f backend/public/build/manifest.json ] && return 0
 
     echo "check: building backend assets (no vite manifest yet)"
-    ( cd backend && npm ci --silent && npm run build --silent ) >/dev/null 2>&1 ||
+    # `npm ci` needs a lockfile and exits non-zero without one, so fall back rather
+    # than reporting an asset failure that is really a missing package-lock.json.
+    ( cd backend && { npm ci --silent || npm install --silent; } && npm run build --silent ) >/dev/null 2>&1 ||
         echo "check: asset build failed; the page tests will fail on the vite manifest" >&2
 }
 
