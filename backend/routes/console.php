@@ -6,6 +6,7 @@ use App\Jobs\DispatchWeeklyDigests;
 use App\Jobs\IngestServiceFeeds;
 use App\Jobs\PruneContentArchive;
 use App\Jobs\PruneExpiredAiSuggestions;
+use App\Jobs\RefreshProxySources;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Jobs\ScheduleSslChecks;
 use App\Jobs\SweepAiSuggestions;
@@ -129,3 +130,16 @@ Schedule::job(new IngestServiceFeeds)
     ->withoutOverlapping()
     ->onOneServer()
     ->name('services:ingest-feeds');
+
+// Refresh every region's proxy pool from its configured source (supervisor `feeds`
+// queue, single-server, unique lock prevents overlap with a still-running refresh).
+//
+// The cadence reads config('proxy.refresh_minutes') (default 60) through a raw cron
+// expression rather than a fixed ->hourly(): Schedule's fluent helpers have no
+// "every N configurable minutes" method, and a hardcoded literal would silently
+// drift out of sync with a changed UPTIZM_PROXY_REFRESH_MINUTES.
+Schedule::job(new RefreshProxySources)
+    ->cron('*/'.((int) config('proxy.refresh_minutes')).' * * * *')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('proxy:refresh-sources');
