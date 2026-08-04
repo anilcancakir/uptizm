@@ -203,8 +203,18 @@
                          exist because one sentence was false in two of the three
                          states, and `downRegions === 0` is tested FIRST because
                          all-degraded satisfies both conditions. --}}
+                    {{-- The stale rung has TWO wordings for the same reason the mixed rung
+                         has three: one sentence was false in one of the two states. Since
+                         the affirmative claim gained a quorum floor, `stale` is true both
+                         when nothing was measured and when too few regions answered to
+                         speak for the endpoint. Telling a reader "nothing has been
+                         measured" when one region did measure is a false statement on a
+                         page whose subject is what we actually measured, so
+                         `regionCount` picks the true sentence. --}}
                     'headline' => $endpoint['stale']
-                        ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
+                        ? ($endpoint['regionCount'] === 0
+                            ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
+                            : __('Not enough regions answered for us to speak for :endpoint.', ['endpoint' => $endpoint['label']]))
                         : ($endpoint['reportsProblem']
                             ? __('We could not reach :endpoint.', ['endpoint' => $endpoint['label']])
                             : ($endpoint['status'] === $mixedVerdict
@@ -215,7 +225,9 @@
                                         : __('We are reaching :endpoint from some regions and not others.', ['endpoint' => $endpoint['label']])))
                                 : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']]))),
                     'detail' => $endpoint['stale']
-                        ? __('Nothing has been measured in the last :count seconds, so we do not know. We do not show you the last value we happened to have.', ['count' => $staleAfterSeconds])
+                        ? ($endpoint['regionCount'] === 0
+                            ? __('Nothing has been measured in the last :count seconds, so we do not know. We do not show you the last value we happened to have.', ['count' => $staleAfterSeconds])
+                            : __('Only :count region answered our last check, which is not enough for us to publish a verdict. We do not show you the last value we happened to have.', ['count' => $endpoint['regionCount']]))
                         : ($endpoint['responseMs'] === null
                             ? __('Answered from :count regions.', ['count' => $endpoint['regionCount']])
                             : __(':ms ms on average, across the :count regions that answered.', ['ms' => $endpoint['responseMs'], 'count' => $endpoint['regionCount']])),

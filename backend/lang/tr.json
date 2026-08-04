@@ -242,5 +242,8 @@
     "Not everything we watch is answering normally.": "İzlediğimiz her şey normal yanıt vermiyor.",
     "Everything we watch is answering normally.": "İzlediğimiz her şey normal yanıt veriyor.",
     "updated :ago": ":ago güncellendi",
-    "Published by Uptizm": "Uptizm tarafından yayımlanır"
+    "Published by Uptizm": "Uptizm tarafından yayımlanır",
+    "Not enough regions answered for us to speak for :endpoint.": ":endpoint için konuşabilmemiz için yeterli bölge cevap vermedi.",
+    "Only :count region answered our last check, which is not enough for us to publish a verdict. We do not show you the last value we happened to have.": "Son kontrolümüzde yalnızca :count bölge cevap verdi, bu bir hüküm yayımlamamız için yeterli değil. Elimizde kalan son değeri size göstermiyoruz.",
+    "Only :count region answered our last check, which is not enough for us to publish a verdict.": "Son kontrolümüzde yalnızca :count bölge cevap verdi, bu bir hüküm yayımlamamız için yeterli değil."
 }

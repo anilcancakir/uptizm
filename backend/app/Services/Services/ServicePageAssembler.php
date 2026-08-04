@@ -62,6 +62,14 @@ use Illuminate\Database\Eloquent\Collection;
  *     page needs to be right. It also bounds the known open defect that the edge
  *     worker ignores `auth_config` and `assertion_rules`, which is exactly the
  *     class of bug that produces a single-region false positive.
+ *  4. THE SAME BAR APPLIES TO THE AFFIRMATIVE CLAIM. Fewer than
+ *     {@see self::MIN_AGREEING_REGIONS} fresh readings for an endpoint is not
+ *     evidence that it was reached, only that one region happened to answer, so
+ *     `endpoint()` withholds {@see self::VERDICT_REACHED} below that floor and
+ *     reports {@see StatusPageAssembler::STATUS_UNKNOWN} instead. Reachable with
+ *     a single configured region even on Cloudflare's region-pinned checkers, but
+ *     rare there; once these monitors run over proxy exits that die routinely,
+ *     "only one region answered this cycle" stops being an edge case.
  *
  * Everything returned is plain scalars and arrays, never an object: the
  * controller caches this payload for 60 seconds and the cache store runs with
@@ -88,13 +96,19 @@ class ServicePageAssembler
 
     /**
      * How many distinct regions must agree before the own-probe block reports a
-     * problem in public.
+     * problem in public, AND the floor below which it may not claim the endpoint
+     * was reached either.
      *
      * Two, which is the whole of "more than one region". A single region having
      * a bad minute is a fact about that region, and the product already refuses
      * to page a customer on it (`CheckPersistenceService` resets the streak on
      * any non-down result); a public page contradicting a provider's own status
      * page has to clear a higher bar than a pager does.
+     *
+     * The same number gates the AFFIRMATIVE claim too, and for the identical
+     * reason: one region's word is one region's word regardless of which
+     * direction it points. See {@see self::endpoint()}'s final rung for what
+     * happens below this floor.
      */
     public const int MIN_AGREEING_REGIONS = 2;
 
@@ -326,6 +340,40 @@ class ServicePageAssembler
         $reportsProblem = $monitor->consecutive_fails >= $threshold
             && $downRegions >= self::MIN_AGREEING_REGIONS;
 
+        // Computed ahead of the return array because `stale` reuses it: the new
+        // floor rung below reclassifies a single fresh reading as
+        // STATUS_UNKNOWN, and `stale` has to agree with that reclassification or
+        // the view's stale-gated headline (the wording this rung reuses) never
+        // fires for it. See the class docblock's rule 4.
+        $status = match (true) {
+            $readings === [] => StatusPageAssembler::STATUS_UNKNOWN,
+            $reportsProblem => self::VERDICT_UNREACHABLE,
+            // Enough fresh regions report down to be a real signal, but the
+            // streak has not crossed the threshold. Neither claim is true, so
+            // the middle rung says so rather than falling through to the
+            // affirmative one. See VERDICT_MIXED for why this is reachable.
+            $downRegions >= self::MIN_AGREEING_REGIONS => self::VERDICT_MIXED,
+            $upRegions === 0 => self::VERDICT_MIXED,
+            // The floor from the class docblock's rule 4: fewer than
+            // MIN_AGREEING_REGIONS fresh readings is one region's word, in
+            // either direction, and one region's word does not clear the bar
+            // for the affirmative claim either. Below `default` so it only
+            // catches what neither the outage nor the mixed rungs already
+            // claimed a stronger opinion about.
+            count($readings) < self::MIN_AGREEING_REGIONS => StatusPageAssembler::STATUS_UNKNOWN,
+            // The affirmative rung has to earn itself. Failing the OUTAGE bar is
+            // not evidence of normality: with a single fresh reading that says
+            // down, `$downRegions` is 1, the quorum is not met, and the old
+            // `default` published "we reached it normally" over a reading that
+            // said the opposite. Reachable without a race, because the monitor
+            // form lets an operator narrow a catalog monitor to one region.
+            // MIN_AGREEING_REGIONS governs the outage claim only; the positive
+            // claim needs at least one region that actually succeeded AND the
+            // floor above must already have cleared, i.e. at least two fresh
+            // regions answered.
+            default => self::VERDICT_REACHED,
+        };
+
         return [
             // The host that was actually probed, and the page names it in every
             // sentence about this reading: "we reached github.com" is a claim
@@ -335,28 +383,12 @@ class ServicePageAssembler
             'regionsConfigured' => count((array) $monitor->regions),
             'checkIntervalSeconds' => $monitor->check_interval_sec,
             'incidentThreshold' => $threshold,
-            // No fresh reading at all: unknown, and there is no older value in
-            // this payload to fall back to.
-            'stale' => $readings === [],
-            'status' => match (true) {
-                $readings === [] => StatusPageAssembler::STATUS_UNKNOWN,
-                $reportsProblem => self::VERDICT_UNREACHABLE,
-                // Enough fresh regions report down to be a real signal, but the
-                // streak has not crossed the threshold. Neither claim is true, so
-                // the middle rung says so rather than falling through to the
-                // affirmative one. See VERDICT_MIXED for why this is reachable.
-                $downRegions >= self::MIN_AGREEING_REGIONS => self::VERDICT_MIXED,
-                $upRegions === 0 => self::VERDICT_MIXED,
-                // The affirmative rung has to earn itself. Failing the OUTAGE bar is
-                // not evidence of normality: with a single fresh reading that says
-                // down, `$downRegions` is 1, the quorum is not met, and the old
-                // `default` published "we reached it normally" over a reading that
-                // said the opposite. Reachable without a race, because the monitor
-                // form lets an operator narrow a catalog monitor to one region.
-                // MIN_AGREEING_REGIONS governs the outage claim only; the positive
-                // claim needs at least one region that actually succeeded.
-                default => self::VERDICT_REACHED,
-            },
+            // No fresh reading at all, OR too few of them to speak for the
+            // endpoint (the floor rung above): either way there is no reliable
+            // current value to show, so the view's "we do not know" wording
+            // applies to both rather than only to the empty case.
+            'stale' => $status === StatusPageAssembler::STATUS_UNKNOWN,
+            'status' => $status,
             'reportsProblem' => $reportsProblem,
             'downRegions' => $downRegions,
             // Needed by the view, not just here: the mixed rung has three honest

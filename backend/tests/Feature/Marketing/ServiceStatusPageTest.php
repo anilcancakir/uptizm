@@ -682,6 +682,71 @@ class ServiceStatusPageTest extends TestCase
             ->assertSee('No region reached '.self::ENDPOINT.' on our last check, and we do not call that an outage yet.');
     }
 
+    public function test_a_single_fresh_reading_is_not_enough_to_claim_the_endpoint_is_reached(): void
+    {
+        /*
+         * One configured region, ONE fresh reading, and it says up: `downRegions` is
+         * 0, the quorum for an outage claim is unmet either way, and `upRegions` is 1
+         * so the `upRegions === 0` rung does not fire either. Before this floor
+         * existed, that combination fell all the way through to `default` and printed
+         * "We reached api.example.test normally." on a single observation.
+         *
+         * That state used to be theoretical, because Cloudflare's region-pinned colos
+         * essentially do not die. This plan moves these monitors onto proxy exits that
+         * die routinely, which turns "one region answered, the rest never got a
+         * chance to" from a rare race into the normal shape of a probe cycle. The
+         * headline has to stop being confident exactly when the evidence behind it
+         * shrinks to one region's word.
+         */
+        $service = $this->publish(monitorAttributes: [
+            'regions' => [MonitorRegion::USEast->value],
+        ]);
+
+        $this->reach($service, MonitorRegion::USEast);
+
+        $this->get($this->pagePath('en'))
+            ->assertOk()
+            // The claim this floor exists to withhold.
+            ->assertDontSee('We reached '.self::ENDPOINT.' normally.')
+            // The floor gets its OWN wording rather than reusing the empty-readings
+            // one. The unknown state now covers two different facts, and the sentence
+            // written for the empty case ("Nothing has been measured in the last N
+            // seconds") is FALSE here: one region did measure, it is simply not enough
+            // to speak for the endpoint. Publishing a false sentence on the page whose
+            // whole subject is what we actually measured is worse than the confident
+            // claim this floor was added to withhold.
+            ->assertSee('Not enough regions answered for us to speak for '.self::ENDPOINT)
+            ->assertSee('Only 1 region answered our last check')
+            ->assertDontSee('Nothing has been measured in the last');
+
+        // The status value itself, not only the sentence built from it: the sentence
+        // is what a template author could get right by accident, the constant is what
+        // proves the assembler actually reclassified the endpoint.
+        $data = app(ServicePageAssembler::class)->build($service->fresh());
+
+        $this->assertSame(StatusPageAssembler::STATUS_UNKNOWN, $data['own']['endpoints'][0]['status']);
+    }
+
+    public function test_two_fresh_readings_clear_the_quorum_floor_for_the_reached_verdict(): void
+    {
+        /*
+         * The other side of the same floor: two distinct regions both fresh and both
+         * up is enough evidence, and the affirmative verdict still fires. Pinned
+         * separately from the prose assertions above (`test_the_headline_holds_below_the_stricter_public_bar`
+         * and its siblings already cover the rendered sentence for two agreeing
+         * regions) so the floor's THRESHOLD, not just its existence, is proven: one
+         * region withholds the claim, two regions do not.
+         */
+        $service = $this->publish();
+
+        $this->reach($service, MonitorRegion::USEast);
+        $this->reach($service, MonitorRegion::EUWest);
+
+        $data = app(ServicePageAssembler::class)->build($service->fresh());
+
+        $this->assertSame(ServicePageAssembler::VERDICT_REACHED, $data['own']['endpoints'][0]['status']);
+    }
+
     public function test_every_region_answering_degraded_says_so_rather_than_claiming_normality(): void
     {
         /*

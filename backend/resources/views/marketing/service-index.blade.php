@@ -91,8 +91,14 @@
                              links to was already qualifying that claim. A summary is
                              allowed to be shorter than the page; it is not allowed to
                              be more confident than it. --}}
+                        {{-- Two stale wordings, for the same reason the mixed rung has
+                             three: "nothing has been measured" is false once the
+                             affirmative claim has a quorum floor, because one region may
+                             well have measured and simply not be enough. --}}
                         'headline' => $endpoint['stale']
-                            ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
+                            ? ($endpoint['regionCount'] === 0
+                                ? __('We have no recent reading for :endpoint.', ['endpoint' => $endpoint['label']])
+                                : __('Not enough regions answered for us to speak for :endpoint.', ['endpoint' => $endpoint['label']]))
                             : ($endpoint['reportsProblem']
                                 ? __('We could not reach :endpoint.', ['endpoint' => $endpoint['label']])
                                 : ($endpoint['status'] === $mixedVerdict
@@ -103,7 +109,9 @@
                                             : __('We are reaching :endpoint from some regions and not others.', ['endpoint' => $endpoint['label']])))
                                     : __('We reached :endpoint normally.', ['endpoint' => $endpoint['label']]))),
                         'detail' => $endpoint['stale']
-                            ? __('Nothing has been measured in the last :count seconds, so we do not know.', ['count' => $staleAfterSeconds])
+                            ? ($endpoint['regionCount'] === 0
+                                ? __('Nothing has been measured in the last :count seconds, so we do not know.', ['count' => $staleAfterSeconds])
+                                : __('Only :count region answered our last check, which is not enough for us to publish a verdict.', ['count' => $endpoint['regionCount']]))
                             : ($endpoint['dissentingRegions'] > 0 && ! $endpoint['reportsProblem']
                                 // ANY dissent, not just enough of it to reach the mixed
                                 // rung. One down region, or every region answering
