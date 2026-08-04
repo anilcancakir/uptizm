@@ -35,7 +35,21 @@ type ProbeRequest = {
     request_body: string | null;
     timeout_seconds: number;
     expected_status_code: number;
-    auth_config: unknown;
+    /**
+     * The monitor's credential map, decrypted by the origin before signing.
+     *
+     * Shaped by `HttpAuthType` on the Laravel side: `none`, `basic`
+     * (`username` + `password`), `bearer` (`token`), or `api_key` (`key` +
+     * `header`). Applied in `authHeaders()`.
+     */
+    auth_config: AuthConfig | null;
+
+    /**
+     * Response assertions the origin still evaluates rather than the edge.
+     *
+     * Declared so the field is not silently dropped from the signed spec; the
+     * edge does not read it yet.
+     */
     assertion_rules: unknown;
 
     /**
@@ -324,7 +338,9 @@ async function probeHttp(
             method: (probe.method ?? "GET").toUpperCase(),
             // Headers/method may be null when a monitor sets none; fetch()
             // rejects a null `headers`, so default to an empty object.
-            headers: probe.request_headers ?? {},
+            // Credentials go on last so a monitor cannot accidentally shadow its
+            // own Authorization header with a hand-written one.
+            headers: { ...(probe.request_headers ?? {}), ...authHeaders(probe.auth_config) },
             body: probe.request_body ?? undefined,
             redirect: "manual",
             signal: AbortSignal.timeout(probe.timeout_seconds * 1000),
@@ -648,6 +664,81 @@ function contentTypeAllowed(header: string | null, rules: string[]): boolean {
     }
 
     return false;
+}
+
+/**
+ * A monitor's credential map, as the origin sends it.
+ *
+ * The `type` discriminates which of the other fields are populated; the Laravel
+ * `StoreMonitorRequest` already enforces that pairing, so a field required by a
+ * type is present whenever that type is set.
+ */
+export type AuthConfig = {
+    type: "none" | "basic" | "bearer" | "api_key";
+    username?: string | null;
+    password?: string | null;
+    token?: string | null;
+    key?: string | null;
+    header?: string | null;
+};
+
+/**
+ * Turn a credential map into the headers the probe must carry.
+ *
+ * Until this existed the worker accepted `auth_config` on the signed spec and
+ * never read it, so an authenticated target answered 401 or 403 and the monitor
+ * was published DOWN: a false outage on exactly the monitors a customer cared
+ * enough to configure.
+ *
+ * An unknown or incomplete map yields no headers rather than a throw. A probe is
+ * a measurement, and failing the whole check on a malformed credential would
+ * report the target as broken when the configuration is what is broken.
+ */
+export function authHeaders(auth: AuthConfig | null | undefined): Record<string, string> {
+    if (!auth || typeof auth !== "object") {
+        return {};
+    }
+
+    switch (auth.type) {
+        case "basic":
+            if (!auth.username || auth.password == null) {
+                return {};
+            }
+
+            // btoa is Latin-1 only, so encode the pair as UTF-8 bytes first: a
+            // non-ASCII password would otherwise throw and abort the probe.
+            return {
+                Authorization: `Basic ${base64(`${auth.username}:${auth.password}`)}`,
+            };
+
+        case "bearer":
+            return auth.token ? { Authorization: `Bearer ${auth.token}` } : {};
+
+        case "api_key":
+            return auth.key && auth.header ? { [auth.header]: auth.key } : {};
+
+        case "none":
+            return {};
+
+        default:
+            // An unrecognised type means the origin shipped a case this worker
+            // does not know yet. Send no credential rather than guess.
+            return {};
+    }
+}
+
+/**
+ * UTF-8 safe base64, since `btoa` rejects any code point above U+00FF.
+ */
+function base64(value: string): string {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+
+    for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary);
 }
 
 function extractHeaders(headers: Headers): Record<string, string> {
