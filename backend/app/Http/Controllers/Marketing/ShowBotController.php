@@ -109,7 +109,10 @@ class ShowBotController
              * what an operator sees: five regions on a one-minute cadence is not one
              * request a minute.
              */
-            '[[bot.probe_regions]]' => (string) $this->probeRegionCount(),
+            // The whole noun phrase, not a bare number: the English sentence used to
+            // carry "regions" as literal prose and published "1 regions" the moment a
+            // deployment had one probeable region, which production promptly did.
+            '[[bot.probe_regions]]' => trans_choice('{1} :count region|[2,*] :count regions', $this->probeRegionCount()),
             '[[bot.probe_egress]]' => $this->egressDisclosure(),
             '[[bot.probe_interval_seconds]]' => (string) $this->probeIntervalSeconds(),
             '[[bot.probe_daily_requests]]' => number_format(

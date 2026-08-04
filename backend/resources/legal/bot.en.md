@@ -21,7 +21,7 @@ This is the larger of the two, so it comes first. We request **one URL** on your
 usually your homepage, and record whether it answered and how quickly. That is the
 measurement we publish, and it is the only reason the page about your service exists.
 
-It runs from **[[bot.probe_regions]] regions**, each about every
+It runs from **[[bot.probe_regions]]**, each about every
 **[[bot.probe_interval_seconds]] seconds**, which works out to roughly
 **[[bot.probe_daily_requests]] requests a day** to that one URL. It is a plain GET. It
 reads no other page, follows no links, submits no forms and looks for nothing you have not

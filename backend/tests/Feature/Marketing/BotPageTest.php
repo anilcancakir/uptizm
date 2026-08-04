@@ -113,6 +113,24 @@ class BotPageTest extends TestCase
     }
 
     /**
+     * The region figure is a pluralised PHRASE, because the count really can be one.
+     *
+     * Production reached that state on its first deploy (one probeable region, the
+     * direct one) and the page published "1 regions", since the English sentence
+     * carried the noun as literal prose. Asserted in both directions so a revert to a
+     * bare number reddens rather than merely reading oddly.
+     */
+    public function test_a_single_region_reads_as_one_region_and_not_one_regions(): void
+    {
+        config(['proxy.sources' => [], 'proxy.direct_region' => 'eu-west']);
+
+        $this->get($this->pathFor('en'))
+            ->assertOk()
+            ->assertSee('<strong>1 region</strong>', escape: false)
+            ->assertDontSee('<strong>1 regions</strong>', escape: false);
+    }
+
+    /**
      * @return array<string, array{array<string, array{kind: string, location: string}>, string, string, string, string}>
      */
     public static function egressShapes(): array

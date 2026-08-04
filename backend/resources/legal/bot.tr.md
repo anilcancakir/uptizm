@@ -22,7 +22,7 @@ sayfanızı isteriz ve yanıt verip vermediğini, ne kadar hızlı yanıt verdi�
 Yayımladığımız ölçüm budur ve servisinizle ilgili sayfanın var olmasının tek nedeni de
 budur.
 
-**[[bot.probe_regions]] bölgeden**, her biri yaklaşık **[[bot.probe_interval_seconds]]
+**[[bot.probe_regions]]den**, her biri yaklaşık **[[bot.probe_interval_seconds]]
 saniyede bir** çalışır; bu da o tek adrese günde kabaca
 **[[bot.probe_daily_requests]] istek** demektir. Düz bir GET isteğidir. Başka hiçbir
 sayfayı okumaz, bağlantı izlemez, form göndermez ve yayımlamadığınız hiçbir şeyi aramaz.
