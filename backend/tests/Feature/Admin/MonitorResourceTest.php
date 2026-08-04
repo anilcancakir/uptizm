@@ -210,8 +210,12 @@ class MonitorResourceTest extends TestCase
         $fresh = $monitor->fresh();
 
         $this->assertSame('Untouched jsonb', $fresh->name);
-        $this->assertSame($headers, $fresh->request_headers);
-        $this->assertSame($assertions, $fresh->assertion_rules);
+        // assertEquals, not assertSame: PostgreSQL's jsonb NORMALISES a JSON object and
+        // does not preserve key order, while SQLite stores the text verbatim. PHP's ===
+        // on arrays requires the same order and == does not, so assertSame here pins a
+        // detail that is not a contract and reddens only on the engine production runs.
+        $this->assertEquals($headers, $fresh->request_headers);
+        $this->assertEquals($assertions, $fresh->assertion_rules);
         $this->assertSame([MonitorRegion::USEast->value], $fresh->regions);
         $this->assertSame($tags, $fresh->tags);
 
@@ -256,8 +260,12 @@ class MonitorResourceTest extends TestCase
 
         $fresh = $monitor->fresh();
 
-        $this->assertSame(['X-Api-Version' => '2', 'Accept' => 'application/json'], $fresh->request_headers);
-        $this->assertSame(
+        // assertEquals, not assertSame: PostgreSQL's jsonb NORMALISES a JSON object and
+        // does not preserve key order, while SQLite stores the text verbatim. PHP's ===
+        // on arrays requires the same order and == does not, so assertSame here pins a
+        // detail that is not a contract and reddens only on the engine production runs.
+        $this->assertEquals(['X-Api-Version' => '2', 'Accept' => 'application/json'], $fresh->request_headers);
+        $this->assertEquals(
             [['field' => 'status_code', 'operator' => 'eq', 'value' => 204]],
             $fresh->assertion_rules,
         );
@@ -291,7 +299,7 @@ class MonitorResourceTest extends TestCase
                 ->call('save')
                 ->assertHasFormErrors(['assertion_rules']);
 
-            $this->assertSame($original, $monitor->fresh()->assertion_rules);
+            $this->assertEquals($original, $monitor->fresh()->assertion_rules);
         }
     }
 

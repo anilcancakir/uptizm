@@ -5,6 +5,7 @@ namespace App\Models;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 
 /**
  * A record marking a single webhook event (Stripe `event->id` today; reused
@@ -50,11 +51,22 @@ class ProcessedWebhookEvent extends Model
     public static function recordIfNew(string $eventId, string $type): bool
     {
         try {
-            static::query()->create([
-                'event_id' => $eventId,
-                'type' => $type,
-                'processed_at' => now(),
-            ]);
+            // Wrapped in its own transaction so the insert runs inside a SAVEPOINT
+            // whenever a caller already opened one, which StripeWebhookController
+            // does. On PostgreSQL a failed statement aborts the WHOLE transaction:
+            // catching the unique violation is not enough, because every later
+            // query then dies with 25P02 and the eventual COMMIT silently becomes a
+            // ROLLBACK, so a re-delivered event would take the caller down with it.
+            // The savepoint scopes the failure to this insert and leaves the outer
+            // transaction usable. SQLite never showed this, which is why the whole
+            // path went unexercised.
+            DB::transaction(function () use ($eventId, $type): void {
+                static::query()->create([
+                    'event_id' => $eventId,
+                    'type' => $type,
+                    'processed_at' => now(),
+                ]);
+            });
         } catch (UniqueConstraintViolationException) {
             // The event was already recorded by an earlier delivery; skip
             // processing. Laravel raises this typed exception for a unique
