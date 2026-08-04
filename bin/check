@@ -104,11 +104,13 @@ bootstrap_ignored_files() {
 
 bootstrap_ignored_files
 
-# Resolve dependencies BEFORE fanning out. `flutter analyze` and `flutter test`
-# each trigger their own `pub get` when the lock is cold, and run concurrently
-# they race on `.dart_tool` and on `ios/Flutter/ephemeral`, which fails analyze
-# with a read-only-volume error that has nothing to do with the code. Same idea
-# for the worker: `npm run typecheck` needs node_modules to exist.
+# Resolve dependencies BEFORE fanning out, then run the two flutter commands with
+# `--no-pub`. Each of them resolves on its own by default, and concurrently they
+# race on `.dart_tool` and on `ios/Flutter/ephemeral`, which fails with a
+# read-only-volume error that has nothing to do with the code. Serializing this
+# step is not enough on its own: they re-resolve even after a warm `pub get`, so
+# the flag is what actually removes the race. The worker needs the same treatment
+# for a different reason: `npm run typecheck` cannot run without node_modules.
 prepare() {
     local failed=0
 
@@ -142,8 +144,8 @@ start() {
     JOB_NAMES="$JOB_NAMES $name"
 }
 
-run_flutter_analyze() { flutter analyze; }
-run_flutter_test() { flutter test --concurrency="$LANE"; }
+run_flutter_analyze() { flutter analyze --no-pub; }
+run_flutter_test() { flutter test --no-pub --concurrency="$LANE"; }
 run_backend_pint() { cd backend && vendor/bin/pint --test; }
 run_backend_test() { cd backend && php artisan test --parallel --processes="$LANE"; }
 run_worker_typecheck() { cd backend/workers/regional-checker && npm run --silent typecheck; }
