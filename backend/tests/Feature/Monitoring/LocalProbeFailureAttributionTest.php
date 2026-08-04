@@ -597,6 +597,91 @@ class LocalProbeFailureAttributionTest extends TestCase
         $this->assertSame(0, Proxy::query()->sole()->failed_attempts);
     }
 
+    public function test_the_direct_region_probes_without_a_proxy_and_records_no_exit(): void
+    {
+        // `us-west` has no source, so it has no pool. Named as the direct region, it
+        // leaves from this server instead of refusing, which is what makes "we probe
+        // from our own infrastructure" true on a deployment with no provider wired.
+        config(['proxy.direct_region' => 'us-west']);
+
+        $monitor = $this->systemMonitor();
+        $this->scriptTarget([200]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-west');
+
+        $this->assertSame(MonitorStatus::Up, $reading->status);
+        $this->assertFalse($reading->probeRefused);
+        $this->assertNull($reading->exitVia, 'There was no exit, and null is how that column reads absence.');
+
+        // Explicitly empty rather than absent: an ambient `http_proxy` must never
+        // become this engine's egress by omission.
+        $this->assertCount(1, $this->seenOptions);
+        $this->assertSame('', $this->seenOptions[0]['proxy']);
+    }
+
+    public function test_a_direct_probe_that_cannot_connect_is_the_targets_outage_and_never_a_refusal(): void
+    {
+        // THE mirror of the proxied rule, and the reason the direct path is a
+        // separate method rather than a flag. With a proxy in the path errno 7 names
+        // the proxy, because the proxy is the only host curl dials. With NO proxy it
+        // names the target. Running this through the proxy classifier would convert
+        // every real outage on the direct region into a refusal that publishes
+        // nothing, which is the failure mode this whole transport is judged on.
+        config(['proxy.direct_region' => 'us-west']);
+
+        $monitor = $this->systemMonitor();
+        $this->scriptTarget([
+            $this->curlFailure(7, "Failed to connect to example.com port 443: Couldn't connect to server"),
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-west');
+
+        $this->assertSame(MonitorStatus::Down, $reading->status);
+        $this->assertFalse($reading->probeRefused, 'With nothing between us and the target, there is nobody else to blame.');
+        $this->assertStringContainsString('directly from this server', (string) $reading->errorMessage);
+
+        // One attempt, not `attempts_per_check`: a second identical request from the
+        // same server is more load, not more evidence.
+        $this->assertCount(1, $this->seenOptions);
+
+        // And it is a READING, so the region counts as having carried a request.
+        $health = ProbeRegionHealth::query()->where('region', 'us-west')->sole();
+        $this->assertNotNull($health->last_success_at);
+        $this->assertNull($health->last_failure_at);
+    }
+
+    public function test_a_pool_is_always_preferred_over_probing_from_this_server(): void
+    {
+        // The direct path is a fallback, never the default: naming a region that HAS
+        // exits must not stop using them, or an operator setting this key would
+        // silently collapse the region's real geography onto one server.
+        config(['proxy.direct_region' => 'us-east']);
+
+        $monitor = $this->systemMonitor();
+        $exit = $this->makeProxy('us-east');
+        $this->scriptTarget([200]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertSame($exit->host.':'.$exit->port, $reading->exitVia);
+        $this->assertSame('http://'.$exit->host.':'.$exit->port, $this->seenOptions[0]['proxy']);
+    }
+
+    public function test_an_unnamed_region_still_refuses_rather_than_leaving_from_this_server(): void
+    {
+        // Only the ONE named region may fall back. Any other unsourced region has
+        // nowhere to egress from, and probing it from here would label this server's
+        // location with a region name it does not have.
+        config(['proxy.direct_region' => 'eu-central']);
+
+        $monitor = $this->systemMonitor();
+
+        $reading = $this->engine()->dispatch($monitor, 'us-west');
+
+        $this->assertTrue($reading->probeRefused);
+        $this->assertSame([], $this->seenOptions, 'A refusal makes no request at all.');
+    }
+
     public function test_a_region_with_no_healthy_exit_writes_no_check_no_streak_and_no_incident(): void
     {
         // THE CENTRAL SAFETY CLAIM, asserted on the consequence rather than on

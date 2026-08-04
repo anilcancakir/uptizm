@@ -10,6 +10,7 @@ use App\Models\ProbeRegionHealth;
 use App\Models\Proxy;
 use App\Services\Proxy\ProxyPool;
 use App\Support\Monitoring\CheckResult;
+use App\Support\Proxy\ProxyRegions;
 use DateTimeImmutable;
 use GuzzleHttp\Exception\ConnectException as GuzzleConnectException;
 use GuzzleHttp\Exception\RequestException as GuzzleRequestException;
@@ -408,24 +409,88 @@ class LocalProbeEngine implements ProbeTransport
         $checkedAt = now()->toDateTimeImmutable();
         $probeRunId = (string) Str::uuid();
 
-        // 3. No exit, no reading, and no request either. There is deliberately no
-        //    direct-egress fallback: a request that left this server would
-        //    fabricate the region AND delete the network boundary the proxy
-        //    exists to provide. `hasRegion()` also refuses a region absent from
-        //    `config('proxy.sources')` even if rows survive in the table, which
-        //    is what makes removing a region from config actually remove it.
-        if (! $this->pool->hasRegion($region)) {
+        // 3. A pool is always preferred: it is the only thing that makes the region
+        //    label mean a location. `hasRegion()` also refuses a region absent from
+        //    `config('proxy.sources')` even if rows survive in the table, which is
+        //    what makes removing a region from config actually remove it.
+        if ($this->pool->hasRegion($region)) {
+            return $this->runAttemptLadder($monitor, $region, $checkedAt, $probeRunId);
+        }
+
+        // 4. ONE region may fall back to leaving from this server itself, and only
+        //    the one an operator has named as where the server actually is. That is
+        //    what makes "we probe from our own infrastructure" true on a deployment
+        //    with no proxy provider wired, where the alternative is measuring
+        //    nothing at all.
+        if ($region === ProxyRegions::directRegion()) {
+            return $this->directAttempt($monitor, $region, $checkedAt, $probeRunId);
+        }
+
+        // 5. Any other unsourced region has nowhere to egress from, so it produces
+        //    NO VERDICT rather than an exception: the pool emptying is a routine,
+        //    self-healing event, and throwing would fail the queued job, retry it
+        //    three times against the same empty pool and leave the operator nothing
+        //    but a failed-job row. The refusal writes `last_probe_error` instead.
+        return $this->failureReading(
+            monitor: $monitor,
+            region: $region,
+            checkedAt: $checkedAt,
+            probeRunId: $probeRunId,
+            message: $this->exhaustedPoolMessage($region),
+            refused: true,
+        );
+    }
+
+    /**
+     * Probe once, straight from this server, with no exit in the path.
+     *
+     * Structurally separate from {@see runAttemptLadder()} rather than a flag on it,
+     * because every safety rule the ladder implements is about an EXIT and none of
+     * them applies here. There is no exit to penalise, no alternate exit to
+     * corroborate with, and therefore no refusal: with nothing between us and the
+     * target, every failure is evidence about the target and becomes an honest
+     * `down`.
+     *
+     * The errno taxonomy specifically must not be reached from here, and that is the
+     * reason this is a separate method instead of `blamesTheProxy()` learning about
+     * a null exit. On the proxied path errno 7 usually names the proxy, because the
+     * proxy is the only host curl dials (see {@see self::PROXY_FAULT_ERRNOS}). On
+     * THIS path errno 7 names the target, so running it through that classifier
+     * would convert every real outage into a refusal that publishes nothing.
+     *
+     * One attempt, not `attempts_per_check`: a second identical request from the
+     * same server through the same route is not new evidence, only more load on a
+     * target that just failed.
+     *
+     * @throws Throwable When {@see attempt()} fails for a reason that is not a
+     *                   transport failure, exactly as the ladder does: laundering a
+     *                   defect into a `down` would publish an outage from a bug.
+     */
+    protected function directAttempt(
+        Monitor $monitor,
+        string $region,
+        DateTimeImmutable $checkedAt,
+        string $probeRunId,
+    ): CheckResult {
+        try {
+            return $this->attempt(
+                monitor: $monitor,
+                region: $region,
+                exit: null,
+                checkedAt: $checkedAt,
+                probeRunId: $probeRunId,
+            );
+        } catch (HttpClientException $e) {
             return $this->failureReading(
                 monitor: $monitor,
                 region: $region,
                 checkedAt: $checkedAt,
                 probeRunId: $probeRunId,
-                message: $this->exhaustedPoolMessage($region),
-                refused: true,
+                message: "Region [{$region}]: probed directly from this server (no proxy exit configured) and "
+                    ."{$this->targetOf($monitor)} did not answer ({$this->describeCause($e)}).",
+                refused: false,
             );
         }
-
-        return $this->runAttemptLadder($monitor, $region, $checkedAt, $probeRunId);
     }
 
     /**
@@ -578,7 +643,7 @@ class LocalProbeEngine implements ProbeTransport
     protected function attempt(
         Monitor $monitor,
         string $region,
-        Proxy $exit,
+        ?Proxy $exit,
         DateTimeImmutable $checkedAt,
         string $probeRunId,
     ): CheckResult {
@@ -681,8 +746,19 @@ class LocalProbeEngine implements ProbeTransport
      *
      * @return array{proxy: string, curl: array<int, string>}
      */
-    protected function egressOptions(Proxy $exit): array
+    protected function egressOptions(?Proxy $exit): array
     {
+        // No exit means the direct path, and the empty string is how this codebase
+        // says "deliberately not through a proxy" (same opt-out as
+        // `ProxyListFetcher`, and the only one Guzzle's curl handler honours, since
+        // `false` throws). Passing it EXPLICITLY rather than omitting the key keeps
+        // the plan's hardest invariant literally true: every request this engine
+        // makes states its egress, so an ambient `http_proxy` in the environment can
+        // never quietly become one.
+        if ($exit === null) {
+            return ['proxy' => ''];
+        }
+
         $credentials = $exit->credentials;
 
         return [
@@ -721,7 +797,7 @@ class LocalProbeEngine implements ProbeTransport
     protected function readingFrom(
         Monitor $monitor,
         string $region,
-        Proxy $exit,
+        ?Proxy $exit,
         DateTimeImmutable $checkedAt,
         string $probeRunId,
         int $statusCode,
@@ -749,7 +825,9 @@ class LocalProbeEngine implements ProbeTransport
             // this engine cannot produce, and inventing one would make the region
             // look verified when it is not. `exit_via` is what this engine has
             // instead: the exit that actually answered, see CheckResult::$exitVia.
-            'exit_via' => $exit->host.':'.$exit->port,
+            // Null on the direct path: there was no exit, and null is already how
+            // this column reads absence.
+            'exit_via' => $exit === null ? null : $exit->host.':'.$exit->port,
             'probe_refused' => false,
             'content' => null,
             'content_type' => $headers['content-type'] ?? null,
