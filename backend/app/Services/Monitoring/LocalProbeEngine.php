@@ -224,6 +224,28 @@ class LocalProbeEngine implements ProbeTransport
     ];
 
     /**
+     * curl's error for a CONNECT tunnel the proxy refused to open.
+     *
+     * Once the CONNECT reply headers are suppressed (see {@see self::egressOptions()}),
+     * a proxy answering 407 or 502 to CONNECT no longer arrives as a fabricated reading;
+     * it arrives as errno 56 (`CURLE_RECV_ERROR`) instead. That errno is NOT in
+     * {@see self::PROXY_FAULT_ERRNOS} on purpose, because 56 on its own is genuinely
+     * ambiguous: a target can also drop a connection mid-response. What disambiguates it
+     * is curl's own message, which names the tunnel.
+     *
+     * Two spellings, both matched, because the wording changed across curl 8.x and this
+     * classifier decides whether a public page publishes an outage: 8.18 says
+     * `CONNECT tunnel failed, response 407` (measured on this machine) and older 8.x says
+     * `Received HTTP code 407 from proxy after CONNECT`.
+     *
+     * @var list<string>
+     */
+    protected const array TUNNEL_FAILURE_SIGNATURES = [
+        'CONNECT tunnel failed',
+        'from proxy after CONNECT',
+    ];
+
+    /**
      * The only HTTP status on this path that is not the target's answer.
      *
      * A proxy answers 407 when it will not carry the request; the target never
@@ -578,6 +600,23 @@ class LocalProbeEngine implements ProbeTransport
             'proxy' => 'http://'.$exit->host.':'.$exit->port,
             'curl' => [
                 CURLOPT_PROXYUSERPWD => ($credentials['username'] ?? '').':'.($credentials['password'] ?? ''),
+                // WITHOUT THIS, EVERY HTTPS PROBE PUBLISHES THE PROXY'S GREETING AS THE
+                // TARGET'S ANSWER. curl hands the CONNECT reply's headers to the header
+                // callback by default, so Guzzle builds a Response from
+                // `HTTP/1.1 200 Connection established` and fires `on_headers` with it.
+                // The capture-first discriminator then reads that as "we reached the
+                // target". Measured against a listener that answered CONNECT with 200 and
+                // closed, so the target was never contacted at all: the capture held
+                // `status 200, 0 headers, reason "Connection established"`, and the engine
+                // would have returned `up` for `https://github.com` without sending it a
+                // single byte, no TLS handshake, no GET, no User-Agent. All eight catalog
+                // monitors are HTTPS with an expected 200, so all eight public pages would
+                // have published "We reached it normally" about a request that never
+                // happened. Suppressing the CONNECT headers is what makes the capture the
+                // TARGET's response; verified after the change that the capture carries the
+                // target's own status and its real headers, and that the body abort still
+                // reports zero bytes downloaded.
+                CURLOPT_SUPPRESS_CONNECT_HEADERS => true,
             ],
         ];
     }
@@ -691,9 +730,21 @@ class LocalProbeEngine implements ProbeTransport
      */
     protected function blamesTheProxy(Throwable $e): bool
     {
-        $errno = $this->handlerContextOf($e)['errno'] ?? null;
+        $context = $this->handlerContextOf($e);
+        $errno = $context['errno'] ?? null;
 
-        return $errno !== null && in_array((int) $errno, self::PROXY_FAULT_ERRNOS, true);
+        if ($errno === null) {
+            return false;
+        }
+
+        if (in_array((int) $errno, self::PROXY_FAULT_ERRNOS, true)) {
+            return true;
+        }
+
+        // A refused CONNECT tunnel is our exit's failure, not the target's answer, and
+        // it is only identifiable from curl's message: see
+        // TUNNEL_FAILURE_SIGNATURES for why the errno alone cannot decide it.
+        return Str::contains((string) ($context['error'] ?? ''), self::TUNNEL_FAILURE_SIGNATURES);
     }
 
     /**
@@ -899,7 +950,20 @@ class LocalProbeEngine implements ProbeTransport
         // the FIRST dark tick and the "a single missed tick is normal" rule was
         // dead. Counting intervals is the scheduled job's job, because the job is
         // the only thing here that runs once per interval.
-        if ($result->probeRefused) {
+        // The discriminator is "did an exit actually ANSWER", not "was this a refusal".
+        // A `down` built by `failureReading(refused: false)` also carries
+        // `probeRefused === false`, and it means nothing was reached at all: no status
+        // code, empty timing. Reading that as a success is the exact inversion this
+        // record exists to prevent, and it is reachable by the most ordinary outage
+        // there is. A provider-wide failure (a suspended account, a lapsed bill, a dead
+        // network path) makes every exit fail with errno 7, which is outside
+        // PROXY_FAULT_ERRNOS, so every attempt is ambiguous, the ladder returns an
+        // honest-looking `down`, and eight public catalog pages publish an outage. If
+        // that also stamped `last_success_at` and zeroed the streak, the dark-region
+        // alarm could never fire and the operator would get NO signal during precisely
+        // the failure the alarm was built for. Measured before this line changed:
+        // `last_success_at=SET, streak=0, alarmed=null`.
+        if ($result->probeRefused || $result->statusCode === null) {
             $health->update([
                 'last_failure_at' => now(),
                 'healthy_proxy_count' => $healthyProxyCount,

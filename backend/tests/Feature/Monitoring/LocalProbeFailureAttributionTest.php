@@ -38,9 +38,12 @@ use Tests\TestCase;
  * surface as errno 7 (`CURLE_COULDNT_CONNECT`), so the error code is not the
  * discriminator. Only two codes name the proxy outright (5
  * `CURLE_COULDNT_RESOLVE_PROXY`, 97 `CURLE_PROXY`), plus one HTTP status that
- * cannot have come from the target at all (407, which only a proxy sends).
- * Everything else is ambiguous, and the only way to resolve it is to ask a
- * SECOND exit in the same region: if that one answers, the first exit was the
+ * cannot have come from the target at all (407, which only a proxy sends), plus
+ * one MESSAGE: a CONNECT tunnel the proxy refused arrives as errno 56
+ * (`CURLE_RECV_ERROR`), which a target resetting a connection also produces, so
+ * there the wording is the only evidence and the errno stays ambiguous on its
+ * own. Everything else is ambiguous too, and the only way to resolve it is to ask
+ * a SECOND exit in the same region: if that one answers, the first exit was the
  * problem; if it fails the same way, the target genuinely is unreachable.
  *
  * So there are three outcomes, and this file pins the boundary between them:
@@ -355,6 +358,63 @@ class LocalProbeFailureAttributionTest extends TestCase
         $this->assertSame(0, MonitorCheck::query()->count());
     }
 
+    public function test_a_tunnel_our_exit_refused_is_a_refusal_and_never_a_down(): void
+    {
+        // A proxy answering 407 to CONNECT is the 407 case one layer lower down,
+        // and it does NOT arrive as an HTTP status: the request never got past the
+        // tunnel, so there is no response for the `PROXY_AUTH_REQUIRED` branch to
+        // see. curl reports errno 56 (`CURLE_RECV_ERROR`) with its own message
+        // naming the tunnel, measured on this machine and pinned live in
+        // {@see LocalProbeEngineTest::test_a_tunnel_the_proxy_refused_is_our_own_failure_on_the_real_wire()}.
+        //
+        // One exit on purpose: with nothing left to ask, the pre-fix classifier
+        // read errno 56 as ambiguous and the ladder published a `down` about a
+        // target that was never contacted. That is the fabrication this test
+        // reddens on.
+        $this->assertARefusedTunnelIsOurOwnFailure(
+            errno: 56,
+            error: 'CONNECT tunnel failed, response 407',
+            expectedInMessage: 'CONNECT tunnel failed',
+        );
+    }
+
+    public function test_the_older_curl_wording_for_a_refused_tunnel_is_recognised_too(): void
+    {
+        // curl 8.18 says `CONNECT tunnel failed, response 407`; older 8.x says
+        // `Received HTTP code 502 from proxy after CONNECT`. BOTH spellings are
+        // matched, because this classifier decides whether a public page
+        // publishes an outage and the deploy's curl is not pinned by us. The
+        // status differs from the case above for the same reason the signatures
+        // do not mention one: 407 and 502 are equally the proxy's own answer, and
+        // the wording is what identifies it.
+        $this->assertARefusedTunnelIsOurOwnFailure(
+            errno: 56,
+            error: 'Received HTTP code 502 from proxy after CONNECT',
+            expectedInMessage: 'from proxy after CONNECT',
+        );
+    }
+
+    public function test_a_bare_errno_56_stays_ambiguous_because_a_target_can_reset_a_connection_too(): void
+    {
+        // The counterweight to the two tests above, and the reason errno 56 is
+        // NOT in `PROXY_FAULT_ERRNOS`: a target that drops the connection
+        // mid-response reports the same code. Blaming the exit on the errno alone
+        // would turn a real outage into a refusal and page nobody, so without the
+        // tunnel wording this is an ambiguous failure and still yields a verdict.
+        $monitor = $this->systemMonitor();
+        $this->makeProxy('us-east');
+        $this->scriptTarget([
+            $this->curlFailure(56, 'Recv failure: Connection reset by peer'),
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertSame(MonitorStatus::Down, $reading->status);
+        $this->assertFalse($reading->probeRefused);
+        $this->assertStringContainsString('Connection reset by peer', (string) $reading->errorMessage);
+        $this->assertSame(0, Proxy::query()->sole()->failed_attempts);
+    }
+
     public function test_a_region_with_no_healthy_exit_writes_no_check_no_streak_and_no_incident(): void
     {
         // THE CENTRAL SAFETY CLAIM, asserted on the consequence rather than on
@@ -422,6 +482,46 @@ class LocalProbeFailureAttributionTest extends TestCase
         app(CheckPersistenceService::class)->persist($monitor, $reading);
 
         $this->assertSame(403, (int) MonitorCheck::query()->sole()->status_code);
+    }
+
+    /**
+     * A refused CONNECT tunnel is OUR exit failing: no verdict, no check row, and
+     * the exit out of rotation.
+     *
+     * Shared by the two spellings above rather than duplicated, because the claim
+     * is one claim and only curl's wording differs. Deliberately runs with a
+     * SINGLE exit: that is the configuration where a misclassification is not
+     * merely a slower probe but a fabricated outage, since there is no second exit
+     * whose failure could turn the ambiguity into evidence.
+     */
+    protected function assertARefusedTunnelIsOurOwnFailure(int $errno, string $error, string $expectedInMessage): void
+    {
+        $monitor = $this->systemMonitor();
+        $this->makeProxy('us-east');
+        $this->scriptTarget([
+            $this->curlFailure($errno, $error),
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertTrue(
+            $reading->probeRefused,
+            "A tunnel the exit refused ({$error}) was published as a verdict about the target.",
+        );
+        $this->assertNull($reading->statusCode);
+        $this->assertStringContainsString('us-east', (string) $reading->errorMessage);
+        $this->assertStringContainsString($expectedInMessage, (string) $reading->errorMessage);
+
+        // The exit named itself, so it leaves rotation immediately rather than
+        // waiting for a later exit to corroborate anything.
+        $this->assertSame(1, Proxy::query()->sole()->failed_attempts);
+        $this->assertNotNull(Proxy::query()->sole()->available_at);
+
+        // The consequence, which is what the flag is for: nothing reaches the
+        // public page and no streak moves.
+        app(CheckPersistenceService::class)->persist($monitor, $reading);
+
+        $this->assertSame(0, MonitorCheck::query()->count());
     }
 
     /**
