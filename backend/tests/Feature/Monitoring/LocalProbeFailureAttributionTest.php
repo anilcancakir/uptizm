@@ -7,6 +7,7 @@ use App\Enums\MonitorType;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use App\Models\ProbeRegionHealth;
 use App\Models\Proxy;
 use App\Models\ProxySource;
 use App\Services\Monitoring\CheckPersistenceService;
@@ -190,16 +191,87 @@ class LocalProbeFailureAttributionTest extends TestCase
         $this->assertCount(2, $this->seenOptions);
     }
 
-    public function test_an_ambiguous_failure_is_blamed_on_the_exit_only_once_another_exit_answers(): void
+    public function test_a_connect_failure_names_the_proxy_because_the_proxy_is_the_only_host_we_dial(): void
     {
-        // errno 7 is the whole problem: a dead proxy and a dead target produce
-        // it identically. The second exit answering is what turns the ambiguity
-        // into evidence, retroactively.
+        // errno 7 is `CURLE_COULDNT_CONNECT`, and on THIS path it cannot be about
+        // the target: every probe carries an explicit exit, so the proxy is the
+        // only host curl opens a TCP connection to and the target is reached by
+        // the proxy. Measured on curl 8.7.1 through a local CONNECT proxy: a
+        // closed proxy port gives errno 7, while a healthy proxy whose origin
+        // refused gives errno 56 `CONNECT tunnel failed, response 502`. So a dead
+        // target cannot arrive here as a 7.
+        //
+        // This is the provider-wide outage case (a suspended account, a lapsed
+        // bill, a dead network path): every exit fails to connect. Reading it as
+        // ambiguous would publish a `down` on eight public catalog pages about
+        // targets nothing ever reached.
         $monitor = $this->systemMonitor();
         $this->makeProxy('us-east');
         $this->makeProxy('us-east');
         $this->scriptTarget([
             $this->curlFailure(7, "Failed to connect to 203.0.113.1 port 8001: Couldn't connect to server"),
+            $this->curlFailure(7, "Failed to connect to 203.0.113.2 port 8002: Couldn't connect to server"),
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertTrue($reading->probeRefused);
+        $this->assertStringContainsString('our own side', (string) $reading->errorMessage);
+
+        // Both exits leave rotation, and the region is recorded as having
+        // produced nothing, which is what the dark-region alarm counts.
+        foreach (Proxy::all() as $exit) {
+            $this->assertSame(1, $exit->failed_attempts);
+        }
+
+        $health = ProbeRegionHealth::query()->where('region', 'us-east')->sole();
+        $this->assertNotNull($health->last_failure_at);
+        $this->assertNull($health->last_success_at);
+    }
+
+    public function test_a_tunnel_refused_over_the_origin_is_the_targets_outage_and_not_our_exits(): void
+    {
+        // The counterweight to the 407 tests below. curl spells EVERY non-2xx
+        // CONNECT reply the same way, and 502 is how a forward proxy reports that
+        // it could not reach the origin: measured on curl 8.7.1, a healthy proxy
+        // whose origin refused the connection gives errno 56 `CONNECT tunnel
+        // failed, response 502`, differing from the 407 case by one number.
+        //
+        // So this has to stay ambiguous. Classifying it as our own failure would
+        // convert every genuinely down HTTPS target into a refusal that publishes
+        // nothing, on the pages that exist to report exactly that, and would drain
+        // the region's pool on every real outage.
+        $monitor = $this->systemMonitor();
+        $this->makeProxy('us-east');
+        $this->makeProxy('us-east');
+        $this->scriptTarget([
+            $this->curlFailure(56, 'CONNECT tunnel failed, response 502'),
+            $this->curlFailure(56, 'CONNECT tunnel failed, response 502'),
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertSame(MonitorStatus::Down, $reading->status);
+        $this->assertFalse($reading->probeRefused);
+        $this->assertNull($reading->statusCode);
+
+        // Exonerated by the same reasoning that convicts the target.
+        foreach (Proxy::all() as $exit) {
+            $this->assertSame(0, $exit->failed_attempts);
+        }
+    }
+
+    public function test_an_ambiguous_failure_is_blamed_on_the_exit_only_once_another_exit_answers(): void
+    {
+        // errno 28 is the whole problem: a hung proxy and a hung target produce
+        // it identically, because the clock runs out without saying which peer
+        // stopped answering. The second exit answering is what turns the
+        // ambiguity into evidence, retroactively.
+        $monitor = $this->systemMonitor();
+        $this->makeProxy('us-east');
+        $this->makeProxy('us-east');
+        $this->scriptTarget([
+            $this->curlFailure(28, 'Operation timed out after 10001 milliseconds with 0 bytes received'),
             200,
         ]);
 
@@ -219,8 +291,8 @@ class LocalProbeFailureAttributionTest extends TestCase
         $this->makeProxy('us-east');
         $this->makeProxy('us-east');
         $this->scriptTarget([
-            $this->curlFailure(7, "Failed to connect to 203.0.113.1 port 8001: Couldn't connect to server"),
-            $this->curlFailure(7, "Failed to connect to 203.0.113.2 port 8002: Couldn't connect to server"),
+            $this->curlFailure(28, 'Operation timed out after 10001 milliseconds with 0 bytes received'),
+            $this->curlFailure(28, 'Operation timed out after 10002 milliseconds with 0 bytes received'),
         ]);
 
         $reading = $this->engine()->dispatch($monitor, 'us-east');
@@ -245,7 +317,7 @@ class LocalProbeFailureAttributionTest extends TestCase
         // rendered in the UI, where a target's token must not appear. Same rule
         // as the worker's `probeTarget()`.
         $this->assertStringContainsString('example.com', (string) $reading->errorMessage);
-        $this->assertStringContainsString("Couldn't connect to server", (string) $reading->errorMessage);
+        $this->assertStringContainsString('Operation timed out', (string) $reading->errorMessage);
         $this->assertStringNotContainsString('s3cret', (string) $reading->errorMessage);
     }
 
@@ -301,9 +373,9 @@ class LocalProbeFailureAttributionTest extends TestCase
         $this->makeProxy('us-east');
         $this->makeProxy('us-east');
         $this->scriptTarget([
-            $this->curlFailure(7, "Failed to connect: Couldn't connect to server"),
-            $this->curlFailure(7, "Failed to connect: Couldn't connect to server"),
-            $this->curlFailure(7, "Failed to connect: Couldn't connect to server"),
+            $this->curlFailure(28, 'Operation timed out after 10001 milliseconds with 0 bytes received'),
+            $this->curlFailure(28, 'Operation timed out after 10002 milliseconds with 0 bytes received'),
+            $this->curlFailure(28, 'Operation timed out after 10003 milliseconds with 0 bytes received'),
         ]);
 
         $reading = $this->engine()->dispatch($monitor, 'us-east');
@@ -380,17 +452,69 @@ class LocalProbeFailureAttributionTest extends TestCase
 
     public function test_the_older_curl_wording_for_a_refused_tunnel_is_recognised_too(): void
     {
-        // curl 8.18 says `CONNECT tunnel failed, response 407`; older 8.x says
-        // `Received HTTP code 502 from proxy after CONNECT`. BOTH spellings are
-        // matched, because this classifier decides whether a public page
-        // publishes an outage and the deploy's curl is not pinned by us. The
-        // status differs from the case above for the same reason the signatures
-        // do not mention one: 407 and 502 are equally the proxy's own answer, and
-        // the wording is what identifies it.
+        // curl 8.7 and 8.18 say `CONNECT tunnel failed, response 407`; older 8.x
+        // says `Received HTTP code 407 from proxy after CONNECT`. BOTH spellings
+        // are matched, because this classifier decides whether a public page
+        // publishes an outage and the deploy's curl is not pinned by us.
+        //
+        // The STATUS is 407 in both, and that is not incidental. An earlier
+        // revision of this test used 502 here and stated that "407 and 502 are
+        // equally the proxy's own answer", which is false: 502 is how a forward
+        // proxy reports that it could not reach the ORIGIN. The test asserted the
+        // same wrong rule the classifier had, so it certified the bug rather than
+        // catching it. See
+        // {@see self::test_a_tunnel_refused_over_the_origin_is_the_targets_outage_and_not_our_exits()}
+        // for the case this one must not swallow.
         $this->assertARefusedTunnelIsOurOwnFailure(
             errno: 56,
-            error: 'Received HTTP code 502 from proxy after CONNECT',
+            error: 'Received HTTP code 407 from proxy after CONNECT',
             expectedInMessage: 'from proxy after CONNECT',
+        );
+    }
+
+    public function test_a_proxy_dying_inside_the_connect_reply_is_our_own_failure(): void
+    {
+        // The third spelling, and the one the earlier signature list missed. When the
+        // proxy closes the socket part-way through its CONNECT reply, with no 407
+        // ahead of it, curl says `Proxy CONNECT aborted` (`lib/cf-h1-proxy.c`) and
+        // reports errno 56. A provider dying inside the handshake is exactly what a
+        // rented pool does when it goes away, so leaving this ambiguous meant the
+        // ladder exhausted and published a fabricated outage on eight public pages
+        // about a target nothing had reached.
+        $this->assertARefusedTunnelIsOurOwnFailure(
+            errno: 56,
+            error: 'Proxy CONNECT aborted',
+            expectedInMessage: 'Proxy CONNECT aborted',
+        );
+    }
+
+    public function test_a_connect_that_timed_out_stays_ambiguous_despite_sharing_the_prefix(): void
+    {
+        // The counterweight to the test above, and the reason the classifier gates on
+        // the errno as well as the message. curl's `Proxy CONNECT aborted due to
+        // timeout` shares the prefix but arrives as errno 28, and a timeout INSIDE
+        // CONNECT may be the proxy waiting on the target rather than the proxy
+        // failing. Matching the message alone would have converted a possible real
+        // outage into a refusal that pages nobody, which is the opposite error and
+        // just as dishonest.
+        $monitor = $this->systemMonitor();
+        $exit = $this->makeProxy('us-east');
+
+        $this->scriptTarget([
+            $this->curlFailure(28, 'Proxy CONNECT aborted due to timeout'),
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertFalse(
+            $reading->probeRefused,
+            'A CONNECT timeout was blamed on the exit, so a target that stopped answering would page nobody.',
+        );
+        $this->assertSame(MonitorStatus::Down, $reading->status);
+        $this->assertSame(
+            0,
+            $exit->fresh()->failed_attempts,
+            'The exit was penalised for a timeout that may have been the target keeping it waiting.',
         );
     }
 

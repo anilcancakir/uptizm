@@ -12,6 +12,7 @@ use App\Services\Monitoring\CheckPersistenceService;
 use App\Services\Monitoring\LocalProbeEngine;
 use App\Services\Proxy\ProxyPool;
 use App\Support\Services\SystemTeam;
+use GuzzleHttp\Exception\ConnectException as GuzzleConnectException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -81,6 +82,49 @@ class DarkRegionAlarmTest extends TestCase
 
         $this->assertFalse($reading->probeRefused);
         $this->assertSame(0, ProbeRegionHealth::query()->where('region', 'us-east')->value('consecutive_empty_intervals'));
+    }
+
+    public function test_a_target_that_never_answered_is_still_a_reading_and_leaves_the_region_healthy(): void
+    {
+        // The case above answers with a status code. This one does not: the
+        // tunnel is healthy and the TARGET never replies, so the reading is a
+        // `down` with `status_code` null and empty timing. That is the ordinary
+        // shape of a real outage on the catalog, and the region measuring it is
+        // working perfectly.
+        //
+        // An earlier revision discriminated on `probeRefused || statusCode ===
+        // null`, which filed exactly this as an empty interval: every genuinely
+        // down catalog target would have counted against the region that
+        // measured it, and three intervals later an operator would get a
+        // dark-region alarm for a region that wrote check rows the whole time.
+        // What that revision was reaching for is decided in the classifier
+        // instead ({@see LocalProbeEngine::PROXY_FAULT_ERRNOS}, errno 7), where a
+        // provider-wide failure becomes a refusal.
+        ProbeRegionHealth::query()->create([
+            'region' => 'us-east',
+            'consecutive_empty_intervals' => 2,
+        ]);
+
+        $this->makeProxy('us-east');
+        $monitor = $this->systemMonitor();
+        $this->failTargetAmbiguously();
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        // An honest verdict about the target, not a refusal about us.
+        $this->assertFalse($reading->probeRefused);
+        $this->assertNull($reading->statusCode);
+
+        $health = ProbeRegionHealth::query()->where('region', 'us-east')->sole();
+        $this->assertNotNull($health->last_success_at);
+        $this->assertNull($health->last_failure_at);
+        $this->assertSame(0, $health->consecutive_empty_intervals);
+
+        // And the alarm job agrees: nothing to increment, nothing to alarm.
+        (new AlarmDarkProbeRegions)->handle();
+
+        $this->assertSame(0, $health->fresh()->consecutive_empty_intervals);
+        $this->assertNull($health->fresh()->alarmed_at);
     }
 
     public function test_a_refusal_advances_last_failure_at_and_increments_the_streak(): void
@@ -289,6 +333,32 @@ class DarkRegionAlarmTest extends TestCase
     protected function fakeTarget(int $status): void
     {
         Http::fake(fn (Request $request) => Http::response('<html></html>', $status, ['Content-Type' => 'text/html']));
+    }
+
+    /**
+     * Fail every attempt the way a healthy tunnel to a dead target fails.
+     *
+     * errno 28 (`CURLE_OPERATION_TIMEDOUT`) rather than 7: 7 names the proxy on
+     * this path and would produce a refusal, which is the opposite of what this
+     * scenario is about. See
+     * `LocalProbeFailureAttributionTest` for the
+     * measured errno taxonomy.
+     */
+    protected function failTargetAmbiguously(): void
+    {
+        Http::fake(function (Request $request): never {
+            $context = [
+                'errno' => 28,
+                'error' => 'Operation timed out after 10001 milliseconds with 0 bytes received',
+            ];
+
+            throw new GuzzleConnectException(
+                'cURL error 28: Operation timed out',
+                $request->toPsrRequest(),
+                null,
+                $context,
+            );
+        });
     }
 
     /**

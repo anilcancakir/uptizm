@@ -210,16 +210,33 @@ class LocalProbeEngine implements ProbeTransport
      * The curl error codes that name OUR OWN EXIT and cannot mean anything else.
      *
      * 5 is `CURLE_COULDNT_RESOLVE_PROXY` (the proxy's own hostname would not
-     * resolve) and 97 is `CURLE_PROXY` (the proxy layer itself failed, e.g. a
-     * CONNECT tunnel the proxy refused). Everything else, 7 and a timeout very
-     * much included, is ambiguous between the exit and the target; see the class
-     * docblock. This list must stay SHORT: a code added here on a guess converts
-     * a real outage into a refusal and stops paging anyone.
+     * resolve) and 97 is `CURLE_PROXY` (the proxy layer itself failed). Both name
+     * the proxy in their own definition, which is the bar for membership here: a
+     * code added on a guess converts a real outage into a refusal and stops paging
+     * anyone.
+     *
+     * 7 is `CURLE_COULDNT_CONNECT`, and it clears that bar only because of a
+     * precondition this engine enforces: every probe carries an explicit exit
+     * (`egressOptions()` sets `proxy` unconditionally, and `dispatch()` refuses a
+     * region whose pool is empty before any request is built), so the proxy is the
+     * ONLY host curl ever opens a TCP connection to. The target is reached by the
+     * proxy, never by us. Measured both directions on curl 8.7.1 against a local
+     * CONNECT proxy: with the proxy's port closed, `errno 7, Failed to connect to
+     * 127.0.0.1 port 18099`; with the proxy healthy and the ORIGIN refusing,
+     * `errno 56, CONNECT tunnel failed, response 502`. So a target refusal cannot
+     * surface as 7, and a 7 cannot be about the target.
+     *
+     * That measurement is the whole justification, so it is also the thing to
+     * re-run before adding a direct (proxy-less) probe path here. On such a path 7
+     * would mean the target, and leaving it in this list would silence real
+     * outages: the honest `down` this engine owes eight public pages would become a
+     * refusal that publishes nothing.
      *
      * @var list<int>
      */
     protected const array PROXY_FAULT_ERRNOS = [
         5,
+        7,
         97,
     ];
 
@@ -227,23 +244,53 @@ class LocalProbeEngine implements ProbeTransport
      * curl's error for a CONNECT tunnel the proxy refused to open.
      *
      * Once the CONNECT reply headers are suppressed (see {@see self::egressOptions()}),
-     * a proxy answering 407 or 502 to CONNECT no longer arrives as a fabricated reading;
-     * it arrives as errno 56 (`CURLE_RECV_ERROR`) instead. That errno is NOT in
+     * a proxy answering 407 to CONNECT no longer arrives as a fabricated reading; it
+     * arrives as errno 56 (`CURLE_RECV_ERROR`) instead. That errno is NOT in
      * {@see self::PROXY_FAULT_ERRNOS} on purpose, because 56 on its own is genuinely
      * ambiguous: a target can also drop a connection mid-response. What disambiguates it
      * is curl's own message, which names the tunnel.
      *
-     * Two spellings, both matched, because the wording changed across curl 8.x and this
-     * classifier decides whether a public page publishes an outage: 8.18 says
-     * `CONNECT tunnel failed, response 407` (measured on this machine) and older 8.x says
-     * `Received HTTP code 407 from proxy after CONNECT`.
+     * Every entry names 407, and that narrowness is load-bearing. curl spells the same
+     * error for EVERY non-2xx CONNECT reply (`CONNECT tunnel failed, response %d`), and
+     * 407 is the only code a proxy can only be speaking about itself; every other code
+     * is the proxy reporting on the ORIGIN. Measured on curl 8.7.1, the two differ by
+     * one number: a 407-answering proxy gives `response 407`, and a healthy proxy whose
+     * origin refused the connection gives `response 502`. An earlier revision matched
+     * the prefix alone, which read that 502 as our own exit's fault: every genuinely
+     * down HTTPS target would have been converted from an honest `down` into a refusal
+     * that publishes nothing, on the eight pages that exist to report exactly that.
+     * Leaving other codes ambiguous costs one alternate exit and still reaches a verdict.
+     *
+     * Two 407 spellings, both matched, because the wording changed across curl 8.x:
+     * 8.7 and 8.18 say `CONNECT tunnel failed, response 407` (measured) and older 8.x
+     * says `Received HTTP code 407 from proxy after CONNECT`.
      *
      * @var list<string>
      */
     protected const array TUNNEL_FAILURE_SIGNATURES = [
-        'CONNECT tunnel failed',
-        'from proxy after CONNECT',
+        'CONNECT tunnel failed, response 407',
+        'HTTP code 407 from proxy after CONNECT',
+        // The proxy closing the socket mid-CONNECT-reply, with no status line to
+        // read at all (curl `lib/cf-h1-proxy.c`, measured as `Proxy CONNECT
+        // aborted`). It carries no response code, so it is not covered above, and
+        // it is unambiguous for a different reason: completing the handshake is
+        // the proxy's own protocol obligation and no target byte is involved.
+        // Without this a provider dying inside the handshake reads as ambiguous
+        // and publishes a fabricated outage about a target nothing ever reached.
+        'Proxy CONNECT aborted',
     ];
+
+    /**
+     * The errno a refused tunnel arrives as, and the gate the signatures sit behind.
+     *
+     * Matching the message ALONE was too loose in one direction that matters:
+     * `Proxy CONNECT aborted due to timeout` shares the prefix above but arrives as
+     * errno 28, and a timeout inside CONNECT may be the proxy waiting on the TARGET,
+     * so it has to stay ambiguous. Requiring the errno as well keeps the signature
+     * list growable without a substring reaching an errno it was never meant to
+     * describe.
+     */
+    protected const int TUNNEL_FAILURE_ERRNO = 56;
 
     /**
      * The only HTTP status on this path that is not the target's answer.
@@ -744,7 +791,9 @@ class LocalProbeEngine implements ProbeTransport
         // A refused CONNECT tunnel is our exit's failure, not the target's answer, and
         // it is only identifiable from curl's message: see
         // TUNNEL_FAILURE_SIGNATURES for why the errno alone cannot decide it.
-        return Str::contains((string) ($context['error'] ?? ''), self::TUNNEL_FAILURE_SIGNATURES);
+        // Errno AND message, never the message alone: see TUNNEL_FAILURE_ERRNO.
+        return (int) $errno === self::TUNNEL_FAILURE_ERRNO
+            && Str::contains((string) ($context['error'] ?? ''), self::TUNNEL_FAILURE_SIGNATURES);
     }
 
     /**
@@ -919,11 +968,23 @@ class LocalProbeEngine implements ProbeTransport
     /**
      * Record this attempt's outcome against the region's health row.
      *
-     * `probeRefused` is the discriminator, not the reading's status: a target
-     * the engine reached and found `down` still proves the region's exits
-     * carried a request, so it clears `consecutive_empty_intervals` exactly
-     * like an `up` would. Only a refusal, meaning the pool itself produced
-     * no verdict, advances it.
+     * THE DISCRIMINATOR IS WHETHER THIS PROBE PRODUCED A READING AT ALL, which is
+     * what `probeRefused` means and is exactly the question the alarm asks ("has
+     * produced no reading for several consecutive intervals"). A target the engine
+     * reached and found `down` still produced a reading and still proves the
+     * region's exits carried a request, so it clears `consecutive_empty_intervals`
+     * exactly like an `up` would.
+     *
+     * The absence of a status code is NOT that discriminator, and an earlier
+     * revision that added it filed a working region as dark: a target refusing the
+     * connection through a perfectly healthy tunnel returns `down` with no status
+     * code, so every genuinely down catalog target would have counted an empty
+     * interval against the region that measured it, and three intervals later the
+     * operator gets a dark-region alarm for a region that wrote check rows the
+     * whole time. What that revision was actually reaching for is a provider-wide
+     * failure, where every exit fails to connect; that case is now decided where it
+     * belongs, in {@see self::PROXY_FAULT_ERRNOS} (errno 7), so it arrives here as a
+     * refusal and this branch sees it without needing to guess from a null field.
      *
      * `healthy_proxy_count` is read fresh from {@see Proxy} on every write
      * rather than trusted from an earlier one: the refresher that owns the
@@ -950,20 +1011,7 @@ class LocalProbeEngine implements ProbeTransport
         // the FIRST dark tick and the "a single missed tick is normal" rule was
         // dead. Counting intervals is the scheduled job's job, because the job is
         // the only thing here that runs once per interval.
-        // The discriminator is "did an exit actually ANSWER", not "was this a refusal".
-        // A `down` built by `failureReading(refused: false)` also carries
-        // `probeRefused === false`, and it means nothing was reached at all: no status
-        // code, empty timing. Reading that as a success is the exact inversion this
-        // record exists to prevent, and it is reachable by the most ordinary outage
-        // there is. A provider-wide failure (a suspended account, a lapsed bill, a dead
-        // network path) makes every exit fail with errno 7, which is outside
-        // PROXY_FAULT_ERRNOS, so every attempt is ambiguous, the ladder returns an
-        // honest-looking `down`, and eight public catalog pages publish an outage. If
-        // that also stamped `last_success_at` and zeroed the streak, the dark-region
-        // alarm could never fire and the operator would get NO signal during precisely
-        // the failure the alarm was built for. Measured before this line changed:
-        // `last_success_at=SET, streak=0, alarmed=null`.
-        if ($result->probeRefused || $result->statusCode === null) {
+        if ($result->probeRefused) {
             $health->update([
                 'last_failure_at' => now(),
                 'healthy_proxy_count' => $healthyProxyCount,
