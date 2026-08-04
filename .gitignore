@@ -60,3 +60,5 @@ pubspec_overrides.yaml
 
 # playwright-cli scratch snapshots from browser debugging sessions.
 .playwright-cli/
+
+CLAUDE.local.md

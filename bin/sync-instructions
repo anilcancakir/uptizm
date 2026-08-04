@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+#
+# Mirrors the canonical agent instructions into the files GitHub Copilot reads.
+#
+#   bin/sync-instructions           regenerate the mirrors
+#   bin/sync-instructions --check   fail if a mirror is out of date (CI uses this)
+#
+# WHY THESE ARE COPIES AND NOT SYMLINKS
+#
+# `CLAUDE.md` is a symlink to `AGENTS.md`, which Anthropic documents and which is
+# safe because Claude Code only ever looks up `CLAUDE.md`. Copilot is different on
+# both counts: GitHub does not document whether its instruction files follow a git
+# symlink, and there is an open bug against the VS Code extension for exactly that
+# setup. So the Copilot mirrors are generated content, committed to the repo,
+# guarded by `--check` in CI.
+#
+# The path-scoped rules cannot be symlinked at all, because the two ecosystems
+# spell the glob differently: `.claude/rules/*.md` uses a YAML list under `paths:`,
+# and Copilot uses a single comma-separated string under `applyTo:`.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+CHECK=0
+[ "${1:-}" = "--check" ] && CHECK=1
+
+SOURCE="AGENTS.md"
+RULES_DIR=".claude/rules"
+
+# Generate everything into a staging tree first, so --check has something to diff
+# and a real run cannot leave a half-written mirror behind.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+mkdir -p "$STAGE/.github/instructions"
+
+banner() {
+    printf '<!-- GENERATED from %s by bin/sync-instructions. Edit that file, not this one. -->\n' "$1"
+}
+
+# The repo-wide mirror. The trailing `@DESIGN.md` line is a Claude Code import
+# directive that no other tool understands, so it is dropped; the body already
+# tells the reader to open DESIGN.md before UI work.
+{
+    banner "$SOURCE"
+    echo
+    grep -v '^@DESIGN\.md$' "$SOURCE"
+} >"$STAGE/.github/copilot-instructions.md"
+
+# One path-scoped mirror per rule. `paths:` is a YAML list of quoted globs;
+# `applyTo:` is one comma-separated string.
+for rule in "$RULES_DIR"/*.md; do
+    [ -e "$rule" ] || continue
+    topic="$(basename "$rule" .md)"
+    target="$STAGE/.github/instructions/$topic.instructions.md"
+
+    globs="$(
+        awk '
+            NR == 1 && $0 == "---" { inside = 1; next }
+            inside && $0 == "---" { exit }
+            inside && match($0, /^[[:space:]]*-[[:space:]]*"[^"]+"/) {
+                line = $0
+                sub(/^[^"]*"/, "", line)
+                sub(/".*$/, "", line)
+                printf "%s%s", sep, line
+                sep = ","
+            }
+        ' "$rule"
+    )"
+
+    if [ -z "$globs" ]; then
+        echo "sync-instructions: $rule has no quoted globs under paths:, skipping" >&2
+        continue
+    fi
+
+    body="$(awk 'NR == 1 && $0 == "---" { inside = 1; next } inside && $0 == "---" { inside = 0; body = 1; next } body' "$rule")"
+
+    {
+        echo "---"
+        printf 'applyTo: "%s"\n' "$globs"
+        echo "---"
+        echo
+        banner "$rule"
+        printf '%s\n' "$body"
+    } >"$target"
+done
+
+if [ "$CHECK" -eq 1 ]; then
+    if diff -r -q "$STAGE/.github/instructions" .github/instructions >/dev/null 2>&1 &&
+        diff -q "$STAGE/.github/copilot-instructions.md" .github/copilot-instructions.md >/dev/null 2>&1; then
+        echo "sync-instructions: mirrors are up to date"
+        exit 0
+    fi
+
+    echo "sync-instructions: the .github mirrors are out of date. Run bin/sync-instructions and commit the result." >&2
+    diff -r -u .github/instructions "$STAGE/.github/instructions" || true
+    diff -u .github/copilot-instructions.md "$STAGE/.github/copilot-instructions.md" || true
+    exit 1
+fi
+
+mkdir -p .github/instructions
+rm -f .github/instructions/*.instructions.md
+cp "$STAGE/.github/copilot-instructions.md" .github/copilot-instructions.md
+cp "$STAGE"/.github/instructions/*.instructions.md .github/instructions/
+
+echo "sync-instructions: wrote .github/copilot-instructions.md and $(ls -1 .github/instructions | wc -l | tr -d ' ') path-scoped mirrors"
