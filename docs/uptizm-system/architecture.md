@@ -19,7 +19,11 @@ and plan. It is drawn from the two full-stack iterations; v2 is the canonical sh
 - **Realtime:** Reverb WebSockets (config exists in v2 but currently disconnected).
 - **Auth/teams:** `fluttersdk/magic-starter-laravel` (Sanctum tokens, 2FA, profiles,
   teams). Admin: Filament v4 at `/sosecretadmin` (whitelist-gated).
-- **Regional probes:** Cloudflare Worker + Durable Objects, deployed separately.
+- **Regional probes:** two transports behind one `ProbeTransport` interface, chosen per
+  monitor by `PerformMonitorCheck::transportFor()`. Customer monitors go to the
+  Cloudflare Worker + Durable Objects, deployed separately. Monitors owned by the
+  SYSTEM team (the public service catalog) go to `LocalProbeEngine`, which probes from
+  this server through a rotating pool of third-party proxy exits (`config/proxy.php`).
 - **AI:** Laravel AI (Anthropic Claude Sonnet agents), model pinned in PHP attributes.
 - **Client:** Flutter (magic/wind/magic_starter), `Http` facade to `api/v1`, Bearer
   token in `Vault`, response envelope `{data: ...}`.
@@ -32,6 +36,8 @@ and plan. It is drawn from the two full-stack iterations; v2 is the canonical sh
         |  (txn advance prevents double-dispatch if a worker crashes)
         v  dispatch one job per configured region
 [checks queue]         PerformMonitorCheck(monitor, region)
+        |  transportFor(): a SYSTEM-team monitor takes the local branch below,
+        |  everything else takes the relay branch
         |  RelayClient signs an HMAC (SHA-256 of timestamp:body, RELAY_SECRET)
         v  POST probe spec to the Cloudflare Worker at RELAY_URL
 [edge]                 Cloudflare Worker -> region-pinned Durable Object
@@ -88,6 +94,27 @@ response ms, timing breakdown, headers, body preview, error message). Secrets mu
 byte-match between the Laravel `.env` `RELAY_SECRET` and `wrangler secret put` or
 callbacks 401. v1 used a `relay_nodes` table for this; v2 moved region routing into the
 worker and dropped the table.
+
+## Regional probes (local engine, system monitors only)
+
+`LocalProbeEngine` probes the public service catalog from this server instead of the
+edge, because those monitors hit third-party status endpoints and a catalog probe is
+uptizm speaking for itself: `/bot` publishes the rule the crawler is held to, and that
+promise is only ours to make when the request leaves from an address we chose.
+
+Region pinning comes from the proxy pool rather than from a Durable Object: each region
+key in `config('proxy.sources')` carries a provider list, refreshed hourly by
+`proxy:refresh-sources` into the `proxies` table, and each check picks a random healthy
+exit for its region. A failing exit backs off exponentially; a failure that names OUR
+side rather than the target produces `probeRefused` (no verdict, no check row, no
+incident) so a broken pool can never publish an outage. `probe_region_health` +
+`proxy:alarm-dark-regions` make a silently dark region visible to an operator.
+
+Two consequences worth knowing before a deploy. A region with NO configured source
+refuses every probe, so until a provider is wired the catalog pages show "we have no
+recent reading" on their own-measurement rung while the provider-feed rung keeps
+working. And the errno taxonomy behind the refuse-vs-verdict decision is measured, not
+assumed: see `PROXY_FAULT_ERRNOS` and `TUNNEL_FAILURE_SIGNATURES` in the engine.
 
 ## Scheduled jobs
 
