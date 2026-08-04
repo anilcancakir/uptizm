@@ -3,6 +3,7 @@
 namespace Tests\Feature\Marketing;
 
 use App\Enums\MonitorRegion;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -61,6 +62,10 @@ class BotPageTest extends TestCase
      */
     public function test_the_disclosure_scopes_the_rotating_pool_to_the_availability_check(): void
     {
+        config(['proxy.sources' => [
+            'eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt'],
+        ], 'proxy.direct_region' => '']);
+
         $this->get($this->pathFor('en'))
             ->assertOk()
             ->assertSee('third-party exit addresses')
@@ -72,6 +77,75 @@ class BotPageTest extends TestCase
             ->assertOk()
             ->assertSee('üçüncü taraf çıkış')
             ->assertSee('bizim sunucularımızdan birinden gelir');
+    }
+
+    /**
+     * The egress sentence describes THIS deployment, in every one of its four shapes.
+     *
+     * An operator holds this page to their own access log, so the sentence has to
+     * match where the requests actually come from. Two of the four shapes are wrong in
+     * opposite directions if the sentence is hardcoded, and both were: before this was
+     * derived the page claimed a rotating third-party pool unconditionally, which is
+     * false on a deployment probing directly from this server, and the first draft of
+     * the derivation claimed a direct probe on a deployment configured for NEITHER,
+     * which describes traffic that does not exist at all.
+     *
+     * @param  array<string, array{kind: string, location: string}>  $sources
+     */
+    #[DataProvider('egressShapes')]
+    public function test_the_egress_sentence_describes_the_configured_egress(
+        array $sources,
+        string $directRegion,
+        string $expected,
+        string $expectedTurkish,
+        string $forbidden,
+    ): void {
+        config(['proxy.sources' => $sources, 'proxy.direct_region' => $directRegion]);
+
+        $this->get($this->pathFor('en'))
+            ->assertOk()
+            ->assertSee($expected)
+            ->assertDontSee($forbidden);
+
+        $this->get($this->pathFor('tr'))
+            ->assertOk()
+            ->assertSee($expectedTurkish);
+    }
+
+    /**
+     * @return array<string, array{array<string, array{kind: string, location: string}>, string, string, string, string}>
+     */
+    public static function egressShapes(): array
+    {
+        $pool = ['eu-west' => ['kind' => 'url', 'location' => 'https://example.test/eu-west.txt']];
+
+        return [
+            'a pool only' => [
+                $pool, '',
+                'rather than from one address of ours',
+                'uzun süre dışarıda tutmaz',
+                'leaves directly from one of our own servers',
+            ],
+            'a direct region only' => [
+                [], 'us-east',
+                'leaves directly from one of our own servers',
+                'dolayısıyla o tek adresi engellemek onu durdurur',
+                'third-party exit addresses in a rotating pool rather than',
+            ],
+            'both shapes at once' => [
+                $pool, 'us-east',
+                'Some of those checks leave from third-party exit addresses',
+                'Bu kontrollerin bir kısmı',
+                'rather than from one address of ours',
+            ],
+            // The shape production is in before a proxy provider is wired.
+            'neither, so no check is running' => [
+                [], '',
+                'No availability check is leaving this deployment',
+                'hiçbir erişilebilirlik kontrolü çıkmıyor',
+                'leaves directly from one of our own servers',
+            ],
+        ];
     }
 
     /**

@@ -110,11 +110,44 @@ class ShowBotController
              * request a minute.
              */
             '[[bot.probe_regions]]' => (string) $this->probeRegionCount(),
+            '[[bot.probe_egress]]' => $this->egressDisclosure(),
             '[[bot.probe_interval_seconds]]' => (string) $this->probeIntervalSeconds(),
             '[[bot.probe_daily_requests]]' => number_format(
                 $this->probeRegionCount() * intdiv(86400, $this->probeIntervalSeconds()),
             ),
         ];
+    }
+
+    /**
+     * Where this deployment's availability checks actually leave from.
+     *
+     * Derived rather than written, for the same reason every figure on this page is:
+     * the sentence is a promise an operator will hold us to from their access log, so
+     * it has to describe the egress THIS deploy uses. Three shapes are possible and
+     * they are not interchangeable to the reader, because they imply different
+     * answers to "can I block it": a rotating third-party pool cannot usefully be
+     * blocked one address at a time, and our own server can.
+     *
+     * A deployment with no proxy provider wired probes its one direct region from
+     * this server, and saying "third-party exit addresses in a rotating pool" there
+     * would be simply false. The earlier revision of this page said exactly that
+     * unconditionally.
+     */
+    protected function egressDisclosure(): string
+    {
+        $pooled = ProxyRegions::sourced() !== [];
+        $direct = ProxyRegions::directRegion() !== null;
+
+        return match (true) {
+            $pooled && $direct => __('Some of those checks leave from third-party exit addresses in a rotating pool, and some leave directly from one of our own servers, so blocking a single address will not keep all of them out.'),
+            $pooled => __('The availability check leaves from third-party exit addresses in a rotating pool rather than from one address of ours, so blocking a single exit will not keep those requests out for long.'),
+            $direct => __('The availability check leaves directly from one of our own servers, so blocking that one address stops it.'),
+            // Neither shape is configured, so the check is not running at all. Saying
+            // it leaves from anywhere would describe traffic this deployment does not
+            // send, and an operator finding none of it in their log would rightly
+            // stop believing the rest of this page.
+            default => __('No availability check is leaving this deployment at present, so the only client you should see is the status-feed read below.'),
+        };
     }
 
     /**
@@ -144,7 +177,7 @@ class ShowBotController
      */
     protected function probeRegionCount(): int
     {
-        return ProxyRegions::sourcedCount();
+        return ProxyRegions::probeableCount();
     }
 
     /**
