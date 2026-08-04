@@ -106,6 +106,12 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate
+      # The probe classifier's behaviour is libcurl-version-dependent, and the code
+      # documents measuring it through PHP rather than the curl CLI, which is a
+      # different build. Printing it here makes that triage one glance instead of a
+      # round trip.
+      - name: Report the libcurl build
+        run: php -r 'echo "libcurl: ".curl_version()["version"].PHP_EOL;'
       # The marketing and status views call @vite, which throws when the manifest is
       # absent, and public/build is gitignored. Without this step every page test
       # fails with a Vite error that looks nothing like the feature under test.
@@ -162,6 +168,12 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate
+      # The probe classifier's behaviour is libcurl-version-dependent, and the code
+      # documents measuring it through PHP rather than the curl CLI, which is a
+      # different build. Printing it here makes that triage one glance instead of a
+      # round trip.
+      - name: Report the libcurl build
+        run: php -r 'echo "libcurl: ".curl_version()["version"].PHP_EOL;'
       # The marketing and status views call @vite, which throws when the manifest is
       # absent, and public/build is gitignored. Without this step every page test
       # fails with a Vite error that looks nothing like the feature under test.
