@@ -45,19 +45,33 @@ class BotPageTest extends TestCase
     }
 
     /**
-     * The disclosure this step adds: both channels leave from third-party exit
-     * addresses in a rotating pool, not one address of ours, so blocking a single exit
-     * does not reliably stop future requests the way blocking the User-Agent does.
+     * The egress disclosure, and it has to be PER CLIENT rather than about "both".
+     *
+     * The availability check leaves through a rotating pool of third-party exits, so
+     * blocking one address does not hold. The status-feed read does not: `FeedFetcher`
+     * passes no `proxy` option at all (`grep -c proxy` over that file returns 0), so it
+     * comes straight from one of our own servers and blocking that address DOES stop it
+     * permanently.
+     *
+     * An earlier revision of this page said "both channels", which was false for the
+     * feed read and actively misleading to the one reader this page has: an operator
+     * who wants us stopped was told the cheap remedy would not work when for half the
+     * traffic it does. This test pins the SCOPING, not just the phrase, which is why it
+     * asserts the feed sentence too.
      */
-    public function test_the_disclosure_names_third_party_exit_addresses_in_both_languages(): void
+    public function test_the_disclosure_scopes_the_rotating_pool_to_the_availability_check(): void
     {
         $this->get($this->pathFor('en'))
             ->assertOk()
-            ->assertSee('third-party exit addresses');
+            ->assertSee('third-party exit addresses')
+            ->assertSee('The availability')
+            ->assertSee('comes straight from one of our own servers')
+            ->assertDontSee('both channels leave from third-party exit addresses');
 
         $this->get($this->pathFor('tr'))
             ->assertOk()
-            ->assertSee('üçüncü taraf çıkış adreslerinden');
+            ->assertSee('üçüncü taraf çıkış')
+            ->assertSee('bizim sunucularımızdan birinden gelir');
     }
 
     /**

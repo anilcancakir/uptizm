@@ -67,12 +67,16 @@ neden orada olduğumuzu öğrenmek istiyorsanız, hangi alan adını sorduğunuz
 de durdurur. User-Agent değerini engellemeniz de işe yarar ve bunu etrafından dolaşmak
 yerine olduğu gibi bir cevap olarak kabul ederiz.
 
-Açıkça söylemekte fayda var: her iki kanal da bize ait tek bir adresten değil, dönüşümlü bir
-havuzdaki üçüncü taraf çıkış adreslerinden gelir; bu yüzden tek bir adresi engellemek
-gelecekteki her isteği kalıcı olarak dışarıda tutmaz. Bizi kalıcı olarak durdurmak
-istiyorsanız güvenilir yol, yukarıdaki gibi servisinizi katalogdan kaldırmamızı istemek ya da
-hangi adresten geldiğine bakmaksızın aynı şekilde kabul ettiğimiz User-Agent değerini
-engellemektir.
+Açıkça söylemekte fayda var, ve iki istemci bu noktada birbirinden ayrılıyor. Erişilebilirlik
+kontrolü bize ait tek bir adresten değil, dönüşümlü bir havuzdaki üçüncü taraf çıkış
+adreslerinden gelir; bu yüzden tek bir çıkışı engellemek o istekleri uzun süre dışarıda
+tutmaz. Durum akışı okuması ise tam tersi: doğrudan bizim sunucularımızdan birinden gelir,
+dolayısıyla o tek adresi engellemek onu kalıcı olarak durdurur.
+
+Bizi kalıcı olarak durdurmak istiyorsanız güvenilir yol, yukarıdaki gibi servisinizi
+katalogdan kaldırmamızı istemek ya da hangi adresten geldiğine bakmaksızın aynı şekilde
+kabul ettiğimiz User-Agent değerini engellemektir.
+
 
 ## Ne için var
 

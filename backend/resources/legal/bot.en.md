@@ -65,11 +65,15 @@ you are asking about. We will remove your service from the catalog, which stops 
 clients. Blocking the User-Agent works too, and we will read that as the answer it is
 rather than routing around it.
 
-One more thing worth saying plainly: both channels leave from third-party exit addresses in
-a rotating pool, not a single address of ours, so blocking one exit will not keep every
-future request out for long. If you want us stopped for good, the reliable way is asking us
-to remove your service from the catalog, as above, or blocking the User-Agent itself, which
-we honour the same way regardless of which address it arrives from.
+One more thing worth saying plainly, and the two clients differ here. The availability
+check leaves from third-party exit addresses in a rotating pool rather than from one address
+of ours, so blocking a single exit will not keep those requests out for long. The status-feed
+read is the opposite: it comes straight from one of our own servers, so blocking that one
+address does stop it, permanently.
+
+If you want us stopped for good, the reliable way is asking us to remove your service from
+the catalog, as above, or blocking the User-Agent itself, which we honour the same way
+regardless of which address it arrives from.
 
 ## What it is for
 
