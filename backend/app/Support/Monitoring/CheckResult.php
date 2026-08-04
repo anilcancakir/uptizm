@@ -27,6 +27,11 @@ readonly class CheckResult
     protected const int CONTENT_TYPE_MAX_LENGTH = 128;
 
     /**
+     * The `monitor_checks.exit_via` column width.
+     */
+    protected const int MAX_EXIT_VIA_LENGTH = 64;
+
+    /**
      * @param  array<string, string>  $responseHeaders
      */
     public function __construct(
@@ -132,11 +137,6 @@ readonly class CheckResult
      *
      * @param  array<string, mixed>  $payload
      */
-    /**
-     * The `monitor_checks.exit_via` column width.
-     */
-    protected const int MAX_EXIT_VIA_LENGTH = 64;
-
     public static function fromWorkerPayload(array $payload): self
     {
         return new self(
