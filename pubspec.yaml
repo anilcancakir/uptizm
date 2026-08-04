@@ -79,6 +79,17 @@ dependency_overrides:
     path: ../dusk
   fluttersdk_telescope:
     path: ../telescope
+  # Wind and artisan reach this app transitively (through magic and the plugins),
+  # so they are overridden here too rather than only in the gitignored
+  # pubspec_overrides.yaml. Without them CI resolves those two from pub.dev while
+  # everything around them comes from the local working trees, and the mismatch
+  # surfaces as an "undefined" analyze error that reproduces nowhere locally.
+  fluttersdk_artisan:
+    path: ../artisan
+  fluttersdk_wind:
+    path: ../wind
+  fluttersdk_wind_diagnostics_contracts:
+    path: ../wind_diagnostics_contracts
   # Pin to the stable line: magic's ">=11.0.2 <13.0.0" otherwise lets the
   # 12.0.0-beta prerelease resolve, whose non-null saveFile params break magic.
   file_picker: ^11.0.2

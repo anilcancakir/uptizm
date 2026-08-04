@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+#
+# The verification gate for this repository. Runs every suite that guards a
+# change, fans them out across cores, and reports one line per job.
+#
+# Usage:
+#   bin/check                  every suite (analyze, dart tests, pint, php tests, worker typecheck)
+#   bin/check --fast           only the static passes: analyze + pint + typecheck
+#   bin/check flutter          one half only; also `backend` and `worker`
+#   bin/check flutter backend  several halves
+#
+# Jobs run concurrently and each one buffers its own output, so the logs are
+# printed grouped per job at the end instead of interleaved into noise. The exit
+# code is non-zero when any job failed, and the summary names which.
+#
+# Why bash and not an artisan command: several agents work this repo in parallel
+# worktrees, and `bin/fsa` takes an AOT recompile lock per invocation. A shell
+# script has nothing to contend over.
+
+set -u -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+FAST=0
+SCOPES=""
+
+usage() {
+    cat <<'USAGE'
+bin/check - the verification gate for this repository.
+
+  bin/check                  every suite (analyze, dart tests, pint, php tests, worker typecheck)
+  bin/check --fast           only the static passes: analyze + pint + typecheck
+  bin/check flutter          one half only; also `backend` and `worker`
+  bin/check flutter backend  several halves
+
+Jobs run concurrently, each buffering its own output, so failing logs are printed
+grouped per job instead of interleaved. Exits non-zero when any job failed and
+names which one.
+USAGE
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --fast) FAST=1 ;;
+        flutter | backend | worker) SCOPES="$SCOPES $arg" ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "check: unknown argument '$arg' (expected --fast, flutter, backend, or worker)" >&2
+            exit 2
+            ;;
+    esac
+done
+
+[ -z "$SCOPES" ] && SCOPES="flutter backend worker"
+
+wants() {
+    case " $SCOPES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# Half the cores to each of the two heavy suites, so running them together does
+# not oversubscribe the machine. Two is the floor; one process per suite spends
+# more time on framework boot than on tests.
+cores() {
+    if command -v nproc >/dev/null 2>&1; then
+        nproc
+    elif command -v sysctl >/dev/null 2>&1; then
+        sysctl -n hw.ncpu 2>/dev/null || echo 4
+    else
+        echo 4
+    fi
+}
+
+TOTAL_CORES="$(cores)"
+LANE=$((TOTAL_CORES / 2))
+[ "$LANE" -lt 2 ] && LANE=2
+
+# A worktree created by `git worktree add` has none of the gitignored files the
+# suites need, and each one fails in its own confusing way when absent: a missing
+# `.env` makes flutter_dotenv silently default BROADCAST_CONNECTION to null, a
+# missing pubspec_overrides.yaml resolves siblings from pub.dev instead of the
+# working trees, a missing backend/.env aborts artisan before it reports why, and
+# a missing .artisan/plugins.json drops every plugin command. Copy them from the
+# main worktree rather than letting an agent guess at their contents.
+bootstrap_ignored_files() {
+    local common_dir main_root file
+    common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+    main_root="$(dirname "$common_dir")"
+
+    [ "$main_root" = "$REPO_ROOT" ] && return 0
+    [ -d "$main_root" ] || return 0
+
+    for file in .env pubspec_overrides.yaml backend/.env .artisan/plugins.json; do
+        if [ ! -e "$REPO_ROOT/$file" ] && [ -e "$main_root/$file" ]; then
+            mkdir -p "$(dirname "$REPO_ROOT/$file")"
+            cp "$main_root/$file" "$REPO_ROOT/$file"
+            echo "check: copied $file from the main worktree at $main_root"
+        fi
+    done
+}
+
+bootstrap_ignored_files
+
+# Resolve dependencies BEFORE fanning out. `flutter analyze` and `flutter test`
+# each trigger their own `pub get` when the lock is cold, and run concurrently
+# they race on `.dart_tool` and on `ios/Flutter/ephemeral`, which fails analyze
+# with a read-only-volume error that has nothing to do with the code. Same idea
+# for the worker: `npm run typecheck` needs node_modules to exist.
+prepare() {
+    local failed=0
+
+    if wants flutter; then
+        echo "check: resolving dart dependencies"
+        flutter pub get >/dev/null || failed=1
+    fi
+
+    if wants worker && [ ! -d backend/workers/regional-checker/node_modules ]; then
+        echo "check: installing worker dependencies"
+        ( cd backend/workers/regional-checker && npm ci ) >/dev/null || failed=1
+    fi
+
+    if [ "$failed" -ne 0 ]; then
+        echo "check: dependency resolution failed" >&2
+        exit 1
+    fi
+}
+
+LOG_DIR="$(mktemp -d)"
+trap 'rm -rf "$LOG_DIR"' EXIT
+
+JOB_NAMES=""
+JOB_PIDS=""
+
+start() {
+    local name="$1"
+    shift
+    ( "$@" ) >"$LOG_DIR/$name.log" 2>&1 &
+    JOB_PIDS="$JOB_PIDS $!"
+    JOB_NAMES="$JOB_NAMES $name"
+}
+
+run_flutter_analyze() { flutter analyze; }
+run_flutter_test() { flutter test --concurrency="$LANE"; }
+run_backend_pint() { cd backend && vendor/bin/pint --test; }
+run_backend_test() { cd backend && php artisan test --parallel --processes="$LANE"; }
+run_worker_typecheck() { cd backend/workers/regional-checker && npm run --silent typecheck; }
+
+echo "check: ${SCOPES# } | $TOTAL_CORES cores, $LANE per suite$([ "$FAST" -eq 1 ] && echo ' | static only')"
+prepare
+echo
+
+wants flutter && start "flutter-analyze" run_flutter_analyze
+wants backend && start "backend-pint" run_backend_pint
+wants worker && start "worker-typecheck" run_worker_typecheck
+
+if [ "$FAST" -eq 0 ]; then
+    wants flutter && start "flutter-test" run_flutter_test
+    wants backend && start "backend-test" run_backend_test
+fi
+
+# Collect in launch order so the summary is stable run to run.
+FAILED=""
+set -- $JOB_PIDS
+for name in $JOB_NAMES; do
+    pid="$1"
+    shift
+    if wait "$pid"; then
+        printf '  ok    %s\n' "$name"
+    else
+        printf '  FAIL  %s\n' "$name"
+        FAILED="$FAILED $name"
+    fi
+done
+
+if [ -n "$FAILED" ]; then
+    for name in $FAILED; do
+        echo
+        echo "───── $name ─────"
+        cat "$LOG_DIR/$name.log"
+    done
+    echo
+    echo "check: failed:${FAILED}"
+    exit 1
+fi
+
+echo
+echo "check: all green"
