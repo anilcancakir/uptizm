@@ -305,7 +305,19 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.bySemanticsLabel('Increase hour'));
+        // Step DOWN at the top of the day, UP everywhere else. WDatePicker
+        // deliberately refuses to wrap the hour (rolling 23 to 0 would move the
+        // emitted instant a day BACKWARDS while the calendar still showed the same
+        // day), so at hour 23 the increment control is disabled and the tap is a
+        // no-op. This test used to always tap Increase and assert exactly
+        // `seeded + 1h`, which made it fail for the one hour a day when the seeded
+        // default landed on 23: green on a UTC+3 machine, red on a UTC runner
+        // between 22:00 and 23:00.
+        final bool atTopOfDay = seeded.hour == 23;
+
+        await tester.tap(
+          find.bySemanticsLabel(atTopOfDay ? 'Decrease hour' : 'Increase hour'),
+        );
         await tester.pumpAndSettle();
         await tester.tap(find.text(trans('common.done')));
         await tester.pumpAndSettle();
@@ -313,7 +325,7 @@ void main() {
         final DateTime picked = startsPickerValue();
         expect(
           picked,
-          equals(seeded.add(const Duration(hours: 1))),
+          equals(seeded.add(Duration(hours: atTopOfDay ? -1 : 1))),
           reason: 'the datetime control must carry the picked hour',
         );
 

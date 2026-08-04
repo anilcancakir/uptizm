@@ -724,7 +724,7 @@ packages:
       path: "../magic_devtools"
       relative: true
     source: path
-    version: "0.0.2"
+    version: "0.0.3"
   magic_notifications:
     dependency: "direct main"
     description:
