@@ -110,11 +110,23 @@ side rather than the target produces `probeRefused` (no verdict, no check row, n
 incident) so a broken pool can never publish an outage. `probe_region_health` +
 `proxy:alarm-dark-regions` make a silently dark region visible to an operator.
 
-Two consequences worth knowing before a deploy. A region with NO configured source
-refuses every probe, so until a provider is wired the catalog pages show "we have no
-recent reading" on their own-measurement rung while the provider-feed rung keeps
-working. And the errno taxonomy behind the refuse-vs-verdict decision is measured, not
-assumed: see `PROXY_FAULT_ERRNOS` and `TUNNEL_FAILURE_SIGNATURES` in the engine.
+One region may leave from this server with no proxy at all:
+`UPTIZM_PROXY_DIRECT_REGION`, which must name where the server actually is, since a
+region we do not sit in is a fabricated location on a public page. It is a single region
+and never a list, because one server is one vantage point and two direct "regions" would
+be the same probe counted twice against the outage quorum. Any OTHER region without a
+source refuses every probe. Three is the operational region count to aim for (two is the
+quorum floor, and three survives one dead region); below the quorum the page says "only 1
+region answered" instead of ever claiming an outage.
+
+Two rules behind the refuse-vs-verdict decision are measured rather than assumed, and
+both are documented at their constants. On the PROXIED path errno 7 names the proxy,
+because the proxy is the only host curl dials; on the DIRECT path it names the target, so
+the two paths are separate methods and the proxy classifier is unreachable from the direct
+one. And a CONNECT reply's own status code decides blame, not the errno, because libcurl
+moved that failure from errno 56 to errno 7 in 8.20.0 with the same message: only 407 is
+the proxy speaking about itself, while 502 is the origin refusing and must stay an
+outage.
 
 ## Scheduled jobs
 
