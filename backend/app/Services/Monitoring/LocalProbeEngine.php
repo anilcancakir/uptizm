@@ -4,7 +4,9 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Jobs\AlarmDarkProbeRegions;
 use App\Models\Monitor;
+use App\Models\ProbeRegionHealth;
 use App\Models\Proxy;
 use App\Services\Proxy\ProxyPool;
 use App\Support\Monitoring\CheckResult;
@@ -187,9 +189,10 @@ use Throwable;
  * never penalises anything (a 403, a 429 and a 5xx are all the target's answer),
  * with 407 as the single stated exception above.
  *
- * `colo` stays null because this engine has no Cloudflare colo to report, and the
- * exit identity it does have is recorded by a later step rather than smuggled into
- * an eight-character column.
+ * `colo` stays null because this engine has no Cloudflare colo to report. The
+ * exit identity it does have instead is recorded on `exit_via` ({@see readingFrom()}),
+ * never smuggled into `colo`'s eight-character column: see
+ * {@see CheckResult::$exitVia} for why it is a separate field.
  */
 class LocalProbeEngine implements ProbeTransport
 {
@@ -246,7 +249,17 @@ class LocalProbeEngine implements ProbeTransport
 
         // 2. The probe proper, overridable so the guard above cannot be bypassed
         //    by a subclass that only replaces the network work.
-        return $this->probe($monitor, $region);
+        $result = $this->probe($monitor, $region);
+
+        // 3. Region health is recorded HERE, after `probe()` has fully decided
+        //    refused vs. a reading, never at entry: at entry that distinction
+        //    does not exist yet, and every attempt would look identical
+        //    regardless of what it produced. A thrown exception above (a TCP
+        //    monitor, a non-system monitor) never reaches this line, which is
+        //    correct: neither is evidence about a region's exit pool.
+        $this->recordRegionHealth($result);
+
+        return $result;
     }
 
     /**
@@ -504,6 +517,7 @@ class LocalProbeEngine implements ProbeTransport
                 return $this->readingFrom(
                     monitor: $monitor,
                     region: $region,
+                    exit: $exit,
                     checkedAt: $checkedAt,
                     probeRunId: $probeRunId,
                     statusCode: $capture['status'],
@@ -527,6 +541,7 @@ class LocalProbeEngine implements ProbeTransport
         return $this->readingFrom(
             monitor: $monitor,
             region: $region,
+            exit: $exit,
             checkedAt: $checkedAt,
             probeRunId: $probeRunId,
             statusCode: $response->status(),
@@ -578,6 +593,7 @@ class LocalProbeEngine implements ProbeTransport
     protected function readingFrom(
         Monitor $monitor,
         string $region,
+        Proxy $exit,
         DateTimeImmutable $checkedAt,
         string $probeRunId,
         int $statusCode,
@@ -603,7 +619,9 @@ class LocalProbeEngine implements ProbeTransport
             'probe_run_id' => $probeRunId,
             // `colo` is deliberately absent: it is the Cloudflare colo, evidence
             // this engine cannot produce, and inventing one would make the region
-            // look verified when it is not.
+            // look verified when it is not. `exit_via` is what this engine has
+            // instead: the exit that actually answered, see CheckResult::$exitVia.
+            'exit_via' => $exit->host.':'.$exit->port,
             'probe_refused' => false,
             'content' => null,
             'content_type' => $headers['content-type'] ?? null,
@@ -845,6 +863,57 @@ class LocalProbeEngine implements ProbeTransport
         }
 
         return $normalised;
+    }
+
+    /**
+     * Record this attempt's outcome against the region's health row.
+     *
+     * `probeRefused` is the discriminator, not the reading's status: a target
+     * the engine reached and found `down` still proves the region's exits
+     * carried a request, so it clears `consecutive_empty_intervals` exactly
+     * like an `up` would. Only a refusal, meaning the pool itself produced
+     * no verdict, advances it.
+     *
+     * `healthy_proxy_count` is read fresh from {@see Proxy} on every write
+     * rather than trusted from an earlier one: the refresher that owns the
+     * refresh cadence for this column is not part of this engine, so reading
+     * it live here is what keeps the count no staler than the last attempted
+     * probe rather than the last hourly refresh.
+     *
+     * `alarmed_at` is cleared on every non-refused attempt, and ONLY here:
+     * {@see AlarmDarkProbeRegions} sets it and never clears it, so a region
+     * that recovers and later goes dark again can alarm a second time
+     * instead of being silenced for the table's lifetime by its first alarm.
+     */
+    protected function recordRegionHealth(CheckResult $result): void
+    {
+        $health = ProbeRegionHealth::query()->firstOrCreate(['region' => $result->region]);
+
+        $healthyProxyCount = Proxy::query()->healthy()->region($result->region)->count();
+
+        // The engine records TIMESTAMPS and the pool size, and deliberately does
+        // NOT touch `consecutive_empty_intervals`. It cannot: the engine runs once
+        // per (monitor, region), so 8 catalog monitors in one tick would advance a
+        // per-interval counter 8 times. Measured before this was moved: one dark
+        // tick took the streak to 8 against a threshold of 3, so the alarm fired on
+        // the FIRST dark tick and the "a single missed tick is normal" rule was
+        // dead. Counting intervals is the scheduled job's job, because the job is
+        // the only thing here that runs once per interval.
+        if ($result->probeRefused) {
+            $health->update([
+                'last_failure_at' => now(),
+                'healthy_proxy_count' => $healthyProxyCount,
+            ]);
+
+            return;
+        }
+
+        $health->update([
+            'last_success_at' => now(),
+            'healthy_proxy_count' => $healthyProxyCount,
+            'consecutive_empty_intervals' => 0,
+            'alarmed_at' => null,
+        ]);
     }
 
     /**

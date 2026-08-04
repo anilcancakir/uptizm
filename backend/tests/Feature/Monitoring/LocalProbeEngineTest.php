@@ -5,8 +5,10 @@ namespace Tests\Feature\Monitoring;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Models\Monitor;
+use App\Models\MonitorCheck;
 use App\Models\Proxy;
 use App\Models\ProxySource;
+use App\Services\Monitoring\CheckPersistenceService;
 use App\Services\Monitoring\LocalProbeEngine;
 use App\Services\Proxy\ProxyPool;
 use App\Support\Services\SystemTeam;
@@ -230,6 +232,35 @@ class LocalProbeEngineTest extends TestCase
                 "Transfer option [{$key}] carries credentials inside a URL.",
             );
         }
+    }
+
+    /**
+     * The exit is the only EVIDENCE of where a locally-produced check actually
+     * egressed from, for the same reason {@see CheckResult::$colo} is evidence
+     * of where the worker ran: `region` is an echo of what the pool was asked
+     * for, and a proxy-derived region has exactly that problem. Without the
+     * exit recorded, one blocked IP in a region looks identical to every other
+     * reading from that region and cannot be diagnosed.
+     */
+    public function test_a_locally_produced_check_names_the_exit_it_used(): void
+    {
+        $this->makeProxy('us-east', [
+            'host' => '203.0.113.9',
+            'port' => 8081,
+        ]);
+        $monitor = $this->systemMonitor();
+        $this->fakeTarget(200);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertSame('203.0.113.9:8081', $reading->exitVia);
+
+        $this->app->make(CheckPersistenceService::class)->persist($monitor, $reading);
+
+        $this->assertSame(
+            '203.0.113.9:8081',
+            MonitorCheck::query()->where('monitor_id', $monitor->id)->value('exit_via'),
+        );
     }
 
     public function test_the_method_is_uppercased_and_an_absent_body_is_omitted(): void

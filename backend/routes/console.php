@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\AggregateMonitorDailyUptime;
+use App\Jobs\AlarmDarkProbeRegions;
 use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
 use App\Jobs\DispatchWeeklyDigests;
 use App\Jobs\IngestServiceFeeds;
@@ -143,3 +144,17 @@ Schedule::job(new RefreshProxySources)
     ->withoutOverlapping()
     ->onOneServer()
     ->name('proxy:refresh-sources');
+
+// Alarm when a proxy region has produced no reading for several consecutive
+// intervals (supervisor `feeds` queue, single-server, unique lock prevents a
+// still-running check from overlapping the next tick).
+//
+// Every five minutes: frequent enough that an operator learns of a dark
+// region within minutes of `probe_region_health.consecutive_empty_intervals`
+// crossing `config('proxy.health.failure_threshold')`, without re-querying on
+// every 30-second monitor-check tick.
+Schedule::job(new AlarmDarkProbeRegions)
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('proxy:alarm-dark-regions');
