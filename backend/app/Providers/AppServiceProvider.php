@@ -16,6 +16,8 @@ use App\Services\Ai\LaravelAiAssistantGateway;
 use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
+use App\Services\Monitoring\ProbeTransport;
+use App\Services\Monitoring\RelayClient;
 use App\Services\StatusPages\StatusPagePreviewRenderer;
 use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -52,6 +54,17 @@ class AppServiceProvider extends ServiceProvider
         // Bind the floating-assistant boundary the same way. Tests rebind
         // the FakeAssistantGateway, so no real Anthropic call happens in CI.
         $this->app->bind(AssistantGateway::class, LaravelAiAssistantGateway::class);
+
+        // Bind the probe transport to the Cloudflare relay, which is the network
+        // every customer monitor must stay on; PerformMonitorCheck overrides it
+        // per monitor for the system team's catalog probes.
+        //
+        // The binding is not optional plumbing. The queue resolves `handle()`'s
+        // parameters through Container::call(), so an unbound interface throws
+        // BindingResolutionException on EVERY check in production while the test
+        // suite stays green: the positional handle() call sites in CheckJobTest
+        // pass both arguments by hand and never ask the container for anything.
+        $this->app->bind(ProbeTransport::class, RelayClient::class);
 
         // Wrap the starter's team-invite action with the plan responder cap
         // (contract-action override), so a team cannot invite past its tier.

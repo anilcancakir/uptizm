@@ -41,8 +41,13 @@ class ScheduleMonitorChecks implements ShouldBeUnique, ShouldQueue
 
     public function handle(): void
     {
-        // 1. Load every monitor whose clock has elapsed as of this tick.
-        $due = Monitor::query()->due()->get();
+        // 1. Load every monitor whose clock has elapsed as of this tick, with the
+        //    owning team attached: PerformMonitorCheck reads
+        //    `$monitor->team->is_system` to pick the probe transport, and
+        //    SerializesModels carries a LOADED relation through the queue, so
+        //    batching it here is what keeps a busy tick from paying one extra
+        //    SELECT per due monitor.
+        $due = Monitor::query()->due()->with('team')->get();
 
         foreach ($due as $monitor) {
             $this->dispatchForMonitor($monitor);

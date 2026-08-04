@@ -26,8 +26,12 @@ use RuntimeException;
  * so {@see dispatch()} parses the outcome synchronously. A non-2xx response
  * (e.g. a 401 on a secret mismatch) is surfaced as a thrown exception, never
  * swallowed as a fake "up": the caller must see the failure and retry.
+ *
+ * This is the DEFAULT {@see ProbeTransport}, and the only one a customer
+ * monitor ever travels through. It already satisfied the contract verbatim, so
+ * the `implements` adds no behaviour here.
  */
-class RelayClient
+class RelayClient implements ProbeTransport
 {
     /**
      * Dispatch a probe to the given region and return the parsed result.

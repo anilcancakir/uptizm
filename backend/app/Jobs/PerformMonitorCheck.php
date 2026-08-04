@@ -6,7 +6,9 @@ use App\Enums\MonitorRegion;
 use App\Models\Monitor;
 use App\Models\MonitorContentVersion;
 use App\Services\Monitoring\ContentArchive;
+use App\Services\Monitoring\LocalProbeEngine;
 use App\Services\Monitoring\MetricExtractor;
+use App\Services\Monitoring\ProbeTransport;
 use App\Services\Monitoring\RelayClient;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\ContentNormalizer;
@@ -24,16 +26,21 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Executes one probe for a (monitor, region) pair by pushing the spec to
- * the Cloudflare relay and handing the parsed result to
+ * Executes one probe for a (monitor, region) pair through the {@see ProbeTransport}
+ * that monitor is allowed on, and hands the parsed result to
  * {@see ProcessCheckResult} for persistence.
  *
- * The worker returns the outcome inline in the `/run` response, so this job
- * hands the already-fetched result straight to the processing queue instead
- * of waiting on an async callback. It owns the network round-trip, metric
- * extraction and the content-archive decision, because it is the only stage that
- * holds the full response body; any persistence or threshold side-effect lives
- * downstream so a worker failure retries cheaply.
+ * Both transports return the outcome inline, so this job hands the
+ * already-fetched result straight to the processing queue instead of waiting on
+ * an async callback. It owns the network round-trip, metric extraction and the
+ * content-archive decision, because it is the only stage that holds the full
+ * response body; any persistence or threshold side-effect lives downstream so a
+ * worker failure retries cheaply.
+ *
+ * WHICH NETWORK RUNS THE PROBE IS DECIDED HERE, per monitor, and not at enqueue
+ * time. The manual test endpoint (`POST api/v1/monitors/{id}/test`) dispatches
+ * this job directly, so a decision taken by {@see ScheduleMonitorChecks} would
+ * simply not exist on that path. See {@see self::transportFor()}.
  *
  * THE ARCHIVE DECISION IS A CLAIM, NOT A READ-THEN-DECIDE. Two regions of one
  * monitor fan out in the same tick ({@see ScheduleMonitorChecks}) and a page that
@@ -90,15 +97,20 @@ class PerformMonitorCheck implements ShouldQueue
     }
 
     /**
+     * @param  ProbeTransport  $relay  The DEFAULT transport, which the container
+     *                                 resolves to {@see RelayClient}. A monitor
+     *                                 that must not use it never reaches it; see
+     *                                 {@see self::transportFor()}.
      * @param  ContentArchive|null  $archive  Filled by the container in every
      *                                        real invocation. Defaulted only so
      *                                        the two-argument `handle()` call
      *                                        sites keep compiling.
      */
-    public function handle(RelayClient $relay, MetricExtractor $extractor, ?ContentArchive $archive = null): void
+    public function handle(ProbeTransport $relay, MetricExtractor $extractor, ?ContentArchive $archive = null): void
     {
-        // 1. Push to the regional worker and get the parsed result inline.
-        $result = $relay->dispatch($this->monitor, $this->region);
+        // 1. Probe, through whichever network this monitor is allowed on, and
+        //    get the parsed result inline.
+        $result = $this->transportFor($relay)->dispatch($this->monitor, $this->region);
 
         // 2. Read the metrics HERE, the only stage that holds the full body.
         //    `CheckResult::toArray()` deliberately drops it (a 1 MB page must
@@ -125,6 +137,42 @@ class PerformMonitorCheck implements ShouldQueue
             $contentHash,
             $contentHashNormalized,
         )->onQueue('processing');
+    }
+
+    /**
+     * The transport this monitor's probe is allowed to travel through.
+     *
+     * The system team's catalog monitors are probed from THIS server through the
+     * proxy pool ({@see LocalProbeEngine}); every customer monitor keeps going
+     * out through the Cloudflare worker, which is what keeps our own network off
+     * the wire as the origin of a request a customer authored.
+     *
+     * Three properties this shape has and the alternatives do not:
+     *
+     *  1. The predicate is the `teams.is_system` column, which is not fillable
+     *     and has a production precedent in `PlanGate::limits()`. Nothing an
+     *     environment or a config file can widen decides it.
+     *  2. Anything that is not provably the system team's gets the DEFAULT
+     *     transport. A monitor with no resolvable team is a customer monitor as
+     *     far as this decision goes, because an unknown owner is not the system
+     *     team.
+     *  3. The engine is resolved lazily, inside the branch, so a customer check
+     *     never constructs the proxy-backed engine at all. Injecting it into
+     *     `handle()` would build it (and its pool) on every check of every
+     *     monitor. Same reason `handle()` reaches for {@see ContentArchive} the
+     *     way it does.
+     *
+     * {@see LocalProbeEngine::dispatch()} re-asserts the same predicate and
+     * throws, so this decision being wrong cannot silently probe a customer's
+     * target from here.
+     */
+    protected function transportFor(ProbeTransport $default): ProbeTransport
+    {
+        if ($this->monitor->team?->is_system !== true) {
+            return $default;
+        }
+
+        return app(LocalProbeEngine::class);
     }
 
     /**
