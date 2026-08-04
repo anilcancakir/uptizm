@@ -82,6 +82,11 @@ jobs:
         working-directory: uptizm
         run: flutter test --concurrency=4
 
+  # PHP 8.5 rather than the ^8.3 that composer.json declares. That constraint is
+  # stale: the committed lock resolves symfony 8.1, which requires php >=8.4.1, so
+  # `composer install` on 8.3 dies in a wall of "Problem N" lines that read like a
+  # corrupt lock and are really a platform mismatch. 8.5 is also what the server
+  # runs, so CI measures the same engine production does.
   backend-sqlite:
     name: Backend (pint + tests, SQLite)
     runs-on: ubuntu-latest
@@ -92,7 +97,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.5'
           extensions: pdo_sqlite, sqlite3, redis, bcmath, intl, zip, gd
           coverage: none
       - name: Install dependencies
@@ -140,7 +145,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.5'
           extensions: pdo_pgsql, pgsql, redis, bcmath, intl, zip, gd
           coverage: none
       - name: Install dependencies
