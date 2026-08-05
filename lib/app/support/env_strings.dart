@@ -25,14 +25,26 @@ String envString(String key, String fallback) {
   return value.isEmpty ? envClean(fallback) : value;
 }
 
-/// Strips surrounding quotes and whitespace from a raw `.env` value.
+/// Strips one WRAPPING pair of quotes and surrounding whitespace from a raw
+/// `.env` value.
 ///
-/// Quotes are removed rather than trimmed from the ends only: a value written
-/// `"Uptizm"` and one written `Uptizm` have to mean the same thing, and no
-/// setting this app reads (a name, a host, a scheme, a URL) legitimately
-/// contains a quote character.
+/// A value written `"Uptizm"` and one written `Uptizm` have to mean the same
+/// thing, because the parser hands back whichever the file contained.
+///
+/// Only the boundary pair goes, never every quote in the string: an app name may
+/// legitimately carry an apostrophe (`APP_NAME="Anıl's Monitor"`), and stripping
+/// all quotes would silently rewrite it to `Anıls Monitor`. An unbalanced quote
+/// is left alone, so a malformed line stays visibly malformed instead of being
+/// half-repaired.
 String envClean(String? value) {
   if (value == null) return '';
 
-  return value.replaceAll('"', '').replaceAll("'", '').trim();
+  final String trimmed = value.trim();
+  if (trimmed.length < 2) return trimmed;
+
+  final String first = trimmed[0];
+  final bool wrapped =
+      (first == '"' || first == "'") && trimmed.endsWith(first);
+
+  return wrapped ? trimmed.substring(1, trimmed.length - 1).trim() : trimmed;
 }

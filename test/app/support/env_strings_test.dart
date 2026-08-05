@@ -24,12 +24,25 @@ void main() {
   });
 
   group('envClean', () {
-    test('strips quotes and surrounding whitespace', () {
+    test('strips a wrapping quote pair and surrounding whitespace', () {
       // What the `.env` parser hands back for `KEY="value"` is the text after
       // the `=`, quotes included.
       expect(envClean('"Uptizm"'), 'Uptizm');
       expect(envClean("'ws'"), 'ws');
       expect(envClean('  https://uptizm.com  '), 'https://uptizm.com');
+    });
+
+    test('keeps an apostrophe inside the value', () {
+      // Stripping every quote instead of the wrapping pair rewrote a legitimate
+      // name: `APP_NAME="Anıl's Monitor"` became `Anıls Monitor`.
+      expect(envClean('"Anıl\'s Monitor"'), "Anıl's Monitor");
+      expect(envClean("Anıl's Monitor"), "Anıl's Monitor");
+    });
+
+    test('leaves an unbalanced quote alone', () {
+      // A malformed line stays visibly malformed rather than half-repaired.
+      expect(envClean('"Uptizm'), '"Uptizm');
+      expect(envClean('Uptizm"'), 'Uptizm"');
     });
 
     test('a quote-only value cleans to empty, which is the whole point', () {
