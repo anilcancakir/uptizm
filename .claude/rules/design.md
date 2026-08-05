@@ -58,6 +58,8 @@ final myRecipe = WindRecipe(
 
 All colors go through semantic alias keys defined in `DESIGN.md`. Never use raw hex, `Color(0xFF...)`, or `Colors.*` in component or view code.
 
+This is the one design rule with a gate behind it: `bin/check`'s `design-tokens` job scans `lib/**/*.dart` for `Color(0x` and `Colors.`, strips comments first, and exits non-zero outside four allowlisted paths that each carry their reason. It is a regex and not an AST, so `Color.fromARGB`, `Color.fromRGBO` and `Color.from` walk straight past it. They are violations all the same; the job being quiet is not a licence.
+
 The 17 semantic alias keys:
 
 | Key | Role |
@@ -106,7 +108,7 @@ Never `import 'package:flutter/material.dart'` without `show`. Build exclusively
 
 ## Anti-Patterns
 
-Each of these is a blocker, and the `component-visual-reviewer` flags every one.
+Each of these is a blocker, and exactly one of them is measured: `bin/check`'s `design-tokens` job fails the first row. The other seven are reviewer-enforced, so a green `bin/check` says nothing about them and the `component-visual-reviewer` agent is what flags them.
 
 | Anti-pattern | Correct approach |
 |-------------|-----------------|

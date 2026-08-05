@@ -11,10 +11,25 @@ layers, in order of cost. A change is not done because the first one passed.
 ## 1. The static gate
 
 ```sh
-bin/check              # everything, in parallel
-bin/check --fast       # analyze + pint + tsc only
+bin/check              # all seven jobs, in parallel
+bin/check --fast       # the four static ones: analyze, design tokens, pint, tsc
 bin/check flutter      # one half; also backend, worker
 ```
+
+The seven are `flutter-analyze`, `design-tokens`, `backend-pint` and
+`worker-typecheck` (the static four, which is what `--fast` runs), then
+`flutter-test`, `backend-test` and `worker-test`. Two of them are narrower than
+their names suggest, and a change that leans on the wrong one is unverified:
+
+- `design-tokens` is a comment-stripped regex over `lib/**/*.dart` for `Color(0x`
+  and `Colors.`, with four allowlisted paths. It does not see `Color.fromARGB`
+  and its siblings, a hardcoded pixel value, a colour token written without its
+  `dark:` pair, or a one-off widget where a registry component already exists.
+  Those are reviewer-enforced; a green gate is not a statement about them.
+- `worker-test` runs in real workerd, so it reaches the Durable Object and a real
+  `connect()`, but no test in it can tell you how a given target answers a
+  datacenter IP. CI runs it inside the job named `Regional checker (typecheck)`,
+  which is a frozen required-check name rather than a description of what it does.
 
 `flutter analyze` is the real Dart gate. Do not run `dart format`: the committed
 tree predates the current SDK's tall formatter and running it rewrites dozens of

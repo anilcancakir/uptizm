@@ -8,7 +8,7 @@ applyTo: "backend/resources/**,backend/routes/marketing.php,backend/routes/statu
 
 # The landing page and the public status pages
 
-The Laravel side serves two public surfaces besides the API: the marketing pages on the apex, and the customer status pages. `.claude/rules/backend.md` covers the API and the monitoring core; this rule covers what is specific to the served-HTML half.
+The Laravel side serves two public surfaces besides the API: the marketing pages on the apex, and the customer status pages. `.github/instructions/backend.instructions.md` covers the API and the monitoring core; this rule covers what is specific to the served-HTML half.
 
 ## The invariants are documented at the code, and they are easy to break by tidying
 
@@ -19,11 +19,9 @@ The Laravel side serves two public surfaces besides the API: the marketing pages
 - **The locale `whereIn` constraints carry weight.** Unconstrained, the one-segment form is a two-letter catch-all that swallows `/up` (the health check nginx and the deploy poll), and `whereIn([])` compiles to an alternation that matches everything. One URL per language per page, so hreflang has a single canonical.
 - **`status.show` is the customer status page's route name.** The service catalog owns `services.*`. Re-registering the first name silently retargets the customer preview renderer and the status footer.
 
-## Design parity is a two-file change, and the two files do not work the same way
+## This surface is the hand-written half of design parity
 
-`DESIGN.md` is the source of truth for tokens on every surface. The Flutter side generates from it (`design:sync` writes `lib/config/wind_theme.g.dart`); this side hand-mirrors it in `backend/resources/css/app.css`. Change a token value in `DESIGN.md` and it has to be changed here too, or the marketing page and the product drift apart.
-
-The mechanism differs from the Wind side in a way worth holding onto:
+`backend/resources/css/app.css` is this side's copy of `DESIGN.md`'s tokens, and the canonical instructions carry the parity rule itself (a token value change is a two-file change). What they do not carry is that the two files work differently, and that difference is what breaks parity here:
 
 - `:root` defines the light `--app-*` values, a dark block overrides them, and `@theme inline` maps them onto Tailwind's `--color-*`. So `bg-surface` compiles to `var(--app-surface)` and follows the visitor's system preference by itself.
 - That means **no `dark:` prefix in Blade**. On the Wind side every colour token needs an explicit `dark:` pair; here writing one is redundant, and writing a raw hex or a stock Tailwind palette class (`bg-gray-50`, `text-emerald-600`) is what actually breaks parity, because it will not follow the theme.
@@ -40,4 +38,4 @@ The mechanism differs from the Wind side in a way worth holding onto:
 
 The marketing copy is a published statement about what the product does, and the pages derive their numbers from the governing enum or config rather than asserting them, so a capability change updates the claim. Regions come from `MonitorRegion`, channels from the notification config, limits from the plan config. When a deploy lacks an AI key or a real mailer, the AI and subscriber claims withhold themselves instead of overstating.
 
-Before adding a claim, check it against what the code actually does. Several things read as true and are not: there is no region quorum, acknowledging an incident does not stop paging, and the edge probe currently ignores a monitor's `auth_config` and `assertion_rules`.
+Before adding a claim, check it against what the code actually does. Several things read as true and are not: there is no region quorum, and acknowledging an incident does not stop paging. The edge probe used to ignore a monitor's `auth_config` and `assertion_rules`, which made two more of them false; both are honoured now, so a copy change that was blocked on either is unblocked.

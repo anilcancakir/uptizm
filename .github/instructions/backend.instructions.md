@@ -1,5 +1,5 @@
 ---
-applyTo: "backend/**"
+applyTo: "backend/app/Actions/**,backend/app/Enums/**,backend/app/Events/**,backend/app/Exceptions/**,backend/app/Filament/**,backend/app/Http/Controllers/*.php,backend/app/Http/Controllers/Api/**,backend/app/Http/Middleware/**,backend/app/Http/Requests/**,backend/app/Http/Resources/**,backend/app/Http/ViewModels/**,backend/app/Jobs/**,backend/app/Mail/**,backend/app/Models/**,backend/app/Notifications/**,backend/app/Policies/**,backend/app/Providers/**,backend/app/Rules/**,backend/app/Services/**,backend/app/Support/**,backend/.env.example,backend/bootstrap/**,backend/composer.json,backend/composer.lock,backend/config/**,backend/database/**,backend/lang/**,backend/phpunit.xml,backend/routes/api.php,backend/routes/channels.php,backend/routes/console.php,backend/routes/web.php,backend/tests/**"
 ---
 
 <!-- GENERATED from .claude/rules/backend.md by bin/sync-instructions. Edit that file, not this one. -->
@@ -8,7 +8,9 @@ applyTo: "backend/**"
 
 # Uptizm backend (Laravel API + monitoring core)
 
-`backend/` is the Laravel 13 JSON API and monitoring engine. Two neighbours carry what this rule does not: `.claude/rules/web-pages.md` for the landing and status-page surface under `backend/resources/`, and `.claude/rules/relay-worker.md` for the Cloudflare Worker under `backend/workers/`.
+`backend/` is the Laravel 13 JSON API and monitoring engine. Two neighbours carry what this rule does not: `.github/instructions/web-pages.instructions.md` for the landing and status-page surface under `backend/resources/`, and `.github/instructions/relay-worker.instructions.md` for the Cloudflare Worker under `backend/workers/`.
+
+The glob list above enumerates rather than saying `backend/**`, and it is not tidiness. `backend/**` is a superset of both neighbours, so editing one Blade file used to load this rule and that one together, the curl errno taxonomy included. Gitignore-syntax globs have no exclusion operator, so what this rule owns has to be spelled out. Two consequences when you add a directory: `backend/app/**` is wrong (it re-swallows the two `Http/Controllers/` directories `web-pages.md` owns), and a new directory under `backend/app/` silently has no rule at all until it is listed here. `backend/app/Http/Controllers/*.php` claims the loose controllers directly in that directory, since `*` does not cross a slash.
 
 It is built on `fluttersdk/magic-starter-laravel`, resolved from Packagist at a pinned version (`^0.0.5`). That package's conventions (teams, 2FA, Sanctum tokens, contract-action overrides, UUID-optional migrations) are authoritative for the auth and team surface, so they are not restated here.
 
@@ -32,7 +34,8 @@ PHP `^8.3`, Laravel 13, PostgreSQL (+ optional TimescaleDB), Redis + Horizon que
 - `composer dev` runs the full local stack (serve + `queue:listen` + `pail` + vite) via concurrently.
 - `php artisan migrate:fresh --seed` resets the dev DB and seeds the demo account (local/dev only).
 - `bin/check backend` from the repo root is the gate: `pint --test` plus `php artisan test --parallel`. `composer test` still works and runs the suite in a single process.
-- The suite runs on SQLite `:memory:` while production is PostgreSQL, and that gap has produced real defects twice: SQLite's `insert or ignore` swallows the unique violation PostgreSQL raises, so `insertOrIgnore` dedupe was never actually exercised, and a non-UTC session timezone silently shifted every `timestamptz` write. CI therefore runs the suite once per engine. When a change touches a constraint, a timestamp, or a raw expression, the PostgreSQL job is the one that means something.
+- The suite runs on SQLite `:memory:` while production is PostgreSQL, and that gap has produced real defects: SQLite's `insert or ignore` swallows the unique violation PostgreSQL raises, so `insertOrIgnore` dedupe was never actually exercised; a non-UTC session timezone silently shifted every `timestamptz` write; a caught constraint violation inside a transaction needs a SAVEPOINT on PostgreSQL or the whole transaction is poisoned; `jsonb` does not preserve object key order; and `varchar(n)` is enforced there and ignored here. CI therefore runs the suite once per engine. When a change touches a constraint, a timestamp, or a raw expression, the PostgreSQL job is the one that means something.
+- To reproduce a PostgreSQL-only failure locally, point the suite at a real database: `DB_CONNECTION=pgsql DB_DATABASE=<db> php artisan test`. PHPUnit leaves an environment variable that is already set alone, so `phpunit.xml`'s SQLite pin gives way.
 
 ## Monitoring core and the relay
 
