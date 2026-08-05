@@ -108,7 +108,7 @@ class WebSearchTool implements Tool
                 .'Answer from the evidence you already have.';
         }
 
-        $query = $this->normalizeQuery((string) $request->string('query'));
+        $query = $this->normalizeQuery($this->argument($request, 'query'));
 
         if ($query === '') {
             return 'Refused: give a non-empty search query naming the target hostname.';
@@ -229,6 +229,22 @@ class WebSearchTool implements Tool
             'Only these hosts can now be read with web_fetch.',
             'results: '.$this->encode($results),
         ]);
+    }
+
+    /**
+     * One tool argument, as a plain string.
+     *
+     * Read raw and type-checked rather than through `Request::string()`: a model
+     * is free to answer a string-typed schema field with an array, `Str::of()`
+     * on an array raises an "Array to string conversion" warning, and Laravel's
+     * error handler rethrows that as an `ErrorException`. Nothing above a tool
+     * catches, so it would reach the operator as a 500 on their create flow.
+     */
+    protected function argument(Request $request, string $key): string
+    {
+        $value = $request->toArray()[$key] ?? null;
+
+        return is_string($value) ? trim($value) : '';
     }
 
     /**

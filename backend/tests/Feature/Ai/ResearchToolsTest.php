@@ -394,6 +394,27 @@ class ResearchToolsTest extends TestCase
         $this->assertLessThan(1_000, mb_strlen($output));
     }
 
+    /**
+     * A model is free to answer a string-typed schema field with an array or a
+     * number, and `Request::string()` runs that through `Str::of()`: the array
+     * case raises an "Array to string conversion" warning, which Laravel's error
+     * handler turns into an `ErrorException`. That would escape the tool (nothing
+     * in `laravel/ai` catches) and land past the analyze endpoint's degrade as a
+     * 500, so the argument is read as a raw value and type-checked instead.
+     */
+    public function test_a_non_string_argument_is_refused_rather_than_thrown(): void
+    {
+        Http::fake();
+        $allowList = $this->allowList();
+
+        $fetch = $this->fetchTool($allowList)->handle(new Request(['url' => ['https://example.com/x']]));
+        $search = $this->searchTool($allowList)->handle(new Request(['query' => ['status.example.com']]));
+
+        $this->assertStringContainsString('Refused', $fetch);
+        $this->assertStringContainsString('Refused', $search);
+        Http::assertNothingSent();
+    }
+
     public function test_an_empty_argument_is_refused_rather_than_sent(): void
     {
         Http::fake();
