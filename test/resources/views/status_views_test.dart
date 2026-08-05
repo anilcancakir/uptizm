@@ -237,7 +237,6 @@ Map<String, dynamic> _previewPayload({
     'description': "Real-time status of Acme's services.",
     'subscriptions_enabled': true,
     'monitors': const <Map<String, dynamic>>[],
-    'metric_keys': const <String>[],
     'preview_render_status': ?previewRenderStatus,
     'preview_image_url': ?previewImageUrl,
     'preview_rendered_at': ?previewRenderedAt?.toIso8601String(),
