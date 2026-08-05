@@ -33,10 +33,11 @@ class Region {
 /// `MonitorForm._buildRegionsField`). How the cap reads depends on its size,
 /// because a cap of one is a different question from a cap of three:
 ///
+/// At EVERY cap, deselecting the last remaining region is a no-op: the backend
+/// requires `regions` `min:1`, so an empty selection has nowhere to go.
+///
 /// - **Cap of 1**: the grid behaves as a RADIO group. Tapping another region
-///   swaps the selection, and the selected tile cannot be cleared (the backend
-///   requires `regions` `min:1`, so an empty selection has nowhere to go).
-///   Nothing is locked.
+///   swaps the selection rather than adding to it. Nothing is locked.
 /// - **Cap above 1, reached**: every UNSELECTED tile renders locked, dimmed and
 ///   untappable. An already-selected tile is NEVER locked, even past the cap, so
 ///   a grandfathered monitor's stored regions stay visibly selected and
@@ -168,16 +169,27 @@ class RegionPicker extends StatelessWidget {
 
   /// Reports the next selection for a tap on [region].
   ///
-  /// At a cap of one the tap REPLACES the selection, and a tap on the already
-  /// selected tile is a no-op: clearing it would leave zero regions, which the
-  /// backend rejects (`regions` is `required|array|min:1`), and the operator's
-  /// actual intent at that cap is always "probe from this one instead".
+  /// Deselecting the last remaining region is a no-op at every cap: the backend
+  /// rejects an empty set (`regions` is `required|array|min:1`), so the tap could
+  /// only buy a round trip that comes back as an error.
+  ///
+  /// At a cap of one the tap additionally REPLACES the selection rather than
+  /// adding to it, because the operator's intent at that cap is always "probe
+  /// from this one instead".
   void _onTileTap(Region region, bool selected) {
     if (_isSingleChoice) {
       if (selected) return;
       onChanged(<String>[region.value]);
       return;
     }
+
+    // Removing the LAST selection is a no-op above a cap of one too, for the
+    // same reason the single-choice branch gives: the backend rejects an empty
+    // set (`regions` is `required|array|min:1`), so clearing it can only produce
+    // a round trip that comes back as an error. The floor used to be enforced
+    // only at a cap of one, which let a multi-region plan empty the picker and
+    // learn about it from the server.
+    if (selected && value.length == 1) return;
 
     onChanged(
       selected

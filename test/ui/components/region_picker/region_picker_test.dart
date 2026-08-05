@@ -58,6 +58,58 @@ void main() {
     expect(next, ['us-east']);
   });
 
+  group('the last selection cannot be cleared', () {
+    // The backend rejects an empty set (`regions` is `required|array|min:1`).
+    // The floor used to be enforced only at a cap of one, so a plan allowing
+    // several regions could empty the picker and learn about it from a 422.
+
+    testWidgets('a multi-region picker keeps its last region', (tester) async {
+      List<String>? next;
+      await tester.pumpWidget(
+        wrap(
+          RegionPicker(
+            regions: const [
+              Region(label: 'US East', value: 'us-east'),
+              Region(label: 'EU West', value: 'eu-west'),
+            ],
+            value: const ['us-east'],
+            maxSelected: 3,
+            onChanged: (v) => next = v,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('US East'));
+      await tester.pump();
+
+      expect(next, isNull, reason: 'clearing the last region reports nothing');
+    });
+
+    testWidgets('it still deselects while more than one is selected', (
+      tester,
+    ) async {
+      List<String>? next;
+      await tester.pumpWidget(
+        wrap(
+          RegionPicker(
+            regions: const [
+              Region(label: 'US East', value: 'us-east'),
+              Region(label: 'EU West', value: 'eu-west'),
+            ],
+            value: const ['us-east', 'eu-west'],
+            maxSelected: 3,
+            onChanged: (v) => next = v,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('US East'));
+      await tester.pump();
+
+      expect(next, ['eu-west'], reason: 'the floor is one, not "no removals"');
+    });
+  });
+
   // Note: RegionPickerPreview renders a 3-column grid that overflows the
   // default 800px test surface; it is visually verified at the real /preview
   // width. The per-tile smokes above cover rendering + toggle behaviour.
