@@ -482,6 +482,27 @@ class MetricDiscoveryTest extends TestCase
         $this->assertSame(str_repeat('x', 500), $rows[0]['value']);
     }
 
+    public function test_a_query_string_credential_never_reaches_the_discovery_prompt(): void
+    {
+        // The analyze request builds TWO provider prompts from one
+        // operator-supplied URL: the analysis one and this one. A monitor target
+        // gated by `?token=` is common, and covering one prompt while the other
+        // prints the whole URL covers neither. The probe still fetches the full
+        // URL; this is only about what a third party is shown.
+        $payload = new MetricDiscoveryPayload(
+            url: 'https://example.com/health?token=T0KENSECRET&verbose=1',
+            monitorType: 'http',
+            candidateRefs: ['c1'],
+            digestRows: [['ref' => 'c1', 'src' => 'json_path', 'path' => 'status', 'value' => 'ok']],
+        );
+
+        $message = $payload->buildUserMessage();
+
+        $this->assertStringNotContainsString('T0KENSECRET', $message);
+        $this->assertStringNotContainsString('token=', $message);
+        $this->assertStringContainsString('url: https://example.com/health', $message);
+    }
+
     public function test_an_untrusted_value_cannot_close_the_fence_or_add_a_line(): void
     {
         // The whole reason the digest is JSON-ENCODED rather than concatenated: a

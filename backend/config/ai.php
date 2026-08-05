@@ -46,7 +46,11 @@ return [
      * same cheap, fast model handles well.
      */
     'metric_discovery' => [
-        'model' => env('AI_METRIC_DISCOVERY_MODEL', 'claude-haiku-4-5-20251001'),
+        // Falls back through `AI_TRIAGE_MODEL` for the reason spelled out at the
+        // `analysis` key below: this gateway runs on the same analyze request, so
+        // a literal default here degrades the metrics half of every setup on any
+        // deployment that moved the AI surface, silently and identically.
+        'model' => env('AI_METRIC_DISCOVERY_MODEL', env('AI_TRIAGE_MODEL', 'claude-haiku-4-5-20251001')),
     ],
 
     /*

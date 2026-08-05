@@ -179,8 +179,13 @@ class TargetLocation
             $response = Http::timeout(self::TIMEOUT_SECONDS)
                 ->get("https://ipinfo.io/{$ips[0]}/json", ['token' => $token]);
         } catch (ConnectionException) {
+            // The HOST, never the URL. A monitor target is frequently
+            // `…/health?token=…`, and a log line is one of the three places the
+            // credential invariant names. The host is the whole diagnostic value
+            // here anyway: this line records that a geo provider could not be
+            // reached about an address, not what path the target serves.
             Log::warning('ipinfo lookup was unreachable while resolving a monitor target.', [
-                'url' => $url,
+                'host' => parse_url($url, PHP_URL_HOST) ?: 'n/a',
             ]);
 
             return null;

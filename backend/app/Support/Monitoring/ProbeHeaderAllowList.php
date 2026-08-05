@@ -119,15 +119,9 @@ class ProbeHeaderAllowList
                 continue;
             }
 
-            $value = $lowercased[$name];
+            $value = self::flatten($lowercased[$name]);
 
-            // Type-checked rather than cast. The declared shape is
-            // `array<string, string>`, but this array is decoded from a worker
-            // payload, so a `(string)` cast on an array would raise a warning
-            // Laravel rethrows as an `ErrorException`, and this runs inside a
-            // request whose whole point is that it degrades rather than throws.
-            // A non-string value is dropped: an unusable value is not evidence.
-            if (! is_string($value)) {
+            if ($value === null) {
                 continue;
             }
 
@@ -135,5 +129,40 @@ class ProbeHeaderAllowList
         }
 
         return $kept;
+    }
+
+    /**
+     * One header value as a string, or null when there is nothing usable.
+     *
+     * Type-checked rather than cast, because a `(string)` cast on an array
+     * raises a warning Laravel rethrows as an `ErrorException`, and this runs
+     * inside a request whose whole point is that it degrades rather than throws.
+     *
+     * A LIST is joined rather than dropped, and `link` is why: WordPress
+     * advertises its REST root there, a page often sends several `rel=` entries,
+     * and the constant above earns that name its place precisely for that
+     * fingerprint. Today's worker folds duplicates into one string before we see
+     * them, so this branch is defensive; dropping the value instead would have
+     * meant the docblock naming a consumer for evidence that could silently
+     * never arrive. Anything else (an object, a bool, a nested array) is not a
+     * header value and is dropped.
+     */
+    private static function flatten(mixed $value): ?string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $strings = array_filter($value, static fn (mixed $item): bool => is_string($item) || is_int($item) || is_float($item));
+
+        return $strings === [] ? null : implode(', ', array_map(static fn (mixed $item): string => (string) $item, $strings));
     }
 }

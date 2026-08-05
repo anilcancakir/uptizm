@@ -150,6 +150,10 @@ class ResearchToolsTest extends TestCase
             'an explicit port' => 'https://example.com:8443/x',
             'an IP literal' => 'https://93.184.216.34/x',
             'an embedded redirect target' => 'https://example.com/r?next=https://evil.net/x',
+            // Protocol-relative: it names no scheme, inherits ours, and lands in
+            // the same place. The same open redirect written shorter.
+            'a protocol-relative redirect target' => 'https://example.com/r?next=//evil.net/x',
+            'a doubly-encoded redirect target' => 'https://example.com/r?next=https%253A%252F%252Fevil.net%252Fx',
             'a percent-encoded redirect target' => 'https://example.com/r?next=https%3A%2F%2Fevil.net%2Fx',
             'a backslash the WHATWG parser reads as a slash' => 'https://example.com\\@evil.net/x',
             'a scheme-relative URL' => '//example.com/x',
@@ -167,6 +171,27 @@ class ResearchToolsTest extends TestCase
         }
 
         Http::assertNothingSent();
+    }
+
+    /**
+     * The protocol-relative check reads the query and fragment, never the path.
+     *
+     * Measured, not assumed: `https://example.com//docs/x` has the PATH
+     * `//docs/x`, so a rule anchored at the start of the remainder refuses an
+     * ordinary doubled slash on a minted host and costs a legitimate research
+     * fetch. A redirect target rides in a parameter, so a parameter is where the
+     * check looks.
+     */
+    public function test_a_doubled_slash_in_a_path_is_not_an_embedded_redirect(): void
+    {
+        $this->fakeKodizm(['content' => 'Guide body.']);
+
+        $result = $this->fetchTool($this->allowList('https://example.com/healthz'))->handle(
+            new Request(['url' => 'https://example.com//docs/metrics']),
+        );
+
+        $this->assertStringContainsString('Guide body.', $result);
+        $this->assertStringNotContainsString('allow list', $result);
     }
 
     public function test_fetch_admits_the_minted_host_in_its_normalized_forms(): void

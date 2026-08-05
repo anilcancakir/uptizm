@@ -57,6 +57,32 @@ class ProbeHeaderAllowListTest extends TestCase
     }
 
     /** A kept value over the cap is truncated to it, not dropped. */
+    /**
+     * A value that is not a string is handled rather than cast.
+     *
+     * `CheckResult` builds `response_headers` with a bare array cast and never
+     * checks the leaf type, so a `(string)` cast here on a list would raise a
+     * warning Laravel rethrows as an `ErrorException`, inside a request whose
+     * whole contract is that it degrades rather than throws. A list is JOINED
+     * rather than dropped, because `link` legitimately carries several `rel=`
+     * entries and that fingerprint is why the name is on the list at all.
+     */
+    public function test_a_non_string_header_value_is_joined_or_dropped_never_cast(): void
+    {
+        $kept = ProbeHeaderAllowList::filter([
+            'Link' => ['<https://example.com/wp-json/>; rel="https://api.w.org/"', '<https://example.com/>; rel=shortlink'],
+            'Age' => 42,
+            'Server' => ['nested' => ['deep']],
+        ]);
+
+        $this->assertSame(
+            '<https://example.com/wp-json/>; rel="https://api.w.org/", <https://example.com/>; rel=shortlink',
+            $kept['link'],
+        );
+        $this->assertSame('42', $kept['age']);
+        $this->assertArrayNotHasKey('server', $kept, 'a nested array is not a header value');
+    }
+
     public function test_truncates_an_oversized_value_to_the_cap(): void
     {
         $filtered = ProbeHeaderAllowList::filter([

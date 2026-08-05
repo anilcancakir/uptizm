@@ -13,12 +13,17 @@ use App\Services\Monitoring\TargetLocation;
  * origin location was deliberately withheld, `unresolved` covers every other
  * case (no token configured, no IPs to look up, or the provider failed).
  *
- * Step 8's model-facing `region_basis` is a DIFFERENT enum with an
- * overlapping but distinct case set (`geoip`, `cdn_edge`, `content_language`,
- * `default`): it describes why the model picked a region, and `unresolved`
- * has no place in it because the deterministic fallback path never reads a
- * page's language. The mapping between the two lives at Step 9's call site,
- * not here.
+ * The model-facing `region_basis` (`geoip`, `cdn_edge`, `content_language`,
+ * `default`) is a different set answering a different question: not what a
+ * lookup achieved, but why a region was chosen.
+ *
+ * There is NO mapping between the two, deliberately. A lookup outcome is not a
+ * reason: only the model, which reads the location facts and can weigh them
+ * against a page's language, answers anything other than `default`. The
+ * deterministic path always answers `default`, because the region it suggests is
+ * the one the request asked to probe from, and nothing this enum records took
+ * part in choosing it. An earlier revision did map them, which produced a
+ * suggestion justified by evidence that played no part in making it.
  */
 enum LocationBasis: string
 {

@@ -89,13 +89,7 @@ class AnalyzeMonitorRequest extends FormRequest
     protected function noEmbeddedCredential(): Closure
     {
         return function (string $attribute, mixed $value, Closure $fail): void {
-            $parts = parse_url((string) $value);
-
-            if (! is_array($parts)) {
-                return;
-            }
-
-            if (isset($parts['user']) || isset($parts['pass'])) {
+            if ($this->hostGuard()->carriesCredentials((string) $value)) {
                 $fail('The :attribute must not embed a username or password. Use the monitor\'s authentication settings instead.');
             }
         };

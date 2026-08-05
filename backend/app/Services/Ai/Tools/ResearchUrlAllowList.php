@@ -281,12 +281,19 @@ class ResearchUrlAllowList
         // Two shapes, not one. An absolute URL names its scheme; a
         // protocol-relative one (`?next=//evil.net`) does not and inherits ours,
         // which is the same open redirect written shorter.
+        //
+        // The second check reads the QUERY and FRAGMENT only, never the path, and
+        // that boundary is measured rather than tidy: `https://host//docs/x` has
+        // the path `//docs/x`, so a rule anchored at the start of the whole
+        // remainder refuses an ordinary doubled slash and costs a legitimate
+        // research fetch on a minted host. A redirect target rides in a
+        // parameter, so a parameter is where to look for it.
         for ($pass = 0; $pass <= self::MAX_DECODE_PASSES; $pass++) {
             if (preg_match('#[a-z][a-z0-9+.\-]*://#i', $rest) === 1) {
                 return true;
             }
 
-            if (preg_match('#(^|[?&=])//[a-z0-9.\-]#i', $rest) === 1) {
+            if (preg_match('#[?&=]//[a-z0-9.\-]#i', $rest) === 1) {
                 return true;
             }
 

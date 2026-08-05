@@ -74,6 +74,33 @@ class HostGuard
     }
 
     /**
+     * Whether a URL carries a credential in its userinfo component.
+     *
+     * Lives here because this class is where URL-shape judgement belongs, and
+     * because the question is worth naming: `https://example.com@evil.net/`
+     * reads as one host and resolves as another, and
+     * `https://ops:secret@example.com/` puts a secret somewhere a URL gets
+     * logged, printed and handed to a third party.
+     *
+     * Two other places in this codebase look at userinfo, and they deliberately
+     * do NOT call this: {@see self::resolveAndAssertAllowed()} and
+     * `ResearchUrlAllowList::admissibleHost()` each test userinfo OR an explicit
+     * port as ONE rule about a URL's shape, which is a larger predicate than
+     * this one. Routing them through here would split a coherent condition and
+     * buy a second `parse_url()` per call. The single caller today is the analyze
+     * request, whose rule really is only about a credential.
+     *
+     * A URL this cannot parse carries nothing knowable, so it answers false and
+     * leaves the refusing to whichever caller cares about a malformed URL.
+     */
+    public function carriesCredentials(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        return is_array($parts) && (isset($parts['user']) || isset($parts['pass']));
+    }
+
+    /**
      * The public IPs a host resolves to, or an empty list when it resolves to
      * none or to any address this guard denies.
      *

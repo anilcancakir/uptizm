@@ -387,7 +387,6 @@ class MonitorController extends Controller
             region: $region,
             reason: $withinBudget ? self::DEGRADE_AI_UNAVAILABLE : self::DEGRADE_BUDGET_EXHAUSTED,
             digest: $digest,
-            location: $location,
         );
 
         // 6. Mine the SAME probe body for metrics worth proposing. The body is
@@ -597,17 +596,22 @@ class MonitorController extends Controller
      *
      * The three classification fields are answered from the SAME evidence a
      * modelled suggestion reads, so a degraded response carries the same shape
-     * rather than a hole where a classification would be. Each is derived, never
-     * guessed: the service class from the shape our own digest sniffed, the SLO
-     * target from a fixed table over that class, and the region basis from what
-     * our own lookup actually achieved.
+     * rather than a hole where a classification would be. Two are derived: the
+     * service class from the shape our own digest sniffed, and the SLO target
+     * from a fixed table over that class.
+     *
+     * The third is not derived, and that is the point. `region_basis` answers
+     * why THIS region was suggested, and on this path the answer is always that
+     * the request asked to probe from it, so it is always `default`. What the
+     * location lookup achieved is stated separately as a fact and is not a
+     * reason; borrowing it here would justify a suggestion with evidence that
+     * played no part in making it.
      */
     protected function deterministicSuggestion(
         CheckResult $probe,
         string $region,
         string $reason,
         ?ResponseDigestResult $digest,
-        TargetLocationResult $location,
     ): AnalysisResult {
         $observed = $probe->responseMs ?? 500;
         $serviceClass = $this->serviceClassFor($digest?->shape);
