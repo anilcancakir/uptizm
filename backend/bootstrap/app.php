@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\MonitorContentController;
+use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Marketing\SendContactMessageController;
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Middleware\SetMarketingLocale;
@@ -214,6 +215,37 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => [
                 Limit::perMinute(10)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
                 Limit::perMinute(20)->by('monitor-sample:'.$request->path()),
+            ],
+        );
+
+        // Bound POST /monitors/analyze. REQUIRED for the same reason as the two
+        // limiters above: `api/v1` never calls throttleApi(), and one accepted
+        // request runs a live relay probe against an operator-supplied URL plus
+        // up to two provider calls. The per-team daily AI budget does not cover
+        // this: it caps model spend over a DAY and degrades instead of refusing,
+        // so it bounds cost rather than rate, and it never bounds the probe.
+        //
+        // Sized for a human clicking Analyze, and the per-actor number has a
+        // FLOOR that is not aesthetic. A Free team's whole metered allowance plus
+        // the request that hits the plan wall is FOUR posts in one sitting
+        // (`AnalyzeMonitorControllerTest` fires exactly that), so a limit at or
+        // below four would answer 429 where the product means to answer 403 and
+        // explain the upgrade, which is a worse outcome than no limiter at all.
+        //
+        // Two buckets, as everywhere above: the actor bucket holds one member
+        // accountable, the team bucket bounds the aggregate a whole team could
+        // otherwise multiply. `$request->user()` resolves a TOKEN request because
+        // `config/auth.php` makes `sanctum` the default guard; the address
+        // fallback covers a request whose token failed, which is counted before
+        // it is rejected. The team key reads the USER's `current_team_id`, which
+        // is what the endpoint itself spends against, rather than a route
+        // parameter: this route has none, and reaching for one would not be safe
+        // anyway (see the note on the sample-read limiter above).
+        RateLimiter::for(
+            MonitorController::ANALYZE_LIMITER,
+            fn (Request $request) => [
+                Limit::perMinute(10)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
+                Limit::perMinute(20)->by('team:'.($request->user()?->current_team_id ?? $request->ip())),
             ],
         );
 

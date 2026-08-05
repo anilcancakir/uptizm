@@ -25,10 +25,15 @@ use App\Services\Monitoring\RelayClient;
 use App\Support\Monitoring\CheckResult;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
+use Laravel\Ai\Exceptions\AiException;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -42,6 +47,36 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class MonitorController extends Controller
 {
+    /**
+     * Name of the limiter on POST /monitors/analyze.
+     *
+     * Declared here and referenced by name from `routes/api.php` and
+     * `bootstrap/app.php`, so a rename cannot leave the route silently
+     * unbounded. The limiter is REQUIRED rather than defensive: `api/v1` never
+     * calls `throttleApi()`, and one accepted request runs a live relay probe
+     * against an operator-supplied URL plus up to two provider calls. The
+     * per-team daily AI budget caps the model spend over a DAY and degrades
+     * instead of refusing, so it bounds cost rather than rate, and it does not
+     * bound the probe at all.
+     *
+     * Unlike {@see self::test()} this cannot be a per-resource cooldown: the
+     * target of an analyze is not a monitor yet, so there is no row to claim.
+     */
+    public const string ANALYZE_LIMITER = 'monitor-analyze';
+
+    /**
+     * Why {@see self::deterministicSuggestion()} answered instead of a model, in
+     * the operator's own terms.
+     *
+     * Two causes, two wordings, deliberately not shared: an exhausted budget is
+     * answered by waiting for tomorrow or upgrading, while a model that
+     * misbehaved is answered by trying again shortly. Telling an operator their
+     * budget is gone when it is intact sends them to the wrong place.
+     */
+    protected const string DEGRADE_BUDGET_EXHAUSTED = 'AI analysis budget exhausted for today';
+
+    protected const string DEGRADE_AI_UNAVAILABLE = 'AI analysis temporarily unavailable';
+
     /**
      * List the current team's monitors, newest first, paginated.
      */
@@ -201,9 +236,12 @@ class MonitorController extends Controller
      *
      * The per-team AI budget is spent AT THIS call site: over budget degrades
      * to a deterministic suggestion derived from the probe alone, never
-     * calling the LLM, so the endpoint still prefills a config. The gateway
-     * only SUGGESTS: the operator still submits the create form and can
-     * override every field.
+     * calling the LLM, so the endpoint still prefills a config. A model whose
+     * output the gateway refuses, and a provider we cannot reach, degrade the
+     * same way ({@see self::suggestViaGateway()}): this is a prefill on a form
+     * the operator still submits, so it must never become a 500 in the middle
+     * of creating a monitor. The gateway only SUGGESTS: the operator still
+     * submits the create form and can override every field.
      *
      * The same probe body also feeds {@see MetricDiscoveryService}, so the
      * response carries `suggested_metrics` beside the configuration. That rides
@@ -222,8 +260,9 @@ class MonitorController extends Controller
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
             // Open on Free for a metered number of setups, entitled outright on
-            // the AI tiers. The meter is spent below, only once a setup actually
-            // produced a result, so a failed probe never costs the user a try.
+            // the AI tiers. The meter is spent below, only once a MODEL actually
+            // delivered an analysis, so neither a failed probe nor a degrade
+            // costs the user a try.
             $gate->assertAiAnalysisAllowed($team);
         }
 
@@ -254,21 +293,39 @@ class MonitorController extends Controller
         //    suggestion (statistics as the source of truth), it never drops
         //    the analyze. Within budget, the LLM labels the probe.
         $teamId = (string) $request->user()->current_team_id;
+        $withinBudget = $budget->tryConsume($teamId);
 
-        $result = $budget->tryConsume($teamId)
-            ? $gateway->analyze($this->analysisPayload($url, $region, $probe, $candidate))
-            : $this->deterministicSuggestion($probe, $region);
+        $modelled = $withinBudget
+            ? $this->suggestViaGateway($gateway, $url, $region, $probe, $candidate)
+            : null;
 
-        // 4. Mine the SAME probe body for metrics worth proposing. The body is
+        // 4. Either degrade path answers with the same deterministic suggestion,
+        //    naming its own cause: within budget a null means the model or the
+        //    provider failed, outside it the budget did.
+        $result = $modelled ?? $this->deterministicSuggestion(
+            $probe,
+            $region,
+            $withinBudget ? self::DEGRADE_AI_UNAVAILABLE : self::DEGRADE_BUDGET_EXHAUSTED,
+        );
+
+        // 5. Mine the SAME probe body for metrics worth proposing. The body is
         //    already in memory here, so this costs no second probe; discovery
         //    spends its own budget unit and degrades to an empty array on its
         //    own, so a create flow never fails because of a suggestion.
         $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId);
 
-        // 5. The setup produced a result, so spend one metered try (a no-op on a
-        //    tier that entitles AI analysis) and report what is left, so the
-        //    client can count the allowance down without a second request.
-        if ($team !== null) {
+        // 6. A metered try buys AI ANALYSIS, so it is spent only when a model
+        //    actually delivered one: neither degrade path above ran a model, so
+        //    neither charges for one. A no-op on a tier that entitles AI
+        //    analysis. Reporting what is left lets the client count the
+        //    allowance down without a second request.
+        //
+        //    Residual, and unfixable from here: this is the last call before the
+        //    response, so the try is spent once the server has an answer to
+        //    deliver, but a client that disconnects after the response was
+        //    flushed has still spent it and the server cannot observe that. The
+        //    alternative is an acknowledgement round trip for a three-use meter.
+        if ($team !== null && $modelled !== null) {
             $gate->consumeAiAnalysisTrial($team);
         }
 
@@ -312,6 +369,64 @@ class MonitorController extends Controller
     }
 
     /**
+     * The model's suggestion for this probe, or null when it could not be
+     * trusted or the provider could not be reached.
+     *
+     * Mirrors {@see MetricDiscoveryService::select()}'s degrade: non-conforming
+     * output past the gateway's own retry raises a {@see RuntimeException},
+     * while an outage, a timeout or a missing key raises a client exception, and
+     * all of them return the same null so the caller's wire shape never changes
+     * on a bad day.
+     *
+     * {@see AiException} is the fourth, and it is not redundant with the client
+     * exceptions: `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors` maps a
+     * provider 429, 402 or 503 onto an `AiException` SUBCLASS before it ever
+     * reaches a caller, and the OpenRouter gateway raises a plain `AiException`
+     * for an error payload the provider delivers in-band with HTTP 200. Neither
+     * descends from `RuntimeException`, so without this branch the most ordinary
+     * provider bad day there is would still 500 the create flow.
+     *
+     * Only those four, all named: a `TypeError` or an `Error` from our own code
+     * still surfaces as a 500 rather than hiding behind a plausible suggestion.
+     *
+     * Two things are deliberately absent from the log line. The exception
+     * MESSAGE, because a gateway message can quote the model, which was reading
+     * text the target authored ({@see MetricDiscoveryService} logs it; that key
+     * is not copied here). And every probe field, for the same reason. What is
+     * left is the operator's own validated target and the region it ran from,
+     * which is the only monitor context an analyze has: the URL is not a monitor
+     * yet, so there is no id to name.
+     */
+    protected function suggestViaGateway(
+        AnalysisGateway $gateway,
+        string $url,
+        string $region,
+        CheckResult $probe,
+        ?object $candidate,
+    ): ?AnalysisResult {
+        try {
+            return $gateway->analyze($this->analysisPayload($url, $region, $probe, $candidate));
+        } catch (RuntimeException) {
+            Log::warning('Monitor analysis degraded: the model output could not be trusted.', [
+                'url' => $url,
+                'region' => $region,
+            ]);
+        } catch (ConnectionException|RequestException) {
+            Log::warning('Monitor analysis degraded: the AI service was unreachable.', [
+                'url' => $url,
+                'region' => $region,
+            ]);
+        } catch (AiException) {
+            Log::warning('Monitor analysis degraded: the AI provider could not complete the request.', [
+                'url' => $url,
+                'region' => $region,
+            ]);
+        }
+
+        return null;
+    }
+
+    /**
      * Hydrate the analysis payload from the probe and its optional detector
      * read.
      *
@@ -349,14 +464,18 @@ class MonitorController extends Controller
     }
 
     /**
-     * Build a deterministic suggestion from the probe alone, used when the
-     * team is over its daily AI budget so the LLM is never called.
+     * Build a deterministic suggestion from the probe alone, used on every path
+     * where no model narration is available.
      *
      * Bounds are anchored to the observed response time (warn at 3x, critical
      * at 6x, with sane floors) so the prefill stays useful even without a
      * model narration.
+     *
+     * [$reason] is carried into the rationale rather than hardcoded because two
+     * different causes reach here and the operator acts differently on each; see
+     * {@see self::DEGRADE_BUDGET_EXHAUSTED}.
      */
-    protected function deterministicSuggestion(CheckResult $probe, string $region): AnalysisResult
+    protected function deterministicSuggestion(CheckResult $probe, string $region, string $reason): AnalysisResult
     {
         $observed = $probe->responseMs ?? 500;
 
@@ -365,7 +484,7 @@ class MonitorController extends Controller
             recommendedWarnThresholdMs: max(500, $observed * 3),
             recommendedCriticalThresholdMs: max(1000, $observed * 6),
             recommendedRegions: [$region],
-            rationale: 'Deterministic baseline from the exploratory probe (AI analysis budget exhausted for today).',
+            rationale: "Deterministic baseline from the exploratory probe ({$reason}).",
             strippedCitations: [],
         );
     }

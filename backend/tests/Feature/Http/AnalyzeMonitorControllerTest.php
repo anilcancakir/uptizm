@@ -14,7 +14,9 @@ use App\Support\Monitoring\CheckResult;
 use DateTimeImmutable;
 use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Str;
+use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Sanctum\Sanctum;
 use RuntimeException;
 use Tests\TestCase;
@@ -179,6 +181,170 @@ class AnalyzeMonitorControllerTest extends TestCase
         $response->assertJsonPath('data.recommended_regions', ['us-east']);
         $this->assertIsInt($response->json('data.recommended_warn_threshold_ms'));
         $this->assertStringContainsString('budget', strtolower((string) $response->json('data.rationale')));
+    }
+
+    public function test_analyze_degrades_instead_of_500ing_when_the_model_output_is_untrusted(): void
+    {
+        // The gateway throws a RuntimeException when the model's output is
+        // non-conforming twice in a row. That is a bad day for the model, not a
+        // broken create flow: the operator still gets a prefilled config.
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->instance(
+            AnalysisGateway::class,
+            FakeAnalysisGateway::throwing(new RuntimeException('Non-conforming output past the retry.')),
+        );
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $this->assertIsInt($response->json('data.recommended_warn_threshold_ms'));
+        // And it does not blame the budget: the budget is intact, the model is not.
+        $rationale = strtolower((string) $response->json('data.rationale'));
+        $this->assertStringNotContainsString('budget', $rationale);
+        $this->assertStringContainsString('unavailable', $rationale);
+    }
+
+    public function test_analyze_degrades_instead_of_500ing_when_the_ai_service_is_unreachable(): void
+    {
+        // A provider outage, a timeout, or a missing key surfaces as a client
+        // ConnectionException. Same rule: degrade, never 500.
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->instance(
+            AnalysisGateway::class,
+            FakeAnalysisGateway::throwing(new ConnectionException('Connection timed out.')),
+        );
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $this->assertStringContainsString(
+            'unavailable',
+            strtolower((string) $response->json('data.rationale')),
+        );
+    }
+
+    public function test_analyze_degrades_when_the_provider_rate_limits_the_application(): void
+    {
+        // A provider 429 / 402 / 503 does NOT reach us as a client
+        // RequestException: `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors`
+        // (used by the OpenRouter gateway this deploy runs on) maps each one to an
+        // `AiException` subclass, and an OpenRouter error delivered in-band with
+        // HTTP 200 raises `AiException` too. Neither descends from
+        // RuntimeException, so both would 500 the create flow on the most
+        // ordinary provider bad day there is.
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->instance(
+            AnalysisGateway::class,
+            FakeAnalysisGateway::throwing(RateLimitedException::forProvider('openrouter', 429)),
+        );
+        $team = $this->actingAsTeamMember('free');
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertStringContainsString(
+            'unavailable',
+            strtolower((string) $response->json('data.rationale')),
+        );
+        // And no model ran, so no trial is charged.
+        $this->assertSame(0, (int) $team->fresh()->ai_analysis_trials_used);
+    }
+
+    public function test_analyze_does_not_spend_a_trial_when_the_model_fails(): void
+    {
+        // A trial buys AI analysis. No model ran here, so the meter must not move
+        // and the remaining count the client reads must not move with it.
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->instance(
+            AnalysisGateway::class,
+            FakeAnalysisGateway::throwing(new RuntimeException('Non-conforming output past the retry.')),
+        );
+        $team = $this->actingAsTeamMember('free');
+        $allowance = (int) config('plans.tiers.0.limits.ai_analysis_trials');
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ])
+            ->assertStatus(200)
+            ->assertJsonPath('meta.ai_analysis_trials_remaining', $allowance);
+
+        $this->assertSame(0, (int) $team->fresh()->ai_analysis_trials_used);
+    }
+
+    public function test_analyze_does_not_spend_a_trial_when_the_team_is_over_budget(): void
+    {
+        // Same rule on the other degrade path: over budget the LLM is never
+        // called, so there is no AI analysis to charge for.
+        config(['ai.budget.daily_per_team' => 0]);
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $team = $this->actingAsTeamMember('free');
+        $allowance = (int) config('plans.tiers.0.limits.ai_analysis_trials');
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ])
+            ->assertStatus(200)
+            ->assertJsonPath('meta.ai_analysis_trials_remaining', $allowance);
+
+        $this->assertSame(0, (int) $team->fresh()->ai_analysis_trials_used);
+    }
+
+    public function test_analyze_spends_exactly_one_trial_on_a_delivered_analysis(): void
+    {
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $team = $this->actingAsTeamMember('free');
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ])->assertStatus(200);
+
+        $this->assertSame(1, (int) $team->fresh()->ai_analysis_trials_used);
+    }
+
+    public function test_analyze_is_throttled_per_actor(): void
+    {
+        // One accepted request costs a live relay probe plus up to two model
+        // calls, and `api/v1` never calls throttleApi(), so the named limiter is
+        // the only thing bounding how fast one member can spend it.
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        // Pro entitles AI analysis outright, so a 403 plan wall can never be
+        // mistaken here for the 429 this test is looking for.
+        $this->actingAsTeamMember('pro');
+
+        $statuses = [];
+
+        for ($attempt = 1; $attempt <= 30; $attempt++) {
+            $statuses[] = $this->postJson('/api/v1/monitors/analyze', [
+                'url' => 'https://example.com/health',
+            ])->getStatusCode();
+
+            if (end($statuses) === 429) {
+                break;
+            }
+        }
+
+        $this->assertContains(429, $statuses, 'The analyze route must carry a limiter.');
+        // The floor is what keeps the limiter off a legitimate operator: the
+        // Free allowance plus the wall check is four requests in one sitting,
+        // and a human comparing two candidate URLs adds more.
+        $this->assertGreaterThanOrEqual(
+            5,
+            count(array_filter($statuses, fn (int $status): bool => $status === 200)),
+            'A human clicking Analyze must get at least five a minute.',
+        );
     }
 
     public function test_analyze_requires_authentication(): void

@@ -111,7 +111,13 @@ Route::get('status-pages/{statusPage:id}/preview-image', StatusPagePreviewImageC
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function (): void {
+    // Throttled by name because one accepted request runs a live relay probe of
+    // an operator-supplied URL plus up to two provider calls, and nothing else
+    // bounds its RATE: `api/v1` never calls throttleApi(), and the per-team AI
+    // budget is a daily cost cap that degrades rather than refusing. The buckets
+    // are registered in `bootstrap/app.php`.
     Route::post('monitors/analyze', [MonitorController::class, 'analyze'])
+        ->middleware('throttle:'.MonitorController::ANALYZE_LIMITER)
         ->name('api.v1.monitors.analyze');
     Route::apiResource('monitors', MonitorController::class);
     Route::post('monitors/{monitor}/pause', [MonitorController::class, 'pause'])
