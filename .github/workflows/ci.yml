@@ -193,6 +193,11 @@ jobs:
       - name: Tests
         run: php artisan test
 
+  # This job now also runs `npm test`, but its name stays "Regional checker
+  # (typecheck)": that exact string is one of the five contexts branch
+  # protection requires on master, so renaming it would drop the check from
+  # every open PR until someone updates branch protection to match. Whoever
+  # does that rename should do it in the same change.
   worker:
     name: Regional checker (typecheck)
     runs-on: ubuntu-latest
@@ -209,3 +214,18 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npm run typecheck
+      - name: Test
+        run: npm test
+
+  # New job, new name: it is not one of the five required contexts yet, so a
+  # red run cannot block a merge. `bin/check`/`bin/check --fast` gate it
+  # locally in the meantime; add it to branch protection once it has been
+  # green on master once, which is deliberately the order and not an oversight.
+  design-tokens:
+    name: Design tokens
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan for raw color literals
+        run: bin/design-tokens

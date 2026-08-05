@@ -4,8 +4,8 @@
 # change, fans them out across cores, and reports one line per job.
 #
 # Usage:
-#   bin/check                  every suite (analyze, dart tests, pint, php tests, worker typecheck)
-#   bin/check --fast           only the static passes: analyze + pint + typecheck
+#   bin/check                  every suite (analyze, design tokens, dart tests, pint, php tests, worker typecheck)
+#   bin/check --fast           only the static passes: analyze + design tokens + pint + typecheck
 #   bin/check flutter          one half only; also `backend` and `worker`
 #   bin/check flutter backend  several halves
 #
@@ -29,8 +29,8 @@ usage() {
     cat <<'USAGE'
 bin/check - the verification gate for this repository.
 
-  bin/check                  every suite (analyze, dart tests, pint, php tests, worker typecheck)
-  bin/check --fast           only the static passes: analyze + pint + typecheck
+  bin/check                  every suite (analyze, design tokens, dart tests, pint, php tests, worker typecheck + tests)
+  bin/check --fast           only the static passes: analyze + design tokens + pint + typecheck
   bin/check flutter          one half only; also `backend` and `worker`
   bin/check flutter backend  several halves
 
@@ -206,18 +206,31 @@ run_backend_test() {
     cd backend && php artisan config:clear >/dev/null && php artisan test --parallel --processes="$LANE"
 }
 run_worker_typecheck() { cd backend/workers/regional-checker && npm run --silent typecheck; }
+# The worker's suite runs in real workerd through @cloudflare/vitest-pool-workers,
+# so it boots a runtime rather than a test framework and does not belong with the
+# static passes. It is the only local gate over the component whose wrong answer
+# wakes the on-call, and until it existed `tsc --noEmit` was the whole of that
+# gate.
+run_worker_test() { cd backend/workers/regional-checker && npm run --silent test; }
+# Regex, not an AST, and fast enough (bash + awk + grep over lib/**/*.dart) to
+# belong in --fast alongside the other static passes. No flutter pub get or
+# node_modules dependency, so it needs neither `wants flutter`'s dependency
+# resolution nor a scope of its own beyond gating on flutter.
+run_design_tokens() { bin/design-tokens; }
 
 echo "check: ${SCOPES# } | $TOTAL_CORES cores, $LANE per suite$([ "$FAST" -eq 1 ] && echo ' | static only')"
 prepare
 echo
 
 wants flutter && start "flutter-analyze" run_flutter_analyze
+wants flutter && start "design-tokens" run_design_tokens
 wants backend && start "backend-pint" run_backend_pint
 wants worker && start "worker-typecheck" run_worker_typecheck
 
 if [ "$FAST" -eq 0 ]; then
     wants flutter && start "flutter-test" run_flutter_test
     wants backend && start "backend-test" run_backend_test
+    wants worker && start "worker-test" run_worker_test
 fi
 
 # Collect in launch order so the summary is stable run to run.
