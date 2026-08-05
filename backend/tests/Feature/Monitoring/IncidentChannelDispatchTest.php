@@ -15,6 +15,7 @@ use App\Models\Monitor;
 use App\Models\NotificationChannel;
 use App\Models\Team;
 use App\Models\User;
+use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Monitoring\IncidentDispatcher;
@@ -70,6 +71,38 @@ class IncidentChannelDispatchTest extends TestCase
         $this->dispatch($monitor, $incident);
 
         Notification::assertSentTo($slackAll, IncidentOpened::class);
+        Notification::assertNotSentTo($webhookCritical, IncidentOpened::class);
+    }
+
+    /**
+     * The point of the whole escalation path, stated as a channel assertion: a
+     * critical-only channel gets NOTHING while the incident sits at warn, and it
+     * is told the moment the incident is raised to critical. Without the raise,
+     * that channel stayed silent for the entire outage.
+     */
+    public function test_an_escalation_reaches_the_critical_only_channel(): void
+    {
+        Notification::fake();
+        $this->fakeSideEffects();
+        [$monitor, $team] = $this->makeMonitor();
+
+        $slackAll = $this->channel($team, NotificationChannelSeverity::All);
+        $webhookCritical = $this->channel($team, NotificationChannelSeverity::Critical);
+
+        // 1. The warn open: the critical-only channel is correctly not told.
+        $incident = $this->makeIncident($monitor, IncidentSeverity::Warn);
+        $this->dispatch($monitor, $incident);
+        Notification::assertNotSentTo($webhookCritical, IncidentOpened::class);
+
+        // 2. The metric goes critical, so the evaluator raises the SAME incident
+        //    and reports it in the escalated slot.
+        $incident->update(['severity' => IncidentSeverity::Critical]);
+        $this->dispatchEscalated($monitor, $incident->refresh());
+
+        // 3. Both channels hear about it, and as an escalation rather than as a
+        //    second open: the operator has been watching this incident.
+        Notification::assertSentTo($webhookCritical, IncidentEscalated::class);
+        Notification::assertSentTo($slackAll, IncidentEscalated::class);
         Notification::assertNotSentTo($webhookCritical, IncidentOpened::class);
     }
 
@@ -142,6 +175,20 @@ class IncidentChannelDispatchTest extends TestCase
         $this->app->make(IncidentDispatcher::class)->dispatch($monitor, [
             'opened' => $incident,
             'resolved' => null,
+            'status_change' => null,
+        ]);
+    }
+
+    /**
+     * Drive the dispatcher with an ESCALATED incident, the slot the evaluator
+     * fills when a louder breach lands on an already-open incident.
+     */
+    protected function dispatchEscalated(Monitor $monitor, Incident $incident): void
+    {
+        $this->app->make(IncidentDispatcher::class)->dispatch($monitor, [
+            'opened' => null,
+            'resolved' => null,
+            'escalated' => $incident,
             'status_change' => null,
         ]);
     }

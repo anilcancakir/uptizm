@@ -11,6 +11,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\NotificationChannel;
 use App\Models\ScheduledMaintenance;
+use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\OnCall\EscalationDispatcher;
@@ -69,9 +70,13 @@ class IncidentDispatcher
      * @param  array{
      *     opened: ?Incident,
      *     resolved: ?Incident,
+     *     escalated?: ?Incident,
      *     status_change: array{from: ?MonitorStatus, to: MonitorStatus}|null
-     * }  $outcome  The evaluator result: opened/resolved incident refs plus the
-     *   in-lock health transition (any slot null when nothing changed).
+     * }  $outcome  The evaluator result: opened/resolved/escalated incident refs
+     *   plus the in-lock health transition (any slot null when nothing changed).
+     *   `escalated` is read with a null coalesce because the write-side callers
+     *   ({@see IncidentWriteService}) compose this
+     *   array by hand and have no escalation to report.
      */
     public function dispatch(Monitor $monitor, array $outcome): void
     {
@@ -80,12 +85,13 @@ class IncidentDispatcher
         //    for the query, and a suppression is logged rather than taken
         //    silently: an unexplained missing page is indistinguishable from a
         //    broken alert pipeline.
-        $suppressedBy = $outcome['opened'] !== null || $outcome['resolved'] !== null
+        $escalated = $outcome['escalated'] ?? null;
+        $suppressedBy = $outcome['opened'] !== null || $outcome['resolved'] !== null || $escalated !== null
             ? $this->openSuppressingWindow($monitor)
             : null;
 
         if ($suppressedBy !== null) {
-            $this->logSuppression($monitor, $suppressedBy, $outcome['opened'] ?? $outcome['resolved']);
+            $this->logSuppression($monitor, $suppressedBy, $outcome['opened'] ?? $outcome['resolved'] ?? $escalated);
         }
 
         // 1. A threshold open pages the team, gated on the down-alert flag, then
@@ -95,6 +101,22 @@ class IncidentDispatcher
             $opened = new IncidentOpened($outcome['opened']);
             Notification::send($outcome['opened']->team->users, $opened);
             $this->dispatchChannels($outcome['opened'], $opened, 'opened');
+        }
+
+        // 1b. A severity RAISE on an already-open incident pages under the same
+        //     down-alert gate. This is the half that was missing: the evaluator
+        //     deduped by metric key alone, so a metric configured to warn on
+        //     `degraded` and page on `down` opened at warn and then never told
+        //     the critical-only channels anything, because those gate on the
+        //     incident's own severity and nothing raised it.
+        //
+        //     Its own notification class, not IncidentOpened with a flag: the
+        //     operator has been watching this incident, and open-shaped copy
+        //     about it reads as a second unrelated outage.
+        if ($escalated !== null && $monitor->alert_on_down && $suppressedBy === null) {
+            $notification = new IncidentEscalated($escalated);
+            Notification::send($escalated->team->users, $notification);
+            $this->dispatchChannels($escalated, $notification, 'escalated');
         }
 
         // 2. A recovery clears the page, gated on the recover-alert flag, and
@@ -112,6 +134,10 @@ class IncidentDispatcher
         //    alert_on_* gate applies only to the notifications.
         if ($outcome['opened'] !== null) {
             event(new IncidentBroadcast($outcome['opened'], 'opened'));
+        }
+
+        if ($escalated !== null) {
+            event(new IncidentBroadcast($escalated, 'escalated'));
         }
 
         if ($outcome['resolved'] !== null) {
