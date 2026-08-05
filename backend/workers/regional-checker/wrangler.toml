@@ -16,6 +16,17 @@ workers_dev = true
 name = "RegionalProbe"
 class_name = "RegionalProbe"
 
+# This block describes a history Cloudflare has ALREADY applied, so it is a
+# record, not a knob. Checked against the account on 2026-08-05: the deployed
+# script reports `migration_tag = "v1"` and its namespace
+# `uptizm-regional-checker_RegionalProbe` reports `use_sqlite = true`, both
+# matching what is written below. Wrangler decides which migrations to apply by
+# comparing the deployed tag against this list, so renaming the tag or moving
+# the class between `new_classes` and `new_sqlite_classes` diverges from the
+# recorded history and the next deploy either refuses or applies the wrong
+# step, against a Durable Object that is carrying live probe traffic. The test
+# pool reads this same block, so an edit here also changes what the suite
+# proves.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RegionalProbe"]

@@ -1,0 +1,25 @@
+// The tests need `@cloudflare/vitest-pool-workers/types` for the `cloudflare:test`
+// and `cloudflare:workers` module declarations, which the worker's own source must
+// not see, so `test/` is its own TypeScript project rather than another entry in the
+// root `include`.
+//
+// It is a SEPARATE program, not a project reference: `tsc --noEmit` refuses to
+// reference a project unless that project sets `composite: true`, and composite
+// requires declaration emit, which contradicts this worker's noEmit-only setup
+// (measured: TS6305 / TS6306 / TS6310). So the root `typecheck` script chains two
+// `tsc` invocations instead. Without that chain nothing typechecks `test/` at all:
+// vitest strips types with esbuild rather than checking them, so a type error in a
+// test file would reach master silently.
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "types": [
+            "@cloudflare/workers-types",
+            "@cloudflare/vitest-pool-workers/types"
+        ]
+    },
+    "include": [
+        "**/*.ts",
+        "../vitest.config.ts"
+    ]
+}
