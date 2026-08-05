@@ -464,21 +464,28 @@ class CheckPersistenceService
                 // comparison get it and neither the row nor the incident title
                 // shows the operator something the target never served.
                 //
-                // Banding is deliberately NOT gated on
-                // `MonitorMetric::alertsOnString()`, which decides only whether
-                // a metric ALERTS. The two cannot disagree: that predicate is
-                // false only when all three lists are empty, and the write path
-                // refuses a non-null `unmatched_band` in that state, so an inert
-                // metric has nothing left to band with and lands on null here.
+                // Banding is gated on `MonitorMetric::alertsOnString()`, the
+                // same predicate the incident decision uses, so the frozen
+                // history and the paging decision agree BY CONSTRUCTION.
+                // Through the API they would agree anyway, because that
+                // predicate is false only when all three lists are empty and
+                // the write path refuses a non-null `unmatched_band` in that
+                // state. But that argument rests on one FormRequest rule, and a
+                // seeder, a console write or a future importer does not go
+                // through it; an inert metric with a stray `unmatched_band`
+                // would otherwise freeze `critical` on every sample while
+                // paging nobody, which reads as a silently ignored outage.
                 $stringValue = $value;
                 $stringSamples[$metric->key] = $value;
-                $band = ThresholdEvaluator::bandString(
-                    value: $value,
-                    okValues: $metric->ok_values,
-                    warnValues: $metric->warn_values,
-                    criticalValues: $metric->critical_values,
-                    unmatchedBand: $metric->unmatched_band,
-                );
+                $band = $metric->alertsOnString()
+                    ? ThresholdEvaluator::bandString(
+                        value: $value,
+                        okValues: $metric->ok_values,
+                        warnValues: $metric->warn_values,
+                        criticalValues: $metric->critical_values,
+                        unmatchedBand: $metric->unmatched_band,
+                    )
+                    : null;
             }
 
             $rows[] = [
