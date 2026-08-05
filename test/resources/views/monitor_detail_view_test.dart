@@ -248,6 +248,38 @@ void main() {
     expect(find.byType(MSSkeleton), findsNothing);
   });
 
+  testWidgets('a cold cache renders the skeleton, not "monitor not found"', (
+    tester,
+  ) async {
+    // The regression this pins: `monitorById` answers null until the first
+    // inventory read lands, and the null branch went straight to the not-found
+    // state. So a deep link into a monitor that exists (the link an alert
+    // notification carries, or a bookmark, or a hard refresh) opened on
+    // "Monitor not found" and only corrected itself once the fetch resolved.
+    // The list view learned this lesson and gates on `isFirstLoad`; this screen
+    // did not.
+    //
+    // Drop the seeded harness so the mount's own fetch is still in flight on
+    // the first frame, which is exactly the cold-deep-link moment.
+    MagicApp.reset();
+    Magic.flush();
+    Magic.singleton('magic_starter', () => MagicStarterManager());
+    Magic.singleton('log', () => LogManager());
+    Http.fake();
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+
+    expect(
+      find.text(trans('uptizm.monitors.error_load_title')),
+      findsNothing,
+      reason: 'a pending inventory read must never assert the monitor is gone',
+    );
+    expect(find.byType(MSSkeleton), findsWidgets);
+    expectVisibleSkeletons(tester);
+  });
+
   testWidgets('MonitorDetailView renders the header with a StatusBadge', (
     tester,
   ) async {

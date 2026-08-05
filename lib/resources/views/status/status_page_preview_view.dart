@@ -67,7 +67,9 @@ class _StatusPagePreviewViewState
     //    route id.
     final StatusPage? page = controller.configById(widget.id);
     if (page == null) {
-      return _buildNotFound();
+      // Null means "the roster read has not answered" as often as it means "no
+      // such page", and only the second deserves the not-found screen.
+      return controller.isFirstLoad ? _buildPending() : _buildNotFound();
     }
 
     // 2. Header: breadcrumb back to the page's editor, then a centered
@@ -155,6 +157,34 @@ class _StatusPagePreviewViewState
   /// [StatusPageController.configById] returns null.
   ///
   /// Mirrors the React `StatusPageNotFound` copy, localized through [trans].
+  /// Builds the pending state shown while the roster read that will decide
+  /// whether this page exists is still in flight.
+  ///
+  /// Every [MSSkeleton] carries an explicit height: it wraps a childless `WDiv`
+  /// with nothing of its own to measure, so one without a height lays out 0px
+  /// tall and the operator sees a blank screen instead of a placeholder.
+  Widget _buildPending() {
+    return MSPageContainer(
+      child: WDiv(
+        className: 'flex flex-col gap-6',
+        children: [
+          MSPageHeader(
+            title: trans('common.loading'),
+            backLabel: trans('uptizm.status.list_title'),
+            backFallback: '/status',
+          ),
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: const [
+              MSSkeleton(height: 48),
+              MSSkeleton(height: 200),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(

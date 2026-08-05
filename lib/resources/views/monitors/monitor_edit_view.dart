@@ -76,11 +76,14 @@ class _MonitorEditViewState
 
   @override
   Widget build(BuildContext context) {
-    // 1. Resolve the monitor; null or unknown id falls back to not-found so
-    //    the screen never crashes on a stale or invalid route parameter.
+    // 1. Resolve the monitor. A null answer means either "the inventory read is
+    //    still in flight" or "no monitor has this id", and only the second is a
+    //    not-found. This form is the sharper half of that distinction: it writes
+    //    back what it shows, so it must never invite a save against a prefill it
+    //    could not read yet.
     final Monitor? monitor = controller.monitorById(widget.id);
     if (monitor == null) {
-      return _buildNotFound();
+      return controller.isFirstLoad ? _buildPending() : _buildNotFound();
     }
 
     // 2. A Wind flex column scaffolds the page body inside MSPageContainer with a
@@ -136,6 +139,37 @@ class _MonitorEditViewState
             submitLabel: trans('uptizm.monitors.form_submit_save'),
             onSubmit: (fields) => controller.save(monitor.id, fields),
             onCancel: () => MagicRoute.to('/monitors/${monitor.id}'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the pending state shown while the inventory read that will decide
+  /// whether this monitor exists is still in flight.
+  ///
+  /// Placeholder bars rather than an empty column: every [MSSkeleton] carries an
+  /// explicit height because it wraps a childless `WDiv` and has nothing of its
+  /// own to measure, so one without a height lays out 0px tall and the operator
+  /// sees a blank screen.
+  Widget _buildPending() {
+    return MSPageContainer(
+      child: WDiv(
+        className: 'flex flex-col gap-6',
+        children: [
+          MSPageHeader(
+            title: trans('common.loading'),
+            backLabel: trans('uptizm.monitors.back_to_monitors'),
+            backFallback: '/monitors',
+          ),
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: const [
+              MSSkeleton(height: 56),
+              MSSkeleton(height: 56),
+              MSSkeleton(height: 56),
+              MSSkeleton(height: 120),
+            ],
           ),
         ],
       ),

@@ -341,12 +341,15 @@ class _MonitorDetailViewState
 
   @override
   Widget build(BuildContext context) {
-    // 1. Resolve the monitor; a null / unknown id falls back to a graceful
-    //    not-found state so the screen never crashes when the route passes an
-    //    id with no fixture behind it.
+    // 1. Resolve the monitor. `monitorById` answers null in two different
+    //    situations and only one of them is a not-found: the inventory read may
+    //    still be in flight, or it may have landed without this id in it.
+    //    Asserting not-found during the first told an operator arriving from an
+    //    alert link that their monitor was gone, which is the same defect
+    //    MonitorsListView fixed with this exact flag.
     final Monitor? monitor = controller.monitorById(widget.id);
     if (monitor == null) {
-      return _buildNotFound();
+      return controller.isFirstLoad ? _buildPending() : _buildNotFound();
     }
 
     final bool paused = monitor.status == StatusKey.paused;
@@ -1026,6 +1029,29 @@ class _MonitorDetailViewState
   ///
   /// Reuses the monitors error-load copy as a calm "couldn't load this
   /// monitor" message rather than crashing on an unknown route id.
+  /// Builds the pending state shown while the inventory read that will decide
+  /// whether this monitor exists is still in flight.
+  ///
+  /// The header carries no name or status because neither is known yet; the body
+  /// is the same skeleton scaffold `_loading` uses, so the cold-deep-link frame
+  /// and the warm-refresh frame look identical instead of one of them being an
+  /// error screen.
+  Widget _buildPending() {
+    return MSPageContainer(
+      child: WDiv(
+        className: 'flex flex-col gap-6',
+        children: [
+          MSPageHeader(
+            title: trans('common.loading'),
+            backLabel: trans('uptizm.monitors.back_to_monitors'),
+            backFallback: '/monitors',
+          ),
+          _buildLoadingSkeleton(),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(

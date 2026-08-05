@@ -367,9 +367,14 @@ class _EscalationPolicyEditorViewState
   @override
   Widget build(BuildContext context) {
     // 1. A supplied-but-unknown id is a broken link, so it renders a graceful
-    //    not-found state (mirrors status_page_editor_view).
+    //    not-found state (mirrors status_page_editor_view). "Unknown" only means
+    //    unknown once the per-id read has answered: `initState` kicks off
+    //    `refreshDetail`, and firing not-found while that is still in flight
+    //    called a policy broken for the whole first frame of a deep link.
     if (widget.id != null && controller.detailById(widget.id) == null) {
-      return _buildNotFound();
+      return controller.isFirstLoadFor(widget.id)
+          ? _buildPending()
+          : _buildNotFound();
     }
 
     // 2. A plain Flutter Column scaffolds the page body so each leaf receives a
@@ -388,6 +393,35 @@ class _EscalationPolicyEditorViewState
   }
 
   /// Builds the graceful not-found state for an unknown policy id.
+  /// Builds the pending state shown while the per-id read that will decide
+  /// whether this policy exists is still in flight.
+  ///
+  /// Every [MSSkeleton] carries an explicit height: it wraps a childless `WDiv`
+  /// with nothing of its own to measure, so one without a height lays out 0px
+  /// tall and the operator sees a blank screen instead of a placeholder.
+  Widget _buildPending() {
+    return MSPageContainer(
+      child: WDiv(
+        className: 'flex flex-col gap-6',
+        children: [
+          MSPageHeader(
+            title: trans('common.loading'),
+            backLabel: trans('uptizm.team_menu.escalation'),
+            backFallback: '/teams/escalation',
+          ),
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: const [
+              MSSkeleton(height: 56),
+              MSSkeleton(height: 56),
+              MSSkeleton(height: 140),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotFound() {
     return MSPageContainer(
       child: MSEmptyState(

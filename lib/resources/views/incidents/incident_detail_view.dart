@@ -227,11 +227,17 @@ class _IncidentDetailViewState
 
   @override
   Widget build(BuildContext context) {
-    // 1. Resolve the incident; a null / unknown id falls back to a graceful
-    //    not-found state so the screen never crashes on an unknown route id.
+    // 1. Resolve the incident. A null answer means either "the lookup for this
+    //    id has not answered yet" or "no incident has this id", and only the
+    //    second is a not-found. The comment below already noted that this screen
+    //    can mount before the roster carries the incident; the not-found branch
+    //    used to fire in exactly that window, so an operator following the link
+    //    in an alert read that the incident did not exist.
     final Incident? incident = controller.incidentById(widget.id);
     if (incident == null) {
-      return _buildNotFound();
+      return controller.isFirstLoadFor(widget.id)
+          ? _buildPending()
+          : _buildNotFound();
     }
 
     // Reseed the composer's default stage the first time the real incident
@@ -1015,6 +1021,35 @@ class _IncidentDetailViewState
   ///
   /// Reuses the incidents error-load copy as a calm "couldn't load this
   /// incident" message rather than crashing on an unknown route id.
+  /// Builds the pending state shown while the lookup that will decide whether
+  /// this incident exists is still in flight.
+  ///
+  /// Every [MSSkeleton] carries an explicit height: it wraps a childless `WDiv`
+  /// and has nothing of its own to measure, so one without a height lays out 0px
+  /// tall and the operator sees a blank screen instead of a placeholder.
+  Widget _buildPending() {
+    return MSPageContainer(
+      child: WDiv(
+        className: 'flex flex-col gap-6',
+        children: [
+          MSPageHeader(
+            title: trans('common.loading'),
+            backLabel: trans('uptizm.incidents.detail_back'),
+            backFallback: '/incidents',
+          ),
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: const [
+              MSSkeleton(height: 96),
+              MSSkeleton(height: 160),
+              MSSkeleton(height: 160),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(
