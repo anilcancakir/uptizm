@@ -14,6 +14,32 @@ enum IncidentSeverity: string
     case Info = 'info';
 
     /**
+     * How loud this severity is, for comparing two of them.
+     *
+     * Higher outranks lower. The enum's declaration order already reads
+     * critical-first, but `IncidentSeverity::cases()` order is not a contract to
+     * hang alerting on: a reorder for cosmetic reasons would silently invert
+     * which breach escalates which incident.
+     */
+    public function rank(): int
+    {
+        return match ($this) {
+            self::Critical => 3,
+            self::Warn => 2,
+            self::Info => 1,
+        };
+    }
+
+    /**
+     * Whether this severity is louder than [$other], which is the question
+     * behind escalating an already-open incident.
+     */
+    public function outranks(self $other): bool
+    {
+        return $this->rank() > $other->rank();
+    }
+
+    /**
      * Customer-facing impact tier implied by this operator severity.
      *
      * Used when a manual incident is opened without an explicit

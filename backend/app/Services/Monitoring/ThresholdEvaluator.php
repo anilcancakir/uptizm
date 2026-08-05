@@ -63,25 +63,46 @@ class ThresholdEvaluator
      *
      * @param  array<string, float|int|null>  $metricSamples
      * @param  array<string, string>  $stringSamples
-     * @return array{opened: ?Incident, resolved: ?Incident}
+     * @return array{opened: ?Incident, resolved: ?Incident, escalated: ?Incident}
      */
     public function evaluate(Monitor $monitor, MonitorCheck $check, array $metricSamples, array $stringSamples): array
     {
         // 1. Metric bound breaches fire first so incidents carry metric context.
         $metricBreach = $this->firstMetricBreach($monitor, $metricSamples, $stringSamples);
-        if ($metricBreach !== null && ! $this->hasActiveIncidentForMetric($monitor, $metricBreach['metric']->key)) {
-            $opened = $this->openIncident(
-                monitor: $monitor,
-                check: $check,
-                severity: $metricBreach['severity'],
-                title: $metricBreach['title'],
-                metricKey: $metricBreach['metric']->key,
-            );
+        if ($metricBreach !== null) {
+            $active = $this->activeIncidentForMetric($monitor, $metricBreach['metric']->key);
 
-            return [
-                'opened' => $opened,
-                'resolved' => null,
-            ];
+            if ($active === null) {
+                $opened = $this->openIncident(
+                    monitor: $monitor,
+                    check: $check,
+                    severity: $metricBreach['severity'],
+                    title: $metricBreach['title'],
+                    metricKey: $metricBreach['metric']->key,
+                );
+
+                return [
+                    'opened' => $opened,
+                    'resolved' => null,
+                    'escalated' => null,
+                ];
+            }
+
+            // The metric-scoped dedupe above used to be the whole story, so a
+            // breach that arrived LOUDER than the open incident was swallowed:
+            // a two-tier metric (`degraded` warns, `down` pages, the natural
+            // shape of a health endpoint) opened at warn and then never paged,
+            // because the critical-only channels gate on the incident's own
+            // severity and nothing ever raised it.
+            $escalated = $this->escalateIfLouder($active, $metricBreach);
+
+            if ($escalated !== null) {
+                return [
+                    'opened' => null,
+                    'resolved' => null,
+                    'escalated' => $escalated,
+                ];
+            }
         }
 
         // 2. Fall back to consecutive-fail threshold for bare up/down signals.
@@ -106,7 +127,39 @@ class ThresholdEvaluator
         return [
             'opened' => $opened,
             'resolved' => $resolved,
+            'escalated' => null,
         ];
+    }
+
+    /**
+     * Raise [$incident]'s severity to the breach's when the breach is louder,
+     * and return the incident so the caller can notify on it. Returns `null`
+     * when the breach is no louder, which is the common case: the same value
+     * repeating every interval must stay silent.
+     *
+     * Deliberately one-directional. An outage improving from `down` to
+     * `degraded` keeps its critical severity, because it is still the same
+     * outage and quietly downgrading it would retire the critical channels
+     * mid-incident, leaving whoever is working it without the notifications
+     * they were paged on.
+     *
+     * @param  array{metric: MonitorMetric, severity: IncidentSeverity, title: string}  $breach
+     */
+    protected function escalateIfLouder(Incident $incident, array $breach): ?Incident
+    {
+        if (! $breach['severity']->outranks($incident->severity)) {
+            return null;
+        }
+
+        $incident->update([
+            'severity' => $breach['severity'],
+            // The title carries the offending value, so an escalated incident
+            // that still read "reported degraded" would name a state it has
+            // moved on from.
+            'title' => $breach['title'],
+        ]);
+
+        return $incident->refresh();
     }
 
     /**
@@ -421,11 +474,23 @@ class ThresholdEvaluator
      */
     protected function hasActiveIncidentForMetric(Monitor $monitor, string $metricKey): bool
     {
+        return $this->activeIncidentForMetric($monitor, $metricKey) !== null;
+    }
+
+    /**
+     * The monitor's active incident for [$metricKey], or `null`.
+     *
+     * Returns the incident rather than a bool because escalation needs its
+     * current severity to compare against; {@see hasActiveIncidentForMetric}
+     * stays as the yes/no wrapper for the callers that only ask that.
+     */
+    protected function activeIncidentForMetric(Monitor $monitor, string $metricKey): ?Incident
+    {
         return Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->where('trigger_metric_key', $metricKey)
             ->get()
-            ->contains(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+            ->first(fn (Incident $incident): bool => $incident->lifecycle->isActive());
     }
 
     /**
