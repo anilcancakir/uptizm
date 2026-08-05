@@ -19,6 +19,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 
 /**
@@ -204,7 +205,27 @@ class MonitorForm
                         CodeEditor::make('assertion_rules')
                             ->label('Assertion rules (JSON)')
                             ->language(Language::Json)
-                            ->helperText('A JSON array of rules, each with a target, an operator and a value (a header rule adds a name). Forwarded to the probe verbatim.')
+                            /*
+                             * HTTP only, because every target is a property of an HTTP
+                             * response. `probeTcp` returns `assertions: null` and has
+                             * nothing to evaluate, so a rule set saved on a TCP monitor is
+                             * a permanent silent no-op that records NULL with no skip
+                             * reason: indistinguishable from a monitor that asserts
+                             * nothing. Hiding the field is what stops that from being
+                             * reachable at all, since validation alone would still accept a
+                             * perfectly well-formed rule that can never run.
+                             *
+                             * A monitor switched from HTTP to TCP keeps whatever it stored
+                             * and can no longer see it. That is a smaller wrong than a
+                             * verdict nobody measured, and the honest fix is a type-aware
+                             * clear on save, which is a follow-up rather than a hidden
+                             * field's business.
+                             */
+                            ->visible(fn (Get $get): bool => $get('type') === MonitorType::Http->value
+                                || $get('type') === MonitorType::Http)
+                            ->helperText('A JSON array of rules, each with a target, an operator and a value'
+                                .' (a header rule adds a name). HTTP monitors only; forwarded to the probe'
+                                .' verbatim.')
                             ->formatStateUsing(fn (mixed $state): ?string => is_array($state)
                                 ? json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
                                 : null)

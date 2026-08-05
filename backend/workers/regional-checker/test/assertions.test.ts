@@ -164,12 +164,27 @@ function fromTheWire(value: unknown): AssertionRule {
     return value as AssertionRule;
 }
 
+/**
+ * The same cast for the rule SET rather than for one rule.
+ *
+ * Separate because the shapes it has to express are the ones the parameter type
+ * rules out entirely: `assertion_rules` is a `jsonb` column handed over as
+ * whatever `request.json()` produced, so the top level can be an object or a
+ * scalar and not merely a list of bad elements.
+ */
+function setFromTheWire(value: unknown): AssertionRule[] {
+    return value as AssertionRule[];
+}
+
 describe("evaluateAssertions: no rules", () => {
     it("returns no report at all when the monitor configured no rules", () => {
-        // D4. `monitor_checks.assertions_passed` defaults to TRUE, so an empty
-        // report or a `passed: true` here would record "every assertion passed"
-        // for a monitor that asserts nothing, and a status page would then cite
-        // an assertion result that was never measured.
+        // D4, and the null is the whole of it. `monitor_checks.assertions_passed`
+        // shipped as `NOT NULL DEFAULT TRUE`, which is why the migration in this
+        // change set made it nullable and dropped the default: an empty report or
+        // a `passed: true` here would record "every assertion passed" for a
+        // monitor that asserts nothing, and a status page would then cite an
+        // assertion result that was never measured. NULL is now the only state
+        // that says nothing was measured, and only a null report writes it.
         expect(evaluateAssertions(null, reading())).toBeNull();
     });
 
@@ -183,6 +198,41 @@ describe("evaluateAssertions: no rules", () => {
         // A spec from an origin older than this field omits the key entirely, so
         // the evaluator sees `undefined` rather than `null`.
         expect(evaluateAssertions(undefined, reading())).toBeNull();
+    });
+
+    it("returns no report for a rule set the column holds as an object, not an array", () => {
+        // The `Array.isArray` guard, and the object with numeric keys is not a
+        // hypothetical: `AssertionRuleSet` documents it as the ONE shape its
+        // save-time screen deliberately accepts, because `json_decode(..., true)`
+        // turns `{"0": {...}}` into a PHP list and cannot tell it from one. So the
+        // panel saves it, the column stores an object, and this is where it lands.
+        //
+        // Null and not an empty report: nothing was measured, so D4 applies exactly
+        // as it does to a monitor with no rules. And not a throw either, which is
+        // the failure the guard is actually there for: `Object.entries`-free
+        // `.map()` over an object raises, `probeHttp` has no catch around the
+        // evaluator, and a healthy target would be published unreachable on every
+        // check.
+        expect(evaluateAssertions(setFromTheWire({
+            0: {
+                target: "status_code",
+                operator: "equals",
+                value: 200,
+            },
+        }), reading())).toBeNull();
+
+        expect(evaluateAssertions(setFromTheWire({
+            target: "body",
+            operator: "exists",
+        }), reading())).toBeNull();
+    });
+
+    it("returns no report for a scalar in place of a rule set", () => {
+        // Costs nothing beside the case above and closes the other half of what a
+        // `jsonb` column can physically hold.
+        for (const scalar of [42, "body contains ok", true]) {
+            expect(evaluateAssertions(setFromTheWire(scalar), reading()), String(scalar)).toBeNull();
+        }
     });
 });
 

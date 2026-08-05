@@ -122,6 +122,16 @@ const TARGET_HOST = "target.example";
 
 const JSON_BODY = "{\"status\":\"ok\",\"queue\":42}";
 
+/**
+ * The preview floor, mirroring `BODY_PREVIEW_BYTES` in `src/regional-probe.ts`.
+ *
+ * Hardcoded rather than exported from the source, because it is the boundary the
+ * body-read cases straddle: a test that imported the constant would follow a
+ * later edit that moved the floor and stay green through the very change it
+ * exists to notice.
+ */
+const BODY_PREVIEW_BYTES = 10_240;
+
 function spec(overrides: Partial<ProbeSpec> = {}): ProbeSpec {
     return {
         monitor_id: "01JMONITORID",
@@ -905,6 +915,76 @@ describe("assertions decide the verdict on a response that was received", () => 
         expect(result.content_type).toBe("text/html; charset=utf-8");
         expect(result.assertions?.results[0].verdict).toBe("passed");
         expect(result.status).toBe("up");
+    });
+
+    it("asserts against a body the archive refuses AND that is larger than the preview floor", async () => {
+        // The case above passes on a 23-byte body, where the stream ends inside the
+        // 10 KiB preview and the rule runs by accident of size. This is the one that
+        // caught a real defect: with the archive refusing the type, `contentCeiling`
+        // was 0, the read stopped at the preview floor, the stream never ended, and
+        // every body rule skipped as `body_too_large` while the check published
+        // `up`. Every `application/problem+json`, `application/vnd.api+json` and
+        // `application/hal+json` endpoint over 10 KiB was affected, and the recorded
+        // reason pointed the operator at `max_bytes` when the lever was
+        // `allowed_content_types`. The needle sits PAST the floor on purpose: a fix
+        // that only widened the flag without widening the read would still pass a
+        // needle inside the first 10 KiB.
+        const needle = "\"detail\":\"queue drained\"";
+        const oversized = "x".repeat(BODY_PREVIEW_BYTES + 4_096) + needle;
+
+        interceptFetch(() => new Response(oversized, {
+            headers: {
+                "content-type": "application/problem+json",
+            },
+        }));
+
+        const { result } = await runProbe(spec({
+            allowed_content_types: [
+                "application/json",
+            ],
+            assertion_rules: [
+                {
+                    target: "body",
+                    operator: "contains",
+                    value: needle,
+                },
+            ],
+        }));
+
+        expect(result.content).toBeNull();
+        expect(result.assertions?.results[0].verdict).toBe("passed");
+        expect(result.assertions?.passed).toBe(true);
+        expect(result.status).toBe("up");
+    });
+
+    it("does not read past the preview floor for a monitor with no body rule", async () => {
+        // The other half of the fix, so "read further" cannot become "read further
+        // always". A monitor that asserts nothing, or asserts only on the status
+        // code, must not pull an extra megabyte across the edge for a value nothing
+        // reads. `response_body_preview` is the observable proof of how much was
+        // kept.
+        interceptFetch(() => new Response("y".repeat(BODY_PREVIEW_BYTES + 4_096), {
+            headers: {
+                "content-type": "application/problem+json",
+            },
+        }));
+
+        const { result } = await runProbe(spec({
+            allowed_content_types: [
+                "application/json",
+            ],
+            assertion_rules: [
+                {
+                    target: "status_code",
+                    operator: "equals",
+                    value: 200,
+                },
+            ],
+        }));
+
+        expect(result.content).toBeNull();
+        expect(result.response_body_preview).toHaveLength(BODY_PREVIEW_BYTES);
+        expect(result.assertions?.results[0].verdict).toBe("passed");
     });
 
     it("returns the decoded body for a type the archive does allow", async () => {

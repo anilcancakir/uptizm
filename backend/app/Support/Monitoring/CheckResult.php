@@ -150,9 +150,21 @@ readonly class CheckResult
          *
          * This one DOES travel through {@see toArray()} and therefore through the
          * Redis `processing` queue, unlike {@see $content}. That is affordable
-         * because the edge bounds every recorded `observed` value to 256
-         * characters for exactly this reason, so a report is kilobytes rather than
-         * the megabyte a page body would be.
+         * because BOTH halves of an outcome are bounded, and it takes both: the
+         * edge cuts every recorded `observed` value to 256 characters, and
+         * {@see AssertionRuleSet} refuses at save time a rule over
+         * `RULE_MAX_BYTES` (4096) or a set over `RULES_MAX_COUNT` (20). So a
+         * report is at worst 20 × (4 KB of echoed rule + 1 KB of observed
+         * excerpt), which is ~100 KB, against the megabyte a page body would be.
+         *
+         * The observed cap alone would not do it, and reading it as sufficient was
+         * a real error in an earlier version of this docblock: every outcome also
+         * echoes the RULE verbatim, so an uncapped `body contains` needle is
+         * whatever an operator pasted, on every check, from every region. That the
+         * rule bound lives at save time rather than at the edge is safe for one
+         * documented reason: the staff Filament panel is the only writer, no API
+         * `FormRequest` names `assertion_rules`, and widening that surface has to
+         * carry the screen with it (see {@see AssertionRuleSet}'s own docblock).
          *
          * @var array{passed: bool, results: list<array<string, mixed>>}|null
          */
@@ -291,8 +303,9 @@ readonly class CheckResult
             'content_type' => $this->contentType,
             'content_truncated' => $this->contentTruncated,
             // Present, unlike `content` above, and see {@see $assertions} for why
-            // the queue can afford it: the edge bounds every recorded `observed`
-            // value to 256 characters, so a report is kilobytes.
+            // the queue can afford it: the edge bounds each recorded `observed`
+            // value and `AssertionRuleSet` bounds the rules being echoed beside
+            // them, which together put a report in the tens of kilobytes.
             'assertions' => $this->assertions,
         ];
     }

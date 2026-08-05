@@ -824,6 +824,49 @@ function determineStatus(statusCode: number, expected: number): "up" | "down" | 
     return "down";
 }
 
+/**
+ * How far the body must be read for the monitor's rules to be answerable, in
+ * BYTES, or 0 when no rule looks at the body.
+ *
+ * This exists because the archive decision must not decide the assertion
+ * decision, and for a while it did. `contentCeiling` is 0 for any content type
+ * off the spec's `allowed_content_types`, which collapsed the read to the 10 KiB
+ * preview floor, left the stream unended, and skipped every body rule as
+ * `body_too_large`. So a `body contains` rule on an `application/problem+json`,
+ * `application/vnd.api+json` or `application/hal+json` endpoint, or on any
+ * response that sent no content-type header at all, read `passed: true` forever
+ * while never running. That is the same silent no-op the assertion work existed
+ * to close, arriving through the archive's door instead, and it was worse than
+ * the original: the lever is OUR `allowed_content_types` config, so an operator
+ * reading `body_too_large` would go looking at `max_bytes` and find nothing
+ * wrong.
+ *
+ * Reading further does NOT archive anything: `content` stays null for a
+ * non-archivable type, so the extra bytes are evaluated and discarded.
+ *
+ * The ceiling is `CONTENT_MAX_BYTES_FALLBACK` rather than the origin's
+ * `max_bytes`, deliberately. Coupling them is how the bug got here: an operator
+ * lowering `max_bytes` to save archive space would silently stop their own
+ * assertions from running. UTF-8 decodes to at most one character per byte, so a
+ * body read whole under this byte ceiling can never exceed the evaluator's
+ * `ASSERTION_BODY_MAX_CHARS`.
+ */
+function assertionReadCeiling(probe: ProbeRequest): number {
+    const rules = probe.assertion_rules;
+
+    if (!Array.isArray(rules)) {
+        return 0;
+    }
+
+    // `target` is read off an unvalidated wire value, so this asks the question
+    // the evaluator asks rather than trusting the declared type.
+    const readsBody = rules.some(
+        (rule) => (rule as { target?: unknown } | null)?.target === "body",
+    );
+
+    return readsBody ? CONTENT_MAX_BYTES_FALLBACK : 0;
+}
+
 type BodyRead = {
     /** The first {@link BODY_PREVIEW_BYTES} of the body, decoded. */
     preview: string | null;
@@ -866,7 +909,9 @@ type BodyRead = {
  *
  * A body whose content type is not on the spec's allowlist is read only as far
  * as the preview. There is nothing to archive, so pulling the remaining megabyte
- * across the edge would buy nothing.
+ * across the edge would buy nothing, UNLESS the monitor asserts against the body:
+ * see {@link assertionReadCeiling} for why that case has to override the archive
+ * decision rather than inherit it.
  */
 async function readBody(response: Response, probe: ProbeRequest): Promise<BodyRead> {
     if (response.body === null) {
@@ -893,7 +938,14 @@ async function readBody(response: Response, probe: ProbeRequest): Promise<BodyRe
     // The preview floor is independent of the archive ceiling: a deploy that
     // lowered `max_bytes` below 10 KiB must not quietly shrink the preview
     // column that existing consumers read.
-    const readLimit = Math.max(contentCeiling, BODY_PREVIEW_BYTES);
+    //
+    // The assertion ceiling is independent of BOTH, and that independence is the
+    // whole point of it. See {@link assertionReadCeiling}.
+    const readLimit = Math.max(
+        contentCeiling,
+        BODY_PREVIEW_BYTES,
+        assertionReadCeiling(probe),
+    );
 
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -913,11 +965,18 @@ async function readBody(response: Response, probe: ProbeRequest): Promise<BodyRe
         total += value.byteLength;
     }
 
-    // A body that ends exactly ON the ceiling is indistinguishable from one that
+    // A body that ends exactly ON the limit is indistinguishable from one that
     // continues past it until one more chunk is asked for. Without this an
     // exactly-1 MB page would be archived under a truncation flag it does not
     // deserve, and the API would treat a complete snapshot as a fragment.
-    if (!ended && total <= contentCeiling) {
+    //
+    // Gated on `readLimit` and not on `contentCeiling`, because the same ambiguity
+    // decides `assertable.truncated`, which is a skip and not just a flag. With
+    // `contentCeiling` here, a `max_bytes` set below 10 KiB left an archivable
+    // body of exactly `readLimit` reading as a prefix, and every body rule
+    // skipped. The archive's own flag below is unaffected either way: it tests
+    // `total > contentCeiling` separately.
+    if (!ended && total <= readLimit) {
         const {
             done,
         } = await reader.read();
@@ -934,7 +993,10 @@ async function readBody(response: Response, probe: ProbeRequest): Promise<BodyRe
             : null,
         truncated: archivable && (total > contentCeiling || !ended),
         assertable: {
-            text: decodeUtf8(merged),
+            // Decoded only when a rule actually reads the body. Otherwise this is a
+            // second full UTF-8 decode of up to 1 MiB, on top of `content` two lines
+            // above, on a runtime metered by CPU, for a value nothing consults.
+            text: assertionReadCeiling(probe) > 0 ? decodeUtf8(merged) : "",
             // `ended` is set only by a read that reported done, and every path
             // that can set it had `total` inside `readLimit`, so a stream that
             // never ended is exactly the case where `merged` is a prefix.
