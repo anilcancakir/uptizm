@@ -307,7 +307,11 @@ class IncidentOpened extends Notification implements ShouldQueue
     public function toWebhook(mixed $notifiable): array
     {
         return [
-            'event' => 'incident.opened',
+            // Derived, not hardcoded: this is a machine-readable field an
+            // integrator switches on, and an escalation posting
+            // `incident.opened` would be a lie in the one payload nobody reads
+            // with their eyes.
+            'event' => str_replace('_', '.', $this->eventType()),
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
             'monitor_name' => $this->monitorName(),

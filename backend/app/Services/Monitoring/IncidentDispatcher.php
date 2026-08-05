@@ -168,7 +168,11 @@ class IncidentDispatcher
         //    and must be forgotten immediately, not after the 60s TTL. This is
         //    wired at the pivot boundary (not an Incident observer), which fires
         //    before monitors()->attach() and so cannot see the containing pages.
-        if ($outcome['opened'] !== null || $outcome['resolved'] !== null) {
+        //    An escalation counts too: it rewrites the incident's severity AND
+        //    its title, and StatusPageAssembler puts that title straight into the
+        //    public read model, so a cached page would keep showing the state the
+        //    incident has moved on from until the TTL expired.
+        if ($outcome['opened'] !== null || $outcome['resolved'] !== null || $escalated !== null) {
             $this->statusPageCache->invalidateForMonitors([$monitor->id]);
         }
 

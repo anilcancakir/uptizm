@@ -20,6 +20,7 @@ use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Monitoring\IncidentDispatcher;
 use App\Services\StatusPages\StatusPageCache;
+use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
@@ -104,6 +105,61 @@ class IncidentChannelDispatchTest extends TestCase
         Notification::assertSentTo($webhookCritical, IncidentEscalated::class);
         Notification::assertSentTo($slackAll, IncidentEscalated::class);
         Notification::assertNotSentTo($webhookCritical, IncidentOpened::class);
+    }
+
+    /**
+     * The three things the review caught, each stated as an assertion rather than
+     * left to the reader: the webhook payload names the real event, the public
+     * status page is invalidated, and the notification is registered so the
+     * send-time gate consults the operator's preference at all.
+     */
+    public function test_an_escalation_names_itself_correctly_to_integrations(): void
+    {
+        [$monitor, $team] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor, IncidentSeverity::Critical);
+
+        $payload = (new IncidentEscalated($incident))->toWebhook($this->channel($team, NotificationChannelSeverity::All));
+
+        $this->assertSame(
+            'incident.escalated',
+            $payload['event'],
+            'a hardcoded incident.opened would be a lie in a machine-read field',
+        );
+        $this->assertSame('critical', $payload['severity']);
+    }
+
+    public function test_an_escalation_invalidates_the_public_status_page(): void
+    {
+        Notification::fake();
+        [$monitor] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor, IncidentSeverity::Critical);
+
+        // An escalation rewrites the incident's title and severity, and the
+        // assembler puts that title into the public read model, so a cached page
+        // would otherwise serve the state the incident has moved on from.
+        $this->mock(StatusPageCache::class, function (MockInterface $mock) use ($monitor): void {
+            $mock->shouldReceive('invalidateForMonitors')->once()->with([$monitor->id]);
+        });
+
+        $this->app->make(IncidentDispatcher::class)->dispatch($monitor, [
+            'opened' => null,
+            'resolved' => null,
+            'escalated' => $incident,
+            'status_change' => null,
+        ]);
+    }
+
+    public function test_the_escalation_notification_is_registered_for_preferences(): void
+    {
+        // An unregistered class is FAIL-OPEN in GateNotificationChannels, so
+        // without this entry the escalation shipped ungated: a member who had
+        // turned push off would still be pushed. The slug the registry derives
+        // has to match the token the notification uses for its preference rows.
+        $this->assertTrue(NotificationPreferenceRegistry::has(IncidentEscalated::class));
+        $this->assertSame(
+            'incident_escalated',
+            NotificationPreferenceRegistry::resolveSlug(IncidentEscalated::class),
+        );
     }
 
     public function test_disabled_channels_are_never_notified(): void
