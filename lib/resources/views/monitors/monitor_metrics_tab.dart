@@ -102,17 +102,17 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     if (mounted) setState(() {});
   }
 
-  /// Read-only system metrics: a single "response time" row derived from the
-  /// live [MonitorController] inventory, absent when that monitor has no
-  /// recorded response time yet (paused, or no check has completed).
-  /// The interval this monitor checks on, which is the honest bound for calling
-  /// a reading stale: a monitor that checks every 30s and has said nothing for
-  /// ten minutes is not reporting. Zero when the monitor is not in the inventory
-  /// yet, and [isReadingStale] treats that as "do not guess".
+  /// The interval this monitor checks on, which is the honest bound for calling a
+  /// reading stale: a monitor that checks every 30s and has said nothing for ten
+  /// minutes is not reporting. Zero when the monitor is not in the inventory yet,
+  /// and [isReadingStale] treats that as "do not guess".
   int get _checkIntervalSec =>
       MonitorController.instance.monitorById(widget.monitorId)?.checkIntervalSec ??
       0;
 
+  /// Read-only system metrics: a single "response time" row derived from the
+  /// live [MonitorController] inventory, absent when that monitor has no
+  /// recorded response time yet (paused, or no check has completed).
   List<MonitorMetric> get _systemMetrics {
     final Monitor? monitor = MonitorController.instance.monitorById(
       widget.monitorId,

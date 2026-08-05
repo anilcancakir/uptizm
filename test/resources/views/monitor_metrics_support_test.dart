@@ -548,7 +548,7 @@ void main() {
       );
     });
 
-    test('the window scales with the monitor own interval', () {
+    test("the window scales with the monitor's own interval", () {
       // Five minutes old is fine for a 10-minute monitor and long dead for a
       // 30-second one, which is why the bound is the interval and not a constant.
       final DateTime fiveMinutesAgo = now.subtract(const Duration(minutes: 5));

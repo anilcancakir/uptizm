@@ -159,9 +159,14 @@ class MonitorMetricRecord {
       latestStatus: latestMap?['status_value'] as String?,
       latestString: latestMap?['string_value'] as String?,
       latestBand: latestMap?['band'] as String?,
-      latestRecordedAt: DateTime.tryParse(
-        (latestMap?['recorded_at'] as String?) ?? '',
-      ),
+      // `as String?` would THROW on a payload where `recorded_at` arrives as
+      // anything else, and a decoder that crashes on a malformed field is worse
+      // than one that treats it as absent: the tab would show nothing at all
+      // rather than a reading it cannot date.
+      latestRecordedAt: switch (latestMap?['recorded_at']) {
+        final String at => DateTime.tryParse(at),
+        _ => null,
+      },
       form: MetricForm(
         label: (map['label'] as String?) ?? '',
         key: (map['key'] as String?) ?? '',
