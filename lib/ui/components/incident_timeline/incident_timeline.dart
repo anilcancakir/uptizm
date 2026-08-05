@@ -93,6 +93,14 @@ class IncidentTimeline extends StatelessWidget {
     TimelineActor.system: Icons.settings_outlined,
   };
 
+  /// Glyph for the "Auto mode" chip on an autonomous entry.
+  ///
+  /// Deliberately its own constant rather than a read of
+  /// `_actorIcon[TimelineActor.ai]`: the two mean different things (who acted
+  /// vs. that the action needed no human) and only happen to share a sparkle
+  /// today, so re-pointing the AI actor's glyph should not silently move this.
+  static const IconData _autoModeIcon = Icons.auto_awesome;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -192,7 +200,7 @@ class IncidentTimeline extends StatelessWidget {
       ''',
       children: [
         WIcon(
-          Icons.auto_awesome,
+          _autoModeIcon,
           className: 'text-[11px] text-ai-soft-foreground',
         ),
         WText(
