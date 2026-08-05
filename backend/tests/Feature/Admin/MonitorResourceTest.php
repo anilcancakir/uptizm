@@ -313,6 +313,35 @@ class MonitorResourceTest extends TestCase
         }
     }
 
+    public function test_a_tcp_monitor_is_never_offered_the_assertion_field(): void
+    {
+        /*
+         * Every assertion target is a property of an HTTP response, and `probeTcp`
+         * returns `assertions: null` with nothing to evaluate. So a well-formed rule
+         * set saved on a TCP monitor passes validation and then never runs: it
+         * records NULL with no skip reason, which is indistinguishable from a
+         * monitor that asserts nothing. Validation cannot catch that, because the
+         * rule is not malformed; only not offering the field can.
+         *
+         * Both directions are asserted, so a gate that hides the field from
+         * everyone would fail here rather than read as a pass.
+         */
+        $team = $this->makeTeam('Assertion Visibility');
+
+        Livewire::test(EditMonitor::class, [
+            'record' => $this->makeMonitor($team, [
+                'type' => MonitorType::Tcp,
+                'url' => 'db.example.com:5432',
+            ])->getKey(),
+        ])->assertFormFieldIsHidden('assertion_rules');
+
+        Livewire::test(EditMonitor::class, [
+            'record' => $this->makeMonitor($team, [
+                'type' => MonitorType::Http,
+            ])->getKey(),
+        ])->assertFormFieldIsVisible('assertion_rules');
+    }
+
     public function test_a_rule_the_edge_could_only_skip_is_refused_and_names_its_index(): void
     {
         /*

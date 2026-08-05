@@ -27,10 +27,12 @@
 
 import type {
     AssertionObserved,
+    AssertionOperator,
     AssertionOutcome,
     AssertionReport,
     AssertionRule,
     AssertionSkipReason,
+    AssertionTarget,
 } from "./regional-probe";
 
 /**
@@ -118,25 +120,46 @@ export type AssertionSubject = {
  * is cast from `request.json()`, and a rule stored before the save-time
  * validator existed can name anything at all.
  */
-const TARGETS: ReadonlySet<string> = new Set([
-    "status_code",
-    "response_time_ms",
-    "body",
-    "header",
-]);
+/**
+ * Both sets are DERIVED from the unions rather than retyped as bare literals.
+ *
+ * A `Record` keyed by the union is exhaustive: omit a member and this file does
+ * not compile. Retyping the strings made these a THIRD uncoupled copy of the
+ * vocabulary beside the unions in `regional-probe.ts` and
+ * `AssertionRuleSet::TARGETS`/`OPERATORS` in PHP, so adding an operator to the
+ * union and to the validator but not here compiled clean, saved in the panel and
+ * skipped forever at the edge as `unknown_operator`. That is precisely the silent
+ * no-op this module was written to end.
+ *
+ * The SETS stay `ReadonlySet<string>` on purpose, because what they answer is an
+ * unvalidated wire value: the spec is cast from `request.json()` and a rule stored
+ * before the save-time validator existed can name anything at all. Typing the
+ * parameter would defeat the guard; typing the contents catches the typo. Only the
+ * PHP side remains a hand-kept mirror, and the two docblocks name each other.
+ */
+const TARGET_MEMBERS: Record<AssertionTarget, true> = {
+    status_code: true,
+    response_time_ms: true,
+    body: true,
+    header: true,
+};
 
-const OPERATORS: ReadonlySet<string> = new Set([
-    "equals",
-    "not_equals",
-    "contains",
-    "not_contains",
-    "greater_than",
-    "less_than",
-    "matches_regex",
-    "not_matches_regex",
-    "exists",
-    "not_exists",
-]);
+const OPERATOR_MEMBERS: Record<AssertionOperator, true> = {
+    equals: true,
+    not_equals: true,
+    contains: true,
+    not_contains: true,
+    greater_than: true,
+    less_than: true,
+    matches_regex: true,
+    not_matches_regex: true,
+    exists: true,
+    not_exists: true,
+};
+
+const TARGETS: ReadonlySet<string> = new Set(Object.keys(TARGET_MEMBERS));
+
+const OPERATORS: ReadonlySet<string> = new Set(Object.keys(OPERATOR_MEMBERS));
 
 /**
  * The comparisons that are vacuously true over a value that was never sent.
