@@ -29,6 +29,7 @@ use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Sanctum\Sanctum;
 use RuntimeException;
 use Tests\TestCase;
@@ -571,6 +572,33 @@ class MetricDiscoveryTest extends TestCase
         // endpoint must still answer the empty-array wire shape, never null and
         // never a 500.
         $this->fakeGateway(null);
+
+        $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
+
+        $response->assertStatus(200);
+        $this->assertSame([], $response->json('data.suggested_metrics'));
+    }
+
+    public function test_a_rate_limited_provider_degrades_to_an_empty_array(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+
+        // A provider 429 does NOT arrive as a client RequestException:
+        // `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors` converts 429, 402
+        // and 503 into `AiException` SUBCLASSES first, and `AiException` extends
+        // `Exception`, not `RuntimeException`. Before this was handled, the most
+        // ordinary provider bad day there is threw straight out of `discover()`
+        // and 500'd a request that had only asked for a suggestion.
+        $gateway = new class extends LaravelAiMetricDiscoveryGateway
+        {
+            protected function rawSelections(MetricDiscoveryPayload $payload): ?array
+            {
+                throw RateLimitedException::forProvider('openrouter', 429);
+            }
+        };
+        $this->app->instance(LaravelAiMetricDiscoveryGateway::class, $gateway);
 
         $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
 
