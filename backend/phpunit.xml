@@ -65,5 +65,16 @@
         -->
         <env name="KODIZM_MCP_TOKEN" value=""/>
         <env name="IPINFO_TOKEN" value=""/>
+        <!--
+            The provider keys belong on that list for the same reason, and the
+            path is less obvious: a probe body in a fake relay wakes the REAL
+            MetricDiscoveryService, which generates candidates and asks a model
+            to select among them. Every analyze test predating this work carried
+            a null body, so the reachable-provider trap only appears once bodies
+            enter a fixture. Pinned empty so no test can reach a model on any
+            machine, rather than each test remembering to bind a double.
+        -->
+        <env name="OPENROUTER_API_KEY" value=""/>
+        <env name="ANTHROPIC_API_KEY" value=""/>
     </php>
 </phpunit>

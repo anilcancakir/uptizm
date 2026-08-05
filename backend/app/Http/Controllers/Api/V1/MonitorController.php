@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\BodyShape;
 use App\Enums\HttpMethod;
+use App\Enums\LocationBasis;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
 use App\Http\Controllers\Controller;
@@ -17,12 +19,19 @@ use App\Services\Ai\AiBudget;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
+use App\Services\Ai\LaravelAiAnalysisGateway;
 use App\Services\Ai\MetricDiscoveryService;
 use App\Services\Ai\ResponseTimeAnomalyDetector;
 use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\CheckAggregateService;
 use App\Services\Monitoring\RelayClient;
+use App\Services\Monitoring\ResponseDigest;
+use App\Services\Monitoring\ResponseDigestResult;
+use App\Services\Monitoring\TargetLocation;
+use App\Services\Monitoring\TargetLocationResult;
 use App\Support\Monitoring\CheckResult;
+use App\Support\Monitoring\HostGuard;
+use App\Support\Monitoring\ProbeHeaderAllowList;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\ConnectionException;
@@ -76,6 +85,35 @@ class MonitorController extends Controller
     protected const string DEGRADE_BUDGET_EXHAUSTED = 'AI analysis budget exhausted for today';
 
     protected const string DEGRADE_AI_UNAVAILABLE = 'AI analysis temporarily unavailable';
+
+    /**
+     * The uptime target the deterministic path prefills for each service class.
+     *
+     * A table rather than a judgement, because this path reads no semantics: the
+     * body's SHAPE is all it has. Its keys are exactly
+     * {@see LaravelAiAnalysisGateway::SERVICE_CLASSES} and its values exactly
+     * members of {@see LaravelAiAnalysisGateway::SLO_TARGETS}, both pinned by a
+     * test, because a value outside either set is not a prefill the operator's
+     * form can hold.
+     *
+     * `99.99` appears nowhere in it: fifty-two minutes of allowed downtime a
+     * year is a commitment nothing in a single probe can justify. `unknown` gets
+     * `none` from the other end of the same rule: we could not tell what the
+     * service is, so we name no target for it. Between those two, a
+     * `health_endpoint` is held tighter than a `web_page` or a `json_api`
+     * because it renders nothing, calls no third party and exists to answer one
+     * liveness question, which is the surface an operator would actually write a
+     * stricter number down for.
+     *
+     * @var array<string, string>
+     */
+    public const array SLO_TARGET_BY_SERVICE_CLASS = [
+        'json_api' => '99.9',
+        'health_endpoint' => '99.95',
+        'web_page' => '99.9',
+        'tcp_service' => '99.9',
+        'unknown' => 'none',
+    ];
 
     /**
      * List the current team's monitors, newest first, paginated.
@@ -247,6 +285,13 @@ class MonitorController extends Controller
      * response carries `suggested_metrics` beside the configuration. That rides
      * this call's EXISTING metered try: the operator asked for one analysis and
      * spends one, whatever the probe body turned out to contain.
+     *
+     * Every piece of evidence past the probe's own metadata is DERIVED from that
+     * one {@see CheckResult}, never fetched again: the headers are filtered from
+     * the set it already carries, the digest is rendered from the body already in
+     * memory, and the only additional call is one DNS lookup
+     * ({@see self::targetIps()}) plus, when the target is not behind a CDN, an
+     * optional geo lookup that is dormant unless a token is configured.
      */
     public function analyze(
         AnalyzeMonitorRequest $request,
@@ -255,6 +300,9 @@ class MonitorController extends Controller
         AnalysisGateway $gateway,
         AiBudget $budget,
         MetricDiscoveryService $discovery,
+        ResponseDigest $digester,
+        TargetLocation $targetLocation,
+        HostGuard $hostGuard,
     ): JsonResponse {
         $gate = new PlanGate;
         $team = Team::find($request->user()->current_team_id);
@@ -288,7 +336,22 @@ class MonitorController extends Controller
             ],
         );
 
-        // 3. Spend one unit of the team's daily AI budget atomically. Over
+        // 3. Assemble the evidence from the ONE probe already in memory. The
+        //    header allowlist runs FIRST because everything below reads its
+        //    output and nothing may read the raw set: the worker returns every
+        //    response header verbatim, and once the next plan sends the
+        //    operator's own credential, `Set-Cookie` on that set is an
+        //    authenticated session token. It stops here, at this line.
+        //
+        //    A digest only where there is a body to describe: null content is a
+        //    TCP probe, a content type the edge filtered out, or an older worker,
+        //    and a null digest renders as an explicit `n/a` in the prompt rather
+        //    than as an empty body we never observed.
+        $headers = ProbeHeaderAllowList::filter($probe->responseHeaders);
+        $digest = $probe->content !== null ? $digester->digest($probe->content) : null;
+        $location = $targetLocation->resolve($url, $headers, $this->targetIps($hostGuard, $url));
+
+        // 4. Spend one unit of the team's daily AI budget atomically. Over
         //    budget is not a failure: it degrades to a deterministic
         //    suggestion (statistics as the source of truth), it never drops
         //    the analyze. Within budget, the LLM labels the probe.
@@ -296,25 +359,32 @@ class MonitorController extends Controller
         $withinBudget = $budget->tryConsume($teamId);
 
         $modelled = $withinBudget
-            ? $this->suggestViaGateway($gateway, $url, $region, $probe, $candidate)
+            ? $this->suggestViaGateway(
+                $gateway,
+                $this->analysisPayload($url, $region, $teamId, $probe, $candidate, $headers, $digest, $location),
+            )
             : null;
 
-        // 4. Either degrade path answers with the same deterministic suggestion,
+        // 5. Either degrade path answers with the same deterministic suggestion,
         //    naming its own cause: within budget a null means the model or the
-        //    provider failed, outside it the budget did.
+        //    provider failed, outside it the budget did. It carries the same
+        //    fields a modelled answer does, read off the same evidence, so the
+        //    client decodes one shape on every path.
         $result = $modelled ?? $this->deterministicSuggestion(
             $probe,
             $region,
             $withinBudget ? self::DEGRADE_AI_UNAVAILABLE : self::DEGRADE_BUDGET_EXHAUSTED,
+            $digest,
+            $location,
         );
 
-        // 5. Mine the SAME probe body for metrics worth proposing. The body is
+        // 6. Mine the SAME probe body for metrics worth proposing. The body is
         //    already in memory here, so this costs no second probe; discovery
         //    spends its own budget unit and degrades to an empty array on its
         //    own, so a create flow never fails because of a suggestion.
         $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId);
 
-        // 6. A metered try buys AI ANALYSIS, so it is spent only when a model
+        // 7. A metered try buys AI ANALYSIS, so it is spent only when a model
         //    actually delivered one: neither degrade path above ran a model, so
         //    neither charges for one. A no-op on a tier that entitles AI
         //    analysis. Reporting what is left lets the client count the
@@ -397,29 +467,24 @@ class MonitorController extends Controller
      * which is the only monitor context an analyze has: the URL is not a monitor
      * yet, so there is no id to name.
      */
-    protected function suggestViaGateway(
-        AnalysisGateway $gateway,
-        string $url,
-        string $region,
-        CheckResult $probe,
-        ?object $candidate,
-    ): ?AnalysisResult {
+    protected function suggestViaGateway(AnalysisGateway $gateway, AnalysisPayload $payload): ?AnalysisResult
+    {
         try {
-            return $gateway->analyze($this->analysisPayload($url, $region, $probe, $candidate));
+            return $gateway->analyze($payload);
         } catch (RuntimeException) {
             Log::warning('Monitor analysis degraded: the model output could not be trusted.', [
-                'url' => $url,
-                'region' => $region,
+                'url' => $payload->url,
+                'region' => $payload->region,
             ]);
         } catch (ConnectionException|RequestException) {
             Log::warning('Monitor analysis degraded: the AI service was unreachable.', [
-                'url' => $url,
-                'region' => $region,
+                'url' => $payload->url,
+                'region' => $payload->region,
             ]);
         } catch (AiException) {
             Log::warning('Monitor analysis degraded: the AI provider could not complete the request.', [
-                'url' => $url,
-                'region' => $region,
+                'url' => $payload->url,
+                'region' => $payload->region,
             ]);
         }
 
@@ -427,19 +492,29 @@ class MonitorController extends Controller
     }
 
     /**
-     * Hydrate the analysis payload from the probe and its optional detector
-     * read.
+     * Hydrate the analysis payload from the probe, the evidence derived from it,
+     * and its optional detector read.
      *
-     * The attacker-influenceable probe fields (error message, body preview)
-     * are handed through untouched: {@see AnalysisPayload} fences and hard
-     * truncates them at the LLM boundary. Response headers are withheld
-     * entirely so a probe-controlled secret header can never reach the model.
+     * The attacker-influenceable probe fields (error message, body preview, the
+     * surviving header VALUES, the digest) are handed through untouched:
+     * {@see AnalysisPayload} fences and hard truncates them at the LLM boundary.
+     * Response headers used to be withheld entirely; they now reach the model
+     * because {@see ProbeHeaderAllowList} decided by NAME which of them the
+     * prompt has a consumer for, and nothing credential-bearing is on that list.
+     * The caller has already applied it, and this method must be handed its
+     * output rather than the raw set.
+     *
+     * @param  array<string, string>  $headers  Headers already through the allowlist.
      */
     protected function analysisPayload(
         string $url,
         string $region,
+        string $teamId,
         CheckResult $probe,
         ?object $candidate,
+        array $headers,
+        ?ResponseDigestResult $digest,
+        TargetLocationResult $location,
     ): AnalysisPayload {
         return new AnalysisPayload(
             url: $url,
@@ -459,13 +534,46 @@ class MonitorController extends Controller
             detectorEvidence: $candidate->evidence ?? [],
             errorMessage: $probe->errorMessage,
             responseBodyPreview: $probe->responseBodyPreview,
-            responseHeaders: [],
+            responseHeaders: $headers,
+            teamId: $teamId,
+            digest: $digest,
+            targetLocation: $location,
         );
     }
 
     /**
-     * Build a deterministic suggestion from the probe alone, used on every path
-     * where no model narration is available.
+     * The public addresses the target resolves to, or an empty list.
+     *
+     * Resolved AFTER the probe, and this is the only DNS lookup the analyze path
+     * adds. Two reasons for the ordering: nothing before the probe needs an
+     * address, because {@see TargetLocation} reads the RESPONSE headers to decide
+     * whether asking a geo provider is even honest, and moving the lookup earlier
+     * would only change where the same milliseconds are spent. Measured against
+     * `example.com` from this machine: 2-3 ms warm, 88 ms on a resolver cache
+     * miss, inside a request that already spends a relay probe plus up to two
+     * provider calls, so it does not move the latency budget the operator is
+     * waiting on.
+     *
+     * {@see HostGuard} is the only DNS code in this backend and
+     * {@see HostGuard::resolvePublicHostIps()} is its fail-closed entry point:
+     * one denied address discards the whole list, so an empty return covers an
+     * unresolvable host and a rebinding-shaped one alike, which is exactly how
+     * `TargetLocation` treats both.
+     *
+     * @return list<string>
+     */
+    protected function targetIps(HostGuard $hostGuard, string $url): array
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($host) && $host !== ''
+            ? $hostGuard->resolvePublicHostIps($host)
+            : [];
+    }
+
+    /**
+     * Build a deterministic suggestion from the probe and the evidence derived
+     * from it, used on every path where no model narration is available.
      *
      * Bounds are anchored to the observed response time (warn at 3x, critical
      * at 6x, with sane floors) so the prefill stays useful even without a
@@ -474,10 +582,23 @@ class MonitorController extends Controller
      * [$reason] is carried into the rationale rather than hardcoded because two
      * different causes reach here and the operator acts differently on each; see
      * {@see self::DEGRADE_BUDGET_EXHAUSTED}.
+     *
+     * The three classification fields are answered from the SAME evidence a
+     * modelled suggestion reads, so a degraded response carries the same shape
+     * rather than a hole where a classification would be. Each is derived, never
+     * guessed: the service class from the shape our own digest sniffed, the SLO
+     * target from a fixed table over that class, and the region basis from what
+     * our own lookup actually achieved.
      */
-    protected function deterministicSuggestion(CheckResult $probe, string $region, string $reason): AnalysisResult
-    {
+    protected function deterministicSuggestion(
+        CheckResult $probe,
+        string $region,
+        string $reason,
+        ?ResponseDigestResult $digest,
+        TargetLocationResult $location,
+    ): AnalysisResult {
         $observed = $probe->responseMs ?? 500;
+        $serviceClass = $this->serviceClassFor($digest?->shape);
 
         return new AnalysisResult(
             recommendedIntervalSeconds: 60,
@@ -486,7 +607,54 @@ class MonitorController extends Controller
             recommendedRegions: [$region],
             rationale: "Deterministic baseline from the exploratory probe ({$reason}).",
             strippedCitations: [],
+            serviceClass: $serviceClass,
+            regionBasis: $this->regionBasisFor($location->locationBasis),
+            recommendedSloTarget: self::SLO_TARGET_BY_SERVICE_CLASS[$serviceClass],
         );
+    }
+
+    /**
+     * The service class a sniffed body shape proves on its own, with no model
+     * reading a single key.
+     *
+     * Three of {@see LaravelAiAnalysisGateway::SERVICE_CLASSES} are unreachable
+     * from here and each absence is deliberate. `health_endpoint` needs the
+     * body's SEMANTICS (a `status` field, a `checks` map), which only the model
+     * reads, so a JSON body is `json_api` and nothing more. `tcp_service` cannot
+     * arise at all, because {@see self::transientMonitor()} always probes over
+     * HTTP. And an XML body answers `unknown` rather than being forced into the
+     * nearest member: a sitemap or a feed is neither an API nor a page, the
+     * closed set has no case for it, and `unknown` is then the true answer rather
+     * than a rounding of one.
+     */
+    protected function serviceClassFor(?BodyShape $shape): string
+    {
+        return match ($shape) {
+            BodyShape::Json => 'json_api',
+            BodyShape::Html => 'web_page',
+            default => 'unknown',
+        };
+    }
+
+    /**
+     * Map a lookup OUTCOME onto the model-facing reason vocabulary.
+     *
+     * The only place {@see LocationBasis} and
+     * {@see LaravelAiAnalysisGateway::REGION_BASES} meet, which is why they are
+     * allowed to be different sets: one records what a lookup achieved, the other
+     * why a region was chosen. `geoip` and `cdn_edge` carry across unchanged.
+     * `unresolved` becomes `default`, because as a REASON "the lookup answered
+     * nothing" is "nothing located this target". `content_language` has no source
+     * on this path at all: the deterministic suggestion reads no page language,
+     * so it could never honestly claim that basis.
+     */
+    protected function regionBasisFor(LocationBasis $basis): string
+    {
+        return match ($basis) {
+            LocationBasis::Geoip => 'geoip',
+            LocationBasis::CdnEdge => 'cdn_edge',
+            LocationBasis::Unresolved => 'default',
+        };
     }
 
     /**
