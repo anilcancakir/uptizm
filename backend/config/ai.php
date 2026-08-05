@@ -54,11 +54,20 @@ return [
      * has the strongest claim to one: it is the only task here that runs a
      * bounded TOOL LOOP before its structured turn, so it is the first that
      * would need a different model, and retuning it must not retune the five
-     * gateways still on `triage`. The default is deliberately identical to
-     * theirs, so leaving the env unset changes nothing.
+     * gateways still on `triage`.
+     *
+     * It falls back through `AI_TRIAGE_MODEL` rather than straight to the
+     * literal, and that is not tidiness. A deployment that has moved the AI
+     * surface to another provider sets `AI_DEFAULT` and `AI_TRIAGE_MODEL` and
+     * nothing else, so a literal default here would ask THAT provider for an
+     * Anthropic-native id it does not serve. The gateway's degrade would then
+     * catch the failure and answer deterministically on every single request,
+     * with only a log line to say so: the feature would ship dark and look
+     * healthy. Inheriting the value the rest of the surface already resolves to
+     * is what makes an unset env genuinely change nothing.
      */
     'analysis' => [
-        'model' => env('AI_ANALYSIS_MODEL', 'claude-haiku-4-5-20251001'),
+        'model' => env('AI_ANALYSIS_MODEL', env('AI_TRIAGE_MODEL', 'claude-haiku-4-5-20251001')),
     ],
 
     /*

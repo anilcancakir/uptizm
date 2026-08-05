@@ -119,7 +119,19 @@ class ProbeHeaderAllowList
                 continue;
             }
 
-            $kept[$name] = mb_substr((string) $lowercased[$name], 0, self::VALUE_MAX_LENGTH);
+            $value = $lowercased[$name];
+
+            // Type-checked rather than cast. The declared shape is
+            // `array<string, string>`, but this array is decoded from a worker
+            // payload, so a `(string)` cast on an array would raise a warning
+            // Laravel rethrows as an `ErrorException`, and this runs inside a
+            // request whose whole point is that it degrades rather than throws.
+            // A non-string value is dropped: an unusable value is not evidence.
+            if (! is_string($value)) {
+                continue;
+            }
+
+            $kept[$name] = mb_substr($value, 0, self::VALUE_MAX_LENGTH);
         }
 
         return $kept;

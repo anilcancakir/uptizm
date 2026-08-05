@@ -79,6 +79,14 @@ class ResearchUrlAllowList
     protected const int MAX_HOST_LENGTH = 253;
 
     /**
+     * How many times an embedded-URL check re-decodes before giving up.
+     *
+     * Two is enough for a single and a double encoding, which is every form
+     * seen in practice; the check runs at each depth AND after the last one.
+     */
+    protected const int MAX_DECODE_PASSES = 2;
+
+    /**
      * The minted hosts, keyed by host so a repeat mint cannot grow the set.
      *
      * @var array<string, true>
@@ -140,6 +148,20 @@ class ResearchUrlAllowList
         $host = $this->admissibleHost($url);
 
         return $host !== null && isset($this->hosts[$host]);
+    }
+
+    /**
+     * Whether a URL's SHAPE is admissible, ignoring membership.
+     *
+     * The two halves of {@see allows()} split apart because a caller minting a
+     * search result needs the first half BEFORE the second can be true: the host
+     * is not in the set yet, and a row whose printed URL could never be fetched
+     * should not leave its host behind in the run's set. Everything
+     * {@see admissibleHost()} refuses is refused here.
+     */
+    public function admits(string $url): bool
+    {
+        return $this->admissibleHost($url) !== null;
     }
 
     /**
@@ -251,11 +273,25 @@ class ResearchUrlAllowList
             (string) ($parts['query'] ?? ''),
         ]).'#'.(string) ($parts['fragment'] ?? '');
 
-        // Two decoding passes: one turns `%3A%2F%2F` into `://`, and a second is
-        // what makes a double encoding (`%253A%252F%252F`) visible.
-        for ($pass = 0; $pass < 3; $pass++) {
+        // Checked at every decoding depth INCLUDING the last: one pass turns
+        // `%3A%2F%2F` into `://`, a second makes a double encoding
+        // (`%253A%252F%252F`) visible, and a loop that decodes without checking
+        // afterwards throws away the pass it just paid for.
+        //
+        // Two shapes, not one. An absolute URL names its scheme; a
+        // protocol-relative one (`?next=//evil.net`) does not and inherits ours,
+        // which is the same open redirect written shorter.
+        for ($pass = 0; $pass <= self::MAX_DECODE_PASSES; $pass++) {
             if (preg_match('#[a-z][a-z0-9+.\-]*://#i', $rest) === 1) {
                 return true;
+            }
+
+            if (preg_match('#(^|[?&=])//[a-z0-9.\-]#i', $rest) === 1) {
+                return true;
+            }
+
+            if ($pass === self::MAX_DECODE_PASSES) {
+                break;
             }
 
             $rest = rawurldecode($rest);

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\BodyShape;
 use App\Enums\HttpMethod;
-use App\Enums\LocationBasis;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
 use App\Http\Controllers\Controller;
@@ -358,10 +357,23 @@ class MonitorController extends Controller
         $teamId = (string) $request->user()->current_team_id;
         $withinBudget = $budget->tryConsume($teamId);
 
+        // Named arguments below, and not for decoration: the first three
+        // parameters of both calls are same-typed strings, so a transposition
+        // type-checks silently and produces a prompt or a rationale that is
+        // merely wrong.
         $modelled = $withinBudget
             ? $this->suggestViaGateway(
-                $gateway,
-                $this->analysisPayload($url, $region, $teamId, $probe, $candidate, $headers, $digest, $location),
+                gateway: $gateway,
+                payload: $this->analysisPayload(
+                    url: $url,
+                    region: $region,
+                    teamId: $teamId,
+                    probe: $probe,
+                    candidate: $candidate,
+                    headers: $headers,
+                    digest: $digest,
+                    location: $location,
+                ),
             )
             : null;
 
@@ -371,11 +383,11 @@ class MonitorController extends Controller
         //    fields a modelled answer does, read off the same evidence, so the
         //    client decodes one shape on every path.
         $result = $modelled ?? $this->deterministicSuggestion(
-            $probe,
-            $region,
-            $withinBudget ? self::DEGRADE_AI_UNAVAILABLE : self::DEGRADE_BUDGET_EXHAUSTED,
-            $digest,
-            $location,
+            probe: $probe,
+            region: $region,
+            reason: $withinBudget ? self::DEGRADE_AI_UNAVAILABLE : self::DEGRADE_BUDGET_EXHAUSTED,
+            digest: $digest,
+            location: $location,
         );
 
         // 6. Mine the SAME probe body for metrics worth proposing. The body is
@@ -473,17 +485,17 @@ class MonitorController extends Controller
             return $gateway->analyze($payload);
         } catch (RuntimeException) {
             Log::warning('Monitor analysis degraded: the model output could not be trusted.', [
-                'url' => $payload->url,
+                'url' => $payload->displayUrl(),
                 'region' => $payload->region,
             ]);
         } catch (ConnectionException|RequestException) {
             Log::warning('Monitor analysis degraded: the AI service was unreachable.', [
-                'url' => $payload->url,
+                'url' => $payload->displayUrl(),
                 'region' => $payload->region,
             ]);
         } catch (AiException) {
             Log::warning('Monitor analysis degraded: the AI provider could not complete the request.', [
-                'url' => $payload->url,
+                'url' => $payload->displayUrl(),
                 'region' => $payload->region,
             ]);
         }
@@ -608,7 +620,15 @@ class MonitorController extends Controller
             rationale: "Deterministic baseline from the exploratory probe ({$reason}).",
             strippedCitations: [],
             serviceClass: $serviceClass,
-            regionBasis: $this->regionBasisFor($location->locationBasis),
+            // ALWAYS `default`, whatever the lookup achieved, because this path
+            // does not use the lookup to choose a region: `recommendedRegions`
+            // above is the region the request asked to probe from. Reporting
+            // `geoip` here because a geo provider happened to answer would
+            // justify the suggestion by evidence that played no part in it,
+            // which is the same fabrication this plan removed from the
+            // dashboard's KPIs. Only the MODEL, which reads the location facts
+            // and can weigh them, may claim a basis other than this one.
+            regionBasis: 'default',
             recommendedSloTarget: self::SLO_TARGET_BY_SERVICE_CLASS[$serviceClass],
         );
     }
@@ -633,27 +653,6 @@ class MonitorController extends Controller
             BodyShape::Json => 'json_api',
             BodyShape::Html => 'web_page',
             default => 'unknown',
-        };
-    }
-
-    /**
-     * Map a lookup OUTCOME onto the model-facing reason vocabulary.
-     *
-     * The only place {@see LocationBasis} and
-     * {@see LaravelAiAnalysisGateway::REGION_BASES} meet, which is why they are
-     * allowed to be different sets: one records what a lookup achieved, the other
-     * why a region was chosen. `geoip` and `cdn_edge` carry across unchanged.
-     * `unresolved` becomes `default`, because as a REASON "the lookup answered
-     * nothing" is "nothing located this target". `content_language` has no source
-     * on this path at all: the deterministic suggestion reads no page language,
-     * so it could never honestly claim that basis.
-     */
-    protected function regionBasisFor(LocationBasis $basis): string
-    {
-        return match ($basis) {
-            LocationBasis::Geoip => 'geoip',
-            LocationBasis::CdnEdge => 'cdn_edge',
-            LocationBasis::Unresolved => 'default',
         };
     }
 

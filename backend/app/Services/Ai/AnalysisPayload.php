@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\LocationBasis;
+use App\Services\Monitoring\ResponseDigest;
 use App\Services\Monitoring\ResponseDigestResult;
 use App\Services\Monitoring\TargetLocationResult;
 use App\Support\Monitoring\CheckResult;
@@ -201,7 +202,7 @@ readonly class AnalysisPayload
         //    telemetry and is safe to present as fact to the model.
         $trusted = implode("\n", [
             'EVIDENCE (probe-owned, trusted):',
-            "url: {$this->url}",
+            'url: '.$this->displayUrl(),
             "region: {$this->region}",
             'status_code: '.($this->statusCode ?? 'n/a'),
             'response_ms: '.($this->responseMs ?? 'n/a'),
@@ -302,10 +303,19 @@ readonly class AnalysisPayload
      * Read here rather than taken as an argument so the ceiling stays the one
      * {@see ResponseDigestResult} was produced under, and floored at the
      * per-field cap so a misconfigured zero cannot erase the evidence.
+     *
+     * The fallback is {@see ResponseDigest::DEFAULT_BUDGET}, the same constant
+     * the producer falls back to, and sharing it is the point: two classes
+     * reading one config key with DIFFERENT defaults would silently truncate the
+     * digest to 500 characters the moment the key went missing, which is exactly
+     * the 94% loss this method exists to prevent.
      */
     private function digestBudget(): int
     {
-        return max(self::UNTRUSTED_FIELD_MAX_LENGTH, (int) config('ai.digest.max_characters'));
+        return max(
+            self::UNTRUSTED_FIELD_MAX_LENGTH,
+            (int) config('ai.digest.max_characters', ResponseDigest::DEFAULT_BUDGET),
+        );
     }
 
     /**
@@ -325,6 +335,38 @@ readonly class AnalysisPayload
         }
 
         return $values;
+    }
+
+    /**
+     * The target URL as the model is shown it: scheme, host and path, with the
+     * query and fragment dropped.
+     *
+     * Public so a caller that logs the target can log the same safe form.
+     *
+     * A monitor target is frequently `…/health?token=…`, and this class is
+     * where such a URL would become a TRUSTED prompt line, on the research turn
+     * as well as the suggestion turn. The premise that makes a free-text search
+     * query safe here is that nothing secret sits in the model's context, and a
+     * query-string credential is the last way one can, now that
+     * `AnalyzeMonitorRequest` refuses userinfo. Nothing downstream needs the
+     * query to classify a service or to name a metric path, so it is not
+     * evidence worth the risk. The FULL url still goes to the probe: this is
+     * about what a third party is shown, not about what we fetch.
+     */
+    public function displayUrl(): string
+    {
+        $parts = parse_url($this->url);
+
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            // Unparseable, so there is no component to keep or drop safely.
+            // The host is the one thing worth naming, and there is not one.
+            return 'n/a';
+        }
+
+        $scheme = isset($parts['scheme']) ? $parts['scheme'].'://' : '';
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
+
+        return $scheme.$parts['host'].$port.($parts['path'] ?? '');
     }
 
     /**

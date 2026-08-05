@@ -372,17 +372,28 @@ class AnalyzeMonitorControllerTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        // An anycast address locates an edge, so the basis says so rather than
-        // borrowing whatever a geo provider would have answered.
-        $response->assertJsonPath('data.region_basis', 'cdn_edge');
+        // `default`, not `cdn_edge`, and the pairing below is why. `region_basis`
+        // answers "why was THIS region suggested", and on the deterministic path
+        // the answer is always the same: because the request asked to probe from
+        // it. The lookup's own outcome (`cdn_edge` here) played no part in
+        // choosing it, so reporting it as the basis would justify a suggestion
+        // with evidence that did not produce it. Only the MODEL, which reads the
+        // location facts and can weigh them, may claim any other basis.
+        //
+        // An earlier revision asserted `cdn_edge` here and passed, which is what
+        // a test pinning a fabrication looks like from the inside.
+        $response->assertJsonPath('data.region_basis', 'default');
+        $response->assertJsonPath('data.recommended_regions', ['us-east']);
         $response->assertJsonPath('data.service_class', 'json_api');
     }
 
-    public function test_analyze_maps_a_resolved_geo_lookup_onto_a_geoip_region_basis(): void
+    public function test_a_resolved_geo_lookup_still_does_not_justify_the_region(): void
     {
-        // The third branch of the enum mapping, driven through a canned lookup:
-        // the geo provider is pinned off in the suite, so this is the only way to
-        // reach `geoip` without a live third-party call.
+        // The strongest case for the rule: the lookup SUCCEEDED. A geo provider
+        // named a country and a region, and the deterministic path still reports
+        // `default`, because it did not use any of that to pick the region it
+        // suggests. `recommended_regions` below is the whole argument: it is the
+        // request's probe region, unchanged, on every branch of this path.
         config(['ai.budget.daily_per_team' => 0]);
         $this->fakeRelay(MonitorStatus::Up, ['Content-Type' => 'application/json'], $this->healthBody());
         $this->cannedTargetLocation(new TargetLocationResult(
@@ -400,7 +411,77 @@ class AnalyzeMonitorControllerTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        $response->assertJsonPath('data.region_basis', 'geoip');
+        $response->assertJsonPath('data.region_basis', 'default');
+        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+    }
+
+    public function test_the_analysis_model_inherits_the_surface_the_deployment_actually_configured(): void
+    {
+        // Re-evaluating the config FILE rather than reading the resolved value,
+        // because the fallback chain only shows itself while `env()` is being
+        // read. A deployment that has moved the AI surface to another provider
+        // sets `AI_DEFAULT` and `AI_TRIAGE_MODEL` and nothing else, and a literal
+        // default here would ask THAT provider for an Anthropic-native id it does
+        // not serve. The gateway's own degrade would then answer deterministically
+        // on every request with only a log line, so the feature would ship dark
+        // and look healthy: the worst failure shape this endpoint has.
+        putenv('AI_TRIAGE_MODEL=openai/gpt-4o-mini');
+
+        try {
+            $config = require config_path('ai.php');
+
+            $this->assertSame('openai/gpt-4o-mini', $config['analysis']['model']);
+            $this->assertSame($config['triage']['model'], $config['analysis']['model']);
+        } finally {
+            putenv('AI_TRIAGE_MODEL');
+        }
+    }
+
+    public function test_analyze_refuses_a_url_carrying_a_credential_in_its_userinfo(): void
+    {
+        // Laravel's `url` rule accepts `https://user:pass@host/path` (measured),
+        // and this endpoint hands the URL to the prompt as a TRUSTED fact on the
+        // turn that also holds the web-search tool. The premise that makes a
+        // free-text search query safe is that nothing secret is in the model's
+        // context, so this is the one inlet that premise cannot survive, and it
+        // exists today, before any credential field is added.
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://ops:s3cr3t@example.com/health',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('url');
+        // Refused rather than stripped: an operator who pasted a credential is
+        // told, instead of quietly having it removed and the target probed
+        // without it.
+        $this->assertStringNotContainsString('s3cr3t', $response->getContent());
+    }
+
+    public function test_a_query_string_token_never_reaches_the_prompt(): void
+    {
+        // The remaining credential shape once userinfo is refused, and a common
+        // one: a health endpoint gated by `?token=`. The full URL still goes to
+        // the probe, because that is what we must fetch; what a third party is
+        // SHOWN is scheme, host and path.
+        $this->fakeRelay(MonitorStatus::Up, $this->cloudflareHeaders(), $this->healthBody());
+        $this->stubMetricDiscovery();
+        $gateway = $this->recordingGateway();
+        $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health?token=T0KENSECRET&verbose=1',
+        ])->assertStatus(200);
+
+        $message = $gateway->payload->buildUserMessage();
+
+        $this->assertStringNotContainsString('T0KENSECRET', $message);
+        $this->assertStringContainsString('url: https://example.com/health', $message);
+        // The probe still received the whole thing, query included.
+        $this->assertStringContainsString('token=T0KENSECRET', $gateway->payload->url);
     }
 
     public function test_analyze_hands_the_gateway_the_allowlisted_headers_the_digest_and_the_posture(): void

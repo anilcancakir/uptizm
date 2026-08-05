@@ -68,8 +68,15 @@ class ResponseDigest
      */
     public const int SAMPLE_MAX_LENGTH = 128;
 
-    /** Used when `ai.digest.max_characters` is absent. */
-    protected const int DEFAULT_BUDGET = 8000;
+    /**
+     * Used when `ai.digest.max_characters` is absent.
+     *
+     * Public because the CONSUMER of a digest needs the same fallback: two
+     * classes reading one key with different defaults would quietly truncate the
+     * digest the moment the key went missing.
+     * {@see AnalysisPayload::digestBudget()}.
+     */
+    public const int DEFAULT_BUDGET = 8000;
 
     /**
      * Work bounds. Each one costs description rather than correctness, and each

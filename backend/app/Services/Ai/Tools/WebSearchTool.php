@@ -48,6 +48,18 @@ use Laravel\Ai\Tools\Request;
 class WebSearchTool implements Tool
 {
     /**
+     * How many result rows may be EXAMINED per row kept.
+     *
+     * Examining a row can reach {@see HostGuard}, which resolves DNS, inside a
+     * synchronous request. Without a bound, a research answer of two hundred
+     * rows that all fail the guard is two hundred sequential resolutions spent
+     * to return nothing, repeatable up to the agent's step budget. Four leaves
+     * room for rows dropped on shape or on the guard while still filling the
+     * result limit on any normal answer.
+     */
+    protected const int EXAMINED_ROWS_PER_RESULT = 4;
+
+    /**
      * @param  string  $teamId  The team whose daily AI budget this call spends.
      * @param  ResearchUrlAllowList  $allowList  The run's minted host set, EXTENDED by
      *                                           this tool and read by {@see WebFetchTool}.
@@ -162,7 +174,16 @@ class WebSearchTool implements Tool
         $limit = $this->limit('results');
         $results = [];
 
-        foreach ($this->rows($payload) as $row) {
+        // Bound the rows EXAMINED, not just the rows kept. Each iteration below
+        // may reach `HostGuard`, which resolves DNS, and this runs inside a
+        // synchronous request an operator is holding, up to `MaxSteps` times. An
+        // answer of two hundred rows that all fail the guard would otherwise be
+        // two hundred sequential resolutions to produce nothing. The multiple
+        // leaves room for rows dropped on shape or on the guard while still
+        // reaching the limit on a normal answer.
+        $examined = array_slice($this->rows($payload), 0, $limit * self::EXAMINED_ROWS_PER_RESULT);
+
+        foreach ($examined as $row) {
             if (count($results) >= $limit) {
                 break;
             }
@@ -177,6 +198,14 @@ class WebSearchTool implements Tool
                 continue;
             }
 
+            // Admissibility BEFORE minting, so a row the model will never see
+            // cannot leave its host behind in the run's set. Minting first was
+            // fail-open ordering inside a fail-closed class: the row was dropped
+            // either way, but its host stayed fetchable.
+            if (! $this->allowList->admits($url)) {
+                continue;
+            }
+
             // A result is a third party's word about where to look, so it is
             // guarded exactly like a tenant-supplied target before its host is
             // allowed to become fetchable.
@@ -186,7 +215,7 @@ class WebSearchTool implements Tool
                 continue;
             }
 
-            if (! $this->allowList->mint($url) || ! $this->allowList->allows($url)) {
+            if (! $this->allowList->mint($url)) {
                 continue;
             }
 
@@ -277,10 +306,15 @@ class WebSearchTool implements Tool
     {
         // The substitute flag stops one invalid byte in a third party's title
         // from collapsing the whole result set to `false`.
-        return json_encode(
+        // Compared against `false`, not coerced: `json_encode(0)` returns the
+        // string `"0"`, which is falsy, so a truthiness check would render a
+        // legitimate zero as an empty value.
+        $encoded = json_encode(
             $value,
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE,
-        ) ?: '[]';
+        );
+
+        return $encoded === false ? '[]' : $encoded;
     }
 
     /**

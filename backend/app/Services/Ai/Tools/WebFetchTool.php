@@ -238,9 +238,14 @@ class WebFetchTool implements Tool
     {
         // The substitute flag stops one invalid byte in a third party's page
         // from collapsing the whole answer to `false`.
-        return json_encode(
+        // Compared against `false`, not coerced: `json_encode(0)` returns the
+        // string `"0"`, which is falsy, so a truthiness check would render a
+        // legitimate zero as an empty value.
+        $encoded = json_encode(
             $value,
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE,
-        ) ?: '""';
+        );
+
+        return $encoded === false ? '""' : $encoded;
     }
 }
