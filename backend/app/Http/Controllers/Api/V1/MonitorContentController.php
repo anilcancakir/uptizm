@@ -241,16 +241,11 @@ class MonitorContentController extends Controller
 
         // 1. Name the version the reader is about to read, WITHOUT touching the
         //    archive: the cache key is that version's own content hash, and a
-        //    cache hit must therefore cost nothing but this query. The scope
-        //    mirrors {@see ArchivedBodyReader::newestArchivedBody()} exactly
-        //    rather than adding the team column the two actions above use,
-        //    because it is not an access decision (the monitor is already
-        //    authorized) and a divergent pick would file one version's digest
-        //    under another version's hash.
-        $version = MonitorContentVersion::query()
-            ->where('monitor_id', $monitor->getKey())
-            ->orderByDesc('last_seen_at')
-            ->first();
+        //    cache hit must therefore cost nothing but this query. Resolved ONCE
+        //    and handed to the reader below, because two resolutions file one
+        //    version's digest under another version's hash whenever a check
+        //    completes between them.
+        $version = $this->bodyReader->newestVersion($monitor);
 
         if ($version === null) {
             return $this->candidatesResponse(hasSample: false, rows: []);
@@ -265,8 +260,8 @@ class MonitorContentController extends Controller
         $rows = Cache::remember(
             self::CANDIDATES_CACHE_KEY_PREFIX.$version->content_hash,
             self::CANDIDATES_CACHE_TTL_SECONDS,
-            function () use ($monitor): ?array {
-                $body = $this->bodyReader->newestArchivedBody($monitor);
+            function () use ($monitor, $version): ?array {
+                $body = $this->bodyReader->bodyForVersion($monitor, $version);
 
                 return $body === null ? null : $this->digestRows($body);
             },

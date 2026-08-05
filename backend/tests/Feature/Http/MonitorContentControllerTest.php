@@ -450,11 +450,11 @@ class MonitorContentControllerTest extends TestCase
         {
             public int $calls = 0;
 
-            public function newestArchivedBody(Monitor $monitor): ?string
+            public function bodyForVersion(Monitor $monitor, MonitorContentVersion $version): ?string
             {
                 $this->calls++;
 
-                return parent::newestArchivedBody($monitor);
+                return parent::bodyForVersion($monitor, $version);
             }
         };
         $this->app->instance(ArchivedBodyReader::class, $reader);

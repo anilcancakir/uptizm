@@ -31,23 +31,46 @@ class ArchivedBodyReader
      * Drive remote where a single read costs about a second and the remote caps
      * at roughly two files per second, so a history-wide scan would turn one
      * request into a stall.
+     */
+    public function newestArchivedBody(Monitor $monitor): ?string
+    {
+        $version = $this->newestVersion($monitor);
+
+        return $version === null ? null : $this->bodyForVersion($monitor, $version);
+    }
+
+    /**
+     * The monitor's newest archived content version, or null when it has none.
+     *
+     * Exposed separately for the caller that needs to NAME the version before
+     * reading it: the candidate browser keys an hour-long cache entry on the
+     * version's content hash, and resolving the newest version twice (once for
+     * the key, once inside the reader) files one version's digest under another
+     * version's hash whenever a check completes between the two queries. One
+     * resolution handed to {@see self::bodyForVersion()} closes that window, and
+     * keeps this scope defined in exactly one place.
+     */
+    public function newestVersion(Monitor $monitor): ?MonitorContentVersion
+    {
+        return MonitorContentVersion::query()
+            ->where('monitor_id', $monitor->getKey())
+            ->orderByDesc('last_seen_at')
+            ->first();
+    }
+
+    /**
+     * The decompressed body behind one already-resolved `$version`.
      *
      * Every failure mode answers null rather than throwing, because every caller
      * is a read-only convenience: a version whose blob retention already pruned,
      * a corrupt stored hash the path helper refuses, and bytes that will not
      * decompress all mean "no sample available", never a 500 on a form panel.
+     *
+     * `$monitor` is carried for the log context only; the bytes are addressed by
+     * the version's team and hash.
      */
-    public function newestArchivedBody(Monitor $monitor): ?string
+    public function bodyForVersion(Monitor $monitor, MonitorContentVersion $version): ?string
     {
-        $version = MonitorContentVersion::query()
-            ->where('monitor_id', $monitor->getKey())
-            ->orderByDesc('last_seen_at')
-            ->first();
-
-        if ($version === null) {
-            return null;
-        }
-
         try {
             // The single permitted derivation of a blob location; no caller
             // rebuilds `{team}/{fanout}/{hash}.gz` for itself.
