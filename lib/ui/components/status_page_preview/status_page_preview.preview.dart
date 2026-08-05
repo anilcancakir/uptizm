@@ -10,9 +10,9 @@ import 'status_page_preview.dart';
 ///
 /// Renders three configs so the catalog shows the full range: a synthesized
 /// all-healthy page (operational banner, subscriptions on), the `acme` fixture
-/// (an outage banner with a live-metrics grid, past incidents, and the
-/// subscribe box), and the `internal` fixture (subscriptions off). One public
-/// preview class per file is the discovery contract `previews:refresh` enforces.
+/// (an outage banner and the subscribe box), and the `internal` fixture
+/// (subscriptions off). One public preview class per file is the discovery
+/// contract `previews:refresh` enforces.
 class StatusPagePreviewPreview extends StatelessWidget {
   /// Creates the StatusPagePreview variant-matrix preview.
   const StatusPagePreviewPreview({super.key});
@@ -26,7 +26,6 @@ class StatusPagePreviewPreview extends StatelessWidget {
       statusPages.first,
       name: 'Acme Status (healthy)',
       monitorIds: const ['marketing'],
-      metricKeys: const ['marketing.dom_load'],
     );
 
     return WDiv(
@@ -34,7 +33,7 @@ class StatusPagePreviewPreview extends StatelessWidget {
       children: [
         _labelled('Healthy — operational, subscriptions on', healthy),
         _labelled(
-          'Outage — live metrics, incidents, subscriptions on',
+          'Outage — components down, subscriptions on',
           statusPages.first,
         ),
         _labelled(

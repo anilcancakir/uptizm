@@ -136,6 +136,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // 500 for that row instead of 404.
     Route::get('monitors/{monitor}/content', [MonitorContentController::class, 'index'])
         ->name('api.v1.monitors.content.index');
+    // The extraction candidates of the newest archived body, for the metric
+    // form's candidate browser. Digest rows only, never the archived bytes; the
+    // reasoning is in the action's own docblock.
+    //
+    // Declared BEFORE the `{contentHash}` route below. Today the hash constraint
+    // alone would already keep a literal `candidates` segment from binding as a
+    // version address, but that makes an endpoint's existence depend on a
+    // constraint written for an unrelated reason: loosening it later would turn
+    // this route into a 404 with nothing pointing at the cause. Order states the
+    // intent instead.
+    Route::get('monitors/{monitor}/content/candidates', [MonitorContentController::class, 'candidates'])
+        ->middleware('throttle:'.MonitorContentController::SAMPLE_READ_LIMITER)
+        ->name('api.v1.monitors.content.candidates');
     Route::get('monitors/{monitor}/content/{contentHash}', [MonitorContentController::class, 'show'])
         ->where('contentHash', '[0-9a-f]{64}')
         ->name('api.v1.monitors.content.show');
@@ -149,7 +162,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.monitors.metrics.index');
     Route::post('monitors/{monitor}/metrics', [MonitorMetricController::class, 'store'])
         ->name('api.v1.monitors.metrics.store');
+    // Throttled by the SAME limiter as the candidate browser above, because it
+    // pays the same cold archive read: the sample it extracts against is the
+    // monitor's newest archived blob, read through `ArchivedBodyReader`.
     Route::post('monitors/{monitor}/metrics/preview', [MonitorMetricController::class, 'preview'])
+        ->middleware('throttle:'.MonitorContentController::SAMPLE_READ_LIMITER)
         ->name('api.v1.monitors.metrics.preview');
     // AI-proposed metrics for an already-running monitor, read from its newest
     // archived page content. Gated on the team's AI level, not on the create

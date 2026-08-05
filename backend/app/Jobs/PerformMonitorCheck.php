@@ -112,11 +112,12 @@ class PerformMonitorCheck implements ShouldQueue
         //    get the parsed result inline.
         $result = $this->transportFor($relay)->dispatch($this->monitor, $this->region);
 
-        // 2. Read the metrics HERE, the only stage that holds the full body.
-        //    `CheckResult::toArray()` deliberately drops it (a 1 MB page must
-        //    never ride Redis) and `response_body_preview` is capped at 10 KiB,
-        //    so extracting downstream would silently cap every metric at that
-        //    offset regardless of where its value actually sits in the page.
+        // 2. Read the metrics HERE, the only stage that holds the full body and
+        //    now the only stage that extracts at all. `CheckResult::toArray()`
+        //    deliberately drops the body (a 1 MB page must never ride Redis) and
+        //    `response_body_preview` is capped at 10 KiB, so extracting
+        //    downstream would silently cap every metric at that offset
+        //    regardless of where its value actually sits in the page.
         $samples = $this->extractSamples($extractor, $result);
 
         // 3. Decide what happens to the body, for the same reason: this is the
@@ -176,30 +177,40 @@ class PerformMonitorCheck implements ShouldQueue
     }
 
     /**
-     * Run every configured metric rule against the FULL response body.
+     * Run every configured metric rule against the best body this probe has,
+     * and return the raw values keyed by `metric_key`.
      *
-     * Returns the raw extracted values keyed by `metric_key`, narrowed to the
-     * extractions that both succeeded and matched their declared type, so the
-     * persistence stage stores them without re-reading anything.
+     * THIS IS THE ONLY EXTRACTION SITE. The persistence stage used to run a
+     * second extraction against `response_body_preview` whenever this one
+     * handed it nothing, and the two disagreed in a way nothing surfaced: this
+     * method returned early on a null `content` BEFORE it ever looped over the
+     * metrics, so a response whose content type the edge filtered recorded
+     * nothing at all, including `header` and `http_status` metrics that need no
+     * body whatsoever. The downstream fallback could not repair it either,
+     * because it only fired on a `null` this method never returned.
      *
-     * An empty array means the body never reached this stage: a TCP probe, a
-     * content type the edge filtered out, or a worker deployment older than the
-     * body field. The persistence stage then falls back to the truncated
-     * preview, which is the behaviour that predates this split.
+     * So the body is resolved here instead of guarded against: the full body
+     * when the edge let it through, otherwise the truncated preview, which
+     * travels the wire regardless and is strictly better than nothing. Only the
+     * body-derived sources (`json_path`, `regex`, `xpath`) notice the
+     * difference; `header` and `http_status` read the headers and the status
+     * code and are satisfied either way.
+     *
+     * Narrowed to the extractions that both succeeded and matched their
+     * declared type, so the persistence stage stores them without re-reading
+     * anything. An empty array therefore means one thing only: nothing was
+     * extractable from what this probe returned.
      *
      * @return array<string, string>
      */
     protected function extractSamples(MetricExtractor $extractor, CheckResult $result): array
     {
-        if ($result->content === null) {
-            return [];
-        }
-
         $metrics = $this->monitor->metrics()->get();
         if ($metrics->isEmpty()) {
             return [];
         }
 
+        $body = $result->content ?? $result->responseBodyPreview ?? '';
         $samples = [];
 
         foreach ($metrics as $metric) {
@@ -207,7 +218,7 @@ class PerformMonitorCheck implements ShouldQueue
                 source: $metric->source,
                 extractionPath: $metric->extraction_path ?? '',
                 type: $metric->type,
-                body: $result->content,
+                body: $body,
                 // MetricExtractor lower-cases both sides of its header lookup,
                 // so the worker's casing needs no normalization first.
                 headers: $result->responseHeaders,

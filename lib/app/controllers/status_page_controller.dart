@@ -899,10 +899,8 @@ class StatusPageController extends MagicController
   /// [existing] is true, stamps the id and marks the model as already existing
   /// so `save()` routes to `PUT` rather than `POST`.
   ///
-  /// `monitorIds`/`metricKeys` are deliberately excluded: monitor membership
-  /// is a separate pivot managed through [attachMonitor]/[detachMonitor], and
-  /// metric selection has no live endpoint yet (the backend's `metrics()`
-  /// pivot exists for schema completeness only, per `StatusPage.php`).
+  /// `monitorIds` is deliberately excluded: monitor membership is a separate
+  /// pivot managed through [attachMonitor]/[detachMonitor].
   StatusPage _modelFrom(StatusPage draft, {required bool existing}) {
     final StatusPage page = StatusPage()
       ..fill(<String, dynamic>{

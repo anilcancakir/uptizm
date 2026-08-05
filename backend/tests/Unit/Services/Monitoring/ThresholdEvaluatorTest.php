@@ -5,6 +5,9 @@ namespace Tests\Unit\Services\Monitoring;
 use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
+use App\Enums\MetricBand;
+use App\Enums\MetricSource;
+use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
@@ -12,6 +15,7 @@ use App\Enums\ThresholdDirection;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use App\Models\MonitorMetric;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\ThresholdEvaluator;
@@ -71,6 +75,245 @@ class ThresholdEvaluatorTest extends TestCase
         $this->assertSame('critical', $band->value);
     }
 
+    public function test_band_string_critical_wins_over_warn(): void
+    {
+        $band = ThresholdEvaluator::bandString('down', ['up'], ['down'], ['down'], null);
+
+        $this->assertSame(MetricBand::Critical, $band);
+    }
+
+    public function test_band_string_critical_wins_over_ok(): void
+    {
+        $band = ThresholdEvaluator::bandString('down', ['down'], [], ['down'], null);
+
+        $this->assertSame(MetricBand::Critical, $band);
+    }
+
+    public function test_band_string_warn_wins_over_ok(): void
+    {
+        $band = ThresholdEvaluator::bandString('degraded', ['degraded'], ['degraded'], [], null);
+
+        $this->assertSame(MetricBand::Warn, $band);
+    }
+
+    public function test_band_string_unlisted_value_takes_unmatched_band(): void
+    {
+        $band = ThresholdEvaluator::bandString('unknown', ['ok'], [], [], MetricBand::Warn);
+
+        $this->assertSame(MetricBand::Warn, $band);
+    }
+
+    public function test_band_string_unlisted_value_with_null_unmatched_band_returns_null(): void
+    {
+        $band = ThresholdEvaluator::bandString('unknown', ['ok'], [], [], null);
+
+        $this->assertNull($band);
+    }
+
+    public function test_band_string_all_empty_returns_null(): void
+    {
+        $band = ThresholdEvaluator::bandString('anything', [], [], [], null);
+
+        $this->assertNull($band);
+    }
+
+    public function test_band_string_matches_case_insensitively(): void
+    {
+        $band = ThresholdEvaluator::bandString('OK', ['ok'], [], [], null);
+
+        $this->assertSame(MetricBand::Ok, $band);
+    }
+
+    public function test_band_string_matches_value_wrapped_in_non_breaking_space(): void
+    {
+        $band = ThresholdEvaluator::bandString("\u{00A0}ok\u{00A0}", ['ok'], [], [], null);
+
+        $this->assertSame(MetricBand::Ok, $band);
+    }
+
+    public function test_band_string_matches_when_configured_value_is_itself_padded(): void
+    {
+        $band = ThresholdEvaluator::bandString('ok', [" ok\u{00A0}"], [], [], null);
+
+        $this->assertSame(MetricBand::Ok, $band);
+    }
+
+    /**
+     * Pins the most-severe-first ordering flagged CRITICAL in planning-time
+     * oracle review: an overlapping configuration must resolve to the MORE
+     * severe band, so a misconfiguration produces a page rather than silence.
+     */
+    public function test_band_string_evaluation_order_is_most_severe_first(): void
+    {
+        $band = ThresholdEvaluator::bandString('x', ['x'], [], ['x'], null);
+
+        $this->assertSame(MetricBand::Critical, $band);
+    }
+
+    public function test_band_string_normalizes_both_sides_of_the_comparison(): void
+    {
+        $band = ThresholdEvaluator::bandString('OK', [' ok '], [], [], MetricBand::Critical);
+
+        $this->assertSame(MetricBand::Ok, $band);
+    }
+
+    public function test_normalize_match_value_lowercases_and_trims_ascii_whitespace(): void
+    {
+        $this->assertSame('ok', ThresholdEvaluator::normalizeMatchValue("  OK\t\n"));
+    }
+
+    public function test_normalize_match_value_trims_non_breaking_space(): void
+    {
+        $this->assertSame('ok', ThresholdEvaluator::normalizeMatchValue("\u{00A0}OK\u{00A0}"));
+    }
+
+    /**
+     * The numeric metric-breach lane, pinned here because the string lane was
+     * grafted onto the same loop: its title keeps saying "bound", which is the
+     * correct vocabulary for a numeric threshold and the wrong one for a value
+     * match.
+     */
+    public function test_a_numeric_metric_breach_opens_a_bound_titled_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $incident = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Critical, $incident->severity);
+        $this->assertSame('cpu', $incident->trigger_metric_key);
+        $this->assertSame('CPU breached critical bound', $incident->title);
+    }
+
+    /**
+     * A configured string value landing in `critical_values` opens on the same
+     * lane a numeric bound breach does, and the metric dedupe keeps a sustained
+     * mismatch to ONE incident rather than one per check interval.
+     *
+     * The served value differs in case from the configured one, so this also
+     * proves the comparison runs through
+     * {@see ThresholdEvaluator::normalizeMatchValue()} rather than a raw
+     * equality.
+     */
+    public function test_a_critical_string_value_opens_one_incident_and_a_second_check_opens_none(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, criticalValues: ['down']);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'DOWN']);
+
+        $incident = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Critical, $incident->severity);
+        $this->assertSame(SignalSource::UserThreshold, $incident->signal_source);
+        $this->assertFalse($incident->ai_owned);
+        $this->assertSame('redis', $incident->trigger_metric_key);
+
+        // 1. The title names the metric and the offending value, and never
+        //    borrows the numeric "bound" vocabulary.
+        $this->assertStringContainsString('Redis state', $incident->title);
+        $this->assertStringContainsString('DOWN', $incident->title);
+        $this->assertStringNotContainsStringIgnoringCase('bound', $incident->title);
+
+        // 2. The next check reports the same value: the existing metric-scoped
+        //    dedupe is what keeps this from paging once per interval.
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'DOWN']);
+
+        $this->assertSame(1, Incident::query()->count());
+    }
+
+    public function test_a_warn_string_value_opens_a_warn_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, warnValues: ['degraded']);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'degraded']);
+
+        $this->assertSame(IncidentSeverity::Warn, Incident::query()->sole()->severity);
+    }
+
+    /**
+     * `unmatched_band` is the branch that pages on a value nobody enumerated,
+     * which is the whole point of configuring it: an unrecognized state is not
+     * evidence of health.
+     */
+    public function test_an_unlisted_string_value_opens_on_the_unmatched_band(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, okValues: ['up'], unmatchedBand: MetricBand::Critical);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'wedged']);
+
+        $this->assertSame(IncidentSeverity::Critical, Incident::query()->sole()->severity);
+    }
+
+    /**
+     * An extracted string value is chosen by the monitored target and unbounded
+     * (`monitor_metric_values.string_value` is `text`, and a `json_path` pointed
+     * at an object yields a whole JSON blob), while `incidents.title` is
+     * `varchar(200)`. PostgreSQL throws on an over-long value rather than
+     * trimming it, and this insert runs AFTER the check row has committed, so an
+     * untruncated title would fail the processing job on every retry while the
+     * telemetry it is signaling about sits there fine. SQLite drops the width
+     * entirely, so an explicit length assertion is the only thing that catches
+     * this on the default suite.
+     */
+    public function test_a_long_string_value_is_cut_to_fit_the_incident_title_column(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, okValues: ['up'], unmatchedBand: MetricBand::Critical);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate(
+            $monitor,
+            $this->makeCheck($monitor, MonitorStatus::Up),
+            [],
+            ['redis' => str_repeat('überlang ', 200)],
+        );
+
+        $title = Incident::query()->sole()->title;
+
+        $this->assertLessThanOrEqual(200, mb_strlen($title));
+        $this->assertStringContainsString('Redis state', $title);
+        $this->assertStringContainsString('…', $title);
+    }
+
+    public function test_an_ok_string_value_opens_nothing(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, okValues: ['up'], criticalValues: ['down']);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'up']);
+
+        $this->assertSame(0, Incident::query()->count());
+    }
+
+    /**
+     * The anti-gate: {@see MonitorMetric::alertsOnString()} is the only
+     * predicate allowed to decide this, and the fixture carries
+     * `threshold_direction = high_bad` exactly as every client write does
+     * (`monitor_metrics_controller.dart:513` sends it for every metric type).
+     * A gate on that column would page on every unconfigured string metric.
+     */
+    public function test_a_string_metric_with_three_empty_lists_opens_nothing(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $metric = $this->makeStringMetric($monitor);
+        $evaluator = new ThresholdEvaluator;
+
+        $this->assertSame(ThresholdDirection::HighBad, $metric->threshold_direction);
+        $this->assertFalse($metric->alertsOnString());
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'anything']);
+
+        $this->assertSame(0, Incident::query()->count());
+    }
+
     public function test_two_consecutive_fails_open_exactly_one_incident_and_a_third_opens_none(): void
     {
         $monitor = $this->makeMonitor(incidentThreshold: 2);
@@ -78,14 +321,14 @@ class ThresholdEvaluatorTest extends TestCase
 
         // 1. Second consecutive failure crosses the threshold: opens one incident.
         $monitor->consecutive_fails = 2;
-        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), []);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), [], []);
 
         $this->assertSame(1, Incident::query()->count());
 
         // 2. A third consecutive failure must not open a second incident while
         //    the first is still unresolved.
         $monitor->consecutive_fails = 3;
-        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), []);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), [], []);
 
         $this->assertSame(1, Incident::query()->count());
 
@@ -109,7 +352,7 @@ class ThresholdEvaluatorTest extends TestCase
         // 2. The consecutive-fail threshold crosses: a NON-AI threshold incident
         //    opens alongside the active AI incident (it is not suppressed).
         $monitor->consecutive_fails = 2;
-        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), []);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), [], []);
 
         $threshold = Incident::query()->where('ai_owned', false)->sole();
         $this->assertSame(SignalSource::UserThreshold, $threshold->signal_source);
@@ -178,6 +421,58 @@ class ThresholdEvaluatorTest extends TestCase
             'check_interval_sec' => 60,
             'incident_threshold' => $incidentThreshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD,
             'consecutive_fails' => 0,
+        ]);
+    }
+
+    /**
+     * Attaches a bounded numeric metric so the numeric breach lane can be
+     * exercised alongside the string one.
+     */
+    protected function makeNumericMetric(Monitor $monitor, float $warnBound, float $criticalBound): MonitorMetric
+    {
+        return $monitor->metrics()->create([
+            'team_id' => $monitor->team_id,
+            'label' => 'CPU',
+            'key' => 'cpu',
+            'type' => MetricType::Numeric,
+            'source' => MetricSource::JsonPath,
+            'extraction_path' => 'cpu',
+            'threshold_direction' => ThresholdDirection::HighBad,
+            'warn_bound' => $warnBound,
+            'critical_bound' => $criticalBound,
+        ]);
+    }
+
+    /**
+     * Attaches a string metric configured the way the client actually writes
+     * one: `threshold_direction` is ALWAYS `high_bad` regardless of the value
+     * lists, because the Flutter write path sends it for every metric type. A
+     * fixture that left it null would let a `threshold_direction`-based gate
+     * pass these tests.
+     *
+     * @param  list<string>  $okValues
+     * @param  list<string>  $warnValues
+     * @param  list<string>  $criticalValues
+     */
+    protected function makeStringMetric(
+        Monitor $monitor,
+        array $okValues = [],
+        array $warnValues = [],
+        array $criticalValues = [],
+        ?MetricBand $unmatchedBand = null,
+    ): MonitorMetric {
+        return $monitor->metrics()->create([
+            'team_id' => $monitor->team_id,
+            'label' => 'Redis state',
+            'key' => 'redis',
+            'type' => MetricType::String,
+            'source' => MetricSource::JsonPath,
+            'extraction_path' => 'redis',
+            'threshold_direction' => ThresholdDirection::HighBad,
+            'ok_values' => $okValues,
+            'warn_values' => $warnValues,
+            'critical_values' => $criticalValues,
+            'unmatched_band' => $unmatchedBand,
         ]);
     }
 

@@ -46,13 +46,30 @@ List<MetricOption> get kMetricSources => [
   MetricOption(label: trans('uptizm.monitors.metrics_source_http_status'), value: 'http_status'),
 ];
 
-/// Measurement units. Matches the `UNITS` constant in the React source.
+/// Measurement units, one option per `MetricUnit` backend case
+/// (`backend/app/Enums/MetricUnit.php:21-38`), grouped size/duration/percent/
+/// count/custom to match the enum's own case ordering.
+///
+/// The four original tokens (`ms`, `s`, `%`, `bytes`, plus `count` and
+/// `custom`) keep their short names; the other ten were added so every
+/// `MetricUnit` value has a form-side pairing in [_unitToWire] and none of
+/// them collapse to `custom` on decode (see that map's docblock).
 List<MetricOption> get kMetricUnits => [
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_bytes_auto'), value: 'bytes_auto'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_bytes'), value: 'bytes'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_kilobyte'), value: 'kb'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_megabyte'), value: 'mb'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_gigabyte'), value: 'gb'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_terabyte'), value: 'tb'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_duration_auto'), value: 'duration_auto'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_ms'), value: 'ms'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_s'), value: 's'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_minute'), value: 'min'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_hour'), value: 'h'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_percent'), value: '%'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_ratio'), value: 'ratio'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_count'), value: 'count'),
-  MetricOption(label: trans('uptizm.monitors.metrics_unit_bytes'), value: 'bytes'),
+  MetricOption(label: trans('uptizm.monitors.metrics_unit_count_short'), value: 'count_short'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_custom'), value: 'custom'),
 ];
 
@@ -126,6 +143,20 @@ const Map<String, String> kUnitSuffix = {
   'count': '',
   'bytes': 'B',
   'custom': '',
+  // Added for full `MetricUnit` coverage (Step 5). `bytes_auto` and
+  // `duration_auto` are intentionally absent: `fmt()` scales those two
+  // dynamically and picks the suffix per value instead of a fixed one.
+  'kb': 'KB',
+  'mb': 'MB',
+  'gb': 'GB',
+  'tb': 'TB',
+  'min': 'min',
+  'h': 'h',
+  // `MetricUnit::defaultSuffix()` pairs Ratio with the same '%' suffix as
+  // Percent (`backend/app/Enums/MetricUnit.php:73`); mirrored here rather
+  // than guessed at.
+  'ratio': '%',
+  'count_short': '',
 };
 
 /// Validation pattern for metric keys: lowercase letter start, then lowercase
@@ -149,6 +180,10 @@ const MetricForm kEmptyMetricForm = MetricForm(
   direction: 'high',
   warn: '',
   critical: '',
+  okValues: [],
+  warnValues: [],
+  criticalValues: [],
+  unmatchedBand: '',
 );
 
 // ---------------------------------------------------------------------------
@@ -197,6 +232,26 @@ class MetricForm {
   /// Raw critical threshold input, e.g. `"95"`. Empty when not yet entered.
   final String critical;
 
+  /// Values that band a `string`-typed metric as `ok` when the extracted
+  /// value matches one, after normalization on both sides.
+  ///
+  /// Unlike [warn] and [critical], these are real lists rather than a raw
+  /// string: there is no partially-typed intermediate state for a chip list
+  /// the way there is for a number being typed digit by digit.
+  final List<String> okValues;
+
+  /// Values that band a `string`-typed metric as `warn`. See [okValues].
+  final List<String> warnValues;
+
+  /// Values that band a `string`-typed metric as `critical`. See [okValues].
+  final List<String> criticalValues;
+
+  /// The band (`"ok"` / `"warn"` / `"critical"`) applied to a `string`-typed
+  /// metric's value when it matches none of [okValues], [warnValues], or
+  /// [criticalValues]. Empty when unset, meaning an unmatched value alerts
+  /// nothing.
+  final String unmatchedBand;
+
   /// Catalog baseline value carried from [MonitorMetric.value].
   ///
   /// Non-null when the form was seeded via [fromCatalog]. Used by [baseFor]
@@ -214,6 +269,14 @@ class MetricForm {
     required this.direction,
     required this.warn,
     required this.critical,
+    // Defaulted rather than required: a numeric or status metric never
+    // populates these, and defaulting here keeps every existing
+    // `MetricForm(...)` call site (fixtures, other tests) compiling instead
+    // of forcing an unrelated edit at each one.
+    this.okValues = const [],
+    this.warnValues = const [],
+    this.criticalValues = const [],
+    this.unmatchedBand = '',
     this.value,
   });
 
@@ -228,6 +291,10 @@ class MetricForm {
     String? direction,
     String? warn,
     String? critical,
+    List<String>? okValues,
+    List<String>? warnValues,
+    List<String>? criticalValues,
+    String? unmatchedBand,
     num? value,
   }) {
     return MetricForm(
@@ -240,6 +307,10 @@ class MetricForm {
       direction: direction ?? this.direction,
       warn: warn ?? this.warn,
       critical: critical ?? this.critical,
+      okValues: okValues ?? this.okValues,
+      warnValues: warnValues ?? this.warnValues,
+      criticalValues: criticalValues ?? this.criticalValues,
+      unmatchedBand: unmatchedBand ?? this.unmatchedBand,
       value: value ?? this.value,
     );
   }
@@ -255,6 +326,12 @@ class MetricForm {
 /// values. Numeric [m.warn] and [m.critical] are stringified so the form
 /// fields can display them as-is without a round-trip.
 ///
+/// [MetricForm.okValues]/[MetricForm.warnValues]/[MetricForm.criticalValues]/
+/// [MetricForm.unmatchedBand] seed empty here: [MonitorMetric] carries no
+/// string-band data (it serves only the mocks and the client-synthesized
+/// `response_time` system metric), so a form seeded from the catalog starts
+/// with no string-band configuration regardless of the source metric's type.
+///
 /// ```dart
 /// final form = fromCatalog(customMetrics.first);
 /// ```
@@ -269,6 +346,10 @@ MetricForm fromCatalog(MonitorMetric m) {
     direction: m.direction == MetricDirection.low ? 'low' : 'high',
     warn: m.warn.toString(),
     critical: m.critical.toString(),
+    okValues: const [],
+    warnValues: const [],
+    criticalValues: const [],
+    unmatchedBand: '',
     value: m.value,
   );
 }
@@ -348,23 +429,74 @@ num fallbackValue(String unit) {
       142;
 }
 
+/// Scale steps for the `bytes_auto` [MetricOption], each threshold the byte
+/// count at which the unit above it becomes the more readable choice.
+///
+/// The 1024-boundary IEC steps mirror the backend's fixed `Byte`/`Kilobyte`/
+/// `Megabyte`/`Gigabyte`/`Terabyte` cases and their suffixes
+/// (`backend/app/Enums/MetricUnit.php:65-69`), so `bytes_auto` never invents a
+/// suffix the fixed variants do not already use.
+const List<MapEntry<double, String>> _byteAutoSteps = [
+  MapEntry(1, 'B'),
+  MapEntry(1024, 'KB'),
+  MapEntry(1024 * 1024, 'MB'),
+  MapEntry(1024 * 1024 * 1024, 'GB'),
+  MapEntry(1024 * 1024 * 1024 * 1024, 'TB'),
+];
+
+/// Scale steps for the `duration_auto` [MetricOption], assuming the raw
+/// sample is in milliseconds (the same base [MetricUnit.Millisecond] uses):
+/// ms -> s at x1000, s -> min at x60, min -> h at x60. Mirrors the backend's
+/// fixed `Millisecond`/`Second`/`Minute`/`Hour` suffixes.
+const List<MapEntry<double, String>> _durationAutoSteps = [
+  MapEntry(1, 'ms'),
+  MapEntry(1000, 's'),
+  MapEntry(60000, 'min'),
+  MapEntry(3600000, 'h'),
+];
+
+/// Drops a trailing `.0` on an integral value so a chart-derived double like
+/// 73.0 prints "73", matching the React `${value}` (JS numbers have no
+/// distinct double type, so 73.0 renders as "73"). Non-integral values keep
+/// their decimals (73.4 -> "73.4").
+String _formatNumber(num value) {
+  return value == value.roundToDouble() ? value.toStringAsFixed(0) : '$value';
+}
+
+/// Scales [value] against [steps] (ascending thresholds, each paired with the
+/// suffix it should render at) and picks the highest step [value] still
+/// clears, rounding the scaled result to one decimal place so a clean
+/// division like `1536 / 1024` renders as `1.5` rather than a long or
+/// repeating decimal.
+String _fmtAutoScale(num value, List<MapEntry<double, String>> steps) {
+  MapEntry<double, String> chosen = steps.first;
+  for (final MapEntry<double, String> step in steps) {
+    if (value.abs() >= step.key) chosen = step;
+  }
+  final double scaled = ((value / chosen.key) * 10).round() / 10;
+  return '${_formatNumber(scaled)} ${chosen.value}';
+}
+
 /// Formats [value] with the appropriate suffix for [unit].
 ///
 /// Returns `"<value> <suffix>"` when the unit has a non-empty suffix, or
-/// `"<value>"` for dimensionless units such as `count` and `custom`.
+/// `"<value>"` for dimensionless units such as `count` and `custom`. The two
+/// `*_auto` units (`bytes_auto`, `duration_auto`) scale [value] up through
+/// [_byteAutoSteps]/[_durationAutoSteps] first and pick their suffix from the
+/// chosen step rather than a fixed [kUnitSuffix] entry; every other unit
+/// renders at its own fixed magnitude.
 ///
 /// ```dart
-/// fmt(73.4, '%')    // '73.4 %'
-/// fmt(23,   'count') // '23'
+/// fmt(73.4, '%')             // '73.4 %'
+/// fmt(23,   'count')         // '23'
+/// fmt(1536, 'bytes_auto')    // '1.5 KB'
+/// fmt(90000, 'duration_auto') // '1.5 min'
 /// ```
 String fmt(num value, String unit) {
-  // Drop a trailing `.0` on integral values so a chart-derived double like 73.0
-  // prints "73", matching the React `${value}` (JS numbers have no distinct
-  // double type, so 73.0 renders as "73"). Non-integral values keep their
-  // decimals (73.4 -> "73.4").
-  final String number = value == value.roundToDouble()
-      ? value.toStringAsFixed(0)
-      : '$value';
+  if (unit == 'bytes_auto') return _fmtAutoScale(value, _byteAutoSteps);
+  if (unit == 'duration_auto') return _fmtAutoScale(value, _durationAutoSteps);
+
+  final String number = _formatNumber(value);
   final String suffix = kUnitSuffix[unit] ?? '';
   return suffix.isNotEmpty ? '$number $suffix' : number;
 }
@@ -397,6 +529,30 @@ StatusKey bandOf(
   if (c != null && worse(c)) return StatusKey.down;
   if (w != null && worse(w)) return StatusKey.degraded;
   return StatusKey.up;
+}
+
+/// Dart mirror of `ThresholdEvaluator::normalizeMatchValue()`
+/// (`backend/app/Services/Monitoring/ThresholdEvaluator.php`): lowercases
+/// [value] and strips leading and trailing Unicode whitespace, including
+/// U+00A0 (non-breaking space), which a plain [String.trim] does not strip.
+///
+/// Exists solely so Step 13's client-side overlap check (no value may appear
+/// in two of the three string-band lists) compares the same way the server
+/// will when it re-validates the same fields; the band itself is never
+/// computed here (the server always supplies it, via `latestBand` on read
+/// and `preview()`'s `band` on a draft).
+///
+/// ```dart
+/// normalizeMatchValue('  OK\t\n')          // 'ok'
+/// normalizeMatchValue('\u{00A0}OK\u{00A0}') // 'ok'
+/// ```
+String normalizeMatchValue(String value) {
+  // `String.trim()` is enough here, measured: Dart's whitespace set already
+  // includes U+00A0, so both `trim()` and a `\s`-based regex strip it. The PHP
+  // side has to name `\x{00A0}` explicitly only because PCRE's `\s` stays
+  // ASCII-only under `/u` and PHP's own `trim()` is byte-wise; neither
+  // limitation exists on this side, so the simpler call is the honest one.
+  return value.trim().toLowerCase();
 }
 
 /// Resolves the chart baseline for [form].

@@ -68,11 +68,6 @@ List<Region> monitorRegions(List<Monitor> monitors) {
 /// themselves, nothing external. The draft is a fresh (unsaved) [StatusPage] the
 /// editor seeds its fields from.
 ///
-/// It no longer seeds a metric selection. The presets it used to carry
-/// (`api.response_time`, ...) were fixture metric ids belonging to fixture
-/// monitors, so for a real team they either resolved to nothing or published a
-/// metric key pointing at a monitor that did not exist.
-///
 /// ```dart
 /// final draft = aiDraftFor(monitors.map((m) => m.id).toList());
 /// ```
@@ -94,7 +89,6 @@ StatusPage aiDraftFor(List<String> monitorIds) {
     'monitors': <Map<String, dynamic>>[
       for (final String id in monitorIds) <String, dynamic>{'id': id},
     ],
-    'metric_keys': const <String>[],
   });
 }
 

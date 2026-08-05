@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\MonitorContentController;
 use App\Http\Controllers\Marketing\SendContactMessageController;
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Middleware\SetMarketingLocale;
@@ -184,6 +185,35 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => [
                 Limit::perMinute(10)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
                 Limit::perMinute(20)->by('page:'.$request->path()),
+            ],
+        );
+
+        // Bound the two endpoints that read a monitor's newest ARCHIVED body:
+        // the extraction-candidate browser and the metric-form preview. REQUIRED
+        // for the same reason as the render trigger above, plus a cost the others
+        // do not have: one accepted request is a cold read off a FUSE mount of a
+        // Drive remote, roughly a second against a remote capped near two file
+        // operations a second, and an Octane worker is held for the whole read.
+        // Both routes carry this one limiter (see routes/api.php), because they
+        // read the SAME blob and a separate budget each would double the rate a
+        // single operator can spend on it.
+        //
+        // Same two buckets as the render trigger, and for the same reasons.
+        // `$request->user()` resolves a TOKEN request because `config/auth.php`
+        // makes `sanctum` the default guard; the address fallback covers a request
+        // whose token failed, counted before it is rejected. The aggregate bucket
+        // is keyed on `$request->path()`, which carries the monitor id and is
+        // always a string: a route PARAMETER is not safe to reach for here,
+        // because `ThrottleRequests` sorts ahead of `SubstituteBindings` today and
+        // behind it after any priority change, so the value would silently switch
+        // between a string and a model. Keying on the path also gives each of the
+        // two routes its own aggregate bucket per monitor, which is what a whole
+        // team browsing one monitor's candidates should not be able to multiply.
+        RateLimiter::for(
+            MonitorContentController::SAMPLE_READ_LIMITER,
+            fn (Request $request) => [
+                Limit::perMinute(10)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
+                Limit::perMinute(20)->by('monitor-sample:'.$request->path()),
             ],
         );
 

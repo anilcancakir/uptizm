@@ -251,14 +251,6 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
     ];
   }
 
-  /// Custom/aggregate metric ids surfaced publicly (`monitorId.key`). Read from
-  /// the optional `metric_keys` wire array; empty when absent.
-  List<String> get metricKeys {
-    final Object? raw = getAttribute('metric_keys');
-    if (raw is! List) return const [];
-    return raw.map((e) => e.toString()).toList();
-  }
-
   // ---------------------------------------------------------------------------
   // Headless PNG preview render (read-only; see [fillable])
   // ---------------------------------------------------------------------------

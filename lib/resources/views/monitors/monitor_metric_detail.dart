@@ -76,6 +76,11 @@ class MonitorMetricDetail extends StatefulWidget {
 }
 
 class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
+  /// Shown in place of a value when a reading exists but carries no value
+  /// for the metric's declared type (e.g. an extraction rule that failed on
+  /// that particular check).
+  static const String _noReading = '—';
+
   /// The metric's recorded readings, oldest first. Empty until the load
   /// resolves, and legitimately empty afterwards for a metric that has never
   /// extracted anything.
@@ -164,26 +169,42 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
     }
 
     final MetricSeriesPoint newest = _points.last;
-    final num? latest = newest.numericValue;
+
+    // The hero value is the newest point's real reading for the metric's
+    // declared type: a status/string metric has no `numericValue`, so it
+    // reads its own field instead of the numeric one.
+    final String? latestText = switch (metric.type) {
+      'status' => newest.statusValue,
+      'string' => newest.stringValue,
+      _ => newest.numericValue == null
+          ? null
+          : fmt(newest.numericValue!, metric.unit),
+    };
 
     return [
       // The latest reading, banded by the band the backend FROZE when it was
       // recorded, not by re-evaluating today's thresholds against old data.
-      ?(latest == null
-          ? null
-          : _buildLatestValue(latest, _bandOf(newest), isNumeric)),
+      //
+      // A point with no reading for the declared type still renders the hero,
+      // showing [_noReading] the way the table rows below do. Dropping the
+      // block instead read as "this metric has never been read", which the
+      // no-readings empty state above already says and this case contradicts.
+      _buildLatestValue(latestText ?? _noReading, _bandOf(newest)),
       const SizedBox(height: 16),
 
       // The real series. No anomaly markers: nothing detects metric anomalies,
       // so one was previously injected at a fixed index and narrated as though
-      // it had been observed.
+      // it had been observed. A non-numeric metric has no chart at all: a
+      // string or status reading cannot sit on a y-axis, so the frame is
+      // absent rather than rendered empty.
       if (isNumeric && data.length > 1) ...[
         _buildChart(data, const []),
         const SizedBox(height: 16),
       ],
 
-      // Newest-first, from the real readings.
-      _buildRecentReadings(data.reversed.take(6).toList(), isNumeric),
+      // Newest-first, from the RAW readings (not the numeric-filtered `data`),
+      // so a string/status metric's real readings show up here too.
+      _buildRecentReadings(_points.reversed.take(6).toList()),
     ];
   }
 
@@ -261,22 +282,21 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
 
   /// Builds the latest-value row: optional [StatusDot] + large mono value +
   /// "latest · last 24h" label.
-  Widget _buildLatestValue(num latest, StatusKey? band, bool isNumeric) {
-    final String valueText = switch (isNumeric) {
-      true => fmt(latest, metric.unit),
-      false => metric.type == 'status' ? 'operational' : 'ok',
-    };
-
+  ///
+  /// [valueText] is the newest reading's REAL value, already formatted for
+  /// its type (numeric via [fmt], status/string as-is); this widget never
+  /// fabricates one.
+  Widget _buildLatestValue(String valueText, StatusKey? band) {
     return WDiv(
       // items-end bottom-aligns the dot + meta label against the large value's
       // baseline (replacing the old per-child bottom-padding nudges).
       className: 'flex flex-row items-end gap-2',
       children: [
         // Only when the reading carried a frozen band; an unbanded reading
-        // shows no dot rather than a green one.
-        ?(isNumeric && band != null
-            ? StatusDot(band, size: StatusDotSize.lg)
-            : null),
+        // shows no dot rather than a green one. Not gated on the metric being
+        // numeric: a string metric bands by value-list membership now, so that
+        // gate hid the band on the readings this feature exists to flag.
+        ?(band == null ? null : StatusDot(band, size: StatusDotSize.lg)),
         WText(
           valueText,
           className: 'text-fg font-mono text-3xl font-semibold tabular-nums',
@@ -321,7 +341,10 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   // ---------------------------------------------------------------------------
 
   /// Builds the "Recent readings" section header and row list.
-  Widget _buildRecentReadings(List<MetricDatum> readings, bool isNumeric) {
+  ///
+  /// [readings] are the RAW points (not the numeric-filtered `data`), so a
+  /// string/status metric's real readings appear here too.
+  Widget _buildRecentReadings(List<MetricSeriesPoint> readings) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -329,9 +352,18 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
           trans('uptizm.monitors.metrics_recent_readings').toUpperCase(),
           className: 'text-fg-muted text-xs font-medium tracking-wide',
         ),
-        ...readings.asMap().entries.map((MapEntry<int, MetricDatum> entry) {
+        // The dots below are FROZEN verdicts. Without saying so, an operator who
+        // has just fixed a misconfigured value list reads a red history as the
+        // new configuration still failing, when it is the old one preserved.
+        WText(
+          trans('uptizm.monitors.metrics_recent_readings_frozen_note'),
+          className: 'text-fg-muted text-xs',
+        ),
+        ...readings.asMap().entries.map((
+          MapEntry<int, MetricSeriesPoint> entry,
+        ) {
           final bool isLast = entry.key == readings.length - 1;
-          return _buildReadingRow(entry.value, isNumeric, isLast);
+          return _buildReadingRow(entry.value, isLast);
         }),
       ],
     );
@@ -341,11 +373,23 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   ///
   /// The row carries a hairline bottom border on every entry except the last,
   /// mirroring the React `last:border-b-0` pattern.
-  Widget _buildReadingRow(MetricDatum datum, bool isNumeric, bool isLast) {
-    final num rv = datum.values['value']!;
-    final StatusKey rb = isNumeric
-        ? bandOf(rv, metric.warn, metric.critical, metric.direction)
-        : StatusKey.up;
+  Widget _buildReadingRow(MetricSeriesPoint point, bool isLast) {
+    final num? rv = point.numericValue;
+
+    // The band the backend FROZE on this reading, exactly like the hero above.
+    // This row used to re-evaluate it client-side against today's thresholds
+    // for a numeric metric and fall back to `up` for every other type, so one
+    // sheet could show a frozen `critical` hero over rows claiming `ok`, and a
+    // string reading was always green whatever it said.
+    final StatusKey? rb = _bandOf(point);
+
+    // Every branch is the point's REAL reading for the metric's declared
+    // type, never a fabricated word.
+    final String valueText = switch (metric.type) {
+      'status' => point.statusValue ?? _noReading,
+      'string' => point.stringValue ?? _noReading,
+      _ => rv == null ? _noReading : fmt(rv, metric.unit),
+    };
 
     return WDiv(
       className: isLast
@@ -353,15 +397,15 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
           : 'flex flex-row items-center justify-between py-2 border-b border-color-border',
       children: [
         WText(
-          datum.label,
+          _pointLabel(point),
           className: 'text-fg-muted font-mono text-xs tabular-nums',
         ),
         WDiv(
           className: 'flex flex-row items-center gap-2',
           children: [
-            if (isNumeric) StatusDot(rb, size: StatusDotSize.sm),
+            ?(rb == null ? null : StatusDot(rb, size: StatusDotSize.sm)),
             WText(
-              isNumeric ? fmt(rv, metric.unit) : 'ok',
+              valueText,
               className: 'text-fg font-mono text-sm tabular-nums',
             ),
           ],

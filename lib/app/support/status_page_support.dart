@@ -52,7 +52,6 @@ StatusPage cloneStatusPage(
   Color? brandColor,
   List<String>? monitorIds,
   List<Map<String, dynamic>>? components,
-  List<String>? metricKeys,
 }) {
   final Map<String, dynamic> map = Map<String, dynamic>.from(page.attributes);
   if (name != null) map['name'] = name;
@@ -69,7 +68,6 @@ StatusPage cloneStatusPage(
       for (final String id in monitorIds) <String, dynamic>{'id': id},
     ];
   }
-  if (metricKeys != null) map['metric_keys'] = metricKeys;
   return StatusPage.fromMap(map);
 }
 
