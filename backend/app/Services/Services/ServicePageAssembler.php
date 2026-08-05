@@ -59,9 +59,18 @@ use Illuminate\Database\Eloquent\Collection;
  *     AND at least {@see self::MIN_AGREEING_REGIONS} regions agreeing. That is
  *     deliberately the inverse of customer tuning, where speed wins: a customer
  *     wants to know fast, a public page contradicting the provider's own status
- *     page needs to be right. It also bounds the known open defect that the edge
- *     worker ignores `auth_config` and `assertion_rules`, which is exactly the
- *     class of bug that produces a single-region false positive.
+ *     page needs to be right. The region-agreement floor was originally sized in
+ *     part against a known edge defect: the worker accepted `auth_config` and
+ *     `assertion_rules` without applying either, so a bad credential or a
+ *     failed body check could read as an ordinary single-region connectivity
+ *     failure. Both are now evaluated at the edge (`authHeaders()` applies the
+ *     four credential shapes; `evaluateAssertions()` publishes `down` on a
+ *     failed rule and skips, never fails, one it cannot evaluate), so that
+ *     specific failure mode no longer produces a false positive. The floor
+ *     stays at {@see self::MIN_AGREEING_REGIONS} regardless, because that
+ *     constant's own docblock grounds it independently in ordinary per-region
+ *     flakiness (a proxy exit dying, one region having a bad minute), which
+ *     the edge fix does not touch.
  *  4. THE SAME BAR APPLIES TO THE AFFIRMATIVE CLAIM. Fewer than
  *     {@see self::MIN_AGREEING_REGIONS} fresh readings for an endpoint is not
  *     evidence that it was reached, only that one region happened to answer, so

@@ -36,10 +36,10 @@
  * with "This package is ESM only" before a single test is collected. The worker
  * ships no CJS file, so nothing else was affected by the switch.
  *
- * Separately, the `test` script carries `--passWithNoTests` only because this
- * harness deliberately lands one step ahead of the first test file. DROP THE
- * FLAG once a test file exists: a suite that is green on an empty set certifies
- * nothing, and this one is on its way to being a required CI check.
+ * The `test` script briefly carried `--passWithNoTests`, because the harness
+ * landed one step ahead of the first test file. It is gone and it must stay gone:
+ * a suite that is green on an empty set certifies nothing, and this one is on its
+ * way to being a required CI check.
  */
 
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
@@ -53,4 +53,14 @@ export default defineConfig({
             },
         }),
     ],
+    test: {
+        // The TCP probe's fixture, and the one thing in this suite that cannot
+        // live in a test file. `cloudflare:sockets` `connect()` has no
+        // protocol-level mock, so the probe opens a real socket and something has
+        // to be listening on the other end; only `globalSetup` runs in Node,
+        // where a listener can be created at all. See `test/global-setup.ts`.
+        globalSetup: [
+            "./test/global-setup.ts",
+        ],
+    },
 });

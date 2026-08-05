@@ -66,6 +66,18 @@ class MonitorCheck extends Model
         'timing_ttfb_ms' => 'integer',
         'timing_download_ms' => 'integer',
         'response_headers' => 'array',
+        // A THREE-state pair, not a boolean and a list. Both columns are NULL when
+        // the monitor configured no assertions, and NULL means NOT EVALUATED: the
+        // edge decides the verdict and sends one nullable report, so a verdict
+        // never arrives without its outcomes and vice versa.
+        //
+        // The `boolean` cast leaves NULL as NULL (Eloquent returns a null
+        // attribute before any cast runs), and that distinction is the whole point
+        // of the column being nullable: `false` says the target failed an
+        // assertion, NULL says nobody asked it anything. PHP's `false == null` is
+        // true, so a reader comparing loosely would publish an assertion failure
+        // for a monitor that asserts nothing. Compare with `===`, or ask
+        // `is_null()` first.
         'assertions_passed' => 'boolean',
         'assertion_results' => 'array',
     ];
