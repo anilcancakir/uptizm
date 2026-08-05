@@ -10,6 +10,7 @@ use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetricValue;
 use App\Support\Monitoring\CheckResult;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -349,7 +350,7 @@ class CheckPersistenceService
                     'last_checked_at' => $result->checkedAt,
                     'last_response_ms' => $result->responseMs,
                     'consecutive_fails' => $isDown
-                        ? $this->consecutiveFullyDownTicks($monitor)
+                        ? $this->downStreak($monitor)
                         : 0,
                     // A probe that reached the target clears any earlier edge
                     // refusal, in the same atomic UPDATE that refreshes the
@@ -619,15 +620,31 @@ class CheckPersistenceService
      * The scan is bounded at one more than the threshold, because nothing above
      * that changes any decision.
      */
-    protected function consecutiveFullyDownTicks(Monitor $monitor): int
+    protected function downStreak(Monitor $monitor): int|Expression
     {
         /** @var list<string> $regions */
         $regions = $monitor->regions ?? [];
 
+        // A monitor with no regions configured cannot have ticks, and answering
+        // zero would silently stop it alerting. It keeps the DB-side increment
+        // rather than reading the counter off this instance: the instance was
+        // loaded before the lock was taken, so two results in a row would both
+        // read the same value and the streak would stall at one. That race is
+        // exactly what the raw expression was here for.
         if ($regions === []) {
-            return ($monitor->consecutive_fails ?? 0) + 1;
+            return DB::raw('consecutive_fails + 1');
         }
 
+        return $this->consecutiveFullyDownTicks($monitor, $regions);
+    }
+
+    /**
+     * How many consecutive TICKS this monitor has been down in every region.
+     *
+     * @param  list<string>  $regions  The monitor's configured regions.
+     */
+    protected function consecutiveFullyDownTicks(Monitor $monitor, array $regions): int
+    {
         $depth = ($monitor->incident_threshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD) + 1;
 
         $byRegion = [];

@@ -440,6 +440,36 @@ class CheckPersistenceServiceTest extends TestCase
     /**
      * Builds a CheckResult carrying a JSON body the monitor's metric can read.
      */
+    protected function makeResult(
+        Monitor $monitor,
+        string $probeRunId,
+        MonitorStatus $status,
+        string $region = 'us-east',
+        bool $refused = false,
+        ?DateTimeImmutable $checkedAt = null,
+    ): CheckResult {
+        return new CheckResult(
+            monitorId: (string) $monitor->id,
+            region: $region,
+            checkedAt: $checkedAt ?? new DateTimeImmutable,
+            status: $status,
+            statusCode: $status === MonitorStatus::Up ? 200 : 503,
+            responseMs: 128,
+            errorMessage: null,
+            timingDnsMs: 1,
+            timingConnectMs: 2,
+            timingTlsMs: 3,
+            timingTtfbMs: 4,
+            timingDownloadMs: 5,
+            responseHeaders: [
+                'content-type' => 'application/json',
+            ],
+            responseBodyPreview: '{"latency": 42}',
+            probeRunId: $probeRunId,
+            probeRefused: $refused,
+        );
+    }
+
     /**
      * `incident_threshold` counts TICKS, and a tick is one scheduling round
      * across every region the monitor probes from.
@@ -550,7 +580,7 @@ class CheckPersistenceServiceTest extends TestCase
     /**
      * The regions one tick fans out to, in the order ScheduleMonitorChecks would.
      */
-    protected const THREE_REGIONS = ['us-east-1', 'eu-west-1', 'ap-south-1'];
+    protected const THREE_REGIONS = ['us-east', 'eu-west', 'ap'];
 
     /**
      * Persist one full tick: every configured region reporting [$status].
@@ -575,35 +605,5 @@ class CheckPersistenceServiceTest extends TestCase
     protected function tickTime(int $n): DateTimeImmutable
     {
         return (new DateTimeImmutable('2026-08-05 12:00:00'))->modify("+{$n} minutes");
-    }
-
-    protected function makeResult(
-        Monitor $monitor,
-        string $probeRunId,
-        MonitorStatus $status,
-        string $region = 'us-east-1',
-        bool $refused = false,
-        ?DateTimeImmutable $checkedAt = null,
-    ): CheckResult {
-        return new CheckResult(
-            monitorId: (string) $monitor->id,
-            region: $region,
-            checkedAt: $checkedAt ?? new DateTimeImmutable,
-            status: $status,
-            statusCode: $status === MonitorStatus::Up ? 200 : 503,
-            responseMs: 128,
-            errorMessage: null,
-            timingDnsMs: 1,
-            timingConnectMs: 2,
-            timingTlsMs: 3,
-            timingTtfbMs: 4,
-            timingDownloadMs: 5,
-            responseHeaders: [
-                'content-type' => 'application/json',
-            ],
-            responseBodyPreview: '{"latency": 42}',
-            probeRunId: $probeRunId,
-            probeRefused: $refused,
-        );
     }
 }
