@@ -16,14 +16,15 @@ paths:
 - The response payload is the check record: status, status code, response time, error message, timing breakdown, response headers, a body preview, the `colo` the probe really ran from, and `probe_refused`. `probe_refused` is the important one: it says the edge could not form a verdict, so the backend stores no check row and opens no incident. A transport failure must never be reported as a monitor being down.
 - The spec's field names are a wire contract with `RelayClient`. Renaming one here without changing there breaks probing silently, because an unknown field simply does not arrive.
 
-## Two fields arrive and are currently ignored
+## Two fields the backend sends, and how each one is honoured
 
-`ProbeRequest` declares `auth_config` and `assertion_rules` (`src/regional-probe.ts:38-39`), and `RelayClient.php:114-115` really sends them, but nothing in `probeHttp()` or `probeTcp()` ever reads either one. The consequences are live and asymmetric:
+`ProbeRequest` declares `auth_config` and `assertion_rules` and `RelayClient` really sends both. Until 2026-08-05 nothing in `probeHttp()` read either one, which published a false outage on every monitor a customer had bothered to authenticate and made the assertion UI a no-op. Both are closed now, and the way they are closed is the part to preserve:
 
-- A monitor with authentication configured in the UI is probed unauthenticated, so the target answers 401 or 403 and the monitor is published as down. A false outage, on exactly the monitors a customer cared enough to configure.
-- Assertion rules are a silent no-op: the UI accepts them, the customer believes the response body is being checked, and nothing checks it.
+- `auth_config` becomes a request header at probe time, and on a name collision it WINS over a hand-written one in `request_headers`. That direction is a decision: the panel presents `auth_config` as authentication and the origin decrypts it for that purpose, so a stale `Authorization` left in the free-text headers must not defeat it, while every other header the monitor set survives the merge. A credential the worker cannot form (an unknown scheme, a missing field) sends NO header rather than a broken one.
+- `assertion_rules` is evaluated in `src/assertions.ts` over four targets (`status_code`, `response_time_ms`, `body`, `header`) and ten operators. A violated assertion publishes `down`. A rule that cannot be evaluated (an unknown operator, a header that does not resolve, a stored pattern that no longer compiles) is SKIPPED with a machine-readable reason into `assertion_results` and never becomes a verdict about the target, so a report whose every outcome is skipped carries `passed: true`: nothing was measured, so nothing failed. That reads wrong and is deliberate. Turning it into a failure pages the on-call for our own bad config.
+- The open end is a SURFACE, not the edge: nothing shows those skips to the operator, so a monitor whose regex stopped compiling reads healthy forever. `assertion_results` already carries every skip and its reason; what is missing is a badge or a notification decision.
 
-Treat both as open defects rather than as design. If you are touching the probe path, this is the work worth doing; if you are not, do not paper over it by removing the fields from the type, because the backend still sends them.
+The `AssertionTarget` and `AssertionOperator` unions in `src/regional-probe.ts` are the source of truth for that vocabulary; `backend/app/Support/Monitoring/AssertionRuleSet.php` mirrors them for save-time rejection, and each side names the other at its docblock. Adding an operator to one alone means a rule that saves and never evaluates, or one the panel refuses that the edge would have run.
 
 ## Deploy order is not interchangeable
 
@@ -32,7 +33,8 @@ The Worker and the Laravel app form a contract, and the app is deployed by hand.
 ## Shape
 
 - `strict` TypeScript from `tsconfig.json` is the only enforcement here; there is no ESLint and no Prettier config, and no `@ts-ignore` anywhere. Keep both true.
-- There is no test suite in this package. `bin/check worker` runs `npm run typecheck`, which is therefore the whole automated gate, so a change to probe classification needs to be exercised against a real target before it lands.
+- `bin/check worker` runs `npm run typecheck` and `npm test`: 94 tests over the HMAC boundary, the assertion evaluator and the probe surface, executed in real workerd through `@cloudflare/vitest-pool-workers` rather than a mocked runtime. CI runs both under one job still NAMED `Regional checker (typecheck)`, because that context is a required check on `master` and renaming it would drop the check from every open PR; the name is deliberate, not a leftover.
+- What the suite does not reach still has to be exercised by hand. There is no protocol-level mock for `cloudflare:sockets` `connect()`, so the TCP path is driven against a real server started in `test/global-setup.ts`, and a change to probe CLASSIFICATION wants a real target before it lands: no test can tell you that a given site answers 403 to a datacenter IP.
 - `npm run dev` boots on `:8787` to match the backend's default `RELAY_URL`.
 
 ## Verdicts are measurements, not inferences

@@ -6,7 +6,7 @@ applyTo: "lib/**"
 
 # Design Rules (UI surface)
 
-These rules apply whenever you touch any file under `lib/`. They complement `CLAUDE.md` with the implementation-level specifics.
+These rules apply whenever you touch any file under `lib/`. They complement `.github/copilot-instructions.md` with the implementation-level specifics.
 
 ## Atomic Component Folder Contract
 
@@ -59,6 +59,8 @@ final myRecipe = WindRecipe(
 
 All colors go through semantic alias keys defined in `DESIGN.md`. Never use raw hex, `Color(0xFF...)`, or `Colors.*` in component or view code.
 
+This is the one design rule with a gate behind it: `bin/check`'s `design-tokens` job scans `lib/**/*.dart` for `Color(0x` and `Colors.`, strips comments first, and exits non-zero outside four allowlisted paths that each carry their reason. It is a regex and not an AST, so `Color.fromARGB`, `Color.fromRGBO` and `Color.from` walk straight past it. They are violations all the same; the job being quiet is not a licence.
+
 The 17 semantic alias keys:
 
 | Key | Role |
@@ -92,7 +94,7 @@ No component ships without a preview widget.
 - The preview file (`<name>.preview.dart`) must render every variant x state combination so the catalog shows the full range.
 - After adding or modifying a preview, regenerate the catalog: `dart run bin/dispatcher.dart previews:refresh`
 - Verify dark/light parity by navigating to `/preview` in debug mode: `./bin/fsa dusk:navigate --route=/preview`
-- Take light and dark screenshots and run the `component-visual-reviewer` agent (`.claude/agents/component-visual-reviewer.md`) before marking a component ship-ready.
+- Take light and dark screenshots and run the `component-visual-reviewer` agent (a Claude Code agent definition; Copilot has no equivalent, so apply those criteria by hand) before marking a component ship-ready.
 
 ## Material Import Discipline
 
@@ -107,7 +109,7 @@ Never `import 'package:flutter/material.dart'` without `show`. Build exclusively
 
 ## Anti-Patterns
 
-Each of these is a blocker, and the `component-visual-reviewer` flags every one.
+Each of these is a blocker, and exactly one of them is measured: `bin/check`'s `design-tokens` job fails the first row. The other seven are reviewer-enforced, so a green `bin/check` says nothing about them and the `component-visual-reviewer` agent is what flags them.
 
 | Anti-pattern | Correct approach |
 |-------------|-----------------|

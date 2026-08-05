@@ -8,7 +8,7 @@ applyTo: "lib/**,test/**"
 
 # The Flutter app
 
-Applies to `lib/` and `test/`. Token and component mechanics live in `.claude/rules/design.md`; this file covers the Dart, the framework idioms, and the tests.
+Applies to `lib/` and `test/`. Token and component mechanics live in `.github/instructions/design.instructions.md`; this file covers the Dart, the framework idioms, and the tests.
 
 ## Written to be read by a stranger
 
@@ -29,7 +29,7 @@ Applies to `lib/` and `test/`. Token and component mechanics live in `.claude/ru
 
 ## Dart shape
 
-- Multi-line collections stay expanded with a trailing comma on the last element. This is the repo's committed style and the reason `dart format` is not run here.
+- Multi-line collections stay expanded with a trailing comma on the last element. That committed style is the why behind the formatter ban in the canonical instructions: the current SDK's tall formatter collapses exactly this shape, which is why reformatting churns files nobody touched.
 - Imports group as `dart:`, then `package:` (including `magic`), then relative, with no further sorting inside a group.
 - Fields first, then the constructor, then `build` or the lifecycle overrides last. Beyond that the tree is not consistent, so do not reorder an existing file to match a pattern.
 - No `part` / `part of` anywhere; every file stands alone.

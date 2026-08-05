@@ -97,6 +97,26 @@ for rule in "$RULES_DIR"/*.md; do
         exit 1
     fi
 
+    # Copilot cannot open a Claude Code path, so a rule that sends the reader to a
+    # sibling rule sends it nowhere. Rewrite those three reference forms as the body
+    # is staged, and leave the SOURCE rule alone: `.claude/rules/*.md` and `CLAUDE.md`
+    # are the right paths for Claude Code, which is the only tool that reads them.
+    #
+    # Scoped to the rule bodies on purpose, NOT to the repo-wide mirror. In `AGENTS.md`
+    # the two `.claude/` mentions are the subject of a sentence rather than a file to
+    # open (the nested-worktree anti-pattern, and the row of the topology table that
+    # exists to say where each tool's copy lives), so rewriting them would turn a true
+    # statement into a false one.
+    #
+    # Substitutions are literal and order-independent, so the output is deterministic
+    # and `--check` cannot flap.
+    body="$(
+        printf '%s\n' "$body" | sed \
+            -e 's|`\.claude/rules/\([a-z][a-z-]*\)\.md`|`.github/instructions/\1.instructions.md`|g' \
+            -e 's|`CLAUDE\.md`|`.github/copilot-instructions.md`|g' \
+            -e 's|(`\.claude/agents/[a-z0-9][a-z0-9-]*\.md`)|(a Claude Code agent definition; Copilot has no equivalent, so apply those criteria by hand)|g'
+    )"
+
     {
         echo "---"
         printf 'applyTo: "%s"\n' "$globs"
