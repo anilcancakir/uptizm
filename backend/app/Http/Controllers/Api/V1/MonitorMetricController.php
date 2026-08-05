@@ -336,15 +336,29 @@ class MonitorMetricController extends Controller
                     criticalBound: isset($validated['critical_bound']) ? (float) $validated['critical_bound'] : null,
                 )->value;
             } elseif ($type === MetricType::String) {
-                $band = ThresholdEvaluator::bandString(
-                    value: (string) $result->value,
-                    okValues: $this->draftValues($validated, 'ok_values'),
-                    warnValues: $this->draftValues($validated, 'warn_values'),
-                    criticalValues: $this->draftValues($validated, 'critical_values'),
-                    unmatchedBand: isset($validated['unmatched_band'])
-                        ? MetricBand::from((string) $validated['unmatched_band'])
-                        : null,
-                )?->value;
+                $okValues = $this->draftValues($validated, 'ok_values');
+                $warnValues = $this->draftValues($validated, 'warn_values');
+                $criticalValues = $this->draftValues($validated, 'critical_values');
+
+                // The draft equivalent of {@see MonitorMetric::alertsOnString()},
+                // which gates both the freeze and the paging decision. Without it
+                // a draft with three empty lists and an unmatched band would be
+                // banded here, so the panel answered CRITICAL for a configuration
+                // the write path rejects: a verdict promising what cannot be
+                // saved. A preview may under-promise; it may not over-promise.
+                $configured = $okValues !== [] || $warnValues !== [] || $criticalValues !== [];
+
+                $band = $configured
+                    ? ThresholdEvaluator::bandString(
+                        value: (string) $result->value,
+                        okValues: $okValues,
+                        warnValues: $warnValues,
+                        criticalValues: $criticalValues,
+                        unmatchedBand: isset($validated['unmatched_band'])
+                            ? MetricBand::from((string) $validated['unmatched_band'])
+                            : null,
+                    )?->value
+                    : null;
             }
         }
 

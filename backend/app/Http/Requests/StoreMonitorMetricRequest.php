@@ -75,6 +75,22 @@ class StoreMonitorMetricRequest extends FormRequest
         }
 
         abort_unless($monitor->team_id === $teamId, HttpResponse::HTTP_NOT_FOUND);
+
+        // The METRIC binding needs the same first-gate treatment, and for a
+        // sharper reason than the monitor's. Nothing scopes `{metric}` to
+        // `{monitor}`: the routes declare no `scopeBindings()` and the model
+        // carries no global scope, so a foreign metric id under a monitor the
+        // caller does own resolves to the foreign row. The controller's
+        // `authorizeMetric()` used to catch that first; moving validation
+        // ahead of it means the merged-state readers below would otherwise
+        // read that row and answer 422-or-pass, which is a value-probing
+        // oracle over another team's thresholds, and the overlap message
+        // echoes their stored values verbatim.
+        $metric = $this->route('metric');
+
+        if ($metric instanceof MonitorMetric) {
+            abort_unless($metric->monitor_id === $monitor->id, HttpResponse::HTTP_NOT_FOUND);
+        }
     }
 
     /**
@@ -200,10 +216,15 @@ class StoreMonitorMetricRequest extends FormRequest
      * `sometimes` in both directions: an omitted list leaves the column at its
      * `'[]'` schema default rather than being written as null.
      *
-     * `min:1` per element is load-bearing rather than tidy. {@see ThresholdEvaluator::normalizeMatchValue()}
+     * The closure per element is load-bearing rather than tidy. {@see ThresholdEvaluator::normalizeMatchValue()}
      * reduces an all-whitespace value to the empty string, and an empty
      * configured value would then match every extracted value that also
-     * normalizes to empty. `distinct:ignore_case` catches the duplicate WITHIN
+     * normalizes to empty, so a path resolving to `""` would band as whichever
+     * list holds it. `min:1` alone does NOT close that: it counts characters, so
+     * a lone U+00A0 is length 1 and passes, and Laravel's `TrimStrings` leaves
+     * it there because PCRE's `\s` stays ASCII-only under `/u` without
+     * `PCRE_UCP`. The check therefore asks the normalizer itself.
+     * `distinct:ignore_case` catches the duplicate WITHIN
      * one list, which the cross-list overlap rule cannot see.
      *
      * @return array<string, mixed>
@@ -223,6 +244,14 @@ class StoreMonitorMetricRequest extends FormRequest
                 'min:1',
                 'max:120',
                 'distinct:ignore_case',
+                static function (string $attribute, mixed $value, callable $fail): void {
+                    if (is_string($value) && ThresholdEvaluator::normalizeMatchValue($value) === '') {
+                        $fail(
+                            'A value cannot be blank. Matching trims surrounding whitespace, so this '
+                            .'would match every empty reading.'
+                        );
+                    }
+                },
             ];
         }
 
@@ -263,6 +292,17 @@ class StoreMonitorMetricRequest extends FormRequest
      */
     protected function validateBoundOrder(Validator $validator, ?MonitorMetric $stored): void
     {
+        // Bounds only mean something for a numeric metric, and gating on the
+        // MERGED type matters: a string metric can carry an inverted stored
+        // pair, because the client sent `threshold_direction` for every type
+        // before this change and nothing validated the ordering. Without this
+        // gate, editing the label of such a metric fails on `critical_bound`,
+        // and the form renders that error only inside its numeric block, so
+        // the sheet stays open with nothing shown and the save never lands.
+        if ($this->mergedType($stored) !== MetricType::Numeric) {
+            return;
+        }
+
         $direction = $this->mergedDirection($stored);
         $warn = $this->mergedBound('warn_bound', $stored);
         $critical = $this->mergedBound('critical_bound', $stored);
@@ -362,6 +402,24 @@ class StoreMonitorMetricRequest extends FormRequest
             'unmatched_band',
             'Add at least one healthy, warning or critical value before choosing a band for unmatched values.',
         );
+    }
+
+    /**
+     * Merged `type`, or null when neither side carries a usable one.
+     *
+     * The cross-field rules branch on this rather than on what the request
+     * happens to carry: a PATCH that only renames a metric says nothing about
+     * its type, and the stored row is then the only place the answer lives.
+     */
+    protected function mergedType(?MonitorMetric $stored): ?MetricType
+    {
+        if (! $this->has('type')) {
+            return $stored?->type;
+        }
+
+        $submitted = $this->input('type');
+
+        return is_string($submitted) ? MetricType::tryFrom($submitted) : null;
     }
 
     /**

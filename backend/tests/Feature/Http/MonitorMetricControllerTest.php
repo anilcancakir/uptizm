@@ -461,6 +461,79 @@ class MonitorMetricControllerTest extends TestCase
         ], $monitor, $stranger);
     }
 
+    public function test_a_value_that_normalizes_to_nothing_is_rejected(): void
+    {
+        // `min:1` counts CHARACTERS, so a lone U+00A0 is length 1 and passes it,
+        // and Laravel's TrimStrings does not strip it either (PCRE's `\s` stays
+        // ASCII-only under `/u` without PCRE_UCP). It then normalizes to "" and
+        // matches every extraction that also normalizes to "": a path resolving
+        // to an empty string would band as whichever list holds it.
+        [$monitor, $user] = $this->makeMonitor();
+
+        try {
+            $this->makeStoreRequest([
+                'label' => 'Cluster state',
+                'key' => 'cluster_state',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::JsonPath->value,
+                'extraction_path' => '$.status',
+                'ok_values' => ["\u{00A0}"],
+            ], $monitor, $user);
+
+            $this->fail('a value that normalizes to the empty string must not be accepted');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('ok_values.0', $exception->errors());
+        }
+    }
+
+    public function test_a_metric_belonging_to_another_monitor_is_masked_as_404(): void
+    {
+        // The route binds `metric` by id alone, so the same team's OTHER monitor's
+        // metric resolves and the merged-state rules would then validate a PATCH
+        // against a stored row the URL does not name: a partial payload could be
+        // banded by another monitor's lists, and the `key` uniqueness rule would
+        // ignore the wrong row. The payload is deliberately valid on its own, so
+        // a ValidationException here would mean the mask never fired.
+        [$monitor, $user] = $this->makeMonitor();
+        $other = Monitor::query()->create([
+            'team_id' => $monitor->team_id,
+            'name' => 'Second monitor',
+            'type' => MonitorType::Http,
+            'url' => 'https://example.com/other',
+            'check_interval_sec' => 60,
+            'incident_threshold' => 2,
+            'consecutive_fails' => 0,
+        ]);
+        $foreignMetric = $this->makeStringMetric($other);
+
+        $this->expectException(NotFoundHttpException::class);
+
+        $this->makeUpdateRequest(['label' => 'Renamed'], $monitor, $foreignMetric, $user);
+    }
+
+    public function test_a_string_metric_with_inverted_stored_bounds_still_accepts_a_label_edit(): void
+    {
+        // The bound-order check reads the MERGED state, so a string metric that
+        // carries numeric bounds from an earlier numeric life (nothing clears
+        // them on a type switch) would fail every later PATCH on a field that
+        // has nothing to do with bounds. The order only means something for a
+        // numeric metric, so the gate is the merged TYPE, not the presence of
+        // the columns.
+        [$monitor, $user] = $this->makeMonitor();
+        $metric = $this->makeStringMetric($monitor, [
+            'ok_values' => ['ok'],
+            // high_bad with warn ABOVE critical: rejected outright on a numeric
+            // metric, and irrelevant on this one.
+            'threshold_direction' => ThresholdDirection::HighBad,
+            'warn_bound' => 900,
+            'critical_bound' => 100,
+        ]);
+
+        $request = $this->makeUpdateRequest(['label' => 'Cluster health'], $monitor, $metric, $user);
+
+        $this->assertSame('Cluster health', $request->validated()['label']);
+    }
+
     public function test_preview_bands_a_string_sample_against_the_configured_lists(): void
     {
         // The form's verdict must agree with what the pipeline will freeze, so
@@ -492,6 +565,30 @@ class MonitorMetricControllerTest extends TestCase
             $controller->preview($unmatched, $monitor, $this->app->make(MetricExtractor::class))
                 ->getData(true)['band'],
         );
+    }
+
+    public function test_preview_does_not_promise_a_band_the_write_path_would_refuse(): void
+    {
+        // An unmatched band with three empty lists bands EVERY value, which is
+        // why the write path rejects it. Preview used to band the draft anyway,
+        // so the panel answered CRITICAL and the save then 422'd on a field the
+        // operator had already filled in: a verdict promising what cannot be
+        // saved. It mirrors the freeze gate instead, and stays silent.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $payload = $this->app->make(MonitorMetricController::class)
+            ->preview(
+                $this->previewRequest($monitor, $user, [
+                    'sample_body' => json_encode(['status' => 'ok']),
+                    'unmatched_band' => MetricBand::Critical->value,
+                ]),
+                $monitor,
+                $this->app->make(MetricExtractor::class),
+            )
+            ->getData(true);
+
+        $this->assertSame('ok', $payload['extracted_value']);
+        $this->assertNull($payload['band']);
     }
 
     public function test_preview_leaves_an_unconfigured_string_draft_unbanded(): void
