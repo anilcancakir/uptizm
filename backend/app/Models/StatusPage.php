@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * A team's public status page: branding, visibility, and the set of
- * monitors and metrics shown to visitors.
+ * A team's public status page: branding, visibility, and the set of monitors
+ * shown to visitors.
  *
  * `preview_token` gates unlisted preview access while a page is private and
  * must never be exposed in array/JSON output (see {@see self::$hidden}). It is
@@ -36,7 +36,6 @@ use Illuminate\Support\Str;
  * Relationships:
  * - belongs to {@see Team} (tenant boundary)
  * - belongs to many {@see Monitor} via `status_page_monitors` (displayed components)
- * - belongs to many {@see Monitor} via `status_page_metrics` (charted metrics, deferred)
  * - has many {@see StatusPageSubscriber} (incident-notification opt-ins)
  */
 class StatusPage extends Model
@@ -185,19 +184,6 @@ class StatusPage extends Model
                 'custom_label',
             ])
             ->orderByPivot('display_order');
-    }
-
-    /**
-     * Monitor metrics selected for this status page (the pivot carries the
-     * `metric_key`). The live-metrics grid render is deferred, so this relation
-     * exists for schema completeness and is not yet exercised.
-     *
-     * @return BelongsToMany<Monitor>
-     */
-    public function metrics(): BelongsToMany
-    {
-        return $this->belongsToMany(Monitor::class, 'status_page_metrics')
-            ->withPivot('metric_key');
     }
 
     /**
