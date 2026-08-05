@@ -60,6 +60,33 @@ import type {
 export const ASSERTION_BODY_MAX_CHARS = 1_048_576;
 
 /**
+ * The largest body a stored PATTERN is ever run against, in characters.
+ *
+ * Two orders of magnitude below {@link ASSERTION_BODY_MAX_CHARS}, and the gap is
+ * the point. `contains` runs `String.includes`, which cannot backtrack, so a
+ * megabyte costs milliseconds. A regex can, and the cost is quadratic in the
+ * longest unbroken run the pattern's own character class matches, not in the
+ * body's size. Measured in V8 with `\w+error` against an unbroken `\w` run: 120 ms
+ * at 8 KiB, 487 ms at 16 KiB, 2.04 s at 32 KiB, 7.82 s at 64 KiB, 27.4 s at
+ * 128 KiB. Clean quadratic, so the 1 MiB ceiling works out at roughly half an
+ * hour for ONE rule, and the evaluator is synchronous inside a Durable Object
+ * keyed by region across every tenant.
+ *
+ * The save-time screen cannot catch that pattern. It has one unbounded quantifier,
+ * no nesting and no adjacency, so it is not a catastrophic SHAPE; it is an
+ * ordinary rule made expensive by the subject it meets. And the expensive case is
+ * the HEALTHY page, because the sweep is what a non-match costs.
+ *
+ * This ceiling exists because raising the read to close a silent no-op also
+ * widened what a pattern runs against, from the 10 KiB preview to the full body.
+ * That fix was right and this is its other half. At 10 KiB the same pattern is
+ * about 190 ms, so a monitor at the 20-rule cap is bounded near 4 s rather than
+ * near 29 minutes. Past it the rule is a recorded `body_too_large` skip, which is
+ * a fault of ours the operator can read, not a stalled region.
+ */
+export const ASSERTION_PATTERN_MAX_CHARS = 10_240;
+
+/**
  * How much of a text target is recorded as the observed value.
  *
  * `assertion_results` rides to the persisting job through the Redis `processing`
@@ -494,7 +521,17 @@ function readTarget(
 
         case "body": {
             const { text, truncated } = subject.body;
-            if (truncated || text.length > ASSERTION_BODY_MAX_CHARS) {
+
+            // A pattern gets two orders of magnitude less body than a substring
+            // search does, because only one of the two can backtrack. See
+            // {@link ASSERTION_PATTERN_MAX_CHARS}: this is the operator-visible
+            // half of a ceiling that otherwise turns a healthy megabyte page into
+            // a region-length stall.
+            const ceiling = rule.operator === "matches_regex" || rule.operator === "not_matches_regex"
+                ? ASSERTION_PATTERN_MAX_CHARS
+                : ASSERTION_BODY_MAX_CHARS;
+
+            if (truncated || text.length > ceiling) {
                 return {
                     state: "unusable",
                     reason: "body_too_large",
