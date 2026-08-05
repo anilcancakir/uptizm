@@ -171,6 +171,66 @@ class CheckJobTest extends TestCase
     }
 
     /**
+     * The defect this locks: `extractSamples()` returns `[]` the moment
+     * `$result->content` is null ({@see PerformMonitorCheck::extractSamples()}),
+     * BEFORE it ever loops over the monitor's metrics. That early return also
+     * discards the `header` and `http_status` metrics, which never needed the
+     * body at all, and it makes `persistMetricSamples()`'s preview fallback
+     * unreachable: that fallback only fires on `$samples === null`
+     * ({@see CheckPersistenceService}), never on an empty array, and the
+     * producer above never sends `null`.
+     *
+     * A bodyless response with a populated `response_body_preview` (the edge
+     * filtered the content type, but still returned a preview) must still let
+     * every metric whose source needs no full body record a value, and the
+     * `json_path` metric whose value sits inside the small preview must record
+     * one too.
+     */
+    public function test_a_bodyless_response_still_records_metrics_that_need_no_body(): void
+    {
+        $monitor = $this->makeMonitor();
+
+        $this->makeNumericMetric($monitor);
+        $monitor->metrics()->create([
+            'team_id' => $monitor->team_id,
+            'label' => 'Content type',
+            'key' => 'content_type',
+            'type' => MetricType::String,
+            'source' => MetricSource::Header,
+            'extraction_path' => 'content-type',
+        ]);
+        $monitor->metrics()->create([
+            'team_id' => $monitor->team_id,
+            'label' => 'HTTP status',
+            'key' => 'http_status',
+            'type' => MetricType::Numeric,
+            'source' => MetricSource::HttpStatus,
+            'extraction_path' => '',
+        ]);
+
+        // 1. content is NULL (the edge filtered the content type), but a small
+        //    JSON preview still made it across.
+        $this->fakeRelay(
+            status: MonitorStatus::Up,
+            content: null,
+            preview: (string) json_encode(['deep' => 4711]),
+        );
+
+        // 2. Run the real Perform -> Process -> persist chain (sync queue).
+        PerformMonitorCheck::dispatch($monitor, 'us-east');
+
+        $recordedKeys = MonitorMetricValue::query()
+            ->pluck('metric_key')
+            ->sort()
+            ->values()
+            ->all();
+
+        // 3. Naming the sorted list, rather than asserting a count, makes the
+        //    PHPUnit diff print exactly which metric keys never recorded a row.
+        $this->assertSame(['content_type', 'deep', 'http_status'], $recordedKeys);
+    }
+
+    /**
      * Binds a fake {@see RelayClient} into the container so
      * {@see PerformMonitorCheck::handle()} never performs a real HTTP call.
      *

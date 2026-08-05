@@ -7,10 +7,8 @@ use App\Enums\MonitorStatus;
 use App\Jobs\PerformMonitorCheck;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
-use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
 use App\Support\Monitoring\CheckResult;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -22,14 +20,20 @@ use Illuminate\Support\Str;
  * to {@see ThresholdEvaluator} so incident signaling runs against the
  * freshly committed state.
  *
- * Metric samples arrive PRE-EXTRACTED from {@see PerformMonitorCheck},
- * the only stage that holds the full response body: `response_body_preview` is
- * capped at 10 KiB and the body never crosses the queue hop, so extracting here
- * would silently cap every metric at that offset. This service still owns the
- * band freezing and the insert; it no longer owns the reading. Extraction from
- * the preview remains the fallback for a payload that reached it with nothing
- * pre-extracted (a TCP probe, a filtered content type, an older worker, or a
- * direct caller such as the manual check path).
+ * Metric samples arrive PRE-EXTRACTED from {@see PerformMonitorCheck}, the only
+ * stage that holds the full response body and the only stage that extracts at
+ * all: `response_body_preview` is capped at 10 KiB and the body never crosses
+ * the queue hop, so extracting here would silently cap every metric at that
+ * offset. This service owns the band freezing and the insert; it does NOT read
+ * bodies. It has no fallback extraction either, and that absence is the fix for
+ * a real defect: the fallback was gated on a null the producer never sent, so a
+ * response whose content type the edge filtered recorded no metric values at
+ * all, while the fallback that was supposed to cover exactly that case could not
+ * fire. The producer now resolves the preview itself, which leaves ONE
+ * extraction site and one body-resolution rule.
+ *
+ * Whatever `$samples` carries is therefore the whole of what the check measured,
+ * and an empty set means nothing was extractable rather than nothing was tried.
  *
  * Idempotency is the load-bearing invariant: the relay may deliver the same
  * probe payload more than once (job retries, at-least-once callbacks), so a
@@ -63,7 +67,6 @@ class CheckPersistenceService
 
     public function __construct(
         protected ThresholdEvaluator $evaluator,
-        protected MetricExtractor $extractor,
         protected IncidentDispatcher $incidentDispatcher,
     ) {}
 
@@ -76,11 +79,12 @@ class CheckPersistenceService
      * @param  Monitor  $monitor  The monitor the probe ran against.
      * @param  CheckResult  $result  The probe outcome from the relay worker.
      * @param  array<string, string>  $samples  Raw metric values keyed by metric
-     *                                          key, already extracted from the
-     *                                          full body one stage upstream.
-     *                                          Defaulted so the manual and test
-     *                                          call sites keep their two-argument
-     *                                          shape.
+     *                                          key, already extracted one stage
+     *                                          upstream. Everything this check
+     *                                          measured; nothing is re-read here.
+     *                                          Defaulted so a caller with no
+     *                                          metrics to report keeps the
+     *                                          two-argument shape.
      * @param  string|null  $contentHash  ADDRESS of the archived content version
      *                                    this check resolved to, decided one stage
      *                                    upstream. NOT necessarily the hash of
@@ -94,7 +98,7 @@ class CheckPersistenceService
     public function persist(
         Monitor $monitor,
         CheckResult $result,
-        ?array $samples = null,
+        array $samples = [],
         ?string $contentHash = null,
         ?string $contentHashNormalized = null,
     ): void {
@@ -158,7 +162,7 @@ class CheckPersistenceService
                 //     never lands. The status transition is captured INSIDE the
                 //     transaction (fresh in-lock DB read) so a concurrent region
                 //     of the same monitor cannot double-detect the same flip.
-                [$check, $numericSamples, $statusChange] = $this->persistWithinTransaction(
+                [$check, $recorded, $statusChange] = $this->persistWithinTransaction(
                     $monitor,
                     $result,
                     $samples,
@@ -175,7 +179,8 @@ class CheckPersistenceService
                 $outcome = $this->evaluator->evaluate(
                     monitor: $monitor->refresh(),
                     check: $check,
-                    metricSamples: $numericSamples,
+                    metricSamples: $recorded['numeric'],
+                    stringSamples: $recorded['string'],
                 );
 
                 // 3c. Thread the in-lock status transition onto the evaluator's
@@ -237,15 +242,15 @@ class CheckPersistenceService
      * @param  string|null  $contentHashNormalized  This check's change signal.
      * @return array{
      *     0: MonitorCheck,
-     *     1: array<string, float>,
+     *     1: array{numeric: array<string, float>, string: array<string, string>},
      *     2: array{from: ?MonitorStatus, to: MonitorStatus}|null
-     * } The persisted check, the numeric samples keyed by metric key, and the
+     * } The persisted check, the recorded samples split by channel, and the
      *   status transition when the monitor flipped health (null otherwise).
      */
     protected function persistWithinTransaction(
         Monitor $monitor,
         CheckResult $result,
-        ?array $samples,
+        array $samples,
         ?string $contentHash = null,
         ?string $contentHashNormalized = null,
     ): array {
@@ -324,13 +329,13 @@ class CheckPersistenceService
                     'last_probe_error_at' => null,
                 ]);
 
-            // 4. Freeze configured metric samples against this check; the
-            //    numeric samples flow out to the threshold evaluator.
-            $numericSamples = $this->persistMetricSamples($monitor, $check, $result, $samples);
+            // 4. Freeze configured metric samples against this check; both
+            //    channels flow out to the threshold evaluator.
+            $recorded = $this->persistMetricSamples($monitor, $check, $result, $samples);
 
             return [
                 $check,
-                $numericSamples,
+                $recorded,
                 $this->detectStatusChange($priorStatus, $result->status),
             ];
         });
@@ -387,56 +392,46 @@ class CheckPersistenceService
 
     /**
      * Persist the pre-extracted metric samples against this check with their
-     * band frozen at insert time, and return the numeric ones keyed by
-     * `metric_key` for the evaluator.
+     * band frozen at insert time, and return them split by channel for the
+     * evaluator.
      *
-     * The values normally arrive already read out of the full response body and
-     * already validated against their declared type, leaving this method only the
-     * choice of typed column. When nothing arrives it falls back to reading the
-     * truncated preview itself, which is all this stage holds.
+     * The values arrive already read out of the response and already validated
+     * against their declared type, leaving this method only the choice of typed
+     * column and the band. Nothing is re-read: a sample absent from `$samples`
+     * did not extract, and it records no row.
+     *
+     * The two returned channels stay separate all the way to
+     * {@see ThresholdEvaluator::evaluate()} because they carry different types.
+     * Numbers band through {@see ThresholdEvaluator::band()} against bounds;
+     * text bands through {@see ThresholdEvaluator::bandString()} against value
+     * lists. Both freeze here rather than being recomputed on read, so editing a
+     * bound or a value list never rewrites what a historical check reported.
      *
      * @param  array<string, string>  $samples  Raw values keyed by metric key.
-     * @return array<string, float>
+     * @return array{numeric: array<string, float>, string: array<string, string>}
      */
     protected function persistMetricSamples(
         Monitor $monitor,
         MonitorCheck $check,
         CheckResult $result,
-        ?array $samples,
+        array $samples,
     ): array {
-        $metrics = $monitor->metrics()->get();
-        if ($metrics->isEmpty()) {
-            return [];
-        }
-
-        // 1. Nothing pre-extracted means the body never reached the extracting
-        //    stage, so the truncated preview is all there is to read. This is
-        //    the pre-split behaviour, kept for TCP probes, content types the
-        //    edge filtered out, worker deployments older than the body field,
-        //    and direct callers such as the manual check path.
-        //    NULL, not empty: an empty array means extraction DID run against the
-        //    full body and legitimately matched nothing, and falling back there
-        //    would re-read the 10 KiB truncated preview that moving extraction
-        //    upstream exists to stop using.
-        if ($samples === null) {
-            $samples = $this->extractFromPreview($metrics, $result);
-        }
-
         $now = now();
         $numericSamples = [];
+        $stringSamples = [];
         $rows = [];
 
-        foreach ($metrics as $metric) {
-            // 2. A metric with no sample extracted nothing, here or upstream;
-            //    a failed extraction records no row.
+        foreach ($monitor->metrics()->get() as $metric) {
+            // 1. A metric with no sample extracted nothing upstream; a failed
+            //    extraction records no row.
             $value = $samples[$metric->key] ?? null;
             if ($value === null) {
                 continue;
             }
 
-            // 3. Split the stringy value into the typed column that matches the
-            //    metric shape, banding numerics at insert so later threshold
-            //    edits never rewrite history.
+            // 2. Split the stringy value into the typed column that matches the
+            //    metric shape, banding at insert so later threshold edits never
+            //    rewrite history.
             $numeric = null;
             $statusValue = null;
             $stringValue = null;
@@ -464,7 +459,26 @@ class CheckPersistenceService
             } elseif ($metric->type === MetricType::Status) {
                 $statusValue = $value;
             } else {
+                // The RAW value is stored and the RAW value is banded;
+                // normalization lives inside the bander so both sides of the
+                // comparison get it and neither the row nor the incident title
+                // shows the operator something the target never served.
+                //
+                // Banding is deliberately NOT gated on
+                // `MonitorMetric::alertsOnString()`, which decides only whether
+                // a metric ALERTS. The two cannot disagree: that predicate is
+                // false only when all three lists are empty, and the write path
+                // refuses a non-null `unmatched_band` in that state, so an inert
+                // metric has nothing left to band with and lands on null here.
                 $stringValue = $value;
+                $stringSamples[$metric->key] = $value;
+                $band = ThresholdEvaluator::bandString(
+                    value: $value,
+                    okValues: $metric->ok_values,
+                    warnValues: $metric->warn_values,
+                    criticalValues: $metric->critical_values,
+                    unmatchedBand: $metric->unmatched_band,
+                );
             }
 
             $rows[] = [
@@ -483,63 +497,15 @@ class CheckPersistenceService
             ];
         }
 
-        // 4. Bulk insert so a monitor with many metrics costs one round-trip.
+        // 3. Bulk insert so a monitor with many metrics costs one round-trip.
         if ($rows !== []) {
             MonitorMetricValue::query()->insert($rows);
         }
 
-        return $numericSamples;
-    }
-
-    /**
-     * Fallback extraction against the 10 KiB `response_body_preview`, in the
-     * same shape the upstream full-body extraction produces.
-     *
-     * @param  Collection<int, MonitorMetric>  $metrics
-     * @return array<string, string>
-     */
-    protected function extractFromPreview(Collection $metrics, CheckResult $result): array
-    {
-        $body = $result->responseBodyPreview ?? '';
-        $headers = $this->normalizeHeaders($result->responseHeaders);
-        $samples = [];
-
-        foreach ($metrics as $metric) {
-            $extracted = $this->extractor->extract(
-                source: $metric->source,
-                extractionPath: $metric->extraction_path ?? '',
-                type: $metric->type,
-                body: $body,
-                headers: $headers,
-                statusCode: $result->statusCode,
-            );
-
-            // A failed extraction or a type mismatch contributes no sample.
-            if ($extracted->error !== null || $extracted->value === null || ! $extracted->typeValid) {
-                continue;
-            }
-
-            $samples[$metric->key] = $extracted->value;
-        }
-
-        return $samples;
-    }
-
-    /**
-     * Lower-case header keys so {@see MetricExtractor}'s header lookup matches
-     * regardless of the casing the worker returned.
-     *
-     * @param  array<string, string>  $headers
-     * @return array<string, string>
-     */
-    protected function normalizeHeaders(array $headers): array
-    {
-        $out = [];
-        foreach ($headers as $key => $value) {
-            $out[strtolower((string) $key)] = (string) $value;
-        }
-
-        return $out;
+        return [
+            'numeric' => $numericSamples,
+            'string' => $stringSamples,
+        ];
     }
 
     /**
