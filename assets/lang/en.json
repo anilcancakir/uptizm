@@ -704,7 +704,8 @@
       "metrics_unit_minute": "Minutes",
       "metrics_unit_hour": "Hours",
       "metrics_unit_ratio": "Ratio",
-      "metrics_unit_count_short": "Count (compact)"
+      "metrics_unit_count_short": "Count (compact)",
+      "metrics_reading_stale": "No recent data"
     },
     "status": {
       "up": "Operational",
