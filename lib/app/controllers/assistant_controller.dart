@@ -56,15 +56,15 @@ class AssistantController extends MagicController {
     }
   }
 
-  /// Surfaces the assistant's failure toast. There is no dedicated
-  /// `uptizm.assistant.*` lang namespace yet and this step's file scope does
-  /// not extend to `assets/lang/en.json`, so this uses a literal English
-  /// string rather than `trans()` (see the status-page controller's
-  /// `_toastError` for the same pattern).
+  /// Surfaces the assistant's failure toast.
+  ///
+  /// [detail] is the backend's own message when there is one; it arrives
+  /// already localized from the API, so only the fallback copy goes through
+  /// `trans()`. Same shape as `StatusPageController._toastError`.
   void _toastFailed(String? detail) {
     Magic.error(
-      "Couldn't reach Uptizm AI",
-      detail ?? 'Something went wrong. Please try again.',
+      trans('uptizm.assistant.error_title'),
+      detail ?? trans('uptizm.assistant.error_description'),
     );
   }
 }

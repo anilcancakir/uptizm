@@ -1463,7 +1463,9 @@
       "subtitle": "Sorun ya da ne kuracağımı söyleyin",
       "close_label": "Asistanı kapat",
       "composer_placeholder": "Uptizm AI'ya mesaj yazın…",
-      "send_label": "Gönder"
+      "send_label": "Gönder",
+      "error_title": "Uptizm AI'ya ulaşılamadı",
+      "error_description": "Bir şeyler ters gitti. Lütfen tekrar deneyin."
     }
   }
 }

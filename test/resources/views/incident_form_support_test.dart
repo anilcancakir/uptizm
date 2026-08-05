@@ -3,12 +3,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
+import 'package:uptizm/app/enums/timeline_actor.dart' as mocks;
 import 'package:uptizm/app/support/incident_types.dart'
     as mocks
     show IncidentSummary, TimelineEntry;
 import 'package:uptizm/app/mocks/incidents.dart' as mocks;
 import 'package:uptizm/app/models/incident.dart';
 import 'package:uptizm/resources/views/incidents/incident_form_support.dart';
+import 'package:uptizm/ui/components/incident_timeline/index.dart'
+    show TimelineActor;
 
 import '../../support/incident_fixtures.dart';
 
@@ -124,5 +127,34 @@ void main() {
         }
       },
     );
+
+    // Which actors the test above exercises depends on what the
+    // `checkout-503` fixture happens to contain, and that fixture carries only
+    // `ai` and `human`: the `system` case was never covered by anything. This
+    // one names all three members and spells the expected component member
+    // literally, so it stays complete whatever the fixtures do later.
+    test('maps every domain actor onto its component counterpart', () {
+      const List<mocks.TimelineActor> sources = [
+        mocks.TimelineActor.ai,
+        mocks.TimelineActor.human,
+        mocks.TimelineActor.system,
+      ];
+
+      final mapped = toComponentTimeline([
+        for (final mocks.TimelineActor actor in sources)
+          mocks.TimelineEntry(
+            actor: actor,
+            status: 'Investigating',
+            message: 'body',
+            time: '14:34',
+          ),
+      ]);
+
+      expect(mapped.map((entry) => entry.actor).toList(), [
+        TimelineActor.ai,
+        TimelineActor.human,
+        TimelineActor.system,
+      ]);
+    });
   });
 }

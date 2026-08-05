@@ -4,6 +4,7 @@ import 'package:uptizm/app/enums/ai_confidence.dart' as mocks;
 import 'package:uptizm/app/enums/incident_impact.dart' as mocks;
 import 'package:uptizm/app/enums/incident_lifecycle.dart' as mocks;
 import 'package:uptizm/app/enums/signal_source.dart' as mocks;
+import 'package:uptizm/app/enums/timeline_actor.dart' as mocks;
 import 'package:uptizm/app/support/incident_types.dart'
     as mocks
     show TimelineEntry;
@@ -126,14 +127,30 @@ String postmortemDraft(Incident i) {
   });
 }
 
+/// Re-keys the domain [mocks.TimelineActor] onto the `incident_timeline`
+/// component's own [TimelineActor].
+///
+/// Written as an exhaustive switch with no default on purpose. The two enums
+/// carry the same three member names today, so re-keying through `.name` would
+/// work, but `values.byName` throws an `ArgumentError` at runtime the moment
+/// either side gains a member the other lacks, and it would throw from inside a
+/// `build()`. Listing the cases moves that same divergence to a compile error.
+TimelineActor _componentActor(mocks.TimelineActor actor) {
+  return switch (actor) {
+    mocks.TimelineActor.ai => TimelineActor.ai,
+    mocks.TimelineActor.human => TimelineActor.human,
+    mocks.TimelineActor.system => TimelineActor.system,
+  };
+}
+
 /// Maps [src] (a list of the mocks-layer [mocks.TimelineEntry]) to the
 /// `incident_timeline` component's own [TimelineEntry], which the widget
 /// tree consumes directly.
 ///
 /// The two types intentionally stay separate (mocks vs. UI component); this
-/// mapper is the bridge. Field mapping is direct: actor is re-keyed through
-/// its `name` (both enums share `ai`/`human`/`system` member names), and
-/// status/message/time/isPublic/author/autonomous pass through unchanged.
+/// mapper is the bridge. Field mapping is direct: actor goes through
+/// [_componentActor], and status/message/time/isPublic/author/autonomous pass
+/// through unchanged.
 ///
 /// ```dart
 /// IncidentTimeline(entries: toComponentTimeline(incident.timeline));
@@ -142,7 +159,7 @@ List<TimelineEntry> toComponentTimeline(List<mocks.TimelineEntry> src) {
   return [
     for (final mocks.TimelineEntry e in src)
       TimelineEntry(
-        actor: TimelineActor.values.byName(e.actor.name),
+        actor: _componentActor(e.actor),
         status: e.status,
         message: e.message,
         time: e.time,
