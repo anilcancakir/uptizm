@@ -5,6 +5,7 @@ namespace App\Services\Monitoring;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\MetricBand;
+use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
 use App\Enums\SignalSource;
 use App\Enums\ThresholdDirection;
@@ -19,12 +20,30 @@ use App\Services\Ai\AiIncidentOpener;
  * metric sample breaches its configured bounds or when a monitor's
  * `consecutive_fails` counter crosses `incident_threshold`.
  *
- * Pure-function banding ({@see self::band()}) keeps threshold math out of
- * Eloquent so callers can freeze the band at insert time without spinning up
- * a full domain graph.
+ * Pure-function banding ({@see self::band()} for numbers,
+ * {@see self::bandString()} for text) keeps threshold math out of Eloquent so
+ * callers can freeze the band at insert time without spinning up a full domain
+ * graph.
  */
 class ThresholdEvaluator
 {
+    /**
+     * The `incidents.title` column width. A title is composed here and inserted
+     * one call later, so the cut has to happen on this side.
+     */
+    protected const int TITLE_MAX_LENGTH = 200;
+
+    /**
+     * Characters of an extracted value a title may spend.
+     *
+     * Kept well under {@see self::TITLE_MAX_LENGTH} so the metric label stays
+     * visible: a title that is nothing but a truncated blob names no metric.
+     */
+    protected const int TITLE_VALUE_MAX_LENGTH = 80;
+
+    /** Appended to a title value that was cut, matching MetricCandidate's digest mark. */
+    protected const string TITLE_TRUNCATION_MARK = '…';
+
     /**
      * Evaluate a completed check against the monitor's thresholds and metric
      * bounds; open an incident on a new breach and auto-resolve the monitor's
@@ -35,19 +54,27 @@ class ThresholdEvaluator
      * lock, so notification sends must happen off-lock in
      * {@see CheckPersistenceService}. Either slot is null when nothing changed.
      *
+     * The two sample channels are separate because they are separate types.
+     * `$metricSamples` is numbers and only numbers, which is what lets
+     * {@see self::band()} take a `float`; string values travel in
+     * `$stringSamples` and are matched, never compared. Neither has a default:
+     * a caller that forgets a channel would silently stop alerting on half the
+     * metrics a monitor has configured.
+     *
      * @param  array<string, float|int|null>  $metricSamples
+     * @param  array<string, string>  $stringSamples
      * @return array{opened: ?Incident, resolved: ?Incident}
      */
-    public function evaluate(Monitor $monitor, MonitorCheck $check, array $metricSamples): array
+    public function evaluate(Monitor $monitor, MonitorCheck $check, array $metricSamples, array $stringSamples): array
     {
         // 1. Metric bound breaches fire first so incidents carry metric context.
-        $metricBreach = $this->firstMetricBreach($monitor, $metricSamples);
+        $metricBreach = $this->firstMetricBreach($monitor, $metricSamples, $stringSamples);
         if ($metricBreach !== null && ! $this->hasActiveIncidentForMetric($monitor, $metricBreach['metric']->key)) {
             $opened = $this->openIncident(
                 monitor: $monitor,
                 check: $check,
                 severity: $metricBreach['severity'],
-                title: "{$metricBreach['metric']->label} breached {$metricBreach['severity']->value} bound",
+                title: $metricBreach['title'],
                 metricKey: $metricBreach['metric']->key,
             );
 
@@ -137,43 +164,146 @@ class ThresholdEvaluator
     }
 
     /**
-     * Find the first metric whose sample lands in warn or critical.
+     * Find the first metric whose sample lands in warn or critical, on either
+     * channel.
+     *
+     * The title travels out with the breach rather than being composed by the
+     * caller, because the two lanes name their breach differently: a numeric
+     * metric breached a BOUND, while a string metric simply reported a value
+     * somebody listed as bad. Reusing the numeric phrasing for a value match
+     * would describe arithmetic that never happened.
      *
      * @param  array<string, float|int|null>  $samples
-     * @return array{metric: MonitorMetric, severity: IncidentSeverity}|null
+     * @param  array<string, string>  $stringSamples
+     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string}|null
      */
-    protected function firstMetricBreach(Monitor $monitor, array $samples): ?array
+    protected function firstMetricBreach(Monitor $monitor, array $samples, array $stringSamples): ?array
     {
         foreach ($monitor->metrics as $metric) {
-            if ($metric->threshold_direction === null) {
-                continue;
-            }
-            $sample = $samples[$metric->key] ?? null;
-            if ($sample === null) {
-                continue;
-            }
+            $breach = $metric->type === MetricType::String
+                ? $this->stringBreach($metric, $stringSamples)
+                : $this->numericBreach($metric, $samples);
 
-            $band = self::band(
-                direction: $metric->threshold_direction,
-                value: (float) $sample,
-                warnBound: $metric->warn_bound !== null ? (float) $metric->warn_bound : null,
-                criticalBound: $metric->critical_bound !== null ? (float) $metric->critical_bound : null,
-            );
-            $severity = match ($band) {
-                MetricBand::Critical => IncidentSeverity::Critical,
-                MetricBand::Warn => IncidentSeverity::Warn,
-                MetricBand::Ok => null,
-            };
-
-            if ($severity !== null) {
-                return [
-                    'metric' => $metric,
-                    'severity' => $severity,
-                ];
+            if ($breach !== null) {
+                return $breach;
             }
         }
 
         return null;
+    }
+
+    /**
+     * The numeric lane: a sample banded against `warn_bound` / `critical_bound`
+     * in the metric's declared direction. A metric with no direction has no
+     * bounds to breach and is skipped.
+     *
+     * @param  array<string, float|int|null>  $samples
+     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string}|null
+     */
+    protected function numericBreach(MonitorMetric $metric, array $samples): ?array
+    {
+        if ($metric->threshold_direction === null) {
+            return null;
+        }
+
+        $sample = $samples[$metric->key] ?? null;
+        if ($sample === null) {
+            return null;
+        }
+
+        $severity = $this->severityFor(self::band(
+            direction: $metric->threshold_direction,
+            value: (float) $sample,
+            warnBound: $metric->warn_bound !== null ? (float) $metric->warn_bound : null,
+            criticalBound: $metric->critical_bound !== null ? (float) $metric->critical_bound : null,
+        ));
+
+        if ($severity === null) {
+            return null;
+        }
+
+        return [
+            'metric' => $metric,
+            'severity' => $severity,
+            'title' => "{$metric->label} breached {$severity->value} bound",
+        ];
+    }
+
+    /**
+     * The string lane: a sample matched against the metric's three configured
+     * value lists.
+     *
+     * Gated on {@see MonitorMetric::alertsOnString()} and on nothing else.
+     * NOT on `threshold_direction`, which every string metric carries as
+     * `high_bad` whether or not anything is configured, so gating there would
+     * page on the first sample of every string metric ever created.
+     *
+     * @param  array<string, string>  $stringSamples
+     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string}|null
+     */
+    protected function stringBreach(MonitorMetric $metric, array $stringSamples): ?array
+    {
+        if (! $metric->alertsOnString()) {
+            return null;
+        }
+
+        $sample = $stringSamples[$metric->key] ?? null;
+        if ($sample === null) {
+            return null;
+        }
+
+        $severity = $this->severityFor(self::bandString(
+            value: $sample,
+            okValues: $metric->ok_values,
+            warnValues: $metric->warn_values,
+            criticalValues: $metric->critical_values,
+            unmatchedBand: $metric->unmatched_band,
+        ));
+
+        if ($severity === null) {
+            return null;
+        }
+
+        return [
+            'metric' => $metric,
+            'severity' => $severity,
+            'title' => $this->stringBreachTitle($metric, $sample),
+        ];
+    }
+
+    /**
+     * The incident severity a band warrants, or null when the band is not a
+     * breach. `ok` and an absent band (an inert configuration) both mean
+     * nothing to open.
+     */
+    protected function severityFor(?MetricBand $band): ?IncidentSeverity
+    {
+        return match ($band) {
+            MetricBand::Critical => IncidentSeverity::Critical,
+            MetricBand::Warn => IncidentSeverity::Warn,
+            MetricBand::Ok, null => null,
+        };
+    }
+
+    /**
+     * Title for a string breach: the metric and the value that caused it, so a
+     * responder reading only the title knows what the target actually said.
+     *
+     * The value is attacker-influenced (it came out of the monitored response)
+     * and unbounded (`monitor_metric_values.string_value` is `text`, and a
+     * `json_path` pointed at an object yields a whole JSON blob), while
+     * `incidents.title` is `varchar(200)`. PostgreSQL throws on an over-long
+     * value rather than trimming it, and this runs after the check row has
+     * committed, so an untruncated title would fail the processing job on every
+     * retry while the telemetry it was signaling about sits there fine.
+     */
+    protected function stringBreachTitle(MonitorMetric $metric, string $value): string
+    {
+        $shown = mb_strlen($value) > self::TITLE_VALUE_MAX_LENGTH
+            ? mb_substr($value, 0, self::TITLE_VALUE_MAX_LENGTH).self::TITLE_TRUNCATION_MARK
+            : $value;
+
+        return mb_substr("{$metric->label} reported \"{$shown}\"", 0, self::TITLE_MAX_LENGTH);
     }
 
     /**
@@ -205,6 +335,83 @@ class ThresholdEvaluator
         }
 
         return MetricBand::Ok;
+    }
+
+    /**
+     * Pure-function banding for a string-valued metric: compare a normalized
+     * sample against three configured value lists.
+     *
+     * Evaluates critical, then warn, then ok, then `$unmatchedBand`, mirroring
+     * {@see self::band()}'s own most-severe-first fail-safe at an overlapping
+     * numeric configuration: when a value is (mis)configured into more than
+     * one list, resolving to the MORE severe band means the misconfiguration
+     * pages someone instead of staying silent. Returns null only in the inert
+     * case: all three lists are empty AND `$unmatchedBand` is null, mirroring
+     * what a null `threshold_direction` means for a numeric metric.
+     *
+     * @param  list<string>  $okValues
+     * @param  list<string>  $warnValues
+     * @param  list<string>  $criticalValues
+     */
+    public static function bandString(
+        string $value,
+        array $okValues,
+        array $warnValues,
+        array $criticalValues,
+        ?MetricBand $unmatchedBand,
+    ): ?MetricBand {
+        $normalized = self::normalizeMatchValue($value);
+
+        if (self::matchesAny($normalized, $criticalValues)) {
+            return MetricBand::Critical;
+        }
+        if (self::matchesAny($normalized, $warnValues)) {
+            return MetricBand::Warn;
+        }
+        if (self::matchesAny($normalized, $okValues)) {
+            return MetricBand::Ok;
+        }
+
+        return $unmatchedBand;
+    }
+
+    /**
+     * True when the normalized sample equals any configured value, once each
+     * configured value is normalized the same way.
+     *
+     * @param  list<string>  $values
+     */
+    protected static function matchesAny(string $normalizedValue, array $values): bool
+    {
+        foreach ($values as $configured) {
+            if (self::normalizeMatchValue($configured) === $normalizedValue) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalize a string metric value or a configured match value so both
+     * sides of {@see self::bandString()}'s comparison agree.
+     *
+     * Case-folds with `mb_strtolower` (not `strtolower`, which is byte-wise
+     * and corrupts non-ASCII), then strips leading and trailing Unicode
+     * whitespace INCLUDING U+00A0 (a non-breaking space that plain `trim()`
+     * does not treat as whitespace and that `MetricExtractor::extractXPath()`
+     * can hand us verbatim from a rendered page). The charlist is passed via
+     * regex rather than `trim()`, because `trim()` operates byte-wise and
+     * would strip only one byte of a multibyte character sitting at the
+     * boundary. Turkish dotted capital `İ` still does not fold to ASCII `i`
+     * under `mb_strtolower`; that is accepted, not worked around, since no
+     * locale-specific casing was requested.
+     */
+    public static function normalizeMatchValue(string $value): string
+    {
+        $trimmed = preg_replace('/^[\s\x{00A0}]+|[\s\x{00A0}]+$/u', '', $value);
+
+        return mb_strtolower($trimmed);
     }
 
     /**
