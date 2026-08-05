@@ -1,5 +1,7 @@
 import 'package:magic/magic.dart';
 
+import 'env_strings.dart' show envClean;
+
 /// The website origin used when `WEB_URL` resolves to nothing.
 ///
 /// Matches the local backend (`cd backend && composer dev` serves the site on
@@ -122,13 +124,9 @@ class WebLinks {
   /// Strips surrounding whitespace and stray quotes from a raw config or env
   /// value.
   ///
-  /// The `.env` parser can surface a quoted assignment as a literal quoted
-  /// string (`APP_NAME=""` reaches the app as `""`, which is what
-  /// `_resolveAppName` in `lib/config/app.dart` already defends against), and a
-  /// quote inside an origin would produce an unopenable URL.
-  static String _clean(String? value) {
-    if (value == null) return '';
-
-    return value.replaceAll('"', '').replaceAll("'", '').trim();
-  }
+  /// Delegates to [envClean], the shared cleaner every string `.env` read goes
+  /// through: the parser can surface a quoted assignment as a literal quoted
+  /// string (`WEB_URL="https://…"` arrives with its quotes), and a quote inside
+  /// an origin would produce an unopenable URL.
+  static String _clean(String? value) => envClean(value);
 }
