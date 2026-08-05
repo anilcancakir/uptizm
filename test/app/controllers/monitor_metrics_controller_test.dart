@@ -509,6 +509,112 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // candidates: decoding the extraction-candidate envelope. The rows come from
+  // `MetricCandidate::toDigestRow()`, whose `src` is the BACKEND enum value and
+  // whose `label` key is absent (not null) when there is no hint, so a decode
+  // that trusted the form vocabulary or a present key would drop the row's
+  // source or crash on the missing one.
+  // ---------------------------------------------------------------------------
+
+  group('candidates', () {
+    test('maps the backend source enum back to the form vocabulary', () async {
+      Http.fake({
+        'monitors/api/content/candidates': Http.response({
+          'has_sample': true,
+          'data': [
+            {
+              'ref': 'c1',
+              'src': 'json_path',
+              'path': 'checks.database.status',
+              'value': 'ok',
+              'label': 'status',
+              'types': ['string', 'status'],
+            },
+            {
+              'ref': 'c4',
+              'src': 'header',
+              'path': 'x-cache',
+              'value': 'HIT',
+              'types': ['string'],
+            },
+          ],
+        }),
+      });
+      final MonitorMetricsController controller =
+          MonitorMetricsController.instance;
+
+      final MetricCandidateSet? set = await controller.candidates('api');
+
+      expect(set, isNotNull);
+      expect(set!.hasSample, isTrue);
+      expect(set.candidates, hasLength(2));
+      // `json_path` is the enum value; the form field speaks `json`. Handing the
+      // raw wire value to MetricForm.source would post an unknown source back.
+      expect(set.candidates.first.source, equals('json'));
+      expect(set.candidates.first.ref, equals('c1'));
+      expect(set.candidates.first.label, equals('status'));
+      expect(set.candidates.first.types, equals(['string', 'status']));
+      // A ref gap is expected, not corruption: the backend drops an over-long
+      // path rather than renumbering what follows it.
+      expect(set.candidates.last.ref, equals('c4'));
+      expect(set.candidates.last.source, equals('header'));
+      // The key is omitted entirely rather than sent as null.
+      expect(set.candidates.last.label, isNull);
+    });
+
+    test('an empty list with has_sample true is not the no-sample state', () async {
+      Http.fake({
+        'monitors/api/content/candidates': Http.response({
+          'has_sample': true,
+          'data': <Object?>[],
+        }),
+      });
+      final MonitorMetricsController controller =
+          MonitorMetricsController.instance;
+
+      final MetricCandidateSet? set = await controller.candidates('api');
+
+      // The two states drive different copy: "run a check first" against "look
+      // at your endpoint", so collapsing them would misdirect the operator.
+      expect(set!.hasSample, isTrue);
+      expect(set.candidates, isEmpty);
+    });
+
+    test('a payload with no has_sample flag reads as no sample', () async {
+      Http.fake({
+        'monitors/api/content/candidates': Http.response({
+          'data': <Object?>[],
+        }),
+      });
+      final MonitorMetricsController controller =
+          MonitorMetricsController.instance;
+
+      final MetricCandidateSet? set = await controller.candidates('api');
+
+      // Absent is malformed, and claiming a sample existed would send the
+      // operator hunting for a body nothing ever recorded.
+      expect(set!.hasSample, isFalse);
+    });
+
+    test('returns null on a failed request', () async {
+      Http.fake({
+        'monitors/api/content/candidates': Http.response(
+          {'message': 'Too Many Requests'},
+          429,
+        ),
+      });
+      final MonitorMetricsController controller =
+          MonitorMetricsController.instance;
+
+      final MetricCandidateSet? set = await controller.candidates('api');
+
+      // Null is the form's "could not offer candidates" signal; an empty set
+      // would render as "your response held nothing extractable".
+      expect(set, isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // resetForSession: clear every monitor's cached catalog. There is nothing to
   // refetch (reload is per monitor id, and the cached ids belong to the
   // previous session's monitors).
