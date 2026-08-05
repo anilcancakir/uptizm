@@ -1463,7 +1463,9 @@
       "subtitle": "Ask, or tell me what to set up",
       "close_label": "Close assistant",
       "composer_placeholder": "Message Uptizm AI…",
-      "send_label": "Send"
+      "send_label": "Send",
+      "error_title": "Couldn't reach Uptizm AI",
+      "error_description": "Something went wrong. Please try again."
     }
   }
 }
