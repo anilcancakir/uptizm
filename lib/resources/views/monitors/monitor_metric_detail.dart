@@ -76,6 +76,11 @@ class MonitorMetricDetail extends StatefulWidget {
 }
 
 class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
+  /// Shown in place of a value when a reading exists but carries no value
+  /// for the metric's declared type (e.g. an extraction rule that failed on
+  /// that particular check).
+  static const String _noReading = '—';
+
   /// The metric's recorded readings, oldest first. Empty until the load
   /// resolves, and legitimately empty afterwards for a metric that has never
   /// extracted anything.
@@ -164,26 +169,39 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
     }
 
     final MetricSeriesPoint newest = _points.last;
-    final num? latest = newest.numericValue;
+
+    // The hero value is the newest point's real reading for the metric's
+    // declared type: a status/string metric has no `numericValue`, so it
+    // reads its own field instead of the numeric one.
+    final String? latestText = switch (metric.type) {
+      'status' => newest.statusValue,
+      'string' => newest.stringValue,
+      _ => newest.numericValue == null
+          ? null
+          : fmt(newest.numericValue!, metric.unit),
+    };
 
     return [
       // The latest reading, banded by the band the backend FROZE when it was
       // recorded, not by re-evaluating today's thresholds against old data.
-      ?(latest == null
+      ?(latestText == null
           ? null
-          : _buildLatestValue(latest, _bandOf(newest), isNumeric)),
+          : _buildLatestValue(latestText, _bandOf(newest), isNumeric)),
       const SizedBox(height: 16),
 
       // The real series. No anomaly markers: nothing detects metric anomalies,
       // so one was previously injected at a fixed index and narrated as though
-      // it had been observed.
+      // it had been observed. A non-numeric metric has no chart at all: a
+      // string or status reading cannot sit on a y-axis, so the frame is
+      // absent rather than rendered empty.
       if (isNumeric && data.length > 1) ...[
         _buildChart(data, const []),
         const SizedBox(height: 16),
       ],
 
-      // Newest-first, from the real readings.
-      _buildRecentReadings(data.reversed.take(6).toList(), isNumeric),
+      // Newest-first, from the RAW readings (not the numeric-filtered `data`),
+      // so a string/status metric's real readings show up here too.
+      _buildRecentReadings(_points.reversed.take(6).toList(), isNumeric),
     ];
   }
 
@@ -261,12 +279,11 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
 
   /// Builds the latest-value row: optional [StatusDot] + large mono value +
   /// "latest · last 24h" label.
-  Widget _buildLatestValue(num latest, StatusKey? band, bool isNumeric) {
-    final String valueText = switch (isNumeric) {
-      true => fmt(latest, metric.unit),
-      false => metric.type == 'status' ? 'operational' : 'ok',
-    };
-
+  ///
+  /// [valueText] is the newest reading's REAL value, already formatted for
+  /// its type (numeric via [fmt], status/string as-is); this widget never
+  /// fabricates one.
+  Widget _buildLatestValue(String valueText, StatusKey? band, bool isNumeric) {
     return WDiv(
       // items-end bottom-aligns the dot + meta label against the large value's
       // baseline (replacing the old per-child bottom-padding nudges).
@@ -321,7 +338,13 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   // ---------------------------------------------------------------------------
 
   /// Builds the "Recent readings" section header and row list.
-  Widget _buildRecentReadings(List<MetricDatum> readings, bool isNumeric) {
+  ///
+  /// [readings] are the RAW points (not the numeric-filtered `data`), so a
+  /// string/status metric's real readings appear here too.
+  Widget _buildRecentReadings(
+    List<MetricSeriesPoint> readings,
+    bool isNumeric,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -329,7 +352,9 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
           trans('uptizm.monitors.metrics_recent_readings').toUpperCase(),
           className: 'text-fg-muted text-xs font-medium tracking-wide',
         ),
-        ...readings.asMap().entries.map((MapEntry<int, MetricDatum> entry) {
+        ...readings.asMap().entries.map((
+          MapEntry<int, MetricSeriesPoint> entry,
+        ) {
           final bool isLast = entry.key == readings.length - 1;
           return _buildReadingRow(entry.value, isNumeric, isLast);
         }),
@@ -341,11 +366,23 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   ///
   /// The row carries a hairline bottom border on every entry except the last,
   /// mirroring the React `last:border-b-0` pattern.
-  Widget _buildReadingRow(MetricDatum datum, bool isNumeric, bool isLast) {
-    final num rv = datum.values['value']!;
-    final StatusKey rb = isNumeric
+  Widget _buildReadingRow(
+    MetricSeriesPoint point,
+    bool isNumeric,
+    bool isLast,
+  ) {
+    final num? rv = point.numericValue;
+    final StatusKey rb = (isNumeric && rv != null)
         ? bandOf(rv, metric.warn, metric.critical, metric.direction)
         : StatusKey.up;
+
+    // Every branch is the point's REAL reading for the metric's declared
+    // type, never a fabricated word.
+    final String valueText = switch (metric.type) {
+      'status' => point.statusValue ?? _noReading,
+      'string' => point.stringValue ?? _noReading,
+      _ => rv == null ? _noReading : fmt(rv, metric.unit),
+    };
 
     return WDiv(
       className: isLast
@@ -353,7 +390,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
           : 'flex flex-row items-center justify-between py-2 border-b border-color-border',
       children: [
         WText(
-          datum.label,
+          _pointLabel(point),
           className: 'text-fg-muted font-mono text-xs tabular-nums',
         ),
         WDiv(
@@ -361,7 +398,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
           children: [
             if (isNumeric) StatusDot(rb, size: StatusDotSize.sm),
             WText(
-              isNumeric ? fmt(rv, metric.unit) : 'ok',
+              valueText,
               className: 'text-fg font-mono text-sm tabular-nums',
             ),
           ],

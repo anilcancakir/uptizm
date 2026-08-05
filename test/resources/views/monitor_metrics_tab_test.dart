@@ -813,6 +813,137 @@ void main() {
         findsOneWidget,
       );
     });
+
+    /// A `string`-typed metric form: no `warn`/`critical`/`unit` matter, only
+    /// the type discriminates which field of `MetricSeriesPoint` is real.
+    MetricForm stringMetricForm() {
+      return MetricForm(
+        label: 'Active region',
+        key: 'active_region',
+        type: 'string',
+        source: 'json',
+        path: r'$.region',
+        unit: 'count',
+        direction: 'high',
+        warn: '',
+        critical: '',
+        value: null,
+      );
+    }
+
+    /// Two real string readings, oldest first: an older `eu-central` and a
+    /// newest `degraded`.
+    List<MetricSeriesPoint> stringReadings() {
+      final DateTime base = DateTime.utc(2026, 7, 29, 10);
+      return [
+        MetricSeriesPoint(
+          recordedAt: base,
+          numericValue: null,
+          statusValue: null,
+          stringValue: 'eu-central',
+          band: 'ok',
+        ),
+        MetricSeriesPoint(
+          recordedAt: base.add(const Duration(minutes: 5)),
+          numericValue: null,
+          statusValue: null,
+          stringValue: 'degraded',
+          band: 'warn',
+        ),
+      ];
+    }
+
+    testWidgets(
+      'shows a string metric\'s newest reading as the hero value',
+      (tester) async {
+        // The regression this pins: the hero value was gated on
+        // `numericValue`, so a string metric's real latest reading rendered
+        // NOTHING at all, not even the wrong thing.
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorMetricDetail(
+              metric: stringMetricForm(),
+              onLoadSeries: () async => stringReadings(),
+              onEdit: () {},
+              onDelete: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final Iterable<WText> texts = tester.widgetList<WText>(
+          find.byType(WText),
+        );
+        expect(
+          texts.any((w) => w.data == 'degraded'),
+          isTrue,
+          reason: 'the newest string reading is the hero value',
+        );
+      },
+    );
+
+    testWidgets(
+      'lists a string metric\'s real readings, not an empty list',
+      (tester) async {
+        // The regression this pins: the recent-readings list was built from
+        // the numeric-filtered series, so a string metric's list was always
+        // empty regardless of how many readings it had.
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorMetricDetail(
+              metric: stringMetricForm(),
+              onLoadSeries: () async => stringReadings(),
+              onEdit: () {},
+              onDelete: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final Iterable<WText> texts = tester.widgetList<WText>(
+          find.byType(WText),
+        );
+        expect(
+          texts.any((w) => w.data == 'eu-central'),
+          isTrue,
+          reason: 'the older string reading still appears in the '
+              'recent-readings list',
+        );
+      },
+    );
+
+    testWidgets(
+      'a non-numeric metric has no chart, not an empty one',
+      (tester) async {
+        // A string cannot sit on a y-axis; the chart is legitimately absent
+        // for a non-numeric metric even though it has real readings.
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorMetricDetail(
+              metric: stringMetricForm(),
+              onLoadSeries: () async => stringReadings(),
+              onEdit: () {},
+              onDelete: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(MetricChart), findsNothing);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -1077,6 +1208,17 @@ void main() {
 
       expect(find.text('185 ms'), findsOneWidget);
     });
+
+    testWidgets(
+      'a non-numeric metric with no reading shows an em-dash, never a '
+      'fabricated word',
+      (tester) async {
+        await pumpWith(tester, [record(type: 'string')]);
+
+        expect(find.text('—'), findsWidgets);
+        expect(find.text('ok'), findsNothing);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
