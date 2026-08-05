@@ -121,6 +121,40 @@ void main() {
 
       expect(controller.detailById('standard')?.name, equals('Standard'));
     });
+
+    // What these pin: the editor picks between a skeleton and "this policy does
+    // not exist" on the difference between an unanswered per-id read and an
+    // answered one. `isFirstLoad` covers the LIST and cannot speak for one
+    // policy, so before this flag the editor called a deep-linked policy broken
+    // for as long as its own `refreshDetail` took.
+    test('an id with no answered read yet reads as pending', () {
+      final EscalationController controller = EscalationController.instance;
+
+      expect(controller.detailById('standard'), isNull);
+      expect(controller.isFirstLoadFor('standard'), isTrue);
+    });
+
+    test('a refreshDetail that found nothing settles the id', () async {
+      // The sharp edge: settling only on success would skeleton forever on a
+      // genuinely missing policy, which is the one case the not-found state is
+      // actually for.
+      final EscalationController controller = EscalationController.instance;
+
+      await controller.refreshDetail('gone');
+
+      expect(controller.detailById('gone'), isNull);
+      expect(
+        controller.isFirstLoadFor('gone'),
+        isFalse,
+        reason: 'a read that came back empty has still answered',
+      );
+    });
+
+    test('a null id is the create form and waits for nothing', () {
+      final EscalationController controller = EscalationController.instance;
+
+      expect(controller.isFirstLoadFor(null), isFalse);
+    });
   });
 
   // ---------------------------------------------------------------------------

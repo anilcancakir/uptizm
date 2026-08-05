@@ -115,6 +115,67 @@ void main() {
     expect(controller.incidentById('does-not-exist'), isNull);
   });
 
+  group('isFirstLoadFor', () {
+    // What these pin: `incidentById` returning null means two different things,
+    // and the detail screen chooses between a skeleton and "this incident does
+    // not exist" on the difference. Before this flag existed it always chose
+    // not-found, so a deep link from an alert opened on an error for an incident
+    // that was merely still being fetched.
+
+    test('a lookup whose detail fetch is still in flight reads as pending', () {
+      // No stub for `incidents/inc-9`, so the fetch this lookup kicks off never
+      // completes within the synchronous window below.
+      Http.fake();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(controller.incidentById('inc-9'), isNull);
+      expect(controller.isFirstLoadFor('inc-9'), isTrue);
+    });
+
+    test('an id already in the roster is answered, never pending', () async {
+      seedIncidents();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+      await controller.load();
+
+      expect(controller.incidentById('inc-1'), isNotNull);
+      expect(controller.isFirstLoadFor('inc-1'), isFalse);
+    });
+
+    test('a failed detail fetch settles, so the screen stops waiting', () async {
+      // The sharp edge of the whole change: a failure that left the lookup
+      // unsettled would skeleton forever with nothing in flight to end it, which
+      // is worse than the not-found it replaced.
+      final FakeNetworkDriver driver = Http.fake();
+      driver.stub('incidents/inc-404', Http.response(<String, dynamic>{}, 404));
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(controller.incidentById('inc-404'), isNull);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.incidentById('inc-404'), isNull);
+      expect(
+        controller.isFirstLoadFor('inc-404'),
+        isFalse,
+        reason: 'a read that failed has still answered',
+      );
+    });
+
+    test('a null id waits for nothing', () {
+      Http.fake();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(controller.isFirstLoadFor(null), isFalse);
+    });
+  });
+
   test(
     'activeIncidents derives the not-resolved subset of the loaded list',
     () async {
