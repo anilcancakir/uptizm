@@ -22,10 +22,9 @@
 #   - `Color.fromARGB(...)`, `Color.fromRGBO(...)`, `Color.from(...)` are
 #     equally raw-color routes and are NOT scanned. Zero occurrences in
 #     `lib/` today; add a rule here the day one appears.
-#   - A `//` inside a string literal (e.g. a `https://` URL) truncates the
-#     rest of that line before the scan sees it. Harmless today (no color
-#     literal shares a line with such a string), but a violation that did
-#     would go uncaught.
+#   - A triple-quoted Dart string is not tracked by the comment scanner, so a
+#     `//` or `/*` inside one is read as a comment. See `strip_comments`: the
+#     self-check there turns that from a silent truncation into a loud fallback.
 #   - A hardcoded pixel value, a missing `dark:` pair, or reaching for a new
 #     component instead of an existing one: none of that is a regex-checkable
 #     shape. This job is a floor, not the whole of "design-first".
@@ -69,41 +68,77 @@ for arg in "$@"; do
     esac
 done
 
-# Strips a Dart file's // (and doc ///) line comments and /* */ block
-# comments, one output line per input line so a downstream `grep -n` still
-# reports the ORIGINAL file's line numbers. A line entirely inside a block
-# comment becomes empty rather than disappearing, which is what keeps the
-# numbering aligned.
+# Strips a Dart file's // (and doc ///) line comments and /* */ block comments,
+# one output line per input line so a downstream `grep -n` still reports the
+# ORIGINAL file's line numbers. A line inside a block comment becomes empty
+# rather than disappearing, which is what keeps the numbering aligned.
+#
+# It scans each line LEFT TO RIGHT and acts on whichever of `//` and `/*` comes
+# first, outside a string literal. Both halves of that are load-bearing, and the
+# first version of this script had neither:
+#
+#   - Handling `/*` before `//` meant an ordinary doc comment naming a route glob
+#     (`/// api/v1/on-call/*`) opened block mode that never closed, and the rest of
+#     the file was emitted empty. The gate then reported nothing for it and printed
+#     the green line. Four shipping files were silently unchecked that way, two of
+#     them the very `lib/resources/views/` files this job exists to police, so the
+#     failure is not theoretical and it is not noisy: it looks exactly like success.
+#   - A `/*` inside a string literal (a URL, a regex, a glob) does the same thing.
+#
+# Strings are tracked for `'` and `"` with backslash escapes. Dart's triple-quoted
+# strings are NOT tracked, and that gap is covered by the invariant below rather
+# than by more parsing.
+#
+# THE SELF-CHECK: `flutter analyze` guarantees every file here compiles, so an
+# unterminated `/*` at end of file is impossible in real Dart. If block mode is
+# still open when the file ends, this function mis-parsed, and it says so on stderr
+# instead of returning a confidently truncated file. The caller then falls back to
+# scanning the raw source, which can only over-report. A checker that goes quiet is
+# worse than one that goes loud.
 strip_comments() {
-    awk '
+    awk -v path="$1" '
         {
             line = $0
+            out = ""
+            i = 1
+            n = length(line)
+
+            while (i <= n) {
+                two = substr(line, i, 2)
+
+                if (in_block) {
+                    if (two == "*/") { in_block = 0; i += 2 } else { i++ }
+                    continue
+                }
+
+                if (in_string != "") {
+                    c = substr(line, i, 1)
+                    if (c == "\\") { out = out "  "; i += 2; continue }
+                    if (c == in_string) in_string = ""
+                    out = out c
+                    i++
+                    continue
+                }
+
+                if (two == "//") break
+                if (two == "/*") { in_block = 1; i += 2; continue }
+
+                c = substr(line, i, 1)
+                if (c == "\"" || c == "\047") in_string = c
+                out = out c
+                i++
+            }
+
+            # A string cannot span a line in Dart unless it is triple-quoted, which
+            # is not tracked, so reset rather than carrying a bad state forward.
+            in_string = ""
+            print out
+        }
+        END {
             if (in_block) {
-                idx = index(line, "*/")
-                if (idx > 0) {
-                    line = substr(line, idx + 2)
-                    in_block = 0
-                } else {
-                    print ""
-                    next
-                }
+                printf "design-tokens: unterminated block comment in %s; comment stripping cannot be trusted here\n", path > "/dev/stderr"
+                exit 3
             }
-            while (1) {
-                open_idx = index(line, "/*")
-                if (open_idx == 0) break
-                rest = substr(line, open_idx + 2)
-                close_idx = index(rest, "*/")
-                if (close_idx > 0) {
-                    line = substr(line, 1, open_idx - 1) substr(rest, close_idx + 2)
-                } else {
-                    line = substr(line, 1, open_idx - 1)
-                    in_block = 1
-                    break
-                }
-            }
-            slash_idx = index(line, "//")
-            if (slash_idx > 0) line = substr(line, 1, slash_idx - 1)
-            print line
         }
     '
 }
@@ -163,7 +198,15 @@ while IFS= read -r -d '' file; do
     rel="${file#"$REPO_ROOT"/}"
     is_allowlisted "$rel" && continue
 
-    lines="$(strip_comments < "$file" | grep -nE "$PATTERN" | cut -d: -f1)"
+    stripped="$(strip_comments "$rel" < "$file")"
+    # Exit 3 is the stripper saying it lost track (see its header). Scan the RAW
+    # file instead: over-reporting a comment as a violation costs someone a minute,
+    # and under-reporting costs the gate its whole purpose.
+    if [ "$?" -eq 3 ]; then
+        stripped="$(cat "$file")"
+    fi
+
+    lines="$(printf '%s\n' "$stripped" | grep -nE "$PATTERN" | cut -d: -f1)"
     [ -z "$lines" ] && continue
 
     while IFS= read -r lineno; do
