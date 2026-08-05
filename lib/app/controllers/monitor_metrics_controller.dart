@@ -32,12 +32,29 @@ const Map<String, String> _sourceToWire = {
 /// metric saved as Custom decoded back as "req/s". The backend enum has no
 /// throughput unit at all, so the option was unrepresentable in both directions
 /// and was removed rather than left to corrupt the one that does work.
+///
+/// All sixteen `MetricUnit` cases (`backend/app/Enums/MetricUnit.php:21-38`)
+/// are paired here, not just the six the form originally shipped with. Before
+/// this map was completed, a metric saved as, say, `megabyte` (a value AI
+/// discovery can propose) fell through `_unitFromWire`'s `'custom'` fallback
+/// on decode, then got written back as literal `custom` on the next save: the
+/// same lossy round trip `req_s` caused, in the opposite direction.
 const Map<String, String> _unitToWire = {
+  'bytes_auto': 'bytes_auto',
+  'bytes': 'byte',
+  'kb': 'kilobyte',
+  'mb': 'megabyte',
+  'gb': 'gigabyte',
+  'tb': 'terabyte',
+  'duration_auto': 'duration_auto',
   'ms': 'millisecond',
   's': 'second',
+  'min': 'minute',
+  'h': 'hour',
   '%': 'percent',
+  'ratio': 'ratio',
   'count': 'count',
-  'bytes': 'byte',
+  'count_short': 'count_short',
   'custom': 'custom',
 };
 
@@ -141,10 +158,23 @@ class MonitorMetricRecord {
         direction: _directionFromWire(map['threshold_direction'] as String?),
         warn: (map['warn_bound'] as num?)?.toString() ?? '',
         critical: (map['critical_bound'] as num?)?.toString() ?? '',
+        okValues: _stringListFromWire(map['ok_values']),
+        warnValues: _stringListFromWire(map['warn_values']),
+        criticalValues: _stringListFromWire(map['critical_values']),
+        unmatchedBand: (map['unmatched_band'] as String?) ?? '',
         value: latestValue,
       ),
     );
   }
+}
+
+/// Decodes a wire `ok_values`/`warn_values`/`critical_values` list into a
+/// [List<String>], defaulting to an empty list when the key is absent or not
+/// a list. Each element is coerced through `toString()` so a malformed
+/// non-string element in the payload cannot throw mid-decode.
+List<String> _stringListFromWire(Object? raw) {
+  if (raw is! List) return const [];
+  return raw.map((Object? e) => e.toString()).toList();
 }
 
 // ---------------------------------------------------------------------------
@@ -502,18 +532,40 @@ class MonitorMetricsController extends MagicController
   /// Maps [form] to the backend `StoreMonitorMetricRequest`/update payload
   /// shape, translating the form's short vocabulary into the backend's
   /// `MetricSource`/`MetricUnit`/`ThresholdDirection` enum values.
+  ///
+  /// The threshold fields (`threshold_direction`, `warn_bound`,
+  /// `critical_bound`) and the string-band fields (`ok_values`,
+  /// `warn_values`, `critical_values`, `unmatched_band`) are TYPE-GATED: only
+  /// one group is sent, matching which fields the declared [form.type] can
+  /// actually use. Before this gate, every metric of every type carried
+  /// `threshold_direction: 'high_bad'` regardless of type, so a `string` or
+  /// `status` metric's stored row could never be distinguished from one that
+  /// genuinely wanted a numeric high-bad direction.
   Map<String, dynamic> _toWirePayload(MetricForm form) {
-    return {
+    final Map<String, dynamic> payload = {
       'label': form.label,
       'key': form.key,
       'type': form.type,
       'source': _sourceToWireValue(form.source),
       'extraction_path': form.path.isEmpty ? null : form.path,
       'unit': _unitToWireValue(form.unit),
-      'threshold_direction': _directionToWireValue(form.direction),
-      'warn_bound': num.tryParse(form.warn),
-      'critical_bound': num.tryParse(form.critical),
     };
+
+    if (form.type == 'numeric') {
+      payload['threshold_direction'] = _directionToWireValue(form.direction);
+      payload['warn_bound'] = num.tryParse(form.warn);
+      payload['critical_bound'] = num.tryParse(form.critical);
+    }
+
+    if (form.type == 'string') {
+      payload['ok_values'] = form.okValues;
+      payload['warn_values'] = form.warnValues;
+      payload['critical_values'] = form.criticalValues;
+      payload['unmatched_band'] =
+          form.unmatchedBand.isEmpty ? null : form.unmatchedBand;
+    }
+
+    return payload;
   }
 
   /// Resolves a failed metric write [response] into either its per-field
@@ -527,13 +579,23 @@ class MonitorMetricsController extends MagicController
   /// save-failed toast, so the caller closes the sheet on the empty-map
   /// contract. Mirrors `monitor_controller.dart`'s `_fieldErrorsOrToast`,
   /// reading [MagicResponse.errors] instead of a model's `validationErrors`.
+  ///
+  /// A dot-notation array-element key (e.g. `ok_values.1`, from the backend's
+  /// `field.*` list validation) is collapsed onto its owning field
+  /// (`ok_values`): the form renders one chip-list field per list, not one
+  /// field per element, so an element-level key has nowhere else to land.
+  /// When more than one element of the same list fails, the FIRST message
+  /// encountered wins, matching the single-message-per-field contract every
+  /// other field already has.
   Map<String, String> _fieldErrorsOrToast(MagicResponse response) {
     final Map<String, List<String>> errors = response.errors;
     if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
+      final Map<String, String> fieldErrors = {};
+      for (final MapEntry<String, List<String>> entry in errors.entries) {
+        final String field = entry.key.split('.').first;
+        fieldErrors.putIfAbsent(field, () => entry.value.first);
+      }
+      return fieldErrors;
     }
 
     _notifySaveFailed(response.errorMessage);

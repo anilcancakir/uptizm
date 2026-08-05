@@ -102,6 +102,191 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // Unit round-trip: every backend `MetricUnit` value must decode through
+  // `_unitFromWire` (exercised here via `MonitorMetricRecord.fromMap`) and
+  // re-encode through `_unitToWireValue` (exercised via `create`'s payload)
+  // back to itself. Before Step 5, only six of these sixteen values were
+  // paired; the other ten collapsed to `custom` on decode and were then
+  // written back as literal `custom` on the next save.
+  //
+  // The sixteen values are enumerated here, not derived from the map under
+  // test, so a seventeenth backend `MetricUnit` case added later without a
+  // matching form-side pairing fails this test loudly instead of silently
+  // collapsing to `custom`.
+  // ---------------------------------------------------------------------------
+
+  group('unit round-trip across all sixteen MetricUnit values', () {
+    const List<String> backendUnits = [
+      'bytes_auto',
+      'byte',
+      'kilobyte',
+      'megabyte',
+      'gigabyte',
+      'terabyte',
+      'duration_auto',
+      'millisecond',
+      'second',
+      'minute',
+      'hour',
+      'percent',
+      'ratio',
+      'count',
+      'count_short',
+      'custom',
+    ];
+
+    for (final String wireUnit in backendUnits) {
+      test('$wireUnit decodes then re-encodes to itself', () async {
+        final MonitorMetricRecord decoded = MonitorMetricRecord.fromMap({
+          'id': 'm1',
+          'label': 'Probe',
+          'key': 'probe',
+          'type': 'numeric',
+          'source': 'json_path',
+          'unit': wireUnit,
+          'threshold_direction': 'high_bad',
+        });
+
+        final FakeNetworkDriver fake = Http.fake((request) {
+          if (request.method == 'POST') {
+            return Http.response({'data': {}}, 201);
+          }
+          return Http.response({'data': []});
+        });
+        final MonitorMetricsController controller =
+            MonitorMetricsController.instance;
+
+        await controller.create('api', decoded.form);
+
+        final Map<String, dynamic> payload = fake.recorded
+            .firstWhere((entry) => entry.$1.method == 'POST')
+            .$1
+            .data as Map<String, dynamic>;
+        expect(payload['unit'], equals(wireUnit));
+      });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // String-band wire round trip (Step 12): decode, type-gated encode, and the
+  // dot-notation 422 mapping.
+  // ---------------------------------------------------------------------------
+
+  group('string-band fields', () {
+    test('MonitorMetricRecord.fromMap decodes all four string-band fields', () {
+      final MonitorMetricRecord decoded = MonitorMetricRecord.fromMap({
+        'id': 'm1',
+        'label': 'Health status',
+        'key': 'health_status',
+        'type': 'string',
+        'source': 'json_path',
+        'extraction_path': r'$.status',
+        'ok_values': ['ok'],
+        'warn_values': ['degraded'],
+        'critical_values': ['down'],
+        'unmatched_band': 'critical',
+      });
+
+      expect(decoded.form.okValues, equals(['ok']));
+      expect(decoded.form.warnValues, equals(['degraded']));
+      expect(decoded.form.criticalValues, equals(['down']));
+      expect(decoded.form.unmatchedBand, equals('critical'));
+    });
+
+    test(
+      'a string metric create payload carries the string-band fields and omits the numeric ones',
+      () async {
+        final FakeNetworkDriver fake = Http.fake((request) {
+          if (request.method == 'POST') {
+            return Http.response({'data': {}}, 201);
+          }
+          return Http.response({'data': []});
+        });
+        final MonitorMetricsController controller =
+            MonitorMetricsController.instance;
+        final MetricForm form = kEmptyMetricForm.copyWith(
+          label: 'Health status',
+          key: 'health_status',
+          type: 'string',
+          path: r'$.status',
+          okValues: ['ok'],
+          warnValues: ['degraded'],
+          criticalValues: ['down'],
+          unmatchedBand: 'critical',
+        );
+
+        await controller.create('api', form);
+
+        final Map<String, dynamic> payload = fake.recorded
+            .firstWhere((entry) => entry.$1.method == 'POST')
+            .$1
+            .data as Map<String, dynamic>;
+        expect(payload['ok_values'], equals(['ok']));
+        expect(payload['warn_values'], equals(['degraded']));
+        expect(payload['critical_values'], equals(['down']));
+        expect(payload['unmatched_band'], equals('critical'));
+        expect(payload.containsKey('threshold_direction'), isFalse);
+        expect(payload.containsKey('warn_bound'), isFalse);
+        expect(payload.containsKey('critical_bound'), isFalse);
+      },
+    );
+
+    test(
+      'a numeric metric create payload carries the numeric fields and omits the string-band ones',
+      () async {
+        final FakeNetworkDriver fake = Http.fake((request) {
+          if (request.method == 'POST') {
+            return Http.response({'data': {}}, 201);
+          }
+          return Http.response({'data': []});
+        });
+        final MonitorMetricsController controller =
+            MonitorMetricsController.instance;
+        final MetricForm form = kEmptyMetricForm.copyWith(
+          label: 'Memory usage',
+          key: 'memory_usage',
+          type: 'numeric',
+          warn: '80',
+          critical: '95',
+        );
+
+        await controller.create('api', form);
+
+        final Map<String, dynamic> payload = fake.recorded
+            .firstWhere((entry) => entry.$1.method == 'POST')
+            .$1
+            .data as Map<String, dynamic>;
+        expect(payload['threshold_direction'], equals('high_bad'));
+        expect(payload['warn_bound'], equals(80));
+        expect(payload['critical_bound'], equals(95));
+        expect(payload.containsKey('ok_values'), isFalse);
+        expect(payload.containsKey('warn_values'), isFalse);
+        expect(payload.containsKey('critical_values'), isFalse);
+        expect(payload.containsKey('unmatched_band'), isFalse);
+      },
+    );
+
+    test('a dot-notation 422 key like ok_values.1 maps back to its owning field', () async {
+      Http.fake({
+        'monitors/api/metrics': Http.response({
+          'message': 'The ok values.1 field is invalid.',
+          'errors': {
+            'ok_values.1': ['The ok_values.1 field is invalid.'],
+          },
+        }, 422),
+      });
+      final MonitorMetricsController controller = MonitorMetricsController.instance;
+
+      final Map<String, String> result = await controller.create(
+        'api',
+        kEmptyMetricForm,
+      );
+
+      expect(result, equals({'ok_values': 'The ok_values.1 field is invalid.'}));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // create: POST /monitors/:id/metrics
   // ---------------------------------------------------------------------------
 
