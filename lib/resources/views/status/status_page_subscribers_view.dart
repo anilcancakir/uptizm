@@ -417,8 +417,6 @@ class _StatusPageSubscribersViewState
   // Not-found
   // ---------------------------------------------------------------------------
 
-  /// Builds the graceful not-found state shown when
-  /// [StatusPageController.configById] returns null.
   /// Builds the pending state shown while the page roster read that will decide
   /// whether this status page exists is still in flight. Reuses the same
   /// [_buildSkeleton] the subscriber roster shows, so the two waiting states are
@@ -439,6 +437,9 @@ class _StatusPageSubscribersViewState
     );
   }
 
+  /// Builds the graceful not-found state shown when
+  /// [StatusPageController.configById] returns null AND the roster read has
+  /// already answered.
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(

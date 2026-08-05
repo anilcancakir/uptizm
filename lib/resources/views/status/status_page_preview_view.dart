@@ -153,10 +153,6 @@ class _StatusPagePreviewViewState
   // Not-found
   // ---------------------------------------------------------------------------
 
-  /// Builds the graceful not-found state shown when
-  /// [StatusPageController.configById] returns null.
-  ///
-  /// Mirrors the React `StatusPageNotFound` copy, localized through [trans].
   /// Builds the pending state shown while the roster read that will decide
   /// whether this page exists is still in flight.
   ///
@@ -185,6 +181,11 @@ class _StatusPagePreviewViewState
     );
   }
 
+  /// Builds the graceful not-found state shown when
+  /// [StatusPageController.configById] returns null AND the roster read has
+  /// already answered.
+  ///
+  /// Mirrors the React `StatusPageNotFound` copy, localized through [trans].
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(

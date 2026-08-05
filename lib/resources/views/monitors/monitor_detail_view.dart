@@ -1024,11 +1024,6 @@ class _MonitorDetailViewState
   // Not-found
   // ---------------------------------------------------------------------------
 
-  /// Builds the graceful not-found state shown when [MonitorController.monitorById]
-  /// returns null.
-  ///
-  /// Reuses the monitors error-load copy as a calm "couldn't load this
-  /// monitor" message rather than crashing on an unknown route id.
   /// Builds the pending state shown while the inventory read that will decide
   /// whether this monitor exists is still in flight.
   ///
@@ -1052,6 +1047,11 @@ class _MonitorDetailViewState
     );
   }
 
+  /// Builds the graceful not-found state shown when [MonitorController.monitorById]
+  /// returns null AND the inventory read has already answered.
+  ///
+  /// Reuses the monitors error-load copy as a calm "couldn't load this
+  /// monitor" message rather than crashing on an unknown route id.
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(

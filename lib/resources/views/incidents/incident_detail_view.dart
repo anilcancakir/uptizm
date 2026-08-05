@@ -1017,10 +1017,6 @@ class _IncidentDetailViewState
   // Not-found
   // ---------------------------------------------------------------------------
 
-  /// Builds the graceful not-found state shown when [findIncident] returns null.
-  ///
-  /// Reuses the incidents error-load copy as a calm "couldn't load this
-  /// incident" message rather than crashing on an unknown route id.
   /// Builds the pending state shown while the lookup that will decide whether
   /// this incident exists is still in flight.
   ///
@@ -1050,6 +1046,11 @@ class _IncidentDetailViewState
     );
   }
 
+  /// Builds the graceful not-found state shown when the incident lookup returns
+  /// null AND that lookup has already answered.
+  ///
+  /// Reuses the incidents error-load copy as a calm "couldn't load this
+  /// incident" message rather than crashing on an unknown route id.
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(

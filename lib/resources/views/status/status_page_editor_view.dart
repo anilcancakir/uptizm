@@ -580,7 +580,6 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the graceful not-found state for an unknown status-page id.
   /// Builds the pending state shown while the roster read that will decide
   /// whether this page exists is still in flight.
   ///
@@ -610,6 +609,8 @@ class _StatusPageEditorViewState
     );
   }
 
+  /// Builds the graceful not-found state for a status-page id the answered
+  /// roster does not carry.
   Widget _buildNotFound() {
     return MSPageContainer(
       child: MSEmptyState(
