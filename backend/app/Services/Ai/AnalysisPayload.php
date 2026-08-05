@@ -22,6 +22,19 @@ use App\Support\Monitoring\CheckResult;
  *   are only ever rendered inside a delimited, hard-truncated fence so a
  *   prompt-injection payload cannot escape into the instruction stream.
  *
+ * Two details of that fence's rendering are load-bearing rather than
+ * stylistic, and match {@see MetricDiscoveryPayload}:
+ *
+ *   - The untrusted fields are JSON-ENCODED as ONE value on ONE line, not
+ *     interpolated onto a line each. A newline inside a JSON string escapes to
+ *     `\n`, so an untrusted value physically cannot start a new line, and a
+ *     delimiter only reads as a delimiter on a line of its own. A body
+ *     carrying this class's own footer is therefore inert.
+ *   - Every string leaf is fenced BEFORE serialization, response headers
+ *     included, so truncation applies to the JSON value rather than to a
+ *     finished JSON string, and a field added to the untrusted half later is
+ *     truncated by default instead of by remembering to.
+ *
  * It also carries the OWNED-REGION CATALOG (the relay regions we actually
  * support) so the gateway can strip any region citation the model
  * hallucinates back out of the rationale before it is persisted.
@@ -120,12 +133,12 @@ readonly class AnalysisPayload
         ]);
 
         // 2. Fence every attacker-influenceable field, hard-truncated so no
-        //    payload can escape the delimited block or inflate the context.
+        //    payload can inflate the context, and encode them as one JSON value
+        //    on one line so nothing inside can pose as a delimiter or as an
+        //    instruction line.
         $untrusted = implode("\n", [
             self::UNTRUSTED_BLOCK_HEADER,
-            'error_message: '.$this->fence($this->errorMessage),
-            'response_body_preview: '.$this->fence($this->responseBodyPreview),
-            'response_headers: '.$this->fence($this->encode($this->responseHeaders)),
+            'probe_data: '.$this->encode($this->fencedProbeFields()),
             self::UNTRUSTED_BLOCK_FOOTER,
         ]);
 
@@ -150,6 +163,44 @@ readonly class AnalysisPayload
     }
 
     /**
+     * The untrusted probe fields with every string leaf hard-truncated to the
+     * field cap, ready to be serialized as one value.
+     *
+     * Fencing happens here rather than after serialization: the cap has to bind
+     * the JSON value, otherwise a long field would be cut mid-escape-sequence
+     * and the rest of the evidence lost with it.
+     *
+     * @return array<string, mixed>
+     */
+    private function fencedProbeFields(): array
+    {
+        return [
+            'error_message' => $this->fence($this->errorMessage),
+            'response_body_preview' => $this->fence($this->responseBodyPreview),
+            'response_headers' => $this->fenceDeep($this->responseHeaders),
+        ];
+    }
+
+    /**
+     * Apply {@see fence()} to every string in a nested untrusted structure.
+     *
+     * @param  array<array-key, mixed>  $values
+     * @return array<array-key, mixed>
+     */
+    private function fenceDeep(array $values): array
+    {
+        foreach ($values as $key => $value) {
+            $values[$key] = match (true) {
+                is_array($value) => $this->fenceDeep($value),
+                is_string($value) => $this->fence($value),
+                default => $value,
+            };
+        }
+
+        return $values;
+    }
+
+    /**
      * Hard-truncate an untrusted value to the field cap. A null field renders
      * as an explicit `none` so the model never guesses at absent data.
      */
@@ -167,6 +218,12 @@ readonly class AnalysisPayload
      */
     private function encode(mixed $value): string
     {
-        return json_encode($value, JSON_UNESCAPED_SLASHES) ?: '{}';
+        // Unescaped slashes keep a URL in an untrusted value from doubling in
+        // size, and the substitute flag stops one invalid byte in an
+        // attacker-controlled field from collapsing the whole block to `{}`.
+        return json_encode(
+            $value,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE,
+        ) ?: '{}';
     }
 }
