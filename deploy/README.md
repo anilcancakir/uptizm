@@ -243,6 +243,22 @@ dashboard. The page says "accepted" and never "arrived" because the send is
 queued, so the provider's dashboard is the only place the actual delivery is
 visible.
 
+## Deploying: what runs in what order
+
+Three things ship separately and the order between two of them is a contract, not a
+preference. Do not follow the order the sections happen to appear in below.
+
+1. **The backend** (`## Deploying the backend`), including `migrate` and the asset
+   build, ending with `supervisorctl restart`.
+2. **The regional checker** (`## Deploying the regional checker`), last. A worker
+   deployed ahead of the backend sends a payload the backend cannot store yet.
+3. **The Flutter client** (`## Rebuilding the Flutter client`), whenever. It talks to
+   `api/v1` and has no ordering constraint against the other two, but a deploy that
+   changed a client-visible endpoint shape wants it promptly.
+
+Then `## Proving the deploy landed`, which is three separate checks because these
+are three separate deploys.
+
 ## Rebuilding the Flutter client
 
 `.env` is bundled as a pubspec asset, which is not optional: without it
@@ -293,3 +309,115 @@ correct; do not reorder it.
 
 Do **not** run `migrate:fresh --seed` here. The seeder creates the demo account
 (`demo@uptizm.test`) and is local/dev only.
+
+**Read what `migrate` is about to do before running it.** `migrate:status | grep -i
+pending` lists it, and any migration that drops or truncates deserves a row count
+first:
+
+```bash
+php8.5 artisan tinker --execute='echo DB::table("some_table")->count();'
+```
+
+A drop of an empty table is a schema change. A drop of a populated one is data
+loss, and this box has no automated restore.
+
+**Confirm `artisan` still answers after `composer install`.** `php8.5 artisan
+--version` is enough. A package removed from `composer.json` can resurrect from
+`vendor/composer/installed.json` and break every artisan command while Octane keeps
+serving 200s from workers that already booted, so the deploy looks fine until the
+next queue job or the next restart.
+
+## Deploying the regional checker
+
+**The backend deploy does not ship the Worker.** Nothing in the section above
+touches Cloudflare, so a deploy that changed `backend/workers/regional-checker/`
+leaves the edge running whatever was there before. That failure is silent and it
+looks exactly like success: the backend stores the new columns, the edge never
+sends them, and every check records NULL.
+
+It happened on 2026-08-05. The backend went out with assertion evaluation and the
+edge kept running the 2026-08-01 build for the twenty minutes it took to notice,
+publishing `up` for monitors whose assertions were being violated.
+
+```bash
+cd backend/workers/regional-checker
+npx wrangler deployments list        # what is actually live right now
+npx wrangler deploy
+```
+
+**Server first, edge second**, which `.claude/rules/relay-worker.md` also states: a
+worker deployed ahead of the backend sends a payload the backend cannot store yet.
+So this is the LAST step of a deploy, after `supervisorctl restart`.
+
+Before deploying, check the `[[migrations]]` block in `wrangler.toml` against what
+is live. Wrangler decides which Durable Object migrations to apply by comparing the
+deployed tag against that list, and the DO carries live probe traffic:
+
+```bash
+# the deployed tag, which `wrangler deployments list` does not show
+TOKEN=$(grep -m1 '^oauth_token' ~/Library/Preferences/.wrangler/config/default.toml | sed -E 's/.*= *"([^"]+)".*/\1/')
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/<account-id>/workers/scripts" \
+  | python3 -c 'import json,sys; [print(s["id"], s.get("migration_tag")) for s in json.load(sys.stdin)["result"]]'
+```
+
+`wrangler api` does not exist as a subcommand; the REST call above is the way, and
+the account's OAuth token already carries the `workers_scripts` scope. Note that
+`/workers/services/<name>/environments/production/settings` returns `migration_tag:
+null` for every script, so do not read that null as "no migration applied".
+
+## Proving the deploy landed
+
+Three things are deployed separately, so check three things. A 200 is not evidence
+for any of them.
+
+**The backend** is a revision comparison, not a page load:
+
+```bash
+ssh personal 'sudo -u uptizm -H bash -c "cd ~/htdocs/uptizm.com && git log --oneline -1"'
+```
+
+**The Flutter client** is a byte comparison. `app.uptizm.com` returns 200 with the
+previous build just as happily as with the new one:
+
+```bash
+shasum -a 256 build/web/main.dart.js
+curl -s https://app.uptizm.com/main.dart.js | shasum -a 256
+```
+
+Also confirm the bundled `.env` carries the production values and not the local
+ones, since the build swaps the file in and out:
+
+```bash
+curl -s https://app.uptizm.com/assets/.env | grep -E 'API_URL|BROADCAST_CONNECTION'
+```
+
+**The edge** answers only a signed spec, so sign one. Run it ON the box so
+`RELAY_SECRET` never leaves it: read `RELAY_URL` and `RELAY_SECRET` from
+`backend/.env`, sign `${timestamp}.${body}` with HMAC-SHA256, and POST to
+`$RELAY_URL/run` with `X-Relay-Timestamp` and `X-Relay-Signature`. What you are
+looking for is behaviour, not a 200: a body assertion the target violates must come
+back `status: "down"` with `status_code: 200`.
+
+### Four traps, each of which produced a wrong answer once
+
+**A 502 seconds after `supervisorctl restart` is the restart.** FrankenPHP workers
+are still booting. Wait a minute and request twice before believing it.
+
+**A check row is written by the SECOND job, not the first.** `PerformMonitorCheck`
+(queue `checks`) calls the relay and dispatches `ProcessCheckResult` on
+`processing`, and that one writes the row. Reading `monitor_checks` right after
+dispatching returns the PREVIOUS row and reads as "the feature does not persist".
+Poll for a row newer than the newest one that existed before.
+
+**Most monitors here do not use the relay at all.** Every monitor on a team with
+`is_system = true` is a catalog monitor served by `LocalProbeEngine`, which by
+design evaluates no assertions and records NULL. Eight of production's nine
+monitors are those. Filter before you measure:
+
+```sql
+select m.url from monitors m join teams t on t.id = m.team_id where t.is_system = false;
+```
+
+**Check the route exists before calling a 404 a regression.** `artisan route:list`
+settles it. Two "regressions" on 2026-08-05 were URLs that had never existed.
