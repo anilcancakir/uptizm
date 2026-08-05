@@ -21,6 +21,7 @@ paths:
   - "backend/app/Services/**"
   - "backend/app/Support/**"
   - "backend/.env.example"
+  - "backend/artisan"
   - "backend/bootstrap/**"
   - "backend/composer.json"
   - "backend/composer.lock"
@@ -42,6 +43,14 @@ paths:
 `backend/` is the Laravel 13 JSON API and monitoring engine. Two neighbours carry what this rule does not: `.claude/rules/web-pages.md` for the landing and status-page surface under `backend/resources/`, and `.claude/rules/relay-worker.md` for the Cloudflare Worker under `backend/workers/`.
 
 The glob list above enumerates rather than saying `backend/**`, and it is not tidiness. `backend/**` is a superset of both neighbours, so editing one Blade file used to load this rule and that one together, the curl errno taxonomy included. Gitignore-syntax globs have no exclusion operator, so what this rule owns has to be spelled out. Two consequences when you add a directory: `backend/app/**` is wrong (it re-swallows the two `Http/Controllers/` directories `web-pages.md` owns), and a new directory under `backend/app/` silently has no rule at all until it is listed here. `backend/app/Http/Controllers/*.php` claims the loose controllers directly in that directory, since `*` does not cross a slash.
+
+An enumeration loses files two ways, and the second one is the quiet one: a NEW directory arrives unclaimed, and an EXISTING file was never claimed by anyone. Narrowing this rule dropped 33 files into that state, most of them inert and some not: `artisan` belongs here, and the status-page favicons plus the `vite`/`npm` pipeline that compiles `resources/css/app.css` belong to `.claude/rules/web-pages.md`. Both losses are measurable rather than reviewable, so measure them with git's own engine instead of a glob library, because `fnmatch`'s `*` crosses a slash and gitignore's does not:
+
+```bash
+git ls-files backend/ | git -c core.excludesFile=<globs-as-a-gitignore> check-ignore --no-index --stdin
+```
+
+Run it per rule: two rules matching one file is the overlap this enumeration exists to prevent, and no rule matching a file is coverage nobody notices. What is deliberately claimed by nothing after that is the inert remainder: the `storage/**` gitignore stubs, `.editorconfig`, `.gitattributes`, `.gitignore`, `.npmrc`, `README.md`, and `public/` itself (`index.php` is the framework's front controller, `robots.txt` and `favicon.ico` are static, and `public/build/` is generated output). Claiming `backend/public/**` for the favicons would have pulled all of that in with them.
 
 It is built on `fluttersdk/magic-starter-laravel`, resolved from Packagist at a pinned version (`^0.0.5`). That package's conventions (teams, 2FA, Sanctum tokens, contract-action overrides, UUID-optional migrations) are authoritative for the auth and team surface, so they are not restated here.
 
