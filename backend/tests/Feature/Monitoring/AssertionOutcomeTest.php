@@ -222,11 +222,20 @@ class AssertionOutcomeTest extends TestCase
         // there loses the whole check row. Monitoring must never degrade to protect
         // a secondary field, which is why the shape is refused at the boundary
         // instead. Each of these is present but not a `{passed, results}` pair.
+        // The last four are why `passed` has to be a real boolean rather than merely
+        // present. A `(bool)` cast reads "false" as TRUE and null as FALSE, so each of
+        // them would persist a verdict nobody measured, and the two directions are
+        // both wrong in a way no later reader could detect.
         foreach ([
             'a scalar instead of a report' => true,
             'a verdict with no outcomes' => ['passed' => true],
             'outcomes with no verdict' => ['results' => []],
             'outcomes that are not a list' => ['passed' => true, 'results' => 'nope'],
+            'outcomes keyed as an object' => ['passed' => true, 'results' => ['a' => []]],
+            'a verdict that is the string false' => ['passed' => 'false', 'results' => []],
+            'a verdict that is a non-empty string' => ['passed' => 'nope', 'results' => []],
+            'a verdict that is null' => ['passed' => null, 'results' => []],
+            'a verdict that is an integer' => ['passed' => 1, 'results' => []],
         ] as $label => $malformed) {
             $result = CheckResult::fromWorkerPayload($this->workerPayload($malformed));
 

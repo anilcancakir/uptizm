@@ -192,15 +192,22 @@ readonly class CheckResult
     {
         $assertions = $payload['assertions'] ?? null;
 
+        // `passed` must be a REAL boolean, not merely present. A `(bool)` cast over
+        // untrusted input reads the string "false" as true and null as false, so a
+        // payload from a build that shipped the field wrong would persist a verdict
+        // nobody measured, in whichever direction the cast happened to land. `results`
+        // must be a list for the same reason: an object there means the edge sent a
+        // shape this build does not understand, and a report is only usable whole.
         if (! is_array($assertions)
-            || ! array_key_exists('passed', $assertions)
-            || ! is_array($assertions['results'] ?? null)) {
+            || ! is_bool($assertions['passed'] ?? null)
+            || ! is_array($assertions['results'] ?? null)
+            || ! array_is_list($assertions['results'])) {
             return null;
         }
 
         return [
-            'passed' => (bool) $assertions['passed'],
-            'results' => array_values($assertions['results']),
+            'passed' => $assertions['passed'],
+            'results' => $assertions['results'],
         ];
     }
 

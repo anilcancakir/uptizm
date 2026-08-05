@@ -23,8 +23,8 @@
 #     equally raw-color routes and are NOT scanned. Zero occurrences in
 #     `lib/` today; add a rule here the day one appears.
 #   - A triple-quoted Dart string is not tracked by the comment scanner, so a
-#     `//` or `/*` inside one is read as a comment. See `strip_comments`: the
-#     self-check there turns that from a silent truncation into a loud fallback.
+#     `//` or `/*` inside one would be read as a comment. Rather than parse them,
+#     a file containing `'''` or `"""` is scanned RAW: see `strip_comments`.
 #   - A hardcoded pixel value, a missing `dark:` pair, or reaching for a new
 #     component instead of an existing one: none of that is a regex-checkable
 #     shape. This job is a floor, not the whole of "design-first".
@@ -86,15 +86,25 @@ done
 #   - A `/*` inside a string literal (a URL, a regex, a glob) does the same thing.
 #
 # Strings are tracked for `'` and `"` with backslash escapes. Dart's triple-quoted
-# strings are NOT tracked, and that gap is covered by the invariant below rather
-# than by more parsing.
+# strings are NOT tracked, and there are two guards for that rather than one,
+# because the first version of this docblock claimed a coverage it did not have:
 #
-# THE SELF-CHECK: `flutter analyze` guarantees every file here compiles, so an
-# unterminated `/*` at end of file is impossible in real Dart. If block mode is
-# still open when the file ends, this function mis-parsed, and it says so on stderr
-# instead of returning a confidently truncated file. The caller then falls back to
-# scanning the raw source, which can only over-report. A checker that goes quiet is
-# worse than one that goes loud.
+# THE SELF-CHECK catches the OPEN case. `flutter analyze` guarantees every file here
+# compiles, so an unterminated `/*` at end of file is impossible in real Dart. If
+# block mode is still open when the file ends, this function mis-parsed, and it says
+# so on stderr and exits 3 instead of returning a confidently truncated file.
+#
+# It does NOT catch the CLOSED case, and that is the one a review had to measure: a
+# `/*` inside a `'''...'''` body that some later ordinary `*/` closes leaves
+# `in_block` at 0 by end of file, so nothing fires and the whole intervening region
+# is dropped in silence. Same for a `//` inside a triple-quoted body, which
+# truncates that line. So the caller ALSO refuses to trust a stripped file that
+# contains `'''` or `"""` at all, and rescans it raw. One `grep -q` buys the
+# guarantee that parsing triple quotes properly would.
+#
+# Both guards fail in the same direction on purpose. Over-reporting a comment as a
+# violation costs someone a minute; under-reporting costs the gate its whole
+# purpose. A checker that goes quiet is worse than one that goes loud.
 strip_comments() {
     awk -v path="$1" '
         {
@@ -199,10 +209,16 @@ while IFS= read -r -d '' file; do
     is_allowlisted "$rel" && continue
 
     stripped="$(strip_comments "$rel" < "$file")"
-    # Exit 3 is the stripper saying it lost track (see its header). Scan the RAW
-    # file instead: over-reporting a comment as a violation costs someone a minute,
-    # and under-reporting costs the gate its whole purpose.
-    if [ "$?" -eq 3 ]; then
+    stripped_status="$?"
+
+    # Two reasons to distrust the strip and rescan raw, both failing toward
+    # over-reporting (see `strip_comments`): exit 3 is the stripper saying it lost
+    # track of an unterminated block, and a triple-quoted string is a construct it
+    # does not parse at all. `stripped_status` is captured on the line immediately
+    # after the assignment on purpose; read four lines down, any command inserted
+    # between them would silently disable the fallback and restore the exact quiet
+    # truncation this exists to prevent.
+    if [ "$stripped_status" -eq 3 ] || grep -q "'''\|\"\"\"" "$file"; then
         stripped="$(cat "$file")"
     fi
 

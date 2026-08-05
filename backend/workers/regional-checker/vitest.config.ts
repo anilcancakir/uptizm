@@ -36,10 +36,10 @@
  * with "This package is ESM only" before a single test is collected. The worker
  * ships no CJS file, so nothing else was affected by the switch.
  *
- * The `test` script briefly carried `--passWithNoTests`, because the harness
- * landed one step ahead of the first test file. It is gone and it must stay gone:
- * a suite that is green on an empty set certifies nothing, and this one is on its
- * way to being a required CI check.
+ * Separately, the `test` script carries NO `--passWithNoTests`, deliberately: a
+ * suite that is green on an empty set certifies nothing, and this one is a
+ * required CI check. `vitest run` exits non-zero when it collects no test file,
+ * which is the behaviour to keep.
  */
 
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
