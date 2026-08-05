@@ -50,6 +50,18 @@ return [
     ],
 
     /*
+     * Monitor-setup analysis reads its own model key for the same reason, and
+     * has the strongest claim to one: it is the only task here that runs a
+     * bounded TOOL LOOP before its structured turn, so it is the first that
+     * would need a different model, and retuning it must not retune the five
+     * gateways still on `triage`. The default is deliberately identical to
+     * theirs, so leaving the env unset changes nothing.
+     */
+    'analysis' => [
+        'model' => env('AI_ANALYSIS_MODEL', 'claude-haiku-4-5-20251001'),
+    ],
+
+    /*
      * The hard character budget one response digest may spend in the setup
      * prompt. The worker returns up to 1 MiB of body, which is two orders of
      * magnitude more context than a monitor suggestion needs and all of it

@@ -75,6 +75,12 @@ class FakeAnalysisGateway implements AnalysisGateway
             ],
             rationale: 'Deterministic analysis stub: baseline suggestion from the exploratory probe.',
             strippedCitations: [],
+            // Fixed, and deliberately not the constructor defaults: a test that
+            // asserts these keys reached the wire has to be able to fail, which
+            // it cannot if the stub returns the same values an unset field does.
+            serviceClass: 'json_api',
+            regionBasis: 'default',
+            recommendedSloTarget: '99.9',
         );
     }
 }
