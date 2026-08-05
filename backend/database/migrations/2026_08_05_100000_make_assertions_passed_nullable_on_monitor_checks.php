@@ -63,8 +63,12 @@ return new class extends Migration
             ->whereNull('assertions_passed')
             ->update(['assertions_passed' => true]);
 
+        // The backfill above is what makes NOT NULL restorable, so restore it: a
+        // rollback that left the column nullable would not return the schema to its
+        // previous shape, and the next `migrate` would then find nothing to change
+        // and report success over a column that never went back.
         Schema::table('monitor_checks', function (Blueprint $table): void {
-            $table->boolean('assertions_passed')->default(true)->change();
+            $table->boolean('assertions_passed')->nullable(false)->default(true)->change();
         });
     }
 };
