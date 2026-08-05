@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Actions\PlanGatedInviteTeamMember;
 use App\Models\Team;
+use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Ai\AnalysisGateway;
@@ -120,6 +121,29 @@ class AppServiceProvider extends ServiceProvider
                 // but deliberately omitted from 'default': SMS is opt-in, so a
                 // member is only texted after explicitly enabling it. A default-on
                 // sms would text every member on every incident (10DLC cost + spam).
+                'default' => [
+                    'mail',
+                    'database',
+                    'push',
+                ],
+                'locked' => [],
+            ],
+            // Its own row, not IncidentOpened's: an operator who muted
+            // incident-opened noise should still be told when something they are
+            // already watching gets worse. Registering it also matters for a
+            // reason that is easy to miss: GateNotificationChannels returns true
+            // for an UNREGISTERED class, so without this the escalation shipped
+            // ungated and a member who had turned push off would still be pushed.
+            // The registry auto-derives the slug from the class name, which lands
+            // on exactly the `incident_escalated` token the notification uses.
+            IncidentEscalated::class => [
+                'label' => 'Incident escalated',
+                'channels' => [
+                    'mail',
+                    'database',
+                    'push',
+                    'sms',
+                ],
                 'default' => [
                     'mail',
                     'database',

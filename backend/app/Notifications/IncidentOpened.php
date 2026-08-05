@@ -43,6 +43,27 @@ class IncidentOpened extends Notification implements ShouldQueue
     ) {}
 
     /**
+     * The event token this notification is known by.
+     *
+     * One token drives three things: the notification-preference row a user
+     * toggles, the `data.type` the Flutter feed reads, and the prefix of every
+     * copy key. A subclass overriding this gets its own preference, its own feed
+     * type and its own copy, without a line of channel logic being duplicated.
+     */
+    protected function eventType(): string
+    {
+        return 'incident_opened';
+    }
+
+    /**
+     * The translation key for [$suffix] under this notification's event token.
+     */
+    protected function copyKey(string $suffix): string
+    {
+        return 'notifications.'.$this->eventType().'_'.$suffix;
+    }
+
+    /**
      * Get the notification's delivery channels.
      *
      * A team-scoped {@see NotificationChannel} notifiable resolves to its single
@@ -60,9 +81,9 @@ class IncidentOpened extends Notification implements ShouldQueue
             return self::channelVia($notifiable);
         }
 
-        $channels = self::withoutDisabledChannels($notifiable, self::defaultChannels(), 'incident_opened');
+        $channels = self::withoutDisabledChannels($notifiable, self::defaultChannels(), $this->eventType());
 
-        return array_merge($channels, self::smsChannel($notifiable, 'incident_opened'));
+        return array_merge($channels, self::smsChannel($notifiable, $this->eventType()));
     }
 
     /**
@@ -206,8 +227,8 @@ class IncidentOpened extends Notification implements ShouldQueue
             'app_id' => config('magic-starter.onesignal.app_id'),
         ]);
         $payload->setHeadings(new LanguageStringMap([
-            'en' => __('notifications.incident_opened_push_heading', ['monitor' => $this->monitorName('en')], 'en'),
-            'tr' => __('notifications.incident_opened_push_heading', ['monitor' => $this->monitorName('tr')], 'tr'),
+            'en' => __($this->copyKey('push_heading'), ['monitor' => $this->monitorName('en')], 'en'),
+            'tr' => __($this->copyKey('push_heading'), ['monitor' => $this->monitorName('tr')], 'tr'),
         ]));
         $payload->setContents(new LanguageStringMap([
             // The incident title is user-generated data, not translatable copy.
@@ -243,8 +264,8 @@ class IncidentOpened extends Notification implements ShouldQueue
         $payload->setTargetChannel('sms');
         $payload->setIncludeAliases($notifiable->routeNotificationForOneSignal());
         $payload->setContents(new LanguageStringMap([
-            'en' => __('notifications.incident_opened_subject', ['monitor' => $this->monitorName('en')], 'en'),
-            'tr' => __('notifications.incident_opened_subject', ['monitor' => $this->monitorName('tr')], 'tr'),
+            'en' => __($this->copyKey('subject'), ['monitor' => $this->monitorName('en')], 'en'),
+            'tr' => __($this->copyKey('subject'), ['monitor' => $this->monitorName('tr')], 'tr'),
         ]));
 
         // 3. Defensive sms_from: omit when the sender is not provisioned.
@@ -270,7 +291,7 @@ class IncidentOpened extends Notification implements ShouldQueue
         $monitorName = $this->monitorName();
 
         return [
-            'text' => __('notifications.incident_opened_subject', ['monitor' => $monitorName])."\n"
+            'text' => __($this->copyKey('subject'), ['monitor' => $monitorName])."\n"
                 .__('notifications.severity_line', ['severity' => $this->incident->severity->value])."\n"
                 .$this->incidentUrl(),
         ];
@@ -286,7 +307,11 @@ class IncidentOpened extends Notification implements ShouldQueue
     public function toWebhook(mixed $notifiable): array
     {
         return [
-            'event' => 'incident.opened',
+            // Derived, not hardcoded: this is a machine-readable field an
+            // integrator switches on, and an escalation posting
+            // `incident.opened` would be a lie in the one payload nobody reads
+            // with their eyes.
+            'event' => str_replace('_', '.', $this->eventType()),
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
             'monitor_name' => $this->monitorName(),
@@ -314,7 +339,7 @@ class IncidentOpened extends Notification implements ShouldQueue
             'event_action' => 'trigger',
             'dedup_key' => $this->pagerDutyDedupKey(),
             'payload' => [
-                'summary' => __('notifications.incident_opened_subject', ['monitor' => $monitorName]),
+                'summary' => __($this->copyKey('subject'), ['monitor' => $monitorName]),
                 'source' => $monitorName,
                 'severity' => self::pagerDutySeverity($this->incident->severity),
                 'custom_details' => [
@@ -351,7 +376,7 @@ class IncidentOpened extends Notification implements ShouldQueue
             'body' => [
                 [
                     'type' => 'TextBlock',
-                    'text' => __('notifications.incident_opened_subject', ['monitor' => $monitorName]),
+                    'text' => __($this->copyKey('subject'), ['monitor' => $monitorName]),
                     'weight' => 'Bolder',
                     'size' => 'Large',
                     'wrap' => true,
@@ -416,9 +441,9 @@ class IncidentOpened extends Notification implements ShouldQueue
         $monitorName = $this->monitorName();
 
         return (new MailMessage)
-            ->subject(__('notifications.incident_opened_subject', ['monitor' => $monitorName]))
-            ->greeting(__('notifications.incident_opened_greeting'))
-            ->line(__('notifications.incident_opened_state_line', [
+            ->subject(__($this->copyKey('subject'), ['monitor' => $monitorName]))
+            ->greeting(__($this->copyKey('greeting')))
+            ->line(__($this->copyKey('state_line'), [
                 'monitor' => $monitorName,
                 'lifecycle' => $this->incident->lifecycle->value,
             ]))
@@ -449,8 +474,8 @@ class IncidentOpened extends Notification implements ShouldQueue
         $monitorName = $this->monitorName();
 
         return [
-            'type' => 'incident_opened',
-            'title' => __('notifications.incident_opened_title', ['monitor' => $monitorName]),
+            'type' => $this->eventType(),
+            'title' => __($this->copyKey('title'), ['monitor' => $monitorName]),
             'body' => $this->incident->title,
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,

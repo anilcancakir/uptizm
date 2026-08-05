@@ -12,6 +12,15 @@ return [
     'incident_opened_title' => ':monitor is down',
     'incident_opened_push_heading' => ':monitor is down',
 
+    // The escalation copy never says "opened": the operator has been looking at
+    // this incident already, and a second open-shaped page reads as a separate
+    // outage.
+    'incident_escalated_subject' => '[Uptizm] :monitor got worse',
+    'incident_escalated_greeting' => 'Incident escalated',
+    'incident_escalated_state_line' => ':monitor is now more severe and is in the ":lifecycle" state.',
+    'incident_escalated_title' => ':monitor got worse',
+    'incident_escalated_push_heading' => ':monitor got worse',
+
     'incident_resolved_subject' => '[Uptizm] :monitor is resolved',
     'incident_resolved_greeting' => 'Incident resolved',
     'incident_resolved_line' => 'The incident affecting :monitor has been resolved.',

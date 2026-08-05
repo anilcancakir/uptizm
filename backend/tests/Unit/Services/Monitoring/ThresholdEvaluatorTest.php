@@ -236,6 +236,58 @@ class ThresholdEvaluatorTest extends TestCase
     }
 
     /**
+     * A two-tier metric is the natural shape of a health endpoint: `degraded`
+     * warns, `down` pages. The metric-scoped dedupe used to swallow the second
+     * half of that, because it asked only whether an incident existed and never
+     * compared severities. So the incident stayed at `warn` forever and the
+     * critical-only notification channels, which gate on
+     * `severity === Critical`, were never told a thing.
+     */
+    public function test_a_critical_value_escalates_an_open_warn_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, warnValues: ['degraded'], criticalValues: ['down']);
+        $evaluator = new ThresholdEvaluator;
+
+        $warn = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'degraded']);
+        $this->assertSame(IncidentSeverity::Warn, Incident::query()->sole()->severity);
+        $this->assertNull($warn['escalated'] ?? null);
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'down']);
+
+        // 1. Still ONE incident: escalating is not opening a second one, which
+        //    would split the timeline of a single outage in two.
+        $this->assertSame(1, Incident::query()->count());
+
+        // 2. The incident itself carries critical now, which is what the
+        //    critical-only channel gate reads.
+        $incident = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Critical, $incident->severity);
+
+        // 3. And the escalation is REPORTED, so the dispatcher has something to
+        //    notify on. A severity raised silently in the database would page
+        //    nobody, which is the defect wearing a different hat.
+        $this->assertNotNull($outcome['escalated'] ?? null);
+        $this->assertSame($incident->getKey(), $outcome['escalated']->getKey());
+    }
+
+    public function test_a_warn_value_does_not_de_escalate_a_critical_incident(): void
+    {
+        // The other direction is deliberately silent: an outage that improves
+        // from `down` to `degraded` is still the same outage, and quietly
+        // downgrading it would retire the critical channels mid-incident.
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, warnValues: ['degraded'], criticalValues: ['down']);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'down']);
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'degraded']);
+
+        $this->assertSame(IncidentSeverity::Critical, Incident::query()->sole()->severity);
+        $this->assertNull($outcome['escalated'] ?? null);
+    }
+
+    /**
      * `unmatched_band` is the branch that pages on a value nobody enumerated,
      * which is the whole point of configuring it: an unrecognized state is not
      * evidence of health.

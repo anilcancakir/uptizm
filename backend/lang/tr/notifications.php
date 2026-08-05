@@ -9,6 +9,14 @@ return [
     'incident_opened_title' => ':monitor kesintide',
     'incident_opened_push_heading' => ':monitor kesintide',
 
+    // Tırmanma kopyası "açıldı" demez: operatör bu olaya zaten bakıyor ve
+    // yeniden açılış gibi okunan bir bildirim ayrı bir kesinti sanılır.
+    'incident_escalated_subject' => '[Uptizm] :monitor kötüleşti',
+    'incident_escalated_greeting' => 'Olay tırmandı',
+    'incident_escalated_state_line' => ':monitor daha ağır bir seviyeye geçti ve ":lifecycle" durumunda.',
+    'incident_escalated_title' => ':monitor kötüleşti',
+    'incident_escalated_push_heading' => ':monitor kötüleşti',
+
     'incident_resolved_subject' => '[Uptizm] :monitor sorunu giderildi',
     'incident_resolved_greeting' => 'Olay çözüldü',
     'incident_resolved_line' => ':monitor üzerindeki olay çözüldü.',
