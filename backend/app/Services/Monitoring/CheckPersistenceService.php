@@ -5,10 +5,12 @@ namespace App\Services\Monitoring;
 use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
 use App\Jobs\PerformMonitorCheck;
+use App\Jobs\ScheduleMonitorChecks;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetricValue;
 use App\Support\Monitoring\CheckResult;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -323,10 +325,23 @@ class CheckPersistenceService
             ]);
 
             // 3. Refresh the denormalized last-state columns and the failure
-            //    counter with a single atomic UPDATE. A `down` result advances
-            //    the streak with a DB-side `consecutive_fails + 1` so two
-            //    concurrent regions cannot lose an increment to a stale
-            //    read-modify-write; any other outcome resets the streak to zero.
+            //    counter with a single atomic UPDATE. Any non-down outcome resets
+            //    the streak to zero, which is the published rule: one healthy
+            //    region clears it, so a single bad region cannot page anybody.
+            //
+            //    A down outcome recomputes the streak in TICKS rather than adding
+            //    one per region result. The old `consecutive_fails + 1` counted
+            //    region-results, so a monitor probing from three regions gathered
+            //    three increments in a single tick and crossed the default
+            //    threshold of 2 on the FIRST one. `incident_threshold` is named
+            //    and documented as "not the first failure, the N in a row", and
+            //    the landing page sells it as absorbing a transient flake; with
+            //    more than one region it absorbed nothing, and a ten-second blip
+            //    that hit the whole target paged immediately.
+            //
+            //    Recomputed under the per-monitor lock this method already holds,
+            //    so the read-then-write cannot race the other regions of the same
+            //    tick (the reason the old code needed a DB-side increment).
             $isDown = $result->status === MonitorStatus::Down;
             Monitor::query()
                 ->whereKey($monitor->id)
@@ -335,7 +350,7 @@ class CheckPersistenceService
                     'last_checked_at' => $result->checkedAt,
                     'last_response_ms' => $result->responseMs,
                     'consecutive_fails' => $isDown
-                        ? DB::raw('consecutive_fails + 1')
+                        ? $this->downStreak($monitor)
                         : 0,
                     // A probe that reached the target clears any earlier edge
                     // refusal, in the same atomic UPDATE that refreshes the
@@ -575,5 +590,93 @@ class CheckPersistenceService
     protected function monitorLockKey(Monitor $monitor): string
     {
         return "check-persist-monitor:{$monitor->id}";
+    }
+
+    /**
+     * How many consecutive TICKS this monitor has been down in every region it
+     * probes from.
+     *
+     * A tick is one scheduling round: {@see ScheduleMonitorChecks}
+     * fans out one job per configured region per interval. There is no tick id to
+     * group by (`probe_run_id` is minted per dispatch in
+     * {@see RelayClient}, so it identifies a single
+     * probe, not a round), so the round is reconstructed positionally: take each
+     * region's most recent checks newest-first and read them off in lockstep. The
+     * i-th entry of every region belongs to the i-th most recent tick.
+     *
+     * A tick counts only when EVERY configured region reported down for it. Two
+     * consequences, both deliberate:
+     *
+     * - One healthy region stops the count, which is the rule the landing page
+     *   publishes and the reason no quorum is claimed.
+     * - A region MISSING from a tick also stops it. A refused probe writes no
+     *   check row (see {@see recordProbeRefusal}, which deliberately leaves the
+     *   status and the streak alone), and our own edge refusing to probe is not
+     *   evidence about the customer's endpoint either way.
+     *
+     * A monitor with no regions configured keeps the old per-result counting: it
+     * cannot have ticks, and answering zero would silently stop it alerting.
+     *
+     * The scan is bounded at one more than the threshold, because nothing above
+     * that changes any decision.
+     */
+    protected function downStreak(Monitor $monitor): int|Expression
+    {
+        /** @var list<string> $regions */
+        $regions = $monitor->regions ?? [];
+
+        // A monitor with no regions configured cannot have ticks, and answering
+        // zero would silently stop it alerting. It keeps the DB-side increment
+        // rather than reading the counter off this instance: the instance was
+        // loaded before the lock was taken, so two results in a row would both
+        // read the same value and the streak would stall at one. That race is
+        // exactly what the raw expression was here for.
+        if ($regions === []) {
+            return DB::raw('consecutive_fails + 1');
+        }
+
+        return $this->consecutiveFullyDownTicks($monitor, $regions);
+    }
+
+    /**
+     * How many consecutive TICKS this monitor has been down in every region.
+     *
+     * @param  list<string>  $regions  The monitor's configured regions.
+     */
+    protected function consecutiveFullyDownTicks(Monitor $monitor, array $regions): int
+    {
+        $depth = ($monitor->incident_threshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD) + 1;
+
+        $byRegion = [];
+        foreach ($regions as $region) {
+            $byRegion[$region] = MonitorCheck::query()
+                ->where('monitor_id', $monitor->id)
+                ->where('region', $region)
+                ->orderByDesc('checked_at')
+                ->limit($depth)
+                ->pluck('status')
+                ->all();
+        }
+
+        $ticks = 0;
+        for ($index = 0; $index < $depth; $index++) {
+            foreach ($regions as $region) {
+                $status = $byRegion[$region][$index] ?? null;
+
+                if ($status === null) {
+                    return $ticks;
+                }
+
+                $value = $status instanceof MonitorStatus ? $status : MonitorStatus::from((string) $status);
+
+                if ($value !== MonitorStatus::Down) {
+                    return $ticks;
+                }
+            }
+
+            $ticks++;
+        }
+
+        return $ticks;
     }
 }

@@ -444,13 +444,14 @@ class CheckPersistenceServiceTest extends TestCase
         Monitor $monitor,
         string $probeRunId,
         MonitorStatus $status,
-        string $region = 'us-east-1',
+        string $region = 'us-east',
         bool $refused = false,
+        ?DateTimeImmutable $checkedAt = null,
     ): CheckResult {
         return new CheckResult(
             monitorId: (string) $monitor->id,
             region: $region,
-            checkedAt: new DateTimeImmutable,
+            checkedAt: $checkedAt ?? new DateTimeImmutable,
             status: $status,
             statusCode: $status === MonitorStatus::Up ? 200 : 503,
             responseMs: 128,
@@ -467,5 +468,142 @@ class CheckPersistenceServiceTest extends TestCase
             probeRunId: $probeRunId,
             probeRefused: $refused,
         );
+    }
+
+    /**
+     * `incident_threshold` counts TICKS, and a tick is one scheduling round
+     * across every region the monitor probes from.
+     *
+     * The counter used to advance once per region RESULT, so a monitor with three
+     * regions gathered three increments in a single round and crossed the default
+     * threshold of 2 on the first one. That made the setting mean something
+     * different for every monitor depending on its region count, and it absorbed
+     * no flake at all on a multi-region monitor: a ten-second blip that hit the
+     * whole target paged immediately.
+     */
+    public function test_one_tick_across_three_regions_advances_the_streak_once(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $monitor->update(['regions' => self::THREE_REGIONS]);
+        $service = $this->service();
+
+        $this->runTick($service, $monitor, 1, MonitorStatus::Down);
+
+        $this->assertSame(
+            1,
+            $monitor->fresh()->consecutive_fails,
+            'three region results in one tick are one tick, not three failures',
+        );
+        $this->assertSame(0, Incident::query()->count(), 'the threshold of 2 is not crossed by one tick');
+    }
+
+    public function test_a_second_fully_down_tick_crosses_the_threshold(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $monitor->update(['regions' => self::THREE_REGIONS]);
+        $service = $this->service();
+
+        $this->runTick($service, $monitor, 1, MonitorStatus::Down);
+        $this->runTick($service, $monitor, 2, MonitorStatus::Down);
+
+        $this->assertSame(2, $monitor->fresh()->consecutive_fails);
+        $this->assertSame(1, Incident::query()->count(), 'the second round in a row opens exactly one incident');
+    }
+
+    /**
+     * The published rule, kept: one healthy region clears the streak, which is
+     * what stops a single bad region from paging anybody and why no quorum is
+     * claimed anywhere.
+     */
+    public function test_one_healthy_region_in_a_tick_clears_the_streak(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $monitor->update(['regions' => self::THREE_REGIONS]);
+        $service = $this->service();
+
+        $this->runTick($service, $monitor, 1, MonitorStatus::Down);
+        $this->assertSame(1, $monitor->fresh()->consecutive_fails);
+
+        // Tick 2: two regions down, one up. The up result lands last and resets.
+        $service->persist($monitor->fresh(), $this->makeResult($monitor, probeRunId: 't2-a', status: MonitorStatus::Down, region: self::THREE_REGIONS[0], checkedAt: $this->tickTime(2)));
+        $service->persist($monitor->fresh(), $this->makeResult($monitor, probeRunId: 't2-b', status: MonitorStatus::Down, region: self::THREE_REGIONS[1], checkedAt: $this->tickTime(2)));
+        $service->persist($monitor->fresh(), $this->makeResult($monitor, probeRunId: 't2-c', status: MonitorStatus::Up, region: self::THREE_REGIONS[2], checkedAt: $this->tickTime(2)));
+
+        $this->assertSame(0, $monitor->fresh()->consecutive_fails);
+        $this->assertSame(0, Incident::query()->count());
+    }
+
+    /**
+     * A region that reported NOTHING for a tick stops the count too. A refused
+     * probe writes no check row on purpose ({@see CheckPersistenceService}'s
+     * refusal path leaves the status and the streak alone), because our own edge
+     * declining to probe is not evidence about the customer's endpoint.
+     */
+    public function test_a_tick_missing_a_region_does_not_count(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $monitor->update(['regions' => self::THREE_REGIONS]);
+        $service = $this->service();
+
+        $this->runTick($service, $monitor, 1, MonitorStatus::Down);
+
+        // Tick 2: only two of the three regions report at all.
+        $service->persist($monitor->fresh(), $this->makeResult($monitor, probeRunId: 't2-a', status: MonitorStatus::Down, region: self::THREE_REGIONS[0], checkedAt: $this->tickTime(2)));
+        $service->persist($monitor->fresh(), $this->makeResult($monitor, probeRunId: 't2-b', status: MonitorStatus::Down, region: self::THREE_REGIONS[1], checkedAt: $this->tickTime(2)));
+
+        $this->assertSame(
+            1,
+            $monitor->fresh()->consecutive_fails,
+            'an incomplete tick cannot be the second round in a row',
+        );
+        $this->assertSame(0, Incident::query()->count());
+    }
+
+    /**
+     * A monitor with no regions configured keeps the old per-result counting. It
+     * cannot have ticks, and answering zero would silently stop it alerting,
+     * which is the one outcome worse than counting too fast.
+     */
+    public function test_a_monitor_without_regions_still_advances_per_result(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $service = $this->service();
+
+        $service->persist($monitor->fresh(), $this->makeResult($monitor, probeRunId: 'r1', status: MonitorStatus::Down));
+        $this->assertSame(1, $monitor->fresh()->consecutive_fails);
+
+        $service->persist($monitor->fresh(), $this->makeResult($monitor, probeRunId: 'r2', status: MonitorStatus::Down));
+        $this->assertSame(2, $monitor->fresh()->consecutive_fails);
+        $this->assertSame(1, Incident::query()->count());
+    }
+
+    /**
+     * The regions one tick fans out to, in the order ScheduleMonitorChecks would.
+     */
+    protected const THREE_REGIONS = ['us-east', 'eu-west', 'ap'];
+
+    /**
+     * Persist one full tick: every configured region reporting [$status].
+     */
+    protected function runTick(CheckPersistenceService $service, Monitor $monitor, int $tick, MonitorStatus $status): void
+    {
+        foreach (self::THREE_REGIONS as $index => $region) {
+            $service->persist($monitor->fresh(), $this->makeResult(
+                $monitor,
+                probeRunId: "t{$tick}-{$index}",
+                status: $status,
+                region: $region,
+                checkedAt: $this->tickTime($tick),
+            ));
+        }
+    }
+
+    /**
+     * A timestamp for tick [$n], spaced so the per-region ordering that groups
+     * results into ticks is unambiguous.
+     */
+    protected function tickTime(int $n): DateTimeImmutable
+    {
+        return (new DateTimeImmutable('2026-08-05 12:00:00'))->modify("+{$n} minutes");
     }
 }
