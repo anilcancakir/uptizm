@@ -3,6 +3,7 @@
 namespace App\Services\OnCall;
 
 use App\Enums\EscalationTargetType;
+use App\Enums\IncidentStatus;
 use App\Jobs\DispatchEscalationStep;
 use App\Models\EscalationPolicy;
 use App\Models\EscalationStep;
@@ -68,11 +69,33 @@ class EscalationDispatcher
      */
     public function pageStep(string $incidentId, string $stepId): void
     {
-        // 1. A resolved incident cancels every step still pending: short-circuit
-        //    before claiming the idempotency marker so nothing is consumed.
+        // 1. Page only while NOBODY has engaged, and short-circuit before
+        //    claiming the idempotency marker so nothing is consumed.
+        //
+        //    `Detected` is the untouched state. An acknowledgement moves the
+        //    incident to `Investigating` (see IncidentWriteService::acknowledge,
+        //    which is what acknowledging IS: there is no separate acknowledged_at
+        //    column), an operator's status update moves it further, and `Resolved`
+        //    ends it. Every one of those means a human has this incident, and
+        //    paging the next rung at that point is the exact thing acknowledging
+        //    exists to prevent.
+        //
+        //    This used to check `isActive()`, which is only false for `Resolved`.
+        //    So the ladder kept firing at the operator who had already taken the
+        //    incident, and the only way to silence a page was to declare an outage
+        //    over that nobody had fixed.
+        //
+        //    One consequence worth naming: `reopen()` sets `Investigating` (a
+        //    contract pinned by IncidentWriteControllerTest) and calls
+        //    dispatchOpened, so a reopened incident still ANNOUNCES on the team's
+        //    channels but no longer walks the on-call ladder. That follows from the
+        //    same rule (the operator who reopened it is engaged), and it is the
+        //    conservative half of the choice: the alternative, re-arming the ladder
+        //    because the rotation may have changed since, is a product decision
+        //    rather than a bug fix.
         $incident = Incident::find($incidentId);
 
-        if ($incident === null || ! $incident->lifecycle->isActive()) {
+        if ($incident === null || $incident->lifecycle !== IncidentStatus::Detected) {
             return;
         }
 

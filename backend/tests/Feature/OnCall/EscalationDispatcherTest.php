@@ -92,6 +92,51 @@ class EscalationDispatcherTest extends TestCase
         Notification::assertNothingSentTo($responder);
     }
 
+    /**
+     * An acknowledgement has to stop the ladder, which is the whole contract of
+     * acknowledging. Before this, only `Resolved` cancelled a pending step, so
+     * every rung still fired at an operator who had already taken the incident,
+     * and the only way to silence a page was to declare an outage over that
+     * nobody had fixed.
+     *
+     * Asserted at FIRE time (`pageStep` directly) rather than at queue time: the
+     * ladder is a set of delayed jobs, so what the queue looked like when the
+     * incident opened says nothing about what happens minutes later.
+     */
+    public function test_an_acknowledged_incident_cancels_pending_steps(): void
+    {
+        Notification::fake();
+        [$team, $responder] = $this->teamWithOnCall();
+        $policy = $this->policyWithOnCallStep($team);
+        // Acknowledgement is this transition: IncidentWriteService::acknowledge
+        // moves a Detected incident to Investigating and writes a timeline note.
+        $incident = $this->openIncident($team, $policy, IncidentStatus::Investigating);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertNothingSentTo($responder);
+    }
+
+    /**
+     * Every non-Detected state means a human has engaged, not only the one an
+     * acknowledgement produces: an operator posting a status update moves the
+     * incident along the same lifecycle.
+     */
+    public function test_a_human_moved_lifecycle_cancels_pending_steps(): void
+    {
+        Notification::fake();
+        [$team, $responder] = $this->teamWithOnCall();
+        $policy = $this->policyWithOnCallStep($team);
+
+        foreach ([IncidentStatus::Identified, IncidentStatus::Monitoring] as $stage) {
+            $incident = $this->openIncident($team, $policy, $stage);
+
+            $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+        }
+
+        Notification::assertNothingSentTo($responder);
+    }
+
     public function test_re_dispatch_pages_a_step_only_once(): void
     {
         Notification::fake();
