@@ -57,6 +57,20 @@ class IncidentController extends MagicController
   /// The id [_detail] was (or is being) fetched for.
   String? _detailId;
 
+  /// Whether the lookup behind [_detailId] has answered, successfully or not.
+  ///
+  /// [isFirstLoad] cannot speak for a single incident: the LIST read can have
+  /// landed long ago while a deep-linked incident absent from that list is still
+  /// being fetched by [_loadDetail]. Without this bit, an [incidentById] of
+  /// `null` is indistinguishable from "no such incident", which is what made a
+  /// cold deep link render the not-found screen for an incident that exists.
+  ///
+  /// One bool rather than a set of ids, because [_detailId] already encodes that
+  /// exactly one detail is current at a time; it resets whenever that selection
+  /// moves, so a revisit re-enters the pending state instead of reading a stale
+  /// verdict from a previous fetch.
+  bool _detailSettled = false;
+
   /// Enriched AI analysis per incident id, populated by [loadAnalysis].
   ///
   /// Kept as a separate cache rather than merged into [Incident.ai] so the
@@ -225,6 +239,7 @@ class IncidentController extends MagicController
   Future<void> resetForSession() async {
     _detail = null;
     _detailId = null;
+    _detailSettled = false;
     _analysisById.clear();
     setState(null, status: const RxStatus.empty(), notify: false);
     refreshUI();
@@ -255,6 +270,8 @@ class IncidentController extends MagicController
     for (final Incident incident in incidents) {
       if (incident.id == id) {
         _detailId = id;
+        // The roster answered for this id, so nothing is pending.
+        _detailSettled = true;
         return incident;
       }
     }
@@ -263,8 +280,21 @@ class IncidentController extends MagicController
 
     _detailId = id;
     _detail = null;
+    _detailSettled = false;
     _loadDetail(id);
     return null;
+  }
+
+  /// Whether the lookup behind [incidentById] for [id] has yet to answer.
+  ///
+  /// Callers resolve the incident first and consult this only when that came
+  /// back `null`, to tell "still loading" apart from "no such incident". A null
+  /// [id], or an id no lookup has been made for, counts as answered: there is
+  /// nothing in flight, so the caller's not-found branch is the honest one.
+  bool isFirstLoadFor(String? id) {
+    if (id == null || _detailId != id) return false;
+
+    return !_detailSettled;
   }
 
   /// Fetches a single incident for [incidentById] and caches it on [_detail].
@@ -275,22 +305,44 @@ class IncidentController extends MagicController
   Future<void> _loadDetail(String id) async {
     try {
       final response = await Http.get('/incidents/$id');
-      if (_detailId != id || !response.successful) {
+      // The stale guard and the failure paths are deliberately separate: a
+      // response for an id the screen has already navigated away from says
+      // nothing about the id now selected, so it must not settle it. A failure
+      // for the CURRENT id has answered, and leaving it unsettled would
+      // skeleton forever.
+      if (_detailId != id) {
+        return;
+      }
+      if (!response.successful) {
+        _settleDetail();
         return;
       }
 
       final Object? data = response.data?['data'];
       if (data is! Map<String, dynamic>) {
+        _settleDetail();
         return;
       }
 
       _detail = Incident.fromMap(data);
-      refreshUI();
+      _settleDetail();
     } catch (_) {
-      // Silent no-op on failure (including an unregistered `network` service):
-      // the synchronous `incidentById` caller keeps its `null` detail and the
-      // view renders its not-found state instead of seeing a throw.
+      // Deliberate degradation on failure (including an unregistered `network`
+      // service): the synchronous `incidentById` caller keeps its `null` detail
+      // and the view renders its not-found state instead of seeing a throw. The
+      // read has still ANSWERED, so it settles: an unsettled failure would leave
+      // the screen skeletoning with nothing left in flight to end it.
+      _settleDetail();
     }
+  }
+
+  /// Marks the current [_detailId] lookup as answered and repaints.
+  ///
+  /// Every non-stale exit of [_loadDetail] routes through here, including the
+  /// failures, so "pending" always has something in flight behind it.
+  void _settleDetail() {
+    _detailSettled = true;
+    refreshUI();
   }
 
   /// The enriched AI analysis for [incident], or `null` when neither the

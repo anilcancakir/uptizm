@@ -79,6 +79,11 @@ class EscalationController extends MagicController
   /// [detailById].
   final Map<String, EscalationPolicy> _details = {};
 
+  /// Policy ids whose per-id [refreshDetail] read has answered, successfully or
+  /// not. Read through [isFirstLoadFor] to tell an unanswered lookup apart from
+  /// a policy that does not exist.
+  final Set<String> _settledDetailIds = <String>{};
+
   /// The policy roster, sourced from `GET /escalation-policies` (+ per-policy
   /// detail hydration). Empty until the first successful [reload]. Preserves
   /// the insertion order of the last [reload]/[seedForTest].
@@ -182,6 +187,7 @@ class EscalationController extends MagicController
   @override
   Future<void> resetForSession() async {
     _details.clear();
+    _settledDetailIds.clear();
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that there are no policies.
     _resolvedOnce = false;
@@ -221,10 +227,33 @@ class EscalationController extends MagicController
   /// self loops and floods the backend.
   Future<void> refreshDetail(String id) async {
     final EscalationPolicy? detail = await EscalationPolicy.find(id);
-    if (detail == null || detail.id != id) return;
+    // Settle before the null check, not after: a policy that came back missing
+    // has ANSWERED, and the editor needs to hear that so it can leave its
+    // pending state and say so. Leaving it unsettled skeletons forever with
+    // nothing in flight behind it.
+    _settledDetailIds.add(id);
+    if (detail == null || detail.id != id) {
+      refreshUI();
+
+      return;
+    }
 
     _details[id] = detail;
     refreshUI();
+  }
+
+  /// Whether the per-id read behind [detailById] for [id] has yet to answer.
+  ///
+  /// [isFirstLoad] covers the policy LIST and cannot speak for one policy: the
+  /// list read can have landed while [refreshDetail] for a deep-linked id is
+  /// still in flight, and in that window a `null` [detailById] used to render
+  /// the editor's not-found state for a policy that exists.
+  ///
+  /// A null [id] is the create form, which waits for nothing.
+  bool isFirstLoadFor(String? id) {
+    if (id == null) return false;
+
+    return !_settledDetailIds.contains(id);
   }
 
   // ---------------------------------------------------------------------------

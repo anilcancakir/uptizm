@@ -560,10 +560,14 @@ class _StatusPageEditorViewState
 
   @override
   Widget build(BuildContext context) {
-    // 1. Resolve the fixture. A supplied-but-unknown id is a broken link, so it
-    //    renders a graceful not-found state (mirrors incident_detail_view).
+    // 1. Resolve the page. A supplied-but-unknown id is a broken link, so it
+    //    renders a graceful not-found state (mirrors incident_detail_view). But
+    //    "unknown" only holds once the roster read has answered: this editor
+    //    already listens for that read to seed its draft (`_seedOnceResolved`),
+    //    so firing not-found before it lands contradicted the screen's own
+    //    seeding logic and told the operator their page was gone.
     if (widget.id != null && controller.configById(widget.id) == null) {
-      return _buildNotFound();
+      return controller.isFirstLoad ? _buildPending() : _buildNotFound();
     }
 
     // 2. Compose the page body as a Wind flex column: the 24px header rhythm is
@@ -576,7 +580,37 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the graceful not-found state for an unknown status-page id.
+  /// Builds the pending state shown while the roster read that will decide
+  /// whether this page exists is still in flight.
+  ///
+  /// Every [MSSkeleton] carries an explicit height: it wraps a childless `WDiv`
+  /// with nothing of its own to measure, so one without a height lays out 0px
+  /// tall and the operator sees a blank screen instead of a placeholder.
+  Widget _buildPending() {
+    return MSPageContainer(
+      child: WDiv(
+        className: 'flex flex-col gap-6',
+        children: [
+          MSPageHeader(
+            title: trans('common.loading'),
+            backLabel: trans('uptizm.status.editor_breadcrumb_back'),
+            backFallback: _listRoute,
+          ),
+          WDiv(
+            className: 'flex flex-col gap-4',
+            children: const [
+              MSSkeleton(height: 56),
+              MSSkeleton(height: 56),
+              MSSkeleton(height: 160),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the graceful not-found state for a status-page id the answered
+  /// roster does not carry.
   Widget _buildNotFound() {
     return MSPageContainer(
       child: MSEmptyState(

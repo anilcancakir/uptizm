@@ -101,7 +101,12 @@ class _StatusPageSubscribersViewState
     //    route id.
     final StatusPage? page = controller.configById(widget.id);
     if (page == null) {
-      return _buildNotFound();
+      // `configById` reads the page roster, which answers null both while the
+      // first read is in flight and when the id is genuinely gone. This screen
+      // already draws that distinction for its SUBSCRIBER roster (see
+      // `rosterResolved` below); the page lookup above it needs the same care,
+      // or a deep link opens on the empty state for a page that exists.
+      return controller.isFirstLoad ? _buildPending() : _buildNotFound();
     }
 
     // 2. Compose the page body as a Wind flex column: the 24px section rhythm
@@ -412,8 +417,29 @@ class _StatusPageSubscribersViewState
   // Not-found
   // ---------------------------------------------------------------------------
 
+  /// Builds the pending state shown while the page roster read that will decide
+  /// whether this status page exists is still in flight. Reuses the same
+  /// [_buildSkeleton] the subscriber roster shows, so the two waiting states are
+  /// visually one thing.
+  Widget _buildPending() {
+    return MSPageContainer(
+      child: WDiv(
+        className: 'flex flex-col gap-6',
+        children: [
+          MSPageHeader(
+            title: trans('common.loading'),
+            backLabel: trans('uptizm.status.subscribers_open_editor_button'),
+            backFallback: '/status',
+          ),
+          _buildSkeleton(),
+        ],
+      ),
+    );
+  }
+
   /// Builds the graceful not-found state shown when
-  /// [StatusPageController.configById] returns null.
+  /// [StatusPageController.configById] returns null AND the roster read has
+  /// already answered.
   Widget _buildNotFound() {
     return MSPageContainer(
       child: WDiv(
