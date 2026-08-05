@@ -90,8 +90,9 @@ class KpiStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Wind layout throughout so the card sizes correctly inside a Wind grid
-    // cell. The delta is a `flex flex-row` row (NOT `inline-flex`, which Wind
-    // renders as a centered vertical column) with `self-start` so it hugs its
+    // cell. The delta is a `flex flex-row` row (NOT `inline-flex`, which wind
+    // treats as a deliberately inert token: no layout axis, no warning, so the
+    // element falls back to a centered column) with `self-start` so it hugs its
     // content and stays left-aligned instead of stretching the cell width.
     //
     // Equal-height across a KPI row comes from the caller's `grid ...

@@ -47,8 +47,9 @@ class AiConfidenceBadge extends StatelessWidget {
         '${level.name[0].toUpperCase()}${level.name.substring(1)} confidence';
 
     // 3. Build: pill row with text.
-    //    NOTE: `flex flex-row` (NOT `inline-flex`) — Wind renders inline-flex
-    //    as a centered vertical column; flex flex-row is correct for a row.
+    //    NOTE: `flex flex-row`, NOT `inline-flex`. Wind lists `inline-flex`
+    //    among its deliberately inert compat tokens, so it sets no layout axis
+    //    (and never warns), leaving the element as a centered column.
     return WDiv(className: className, children: [WText(displayLabel)]);
   }
 }
