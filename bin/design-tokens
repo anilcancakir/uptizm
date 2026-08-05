@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+#
+# Measures whether component code carries raw color literals instead of the
+# semantic Wind tokens DESIGN.md defines. Nothing else checks this: `flutter
+# analyze` has no opinion on a hardcoded `Color(0xFF...)`, and `design:lint`
+# only validates DESIGN.md's own YAML, never the Dart that is supposed to
+# obey it. Without this job "design-first is enforced" was an unmeasured
+# claim.
+#
+# What it measures: `Color(0x...)` and `Colors.*` literals anywhere under
+# `lib/**/*.dart`, after stripping `//`/`///` line comments and `/* */` block
+# comments. Both halves of that sentence are load-bearing. Measured on this
+# tree: a naive grep reports 8 files, the comment-stripped and
+# boundary-corrected scan reports 4. Of the four it drops, three are component
+# docstrings that quote the very literal they forbid (`uptime_bar`,
+# `check_history_table`, `status_dot` each say "no raw hex ... anywhere"), so a
+# naive grep flags the sentence claiming compliance; the fourth is
+# `kBrandColors.first`, which matched only because an unbounded `Colors\.`
+# also matches the tail of any identifier ending in "Colors".
+#
+# What it deliberately does NOT measure, because it is regex, not an AST:
+#   - `Color.fromARGB(...)`, `Color.fromRGBO(...)`, `Color.from(...)` are
+#     equally raw-color routes and are NOT scanned. Zero occurrences in
+#     `lib/` today; add a rule here the day one appears.
+#   - A triple-quoted Dart string is not tracked by the comment scanner, so a
+#     `//` or `/*` inside one would be read as a comment. Rather than parse them,
+#     a file containing `'''` or `"""` is scanned RAW: see `strip_comments`.
+#   - A hardcoded pixel value, a missing `dark:` pair, or reaching for a new
+#     component instead of an existing one: none of that is a regex-checkable
+#     shape. This job is a floor, not the whole of "design-first".
+#
+# Usage:
+#   bin/design-tokens          scan lib/**/*.dart, exit 1 on any violation
+#   bin/design-tokens -h       show this help
+#
+# Exit convention mirrors magic's design:lint: findings print as
+# `file:line`, and the process exits non-zero when any are unallowlisted.
+
+set -u -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
+
+ALLOWLIST_FILE="$REPO_ROOT/.design-token-allowlist"
+
+usage() {
+    cat <<'USAGE'
+bin/design-tokens - measures raw Color(0x...)/Colors.* literals under lib/.
+
+  bin/design-tokens    scan lib/**/*.dart, exit 1 on any unallowlisted hit
+
+Comments (// and /* */) are stripped before scanning, and a path listed in
+.design-token-allowlist is skipped entirely. See the script header for what
+this job does and does not catch.
+USAGE
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "design-tokens: unknown argument '$arg'" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# Strips a Dart file's // (and doc ///) line comments and /* */ block comments,
+# one output line per input line so a downstream `grep -n` still reports the
+# ORIGINAL file's line numbers. A line inside a block comment becomes empty
+# rather than disappearing, which is what keeps the numbering aligned.
+#
+# It scans each line LEFT TO RIGHT and acts on whichever of `//` and `/*` comes
+# first, outside a string literal. Both halves of that are load-bearing, and the
+# first version of this script had neither:
+#
+#   - Handling `/*` before `//` meant an ordinary doc comment naming a route glob
+#     (`/// api/v1/on-call/*`) opened block mode that never closed, and the rest of
+#     the file was emitted empty. The gate then reported nothing for it and printed
+#     the green line. Four shipping files were silently unchecked that way, two of
+#     them the very `lib/resources/views/` files this job exists to police, so the
+#     failure is not theoretical and it is not noisy: it looks exactly like success.
+#   - A `/*` inside a string literal (a URL, a regex, a glob) does the same thing.
+#
+# Strings are tracked for `'` and `"` with backslash escapes. Dart's triple-quoted
+# strings are NOT tracked, and there are two guards for that rather than one,
+# because the first version of this docblock claimed a coverage it did not have:
+#
+# THE SELF-CHECK catches the OPEN case. `flutter analyze` guarantees every file here
+# compiles, so an unterminated `/*` at end of file is impossible in real Dart. If
+# block mode is still open when the file ends, this function mis-parsed, and it says
+# so on stderr and exits 3 instead of returning a confidently truncated file.
+#
+# It does NOT catch the CLOSED case, and that is the one a review had to measure: a
+# `/*` inside a `'''...'''` body that some later ordinary `*/` closes leaves
+# `in_block` at 0 by end of file, so nothing fires and the whole intervening region
+# is dropped in silence. Same for a `//` inside a triple-quoted body, which
+# truncates that line. So the caller ALSO refuses to trust a stripped file that
+# contains `'''` or `"""` at all, and rescans it raw. One `grep -q` buys the
+# guarantee that parsing triple quotes properly would.
+#
+# Both guards fail in the same direction on purpose. Over-reporting a comment as a
+# violation costs someone a minute; under-reporting costs the gate its whole
+# purpose. A checker that goes quiet is worse than one that goes loud.
+strip_comments() {
+    awk -v path="$1" '
+        {
+            line = $0
+            out = ""
+            i = 1
+            n = length(line)
+
+            while (i <= n) {
+                two = substr(line, i, 2)
+
+                if (in_block) {
+                    if (two == "*/") { in_block = 0; i += 2 } else { i++ }
+                    continue
+                }
+
+                if (in_string != "") {
+                    c = substr(line, i, 1)
+                    if (c == "\\") { out = out "  "; i += 2; continue }
+                    if (c == in_string) in_string = ""
+                    out = out c
+                    i++
+                    continue
+                }
+
+                if (two == "//") break
+                if (two == "/*") { in_block = 1; i += 2; continue }
+
+                c = substr(line, i, 1)
+                if (c == "\"" || c == "\047") in_string = c
+                out = out c
+                i++
+            }
+
+            # A string cannot span a line in Dart unless it is triple-quoted, which
+            # is not tracked, so reset rather than carrying a bad state forward.
+            in_string = ""
+            print out
+        }
+        END {
+            if (in_block) {
+                printf "design-tokens: unterminated block comment in %s; comment stripping cannot be trusted here\n", path > "/dev/stderr"
+                exit 3
+            }
+        }
+    '
+}
+
+# Reads .design-token-allowlist into two arrays: a path ending in "/" is a
+# directory prefix, anything else is an exact file match. Blank lines and
+# lines starting with "#" are comments; the format is "<path> | <reason>" so
+# the reason (the load-bearing, expiring part) sits next to the path a human
+# edits, with no parser dependency beyond `IFS`.
+declare -a ALLOW_DIRS=()
+declare -a ALLOW_FILES=()
+
+load_allowlist() {
+    [ -f "$ALLOWLIST_FILE" ] || return 0
+
+    local raw path
+    while IFS= read -r raw || [ -n "$raw" ]; do
+        raw="${raw%%$'\r'}"
+        [ -z "$raw" ] && continue
+        case "$raw" in \#*) continue ;; esac
+
+        path="${raw%%|*}"
+        # Trim surrounding whitespace without a subprocess.
+        path="${path#"${path%%[![:space:]]*}"}"
+        path="${path%"${path##*[![:space:]]}"}"
+        [ -z "$path" ] && continue
+
+        case "$path" in
+            */) ALLOW_DIRS+=("$path") ;;
+            *) ALLOW_FILES+=("$path") ;;
+        esac
+    done < "$ALLOWLIST_FILE"
+}
+
+is_allowlisted() {
+    local path="$1" dir file
+    for dir in "${ALLOW_DIRS[@]:-}"; do
+        [ -n "$dir" ] && case "$path" in "$dir"*) return 0 ;; esac
+    done
+    for file in "${ALLOW_FILES[@]:-}"; do
+        [ "$path" = "$file" ] && return 0
+    done
+    return 1
+}
+
+load_allowlist
+
+# The pattern for `Colors.` needs a left boundary or it matches the tail of
+# any identifier ending in "...Colors" (e.g. `kBrandColors.first`), which
+# produced a phantom violation during measurement. `Color(0x` deliberately
+# has NO boundary: `MaterialColor(0xFF008560` in the generated theme is a
+# genuine raw hex and must still be caught.
+PATTERN='Color\(0x|(^|[^A-Za-z0-9_])Colors\.'
+
+violations=""
+while IFS= read -r -d '' file; do
+    rel="${file#"$REPO_ROOT"/}"
+    is_allowlisted "$rel" && continue
+
+    stripped="$(strip_comments "$rel" < "$file")"
+    stripped_status="$?"
+
+    # Two reasons to distrust the strip and rescan raw, both failing toward
+    # over-reporting (see `strip_comments`): exit 3 is the stripper saying it lost
+    # track of an unterminated block, and a triple-quoted string is a construct it
+    # does not parse at all. `stripped_status` is captured on the line immediately
+    # after the assignment on purpose; read four lines down, any command inserted
+    # between them would silently disable the fallback and restore the exact quiet
+    # truncation this exists to prevent.
+    if [ "$stripped_status" -eq 3 ] || grep -q "'''\|\"\"\"" "$file"; then
+        stripped="$(cat "$file")"
+    fi
+
+    lines="$(printf '%s\n' "$stripped" | grep -nE "$PATTERN" | cut -d: -f1)"
+    [ -z "$lines" ] && continue
+
+    while IFS= read -r lineno; do
+        violations="${violations}${rel}:${lineno}
+"
+    done <<< "$lines"
+done < <(find "$REPO_ROOT/lib" -name '*.dart' -print0)
+
+if [ -z "$violations" ]; then
+    echo "design-tokens: no raw color literals found outside the allowlist."
+    exit 0
+fi
+
+echo "design-tokens: raw color literal(s) found outside the allowlist:" >&2
+printf '%s' "$violations" | sed '/^$/d' | sed 's/^/  /' >&2
+exit 1
