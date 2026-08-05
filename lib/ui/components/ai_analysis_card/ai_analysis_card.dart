@@ -21,6 +21,9 @@ import 'ai_analysis_card.recipe.dart';
 /// never fires on its own), and the operator rates the analysis.
 @immutable
 class AiAnalysisCard extends StatelessWidget {
+  /// Leading glyph on a suggested-action row.
+  static const IconData _actionIcon = Icons.arrow_forward;
+
   /// The AI analysis payload to render.
   final IncidentAi ai;
 
@@ -271,7 +274,7 @@ class AiAnalysisCard extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 1),
-            child: WIcon(Icons.arrow_forward, className: 'text-ai text-base'),
+            child: WIcon(_actionIcon, className: 'text-ai text-base'),
           ),
           const SizedBox(width: 10),
           Expanded(

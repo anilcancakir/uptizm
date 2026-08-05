@@ -95,6 +95,16 @@ class Assistant extends StatefulWidget {
 }
 
 class _AssistantState extends State<Assistant> {
+  /// The AI mark: the FAB, the panel header, and an assistant message's avatar
+  /// all carry it, which is why it is one constant rather than three literals.
+  static const IconData _aiIcon = Icons.auto_awesome;
+
+  /// Dismiss affordance on the panel header.
+  static const IconData _closeIcon = Icons.close;
+
+  /// Submit affordance on the composer.
+  static const IconData _sendIcon = Icons.send;
+
   /// Whether the floating surface is open. Always shown in embedded mode.
   bool _open = false;
 
@@ -203,7 +213,7 @@ class _AssistantState extends State<Assistant> {
               semanticLabel: trans('uptizm.assistant.open_label'),
               className: assistantFabRecipe(),
               child: WIcon(
-                Icons.auto_awesome,
+                _aiIcon,
                 className: 'text-[24px] text-on-ai',
               ),
             ),
@@ -263,7 +273,7 @@ class _AssistantState extends State<Assistant> {
             flex items-center justify-center size-8 shrink-0
             rounded-lg bg-ai-soft
           ''',
-          child: WIcon(Icons.auto_awesome, className: 'text-[20px] text-ai'),
+          child: WIcon(_aiIcon, className: 'text-[20px] text-ai'),
         ),
         Expanded(
           child: WDiv(
@@ -285,7 +295,7 @@ class _AssistantState extends State<Assistant> {
               flex items-center justify-center size-8 shrink-0
               rounded-md text-fg-muted
             ''',
-            child: WIcon(Icons.close, className: 'text-[18px] text-fg-muted'),
+            child: WIcon(_closeIcon, className: 'text-[18px] text-fg-muted'),
           ),
         ),
       ],
@@ -364,7 +374,7 @@ class _AssistantState extends State<Assistant> {
             flex items-center justify-center size-7 shrink-0
             rounded-full bg-ai-soft
           ''',
-          child: WIcon(Icons.auto_awesome, className: 'text-[16px] text-ai'),
+          child: WIcon(_aiIcon, className: 'text-[16px] text-ai'),
         ),
         const SizedBox(width: 8),
         bubble,
@@ -430,7 +440,7 @@ class _AssistantState extends State<Assistant> {
             flex items-center justify-center shrink-0 px-4 py-3
             rounded-lg bg-primary text-on-primary
           ''',
-          child: WIcon(Icons.send, className: 'text-[20px] text-on-primary'),
+          child: WIcon(_sendIcon, className: 'text-[20px] text-on-primary'),
         ),
       ],
     );

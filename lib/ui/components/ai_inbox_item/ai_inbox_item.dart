@@ -45,6 +45,9 @@ import 'ai_inbox_item.recipe.dart';
 /// ```
 @immutable
 class AiInboxItem extends StatelessWidget {
+  /// Affordance glyph on the expand control.
+  static const IconData _expandIcon = Icons.keyboard_arrow_down;
+
   /// The incident carrying the AI analysis data.
   final Incident incident;
 
@@ -181,7 +184,7 @@ class AiInboxItem extends StatelessWidget {
                 className: 'text-xs font-medium text-fg-muted',
               ),
               WIcon(
-                Icons.keyboard_arrow_down,
+                _expandIcon,
                 className: 'text-sm text-fg-muted',
               ),
             ],
