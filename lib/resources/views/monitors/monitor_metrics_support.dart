@@ -595,3 +595,51 @@ num latestOf(MetricForm form) {
   final List<MetricDatum> data = chartData(form);
   return data.last.values['value']!;
 }
+
+// ---------------------------------------------------------------------------
+// Reading staleness
+// ---------------------------------------------------------------------------
+
+/// How many check intervals a reading may fall behind before it counts as
+/// stale.
+///
+/// Two, not one. A single missed tick is ordinary: the queue hiccups, a probe
+/// runs a few seconds late, and flagging that would put a warning on healthy
+/// metrics constantly. Two consecutive misses is the rule having stopped
+/// producing, which is the thing worth saying out loud.
+const int kStaleReadingIntervals = 2;
+
+/// Whether a reading recorded at [recordedAt] is too old to still be presented
+/// as the metric's current state, for a monitor checking every
+/// [checkIntervalSec] seconds.
+///
+/// ## Why this exists
+///
+/// A metric that goes silent used to read as healthy. When a monitored deploy
+/// renames the key a rule extracts, no new value is recorded, and the tab kept
+/// showing the last good reading with its last good band indefinitely: "94ms,
+/// green" for something nobody had measured in a week. There is no wrong VALUE
+/// on screen in that state, which is what makes it so quiet, and the honest
+/// bound is the monitor's own interval, because a monitor that checks every 30s
+/// and has said nothing for ten minutes is not reporting.
+///
+/// A null [recordedAt] is NOT stale: the metric has never recorded anything, a
+/// different state the tab already renders as an em-dash. Saying "stale" there
+/// would claim a reading stopped arriving when none ever did.
+///
+/// A non-positive [checkIntervalSec] answers false rather than guessing a
+/// window, so a monitor whose interval is missing never gets a fabricated
+/// warning.
+bool isReadingStale(
+  DateTime? recordedAt, {
+  required int checkIntervalSec,
+  DateTime? now,
+}) {
+  if (recordedAt == null || checkIntervalSec <= 0) return false;
+
+  // `difference` compares absolute instants, so a UTC wire timestamp and a local
+  // `now` need no conversion between them.
+  final Duration age = (now ?? DateTime.now()).difference(recordedAt);
+
+  return age > Duration(seconds: checkIntervalSec * kStaleReadingIntervals);
+}

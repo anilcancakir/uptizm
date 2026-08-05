@@ -499,4 +499,88 @@ void main() {
       expect(kKeyRe.hasMatch('a'), isTrue);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // isReadingStale
+  // ---------------------------------------------------------------------------
+
+  group('isReadingStale', () {
+    // What this pins: a metric that STOPS reporting used to read as healthy.
+    // Rename the key a rule extracts in a monitored deploy and no new value is
+    // recorded, so the tab kept showing the last good reading with its last good
+    // band indefinitely. Nothing on screen is a wrong value, which is what makes
+    // that state so quiet.
+    final DateTime now = DateTime.utc(2026, 8, 5, 12, 0, 0);
+
+    test('a reading inside the window is current', () {
+      expect(
+        isReadingStale(
+          now.subtract(const Duration(seconds: 45)),
+          checkIntervalSec: 30,
+          now: now,
+        ),
+        isFalse,
+        reason: 'one missed tick is ordinary: a late probe is not a dead rule',
+      );
+    });
+
+    test('a reading past two intervals is stale', () {
+      expect(
+        isReadingStale(
+          now.subtract(const Duration(seconds: 61)),
+          checkIntervalSec: 30,
+          now: now,
+        ),
+        isTrue,
+      );
+    });
+
+    test('the boundary itself is not stale', () {
+      // Exactly two intervals is the last current moment, so the check is
+      // strictly greater-than and a reading landing on the boundary is kept.
+      expect(
+        isReadingStale(
+          now.subtract(const Duration(seconds: 60)),
+          checkIntervalSec: 30,
+          now: now,
+        ),
+        isFalse,
+      );
+    });
+
+    test('the window scales with the monitor own interval', () {
+      // Five minutes old is fine for a 10-minute monitor and long dead for a
+      // 30-second one, which is why the bound is the interval and not a constant.
+      final DateTime fiveMinutesAgo = now.subtract(const Duration(minutes: 5));
+
+      expect(isReadingStale(fiveMinutesAgo, checkIntervalSec: 600, now: now), isFalse);
+      expect(isReadingStale(fiveMinutesAgo, checkIntervalSec: 30, now: now), isTrue);
+    });
+
+    test('never having recorded is not stale', () {
+      // A different state, which the tab already renders as an em-dash. Calling
+      // it stale would claim readings stopped arriving when none ever did.
+      expect(isReadingStale(null, checkIntervalSec: 30, now: now), isFalse);
+    });
+
+    test('a missing interval never fabricates a warning', () {
+      expect(
+        isReadingStale(now.subtract(const Duration(days: 7)), checkIntervalSec: 0, now: now),
+        isFalse,
+      );
+    });
+
+    test('a local-time reading compares by absolute instant', () {
+      // The wire carries ISO-8601 UTC and `now` is local; `difference` compares
+      // instants, so no conversion is needed and none must be invented.
+      expect(
+        isReadingStale(
+          now.subtract(const Duration(seconds: 90)).toLocal(),
+          checkIntervalSec: 30,
+          now: now,
+        ),
+        isTrue,
+      );
+    });
+  });
 }
