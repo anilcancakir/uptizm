@@ -73,6 +73,33 @@ void main() {
     expect(find.text('ok'), findsOneWidget);
   });
 
+  testWidgets('a stored value with padding is still a duplicate', (
+    tester,
+  ) async {
+    // The server's write path applies distinct:ignore_case, which does NOT
+    // trim, and Laravel's TrimStrings is ASCII-only, so a stored element can
+    // carry a non-breaking space. Comparing only the new side trimmed would
+    // then accept a visibly identical chip beside it, and both would resolve to
+    // the same band at match time.
+    List<String> padded = const [' ok '];
+    await tester.pumpWidget(
+      wrap(
+        StatefulBuilder(
+          builder: (context, setState) => StringValueList(
+            value: padded,
+            onChanged: (v) => setState(() => padded = v),
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(WInput), 'OK');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    expect(padded, [' ok '], reason: 'no second chip may be committed');
+  });
+
   testWidgets('submitting a duplicate does not add a second chip', (
     tester,
   ) async {

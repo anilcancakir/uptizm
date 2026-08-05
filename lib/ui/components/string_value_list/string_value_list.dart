@@ -101,10 +101,14 @@ class _StringValueListState extends State<StringValueList> {
   /// (post-trim). Clears the draft either way, then refocuses the entry
   /// field so the operator can keep typing without an extra tap.
   ///
-  /// The duplicate check ignores case, mirroring the `distinct:ignore_case`
-  /// rule the write path applies to each list. A case-sensitive check here
-  /// would let `ok` and `OK` both become chips and then fail the save with a
-  /// 422, in a feature whose whole premise is that matching ignores case.
+  /// The duplicate check trims and folds case on BOTH sides, matching the
+  /// server's match-time normalizer rather than just the write path's
+  /// `distinct:ignore_case`. Comparing raw would let `ok` and `OK` both become
+  /// chips and then fail the save with a 422, in a feature whose whole premise
+  /// is that matching ignores case. Trimming only the new side is not enough
+  /// either: `distinct:ignore_case` does not trim and Laravel's `TrimStrings`
+  /// is ASCII-only, so a stored value can carry a non-breaking space and a
+  /// visibly identical chip would be accepted beside it.
   void _commit(String raw) {
     final trimmed = raw.trim();
     _controller.clear();
@@ -112,7 +116,7 @@ class _StringValueListState extends State<StringValueList> {
     final folded = trimmed.toLowerCase();
     final isDuplicate =
         trimmed.isNotEmpty &&
-        widget.value.any((existing) => existing.toLowerCase() == folded);
+        widget.value.any((existing) => existing.trim().toLowerCase() == folded);
     if (trimmed.isNotEmpty && !isDuplicate) {
       widget.onChanged([...widget.value, trimmed]);
     }
