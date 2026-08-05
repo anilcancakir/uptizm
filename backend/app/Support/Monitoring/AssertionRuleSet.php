@@ -347,8 +347,13 @@ class AssertionRuleSet
          *
          * The one shape this cannot see is a JSON object with numeric keys
          * (`{"0": {...}}`), which `json_decode(..., true)` produces as a list
-         * and the edge treats as an object. It is accepted here and skipped
-         * there, which is the allowed direction of the asymmetry above.
+         * and the edge treats as an object. It is accepted here and produces NO
+         * REPORT there: `evaluateAssertions()` answers null on anything
+         * `Array.isArray` refuses, which records the check as asserting nothing
+         * rather than as a skip (a skip is a per-rule `value_invalid` verdict
+         * INSIDE a report, and there is no report here). `assertions_passed`
+         * therefore stays null, which is the allowed direction of the asymmetry
+         * above: silence, never a pass nobody measured.
          */
         if (! is_array($rules) || ! array_is_list($rules)) {
             return ['The :attribute must be a JSON array of assertion rules.'];
