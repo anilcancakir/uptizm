@@ -82,6 +82,18 @@ return [
     ],
 
     /*
+    | ipinfo.io, the optional geo lookup `TargetLocation` uses to answer
+    | "where is this target" when no CDN header already answered it. Absent
+    | by default and DORMANT while `token` is: the lookup is skipped silently
+    | rather than failing the request that needed it. See
+    | `App\Services\Monitoring\TargetLocation` for the honesty rule this
+    | integration exists to serve (never claim an origin behind a CDN).
+    */
+    'ipinfo' => [
+        'token' => env('IPINFO_TOKEN'),
+    ],
+
+    /*
     | Browsershot shells out to Node, which it locates on PATH by default. A
     | queue worker started by a process manager often has a narrower PATH than
     | the web process, so these are the explicit escape hatch. Leave them null

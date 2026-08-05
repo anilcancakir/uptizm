@@ -74,6 +74,47 @@ class HostGuard
     }
 
     /**
+     * The public IPs a host resolves to, or an empty list when it resolves to
+     * none or to any address this guard denies.
+     *
+     * Exists because a caller that wants to know something ABOUT a target's
+     * address, rather than whether it may be probed, had no entry point:
+     * {@see self::isBlockedHost()} resolves internally and returns only a
+     * boolean, and {@see self::resolveAndAssertAllowed()} is https-only and
+     * refuses a URL carrying a port or credentials, which an ordinary monitor
+     * target may well have. Adding a second resolver elsewhere in the codebase
+     * was the alternative, and this class is deliberately the only DNS code in
+     * the backend.
+     *
+     * Fail-closed and all-or-nothing on purpose: one denied address discards
+     * the whole list rather than returning the survivors, because a host that
+     * resolves to both a public and an internal address is exactly the
+     * DNS-rebinding shape the rest of this class exists to refuse, and a
+     * caller handed the public half would treat it as a clean answer.
+     *
+     * @param  string  $host  A bare host (not a full URL).
+     * @return list<string> The resolved addresses, or `[]`.
+     */
+    public function resolvePublicHostIps(string $host): array
+    {
+        $host = strtolower(trim($host, '[]'));
+
+        if ($host === '' || $host === 'localhost' || str_ends_with($host, '.internal')) {
+            return [];
+        }
+
+        $ips = $this->resolveHostIps($host);
+
+        foreach ($ips as $ip) {
+            if ($this->isBlockedIp($ip)) {
+                return [];
+            }
+        }
+
+        return $ips;
+    }
+
+    /**
      * Assert a full URL points at an allowed host, or throw.
      *
      * Parses the host out of the URL and raises a validation error keyed on
