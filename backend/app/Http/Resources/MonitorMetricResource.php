@@ -41,6 +41,14 @@ class MonitorMetricResource extends JsonResource
             'critical_bound' => $this->resource->critical_bound !== null
                 ? (float) $this->resource->critical_bound
                 : null,
+            // The string-band configuration. The three lists are emitted as
+            // arrays and never as null: the columns are NOT NULL DEFAULT '[]'
+            // and the client's editor is a list widget, so a null here would be
+            // a shape the form has to special-case for no reason.
+            'ok_values' => $this->resource->ok_values ?? [],
+            'warn_values' => $this->resource->warn_values ?? [],
+            'critical_values' => $this->resource->critical_values ?? [],
+            'unmatched_band' => $this->resource->unmatched_band?->value,
             'display_order' => (int) $this->resource->display_order,
             'latest' => $this->whenLoaded('latestValue', function () {
                 $value = $this->resource->getRelation('latestValue');

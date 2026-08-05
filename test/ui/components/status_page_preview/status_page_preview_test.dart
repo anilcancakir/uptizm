@@ -186,7 +186,6 @@ void main() {
     final StatusPage config = cloneStatusPage(
       statusPages.first,
       monitorIds: const [],
-      metricKeys: const [],
     );
 
     await tester.pumpWidget(wrap(StatusPagePreview(config: config)));

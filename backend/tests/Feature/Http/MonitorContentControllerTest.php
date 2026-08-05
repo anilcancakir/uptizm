@@ -8,8 +8,12 @@ use App\Models\Monitor;
 use App\Models\MonitorContentVersion;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Monitoring\ArchivedBodyReader;
 use App\Services\Monitoring\ContentArchive;
+use App\Support\Monitoring\MetricCandidate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -34,6 +38,15 @@ use Tests\TestCase;
  * the cross-team-version case, which addresses a FOREIGN team's hash under the
  * caller's OWN monitor: it can only 404 if the version lookup keys on
  * `(monitor_id, content_hash)` instead of on the hash alone.
+ *
+ * THE CANDIDATE BROWSER IS THE THIRD ACTION AND CARRIES A DIGEST, NOT A
+ * DOCUMENT. Its cases assert the exact key set of a row (an ADDED key is how the
+ * archived bytes would arrive), that a sample value is cut to
+ * {@see MetricCandidate::DIGEST_VALUE_MAX_LENGTH}, that a path a metric write
+ * would refuse is dropped rather than suggested, that a repeat request costs no
+ * second archive read, and that the shared limiter bites. The read it bounds is
+ * a cold FUSE fetch off a Drive remote, so an unbounded or uncached one holds an
+ * Octane worker for about a second per request.
  */
 class MonitorContentControllerTest extends TestCase
 {
@@ -51,6 +64,24 @@ class MonitorContentControllerTest extends TestCase
         'truncated',
         'first_seen_at',
         'last_seen_at',
+    ];
+
+    /**
+     * The exact JSON key set of one candidate row, pinned for the same reason as
+     * the version keys above: this response is derived from an attacker-supplied
+     * document, so a key nobody asked for is the shape of the defect.
+     *
+     * These names come from {@see MetricCandidate::toDigestRow()} and the metric
+     * form fills itself from them, so renaming one on the way out breaks the
+     * client.
+     */
+    protected const CANDIDATE_KEYS = [
+        'ref',
+        'src',
+        'path',
+        'value',
+        'label',
+        'types',
     ];
 
     public function test_index_lists_the_monitors_versions_and_never_the_content(): void
@@ -246,6 +277,271 @@ class MonitorContentControllerTest extends TestCase
         ]);
 
         $this->getJson("/api/v1/monitors/{$monitor->id}/content/not-a-hash")->assertStatus(404);
+    }
+
+    public function test_candidates_returns_proved_digest_rows_from_the_newest_archived_body(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, '{"status":"degraded","latency_ms":97}');
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('has_sample', true);
+
+        $rows = (array) $response->json('data');
+        $this->assertCount(2, $rows);
+
+        // The exact key set of a row, pinned as a whole for the same reason the
+        // version index is: the defect worth catching is an ADDED key, and the
+        // one that would matter here is the archived body itself.
+        $this->assertSame(self::CANDIDATE_KEYS, array_keys((array) $rows[0]));
+
+        // Ranked best first, so the numeric leaf leads. The client fills
+        // `source`, `extraction_path` and `type` from these names, so they are a
+        // wire contract and not an internal shape.
+        $this->assertSame('c1', $rows[0]['ref']);
+        $this->assertSame('json_path', $rows[0]['src']);
+        $this->assertSame('latency_ms', $rows[0]['path']);
+        $this->assertSame('97', $rows[0]['value']);
+        $this->assertSame('latency_ms', $rows[0]['label']);
+        $this->assertSame(['numeric', 'string'], $rows[0]['types']);
+
+        $this->assertSame('status', $rows[1]['path']);
+        $this->assertSame('degraded', $rows[1]['value']);
+        // A non-numeric sample is string-only: offered as numeric it would
+        // extract on every check and record nothing.
+        $this->assertSame(['string'], $rows[1]['types']);
+    }
+
+    public function test_candidates_reads_only_the_newest_archived_version(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        $older = $this->archiveVersion($monitor, '{"old_key":"alpha"}');
+        $older->forceFill(['last_seen_at' => now()->subHour()])->save();
+        $this->archiveVersion($monitor, '{"new_key":"beta"}');
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        $response->assertStatus(200);
+        // One read, never a history scan: the archive is a cold FUSE mount of a
+        // remote capped near two file operations a second, so scanning versions
+        // would turn one request into a stall.
+        $this->assertSame(['new_key'], $this->candidatePaths($response->json('data')));
+    }
+
+    public function test_candidates_drops_a_path_a_metric_write_would_refuse(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        // `extraction_path` validates at `max:500`, so an attacker-chosen key name
+        // longer than that produces a suggestion that 422s the moment the operator
+        // taps it. The 500-character key is here to pin the boundary as inclusive:
+        // it is exactly what the write path accepts and must still be offered.
+        $atLimit = str_repeat('m', 500);
+        $overLimit = str_repeat('k', 600);
+        $this->archiveVersion(
+            $monitor,
+            '{"'.$atLimit.'":"maybe","'.$overLimit.'":"yes","latency_ms":97}',
+        );
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        $response->assertStatus(200);
+        $paths = $this->candidatePaths($response->json('data'));
+
+        $this->assertContains($atLimit, $paths);
+        $this->assertContains('latency_ms', $paths);
+        $this->assertNotContains($overLimit, $paths);
+        $response->assertDontSee($overLimit);
+
+        foreach ($paths as $path) {
+            $this->assertLessThanOrEqual(500, mb_strlen($path));
+        }
+    }
+
+    public function test_candidates_never_carries_the_archived_bytes_and_cuts_the_sample_value(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        // A wholly attacker-chosen document: script text where a value goes, and a
+        // 600-character key where a path comes from. A digest row may carry a
+        // bounded PREFIX of one value as inert JSON string data; it may never
+        // carry the document, and it may never suggest a path the write path
+        // refuses.
+        $script = '<script>alert(1)</script>';
+        $tail = str_repeat('x', 200);
+        $overLimit = str_repeat('k', 600);
+        $body = '{"status":"'.$script.$tail.'","'.$overLimit.'":"yes"}';
+        $this->archiveVersion($monitor, $body);
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Type', 'application/json');
+
+        $rows = (array) $response->json('data');
+        $this->assertCount(1, $rows);
+        $this->assertSame(self::CANDIDATE_KEYS, array_keys((array) $rows[0]));
+        $this->assertSame(
+            mb_substr($script.$tail, 0, MetricCandidate::DIGEST_VALUE_MAX_LENGTH)
+                .MetricCandidate::DIGEST_TRUNCATION_MARK,
+            $rows[0]['value'],
+        );
+
+        // Neither the document, nor the part of the value past the ceiling, nor
+        // the key too long to ever be saved.
+        $response->assertDontSee($body, false);
+        $response->assertDontSee($tail, false);
+        $response->assertDontSee($overLimit, false);
+    }
+
+    public function test_candidates_still_answers_a_list_for_a_body_carrying_a_non_utf8_byte(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        // A monitored page serving a broken charset must produce a list, never a
+        // failed encode. `response()->json()` does not set
+        // `JSON_INVALID_UTF8_SUBSTITUTE` by default and Laravel's JsonResponse
+        // THROWS on an encode error, so one stray byte would otherwise be a 500.
+        $this->archiveVersion(
+            $monitor,
+            '<html><body><span id="latency">97'."\xB5".'s</span></body></html>',
+        );
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('has_sample', true);
+        $this->assertSame(['//*[@id="latency"]'], $this->candidatePaths($response->json('data')));
+    }
+
+    public function test_candidates_answers_an_empty_list_when_nothing_is_archived(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        // Mirrors how the metric preview answers with no sample: a flag, not an
+        // error, so the form panel renders "nothing captured yet" rather than a
+        // failure the operator cannot act on.
+        $response->assertStatus(200);
+        $response->assertJsonPath('has_sample', false);
+        $response->assertJsonPath('data', []);
+    }
+
+    public function test_candidates_serves_a_repeat_request_from_the_cache_without_a_second_archive_read(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $version = $this->archiveVersion($monitor, '{"status":"degraded","latency_ms":97}');
+
+        // Counting the READS rather than comparing two responses: identical bodies
+        // prove nothing about the cache, since the extractor is deterministic and
+        // would answer identically on a second cold read too.
+        $reader = new class($this->app->make(ContentArchive::class)) extends ArchivedBodyReader
+        {
+            public int $calls = 0;
+
+            public function bodyForVersion(Monitor $monitor, MonitorContentVersion $version): ?string
+            {
+                $this->calls++;
+
+                return parent::bodyForVersion($monitor, $version);
+            }
+        };
+        $this->app->instance(ArchivedBodyReader::class, $reader);
+
+        $first = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        $first->assertStatus(200);
+        $this->assertSame(1, $reader->calls);
+        $this->assertTrue(Cache::has(
+            MonitorContentController::CANDIDATES_CACHE_KEY_PREFIX.$version->content_hash,
+        ));
+
+        $second = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates");
+
+        $second->assertStatus(200);
+        $this->assertSame(1, $reader->calls);
+        $this->assertSame($first->json(), $second->json());
+    }
+
+    public function test_candidates_masks_a_cross_team_monitor_as_404(): void
+    {
+        $this->actingAsTeamMember();
+        $foreignMonitor = $this->makeMonitor($this->makeForeignTeam()->id);
+        // Row AND blob both present, so the only thing that can produce a 404 is
+        // the tenant check. Drop it and this test reads another team's page.
+        $this->archiveVersion($foreignMonitor, '{"tenant_secret":"another tenant"}');
+
+        $response = $this->getJson("/api/v1/monitors/{$foreignMonitor->id}/content/candidates");
+
+        $response->assertStatus(404);
+        $response->assertDontSee('tenant_secret');
+        $response->assertDontSee('another tenant');
+    }
+
+    public function test_candidates_requires_authentication(): void
+    {
+        $monitor = $this->makeMonitor($this->makeForeignTeam()->id);
+        $this->archiveVersion($monitor, '{"status":"degraded"}');
+
+        $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates")->assertStatus(401);
+    }
+
+    public function test_the_candidates_route_and_the_metric_preview_route_share_one_named_limiter(): void
+    {
+        // Both read the same cold archive blob, and `api/v1` never calls
+        // throttleApi(), so this named limiter is the only bound either has.
+        foreach ([
+            'api.v1.monitors.content.candidates',
+            'api.v1.monitors.metrics.preview',
+        ] as $name) {
+            $route = Route::getRoutes()->getByName($name);
+
+            $this->assertNotNull($route, $name.' is not registered.');
+            $this->assertContains(
+                'throttle:'.MonitorContentController::SAMPLE_READ_LIMITER,
+                $route->gatherMiddleware(),
+                $name.' does not carry the shared sample-read limiter.',
+            );
+        }
+    }
+
+    public function test_candidates_answers_429_once_the_limiter_is_spent(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        $statuses = [];
+        for ($i = 0; $i < 12; $i++) {
+            $statuses[] = $this->getJson("/api/v1/monitors/{$monitor->id}/content/candidates")
+                ->getStatusCode();
+        }
+
+        $this->assertContains(429, $statuses);
+    }
+
+    /**
+     * The `path` of every returned candidate row, in the order the endpoint
+     * ranked them.
+     *
+     * @return list<string>
+     */
+    protected function candidatePaths(mixed $rows): array
+    {
+        return array_map(
+            static fn (array $row): string => (string) $row['path'],
+            array_values((array) $rows),
+        );
     }
 
     /**

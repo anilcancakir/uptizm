@@ -3,19 +3,26 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Resources\MonitorContentVersionResource;
 use App\Models\Monitor;
 use App\Models\MonitorContentVersion;
+use App\Services\Monitoring\ArchivedBodyReader;
 use App\Services\Monitoring\ContentArchive;
+use App\Services\Monitoring\MetricCandidateExtractor;
+use App\Support\Monitoring\MetricCandidate;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Read side of the monitor-content archive: the list of a monitor's archived
- * page versions, and the download of one version's original bytes.
+ * page versions, the download of one version's original bytes, and the
+ * extraction candidates the newest archived body was proved to contain.
  *
  * THE BYTES THIS CONTROLLER SERVES ARE FULLY ATTACKER CONTROLLED. They are
  * whatever the monitored target chose to return, stored verbatim, and this route
@@ -59,8 +66,59 @@ class MonitorContentController extends Controller
 
     protected const int MAX_PER_PAGE = 200;
 
+    /**
+     * Name of the limiter both archive-sample reads share: this controller's
+     * candidate browser and {@see MonitorMetricController::preview()}.
+     *
+     * Declared here because this controller owns every archived-content read,
+     * and referenced by name from `routes/api.php` and `bootstrap/app.php` so a
+     * rename cannot leave one of the two routes silently unbounded. The limiter
+     * is REQUIRED rather than defensive: `api/v1` never calls `throttleApi()`,
+     * and one accepted request costs a cold read off a FUSE mount of a Drive
+     * remote (about a second, against a remote capped near two file operations a
+     * second) with an Octane worker held for the whole read.
+     */
+    public const string SAMPLE_READ_LIMITER = 'monitor-sample-read';
+
+    /**
+     * Cache-key prefix of one archived body's candidate digest.
+     *
+     * The rest of the key is the version's `content_hash` and nothing else:
+     * {@see MetricCandidateExtractor} states that the same body always yields
+     * the same digest, so the bytes are the whole identity of the answer. Two
+     * monitors, or two teams, that archived byte-identical pages therefore share
+     * one entry and can only read what their own body already produces; no part
+     * of the key comes from the request.
+     */
+    public const string CANDIDATES_CACHE_KEY_PREFIX = 'metric-candidates:';
+
+    /**
+     * How long a candidate digest stays cached.
+     *
+     * An hour, chosen against both failure modes rather than as a round number.
+     * A new body changes the hash and therefore the key, so a stale answer is
+     * impossible by construction and the only cost of a long window is an entry
+     * for a hash nobody serves any more; an hour is comfortably longer than an
+     * operator's session on the metric form (which is what must not pay the cold
+     * read twice) and short enough that abandoned entries expire on their own.
+     */
+    protected const int CANDIDATES_CACHE_TTL_SECONDS = 3600;
+
+    /**
+     * Character ceiling on a candidate's `path`.
+     *
+     * The number is not this endpoint's own: `extraction_path` validates at
+     * `max:500` in {@see StoreMonitorMetricRequest::rules()}, and the two must
+     * move together. A monitored page can name a JSON key anything, so without
+     * this the browser would offer a suggestion that 422s the moment the operator
+     * taps it.
+     */
+    protected const int MAX_CANDIDATE_PATH_LENGTH = 500;
+
     public function __construct(
         protected ContentArchive $archive,
+        protected ArchivedBodyReader $bodyReader,
+        protected MetricCandidateExtractor $candidateExtractor,
     ) {}
 
     /**
@@ -140,6 +198,131 @@ class MonitorContentController extends Controller
             // `text/plain` label would undo the two headers above.
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    /**
+     * The extraction candidates the monitor's newest archived body was proved to
+     * contain, as the metric form's candidate browser lists them.
+     *
+     * WHY THIS IS NOT THE THING {@see MonitorContentVersionResource} FORBIDS.
+     * That docblock ends "Adding one is the defect this docblock exists to
+     * prevent", and {@see self} opens with the same rule for the download, so the
+     * argument belongs here rather than in a reviewer's head. Both invariants
+     * concern a DOCUMENT being interpreted: inline `text/html` executing under
+     * this authenticated origin, or markup travelling through a metadata response
+     * into every JSON consumer that renders a list. This response carries neither.
+     * It carries a fixed-shape digest ROW per candidate, generated by
+     * {@see MetricCandidateExtractor} rather than copied out of the body, and four
+     * things hold at once:
+     *
+     * - The same principal can already GET the whole body at
+     *   `monitors/{monitor}/content/{hash}` through {@see self::show()}, so a
+     *   digest is a strict subset of what they may already receive, minus the
+     *   markup and minus everything the extractor did not prove.
+     * - The identical digest already crosses a strictly higher-risk boundary: it
+     *   is what {@see MonitorMetricController::discover()} hands to an LLM.
+     * - The exposure is BOUNDED, not merely small: at most 40 rows
+     *   ({@see MetricCandidateExtractor}'s `MAX_CANDIDATES`), each value cut to
+     *   {@see MetricCandidate::DIGEST_VALUE_MAX_LENGTH} characters, each label
+     *   dropped rather than truncated above 48, and each `path` refused above
+     *   {@see self::MAX_CANDIDATE_PATH_LENGTH}.
+     * - No field is a document. `sample_body` and `sample_headers` are absent
+     *   here for exactly the reason they are absent from the metric preview.
+     *
+     * The encode sets `JSON_INVALID_UTF8_SUBSTITUTE` for the reason
+     * {@see MetricCandidateExtractor::digest()} sets it: the sample values are
+     * attacker-controlled text, `response()->json()` does not set the flag, and
+     * Laravel's `JsonResponse` THROWS on an encode error, so one invalid byte off
+     * a page with a broken charset would answer 500 instead of a list.
+     */
+    public function candidates(Request $request, Monitor $monitor): JsonResponse
+    {
+        $this->authorizeMonitor($request, $monitor);
+
+        // 1. Name the version the reader is about to read, WITHOUT touching the
+        //    archive: the cache key is that version's own content hash, and a
+        //    cache hit must therefore cost nothing but this query. Resolved ONCE
+        //    and handed to the reader below, because two resolutions file one
+        //    version's digest under another version's hash whenever a check
+        //    completes between them.
+        $version = $this->bodyReader->newestVersion($monitor);
+
+        if ($version === null) {
+            return $this->candidatesResponse(hasSample: false, rows: []);
+        }
+
+        // 2. Sound by the extractor's own contract: the same body always yields
+        //    the same digest, so an entry keyed on the bytes can never go stale,
+        //    and a new body arrives under a new key. An unreadable blob answers
+        //    null and is deliberately NOT cached: retention pruning it while the
+        //    row survives is a transient state, and caching "no sample" for an
+        //    hour would outlive it.
+        $rows = Cache::remember(
+            self::CANDIDATES_CACHE_KEY_PREFIX.$version->content_hash,
+            self::CANDIDATES_CACHE_TTL_SECONDS,
+            function () use ($monitor, $version): ?array {
+                $body = $this->bodyReader->bodyForVersion($monitor, $version);
+
+                return $body === null ? null : $this->digestRows($body);
+            },
+        );
+
+        return $this->candidatesResponse(hasSample: is_array($rows), rows: is_array($rows) ? $rows : []);
+    }
+
+    /**
+     * Every candidate in `$body` as a digest row, minus the ones a metric write
+     * would refuse.
+     *
+     * {@see MetricCandidateExtractor::digest()} is deliberately NOT reused: it
+     * returns the prompt-shaped JSON STRING the discovery model reads, and this
+     * endpoint needs the rows themselves.
+     *
+     * An over-long path is DROPPED rather than cut. Half an XPath expression or
+     * half a dot path resolves to a different node, or to nothing, so truncating
+     * one would hand the operator a suggestion that extracts silently nothing
+     * forever, which is worse than not offering it.
+     *
+     * A drop therefore leaves a GAP in the `ref` sequence, and that is deliberate:
+     * a ref names the candidate the extractor generated, so renumbering here would
+     * make this endpoint and the discovery path disagree about which candidate
+     * `c2` is for one identical body.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function digestRows(string $body): array
+    {
+        $rows = array_map(
+            fn (MetricCandidate $candidate): array => $candidate->toDigestRow(),
+            $this->candidateExtractor->extract($body),
+        );
+
+        return array_values(array_filter(
+            $rows,
+            // `mb_strlen`, matching how Laravel's `max` rule sizes a string, so
+            // the guard and the rule it defends cannot disagree on a multibyte
+            // key name.
+            static fn (array $row): bool => mb_strlen((string) $row['path']) <= self::MAX_CANDIDATE_PATH_LENGTH,
+        ));
+    }
+
+    /**
+     * The candidate browser's response envelope.
+     *
+     * `has_sample` mirrors what {@see MonitorMetricController::preview()} answers
+     * with no sample to work from: a monitor whose archive holds nothing, or
+     * whose newest blob retention already pruned, is an empty list plus a flag
+     * rather than an error, so the form panel can say "nothing captured yet"
+     * instead of surfacing a failure the operator cannot act on.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    protected function candidatesResponse(bool $hasSample, array $rows): JsonResponse
+    {
+        return response()->json([
+            'data' => $rows,
+            'has_sample' => $hasSample,
+        ], HttpResponse::HTTP_OK, [], JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     /**

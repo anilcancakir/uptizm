@@ -158,19 +158,15 @@ void main() {
       expect(draft.monitorIds, ids);
     });
 
-    test('metric keys resolve only to metrics of the selected monitors', () {
+    test('the draft is assigned exactly the monitors it was given', () {
       final StatusPage draft = aiDraftFor(const ['marketing']);
 
       expect(draft.monitorIds, const ['marketing']);
-      for (final String key in draft.metricKeys) {
-        expect(key, startsWith('marketing.'));
-      }
     });
 
-    test('an empty monitor set yields an empty metric-key list', () {
+    test('an empty monitor set yields a draft with no components', () {
       final StatusPage draft = aiDraftFor(const []);
       expect(draft.monitorIds, isEmpty);
-      expect(draft.metricKeys, isEmpty);
     });
   });
 

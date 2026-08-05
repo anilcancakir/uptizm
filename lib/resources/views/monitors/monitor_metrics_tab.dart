@@ -143,6 +143,9 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       isEdit: false,
       onSave: (form) => _controller.create(widget.monitorId, form),
       onPreview: (form) => _controller.preview(widget.monitorId, form),
+      // The form owns no monitor id (see the contract on [onPreview]), so the
+      // candidate browser is handed the same way: a closure the tab binds.
+      onCandidates: () => _controller.candidates(widget.monitorId),
     );
   }
 
@@ -154,6 +157,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       isEdit: true,
       onSave: (form) => _controller.update(widget.monitorId, record.id, form),
       onPreview: (form) => _controller.preview(widget.monitorId, form),
+      onCandidates: () => _controller.candidates(widget.monitorId),
     );
   }
 
@@ -359,13 +363,13 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
 
   /// Builds one clickable custom-metric row.
   ///
-  /// The row shows the label and `key · path` on the left, and on the right a
-  /// [StatusDot] (numeric metrics only) plus the latest live value (decoded
-  /// from the backend's `latest.numeric_value`, via [MetricForm.value]).
+  /// The row shows the label and `key · path` on the left, and on the right the
+  /// [StatusDot] for the band the backend froze on the latest reading (whatever
+  /// the metric's type), plus that reading itself: `latest.numeric_value` for a
+  /// numeric metric, `latest.string_value` / `latest.status_value` otherwise.
   /// Tapping opens the historical [MonitorMetricDetail] sheet for [record].
   Widget _buildMetricRow(MonitorMetricRecord record) {
     final MetricForm metric = record.form;
-    final bool isNumeric = metric.type == 'numeric';
     final num? latest = metric.value;
 
     // Every branch is the metric's REAL latest reading, and an em-dash when it
@@ -381,6 +385,12 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
 
     // The dot reflects the band the backend froze on that reading; a metric with
     // no reading, or no thresholds, gets no dot rather than a green one.
+    //
+    // It is NOT gated on the metric being numeric. It used to be, back when a
+    // numeric bound was the only thing that could produce a band; a string
+    // metric now bands by value-list membership, so gating on the type hid the
+    // band on exactly the readings this feature exists to flag, and a critical
+    // `exploded` rendered as unremarkable plain text.
     final StatusKey? band = switch (record.latestBand) {
       'critical' => StatusKey.down,
       'warn' => StatusKey.degraded,
@@ -417,7 +427,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
             className: 'flex flex-row items-center gap-2',
             children: [
               // Only when the reading carried a frozen band.
-              ?(isNumeric && band != null ? StatusDot(band) : null),
+              ?(band == null ? null : StatusDot(band)),
               WText(
                 valueText,
                 className: 'font-mono text-sm tabular-nums text-fg',

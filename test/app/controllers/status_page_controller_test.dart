@@ -367,7 +367,7 @@ void main() {
     expect(draft, isNotNull);
     expect(draft.name, equals(expected.name));
     expect(draft.slug, equals(expected.slug));
-    expect(draft.metricKeys, equals(expected.metricKeys));
+    expect(draft.description, equals(expected.description));
   });
 
   // ---------------------------------------------------------------------------

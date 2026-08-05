@@ -2,21 +2,22 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\MetricBand;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
-use App\Enums\MetricUnit;
 use App\Enums\ThresholdDirection;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreMonitorMetricRequest;
+use App\Http\Requests\UpdateMonitorMetricRequest;
 use App\Http\Resources\MonitorMetricResource;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
-use App\Models\MonitorContentVersion;
 use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
 use App\Models\Team;
 use App\Services\Ai\MetricDiscoveryService;
 use App\Services\Billing\PlanGate;
+use App\Services\Monitoring\ArchivedBodyReader;
 use App\Services\Monitoring\CheckAggregateService;
 use App\Services\Monitoring\ContentArchive;
 use App\Services\Monitoring\MetricExtractor;
@@ -26,10 +27,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -39,13 +37,13 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  *
  * The preview and the discovery endpoint both read their sample from the
  * monitor's newest ARCHIVED page content rather than from the 10 KiB
- * `response_body_preview` column, and they resolve that blob through
- * {@see ContentArchive::blobPath()}. Both details matter: on a real page the
- * first useful candidate can sit past byte 98,000, so a preview reading the
- * truncated column would answer "extracts nothing" for a rule that extracts
- * perfectly well at runtime; and the blob path is derived in exactly one place
- * because it is also the argument to a delete against a remote holding this
- * system's only database backups.
+ * `response_body_preview` column, through {@see ArchivedBodyReader} and
+ * therefore through {@see ContentArchive::blobPath()}. Both details matter: on a
+ * real page the first useful candidate can sit past byte 98,000, so a preview
+ * reading the truncated column would answer "extracts nothing" for a rule that
+ * extracts perfectly well at runtime; and the blob path is derived in exactly
+ * one place because it is also the argument to a delete against a remote
+ * holding this system's only database backups.
  */
 class MonitorMetricController extends Controller
 {
@@ -55,7 +53,7 @@ class MonitorMetricController extends Controller
     protected const string DISCOVERY_AI_LEVEL = 'analysis';
 
     public function __construct(
-        protected ContentArchive $archive,
+        protected ArchivedBodyReader $bodyReader,
     ) {}
 
     public function index(Request $request, Monitor $monitor): AnonymousResourceCollection
@@ -106,74 +104,24 @@ class MonitorMetricController extends Controller
             ->setStatusCode(HttpResponse::HTTP_CREATED);
     }
 
-    public function update(Request $request, Monitor $monitor, MonitorMetric $metric): MonitorMetricResource
-    {
+    /**
+     * Partial edit of one metric definition.
+     *
+     * The rules live in {@see UpdateMonitorMetricRequest} (which consumes
+     * {@see StoreMonitorMetricRequest}'s one definition) rather than inline
+     * here. That is not tidying: the inline copy was why warn/critical ordering
+     * and the string-band overlap had nowhere to be checked, since both rules
+     * span fields and one of them has to read the STORED row for the keys a
+     * partial payload omits.
+     */
+    public function update(
+        UpdateMonitorMetricRequest $request,
+        Monitor $monitor,
+        MonitorMetric $metric,
+    ): MonitorMetricResource {
         $this->authorizeMetric($request, $monitor, $metric);
 
-        $validated = $request->validate([
-            'group_name' => [
-                'sometimes',
-                'nullable',
-                'string',
-                'max:80',
-            ],
-            'label' => [
-                'sometimes',
-                'string',
-                'max:120',
-            ],
-            'key' => [
-                'sometimes',
-                'string',
-                'max:40',
-                'regex:/^[a-z][a-z0-9_]*$/',
-                Rule::unique('monitor_metrics', 'key')
-                    ->where('monitor_id', $monitor->id)
-                    ->ignore($metric->id),
-            ],
-            'type' => [
-                'sometimes',
-                Rule::enum(MetricType::class),
-            ],
-            'source' => [
-                'sometimes',
-                'nullable',
-                Rule::enum(MetricSource::class),
-            ],
-            'extraction_path' => [
-                'sometimes',
-                'nullable',
-                'string',
-                'max:500',
-            ],
-            'unit' => [
-                'sometimes',
-                'nullable',
-                Rule::enum(MetricUnit::class),
-            ],
-            'threshold_direction' => [
-                'sometimes',
-                'nullable',
-                Rule::enum(ThresholdDirection::class),
-            ],
-            'warn_bound' => [
-                'sometimes',
-                'nullable',
-                'numeric',
-            ],
-            'critical_bound' => [
-                'sometimes',
-                'nullable',
-                'numeric',
-            ],
-            'display_order' => [
-                'sometimes',
-                'integer',
-                'min:0',
-            ],
-        ]);
-
-        $metric->fill($validated)->save();
+        $metric->fill($request->validated())->save();
 
         return MonitorMetricResource::make($metric);
     }
@@ -303,6 +251,12 @@ class MonitorMetricController extends Controller
                 'nullable',
                 'numeric',
             ],
+            // The string-band fields come from the request class rather than
+            // being spelled again here, so the draft this endpoint bands is
+            // validated exactly as the definition that gets saved. Without them
+            // `$validated` could not carry a list and the string verdict below
+            // would be unreachable.
+            ...StoreMonitorMetricRequest::stringBandRules(),
         ]);
 
         $source = MetricSource::from($validated['source']);
@@ -336,7 +290,7 @@ class MonitorMetricController extends Controller
             ], true);
 
             if ($consumesBody) {
-                $archivedBody = $this->newestArchivedBody($monitor);
+                $archivedBody = $this->bodyReader->newestArchivedBody($monitor);
             }
         }
 
@@ -365,18 +319,47 @@ class MonitorMetricController extends Controller
             statusCode: $validated['sample_status_code'] ?? $sampleCheck?->status_code,
         );
 
-        // Band the extracted value only when the caller supplied a
-        // direction to band against; a rule with no thresholds yet has
-        // nothing to band.
+        // Band the extracted value through the SAME functions the pipeline
+        // freezes a band with, so the form's verdict cannot disagree with what
+        // the next check will record. A numeric draft needs a direction to band
+        // against; a string draft needs at least one configured list or an
+        // unmatched band, which is precisely what bandString() answering null
+        // already encodes, so an unconfigured (inert) string metric bands
+        // nothing here either.
         $band = null;
-        if ($result->typeValid && $type === MetricType::Numeric
-            && $result->value !== null && isset($validated['threshold_direction'])) {
-            $band = ThresholdEvaluator::band(
-                direction: ThresholdDirection::from($validated['threshold_direction']),
-                value: (float) $result->value,
-                warnBound: isset($validated['warn_bound']) ? (float) $validated['warn_bound'] : null,
-                criticalBound: isset($validated['critical_bound']) ? (float) $validated['critical_bound'] : null,
-            )->value;
+        if ($result->typeValid && $result->value !== null) {
+            if ($type === MetricType::Numeric && isset($validated['threshold_direction'])) {
+                $band = ThresholdEvaluator::band(
+                    direction: ThresholdDirection::from($validated['threshold_direction']),
+                    value: (float) $result->value,
+                    warnBound: isset($validated['warn_bound']) ? (float) $validated['warn_bound'] : null,
+                    criticalBound: isset($validated['critical_bound']) ? (float) $validated['critical_bound'] : null,
+                )->value;
+            } elseif ($type === MetricType::String) {
+                $okValues = $this->draftValues($validated, 'ok_values');
+                $warnValues = $this->draftValues($validated, 'warn_values');
+                $criticalValues = $this->draftValues($validated, 'critical_values');
+
+                // The draft equivalent of {@see MonitorMetric::alertsOnString()},
+                // which gates both the freeze and the paging decision. Without it
+                // a draft with three empty lists and an unmatched band would be
+                // banded here, so the panel answered CRITICAL for a configuration
+                // the write path rejects: a verdict promising what cannot be
+                // saved. A preview may under-promise; it may not over-promise.
+                $configured = $okValues !== [] || $warnValues !== [] || $criticalValues !== [];
+
+                $band = $configured
+                    ? ThresholdEvaluator::bandString(
+                        value: (string) $result->value,
+                        okValues: $okValues,
+                        warnValues: $warnValues,
+                        criticalValues: $criticalValues,
+                        unmatchedBand: isset($validated['unmatched_band'])
+                            ? MetricBand::from((string) $validated['unmatched_band'])
+                            : null,
+                    )?->value
+                    : null;
+            }
         }
 
         return response()->json([
@@ -420,7 +403,7 @@ class MonitorMetricController extends Controller
             'data' => [
                 'suggested_metrics' => $discovery->discover(
                     $monitor,
-                    $this->newestArchivedBody($monitor),
+                    $this->bodyReader->newestArchivedBody($monitor),
                     (string) $monitor->team_id,
                 ),
             ],
@@ -428,56 +411,22 @@ class MonitorMetricController extends Controller
     }
 
     /**
-     * The decompressed body of the monitor's NEWEST archived content version, or
-     * null when there is none to read.
+     * One validated draft value list as a plain list of strings, so the preview
+     * hands {@see ThresholdEvaluator::bandString()} the same shape the model's
+     * `array` cast would.
      *
-     * Only the newest, deliberately: the archive lives on a cold FUSE mount of a
-     * Drive remote where a single read costs about a second and the remote caps
-     * at roughly two files per second, so a history-wide scan would turn one
-     * request into a stall.
-     *
-     * Every failure mode answers null rather than throwing, because both callers
-     * are read-only conveniences: a version whose blob retention already pruned,
-     * a corrupt stored hash the path helper refuses, and bytes that will not
-     * decompress all mean "no sample available", never a 500 on a form panel.
+     * @param  array<string, mixed>  $validated
+     * @return list<string>
      */
-    protected function newestArchivedBody(Monitor $monitor): ?string
+    protected function draftValues(array $validated, string $field): array
     {
-        $version = MonitorContentVersion::query()
-            ->where('monitor_id', $monitor->getKey())
-            ->orderByDesc('last_seen_at')
-            ->first();
+        $values = $validated[$field] ?? [];
 
-        if ($version === null) {
-            return null;
+        if (! is_array($values)) {
+            return [];
         }
 
-        try {
-            // The single permitted derivation of a blob location; no caller
-            // rebuilds `{team}/{fanout}/{hash}.gz` for itself.
-            $path = $this->archive->blobPath($version->team_id, (string) $version->content_hash);
-        } catch (InvalidArgumentException $exception) {
-            // The corrupt-row case the retention sweep also skips. Logged rather
-            // than swallowed: the row needs a human, the request does not.
-            Log::warning('Skipped an archived content version with a malformed hash.', [
-                'monitor_id' => (string) $monitor->getKey(),
-                'version_id' => (string) $version->getKey(),
-                'exception' => $exception->getMessage(),
-            ]);
-
-            return null;
-        }
-
-        // One `get()` rather than `exists()`-then-`get()`: two round trips to a
-        // FUSE mount can also lose the race to the retention sweep between them.
-        $blob = Storage::disk((string) config('content-archive.disk'))->get($path);
-        if ($blob === null || $blob === '') {
-            return null;
-        }
-
-        $body = gzdecode($blob);
-
-        return $body === false ? null : $body;
+        return array_values(array_map(static fn (mixed $value): string => (string) $value, $values));
     }
 
     /**

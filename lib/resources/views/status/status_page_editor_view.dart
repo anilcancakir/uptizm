@@ -139,9 +139,6 @@ class _StatusPageEditorViewState
   /// The assigned monitor ids (public components).
   late List<String> _monitorIds;
 
-  /// The published metric keys (`monitorId.key`).
-  late List<String> _metricKeys;
-
   /// Whether anyone with the URL may read this page.
   ///
   /// The field the editor never had, which is why a page created here could not be
@@ -264,8 +261,8 @@ class _StatusPageEditorViewState
   /// so state is assigned directly rather than through [setState]. The slug is
   /// treated as already-edited in edit mode so an existing slug never gets
   /// clobbered by a name edit (React `useState(!isNew)` for `slugEdited`). The
-  /// monitor-id and metric-key lists are copied so editing the draft never
-  /// mutates the controller's cached model.
+  /// monitor-id list is copied so editing the draft never mutates the
+  /// controller's cached model.
   void _seedFrom(StatusPage? existing) {
     _aiApplied = false;
     _nameError = null;
@@ -282,7 +279,6 @@ class _StatusPageEditorViewState
       _logoText = '';
       _description = '';
       _monitorIds = <String>[];
-      _metricKeys = <String>[];
       _isPublic = true;
       _subscriptionsEnabled = true;
       return;
@@ -297,7 +293,6 @@ class _StatusPageEditorViewState
     _logoText = existing.logoText ?? '';
     _description = existing.description ?? '';
     _monitorIds = List<String>.of(existing.monitorIds);
-    _metricKeys = List<String>.of(existing.metricKeys);
     _isPublic = existing.isPublic;
     _subscriptionsEnabled = existing.subscriptionsEnabled;
   }
@@ -344,7 +339,6 @@ class _StatusPageEditorViewState
         _logoText != (saved.logoText ?? '') ||
         _description != (saved.description ?? '') ||
         !listEquals(_monitorIds, saved.monitorIds) ||
-        !listEquals(_metricKeys, saved.metricKeys) ||
         _isPublic != saved.isPublic ||
         _subscriptionsEnabled != saved.subscriptionsEnabled;
   }
@@ -379,7 +373,6 @@ class _StatusPageEditorViewState
             };
           }(),
       ],
-      'metric_keys': _metricKeys,
       'is_public': _isPublic,
     });
   }
@@ -421,7 +414,6 @@ class _StatusPageEditorViewState
       _logoText = draft.logoText ?? '';
       _description = draft.description ?? '';
       _monitorIds = List<String>.of(draft.monitorIds);
-      _metricKeys = List<String>.of(draft.metricKeys);
       _subscriptionsEnabled = draft.subscriptionsEnabled;
       _slugEdited = true;
       _aiApplied = true;

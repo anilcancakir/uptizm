@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -5,6 +7,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/controllers/monitor_metrics_controller.dart';
+import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/support/metric_types.dart' show MonitorMetric;
 import 'package:uptizm/app/mocks/metrics.dart';
@@ -13,6 +16,8 @@ import 'package:uptizm/resources/views/monitors/monitor_metric_form.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/metric_chart/index.dart';
+import 'package:uptizm/ui/components/status_dot/index.dart';
+import 'package:uptizm/ui/components/string_value_list/index.dart';
 import '../../support/skeleton_matchers.dart';
 
 /// Language loader for all trans() keys exercised by the metrics widgets.
@@ -79,6 +84,8 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_detail_loading': 'Loading readings...',
       'uptizm.monitors.metrics_detail_no_readings': 'No readings yet.',
       'uptizm.monitors.metrics_recent_readings': 'Recent readings',
+      'uptizm.monitors.metrics_recent_readings_frozen_note':
+          'Bands are recorded at check time.',
       'uptizm.monitors.metrics_confirm_delete_title': 'Delete metric',
       'uptizm.monitors.metrics_confirm_delete_description':
           'This cannot be undone.',
@@ -109,6 +116,40 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_source_hint_xpath': 'XPath.',
       'uptizm.monitors.metrics_source_hint_header': 'Header name.',
       'uptizm.monitors.metrics_source_hint_http_status': 'No path needed.',
+
+      // MonitorMetricForm string-band block: the three value lists, the
+      // unmatched-band select and the two cross-field rules the server repeats.
+      'uptizm.monitors.metrics_form_string_band_label': 'String matching',
+      'uptizm.monitors.metrics_form_string_band_help': 'Which values alert.',
+      'uptizm.monitors.metrics_form_ok_values_label': 'OK values',
+      'uptizm.monitors.metrics_form_ok_values_placeholder': 'ok',
+      'uptizm.monitors.metrics_form_warn_values_label': 'Warn values',
+      'uptizm.monitors.metrics_form_warn_values_placeholder': 'degraded',
+      'uptizm.monitors.metrics_form_critical_values_label': 'Critical values',
+      'uptizm.monitors.metrics_form_critical_values_placeholder': 'down',
+      'uptizm.monitors.metrics_form_unmatched_band_label': 'Unmatched',
+      'uptizm.monitors.metrics_form_unmatched_band_help': 'Band for the rest.',
+      'uptizm.monitors.metrics_band_ok': 'OK band',
+      'uptizm.monitors.metrics_band_warn': 'Warn band',
+      'uptizm.monitors.metrics_band_critical': 'Critical band',
+      'uptizm.monitors.metrics_form_string_match_note': 'Case-insensitive.',
+      'uptizm.monitors.metrics_form_unmatched_band_silent':
+          'Unset means no alert.',
+      'uptizm.monitors.metrics_form_string_values_error_overlap':
+          'Value in two lists.',
+      'uptizm.monitors.metrics_form_string_values_error_unmatched_needs_list':
+          'Needs a value list.',
+      'uptizm.monitors.string_values_add': 'Add',
+      'uptizm.monitors.string_values_placeholder': 'Value',
+
+      // MonitorMetricForm candidate browser.
+      'uptizm.monitors.metrics_form_candidates_title': 'Candidates',
+      'uptizm.monitors.metrics_form_candidates_hint': 'From the last response.',
+      'uptizm.monitors.metrics_form_candidates_empty': 'None extracted.',
+      'uptizm.monitors.metrics_form_candidates_fetch': 'Fetch values',
+      'uptizm.monitors.metrics_form_candidates_fetching': 'Fetching values...',
+      'uptizm.monitors.metrics_form_candidates_error': 'Load failed.',
+      'uptizm.monitors.metrics_form_candidate_use': 'Use',
 
       // Common.
       'uptizm.common.cancel': 'Cancel',
@@ -702,6 +743,680 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // The string-band block: three value lists plus the unmatched-band select,
+  // shown for `string` only, and the two cross-field rules the server repeats.
+  // ---------------------------------------------------------------------------
+
+  group('MonitorMetricForm string-band block', () {
+    /// A `string` draft that already passes every non-band client check, so a
+    /// blocked save can only be one of the two string-band rules.
+    MetricForm stringDraft() => kEmptyMetricForm.copyWith(
+      label: 'Health status',
+      key: 'health_status',
+      type: 'string',
+      path: r'$.status',
+    );
+
+    /// Pumps the form and returns the list Save writes the submitted draft
+    /// into; it stays EMPTY when the client blocked the write, which is how the
+    /// "no request sent" half of each rule is pinned.
+    Future<List<MetricForm>> pumpForm(
+      WidgetTester tester,
+      MetricForm initial, {
+      Map<String, String> serverErrors = const {},
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(600, 3000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final List<MetricForm> submitted = [];
+      await tester.pumpWidget(
+        wrapForm(
+          MonitorMetricForm(
+            initial: initial,
+            isEdit: false,
+            onSave: (form) async {
+              submitted.add(form);
+              return serverErrors;
+            },
+            onPreview: (_) async => null,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      return submitted;
+    }
+
+    Future<void> tapSave(WidgetTester tester) async {
+      final Finder save = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.metrics_form_save_create'),
+      );
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      // One pump paints the client verdict, the second lets an awaited onSave
+      // resolve and its server errors land.
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets(
+      'type=string shows the three value lists and the unmatched-band select',
+      (tester) async {
+        await pumpForm(tester, stringDraft());
+
+        expect(find.byType(StringValueList), findsNWidgets(3));
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_ok_values_label')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_warn_values_label')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            trans('uptizm.monitors.metrics_form_critical_values_label'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_unmatched_band_label')),
+          findsOneWidget,
+        );
+        // The numeric-only controls stay out: a string metric has no direction
+        // and no bounds to breach.
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_direction_label')),
+          findsNothing,
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_warn_label')),
+          findsNothing,
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_unit_label')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'type=numeric shows direction and thresholds and no string block',
+      (tester) async {
+        await pumpForm(
+          tester,
+          kEmptyMetricForm.copyWith(
+            label: 'Memory usage',
+            key: 'memory_usage',
+            path: r'$.system.memory.used_pct',
+          ),
+        );
+
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_direction_label')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_warn_label')),
+          findsOneWidget,
+        );
+        expect(find.byType(StringValueList), findsNothing);
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_string_band_label')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'type=status shows neither the numeric thresholds nor the string block',
+      (tester) async {
+        await pumpForm(
+          tester,
+          kEmptyMetricForm.copyWith(
+            label: 'Service health',
+            key: 'service_health',
+            type: 'status',
+            path: r'$.status',
+          ),
+        );
+
+        expect(find.byType(StringValueList), findsNothing);
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_string_band_label')),
+          findsNothing,
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_direction_label')),
+          findsNothing,
+        );
+        expect(
+          find.text(trans('uptizm.monitors.metrics_form_unit_label')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'the same value in two lists blocks the write with an inline error',
+      (tester) async {
+        // Compared through normalizeMatchValue(), the same way the server
+        // compares them, so `OK` against `ok` is the collision it looks like
+        // rather than a pair the client waves through into a 422.
+        final List<MetricForm> submitted = await pumpForm(
+          tester,
+          stringDraft().copyWith(
+            okValues: ['ok'],
+            criticalValues: ['OK'],
+          ),
+        );
+
+        await tapSave(tester);
+
+        expect(
+          submitted,
+          isEmpty,
+          reason: 'an overlapping configuration must never reach the write path',
+        );
+        expect(
+          find.text(
+            trans('uptizm.monitors.metrics_form_string_values_error_overlap'),
+          ),
+          findsNWidgets(2),
+          reason: 'both ends of the collision are named, not just one',
+        );
+      },
+    );
+
+    testWidgets(
+      'an unmatched band with three empty lists blocks the write',
+      (tester) async {
+        final List<MetricForm> submitted = await pumpForm(
+          tester,
+          stringDraft().copyWith(unmatchedBand: 'critical'),
+        );
+
+        await tapSave(tester);
+
+        expect(submitted, isEmpty);
+        expect(
+          find.text(
+            trans(
+              'uptizm.monitors.'
+              'metrics_form_string_values_error_unmatched_needs_list',
+            ),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'an unmatched band with one configured list is allowed through',
+      (tester) async {
+        // The negative case above must fail for the rule, not because a string
+        // draft can never be saved at all.
+        final List<MetricForm> submitted = await pumpForm(
+          tester,
+          stringDraft().copyWith(
+            unmatchedBand: 'critical',
+            okValues: ['ok'],
+          ),
+        );
+
+        await tapSave(tester);
+
+        expect(submitted, hasLength(1));
+        expect(submitted.single.unmatchedBand, equals('critical'));
+        expect(submitted.single.okValues, equals(['ok']));
+      },
+    );
+
+    testWidgets(
+      'a 422 on ok_values.1 paints an inline error on the healthy-values field',
+      (tester) async {
+        // The backend validates list ELEMENTS, so its key is dot-notation. The
+        // form renders one chip editor per list, so the element key has to
+        // collapse onto the list it belongs to or the message becomes a toast.
+        final List<MetricForm> submitted = await pumpForm(
+          tester,
+          stringDraft().copyWith(okValues: ['ok', 'fine']),
+          serverErrors: const {'ok_values.1': 'This value is too long.'},
+        );
+
+        await tapSave(tester);
+
+        expect(submitted, hasLength(1));
+        expect(find.text('This value is too long.'), findsOneWidget);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phone width. The shell swaps at `lg` (1024) and the repo's gate asks for
+  // both sides, but every other test here pumps at 600 or wider. These two
+  // surfaces are the ones with a real narrow-width risk: the value list's
+  // `Row(Expanded + gap + button)` repeated three times, and a candidate row
+  // holding a path up to the write path's 500-character ceiling.
+  // ---------------------------------------------------------------------------
+
+  group('MonitorMetricForm at phone width', () {
+    Future<void> pumpAt390(
+      WidgetTester tester,
+      MetricForm initial, {
+      Future<MetricCandidateSet?> Function()? onCandidates,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(390, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrapForm(
+          MonitorMetricForm(
+            initial: initial,
+            isEdit: false,
+            onSave: (_) async => <String, String>{},
+            onPreview: (_) async => null,
+            onCandidates: onCandidates,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('the three value lists lay out with values in them', (
+      tester,
+    ) async {
+      await pumpAt390(
+        tester,
+        kEmptyMetricForm.copyWith(
+          label: 'Health status',
+          key: 'health_status',
+          type: 'string',
+          path: r'$.status',
+          okValues: ['ok', 'operational'],
+          warnValues: ['degraded'],
+          criticalValues: ['down', 'maintenance-required'],
+        ),
+      );
+
+      // A RenderFlex overflow surfaces here, which is the failure this width
+      // exists to catch: the entry Row plus a committed chip row is the shape
+      // most likely to run out of horizontal space.
+      expect(tester.takeException(), isNull);
+      expect(find.byType(StringValueList), findsNWidgets(3));
+      expect(find.text('maintenance-required'), findsOneWidget);
+    });
+
+    testWidgets('a candidate row holds a long path without overflowing', (
+      tester,
+    ) async {
+      // 480 characters, just under the write path's 500 ceiling, so this is the
+      // widest path the endpoint can legally offer.
+      final String longPath = '\$.${List.filled(60, 'segment').join('.')}';
+
+      await pumpAt390(
+        tester,
+        kEmptyMetricForm.copyWith(
+          label: 'Health status',
+          key: 'health_status',
+          type: 'string',
+          source: 'header',
+        ),
+        onCandidates: () async => MetricCandidateSet(
+          hasSample: true,
+          candidates: [
+            // No label: the row renders `label ?? path`, so a labelled
+            // candidate never shows the path at all and could not overflow on
+            // it. Unlabelled is the widest content the row can hold.
+            MetricCandidate(
+              ref: 'c1',
+              source: 'json',
+              path: longPath,
+              value: 'a value long enough to compete for the same row',
+              label: null,
+              types: const ['string'],
+            ),
+          ],
+        ),
+      );
+
+      final Finder fetch = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.metrics_form_candidates_fetch'),
+      );
+      await tester.ensureVisible(fetch);
+      await tester.tap(fetch);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('segment.segment'), findsWidgets);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The string verdict: the preview request must CARRY the lists, or the
+  // server's banding is unreachable from the form.
+  // ---------------------------------------------------------------------------
+
+  group('MonitorMetricForm string preview', () {
+    testWidgets(
+      'the preview request carries the lists and the panel shows the server band',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(600, 3000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final FakeNetworkDriver fake = Http.fake((request) {
+          return Http.response({
+            'extracted_value': 'degraded',
+            'type_valid': true,
+            'error': null,
+            'band': 'warn',
+            'has_sample': true,
+            'sample_checked_at': DateTime.utc(2026, 8, 5, 12).toIso8601String(),
+            'sample_status_code': 200,
+          });
+        });
+
+        await tester.pumpWidget(
+          wrapForm(
+            MonitorMetricForm(
+              initial: kEmptyMetricForm.copyWith(
+                label: 'Health status',
+                key: 'health_status',
+                type: 'string',
+                path: r'$.status',
+                okValues: ['ok'],
+                warnValues: ['degraded'],
+                criticalValues: ['down'],
+                unmatchedBand: 'critical',
+              ),
+              isEdit: false,
+              onSave: (_) async => <String, String>{},
+              onPreview: (draft) =>
+                  MonitorMetricsController.instance.preview('api', draft),
+              onCancel: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final Finder button = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.metrics_form_fetch_test'),
+        );
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+        await tester.pump();
+
+        final Map<String, dynamic> payload =
+            fake.recorded
+                    .firstWhere(
+                      (entry) => entry.$1.url.contains('metrics/preview'),
+                    )
+                    .$1
+                    .data
+                as Map<String, dynamic>;
+        expect(payload['ok_values'], equals(['ok']));
+        expect(payload['warn_values'], equals(['degraded']));
+        expect(payload['critical_values'], equals(['down']));
+        expect(payload['unmatched_band'], equals('critical'));
+
+        expect(
+          tester.widget<StatusDot>(find.byType(StatusDot)).status,
+          equals(StatusKey.degraded),
+          reason: 'the verdict carries the band the SERVER returned, and the '
+              'server can only band a string draft it was sent the lists for',
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // The candidate browser: five states, each with a real rendering.
+  // ---------------------------------------------------------------------------
+
+  group('MonitorMetricForm candidate browser', () {
+    MetricCandidate candidate({List<String> types = const ['string']}) {
+      return MetricCandidate(
+        ref: 'c1',
+        source: 'json',
+        path: r'$.status',
+        value: 'ok',
+        label: 'status',
+        types: types,
+      );
+    }
+
+    /// Pumps the form with a candidate source wired, and returns the list Save
+    /// writes the submitted draft into.
+    Future<List<MetricForm>> pumpBrowser(
+      WidgetTester tester,
+      Future<MetricCandidateSet?> Function() onCandidates, {
+      MetricForm? initial,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(600, 3000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final List<MetricForm> submitted = [];
+      await tester.pumpWidget(
+        wrapForm(
+          MonitorMetricForm(
+            initial: initial ??
+                kEmptyMetricForm.copyWith(
+                  label: 'Health status',
+                  key: 'health_status',
+                  source: 'header',
+                ),
+            isEdit: false,
+            onSave: (form) async {
+              submitted.add(form);
+              return <String, String>{};
+            },
+            onPreview: (_) async => null,
+            onCandidates: onCandidates,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      return submitted;
+    }
+
+    Future<void> tapFetch(WidgetTester tester) async {
+      final Finder button = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.metrics_form_candidates_fetch'),
+      );
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pump();
+    }
+
+    testWidgets('before any fetch it states where the values come from', (
+      tester,
+    ) async {
+      await pumpBrowser(
+        tester,
+        () async => const MetricCandidateSet(candidates: [], hasSample: true),
+      );
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_candidates_hint')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('it says it is fetching while the request is in flight', (
+      tester,
+    ) async {
+      final Completer<MetricCandidateSet?> pending =
+          Completer<MetricCandidateSet?>();
+      await pumpBrowser(tester, () => pending.future);
+
+      await tapFetch(tester);
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_candidates_fetching')),
+        findsOneWidget,
+      );
+
+      pending.complete(const MetricCandidateSet(candidates: [], hasSample: true));
+      await tester.pump();
+    });
+
+    testWidgets('a transport failure renders the load error, not a blank box', (
+      tester,
+    ) async {
+      await pumpBrowser(tester, () async => null);
+
+      await tapFetch(tester);
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_candidates_error')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a monitor with nothing archived says there is no sample', (
+      tester,
+    ) async {
+      await pumpBrowser(
+        tester,
+        () async => const MetricCandidateSet(candidates: [], hasSample: false),
+      );
+
+      await tapFetch(tester);
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_no_sample')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an archived body with no candidates says so', (tester) async {
+      await pumpBrowser(
+        tester,
+        () async => const MetricCandidateSet(candidates: [], hasSample: true),
+      );
+
+      await tapFetch(tester);
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_candidates_empty')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('it lists the rows a monitor with an archived body offers', (
+      tester,
+    ) async {
+      await pumpBrowser(
+        tester,
+        () async => MetricCandidateSet(
+          candidates: [candidate()],
+          hasSample: true,
+        ),
+      );
+
+      await tapFetch(tester);
+      await tester.pump();
+
+      expect(find.text('status'), findsOneWidget);
+      expect(find.text('ok'), findsOneWidget);
+      expect(
+        find.text(trans('uptizm.monitors.metrics_form_candidate_use')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a long path stays one line instead of pushing the row open', (
+      tester,
+    ) async {
+      // The backend accepts an extraction path up to 500 characters and a
+      // sample value up to 128, both attacker-chosen. Left to wrap, one row
+      // would be taller than the whole panel and bury every row under it.
+      final String longPath = r'$.' + ('deeply_nested_key.' * 27);
+      await pumpBrowser(
+        tester,
+        () async => MetricCandidateSet(
+          candidates: [
+            MetricCandidate(
+              ref: 'c1',
+              source: 'json',
+              path: longPath,
+              value: 'x' * 128,
+              label: null,
+              types: const ['string'],
+            ),
+          ],
+          hasSample: true,
+        ),
+      );
+
+      await tapFetch(tester);
+      await tester.pump();
+
+      expect(
+        tester.getSize(find.text(longPath)).height,
+        lessThan(40),
+        reason: 'a 500-character path is truncated to one line, not wrapped '
+            'across a dozen of them',
+      );
+    });
+
+    testWidgets('tapping a row fills source, path and type and nothing else', (
+      tester,
+    ) async {
+      final List<MetricForm> submitted = await pumpBrowser(
+        tester,
+        () async => MetricCandidateSet(
+          candidates: [candidate()],
+          hasSample: true,
+        ),
+      );
+
+      await tapFetch(tester);
+      await tester.pump();
+      await tester.tap(
+        find.text(trans('uptizm.monitors.metrics_form_candidate_use')),
+      );
+      await tester.pump();
+
+      final Finder save = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.metrics_form_save_create'),
+      );
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        submitted,
+        hasLength(1),
+        reason: 'the tapped candidate filled the path the client requires',
+      );
+      final MetricForm form = submitted.single;
+      expect(form.source, equals('json'));
+      expect(form.path, equals(r'$.status'));
+      expect(form.type, equals('string'));
+      // The tap writes those three and nothing else: not a threshold, not a
+      // label the operator did not choose, not a key.
+      expect(form.label, equals('Health status'));
+      expect(form.key, equals('health_status'));
+      expect(form.warn, isEmpty);
+      expect(form.critical, isEmpty);
+      expect(form.okValues, isEmpty);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // MonitorMetricDetail: pumped directly.
   // ---------------------------------------------------------------------------
 
@@ -813,6 +1528,137 @@ void main() {
         findsOneWidget,
       );
     });
+
+    /// A `string`-typed metric form: no `warn`/`critical`/`unit` matter, only
+    /// the type discriminates which field of `MetricSeriesPoint` is real.
+    MetricForm stringMetricForm() {
+      return MetricForm(
+        label: 'Active region',
+        key: 'active_region',
+        type: 'string',
+        source: 'json',
+        path: r'$.region',
+        unit: 'count',
+        direction: 'high',
+        warn: '',
+        critical: '',
+        value: null,
+      );
+    }
+
+    /// Two real string readings, oldest first: an older `eu-central` and a
+    /// newest `degraded`.
+    List<MetricSeriesPoint> stringReadings() {
+      final DateTime base = DateTime.utc(2026, 7, 29, 10);
+      return [
+        MetricSeriesPoint(
+          recordedAt: base,
+          numericValue: null,
+          statusValue: null,
+          stringValue: 'eu-central',
+          band: 'ok',
+        ),
+        MetricSeriesPoint(
+          recordedAt: base.add(const Duration(minutes: 5)),
+          numericValue: null,
+          statusValue: null,
+          stringValue: 'degraded',
+          band: 'warn',
+        ),
+      ];
+    }
+
+    testWidgets(
+      'shows a string metric\'s newest reading as the hero value',
+      (tester) async {
+        // The regression this pins: the hero value was gated on
+        // `numericValue`, so a string metric's real latest reading rendered
+        // NOTHING at all, not even the wrong thing.
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorMetricDetail(
+              metric: stringMetricForm(),
+              onLoadSeries: () async => stringReadings(),
+              onEdit: () {},
+              onDelete: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final Iterable<WText> texts = tester.widgetList<WText>(
+          find.byType(WText),
+        );
+        expect(
+          texts.any((w) => w.data == 'degraded'),
+          isTrue,
+          reason: 'the newest string reading is the hero value',
+        );
+      },
+    );
+
+    testWidgets(
+      'lists a string metric\'s real readings, not an empty list',
+      (tester) async {
+        // The regression this pins: the recent-readings list was built from
+        // the numeric-filtered series, so a string metric's list was always
+        // empty regardless of how many readings it had.
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorMetricDetail(
+              metric: stringMetricForm(),
+              onLoadSeries: () async => stringReadings(),
+              onEdit: () {},
+              onDelete: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final Iterable<WText> texts = tester.widgetList<WText>(
+          find.byType(WText),
+        );
+        expect(
+          texts.any((w) => w.data == 'eu-central'),
+          isTrue,
+          reason: 'the older string reading still appears in the '
+              'recent-readings list',
+        );
+      },
+    );
+
+    testWidgets(
+      'a non-numeric metric has no chart, not an empty one',
+      (tester) async {
+        // A string cannot sit on a y-axis; the chart is legitimately absent
+        // for a non-numeric metric even though it has real readings.
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorMetricDetail(
+              metric: stringMetricForm(),
+              onLoadSeries: () async => stringReadings(),
+              onEdit: () {},
+              onDelete: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(MetricChart), findsNothing);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -1076,6 +1922,69 @@ void main() {
       );
 
       expect(find.text('185 ms'), findsOneWidget);
+    });
+
+    testWidgets(
+      'a non-numeric metric with no reading shows an em-dash, never a '
+      'fabricated word',
+      (tester) async {
+        await pumpWith(tester, [record(type: 'string')]);
+
+        expect(find.text('—'), findsWidgets);
+        expect(find.text('ok'), findsNothing);
+      },
+    );
+
+    testWidgets("a string metric's frozen critical band colors its dot", (
+      tester,
+    ) async {
+      // The dot used to be gated on the metric being numeric, from back when a
+      // numeric bound was the only thing that could produce a band. A string
+      // metric bands by value-list membership now, so that gate rendered a
+      // critical reading as unremarkable plain text: the one state this whole
+      // feature exists to make visible was the one it did not color.
+      await pumpWith(
+        tester,
+        [record(type: 'string', latestString: 'exploded', latestBand: 'critical')],
+      );
+
+      // Scoped to the custom row: the "Response time" system row above carries
+      // its own dot, so an unscoped byType finder measures that one instead.
+      final StatusDot dot = tester.widget<StatusDot>(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('exploded'),
+            matching: find.byType(WAnchor),
+          ),
+          matching: find.byType(StatusDot),
+        ),
+      );
+
+      expect(dot.status, equals(StatusKey.down));
+      expect(find.text('exploded'), findsOneWidget);
+    });
+
+    testWidgets('a string metric with no frozen band gets no dot', (
+      tester,
+    ) async {
+      // The other half of the same rule: absent is not `ok`. A metric with no
+      // configured lists records no band, and inventing a green dot for it
+      // would read as "checked and healthy".
+      await pumpWith(
+        tester,
+        [record(type: 'string', latestString: 'eu-central')],
+      );
+
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('eu-central'),
+            matching: find.byType(WAnchor),
+          ),
+          matching: find.byType(StatusDot),
+        ),
+        findsNothing,
+      );
     });
   });
 

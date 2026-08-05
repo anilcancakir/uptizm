@@ -1,4 +1,7 @@
+import 'dart:ui' show Locale;
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/enums/metric_direction.dart' show MetricDirection;
 import 'package:uptizm/app/support/metric_types.dart'
@@ -6,6 +9,33 @@ import 'package:uptizm/app/support/metric_types.dart'
 import 'package:uptizm/app/mocks/metrics.dart';
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
+
+/// Language loader carrying every `metrics_unit_*` key (Step 2), so
+/// [kMetricUnits]'s labels resolve to real strings rather than leaking the raw
+/// `uptizm.monitors.metrics_unit_*` key into the label under test.
+class _UnitLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    return {
+      'uptizm.monitors.metrics_unit_bytes_auto': 'Bytes (auto-scale)',
+      'uptizm.monitors.metrics_unit_bytes': 'Bytes',
+      'uptizm.monitors.metrics_unit_kilobyte': 'Kilobytes (KB)',
+      'uptizm.monitors.metrics_unit_megabyte': 'Megabytes (MB)',
+      'uptizm.monitors.metrics_unit_gigabyte': 'Gigabytes (GB)',
+      'uptizm.monitors.metrics_unit_terabyte': 'Terabytes (TB)',
+      'uptizm.monitors.metrics_unit_duration_auto': 'Duration (auto-scale)',
+      'uptizm.monitors.metrics_unit_ms': 'Milliseconds (ms)',
+      'uptizm.monitors.metrics_unit_s': 'Seconds (s)',
+      'uptizm.monitors.metrics_unit_minute': 'Minutes',
+      'uptizm.monitors.metrics_unit_hour': 'Hours',
+      'uptizm.monitors.metrics_unit_percent': 'Percent (%)',
+      'uptizm.monitors.metrics_unit_ratio': 'Ratio',
+      'uptizm.monitors.metrics_unit_count': 'Count',
+      'uptizm.monitors.metrics_unit_count_short': 'Count (compact)',
+      'uptizm.monitors.metrics_unit_custom': 'Custom',
+    };
+  }
+}
 
 void main() {
   // ---------------------------------------------------------------------------
@@ -124,6 +154,104 @@ void main() {
       // MetricUnit enum has no throughput unit, so it mapped to `custom` and
       // decoded back as "req/s", silently corrupting a metric saved as Custom.
       expect(fmt(96, 'req_s'), equals('96'));
+    });
+
+    test('appends KB suffix at its own fixed magnitude', () {
+      expect(fmt(2, 'kb'), equals('2 KB'));
+    });
+
+    test('appends min suffix at its own fixed magnitude', () {
+      expect(fmt(3, 'min'), equals('3 min'));
+    });
+
+    test('ratio shares the % suffix with percent (MetricUnit::defaultSuffix)', () {
+      expect(fmt(0.5, 'ratio'), equals('0.5 %'));
+    });
+
+    test('omits suffix for count_short', () {
+      expect(fmt(1200, 'count_short'), equals('1200'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // fmt — bytes_auto / duration_auto scaling
+  //
+  // Thresholds: bytes_auto climbs a step (B -> KB -> MB -> GB -> TB) at each
+  // 1024 boundary, matching the backend's own IEC-prefixed fixed units
+  // (`MetricUnit::defaultSuffix()`: Byte 'B', Kilobyte 'KB', ...). duration_auto
+  // assumes a millisecond sample and climbs ms -> s at x1000, s -> min at x60,
+  // min -> h at x60, matching Millisecond/Second/Minute/Hour's own suffixes.
+  // The scaled number is rounded to one decimal place so a clean division like
+  // 1536 / 1024 renders "1.5" rather than a long or repeating decimal.
+  // ---------------------------------------------------------------------------
+
+  group('fmt — bytes_auto scaling', () {
+    test('below 1024 stays in bytes', () {
+      expect(fmt(512, 'bytes_auto'), equals('512 B'));
+    });
+
+    test('1536 bytes scales to 1.5 KB', () {
+      expect(fmt(1536, 'bytes_auto'), equals('1.5 KB'));
+    });
+
+    test('a value at the megabyte boundary scales to MB', () {
+      expect(fmt(1024 * 1024 * 2, 'bytes_auto'), equals('2 MB'));
+    });
+
+    test('a value at the gigabyte boundary scales to GB', () {
+      expect(fmt(1024 * 1024 * 1024 * 3, 'bytes_auto'), equals('3 GB'));
+    });
+  });
+
+  group('fmt — duration_auto scaling', () {
+    test('below 1000ms stays in milliseconds', () {
+      expect(fmt(500, 'duration_auto'), equals('500 ms'));
+    });
+
+    test('90000ms scales to 1.5 min', () {
+      expect(fmt(90000, 'duration_auto'), equals('1.5 min'));
+    });
+
+    test('a value at the hour boundary scales to h', () {
+      expect(fmt(3600000 * 2, 'duration_auto'), equals('2 h'));
+    });
+
+    test('a value below the minute boundary stays in seconds', () {
+      expect(fmt(45000, 'duration_auto'), equals('45 s'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // kMetricUnits — full MetricUnit coverage (Step 5)
+  // ---------------------------------------------------------------------------
+
+  group('kMetricUnits', () {
+    setUp(() async {
+      Translator.instance.setLoader(_UnitLangLoader());
+      await Translator.instance.setLocale(const Locale('en'));
+    });
+
+    tearDown(() {
+      Translator.reset();
+    });
+
+    test('has sixteen entries, one per backend MetricUnit case', () {
+      expect(kMetricUnits.length, equals(16));
+    });
+
+    test('every label resolves through trans() instead of leaking the raw key', () {
+      for (final MetricOption option in kMetricUnits) {
+        expect(
+          option.label.startsWith('uptizm.'),
+          isFalse,
+          reason: 'unit "${option.value}" leaked its raw i18n key',
+        );
+      }
+    });
+
+    test('every value is unique', () {
+      final Set<String> values = kMetricUnits.map((o) => o.value).toSet();
+      expect(values.length, equals(kMetricUnits.length));
     });
   });
 
@@ -285,6 +413,62 @@ void main() {
   // ---------------------------------------------------------------------------
   // kKeyRe — accept / reject
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // normalizeMatchValue — Dart mirror of
+  // `ThresholdEvaluator::normalizeMatchValue()`. The literal inputs here are
+  // the same ones pinned in `ThresholdEvaluatorTest.php`
+  // (`test_normalize_match_value_lowercases_and_trims_ascii_whitespace`,
+  // `test_normalize_match_value_trims_non_breaking_space`), so the two suites
+  // are pinned against each other rather than each against itself.
+  // ---------------------------------------------------------------------------
+
+  group('normalizeMatchValue', () {
+    test('lowercases and trims ASCII whitespace', () {
+      expect(normalizeMatchValue('  OK\t\n'), equals('ok'));
+    });
+
+    test('trims a leading and trailing U+00A0 non-breaking space', () {
+      expect(normalizeMatchValue('\u{00A0}OK\u{00A0}'), equals('ok'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // MetricForm — string-band fields (Step 12)
+  // ---------------------------------------------------------------------------
+
+  group('MetricForm string-band fields', () {
+    test('kEmptyMetricForm starts with empty lists and an empty unmatchedBand', () {
+      expect(kEmptyMetricForm.okValues, isEmpty);
+      expect(kEmptyMetricForm.warnValues, isEmpty);
+      expect(kEmptyMetricForm.criticalValues, isEmpty);
+      expect(kEmptyMetricForm.unmatchedBand, equals(''));
+    });
+
+    test('copyWith replaces the string-band fields', () {
+      final MetricForm form = kEmptyMetricForm.copyWith(
+        okValues: ['ok'],
+        warnValues: ['degraded'],
+        criticalValues: ['down'],
+        unmatchedBand: 'critical',
+      );
+
+      expect(form.okValues, equals(['ok']));
+      expect(form.warnValues, equals(['degraded']));
+      expect(form.criticalValues, equals(['down']));
+      expect(form.unmatchedBand, equals('critical'));
+    });
+
+    test('fromCatalog seeds empty string-band fields (MonitorMetric carries none)', () {
+      final MonitorMetric m = customMetricsForMonitors(['api']).first;
+      final MetricForm form = fromCatalog(m);
+
+      expect(form.okValues, isEmpty);
+      expect(form.warnValues, isEmpty);
+      expect(form.criticalValues, isEmpty);
+      expect(form.unmatchedBand, equals(''));
+    });
+  });
 
   group('kKeyRe', () {
     test('accepts a simple lowercase key', () {

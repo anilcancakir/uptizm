@@ -29,6 +29,7 @@ import 'ui/components/slo_budget_card/slo_budget_card.preview.dart';
 import 'ui/components/status_badge/status_badge.preview.dart';
 import 'ui/components/status_dot/status_dot.preview.dart';
 import 'ui/components/status_page_preview/status_page_preview.preview.dart';
+import 'ui/components/string_value_list/string_value_list.preview.dart';
 import 'ui/components/uptime_bar/uptime_bar.preview.dart';
 import 'ui/components/usage_meter/usage_meter.preview.dart';
 
@@ -158,6 +159,11 @@ List<PreviewEntry> previewEntries() {
       label: 'StatusPagePreview',
       slug: 'status_page_preview',
       builder: (_) => const StatusPagePreviewPreview(),
+    ),
+    PreviewEntry(
+      label: 'StringValueList',
+      slug: 'string_value_list',
+      builder: (_) => const StringValueListPreview(),
     ),
     PreviewEntry(
       label: 'UptimeBar',

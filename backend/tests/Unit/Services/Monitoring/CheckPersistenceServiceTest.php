@@ -2,17 +2,24 @@
 
 namespace Tests\Unit\Services\Monitoring;
 
+use App\Enums\IncidentSeverity;
+use App\Enums\MetricBand;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Enums\SignalSource;
+use App\Enums\ThresholdDirection;
+use App\Jobs\PerformMonitorCheck;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\CheckPersistenceService;
+use App\Services\Monitoring\ThresholdEvaluator;
 use App\Support\Monitoring\CheckResult;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -35,9 +42,17 @@ class CheckPersistenceServiceTest extends TestCase
     {
         $monitor = $this->makeMonitor(incidentThreshold: 2);
         $service = $this->service();
+        $samples = ['latency' => '42'];
 
         // 1. First delivery of a DOWN result: one check row, streak advances to 1.
-        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down));
+        //    The samples are passed explicitly because this stage never reads a
+        //    body; the metric-value count is only a meaningful replay assertion
+        //    if the first delivery actually records one.
+        $service->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down),
+            $samples,
+        );
 
         $this->assertSame(1, MonitorCheck::query()->count());
         $this->assertSame(1, MonitorMetricValue::query()->count());
@@ -46,10 +61,15 @@ class CheckPersistenceServiceTest extends TestCase
 
         // 2. Replay of the SAME probe_run_id is a total no-op: no second row, no
         //    second metric sample, no second increment, no evaluation.
-        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down));
+        $service->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down),
+            $samples,
+        );
 
         $this->assertSame(1, MonitorCheck::query()->count());
         $this->assertSame(1, MonitorMetricValue::query()->count());
+        $this->assertSame(42.0, MonitorMetricValue::query()->sole()->numeric_value);
         $this->assertSame(1, $monitor->fresh()->consecutive_fails);
         $this->assertSame(0, Incident::query()->count());
     }
@@ -161,78 +181,141 @@ class CheckPersistenceServiceTest extends TestCase
     }
 
     /**
-     * The idempotency guard has to hold on the pre-extracted path too: samples
-     * arrive on every delivery of the same payload, so a replay must still
-     * produce one check row, one metric-value set and one streak increment.
+     * This service NEVER reads a response body. {@see PerformMonitorCheck} is
+     * the single extraction site, and it resolves the best body it has (the
+     * full one, or the truncated preview when the edge filtered the full one),
+     * so whatever arrives here is the whole of what was extractable.
+     *
+     * There used to be a second extraction here, against the 10 KiB
+     * `response_body_preview`, gated on `$samples === null`. It is gone: the
+     * producer can no longer signal "nothing extracted" as anything but an
+     * empty array, so that branch was reachable from tests alone, and a second
+     * extraction site is how the preview silently became the source for a
+     * metric verified against the full body.
+     *
+     * The preview in this fixture DOES contain a matching value, which is what
+     * makes the assertion meaningful: a re-read here would produce a row.
      */
-    public function test_a_replayed_probe_run_id_persists_pre_extracted_samples_exactly_once(): void
+    public function test_persistence_never_extracts_from_the_body_itself(): void
     {
         $monitor = $this->makeMonitor(incidentThreshold: 2);
         $service = $this->service();
-        $samples = ['latency' => '99'];
 
+        // 1. No samples argument at all: the shape a direct caller uses.
         $service->persist(
-            $monitor,
-            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down),
-            $samples,
-        );
-        $service->persist(
-            $monitor,
-            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Down),
-            $samples,
-        );
-
-        $this->assertSame(1, MonitorCheck::query()->count());
-        $this->assertSame(1, MonitorMetricValue::query()->count());
-        $this->assertSame(99.0, MonitorMetricValue::query()->sole()->numeric_value);
-        $this->assertSame(1, $monitor->fresh()->consecutive_fails);
-        $this->assertSame(0, Incident::query()->count());
-    }
-
-    /**
-     * A TCP probe, a content type the edge filtered out and a worker deployment
-     * older than the full-body field all reach this stage with nothing
-     * pre-extracted. The truncated preview must still be read, which is the
-     * behaviour that predates the split.
-     */
-    public function test_the_truncated_preview_stays_the_fallback_when_no_samples_arrive(): void
-    {
-        $monitor = $this->makeMonitor(incidentThreshold: 2);
-
-        $this->service()->persist(
             $monitor,
             $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
         );
 
-        $this->assertSame(42.0, MonitorMetricValue::query()->sole()->numeric_value);
-    }
-
-    /**
-     * An EMPTY array is not the same message as no array at all, and conflating
-     * them re-opens the defect moving extraction upstream exists to close.
-     *
-     * Null means extraction never ran for this payload (a TCP probe, a filtered
-     * content type, a worker older than the body field, a direct caller), which is
-     * what the preview fallback above is for. An empty array means extraction DID
-     * run against the FULL body and legitimately matched nothing. Falling back
-     * there would re-read the 10 KiB truncated preview and record a value the full
-     * body does not support, which is how a monitor ends up with a metric whose
-     * samples come from a different, shorter body than the one it was verified on.
-     *
-     * The preview in this fixture DOES contain a matching value, so the fallback
-     * firing would produce a row; the assertion is that it does not.
-     */
-    public function test_an_empty_sample_set_does_not_fall_back_to_the_truncated_preview(): void
-    {
-        $monitor = $this->makeMonitor(incidentThreshold: 2);
-
-        $this->service()->persist(
+        // 2. An explicit empty set: extraction ran upstream and matched nothing.
+        $service->persist(
             $monitor,
-            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+            $this->makeResult($monitor, probeRunId: 'run-y', status: MonitorStatus::Up),
             [],
         );
 
+        $this->assertSame(2, MonitorCheck::query()->count());
         $this->assertSame(0, MonitorMetricValue::query()->count());
+    }
+
+    /**
+     * A string sample records its value AND freezes the band
+     * {@see ThresholdEvaluator::bandString()} computes, for the same reason the
+     * numeric branch freezes {@see ThresholdEvaluator::band()}: a later edit to
+     * the value lists must not rewrite what a historical check reported.
+     *
+     * The served value differs in case from the configured one, so the frozen
+     * band also proves the comparison is normalized on both sides.
+     */
+    public function test_a_string_sample_freezes_its_band_at_insert(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->attachStringMetric($monitor, warnValues: ['degraded']);
+
+        $this->service()->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+            [
+                'latency' => '99',
+                'cache_state' => 'DEGRADED',
+            ],
+        );
+
+        $value = MonitorMetricValue::query()->where('metric_key', 'cache_state')->sole();
+
+        // The RAW value is stored, not the normalized one: the operator needs to
+        // see what the target actually served.
+        $this->assertSame('DEGRADED', $value->string_value);
+        $this->assertNull($value->numeric_value);
+        $this->assertSame(MetricBand::Warn, $value->band);
+    }
+
+    /**
+     * The end-to-end string lane through the real persistence path: a critical
+     * value opens exactly one incident, and a LATER check reporting the same
+     * value opens no second one. The dedupe is the difference between one page
+     * and one page per check interval.
+     */
+    public function test_a_critical_string_sample_opens_exactly_one_incident_across_two_checks(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->attachStringMetric($monitor, criticalValues: ['down']);
+        $service = $this->service();
+        $samples = [
+            'latency' => '99',
+            'cache_state' => 'down',
+        ];
+
+        $service->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+            $samples,
+        );
+
+        $incident = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Critical, $incident->severity);
+        $this->assertSame(SignalSource::UserThreshold, $incident->signal_source);
+        $this->assertFalse($incident->ai_owned);
+        $this->assertSame('cache_state', $incident->trigger_metric_key);
+
+        // A distinct probe run carrying the same value: still one incident.
+        $service->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-y', status: MonitorStatus::Up),
+            $samples,
+        );
+
+        $this->assertSame(1, Incident::query()->count());
+        $this->assertSame(2, MonitorMetricValue::query()->where('metric_key', 'cache_state')->count());
+    }
+
+    /**
+     * A string metric with three empty lists is INERT: it still collects its
+     * sample (that is the point of a string metric), but bands nothing and
+     * alerts nothing, mirroring what a null `threshold_direction` means for a
+     * numeric metric. The fixture carries `threshold_direction = high_bad`
+     * because the client sends it for every metric type, so a gate on that
+     * column would page here.
+     */
+    public function test_an_inert_string_metric_records_an_unbanded_sample_and_opens_nothing(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->attachStringMetric($monitor);
+
+        $this->service()->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-x', status: MonitorStatus::Up),
+            [
+                'latency' => '99',
+                'cache_state' => 'anything at all',
+            ],
+        );
+
+        $value = MonitorMetricValue::query()->where('metric_key', 'cache_state')->sole();
+
+        $this->assertSame('anything at all', $value->string_value);
+        $this->assertNull($value->band);
+        $this->assertSame(0, Incident::query()->count());
     }
 
     /**
@@ -320,6 +403,38 @@ class CheckPersistenceServiceTest extends TestCase
         ]);
 
         return $monitor;
+    }
+
+    /**
+     * Attaches a string metric shaped the way the client actually writes one:
+     * `threshold_direction` is ALWAYS `high_bad` regardless of the value lists,
+     * because the Flutter write path sends it for every metric type. A fixture
+     * that left it null would let a `threshold_direction`-based gate pass.
+     *
+     * @param  list<string>  $okValues
+     * @param  list<string>  $warnValues
+     * @param  list<string>  $criticalValues
+     */
+    protected function attachStringMetric(
+        Monitor $monitor,
+        array $okValues = [],
+        array $warnValues = [],
+        array $criticalValues = [],
+        ?MetricBand $unmatchedBand = null,
+    ): MonitorMetric {
+        return $monitor->metrics()->create([
+            'team_id' => $monitor->team_id,
+            'label' => 'Cache state',
+            'key' => 'cache_state',
+            'type' => MetricType::String,
+            'source' => MetricSource::JsonPath,
+            'extraction_path' => 'cache_state',
+            'threshold_direction' => ThresholdDirection::HighBad,
+            'ok_values' => $okValues,
+            'warn_values' => $warnValues,
+            'critical_values' => $criticalValues,
+            'unmatched_band' => $unmatchedBand,
+        ]);
     }
 
     /**

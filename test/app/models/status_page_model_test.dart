@@ -103,15 +103,6 @@ void main() {
       expect(StatusPage.fromMap({'id': 'acme'}).monitorIds, isEmpty);
     });
 
-    test('metricKeys reads the optional metric_keys array', () {
-      expect(
-        StatusPage.fromMap({'metric_keys': ['m1.latency', 'm2.uptime']})
-            .metricKeys,
-        ['m1.latency', 'm2.uptime'],
-      );
-      expect(StatusPage.fromMap(<String, dynamic>{}).metricKeys, isEmpty);
-    });
-
     test('all() routes through GET /status-pages via Http.fake', () async {
       final fake = Http.fake({
         'status-pages': Http.response({

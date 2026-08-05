@@ -1,13 +1,8 @@
-import 'metrics.dart'
-    show customMetricsForMonitors, metricsForMonitors, systemMetricsForMonitors;
 import 'monitors.dart' show findMonitor, uptime90;
 import '../models/monitor.dart';
 import '../models/status_page.dart';
-import '../support/metric_types.dart' show MonitorMetric;
 import '../support/monitor_types.dart' show UptimeSegment;
 import '../support/status_page_types.dart' show PublicComponent, Subscriber;
-import '../../resources/views/monitors/monitor_metrics_support.dart'
-    show MetricOption;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -38,11 +33,6 @@ final List<StatusPage> statusPages = [
       <String, dynamic>{'id': 'checkout'},
       <String, dynamic>{'id': 'docs'},
     ],
-    'metric_keys': <String>[
-      'api.response_time',
-      'api.req_rate',
-      'marketing.dom_load',
-    ],
   }),
   StatusPage.fromMap(<String, dynamic>{
     'id': 'internal',
@@ -56,11 +46,6 @@ final List<StatusPage> statusPages = [
     'monitors': <Map<String, dynamic>>[
       <String, dynamic>{'id': 'api'},
       <String, dynamic>{'id': 'checkout'},
-    ],
-    'metric_keys': <String>[
-      'api.response_time',
-      'api.cpu_load',
-      'checkout.queue_depth',
     ],
   }),
 ];
@@ -138,45 +123,4 @@ List<PublicComponent> componentsFor(StatusPage c) {
     );
   }
   return result;
-}
-
-/// Resolve a page's assigned metric ids to the metrics of its monitors.
-///
-/// Only metrics belonging to currently-assigned monitors resolve, so
-/// unassigning a monitor quietly drops its published metrics. Mirrors
-/// `metricsFor` in the React status mock. Reads the [StatusPage] ORM model.
-List<MonitorMetric> metricsFor(StatusPage c) {
-  final List<MonitorMetric> available = metricsForMonitors(c.monitorIds);
-  final List<MonitorMetric> result = [];
-  for (final String id in c.metricKeys) {
-    for (final MonitorMetric m in available) {
-      if ('${m.monitorId}.${m.key}' == id) {
-        result.add(m);
-        break;
-      }
-    }
-  }
-  return result;
-}
-
-/// System metric options for the given monitor [ids], as label/value pairs.
-///
-/// The value is the composite `monitorId.key` metric id. Feeds the editor's
-/// System metric picker.
-List<MetricOption> systemMetricOptions(List<String> ids) {
-  return [
-    for (final MonitorMetric m in systemMetricsForMonitors(ids))
-      MetricOption(label: m.label, value: '${m.monitorId}.${m.key}'),
-  ];
-}
-
-/// Custom metric options for the given monitor [ids], as label/value pairs.
-///
-/// The value is the composite `monitorId.key` metric id. Feeds the editor's
-/// Custom metric picker.
-List<MetricOption> customMetricOptions(List<String> ids) {
-  return [
-    for (final MonitorMetric m in customMetricsForMonitors(ids))
-      MetricOption(label: m.label, value: '${m.monitorId}.${m.key}'),
-  ];
 }
