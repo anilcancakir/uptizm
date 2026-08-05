@@ -80,8 +80,9 @@ class StatusBadge extends StatelessWidget {
     final displayLabel = label ?? trans('uptizm.status.${status.name}');
 
     // 3. Build: pill row optionally containing a leading dot + text.
-    //    NOTE: `flex flex-row` (NOT `inline-flex`) — Wind renders inline-flex
-    //    as a centered vertical column; flex flex-row is correct for a row.
+    //    NOTE: `flex flex-row`, NOT `inline-flex`. Wind lists `inline-flex`
+    //    among its deliberately inert compat tokens, so it sets no layout axis
+    //    (and never warns), leaving the element as a centered column.
     //    The dot is a childless WDiv that renders from its recipe `size-*`
     //    token (size-1.5 for sm, size-2 for md).
     return WDiv(

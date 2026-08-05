@@ -197,11 +197,12 @@ class _StringValueListState extends State<StringValueList> {
 
   Widget _chip(int index, Map<String, String> slots) {
     final entry = widget.value[index];
-    // `flex-row` explicitly: wind's display map knows `flex`, `grid`, `wrap`
-    // and `block`, so `inline-flex` is an unknown token and an unknown token
-    // is a silent no-op. This wrapper therefore had no axis at all and stacked
-    // the remove button UNDER its chip, which only shows once a value has been
-    // committed (the live mobile walk is what caught it).
+    // `flex flex-row`, never `inline-flex`: wind lists `inline-flex` among the
+    // deliberately inert compat tokens in `wind_parser.dart`'s
+    // `_knownUnparsedTokens`, so it is a recognized token that sets no layout
+    // axis and, by design, never produces a warning. This wrapper therefore had
+    // no axis at all and stacked the remove button UNDER its chip, which only
+    // shows once a value has been committed (the live mobile walk caught it).
     return WDiv(
       className: 'flex flex-row items-center gap-1',
       children: [
