@@ -30,7 +30,7 @@ enum StringValueListTone {
 /// place, so the parent stays the single source of truth.
 ///
 /// A value is trimmed before it is compared or committed; an empty or
-/// duplicate (case-sensitive, post-trim) value is rejected silently, matching
+/// duplicate (case-insensitive, post-trim) value is rejected silently, matching
 /// the `KeyValueEditor` house style of never surfacing an inline error for a
 /// no-op edit.
 ///
@@ -100,11 +100,19 @@ class _StringValueListState extends State<StringValueList> {
   /// list) or drops it silently when it is empty or already present
   /// (post-trim). Clears the draft either way, then refocuses the entry
   /// field so the operator can keep typing without an extra tap.
+  ///
+  /// The duplicate check ignores case, mirroring the `distinct:ignore_case`
+  /// rule the write path applies to each list. A case-sensitive check here
+  /// would let `ok` and `OK` both become chips and then fail the save with a
+  /// 422, in a feature whose whole premise is that matching ignores case.
   void _commit(String raw) {
     final trimmed = raw.trim();
     _controller.clear();
 
-    final isDuplicate = trimmed.isNotEmpty && widget.value.contains(trimmed);
+    final folded = trimmed.toLowerCase();
+    final isDuplicate =
+        trimmed.isNotEmpty &&
+        widget.value.any((existing) => existing.toLowerCase() == folded);
     if (trimmed.isNotEmpty && !isDuplicate) {
       widget.onChanged([...widget.value, trimmed]);
     }
@@ -185,8 +193,13 @@ class _StringValueListState extends State<StringValueList> {
 
   Widget _chip(int index, Map<String, String> slots) {
     final entry = widget.value[index];
+    // `flex-row` explicitly: wind's display map knows `flex`, `grid`, `wrap`
+    // and `block`, so `inline-flex` is an unknown token and an unknown token
+    // is a silent no-op. This wrapper therefore had no axis at all and stacked
+    // the remove button UNDER its chip, which only shows once a value has been
+    // committed (the live mobile walk is what caught it).
     return WDiv(
-      className: 'inline-flex items-center gap-1',
+      className: 'flex flex-row items-center gap-1',
       children: [
         WBadge(entry, className: slots['chip']),
         WAnchor(

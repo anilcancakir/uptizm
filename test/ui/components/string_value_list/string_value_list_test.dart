@@ -154,6 +154,55 @@ void main() {
     expect(original, ['ok']);
   });
 
+  testWidgets('a chip and its remove button sit on one row', (tester) async {
+    // Geometry rather than className, because the defect was a className that
+    // parsed to nothing: wind's display map knows `flex`/`grid`/`wrap`/`block`,
+    // so the original `inline-flex` was an unknown token, an unknown token is a
+    // silent no-op, and the wrapper laid out with no axis. The remove button
+    // then rendered UNDER its chip. Asserting the class string would have
+    // passed against the broken value.
+    await tester.pumpWidget(
+      wrap(
+        StringValueList(
+          value: const ['degraded'],
+          onChanged: (_) {},
+          tone: StringValueListTone.warn,
+        ),
+      ),
+    );
+
+    final Rect chip = tester.getRect(find.text('degraded'));
+    final Rect remove = tester.getRect(find.byIcon(Icons.close));
+
+    expect(
+      remove.left,
+      greaterThan(chip.right - 1),
+      reason: 'the remove button belongs to the right of its chip',
+    );
+    expect(
+      (remove.center.dy - chip.center.dy).abs(),
+      lessThan(8),
+      reason: 'the remove button belongs on the same row as its chip',
+    );
+  });
+
+  testWidgets('two chips sit side by side, not stacked', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        StringValueList(
+          value: const ['ok', 'operational'],
+          onChanged: (_) {},
+        ),
+      ),
+    );
+
+    final Rect first = tester.getRect(find.text('ok'));
+    final Rect second = tester.getRect(find.text('operational'));
+
+    expect(second.left, greaterThan(first.right));
+    expect((second.center.dy - first.center.dy).abs(), lessThan(8));
+  });
+
   testWidgets('preview renders every tone without error', (tester) async {
     await tester.pumpWidget(wrap(const StringValueListPreview()));
     expect(find.byType(StringValueList), findsWidgets);

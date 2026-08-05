@@ -28,7 +28,9 @@ const String kStringValueListToneAxis = 'tone';
 const WindSlotRecipe stringValueListRecipe = WindSlotRecipe(
   slots: {
     'root': 'flex flex-col gap-2',
-    'chips': 'flex wrap gap-2',
+    // `flex-row` is not optional: a bare `flex` sets the display type and
+    // leaves the axis at the default, so the chips would stack vertically.
+    'chips': 'flex flex-row wrap gap-2',
     'chip': '',
     'remove':
         'flex flex-row items-center justify-center size-4 shrink-0 rounded-full',
