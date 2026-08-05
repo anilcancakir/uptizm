@@ -4,10 +4,11 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'monitor_metrics_support.dart';
 import '../../../app/controllers/monitor_metrics_controller.dart'
-    show MetricPreviewResult;
+    show MetricCandidate, MetricCandidateSet, MetricPreviewResult;
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/status_dot/index.dart';
+import '../../../ui/components/string_value_list/index.dart';
 
 /// The "fetch & test" lifecycle for the extraction preview.
 ///
@@ -23,6 +24,23 @@ enum MetricTestStatus {
   fetching,
 
   /// The preview resolved; the panel reports what the backend extracted.
+  done,
+}
+
+/// The fetch lifecycle for the candidate browser.
+///
+/// Deliberately separate from [MetricTestStatus] rather than folded into it: the
+/// candidates describe the monitor's last archived RESPONSE, not the draft rule,
+/// so editing a field invalidates a test verdict (see `_set`) while leaving a
+/// fetched candidate list perfectly valid.
+enum MetricCandidateStatus {
+  /// Nothing fetched yet; the panel states where the values would come from.
+  idle,
+
+  /// The candidates request is in flight.
+  fetching,
+
+  /// The request resolved, into rows, an empty list, or a failure.
   done,
 }
 
@@ -81,6 +99,18 @@ class MonitorMetricForm extends StatefulWidget {
   /// form stays unaware of the monitor id and the controller.
   final Future<MetricPreviewResult?> Function(MetricForm form) onPreview;
 
+  /// Called when the user taps "Fetch values": returns the extraction
+  /// candidates the backend proved against the monitor's newest archived
+  /// response, or `null` when the round trip itself failed.
+  ///
+  /// A callback rather than a controller reference for the same reason as
+  /// [onPreview]: it closes over the monitor id, which the form does not know.
+  ///
+  /// NULLABLE, and the candidate panel renders only when it is supplied: the
+  /// sheet's opener owns the monitor id, so a caller that does not wire this has
+  /// no candidates to offer and gets no panel rather than an empty one.
+  final Future<MetricCandidateSet?> Function()? onCandidates;
+
   /// Called when the user taps Cancel.
   final VoidCallback onCancel;
 
@@ -92,6 +122,7 @@ class MonitorMetricForm extends StatefulWidget {
     required this.onSave,
     required this.onPreview,
     required this.onCancel,
+    this.onCandidates,
   });
 
   /// Opens the form inside a `magic_starter` [BottomSheet] and resolves when it
@@ -106,6 +137,7 @@ class MonitorMetricForm extends StatefulWidget {
     required bool isEdit,
     required Future<Map<String, String>> Function(MetricForm form) onSave,
     required Future<MetricPreviewResult?> Function(MetricForm form) onPreview,
+    Future<MetricCandidateSet?> Function()? onCandidates,
   }) {
     return MSBottomSheet.show<void>(
       context,
@@ -128,6 +160,7 @@ class MonitorMetricForm extends StatefulWidget {
             return errors;
           },
           onPreview: onPreview,
+          onCandidates: onCandidates,
           onCancel: () => Navigator.of(sheetContext).pop(),
         ),
       ),
@@ -178,8 +211,31 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// field.
   String? _criticalError;
 
+  /// Inline validation errors for the three string-band value lists, set by the
+  /// client-side overlap check and by a server 422 on `ok_values` /
+  /// `warn_values` / `critical_values` (including its dot-notation element
+  /// keys). Cleared whenever ANY of the four string-band fields changes, because
+  /// both cross-field rules read all four.
+  String? _okValuesError;
+  String? _warnValuesError;
+  String? _criticalValuesError;
+
+  /// Inline validation error for the unmatched-band select, set when a band is
+  /// chosen with no list to match against and by a server 422 on
+  /// `unmatched_band`.
+  String? _unmatchedBandError;
+
   /// The extraction-test lifecycle.
   MetricTestStatus _testStatus = MetricTestStatus.idle;
+
+  /// The candidate-browser lifecycle.
+  MetricCandidateStatus _candidateStatus = MetricCandidateStatus.idle;
+
+  /// What the last candidate fetch returned, or null before any fetch AND when
+  /// the fetch itself failed. Read together with [_candidateStatus]: `done` plus
+  /// null is the transport failure, which is a distinct rendering from an
+  /// archive holding nothing.
+  MetricCandidateSet? _candidates;
 
   /// What the backend extracted on the last "Fetch & test", or null before any
   /// test has run.
@@ -293,11 +349,109 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     });
   }
 
+  /// Clears every string-band error slot.
+  ///
+  /// One helper rather than four, because both cross-field rules read all four
+  /// fields: an edit to any one of them invalidates a verdict painted on any
+  /// other, so keeping a stale one visible would point the operator at the wrong
+  /// field.
+  void _clearStringBandErrors() {
+    _okValuesError = null;
+    _warnValuesError = null;
+    _criticalValuesError = null;
+    _unmatchedBandError = null;
+  }
+
+  /// Applies an edit that invalidates the string-band verdict (one of the four
+  /// fields, or the type itself): clears the four error slots, then routes
+  /// through [_set] so the edit also invalidates a fetched test verdict exactly
+  /// as every other field change does.
+  void _setStringBand(MetricForm next) {
+    _clearStringBandErrors();
+    _set(next);
+  }
+
+  /// Fetches the candidate list for the monitor behind [MonitorMetricForm.onCandidates].
+  ///
+  /// A null answer is kept as null with the status at `done`, which is the
+  /// panel's transport-failure rendering; it deliberately does NOT fall back to
+  /// idle the way [_runTest] does, because the candidate panel reports the
+  /// failure itself rather than leaning on a toast the controller raises.
+  Future<void> _fetchCandidates() async {
+    final Future<MetricCandidateSet?> Function()? fetch = widget.onCandidates;
+    if (fetch == null) return;
+
+    setState(() {
+      _candidateStatus = MetricCandidateStatus.fetching;
+      _candidates = null;
+    });
+
+    final MetricCandidateSet? result = await fetch();
+    if (!mounted) return;
+
+    setState(() {
+      _candidates = result;
+      _candidateStatus = MetricCandidateStatus.done;
+    });
+  }
+
+  /// Fills the source, the extraction path and the type from [candidate].
+  ///
+  /// Exactly those three, and nothing else: no threshold, no key, and no label
+  /// the operator did not choose. It is safe because the backend GENERATED the
+  /// path and proved it resolves against the archived body before offering it,
+  /// so this is the same gesture as [_applySuggestion] rather than free-text
+  /// input.
+  ///
+  /// The type only moves when the candidate names one the form can actually
+  /// render; an unknown token would leave [MetricForm.type] holding a value the
+  /// segmented control cannot show and the write would 422 on arrival.
+  void _applyCandidate(MetricCandidate candidate) {
+    final String? type = _eligibleType(candidate);
+    final String nextType = type ?? _form.type;
+
+    // Assigned before [_set]'s setState, matching how the path field's own
+    // handler clears it.
+    _pathError = null;
+
+    final MetricForm next = _form.copyWith(
+      source: candidate.source,
+      path: candidate.path,
+      type: nextType,
+    );
+
+    // A candidate can switch the draft's type, which changes WHICH band
+    // fields are rendered. Route through [_setStringBand] then, so a 422 on
+    // the value lists does not outlive the type it was reported against.
+    if (nextType == _form.type) {
+      _set(next);
+    } else {
+      _setStringBand(next);
+    }
+  }
+
+  /// The first type [candidate] is eligible for that this form can render, or
+  /// null when the backend offered none of them.
+  String? _eligibleType(MetricCandidate candidate) {
+    final Set<String> known = kMetricTypes
+        .map((MetricOption option) => option.value)
+        .toSet();
+
+    for (final String type in candidate.types) {
+      if (known.contains(type)) return type;
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------------------
   // Computed state (React lines 251-264).
   // ---------------------------------------------------------------------------
 
   bool get _isNumeric => _form.type == 'numeric';
+
+  /// Whether the draft is a `string` metric, and therefore banded by value
+  /// lists rather than by numeric bounds.
+  bool get _isString => _form.type == 'string';
 
   bool get _needsPath => _form.source != 'http_status';
 
@@ -412,10 +566,20 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
           ?_buildAiInsight(),
         ],
 
-        // 6. Test extraction panel (when the rule is ready).
+        // 6. String-only block: the three value lists plus the unmatched band.
+        //    A sibling of the numeric block above, never a companion to it: the
+        //    two band the same reading by different means, and a metric is one
+        //    type at a time.
+        if (_isString) _buildStringBandBlock(),
+
+        // 7. Candidate browser, only when the sheet's opener wired a source for
+        //    it (it owns the monitor id; see [MonitorMetricForm.onCandidates]).
+        if (widget.onCandidates != null) _buildCandidatePanel(),
+
+        // 8. Test extraction panel (when the rule is ready).
         if (_ruleReady) _buildTestPanel(),
 
-        // 7. Footer: Cancel + Save.
+        // 9. Footer: Cancel + Save.
         _buildFooter(),
       ],
     );
@@ -465,8 +629,11 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
       options: kMetricTypes.map((o) => o.label).toList(),
       selectedIndex: _indexOfValue(kMetricTypes, _form.type),
       size: SegmentedControlSize.sm,
+      // Through [_setStringBand]: a type change hides or shows the whole
+      // string-band block, so any error painted on it stops applying and must
+      // not be waiting behind the switch when the operator comes back.
       onChanged: (index) =>
-          _set(_form.copyWith(type: kMetricTypes[index].value)),
+          _setStringBand(_form.copyWith(type: kMetricTypes[index].value)),
     );
   }
 
@@ -595,6 +762,278 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
           'warn': suggWarn.toString(),
           'crit': suggCrit.toString(),
         }),
+      ),
+    );
+  }
+
+  /// Builds the string-band block: three value lists (healthy, warning,
+  /// critical), the unmatched-band select, and the note about how matching
+  /// compares.
+  ///
+  /// This is the whole authoring surface for a `string` metric's alerting. The
+  /// band it produces is never computed here: the server owns the one function
+  /// that turns a value plus these lists into a band, and the verdict panel
+  /// shows what that function answered.
+  Widget _buildStringBandBlock() {
+    return WDiv(
+      className: 'flex flex-col gap-3 border-t border-color-border pt-4',
+      children: [
+        WText(
+          trans('uptizm.monitors.metrics_form_string_band_label'),
+          className: 'text-sm font-medium text-fg',
+        ),
+        WText(
+          trans('uptizm.monitors.metrics_form_string_band_help'),
+          className: 'text-xs text-fg-muted',
+        ),
+        MSFormField(
+          label: trans('uptizm.monitors.metrics_form_ok_values_label'),
+          error: _okValuesError,
+          child: StringValueList(
+            value: _form.okValues,
+            onChanged: (List<String> next) =>
+                _setStringBand(_form.copyWith(okValues: next)),
+            placeholder: trans(
+              'uptizm.monitors.metrics_form_ok_values_placeholder',
+            ),
+          ),
+        ),
+        MSFormField(
+          label: trans('uptizm.monitors.metrics_form_warn_values_label'),
+          error: _warnValuesError,
+          child: StringValueList(
+            value: _form.warnValues,
+            onChanged: (List<String> next) =>
+                _setStringBand(_form.copyWith(warnValues: next)),
+            tone: StringValueListTone.warn,
+            placeholder: trans(
+              'uptizm.monitors.metrics_form_warn_values_placeholder',
+            ),
+          ),
+        ),
+        MSFormField(
+          label: trans('uptizm.monitors.metrics_form_critical_values_label'),
+          error: _criticalValuesError,
+          child: StringValueList(
+            value: _form.criticalValues,
+            onChanged: (List<String> next) =>
+                _setStringBand(_form.copyWith(criticalValues: next)),
+            tone: StringValueListTone.critical,
+            placeholder: trans(
+              'uptizm.monitors.metrics_form_critical_values_placeholder',
+            ),
+          ),
+        ),
+        MSFormField(
+          label: trans('uptizm.monitors.metrics_form_unmatched_band_label'),
+          hint: trans('uptizm.monitors.metrics_form_unmatched_band_help'),
+          error: _unmatchedBandError,
+          child: MSSelect<String>(
+            value: _form.unmatchedBand,
+            options: _unmatchedBandOptions(),
+            onChange: (String? value) {
+              if (value == null) return;
+              _setStringBand(_form.copyWith(unmatchedBand: value));
+            },
+          ),
+        ),
+        // Only once a list exists: with all three empty the write path refuses
+        // an unmatched band outright, and the field's own error says so. The
+        // gap this closes is the saveable-but-silent draft, where the operator
+        // has configured healthy values, left the band unset, and believes an
+        // unlisted value pages.
+        if (_hasAnyStringValue && _form.unmatchedBand.isEmpty)
+          WText(
+            trans('uptizm.monitors.metrics_form_unmatched_band_silent'),
+            className: 'text-xs text-fg-muted',
+          ),
+        WText(
+          trans('uptizm.monitors.metrics_form_string_match_note'),
+          className: 'text-xs text-fg-muted',
+        ),
+      ],
+    );
+  }
+
+  /// Whether the draft configures at least one string value, in any band.
+  ///
+  /// Mirrors the server's `MonitorMetric::alertsOnString()`, which is what
+  /// decides whether a string metric alerts at all.
+  bool get _hasAnyStringValue =>
+      _form.okValues.isNotEmpty ||
+      _form.warnValues.isNotEmpty ||
+      _form.criticalValues.isNotEmpty;
+
+  /// The unmatched-band options: the three bands, preceded by an em-dash entry
+  /// standing for "leave it unset".
+  ///
+  /// The empty-string entry is what makes the field reversible. `WSelect` has no
+  /// clear affordance, so without it an operator who picked a band could never
+  /// go back to the inert default, and the rule that a band needs a list would
+  /// then be a trap rather than a correction. The glyph carries no words on
+  /// purpose: there is no key for "none", and inventing one belongs in the
+  /// localization step, not here.
+  List<SelectOption<String>> _unmatchedBandOptions() {
+    return [
+      const SelectOption<String>(value: '', label: '—'),
+      SelectOption<String>(
+        value: 'ok',
+        label: trans('uptizm.monitors.metrics_band_ok'),
+      ),
+      SelectOption<String>(
+        value: 'warn',
+        label: trans('uptizm.monitors.metrics_band_warn'),
+      ),
+      SelectOption<String>(
+        value: 'critical',
+        label: trans('uptizm.monitors.metrics_band_critical'),
+      ),
+    ];
+  }
+
+  /// Builds the candidate browser: a header with the fetch button, then one of
+  /// the idle / fetching / done states.
+  ///
+  /// It sits beside the test panel and shares its chrome deliberately. The test
+  /// panel answers "does my rule work"; this one answers "what is there to write
+  /// a rule about", and they read the monitor's last response from the two ends.
+  Widget _buildCandidatePanel() {
+    return WDiv(
+      className: 'flex flex-col gap-2 border-t border-color-border pt-4',
+      children: [
+        WDiv(
+          className: 'flex items-center justify-between gap-3',
+          children: [
+            WText(
+              trans('uptizm.monitors.metrics_form_candidates_title'),
+              className: 'text-sm font-medium text-fg',
+            ),
+            MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              disabled: _candidateStatus == MetricCandidateStatus.fetching,
+              isLoading: _candidateStatus == MetricCandidateStatus.fetching,
+              onPressed: _fetchCandidates,
+              child: WText(
+                trans('uptizm.monitors.metrics_form_candidates_fetch'),
+              ),
+            ),
+          ],
+        ),
+        ..._buildCandidateBody(),
+      ],
+    );
+  }
+
+  /// Builds the state-dependent body of the candidate panel.
+  ///
+  /// Five outcomes, each with its own rendering, because to an operator a blank
+  /// box is indistinguishable from a pending one: not fetched yet, in flight,
+  /// the fetch failed, nothing archived to read, the archive held nothing
+  /// extractable, and the rows themselves.
+  List<Widget> _buildCandidateBody() {
+    return switch (_candidateStatus) {
+      MetricCandidateStatus.idle => [
+        WText(
+          trans('uptizm.monitors.metrics_form_candidates_hint'),
+          className: 'text-xs text-fg-muted',
+        ),
+      ],
+      MetricCandidateStatus.fetching => [
+        WText(
+          trans('uptizm.monitors.metrics_form_candidates_fetching'),
+          className: 'text-sm text-fg-muted',
+        ),
+      ],
+      MetricCandidateStatus.done => [_buildCandidateResult()],
+    };
+  }
+
+  /// Builds the resolved candidate panel: the rows, or the reason there are
+  /// none.
+  ///
+  /// The three empty renderings reuse [_buildVerdictBox] rather than growing a
+  /// second box. None of them carries a provenance line: unlike the preview, the
+  /// candidates endpoint reports no check timestamp and no status code, and
+  /// naming a sample it did not name would be exactly the invented evidence the
+  /// provenance line exists to replace.
+  Widget _buildCandidateResult() {
+    final MetricCandidateSet? result = _candidates;
+
+    // The round trip itself failed. The controller stays silent for this one
+    // (no toast), so this box is the only report the operator gets.
+    if (result == null) {
+      return _buildVerdictBox(
+        tone: 'bg-down-soft',
+        textClass: 'text-down-soft-foreground',
+        message: trans('uptizm.monitors.metrics_form_candidates_error'),
+      );
+    }
+
+    // Nothing archived yet is the same answer the test panel gives, in the same
+    // words: the operator needs a check to have run, not a different path.
+    if (!result.hasSample) {
+      return _buildVerdictBox(
+        tone: 'bg-surface-container',
+        textClass: 'text-fg-muted',
+        message: trans('uptizm.monitors.metrics_form_no_sample'),
+      );
+    }
+
+    // A body WAS read and held nothing extractable, which is a statement about
+    // the endpoint rather than about the archive.
+    if (result.candidates.isEmpty) {
+      return _buildVerdictBox(
+        tone: 'bg-surface-container',
+        textClass: 'text-fg-muted',
+        message: trans('uptizm.monitors.metrics_form_candidates_empty'),
+      );
+    }
+
+    return WDiv(
+      className: 'flex flex-col gap-2',
+      children: [
+        for (final MetricCandidate candidate in result.candidates)
+          _buildCandidateRow(candidate),
+      ],
+    );
+  }
+
+  /// Builds one tappable candidate row: its label hint (or its path) over the
+  /// sample value, with the "use this" affordance on the right.
+  ///
+  /// Both texts are plain [WText] and stay that way. They are attacker-controlled
+  /// substrings of a monitored response, so rendering either through markup,
+  /// markdown or a link would turn a third party's response body into this app's
+  /// UI. `truncate` bounds them visually; the backend already bounds their
+  /// length.
+  Widget _buildCandidateRow(MetricCandidate candidate) {
+    return WAnchor(
+      onTap: () => _applyCandidate(candidate),
+      child: WDiv(
+        className:
+            'flex flex-row items-center justify-between gap-3 rounded-lg '
+            'border border-color-border bg-surface p-3 '
+            'hover:bg-surface-container transition-colors',
+        children: [
+          WDiv(
+            className: 'flex-1 flex flex-col min-w-0',
+            children: [
+              WText(
+                candidate.label ?? candidate.path,
+                className: 'font-mono text-xs text-fg truncate',
+              ),
+              WText(
+                candidate.value,
+                className: 'font-mono text-xs text-fg-muted truncate',
+              ),
+            ],
+          ),
+          WText(
+            trans('uptizm.monitors.metrics_form_candidate_use'),
+            className: 'text-xs font-medium text-fg',
+          ),
+        ],
       ),
     );
   }
@@ -826,9 +1265,11 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   ///
   /// Checks the required Name, the required + well-formed Key, and the required
   /// extraction path (only when the source needs one, mirroring [_ruleReady]);
-  /// all three are checks the client can make before any round trip. Every slot
-  /// is always written (a passing check clears its slot) so a previously shown
-  /// error never lingers after a corrected resubmit.
+  /// all three are checks the client can make before any round trip. For a
+  /// `string` metric it also runs the two cross-field string-band rules the
+  /// server enforces, so the operator learns about a collision here rather than
+  /// through a 422. Every slot is always written (a passing check clears its
+  /// slot) so a previously shown error never lingers after a corrected resubmit.
   bool _validateClientSide() {
     final String? labelError = _form.label.trim().isEmpty
         ? trans('uptizm.monitors.form_name_error_required')
@@ -837,14 +1278,79 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
     final String? pathError = _needsPath && _form.path.trim().isEmpty
         ? trans('uptizm.monitors.metrics_form_path_error_required')
         : null;
+    final Map<String, String> bandErrors = _stringBandErrors();
 
     setState(() {
       _labelError = labelError;
       _keyError = keyError;
       _pathError = pathError;
+      _okValuesError = bandErrors['ok_values'];
+      _warnValuesError = bandErrors['warn_values'];
+      _criticalValuesError = bandErrors['critical_values'];
+      _unmatchedBandError = bandErrors['unmatched_band'];
     });
 
-    return labelError == null && keyError == null && pathError == null;
+    return labelError == null &&
+        keyError == null &&
+        pathError == null &&
+        bandErrors.isEmpty;
+  }
+
+  /// The two cross-field string-band rules, keyed by the wire field each one
+  /// belongs under. Empty when the configuration is valid, and always empty for
+  /// a metric that is not a `string`.
+  ///
+  /// Both rules exist on the server too. They are repeated here so the operator
+  /// is corrected before the round trip, NOT to replace the server's copy: the
+  /// server validates merged state against the stored row, which this cannot
+  /// see.
+  Map<String, String> _stringBandErrors() {
+    if (!_isString) return const {};
+
+    final Map<String, List<String>> lists = {
+      'ok_values': _form.okValues,
+      'warn_values': _form.warnValues,
+      'critical_values': _form.criticalValues,
+    };
+    final Map<String, String> errors = {};
+
+    // 1. Which lists carry each value, compared through normalizeMatchValue()
+    //    because that is how the SERVER compares them. Comparing raw values
+    //    would let `['OK']` against `['ok']` pass the client and then collide at
+    //    evaluation, which is the whole reason the normalizer is shared.
+    final Map<String, Set<String>> owners = {};
+    lists.forEach((String field, List<String> values) {
+      for (final String value in values) {
+        owners
+            .putIfAbsent(normalizeMatchValue(value), () => <String>{})
+            .add(field);
+      }
+    });
+
+    // 2. A value in two lists is flagged on BOTH of them, so the operator can
+    //    see the collision rather than half of it.
+    for (final Set<String> fields in owners.values) {
+      if (fields.length < 2) continue;
+      for (final String field in fields) {
+        errors[field] = trans(
+          'uptizm.monitors.metrics_form_string_values_error_overlap',
+        );
+      }
+    }
+
+    // 3. An unmatched band with nothing to match against would band EVERY
+    //    reading, which is never what it means; the server refuses it too.
+    final bool hasList = lists.values.any(
+      (List<String> values) => values.isNotEmpty,
+    );
+    if (_form.unmatchedBand.isNotEmpty && !hasList) {
+      errors['unmatched_band'] = trans(
+        'uptizm.monitors.'
+        'metrics_form_string_values_error_unmatched_needs_list',
+      );
+    }
+
+    return errors;
   }
 
   /// Resolves the client-side Key error: the required message when blank, the
@@ -862,11 +1368,20 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// Routes a backend 422 field-error map (keyed by the wire field names the
   /// write posts) into the inline error slots, returning the entries that map
   /// to no known field so the caller can surface them another way.
+  ///
+  /// The key is read up to its first dot. Laravel reports a list-element failure
+  /// under a dot-notation key (`ok_values.1`), and the form renders ONE chip
+  /// editor per list rather than one field per element, so an element key has
+  /// nowhere else to land. `MonitorMetricsController` already collapses these on
+  /// the way through; doing it here too keeps the form correct for any caller
+  /// that hands one over raw, and no wire field this form owns contains a dot,
+  /// so the split is a no-op for every other key. An unmapped entry keeps its
+  /// ORIGINAL key so the toast still names what the server actually rejected.
   Map<String, String> _applyServerErrors(Map<String, String> errors) {
     final Map<String, String> unmapped = {};
     setState(() {
       for (final MapEntry<String, String> entry in errors.entries) {
-        switch (entry.key) {
+        switch (entry.key.split('.').first) {
           case 'label':
             _labelError = entry.value;
           case 'key':
@@ -877,6 +1392,14 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
             _warnError = entry.value;
           case 'critical_bound':
             _criticalError = entry.value;
+          case 'ok_values':
+            _okValuesError = entry.value;
+          case 'warn_values':
+            _warnValuesError = entry.value;
+          case 'critical_values':
+            _criticalValuesError = entry.value;
+          case 'unmatched_band':
+            _unmatchedBandError = entry.value;
           default:
             unmapped[entry.key] = entry.value;
         }
