@@ -50,6 +50,17 @@ return [
     ],
 
     /*
+     * The hard character budget one response digest may spend in the setup
+     * prompt. The worker returns up to 1 MiB of body, which is two orders of
+     * magnitude more context than a monitor suggestion needs and all of it
+     * target-authored, so the budget is a ceiling rather than a target: when it
+     * binds, whole subtrees are dropped and the digest says so.
+     */
+    'digest' => [
+        'max_characters' => env('AI_DIGEST_MAX_CHARACTERS', 8000),
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Caching
     |--------------------------------------------------------------------------
