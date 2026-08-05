@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+#
+# Measures whether component code carries raw color literals instead of the
+# semantic Wind tokens DESIGN.md defines. Nothing else checks this: `flutter
+# analyze` has no opinion on a hardcoded `Color(0xFF...)`, and `design:lint`
+# only validates DESIGN.md's own YAML, never the Dart that is supposed to
+# obey it. Without this job "design-first is enforced" was an unmeasured
+# claim.
+#
+# What it measures: `Color(0x...)` and `Colors.*` literals anywhere under
+# `lib/**/*.dart`, after stripping `//`/`///` line comments and `/* */` block
+# comments. Both halves of that sentence are load-bearing. Measured on this
+# tree: a naive grep reports 8 files, the comment-stripped and
+# boundary-corrected scan reports 4. Of the four it drops, three are component
+# docstrings that quote the very literal they forbid (`uptime_bar`,
+# `check_history_table`, `status_dot` each say "no raw hex ... anywhere"), so a
+# naive grep flags the sentence claiming compliance; the fourth is
+# `kBrandColors.first`, which matched only because an unbounded `Colors\.`
+# also matches the tail of any identifier ending in "Colors".
+#
+# What it deliberately does NOT measure, because it is regex, not an AST:
+#   - `Color.fromARGB(...)`, `Color.fromRGBO(...)`, `Color.from(...)` are
+#     equally raw-color routes and are NOT scanned. Zero occurrences in
+#     `lib/` today; add a rule here the day one appears.
+#   - A `//` inside a string literal (e.g. a `https://` URL) truncates the
+#     rest of that line before the scan sees it. Harmless today (no color
+#     literal shares a line with such a string), but a violation that did
+#     would go uncaught.
+#   - A hardcoded pixel value, a missing `dark:` pair, or reaching for a new
+#     component instead of an existing one: none of that is a regex-checkable
+#     shape. This job is a floor, not the whole of "design-first".
+#
+# Usage:
+#   bin/design-tokens          scan lib/**/*.dart, exit 1 on any violation
+#   bin/design-tokens -h       show this help
+#
+# Exit convention mirrors magic's design:lint: findings print as
+# `file:line`, and the process exits non-zero when any are unallowlisted.
+
+set -u -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
+
+ALLOWLIST_FILE="$REPO_ROOT/.design-token-allowlist"
+
+usage() {
+    cat <<'USAGE'
+bin/design-tokens - measures raw Color(0x...)/Colors.* literals under lib/.
+
+  bin/design-tokens    scan lib/**/*.dart, exit 1 on any unallowlisted hit
+
+Comments (// and /* */) are stripped before scanning, and a path listed in
+.design-token-allowlist is skipped entirely. See the script header for what
+this job does and does not catch.
+USAGE
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "design-tokens: unknown argument '$arg'" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# Strips a Dart file's // (and doc ///) line comments and /* */ block
+# comments, one output line per input line so a downstream `grep -n` still
+# reports the ORIGINAL file's line numbers. A line entirely inside a block
+# comment becomes empty rather than disappearing, which is what keeps the
+# numbering aligned.
+strip_comments() {
+    awk '
+        {
+            line = $0
+            if (in_block) {
+                idx = index(line, "*/")
+                if (idx > 0) {
+                    line = substr(line, idx + 2)
+                    in_block = 0
+                } else {
+                    print ""
+                    next
+                }
+            }
+            while (1) {
+                open_idx = index(line, "/*")
+                if (open_idx == 0) break
+                rest = substr(line, open_idx + 2)
+                close_idx = index(rest, "*/")
+                if (close_idx > 0) {
+                    line = substr(line, 1, open_idx - 1) substr(rest, close_idx + 2)
+                } else {
+                    line = substr(line, 1, open_idx - 1)
+                    in_block = 1
+                    break
+                }
+            }
+            slash_idx = index(line, "//")
+            if (slash_idx > 0) line = substr(line, 1, slash_idx - 1)
+            print line
+        }
+    '
+}
+
+# Reads .design-token-allowlist into two arrays: a path ending in "/" is a
+# directory prefix, anything else is an exact file match. Blank lines and
+# lines starting with "#" are comments; the format is "<path> | <reason>" so
+# the reason (the load-bearing, expiring part) sits next to the path a human
+# edits, with no parser dependency beyond `IFS`.
+declare -a ALLOW_DIRS=()
+declare -a ALLOW_FILES=()
+
+load_allowlist() {
+    [ -f "$ALLOWLIST_FILE" ] || return 0
+
+    local raw path
+    while IFS= read -r raw || [ -n "$raw" ]; do
+        raw="${raw%%$'\r'}"
+        [ -z "$raw" ] && continue
+        case "$raw" in \#*) continue ;; esac
+
+        path="${raw%%|*}"
+        # Trim surrounding whitespace without a subprocess.
+        path="${path#"${path%%[![:space:]]*}"}"
+        path="${path%"${path##*[![:space:]]}"}"
+        [ -z "$path" ] && continue
+
+        case "$path" in
+            */) ALLOW_DIRS+=("$path") ;;
+            *) ALLOW_FILES+=("$path") ;;
+        esac
+    done < "$ALLOWLIST_FILE"
+}
+
+is_allowlisted() {
+    local path="$1" dir file
+    for dir in "${ALLOW_DIRS[@]:-}"; do
+        [ -n "$dir" ] && case "$path" in "$dir"*) return 0 ;; esac
+    done
+    for file in "${ALLOW_FILES[@]:-}"; do
+        [ "$path" = "$file" ] && return 0
+    done
+    return 1
+}
+
+load_allowlist
+
+# The pattern for `Colors.` needs a left boundary or it matches the tail of
+# any identifier ending in "...Colors" (e.g. `kBrandColors.first`), which
+# produced a phantom violation during measurement. `Color(0x` deliberately
+# has NO boundary: `MaterialColor(0xFF008560` in the generated theme is a
+# genuine raw hex and must still be caught.
+PATTERN='Color\(0x|(^|[^A-Za-z0-9_])Colors\.'
+
+violations=""
+while IFS= read -r -d '' file; do
+    rel="${file#"$REPO_ROOT"/}"
+    is_allowlisted "$rel" && continue
+
+    lines="$(strip_comments < "$file" | grep -nE "$PATTERN" | cut -d: -f1)"
+    [ -z "$lines" ] && continue
+
+    while IFS= read -r lineno; do
+        violations="${violations}${rel}:${lineno}
+"
+    done <<< "$lines"
+done < <(find "$REPO_ROOT/lib" -name '*.dart' -print0)
+
+if [ -z "$violations" ]; then
+    echo "design-tokens: no raw color literals found outside the allowlist."
+    exit 0
+fi
+
+echo "design-tokens: raw color literal(s) found outside the allowlist:" >&2
+printf '%s' "$violations" | sed '/^$/d' | sed 's/^/  /' >&2
+exit 1
