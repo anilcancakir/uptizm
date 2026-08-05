@@ -608,9 +608,65 @@ class AssertionRuleSetTest extends TestCase
      */
     public function test_alternation_overlap_is_a_documented_blind_spot(): void
     {
+        /*
+         * Both shapes are ACCEPTED today, and both are pinned so that closing the
+         * gap flips a test rather than passing in silence.
+         *
+         * The second is the one that says how big the gap is. Sixty
+         * single-character branches over the same character is 125 characters,
+         * inside every cap, and measured at 64.8 seconds in V8 against a subject
+         * of SIXTEEN characters, with n=20 not returning inside a four-minute
+         * budget. Sixteen characters is shorter than any body worth asserting on,
+         * so the edge's 10 KiB pattern ceiling buys nothing against it.
+         *
+         * What holds the risk down is that the only author is staff behind the
+         * Filament panel. Closing it is affordable rather than open-ended:
+         * refusing a repeating quantifier over a group whose top-level branches
+         * are not provably disjoint reuses the character-set model already in
+         * this class.
+         */
         $this->assertSame([], AssertionRuleSet::problems([
             ['target' => 'body', 'operator' => 'matches_regex', 'value' => '(a|aa)+'],
         ]));
+
+        $sixtyBranches = '^('.implode('|', array_fill(0, 60, 'a')).')+z$';
+
+        $this->assertLessThanOrEqual(AssertionRuleSet::PATTERN_MAX_CHARS, strlen($sixtyBranches));
+        $this->assertSame([], AssertionRuleSet::problems([
+            ['target' => 'body', 'operator' => 'matches_regex', 'value' => $sixtyBranches],
+        ]));
+    }
+
+    public function test_a_bounded_inner_repeat_with_a_range_is_refused(): void
+    {
+        /*
+         * The scan read only UNBOUNDED inner quantifiers, so the whole `{m,n}`
+         * family walked through, including the tail of the most-pasted email
+         * regex on the internet. Measured in V8: `([a-zA-Z]{2,4})+$` is 103 ms at
+         * n=44, 479 ms at 48, 2.21 s at 52 and 10.2 s at 56, about 4.6x per four
+         * characters of subject.
+         *
+         * A RANGE is what does it, not a count. `{3}` has exactly one way to match
+         * three characters, so `(\d{3})+` splits a digit run deterministically and
+         * stays linear; `{2,4}` lets the engine try three lengths for the same
+         * span. Reading `repeating` here instead of variable-length refused
+         * `(\d{3})+`, which the accepted-patterns case above still pins.
+         */
+        foreach ([
+            '([a-zA-Z]{2,4})+$',
+            '^(\w{1,10})+$',
+            '^(\d{2,4})+$',
+            '^([a-z]{1,2})*$',
+            '^(a{2,4}){2,20}$',
+            '^([a-zA-Z0-9_\.\-])+\@(([a-zA-Z\-])+\.)+([a-zA-Z]{2,4})+$',
+        ] as $pattern) {
+            $problems = AssertionRuleSet::problems([
+                ['target' => 'body', 'operator' => 'matches_regex', 'value' => $pattern],
+            ]);
+
+            $this->assertCount(1, $problems, "Pattern [{$pattern}] was accepted.");
+            $this->assertStringContainsString('index 0', $problems[0]);
+        }
     }
 
     public function test_a_pattern_that_does_not_compile_is_refused(): void

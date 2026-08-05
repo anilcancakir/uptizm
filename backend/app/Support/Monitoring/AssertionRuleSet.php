@@ -97,10 +97,26 @@ use App\Services\Monitoring\RelayClient;
  *
  * WHAT IT DOES NOT CATCH
  *
- * - Alternation overlap. `(a|aa)+b` is exponential (111s anchored at n=200) with
- *   neither a nested quantifier nor two quantifiers in sequence; deciding it needs
- *   the NFA ambiguity analysis that a real ReDoS detector is. Pinned as a blind
- *   spot in `AssertionRuleSetTest` so it stays a known property.
+ * - Alternation overlap, and this is the largest gap by a wide margin, so its real
+ *   magnitude is written out rather than illustrated with a mild example. A
+ *   repeating group whose BRANCHES overlap has neither a nested quantifier nor two
+ *   quantifiers in sequence, so both scans above pass it. `(a|aa)+b` is the polite
+ *   version. The measured one is 60 single-character branches over the same
+ *   character, `^(a|a|...|a)+z$`: **125 characters, inside every cap, ACCEPTED, and
+ *   64.8 seconds in V8 at a subject of SIXTEEN characters**, with n=20 not
+ *   returning inside a four-minute budget. Sixteen characters is shorter than the
+ *   shortest body worth asserting on, so the 10 KiB pattern ceiling at the edge
+ *   buys nothing against it, and the Durable Object it runs in is one instance per
+ *   region shared across tenants.
+ *
+ *   What holds the risk down is that the only author is staff behind
+ *   `User::canAccessPanel()`; nothing else does. Closing it is a KNOWN and
+ *   affordable piece of work rather than the open research problem an earlier
+ *   version of this docblock implied: refusing a repeating quantifier over a group
+ *   whose top-level branches are not provably disjoint reuses
+ *   {@see self::setsIntersect()} and {@see self::sequenceOutline()}, both already
+ *   here. It is not done, and `AssertionRuleSetTest` pins BOTH shapes as accepted
+ *   so that closing it flips a test rather than passing silently.
  * - The quadratic floor an unanchored pattern already pays for its
  *   start-position sweep: `\w+error` over a non-matching body is 94.4ms at
  *   n=8,000, and so is `[a-z]+9`. This screen removes what a pattern adds ON TOP
@@ -638,7 +654,17 @@ class AssertionRuleSet
             $quantifier = static::quantifierAt($pattern, $offset);
 
             if ($quantifier !== null) {
-                if ($quantifier['unbounded']) {
+                // `repeating`, not `unbounded`. A BOUNDED inner repeat with a
+                // maximum of two or more multiplies the search space just as an
+                // unbounded one does, and reading only `unbounded` here let the
+                // whole `{m,n}` family through. Measured in V8: `([a-zA-Z]{2,4})+$`
+                // is 103 ms at n=44, 479 ms at 48, 2.21 s at 52, 10.2 s at 56, so
+                // roughly 4.6x per four characters of subject. It is also the tail
+                // of the most-pasted email regex on the internet, which the screen
+                // therefore accepted in full. `?` and `{0,1}` are not repeating and
+                // still do not mark a body, which is what keeps `(https?://)+`
+                // acceptable.
+                if ($quantifier['variable']) {
                     foreach (array_keys($frames) as $open) {
                         $frames[$open]['repeats'] = true;
                     }
@@ -822,7 +848,7 @@ class AssertionRuleSet
      * the whole body: asking for it in the transparent case too would make a
      * pattern of nested brackets cost the square of its depth.
      *
-     * @param  array{length: int, repeating: bool, unbounded: bool, mandatory: bool}|null  $quantifier
+     * @param  array{length: int, repeating: bool, unbounded: bool, variable: bool, mandatory: bool}|null  $quantifier
      * @param  list<array<string, mixed>>  $pending
      */
     protected static function adjacentQuantifierAtGroup(
@@ -961,7 +987,7 @@ class AssertionRuleSet
      * cannot, and V8 measures the difference (`^\d*\.\d*$` is flat where
      * `^\d*\.?\d*$` is quadratic).
      *
-     * @return array{length: int, repeating: bool, unbounded: bool, mandatory: bool}|null
+     * @return array{length: int, repeating: bool, unbounded: bool, variable: bool, mandatory: bool}|null
      */
     protected static function quantifierAt(string $pattern, int $offset): ?array
     {
@@ -975,11 +1001,13 @@ class AssertionRuleSet
         $width = 1;
         $repeating = true;
         $unbounded = true;
+        $variable = true;
         $mandatory = $character === '+';
 
         if ($character === '?') {
             $repeating = false;
             $unbounded = false;
+            $variable = false;
         } elseif ($character === '{') {
             $closing = strpos($pattern, '}', $offset);
 
@@ -1002,6 +1030,13 @@ class AssertionRuleSet
                 : (int) (($bounds[3] ?? '') === '' ? $bounds[1] : $bounds[3]);
             $repeating = $unbounded || $maximum >= 2;
             $mandatory = (int) $bounds[1] >= 1;
+            // An EXACT count is not ambiguous: `{3}` has one way to match three
+            // characters, so `(\d{3})+` splits a digit run deterministically and is
+            // linear. A RANGE is where the engine can try several lengths for the
+            // same span, which is what multiplies the search space. That is the
+            // distinction {@see self::nestedQuantifierOffset()} needs, and reading
+            // `repeating` there instead refused `(\d{3})+`.
+            $variable = $unbounded || $maximum > (int) $bounds[1];
         } elseif ($character !== '+' && $character !== '*') {
             return null;
         }
@@ -1016,6 +1051,7 @@ class AssertionRuleSet
             'length' => $width,
             'repeating' => $repeating,
             'unbounded' => $unbounded,
+            'variable' => $variable,
             'mandatory' => $mandatory,
         ];
     }
