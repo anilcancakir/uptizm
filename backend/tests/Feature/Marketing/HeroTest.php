@@ -165,13 +165,15 @@ class HeroTest extends TestCase
          * Each of these is either accepted by the API but never applied by the edge
          * worker, or a plan flag with no implementation behind it. If one ships for
          * real, delete its line here in the same change.
+         *
+         * `assertion_rules` (evaluated by `evaluateAssertions()`) and `auth_config`
+         * (applied by `authHeaders()`, all four shapes) both shipped, so their lines
+         * are gone. This asserts only that the landing copy stays silent about them;
+         * it is not a claim that the copy now advertises either capability.
          */
         $response = $this->get('/');
 
         foreach ([
-            'assertion',   // assertion_rules are never read by regional-probe.ts
-            'Basic auth',  // auth_config is never applied by the worker
-            'Bearer',
             'SSO',
             'SAML',
             'white-label',

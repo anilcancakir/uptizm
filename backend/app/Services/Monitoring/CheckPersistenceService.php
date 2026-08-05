@@ -299,6 +299,22 @@ class CheckPersistenceService
                 'timing_ttfb_ms' => $result->timingTtfbMs,
                 'timing_download_ms' => $result->timingDownloadMs,
                 'probe_run_id' => $result->probeRunId,
+                // Both columns come from ONE nullable source, so they can never
+                // disagree. NULL on both means the monitor asserted nothing, which
+                // is why `assertions_passed` had to lose its `DEFAULT TRUE`: a
+                // monitor with no rules was recording "every assertion passed", and
+                // a status page would then cite a result nobody measured.
+                //
+                // `passed` is read, never re-derived. All-rules-must-pass and
+                // skipped-is-not-a-failure live in the edge's evaluator; deciding
+                // them again here would be a second implementation in another
+                // language, and the two would drift.
+                'assertions_passed' => $result->assertions === null
+                    ? null
+                    : $result->assertions['passed'],
+                'assertion_results' => $result->assertions === null
+                    ? null
+                    : $result->assertions['results'],
             ]);
 
             // 3. Refresh the denormalized last-state columns and the failure

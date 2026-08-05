@@ -20,6 +20,10 @@
 import { connect } from "cloudflare:sockets";
 
 import {
+    type AssertionSubject,
+    evaluateAssertions,
+} from "./assertions";
+import {
     emptyTiming,
     type TimingBreakdown,
 } from "./timing";
@@ -45,12 +49,22 @@ type ProbeRequest = {
     auth_config: AuthConfig | null;
 
     /**
-     * Response assertions the origin still evaluates rather than the edge.
+     * The response assertions this probe evaluates against its own reading.
      *
-     * Declared so the field is not silently dropped from the signed spec; the
-     * edge does not read it yet.
+     * Null, or an empty list, means NO ASSERTIONS, which is a different state
+     * from "every assertion passed": see {@link CheckResultPayload.assertions}.
+     *
+     * Typed as the shape the origin PROMISES rather than as what the wire can
+     * physically carry, exactly as {@link AuthConfig} is: the whole spec is cast
+     * from `request.json()`, so nothing in it has been validated when the
+     * evaluator receives it. These rules are operator-authored JSON living in a
+     * `jsonb` column, and the save-time validator that narrows them to this shape
+     * lands with the evaluator, so a row written before it existed can hold
+     * anything at all. The evaluator therefore guards every field at runtime and
+     * records what it could not evaluate, in the same spirit as the `default`
+     * branch of {@link authHeaders}.
      */
-    assertion_rules: unknown;
+    assertion_rules: AssertionRule[] | null;
 
     /**
      * The body ceiling in bytes, mirrored from the origin's
@@ -146,6 +160,279 @@ type CheckResultPayload = {
      * rather than the whole of it.
      */
     content_truncated: boolean;
+
+    /**
+     * The outcome of evaluating {@link ProbeRequest.assertion_rules}, or null when
+     * the monitor configured none.
+     *
+     * ONE nullable field rather than two, and that is the load-bearing part. The
+     * destination is a pair of columns, `monitor_checks.assertions_passed` (a
+     * boolean that becomes nullable for this) and `assertion_results` (`jsonb`),
+     * where NULL means "not evaluated". Two nullable fields on the wire would make
+     * four states representable, of which two are contradictions: a verdict with
+     * no results, and results with no verdict. Either would land as one populated
+     * column beside one NULL with nothing to say which of the two lied. Nesting
+     * them under a single nullable report leaves "no rules" and "rules ran" as the
+     * only shapes that exist, and `timing` already proves a nested object survives
+     * `CheckResult::fromWorkerPayload()`.
+     *
+     * A failed assertion is published as `down` on the `status` field above and as
+     * nothing else. None of the seven products surveyed for this design has an
+     * assertion-failed severity: a 200 with a failed body assertion pages exactly
+     * like a refused connection, so there is no third state to introduce here.
+     */
+    assertions: AssertionReport | null;
+};
+
+/**
+ * What an assertion may be evaluated against.
+ *
+ * These four are the whole v1 vocabulary, and `json_path` is deliberately absent
+ * rather than merely unimplemented. Two things have to be settled before it can
+ * be added, and neither is a detail:
+ *
+ * 1. The dialect is a fork in the road. Checkly cites RFC 9535, Grafana's
+ *    MultiHTTP cites the older Goessner draft, and the two diverge on filter
+ *    expressions and slices, so the same path expression means different things
+ *    depending on which product the operator arrived from. Picking one silently
+ *    breaks the other's mental model, and either pick drags a JSONPath
+ *    implementation into the edge bundle.
+ * 2. A path that returns several values quietly becomes an all-elements check.
+ *    Checkly documents a path returning `[1,5,2]` compared "less than 3" as
+ *    FAILING, because every returned element is AND-chained. Nothing in a panel
+ *    that reads like a scalar comparison would tell an operator that.
+ *
+ * So adding it is a design decision with those two questions answered, not a new
+ * member on this union. TLS expiry and response size are absent for the duller
+ * reason: nobody has asked.
+ */
+export type AssertionTarget =
+    | "status_code"
+    | "response_time_ms"
+    | "body"
+    | "header";
+
+/**
+ * How an assertion compares its target against its value.
+ *
+ * These ten are the set that converged across Better Stack, Checkly, Datadog
+ * Synthetics, Pingdom, UptimeRobot, Grafana Synthetic Monitoring and k6: it is
+ * Checkly's and UptimeRobot's published list and a superset of Datadog's
+ * per-field table, while Pingdom and Better Stack are contains-only subsets of
+ * it. There is no OR and no per-rule severity because no surveyed product offers
+ * either; Datadog's own users fake alternation with a `200|302` regex, which this
+ * set supports as-is.
+ *
+ * THIS UNION IS THE SOURCE OF TRUTH for the vocabulary. The save-time validator
+ * under `backend/app/Support/Monitoring/` enumerates exactly these and nothing
+ * else, the same two-sided mirror that binds {@link contentTypeAllowed} to
+ * `App\Support\Monitoring\ContentTypeAllowList`: change one side and the other
+ * must move with it, or the panel accepts a rule the edge can only skip.
+ *
+ * `matches_regex` and `not_matches_regex` carry a hazard the other eight do not.
+ * The pattern is operator-supplied and stored, and JavaScript's RegExp
+ * backtracks, so it is a reachable ReDoS on a runtime with a CPU budget; Grafana
+ * picked Go's RE2 for exactly this and got linear-time matching for it. There is
+ * no RE2 at this edge by decision, so the containment is a save-time screen (a
+ * length cap, nested-quantifier detection, a trial compile) plus a hard body
+ * ceiling before any pattern runs. Never run a stored pattern against an
+ * unbounded body.
+ */
+export type AssertionOperator =
+    | "equals"
+    | "not_equals"
+    | "contains"
+    | "not_contains"
+    | "greater_than"
+    | "less_than"
+    | "matches_regex"
+    | "not_matches_regex"
+    | "exists"
+    | "not_exists";
+
+/**
+ * The value a rule compares its target against.
+ *
+ * Numbers arrive as JSON numbers for `status_code` and `response_time_ms`, text
+ * for `body` and `header`, and `exists` / `not_exists` carry none at all (the key
+ * absent, or null). A single `string` was rejected because it throws away the
+ * intent the operator expressed and turns every numeric rule into a parse at the
+ * far end; `unknown` was rejected because it defers the same decision to the
+ * evaluator with no compile-time help and the evaluator would rebuild this union
+ * by hand.
+ *
+ * The cost of the union is one normalisation step per comparison, and one of
+ * those steps is not optional: numeric equality must NOT be `===`. UptimeRobot's
+ * own worked example equality-compares a JSON price of `0.000003`, so an epsilon
+ * or a normalised string form is required. A value of the wrong kind for the
+ * target is a `value_invalid` skip, never a failure.
+ */
+export type AssertionValue = string | number | null;
+
+/**
+ * One response assertion, as the origin stores and forwards it.
+ *
+ * `assertions.ts` reads these types through `import type`, which erases at
+ * compile time. Never export a VALUE from here for the evaluator to import: this
+ * module imports the evaluator, so a value import would close a runtime cycle.
+ */
+export type AssertionRule = {
+    target: AssertionTarget;
+    operator: AssertionOperator;
+
+    /** See {@link AssertionValue}; absent for `exists` and `not_exists`. */
+    value?: AssertionValue;
+
+    /**
+     * The response header to read, required when and only when `target` is
+     * `header`.
+     *
+     * Optional here rather than modelled as a discriminated union on `target`,
+     * following {@link AuthConfig}: the pairing is enforced where the rule is
+     * written, and a type that forbids the broken shape would make the runtime
+     * guard against it look dead while the wire still carries it. A `header` rule
+     * without a name is a `header_name_missing` skip.
+     */
+    name?: string | null;
+};
+
+/**
+ * The value the probe actually measured, recorded on the outcome.
+ *
+ * Bounded for the two text targets, and that bound is not cosmetic. This rides
+ * inside `assertion_results`, which reaches the persisting job through
+ * `CheckResult::toArray()` and therefore through the Redis `processing` queue.
+ * `content` is excluded from that array precisely so a 1 MB page never enters
+ * Redis, where queue keys carry no TTL and the `volatile-lru` eviction victims
+ * are the persistence locks. Recording a whole body as the observed value would
+ * reintroduce that through the back door, so the evaluator records a short
+ * excerpt (256 characters) and never more; the constant belongs with the
+ * evaluator.
+ *
+ * Null when there was nothing to measure: a header the response did not carry, or
+ * a rule skipped before it read anything.
+ */
+export type AssertionObserved = string | number | null;
+
+/**
+ * Why a rule was not evaluated, as a closed set.
+ *
+ * Closed and not an open string on purpose: the save-time validator rejects most
+ * of these before they can be stored, and a fixed set is what lets the two sides
+ * agree on which cases remain reachable at all (a rule saved before the validator
+ * existed, and an origin that has learned a target or operator this build has
+ * not). An open string would make that agreement unverifiable, and a reason no
+ * consumer can branch on is a log line, not a record.
+ *
+ * Every one of these is a fault in OUR configuration or OUR build, so none of
+ * them may become a verdict about the target. A probe is a measurement: failing
+ * the check on a malformed rule reports the customer's service as broken when the
+ * rule is what is broken, which is the same reasoning `probe_refused` carries.
+ */
+export type AssertionSkipReason =
+    /** The array element was not a rule object, or `target`/`operator` was not a string. */
+    | "rule_malformed"
+
+    /** The rule names a target this build does not implement. */
+    | "unknown_target"
+
+    /** The rule names an operator this build does not implement. */
+    | "unknown_operator"
+
+    /**
+     * The operator needs a value and none arrived, or the value is not a kind the
+     * target can be compared against.
+     */
+    | "value_invalid"
+
+    /** A `header` rule arrived without a `name`. */
+    | "header_name_missing"
+
+    /**
+     * The response carried no such header, and the operator cannot be answered
+     * from a value that does not exist.
+     *
+     * This covers the NEGATED comparisons only. "Does not contain error" over a
+     * header that was never sent is vacuously true, and certifying what was never
+     * measured is a trap this repository has already paid for once. The positive
+     * comparisons (`equals`, `contains`, `greater_than`, `less_than`,
+     * `matches_regex`) FAIL instead, because the asserted content is demonstrably
+     * not there and that is a measurement of the target, not of us; a header that
+     * vanished is exactly what the operator wrote the rule to catch. Presence
+     * itself is what `exists` / `not_exists` measure, so those two never skip.
+     */
+    | "header_absent"
+
+    /** The pattern did not compile in this runtime. */
+    | "regex_invalid"
+
+    /**
+     * The body exceeded the evaluation ceiling, so the only evidence available is
+     * a prefix.
+     *
+     * A comparison over a prefix can be wrong in both directions (a match past the
+     * cut reads as a non-match), and an unbounded body is where a stored pattern
+     * becomes a ReDoS, so the rule is not run at all rather than run on part of
+     * the evidence.
+     */
+    | "body_too_large";
+
+/**
+ * What happened to one rule.
+ *
+ * A discriminated union rather than a flat shape with a nullable reason: the flat
+ * shape admits a failure carrying a skip reason and a skip carrying none, and
+ * neither of those means anything. Here the reason exists exactly where it
+ * applies, and is absent from the encoded outcome otherwise.
+ *
+ * `rule` echoes the rule verbatim so a stored outcome explains itself without a
+ * join against a monitor that may have been edited since. It is null only for
+ * `rule_malformed`, where there was no rule to echo.
+ *
+ * Read this by field and never by serialized form. It lands in a `jsonb` column,
+ * where PostgreSQL preserves neither object key order nor duplicate keys, so a
+ * hash or a string comparison over the encoded outcome is unstable by
+ * construction and would pass on SQLite and fail on PostgreSQL. Array order IS
+ * preserved, which is why a rule's position in {@link AssertionReport.results} is
+ * its identity and no index is stored beside it.
+ */
+export type AssertionOutcome =
+    | {
+        verdict: "passed" | "failed";
+        rule: AssertionRule;
+        observed: AssertionObserved;
+    }
+    | {
+        verdict: "skipped";
+        rule: AssertionRule | null;
+        observed: AssertionObserved;
+        reason: AssertionSkipReason;
+    };
+
+/**
+ * The result of evaluating a non-empty rule set.
+ *
+ * It exists only when at least one rule was configured; no rules yields null on
+ * {@link CheckResultPayload.assertions} rather than an empty report, so `results`
+ * is never empty. That invariant is documented rather than typed as
+ * `[AssertionOutcome, ...AssertionOutcome[]]`, because TypeScript does not narrow
+ * an array to a non-empty tuple from a length check and the evaluator would need
+ * a cast to satisfy it, which costs more than the guarantee is worth.
+ *
+ * `passed` is decided HERE and never re-derived at the origin. All rules must pass
+ * (the norm in every product surveyed) and a skipped rule is not a failure, so
+ * re-deriving the verdict from `results` would mean a second implementation of
+ * both of those rules in another language. A report whose every outcome is
+ * `skipped` therefore carries `passed: true`: nothing was measured, so nothing
+ * failed.
+ *
+ * `passed: false` implies the reading is `down`. The reverse does not hold: an
+ * unexpected status code or an unreachable target is `down` with every assertion
+ * passing.
+ */
+export type AssertionReport = {
+    passed: boolean;
+    results: AssertionOutcome[];
 };
 
 /**
@@ -317,6 +604,11 @@ async function executeProbe(
                 content: null,
                 content_type: null,
                 content_truncated: false,
+                // A probe that never got a response read nothing to assert
+                // against, so no rule was evaluated. Reporting a failed
+                // assertion here would blame the rules for a connection that
+                // never happened.
+                assertions: null,
             },
             colo: "unknown",
         };
@@ -361,7 +653,24 @@ async function probeHttp(
         download_ms: downloadEnd - ttfbAt,
     };
 
-    const status = determineStatus(response.status, probe.expected_status_code);
+    const responseMs = downloadEnd - start;
+    const responseHeaders = extractHeaders(response.headers);
+
+    // 4. Evaluate the monitor's own rules against this reading, and let a failed
+    //    one set the verdict DOWN (D1). It COMPOSES with the status
+    //    classification rather than replacing it: an unexpected code is already
+    //    down, and a passing rule never upgrades a down to an up. A refused probe
+    //    never reaches here at all, so an edge refusal stays a non-verdict.
+    const subject: AssertionSubject = {
+        statusCode: response.status,
+        responseTimeMs: responseMs,
+        headers: responseHeaders,
+        body: body.assertable,
+    };
+    const assertions = evaluateAssertions(probe.assertion_rules, subject);
+    const status = assertions?.passed === false
+        ? "down"
+        : determineStatus(response.status, probe.expected_status_code);
 
     return {
         result: {
@@ -371,16 +680,17 @@ async function probeHttp(
             checked_at: checkedAt,
             status,
             status_code: response.status,
-            response_ms: downloadEnd - start,
+            response_ms: responseMs,
             error_message: null,
             timing,
-            response_headers: extractHeaders(response.headers),
+            response_headers: responseHeaders,
             response_body_preview: body.preview,
             colo,
             probe_refused: false,
             content: body.content,
             content_type: response.headers.get("content-type"),
             content_truncated: body.truncated,
+            assertions,
         },
         colo,
     };
@@ -446,10 +756,12 @@ async function probeTcp(
             colo,
             probe_refused: false,
             // A TCP probe sends no request and reads no body: reaching `opened`
-            // IS the health signal, so there is nothing to archive.
+            // IS the health signal, so there is nothing to archive, and no
+            // status code, header or body for a rule to be evaluated against.
             content: null,
             content_type: null,
             content_truncated: false,
+            assertions: null,
         },
         colo,
     };
@@ -521,6 +833,27 @@ type BodyRead = {
 
     /** True when bytes past the content ceiling were discarded. */
     truncated: boolean;
+
+    /**
+     * The body an assertion is evaluated against, and whether it is a prefix of
+     * what the target served.
+     *
+     * A THIRD view of the same single read rather than a duplicate of the other
+     * two, because neither of them can answer the evaluator honestly. `content`
+     * is null whenever the response's content type is off the spec's allowlist,
+     * which would leave a body rule comparing against nothing and reporting a
+     * healthy target as broken over OUR archive configuration. `truncated`
+     * describes the archive slice, so it is false for that same non-archivable
+     * body even though its read stopped at the preview floor, and a rule over an
+     * unflagged prefix certifies a match it saw only part of the evidence for.
+     * This pair is the fullest text the one read produced plus whether the stream
+     * actually ended, which is what {@link AssertionSubject} needs and what only
+     * this function knows.
+     */
+    assertable: {
+        text: string;
+        truncated: boolean;
+    };
 };
 
 /**
@@ -541,6 +874,12 @@ async function readBody(response: Response, probe: ProbeRequest): Promise<BodyRe
             preview: null,
             content: null,
             truncated: false,
+            // A response with no body is a COMPLETE reading of an empty body, so
+            // `exists` over it is answerably false rather than unmeasurable.
+            assertable: {
+                text: "",
+                truncated: false,
+            },
         };
     }
 
@@ -594,6 +933,13 @@ async function readBody(response: Response, probe: ProbeRequest): Promise<BodyRe
             ? decodeUtf8(merged.subarray(0, Math.min(merged.byteLength, contentCeiling)))
             : null,
         truncated: archivable && (total > contentCeiling || !ended),
+        assertable: {
+            text: decodeUtf8(merged),
+            // `ended` is set only by a read that reported done, and every path
+            // that can set it had `total` inside `readLimit`, so a stream that
+            // never ended is exactly the case where `merged` is a prefix.
+            truncated: !ended,
+        },
     };
 }
 

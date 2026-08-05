@@ -53,4 +53,14 @@ export default defineConfig({
             },
         }),
     ],
+    test: {
+        // The TCP probe's fixture, and the one thing in this suite that cannot
+        // live in a test file. `cloudflare:sockets` `connect()` has no
+        // protocol-level mock, so the probe opens a real socket and something has
+        // to be listening on the other end; only `globalSetup` runs in Node,
+        // where a listener can be created at all. See `test/global-setup.ts`.
+        globalSetup: [
+            "./test/global-setup.ts",
+        ],
+    },
 });
