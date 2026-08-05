@@ -83,7 +83,15 @@ class EscalationPolicy extends Model
   /// `position`/`delay_minutes`/`target_*` field mapping for the whole domain.
   static EscalationStepWire _stepFromWire(Map<String, dynamic> m) {
     return EscalationStepWire(
-      id: m['id'] as String,
+      // The one field here that used to be an unguarded cast, while
+      // `position`/`delay_minutes`/`target_type`/`target_id` all carried a
+      // fallback. A backend that omits it (or sends null) threw and took the
+      // whole policy decode with it, so one odd step blanked the editor rather
+      // than degrading. Null, not `''`: the editor's save-diff branches on a
+      // null id to mean "create this step", while an empty string would look
+      // like an existing step and send a reorder naming a step that is not
+      // there.
+      id: m['id'] as String?,
       position: (m['position'] as num?)?.toInt() ?? 0,
       delayMinutes: (m['delay_minutes'] as num?)?.toInt() ?? 0,
       targetType: (m['target_type'] as String?) ?? 'on_call',
