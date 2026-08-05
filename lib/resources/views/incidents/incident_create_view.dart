@@ -12,6 +12,7 @@ import '../../../app/enums/ai_confidence.dart' show AiConfidence;
 import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
+import '../../../app/support/submits_once.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 
@@ -93,7 +94,8 @@ class IncidentCreateView extends MagicStatefulView<IncidentController> {
 }
 
 class _IncidentCreateViewState
-    extends MagicStatefulViewState<IncidentController, IncidentCreateView> {
+    extends MagicStatefulViewState<IncidentController, IncidentCreateView>
+    with SubmitsOnce<IncidentCreateView> {
   /// The route cancel returns to, and the back-affordance fallback.
   ///
   /// Both write paths navigate there from their own controller on success, so
@@ -774,7 +776,11 @@ class _IncidentCreateViewState
           child: WText(trans('uptizm.incidents.cancel')),
         ),
         MSButton(
-          onPressed: _onSubmit,
+          // `isLoading` is the guard, not just the spinner: WButton drops its
+          // onTap while loading, so the second tap of a double tap cannot open a
+          // second incident (and page the on-call for it).
+          isLoading: isSubmitting,
+          onPressed: () => submitOnce(_onSubmit),
           child: WText(
             _isMaintenance
                 ? trans('uptizm.incidents.submit_schedule')

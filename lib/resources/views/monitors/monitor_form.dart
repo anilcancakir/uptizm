@@ -8,6 +8,7 @@ import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../app/models/escalation_policy.dart';
+import '../../../app/support/submits_once.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 
@@ -183,7 +184,8 @@ class MonitorForm extends StatefulWidget {
   State<MonitorForm> createState() => _MonitorFormState();
 }
 
-class _MonitorFormState extends State<MonitorForm> {
+class _MonitorFormState extends State<MonitorForm>
+    with SubmitsOnce<MonitorForm> {
   /// Monitor name (React `name`).
   late String _name;
 
@@ -915,7 +917,14 @@ class _MonitorFormState extends State<MonitorForm> {
           onPressed: widget.onCancel,
           child: WText(trans('uptizm.monitors.form_cancel')),
         ),
-        MSButton(onPressed: _submitIfValid, child: WText(widget.submitLabel)),
+        // `isLoading` is the guard, not just the spinner: WButton drops its
+        // onTap while loading, so a double tap on Create cannot create two
+        // monitors (each counting against the plan limit).
+        MSButton(
+          isLoading: isSubmitting,
+          onPressed: () => submitOnce(_submitIfValid),
+          child: WText(widget.submitLabel),
+        ),
       ],
     );
   }

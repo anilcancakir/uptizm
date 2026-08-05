@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -264,6 +266,63 @@ void main() {
       await tester.pump();
 
       expect(submitted, isTrue, reason: 'A valid host:port target must submit');
+    });
+
+    testWidgets('a double tap submits once, not twice', (tester) async {
+      // The regression this pins: the submit handler is async and was wired
+      // straight to the button, so nothing stopped a second tap during the
+      // await. On create that is not idempotent: two taps made two monitors,
+      // each counting against the plan limit. A double tap costs nothing on web.
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      var submits = 0;
+      final Completer<void> inFlight = Completer<void>();
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            initialName: 'Primary database',
+            initialType: 'tcp',
+            initialUrl: 'db.example.com:5432',
+            onSubmit: (_) async {
+              submits++;
+              // Hold the write open so the second tap lands mid-flight, which is
+              // the only window the bug lived in.
+              await inFlight.future;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder label = find.text(
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(label);
+      await tester.tap(label);
+      await tester.pump();
+
+      // The label is gone mid-flight because WButton swaps its child for the
+      // loading content, which is the same switch that drops its onTap. So the
+      // second tap has to go through the button widget rather than its text.
+      expect(
+        label,
+        findsNothing,
+        reason: 'the in-flight button shows its loading content, not the label',
+      );
+
+      await tester.tap(find.byType(MSButton).last, warnIfMissed: false);
+      await tester.pump();
+
+      expect(submits, 1, reason: 'the second tap must be dropped');
+
+      inFlight.complete();
+      await tester.pumpAndSettle();
+
+      expect(submits, 1, reason: 'and it must not fire once the first resolves');
     });
 
     testWidgets('advanced section is hidden by default', (tester) async {

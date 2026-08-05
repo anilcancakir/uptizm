@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'status_form_support.dart';
 import '../../../app/support/refetches_on_mount.dart';
+import '../../../app/support/submits_once.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
@@ -88,7 +89,9 @@ class StatusPageEditorView extends MagicStatefulView<StatusPageController> {
 
 class _StatusPageEditorViewState
     extends MagicStatefulViewState<StatusPageController, StatusPageEditorView>
-    with RefetchesOnMount<StatusPageController, StatusPageEditorView> {
+    with
+        RefetchesOnMount<StatusPageController, StatusPageEditorView>,
+        SubmitsOnce<StatusPageEditorView> {
   /// The route both Save/Create and the breadcrumb return to.
   static const String _listRoute = '/status';
 
@@ -672,7 +675,11 @@ class _StatusPageEditorViewState
         child: WText(trans('uptizm.status.editor_form_view_public_page')),
       ),
       MSButton(
-        onPressed: _save,
+        // `isLoading` is the guard, not just the spinner: WButton drops its
+        // onTap while loading, so a double tap on Create cannot create two
+        // status pages (each counting against the plan limit).
+        isLoading: isSubmitting,
+        onPressed: () => submitOnce(_save),
         child: WText(
           _isEdit
               ? trans('uptizm.status.editor_form_save')
