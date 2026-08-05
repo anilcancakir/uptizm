@@ -9,6 +9,7 @@ use App\Enums\MonitorType;
 use App\Filament\Resources\Monitors\Pages\EditMonitor;
 use App\Models\Monitor;
 use App\Models\Team;
+use App\Support\Monitoring\AssertionRuleSet;
 use Closure;
 use Filament\Forms\Components\CodeEditor;
 use Filament\Forms\Components\CodeEditor\Enums\Language;
@@ -18,6 +19,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 
 /**
@@ -183,25 +185,47 @@ class MonitorForm
                             ->keyLabel('Header')
                             ->valueLabel('Value'),
                         /*
-                         * `assertion_rules` has no shape defined anywhere in this
-                         * codebase: `RelayClient.php:111` forwards it verbatim and the
-                         * edge worker types it `unknown`. So this is a raw JSON editor
-                         * rather than a Repeater over an invented schema, and the two
-                         * closures below are the load-bearing part. A CodeEditor's state
-                         * is a STRING; handing that string to an `array`-cast column
-                         * would store a JSON-encoded string that reads back as a string
-                         * and breaks the spec sent to the edge. So the array is encoded
-                         * on the way into the editor and decoded on the way back to the
-                         * column, and the rule refuses anything that does not decode to
-                         * an array (a bare
-                         * `5` is valid JSON and would corrupt the column the same way).
-                         * Pinned by the round-trip case in
+                         * `RelayClient.php:115` forwards this column verbatim, so the
+                         * shape lives at the edge: the `AssertionTarget` /
+                         * `AssertionOperator` unions in
+                         * `backend/workers/regional-checker/src/regional-probe.ts`, whose
+                         * PHP mirror is {@see AssertionRuleSet}. A Repeater over that
+                         * shape is possible now and deliberately not built: the panel is
+                         * a staff tool where a rule set is pasted whole, and the screen
+                         * in the rule below is what makes a raw editor safe.
+                         *
+                         * The two state closures are the other load-bearing part. A
+                         * CodeEditor's state is a STRING; handing that string to an
+                         * `array`-cast column would store a JSON-encoded string that
+                         * reads back as a string and breaks the spec sent to the edge. So
+                         * the array is encoded on the way into the editor and decoded on
+                         * the way back to the column. Pinned by the round-trip case in
                          * `tests/Feature/Admin/MonitorResourceTest.php`.
                          */
                         CodeEditor::make('assertion_rules')
                             ->label('Assertion rules (JSON)')
                             ->language(Language::Json)
-                            ->helperText('Stored as JSONB and forwarded to the probe verbatim.')
+                            /*
+                             * HTTP only, because every target is a property of an HTTP
+                             * response. `probeTcp` returns `assertions: null` and has
+                             * nothing to evaluate, so a rule set saved on a TCP monitor is
+                             * a permanent silent no-op that records NULL with no skip
+                             * reason: indistinguishable from a monitor that asserts
+                             * nothing. Hiding the field is what stops that from being
+                             * reachable at all, since validation alone would still accept a
+                             * perfectly well-formed rule that can never run.
+                             *
+                             * A monitor switched from HTTP to TCP keeps whatever it stored
+                             * and can no longer see it. That is a smaller wrong than a
+                             * verdict nobody measured, and the honest fix is a type-aware
+                             * clear on save, which is a follow-up rather than a hidden
+                             * field's business.
+                             */
+                            ->visible(fn (Get $get): bool => $get('type') === MonitorType::Http->value
+                                || $get('type') === MonitorType::Http)
+                            ->helperText('A JSON array of rules, each with a target, an operator and a value'
+                                .' (a header rule adds a name). HTTP monitors only; forwarded to the probe'
+                                .' verbatim.')
                             ->formatStateUsing(fn (mixed $state): ?string => is_array($state)
                                 ? json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
                                 : null)
@@ -214,8 +238,29 @@ class MonitorForm
                                         return;
                                     }
 
-                                    if (! is_array(json_decode((string) $value, true))) {
-                                        $fail('The :attribute must be a JSON object or array.');
+                                    $decoded = json_decode((string) $value, true);
+
+                                    /*
+                                     * A syntax error is reported apart from a shape
+                                     * problem, and before it: "line 3 is missing a comma"
+                                     * and "rule 3 names an unknown operator" are
+                                     * different edits, and an operator handed the second
+                                     * when the first is true looks in the wrong place.
+                                     * `json_last_error()` rather than
+                                     * JSON_THROW_ON_ERROR, so nothing here throws to
+                                     * describe an input.
+                                     */
+                                    if (json_last_error() !== JSON_ERROR_NONE) {
+                                        $fail('The :attribute is not valid JSON: '.json_last_error_msg().'.');
+
+                                        return;
+                                    }
+
+                                    // One message per offending rule, each naming its own
+                                    // index: this editor shows a JSON array, and an index
+                                    // is the only thing an operator can navigate by.
+                                    foreach (AssertionRuleSet::problems($decoded) as $problem) {
+                                        $fail($problem);
                                     }
                                 },
                             ]),

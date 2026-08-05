@@ -130,7 +130,86 @@ readonly class CheckResult
          * what the target actually served rather than the whole of it.
          */
         public bool $contentTruncated = false,
+
+        /**
+         * The edge's assertion report, or null when the monitor asserted nothing.
+         *
+         * Shaped `['passed' => bool, 'results' => list<array>]`, mirroring the
+         * worker's `CheckResultPayload.assertions`. ONE nullable field rather than
+         * a `passed` boolean beside a `results` array, and the nesting is
+         * load-bearing for the same reason it is on the wire: two nullable fields
+         * make four states representable and two of them are contradictions, a
+         * verdict with no results and results with no verdict, each landing as one
+         * populated column beside one NULL with nothing to say which lied.
+         *
+         * `passed` is decided at the EDGE and is never re-derived here.
+         * All-rules-must-pass and skipped-is-not-a-failure are implemented in
+         * `workers/regional-checker/src/assertions.ts`; re-deriving the verdict
+         * from `results` in PHP would be a second implementation of both rules in
+         * another language, and the two would drift.
+         *
+         * This one DOES travel through {@see toArray()} and therefore through the
+         * Redis `processing` queue, unlike {@see $content}. That is affordable
+         * because BOTH halves of an outcome are bounded, and it takes both: the
+         * edge cuts every recorded `observed` value to 256 characters, and
+         * {@see AssertionRuleSet} refuses at save time a rule over
+         * `RULE_MAX_BYTES` (4096) or a set over `RULES_MAX_COUNT` (20). So a
+         * report is at worst 20 × (4 KB of echoed rule + 1 KB of observed
+         * excerpt), which is ~100 KB, against the megabyte a page body would be.
+         *
+         * The observed cap alone would not do it, and reading it as sufficient was
+         * a real error in an earlier version of this docblock: every outcome also
+         * echoes the RULE verbatim, so an uncapped `body contains` needle is
+         * whatever an operator pasted, on every check, from every region. That the
+         * rule bound lives at save time rather than at the edge is safe for one
+         * documented reason: the staff Filament panel is the only writer, no API
+         * `FormRequest` names `assertion_rules`, and widening that surface has to
+         * carry the screen with it (see {@see AssertionRuleSet}'s own docblock).
+         *
+         * @var array{passed: bool, results: list<array<string, mixed>>}|null
+         */
+        public ?array $assertions = null,
     ) {}
+
+    /**
+     * Read the assertion report out of a worker payload, or null.
+     *
+     * The shape is validated HERE, at the boundary where untrusted data enters,
+     * for the same reason `content_type` is cut to its column width here: the row
+     * write happens inside {@see CheckPersistenceService}'s transaction, so a
+     * throw down there loses the whole check row, and monitoring must never
+     * degrade to protect a secondary field. A payload whose `assertions` is
+     * present but not a `{passed, results}` pair is therefore treated as no
+     * report at all rather than half-stored.
+     *
+     * Absent-tolerant like `colo` and `exit_via`: a payload replayed from before
+     * this field existed must still parse.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{passed: bool, results: list<array<string, mixed>>}|null
+     */
+    private static function assertionsFrom(array $payload): ?array
+    {
+        $assertions = $payload['assertions'] ?? null;
+
+        // `passed` must be a REAL boolean, not merely present. A `(bool)` cast over
+        // untrusted input reads the string "false" as true and null as false, so a
+        // payload from a build that shipped the field wrong would persist a verdict
+        // nobody measured, in whichever direction the cast happened to land. `results`
+        // must be a list for the same reason: an object there means the edge sent a
+        // shape this build does not understand, and a report is only usable whole.
+        if (! is_array($assertions)
+            || ! is_bool($assertions['passed'] ?? null)
+            || ! is_array($assertions['results'] ?? null)
+            || ! array_is_list($assertions['results'])) {
+            return null;
+        }
+
+        return [
+            'passed' => $assertions['passed'],
+            'results' => $assertions['results'],
+        ];
+    }
 
     /**
      * Build a CheckResult from the JSON payload returned by the worker.
@@ -182,6 +261,7 @@ readonly class CheckResult
                 ? mb_substr((string) $payload['content_type'], 0, self::CONTENT_TYPE_MAX_LENGTH)
                 : null,
             contentTruncated: (bool) ($payload['content_truncated'] ?? false),
+            assertions: self::assertionsFrom($payload),
         );
     }
 
@@ -229,6 +309,11 @@ readonly class CheckResult
             'probe_refused' => $this->probeRefused,
             'content_type' => $this->contentType,
             'content_truncated' => $this->contentTruncated,
+            // Present, unlike `content` above, and see {@see $assertions} for why
+            // the queue can afford it: the edge bounds each recorded `observed`
+            // value and `AssertionRuleSet` bounds the rules being echoed beside
+            // them, which together put a report in the tens of kilobytes.
+            'assertions' => $this->assertions,
         ];
     }
 }

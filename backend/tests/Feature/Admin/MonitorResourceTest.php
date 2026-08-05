@@ -186,9 +186,17 @@ class MonitorResourceTest extends TestCase
          * covers the "column the form never mentions" case.
          */
         $headers = ['X-Trace' => 'on'];
+        /*
+         * The rule is in the edge's own vocabulary (`target`/`operator`/`value`)
+         * and no longer the `field`/`eq` spelling these fixtures carried while no
+         * shape was defined anywhere. `App\Support\Monitoring\AssertionRuleSet`
+         * refuses that spelling at save time now, and a fixture in it would fail
+         * validation on its way back out of the code editor: this test would then
+         * be asserting the error path rather than the round trip it is named for.
+         */
         $assertions = [
             [
-                'field' => 'body',
+                'target' => 'body',
                 'operator' => 'contains',
                 'value' => 'ok',
             ],
@@ -242,11 +250,13 @@ class MonitorResourceTest extends TestCase
                     'Accept' => 'application/json',
                 ],
                 // A CodeEditor's state is a raw string; the form's dehydrate
-                // closure is what turns it back into an array.
+                // closure is what turns it back into an array. The rule is in the
+                // edge's vocabulary because the save-time screen now requires it;
+                // see the round-trip test above.
                 'assertion_rules' => json_encode([
                     [
-                        'field' => 'status_code',
-                        'operator' => 'eq',
+                        'target' => 'status_code',
+                        'operator' => 'equals',
                         'value' => 204,
                     ],
                 ]),
@@ -266,7 +276,7 @@ class MonitorResourceTest extends TestCase
         // detail that is not a contract and reddens only on the engine production runs.
         $this->assertEquals(['X-Api-Version' => '2', 'Accept' => 'application/json'], $fresh->request_headers);
         $this->assertEquals(
-            [['field' => 'status_code', 'operator' => 'eq', 'value' => 204]],
+            [['target' => 'status_code', 'operator' => 'equals', 'value' => 204]],
             $fresh->assertion_rules,
         );
         $this->assertSame([MonitorRegion::EUWest->value, MonitorRegion::AP->value], $fresh->regions);
@@ -287,7 +297,7 @@ class MonitorResourceTest extends TestCase
          * that `RelayClient` forwards to the edge as a scalar. Neither may reach
          * the column, and the original value must still be there afterwards.
          */
-        $original = [['field' => 'body', 'operator' => 'contains', 'value' => 'ok']];
+        $original = [['target' => 'body', 'operator' => 'contains', 'value' => 'ok']];
 
         $monitor = $this->makeMonitor($this->makeTeam('Bad Json'), [
             'assertion_rules' => $original,
@@ -301,6 +311,98 @@ class MonitorResourceTest extends TestCase
 
             $this->assertEquals($original, $monitor->fresh()->assertion_rules);
         }
+    }
+
+    public function test_a_tcp_monitor_is_never_offered_the_assertion_field(): void
+    {
+        /*
+         * Every assertion target is a property of an HTTP response, and `probeTcp`
+         * returns `assertions: null` with nothing to evaluate. So a well-formed rule
+         * set saved on a TCP monitor passes validation and then never runs: it
+         * records NULL with no skip reason, which is indistinguishable from a
+         * monitor that asserts nothing. Validation cannot catch that, because the
+         * rule is not malformed; only not offering the field can.
+         *
+         * Both directions are asserted, so a gate that hides the field from
+         * everyone would fail here rather than read as a pass.
+         */
+        $team = $this->makeTeam('Assertion Visibility');
+
+        Livewire::test(EditMonitor::class, [
+            'record' => $this->makeMonitor($team, [
+                'type' => MonitorType::Tcp,
+                'url' => 'db.example.com:5432',
+            ])->getKey(),
+        ])->assertFormFieldIsHidden('assertion_rules');
+
+        Livewire::test(EditMonitor::class, [
+            'record' => $this->makeMonitor($team, [
+                'type' => MonitorType::Http,
+            ])->getKey(),
+        ])->assertFormFieldIsVisible('assertion_rules');
+    }
+
+    public function test_a_rule_the_edge_could_only_skip_is_refused_and_names_its_index(): void
+    {
+        /*
+         * This form is the whole of the save-time half of D5. The edge SKIPS a
+         * rule it cannot evaluate and records why, which is right there and is
+         * exactly why a typo is silent: the operator wrote the rule to break a
+         * silence and gets a different one back. So the refusal is asserted here,
+         * and so is the MESSAGE, because "invalid assertion rules" is unactionable
+         * for someone editing a JSON array by hand.
+         *
+         * The nested-quantifier pattern is the case with a second reason: it is
+         * operator-supplied, stored, and executed by a backtracking engine on a
+         * runtime with a CPU budget, and there is no RE2 at that edge.
+         */
+        $original = [['target' => 'body', 'operator' => 'contains', 'value' => 'ok']];
+
+        $monitor = $this->makeMonitor($this->makeTeam('Assertion Screen'), [
+            'assertion_rules' => $original,
+        ]);
+
+        $component = Livewire::test(EditMonitor::class, ['record' => $monitor->getKey()])
+            ->fillForm([
+                'assertion_rules' => json_encode([
+                    ['target' => 'status_code', 'operator' => 'equals', 'value' => 200],
+                    ['target' => 'body', 'operator' => 'matches_regex', 'value' => '^(a+)+$'],
+                ]),
+            ])
+            ->call('save')
+            ->assertHasFormErrors(['assertion_rules']);
+
+        $messages = $component->instance()->getErrorBag()->get('data.assertion_rules');
+
+        $this->assertNotEmpty($messages);
+        // The index, so the operator knows WHICH of the two rules to edit, and
+        // the reason, so they know what to do to it.
+        $this->assertStringContainsString('index 1', $messages[0]);
+        $this->assertStringContainsString('nested quantifier', $messages[0]);
+        // The field's label and not `data.assertion_rules`: the `:attribute`
+        // placeholder every message carries is what makes it readable in a panel.
+        // Lowercased, because that is what Laravel's `getDisplayableAttribute()`
+        // does with it.
+        $this->assertStringContainsString('assertion rules (JSON)', $messages[0]);
+
+        $this->assertEquals($original, $monitor->fresh()->assertion_rules);
+
+        // The other direction, and the control on all of the above: the same
+        // regex operator with an ordinary pattern reaches the column, which is
+        // what `RelayClient::buildSpec()` forwards to the edge verbatim.
+        $accepted = [
+            ['target' => 'status_code', 'operator' => 'equals', 'value' => 200],
+            ['target' => 'body', 'operator' => 'matches_regex', 'value' => '"status"\s*:\s*"(up|ok)"'],
+            ['target' => 'header', 'operator' => 'contains', 'value' => 'json', 'name' => 'Content-Type'],
+        ];
+
+        Livewire::test(EditMonitor::class, ['record' => $monitor->getKey()])
+            ->fillForm(['assertion_rules' => json_encode($accepted)])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $this->assertEquals($accepted, $monitor->fresh()->assertion_rules);
+        $this->assertStoredAsJsonArray($monitor->fresh(), ['assertion_rules']);
     }
 
     public function test_the_decrypted_credential_never_reaches_the_form_state_or_the_rendered_page(): void
