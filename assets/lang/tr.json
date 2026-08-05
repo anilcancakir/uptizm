@@ -704,7 +704,8 @@
       "metrics_unit_minute": "Dakika",
       "metrics_unit_hour": "Saat",
       "metrics_unit_ratio": "Oran",
-      "metrics_unit_count_short": "Sayı (kısa)"
+      "metrics_unit_count_short": "Sayı (kısa)",
+      "metrics_reading_stale": "Yeni veri yok"
     },
     "status": {
       "up": "Çalışıyor",

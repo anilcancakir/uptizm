@@ -1850,12 +1850,14 @@ void main() {
       String? latestStatus,
       String? latestString,
       String? latestBand,
+      DateTime? latestRecordedAt,
     }) {
       return MonitorMetricRecord(
         id: 'm1',
         latestStatus: latestStatus,
         latestString: latestString,
         latestBand: latestBand,
+        latestRecordedAt: latestRecordedAt,
         form: MetricForm(
           label: 'Probe',
           key: 'probe',
@@ -1983,6 +1985,76 @@ void main() {
           ),
           matching: find.byType(StatusDot),
         ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a reading that stopped arriving loses its band and says so', (
+      tester,
+    ) async {
+      // The quiet failure this closes: rename the key a rule extracts in a
+      // monitored deploy and no new value is recorded, so the row kept showing
+      // the last good value with its last good GREEN band indefinitely. Nothing
+      // on screen was a wrong value, which is what made it invisible.
+      //
+      // The seeded monitor checks every 30s, so an hour-old reading is far past
+      // the two-interval window.
+      await pumpWith(tester, [
+        record(
+          type: 'string',
+          latestString: 'ok',
+          latestBand: 'ok',
+          latestRecordedAt: DateTime.now().subtract(const Duration(hours: 1)),
+        ),
+      ]);
+
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('ok'),
+            matching: find.byType(WAnchor),
+          ),
+          matching: find.byType(StatusDot),
+        ),
+        findsNothing,
+        reason: 'a band frozen an hour ago is not the metric current verdict',
+      );
+      expect(
+        find.text(trans('uptizm.monitors.metrics_reading_stale')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('ok'),
+        findsOneWidget,
+        reason: 'the last known reading stays visible; it is still information',
+      );
+    });
+
+    testWidgets('a fresh reading keeps its band and carries no stale label', (
+      tester,
+    ) async {
+      await pumpWith(tester, [
+        record(
+          type: 'string',
+          latestString: 'degraded',
+          latestBand: 'warn',
+          latestRecordedAt: DateTime.now().subtract(const Duration(seconds: 5)),
+        ),
+      ]);
+
+      final StatusDot dot = tester.widget<StatusDot>(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('degraded'),
+            matching: find.byType(WAnchor),
+          ),
+          matching: find.byType(StatusDot),
+        ),
+      );
+
+      expect(dot.status, equals(StatusKey.degraded));
+      expect(
+        find.text(trans('uptizm.monitors.metrics_reading_stale')),
         findsNothing,
       );
     });

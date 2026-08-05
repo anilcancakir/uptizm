@@ -658,4 +658,56 @@ void main() {
       fake.assertNothingSent();
     });
   });
+
+  group('MonitorMetricRecord.fromMap recorded_at', () {
+    test('decodes an ISO-8601 string', () {
+      final MonitorMetricRecord record = MonitorMetricRecord.fromMap(const {
+        'id': 'm1',
+        'label': 'Redis state',
+        'key': 'redis',
+        'type': 'string',
+        'latest': {'string_value': 'ok', 'recorded_at': '2026-08-05T12:00:00+00:00'},
+      });
+
+      expect(record.latestRecordedAt, DateTime.parse('2026-08-05T12:00:00Z'));
+    });
+
+    test('a non-string recorded_at degrades to null instead of throwing', () {
+      // `as String?` would throw a CastError here, and a decoder that crashes on
+      // one malformed field shows the operator nothing at all rather than a
+      // reading it cannot date.
+      expect(
+        () => MonitorMetricRecord.fromMap(const {
+          'id': 'm1',
+          'label': 'Redis state',
+          'key': 'redis',
+          'type': 'string',
+          'latest': {'string_value': 'ok', 'recorded_at': 1785880108},
+        }),
+        returnsNormally,
+      );
+
+      final MonitorMetricRecord record = MonitorMetricRecord.fromMap(const {
+        'id': 'm1',
+        'label': 'Redis state',
+        'key': 'redis',
+        'type': 'string',
+        'latest': {'string_value': 'ok', 'recorded_at': 1785880108},
+      });
+
+      expect(record.latestRecordedAt, isNull);
+      expect(record.latestString, 'ok', reason: 'the rest of the reading survives');
+    });
+
+    test('an absent latest block leaves it null', () {
+      final MonitorMetricRecord record = MonitorMetricRecord.fromMap(const {
+        'id': 'm1',
+        'label': 'Redis state',
+        'key': 'redis',
+        'type': 'string',
+      });
+
+      expect(record.latestRecordedAt, isNull);
+    });
+  });
 }

@@ -102,6 +102,14 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     if (mounted) setState(() {});
   }
 
+  /// The interval this monitor checks on, which is the honest bound for calling a
+  /// reading stale: a monitor that checks every 30s and has said nothing for ten
+  /// minutes is not reporting. Zero when the monitor is not in the inventory yet,
+  /// and [isReadingStale] treats that as "do not guess".
+  int get _checkIntervalSec =>
+      MonitorController.instance.monitorById(widget.monitorId)?.checkIntervalSec ??
+      0;
+
   /// Read-only system metrics: a single "response time" row derived from the
   /// live [MonitorController] inventory, absent when that monitor has no
   /// recorded response time yet (paused, or no check has completed).
@@ -383,20 +391,34 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       _ => latest == null ? _noReading : fmt(latest, metric.unit),
     };
 
+    // A reading that stopped arriving is not the metric's current state. Rename
+    // the key a rule extracts in a monitored deploy and no new value is recorded,
+    // so this row used to show the last good value with its last good band
+    // forever: "94ms, green" for something nobody had measured in a week. The
+    // value stays on screen, because the last known reading is still information,
+    // but it is labelled and its band is dropped.
+    final bool isStale = isReadingStale(
+      record.latestRecordedAt,
+      checkIntervalSec: _checkIntervalSec,
+    );
+
     // The dot reflects the band the backend froze on that reading; a metric with
-    // no reading, or no thresholds, gets no dot rather than a green one.
+    // no reading, no thresholds, or a reading gone stale gets no dot rather than
+    // a green one.
     //
     // It is NOT gated on the metric being numeric. It used to be, back when a
     // numeric bound was the only thing that could produce a band; a string
     // metric now bands by value-list membership, so gating on the type hid the
     // band on exactly the readings this feature exists to flag, and a critical
     // `exploded` rendered as unremarkable plain text.
-    final StatusKey? band = switch (record.latestBand) {
-      'critical' => StatusKey.down,
-      'warn' => StatusKey.degraded,
-      'ok' => StatusKey.up,
-      _ => null,
-    };
+    final StatusKey? band = isStale
+        ? null
+        : switch (record.latestBand) {
+            'critical' => StatusKey.down,
+            'warn' => StatusKey.degraded,
+            'ok' => StatusKey.up,
+            _ => null,
+          };
 
     // WAnchor (the app's proven clickable-row primitive, as in MonitorListRow)
     // owns the tap and gives the row real button-feel on web: it sets
@@ -418,8 +440,12 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
             children: [
               WText(metric.label, className: 'text-sm font-medium text-fg'),
               WText(
-                _keyPath(metric),
-                className: 'font-mono text-xs text-fg-muted',
+                isStale
+                    ? trans('uptizm.monitors.metrics_reading_stale')
+                    : _keyPath(metric),
+                className: isStale
+                    ? 'text-xs text-degraded'
+                    : 'font-mono text-xs text-fg-muted',
               ),
             ],
           ),
@@ -430,7 +456,9 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
               ?(band == null ? null : StatusDot(band)),
               WText(
                 valueText,
-                className: 'font-mono text-sm tabular-nums text-fg',
+                className: isStale
+                    ? 'font-mono text-sm tabular-nums text-fg-disabled'
+                    : 'font-mono text-sm tabular-nums text-fg',
               ),
             ],
           ),

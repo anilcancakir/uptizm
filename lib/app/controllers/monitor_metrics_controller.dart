@@ -113,12 +113,23 @@ class MonitorMetricRecord {
   /// `critical`), or null when the metric carries no thresholds.
   final String? latestBand;
 
+  /// When the latest reading was recorded, or null when the metric has never
+  /// recorded one.
+  ///
+  /// The backend has always sent this (`MonitorMetricResource`'s `latest.
+  /// recorded_at`) and the client used to drop it, which is what made a metric
+  /// that STOPPED reporting indistinguishable from a healthy one: rename a key in
+  /// a monitored deploy, no new row is written, and the tab keeps showing the last
+  /// good value with its last good band, forever.
+  final DateTime? latestRecordedAt;
+
   const MonitorMetricRecord({
     required this.id,
     required this.form,
     this.latestStatus,
     this.latestString,
     this.latestBand,
+    this.latestRecordedAt,
   });
 
   /// Builds a [MonitorMetricRecord] from a `MonitorMetricResource` payload
@@ -148,6 +159,14 @@ class MonitorMetricRecord {
       latestStatus: latestMap?['status_value'] as String?,
       latestString: latestMap?['string_value'] as String?,
       latestBand: latestMap?['band'] as String?,
+      // `as String?` would THROW on a payload where `recorded_at` arrives as
+      // anything else, and a decoder that crashes on a malformed field is worse
+      // than one that treats it as absent: the tab would show nothing at all
+      // rather than a reading it cannot date.
+      latestRecordedAt: switch (latestMap?['recorded_at']) {
+        final String at => DateTime.tryParse(at),
+        _ => null,
+      },
       form: MetricForm(
         label: (map['label'] as String?) ?? '',
         key: (map['key'] as String?) ?? '',
