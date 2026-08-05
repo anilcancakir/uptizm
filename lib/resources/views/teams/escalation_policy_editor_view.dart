@@ -239,7 +239,13 @@ class _EscalationPolicyEditorViewState
     ];
     _repeatLastStep = true;
     _isDefault = false;
-    _originalStepIds = existing.steps.map((s) => s.id).toSet();
+    // Only identifiable steps belong in the original-id set: it drives the
+    // delete side of the save diff, and a step the backend gave no id for
+    // cannot be deleted by id.
+    _originalStepIds = <String>{
+      for (final EscalationStepWire step in existing.steps)
+        if (step.id != null) step.id!,
+    };
   }
 
   /// Appends a fresh rung to the ladder, defaulting to the on-call rotation

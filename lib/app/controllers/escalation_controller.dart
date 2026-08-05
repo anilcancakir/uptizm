@@ -13,8 +13,14 @@ import '../support/escalation_support.dart' show EscalationTargetType;
 /// issue exactly the add/remove/reorder calls the change requires.
 @immutable
 class EscalationStepWire {
-  /// Backend step id.
-  final String id;
+  /// Backend step id, or `null` when the payload carried none.
+  ///
+  /// Nullable so a step the backend cannot identify is representable instead of
+  /// throwing: decoding it as a required `String` took the whole policy decode
+  /// down on one odd step, blanking the editor rather than degrading. A null id
+  /// lands in the editor's draft as a null too, which its save-diff already
+  /// treats as a step to create rather than one to reorder in place.
+  final String? id;
 
   /// Ascending fire order within the policy.
   final int position;

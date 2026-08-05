@@ -56,6 +56,28 @@ void main() {
       expect(policy.steps, isEmpty);
     });
 
+    test('a step with no id decodes as null instead of throwing', () {
+      // `id` used to be the only unguarded cast in this decoder, so one step
+      // without it threw and took the whole policy with it: the editor blanked
+      // instead of degrading. Null rather than '' is deliberate, because the
+      // editor's save diff reads a null id as "create this step" while an empty
+      // string would look like an existing one.
+      final policy = EscalationPolicy.fromMap({
+        'id': 'p1',
+        'name': 'Odd payload',
+        'steps': [
+          {'position': 0, 'delay_minutes': 0, 'target_type': 'on_call'},
+          {'id': 's2', 'position': 1, 'delay_minutes': 5, 'target_type': 'on_call'},
+        ],
+      });
+
+      final steps = policy.steps;
+      expect(steps.length, 2);
+      expect(steps[0].id, isNull);
+      expect(steps[0].delayMinutes, 0);
+      expect(steps[1].id, 's2');
+    });
+
     test('name is settable', () {
       final policy = EscalationPolicy.fromMap({'id': 'p1', 'name': 'Old'});
       policy.name = 'New';
