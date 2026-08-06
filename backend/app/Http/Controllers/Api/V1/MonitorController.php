@@ -287,10 +287,19 @@ class MonitorController extends Controller
      *
      * Every piece of evidence past the probe's own metadata is DERIVED from that
      * one {@see CheckResult}, never fetched again: the headers are filtered from
-     * the set it already carries, the digest is rendered from the body already in
-     * memory, and the only additional call is one DNS lookup
-     * ({@see self::targetIps()}) plus, when the target is not behind a CDN, an
-     * optional geo lookup that is dormant unless a token is configured.
+     * the set it already carries, and the digest is rendered from the body already
+     * in memory. No second probe, ever.
+     *
+     * What the request DOES spend beyond the probe, stated in full because a
+     * short version of this list was wrong: DNS is resolved TWICE, once in
+     * validation ({@see AnalyzeMonitorRequest::noInternalHost()} ->
+     * {@see HostGuard::isBlockedHost()}) and once here
+     * ({@see self::targetIps()} -> {@see HostGuard::resolvePublicHostIps()}),
+     * each of which reads A and AAAA. Nothing memoizes between them: the two
+     * answer different questions (a bool for the guard, a fail-closed address
+     * list for the evidence) and the request holds a different guard instance
+     * than this method does. On top of that, when the target is not behind a
+     * CDN, one geo lookup that stays dormant unless a token is configured.
      */
     public function analyze(
         AnalyzeMonitorRequest $request,

@@ -292,8 +292,11 @@ class AnalysisGatewayTest extends TestCase
     {
         $instructions = (string) (new LaravelAiAnalysisGateway)->instructions();
 
-        foreach (['deploys', 'git', 'logs', 'APM'] as $absent) {
-            $this->assertStringContainsString($absent, $instructions);
+        // Named for what they are in the PROMPT, not in the answer: each is a
+        // source the model may not reason from, so the instructions have to
+        // name it out loud. Absent from the output, present in the rule.
+        foreach (['deploys', 'git', 'logs', 'APM'] as $forbiddenSource) {
+            $this->assertStringContainsString($forbiddenSource, $instructions);
         }
 
         $this->assertStringContainsString('UNTRUSTED PROBE DATA', $instructions);

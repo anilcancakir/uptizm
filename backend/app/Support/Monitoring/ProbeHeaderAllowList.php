@@ -97,7 +97,13 @@ class ProbeHeaderAllowList
      * prompt consumes, case-insensitively, each surviving value capped at
      * {@see VALUE_MAX_LENGTH}.
      *
-     * @param  array<string, string>  $headers  Raw response headers, any name casing.
+     * `mixed` on the way in is the honest type, not a loose one: `CheckResult`
+     * builds `response_headers` with a bare array cast and never checks the leaf,
+     * so a list or an int genuinely arrives here and {@see flatten()} is what
+     * decides its fate. Narrowing this to `string` would describe a contract the
+     * caller does not honour.
+     *
+     * @param  array<string, mixed>  $headers  Raw response headers, any name casing.
      * @return array<string, string> Kept headers: lowercase names, allowlist order, capped values.
      */
     public static function filter(array $headers): array
