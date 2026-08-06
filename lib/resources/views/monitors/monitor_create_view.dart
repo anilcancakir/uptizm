@@ -124,6 +124,15 @@ class _MonitorCreateViewState
   /// input card would then blame the URL for being unreachable.
   Map<String, String> _credentialErrors = const <String, String>{};
 
+  /// The `key`s of suggested metrics the operator declined on the review step.
+  ///
+  /// A declined SET rather than an accepted one, so the default is accept: the
+  /// operator asked for an AI setup and the proposals are the setup. Keyed by
+  /// `key` rather than by index because the backend already guarantees it
+  /// unique within one answer, and an index would drift the moment the list is
+  /// re-rendered.
+  final Set<String> _declinedMetricKeys = <String>{};
+
   /// A human-facing error shown on the input card when the last [_analyze]
   /// failed (an unreachable URL, a down relay, a non-2xx). `null` when the
   /// input step has not just bounced back from a failed probe. The controller
@@ -237,7 +246,30 @@ class _MonitorCreateViewState
   /// request settles, and returns any backend 422 field errors so the form
   /// renders them inline instead of a generic toast.
   Future<Map<String, String>> _submit(Map<String, dynamic> fields) {
-    return controller.create(fields);
+    final List<Map<String, dynamic>> metrics = _acceptedMetricRows();
+
+    return controller.create({
+      ...fields,
+      if (metrics.isNotEmpty) 'metrics': metrics,
+    });
+  }
+
+  /// The suggested metrics the operator did not decline, as `metrics[]` rows.
+  ///
+  /// Empty on the manual path and on an analysis that proposed nothing, in
+  /// which case the key is omitted entirely rather than sent as `[]`, so a
+  /// manual create is byte for byte the request it was before this existed.
+  ///
+  /// The rename from the analyze response's wire shape to the write endpoint's
+  /// column shape lives on [AiMetricSeed.toCreateRow], beside the fields it
+  /// renames, rather than here.
+  List<Map<String, dynamic>> _acceptedMetricRows() {
+    final List<AiMetricSeed> suggested = _analysis?.suggestedMetrics ?? const [];
+
+    return [
+      for (final AiMetricSeed metric in suggested)
+        if (!_declinedMetricKeys.contains(metric.key)) metric.toCreateRow(),
+    ];
   }
 
   @override
@@ -636,18 +668,77 @@ class _MonitorCreateViewState
     );
   }
 
-  /// Builds a single suggested-metric pill: the label plus a monospace unit
-  /// (when present). React lines 184-194.
+  /// Builds a single suggested-metric pill: the label, the observed sample
+  /// beside the proposed bound, and a tap target that declines the metric.
+  ///
+  /// The observation and the proposal are shown TOGETHER on purpose. A
+  /// threshold is a policy default and not a measurement (the deterministic
+  /// path ships `max(500, observed * 3)`), so a pill that showed only "warn at
+  /// 400" would read as something the probe found. Showing "observed 120 ms,
+  /// warn at 400" puts the one number that was measured next to the one that
+  /// was chosen, and the help line underneath says the observation is a single
+  /// reading.
+  ///
+  /// Declining is a tap on the whole pill rather than a separate control: the
+  /// pill is already small, and the declined state is legible from the pill
+  /// itself (muted, struck through) rather than from a checkbox beside it.
   Widget _buildMetricPill(AiMetricSeed metric) {
-    return WDiv(
-      className:
-          'flex flex-row items-center gap-1 rounded-md border border-color-border bg-surface px-2 py-0.5',
-      children: [
-        WText(metric.label, className: 'text-xs text-fg'),
-        if (metric.unit.isNotEmpty)
-          WText(metric.unit, className: 'font-mono text-xs text-fg-muted'),
-      ],
+    final bool declined = _declinedMetricKeys.contains(metric.key);
+    final String detail = _metricPillDetail(metric);
+
+    // WAnchor rather than a bare GestureDetector, the same reason
+    // MonitorListRow and the metrics tab use it: it sets the pointer cursor and
+    // drives the `hover:` state, so the pill reads as something you can press.
+    return WAnchor(
+      onTap: () => setState(() {
+        if (!_declinedMetricKeys.remove(metric.key)) {
+          _declinedMetricKeys.add(metric.key);
+        }
+      }),
+      child: WDiv(
+        className: declined
+            ? 'flex flex-row items-center gap-1 rounded-md border border-color-border-subtle bg-surface-container px-2 py-0.5 hover:bg-surface transition-colors'
+            : 'flex flex-row items-center gap-1 rounded-md border border-color-border bg-surface px-2 py-0.5 hover:bg-surface-container transition-colors',
+        children: [
+          WText(
+            metric.label,
+            className: declined
+                ? 'text-xs text-fg-disabled line-through'
+                : 'text-xs text-fg',
+          ),
+          if (detail.isNotEmpty)
+            WText(
+              detail,
+              className: declined
+                  ? 'font-mono text-xs text-fg-disabled'
+                  : 'font-mono text-xs text-fg-muted',
+            ),
+        ],
+      ),
     );
+  }
+
+  /// The monospace half of a metric pill: what was observed, and what is being
+  /// proposed on top of it.
+  ///
+  /// Degrades in the honest direction. With no sample there is nothing measured
+  /// to report, so only the unit shows; with a sample but no bound the pill
+  /// says what was seen and claims nothing further.
+  String _metricPillDetail(AiMetricSeed metric) {
+    final String unit = metric.unit.isNotEmpty ? ' ${metric.unit}' : '';
+
+    if (metric.sampleValue.isEmpty) return metric.unit;
+
+    if (metric.warn.isEmpty) {
+      return trans('uptizm.monitors.create_ai_metric_observed', {
+        'observed': '${metric.sampleValue}$unit',
+      });
+    }
+
+    return trans('uptizm.monitors.create_ai_metric_observed_warn', {
+      'observed': '${metric.sampleValue}$unit',
+      'warn': metric.warn,
+    });
   }
 
   // ---------------------------------------------------------------------------

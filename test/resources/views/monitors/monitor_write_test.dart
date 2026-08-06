@@ -1515,5 +1515,233 @@ void main() {
         );
       },
     );
+
+    /// The body of the one recorded `POST /monitors`, so an assertion reads the
+    /// request that actually left the client rather than the widget state
+    /// behind it.
+    Map<String, dynamic> createPayload(FakeNetworkDriver fake) {
+      final recorded = fake.recorded.firstWhere(
+        (entry) =>
+            entry.$1.method.toUpperCase() == 'POST' &&
+            !entry.$1.url.contains('analyze'),
+        orElse: () => throw StateError('no create request was recorded'),
+      );
+
+      return recorded.$1.data as Map<String, dynamic>;
+    }
+
+    /// Drives analyze-then-accept for an analysis carrying [suggestedMetrics],
+    /// optionally declining the pills whose label is in [decline], and answers
+    /// the recorded create payload.
+    Future<Map<String, dynamic>> createFromSuggestions(
+      WidgetTester tester,
+      List<Map<String, dynamic>> suggestedMetrics, {
+      List<String> decline = const [],
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final fake = Http.fake({
+        'monitors/analyze': Http.response({
+          'data': {
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
+            'suggested_metrics': suggestedMetrics,
+          },
+        }),
+        'monitors': Http.response({
+          'data': {'id': 'brand-new-id', 'name': 'api.example.com', 'type': 'http'},
+        }),
+      });
+
+      MagicRouter.reset();
+      MagicRoute.page(
+        '/',
+        () => MediaQuery(
+          data: const MediaQueryData(size: Size(1200, 5000)),
+          child: WindTheme(
+            data: WindThemeData(),
+            child: const Scaffold(
+              body: SingleChildScrollView(child: MonitorCreateView()),
+            ),
+          ),
+        ),
+      );
+      MagicRoute.page('/monitors', () => const SizedBox());
+      MagicRoute.page('/monitors/:id', () => const SizedBox());
+      addTearDown(MagicRouter.reset);
+
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: MagicRouter.instance.routerConfig),
+      );
+      await tester.pumpAndSettle();
+
+      await analyzeUrl(tester, 'https://api.example.com/health');
+
+      // The pills have to be on screen before a decline can mean anything, and
+      // their absence would otherwise surface as an empty `metrics` further
+      // down, which reads as a mapping bug rather than a decode one.
+      for (final Map<String, dynamic> metric in suggestedMetrics) {
+        expect(
+          find.text(metric['label'] as String),
+          findsOneWidget,
+          reason: 'the suggestion did not decode into a pill',
+        );
+      }
+
+      for (final String label in decline) {
+        final Finder pill = find.text(label);
+        await tester.ensureVisible(pill);
+        await tester.pump();
+        await tester.tap(pill);
+        await tester.pump();
+      }
+
+      final Finder submit = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submit);
+      await tester.pump();
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      return createPayload(fake);
+    }
+
+    testWidgets(
+      'an accepted suggestion is sent under its COLUMN names, not the wire ones',
+      (tester) async {
+        // THE discriminating assertion of this step. `extraction_path`,
+        // `warn_bound` and `critical_bound` are all nullable in the backend
+        // rules, so sending the analyze response's wire names (`path`, `warn`,
+        // `critical`) is not a 422: it creates a metric that extracts nothing,
+        // forever, silently. Asserting that one metric was created passes on
+        // exactly that bug.
+        final Map<String, dynamic> created = await createFromSuggestions(tester, [
+          {
+            'key': 'latency_ms',
+            'label': 'Latency',
+            'type': 'numeric',
+            'source': 'json_path',
+            'path': 'latency_ms',
+            'unit': 'millisecond',
+            'warn': 400,
+            'critical': 900,
+            'sample_value': '120',
+          },
+        ]);
+
+        final List<dynamic> metrics = created['metrics'] as List<dynamic>;
+        final Map<String, dynamic> row = metrics.single as Map<String, dynamic>;
+
+        expect(row['extraction_path'], 'latency_ms');
+        expect(row['warn_bound'], 400);
+        expect(row['critical_bound'], 900);
+        expect(
+          row.containsKey('path'),
+          isFalse,
+          reason: 'the wire name must not survive into the create request',
+        );
+        expect(
+          row['source'],
+          'json_path',
+          reason: 'source is ALREADY backend vocabulary on the wire; routing '
+              'it through the form translator would map it to nothing',
+        );
+        expect(
+          row.containsKey('display_order'),
+          isFalse,
+          reason: 'the server stamps display_order from the array index',
+        );
+        expect(
+          row.containsKey('unmatched_band'),
+          isFalse,
+          reason: 'the server pins unmatched_band; the client never sets it',
+        );
+      },
+    );
+
+    testWidgets(
+      'an empty warn produces no warn_bound at all, never a zero',
+      (tester) async {
+        // A `?? 0` fallback here would create a metric that warns on every
+        // reading, and `""` would fail the endpoint's `numeric` rule. Omission
+        // is the only correct answer, and the string bands ride through under
+        // the names they already arrived with.
+        final Map<String, dynamic> created = await createFromSuggestions(tester, [
+          {
+            'key': 'health_status',
+            'label': 'Health',
+            'type': 'string',
+            'source': 'json_path',
+            'path': 'status',
+            'warn': null,
+            'critical': null,
+            'ok_values': ['ok'],
+            'sample_value': 'ok',
+          },
+        ]);
+
+        final List<dynamic> metrics = created['metrics'] as List<dynamic>;
+        final Map<String, dynamic> row = metrics.single as Map<String, dynamic>;
+
+        expect(row.containsKey('warn_bound'), isFalse);
+        expect(row.containsKey('critical_bound'), isFalse);
+        expect(row['ok_values'], equals(['ok']));
+      },
+    );
+
+    testWidgets('declining a suggestion omits it and creates the rest', (
+      tester,
+    ) async {
+      final Map<String, dynamic> created = await createFromSuggestions(
+        tester,
+        [
+          {
+            'key': 'latency_ms',
+            'label': 'Latency',
+            'type': 'numeric',
+            'source': 'json_path',
+            'path': 'latency_ms',
+            'warn': 400,
+            'sample_value': '120',
+          },
+          {
+            'key': 'health_status',
+            'label': 'Health',
+            'type': 'string',
+            'source': 'json_path',
+            'path': 'status',
+            'ok_values': ['ok'],
+            'sample_value': 'ok',
+          },
+        ],
+        decline: ['Latency'],
+      );
+
+      final List<dynamic> metrics = created['metrics'] as List<dynamic>;
+
+      expect(metrics, hasLength(1));
+      expect(
+        (metrics.single as Map<String, dynamic>)['key'],
+        'health_status',
+        reason: 'the declined row goes, the accepted one stays',
+      );
+    });
+
+    testWidgets('a create with no suggestions sends no metrics key', (
+      tester,
+    ) async {
+      // The manual path and an analysis that proposed nothing must both be the
+      // request they were before this step, rather than carrying an empty list.
+      final Map<String, dynamic> created =
+          await createFromSuggestions(tester, const []);
+
+      expect(created.containsKey('metrics'), isFalse);
+    });
   });
 }

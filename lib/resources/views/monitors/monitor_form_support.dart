@@ -582,6 +582,19 @@ class AiMetricSeed {
   /// metric, e.g. `"120"`.
   final String sampleValue;
 
+  /// Observed string values that read as healthy, e.g. `["ok"]`.
+  ///
+  /// The three band lists are the one part of the wire shape that already
+  /// arrives under its COLUMN name, because there is no form vocabulary for a
+  /// value list to translate out of. Empty on every numeric metric.
+  final List<String> okValues;
+
+  /// Observed string values that read as degraded.
+  final List<String> warnValues;
+
+  /// Observed string values that read as failing.
+  final List<String> criticalValues;
+
   /// Creates an [AiMetricSeed].
   const AiMetricSeed({
     required this.label,
@@ -593,7 +606,51 @@ class AiMetricSeed {
     required this.warn,
     required this.critical,
     required this.sampleValue,
+    this.okValues = const [],
+    this.warnValues = const [],
+    this.criticalValues = const [],
   });
+
+  /// This seed as one row of `POST /monitors`'s `metrics[]`.
+  ///
+  /// THREE vocabularies meet here and the rename is the whole reason this
+  /// method exists rather than the caller spreading the seed. The analyze
+  /// response speaks a WIRE shape (`path`, `warn`, `critical`), the metric form
+  /// speaks a form shape, and the write endpoint speaks the COLUMN shape
+  /// (`extraction_path`, `warn_bound`, `critical_bound`). Every one of those
+  /// three columns is `nullable` in the backend rules, so sending the wire name
+  /// is not a 422: it is a metric that extracts nothing, forever, silently.
+  ///
+  /// The two bounds are parsed to numbers or OMITTED. An empty `warn` must not
+  /// become `0`, which would be a metric that warns on every reading, and must
+  /// not become `""`, which fails the `numeric` rule.
+  ///
+  /// `source` is already backend vocabulary on the wire (`json_path`, not
+  /// `json`), so it passes through untouched. Do NOT route a row through
+  /// `monitor_metrics_controller.dart`'s form-vocabulary translator, which
+  /// exists to convert the other direction and would map `json_path` to
+  /// nothing.
+  ///
+  /// `display_order` and `unmatched_band` are deliberately absent: the server
+  /// stamps the first from the array index and pins the second itself.
+  Map<String, dynamic> toCreateRow() {
+    final double? warnBound = double.tryParse(warn);
+    final double? criticalBound = double.tryParse(critical);
+
+    return {
+      'key': key,
+      'label': label,
+      'type': type,
+      if (source.isNotEmpty) 'source': source,
+      if (path.isNotEmpty) 'extraction_path': path,
+      if (unit.isNotEmpty) 'unit': unit,
+      'warn_bound': ?warnBound,
+      'critical_bound': ?criticalBound,
+      if (okValues.isNotEmpty) 'ok_values': okValues,
+      if (warnValues.isNotEmpty) 'warn_values': warnValues,
+      if (criticalValues.isNotEmpty) 'critical_values': criticalValues,
+    };
+  }
 
   /// Decodes an [AiMetricSeed] from one entry of the backend's
   /// `suggested_metrics` array.
@@ -614,8 +671,24 @@ class AiMetricSeed {
       warn: _wireThresholdToString(map['warn']),
       critical: _wireThresholdToString(map['critical']),
       sampleValue: map['sample_value'] as String? ?? '',
+      okValues: _wireValueList(map['ok_values']),
+      warnValues: _wireValueList(map['warn_values']),
+      criticalValues: _wireValueList(map['critical_values']),
     );
   }
+}
+
+/// Reads one of the three string-band lists off the wire.
+///
+/// Absent on every numeric metric and on any backend older than the band
+/// channel, so a missing key is an empty list rather than an error. Non-string
+/// elements are dropped instead of stringified: the write endpoint validates
+/// each item as a string, and a `42` silently becoming `"42"` here would
+/// configure a band the operator never saw.
+List<String> _wireValueList(Object? value) {
+  if (value is! List) return const [];
+
+  return value.whereType<String>().toList();
 }
 
 /// Stringifies a wire `warn`/`critical` threshold (a nullable number) into
