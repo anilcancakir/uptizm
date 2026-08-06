@@ -12,6 +12,7 @@ use App\Enums\ThresholdDirection;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Requests\UpdateMonitorMetricRequest;
+use App\Http\Requests\UpdateMonitorRequest;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorContentVersion;
@@ -25,8 +26,10 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Redirector;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\Sanctum;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
@@ -650,6 +653,151 @@ class MonitorMetricControllerTest extends TestCase
 
         $this->assertSame('4242', $payload['extracted_value']);
         $this->assertTrue($payload['has_sample']);
+    }
+
+    public function test_metric_field_rules_prefixes_every_key_and_gates_key_behind_the_prefix(): void
+    {
+        // Step 10's bulk `metrics[]` field reaches this via `metrics.*.`; the
+        // route-bound path keeps composing its own `key` rule via
+        // uniqueKeyRule(), so `key` must be absent with no prefix and present,
+        // carrying `distinct`, only once a prefix is supplied. Asserting the
+        // property rather than a key count, since Step 9 is about to add
+        // another rule to this same method.
+        $prefixed = StoreMonitorMetricRequest::metricFieldRules('metrics.*.');
+
+        foreach (array_keys($prefixed) as $field) {
+            $this->assertStringStartsWith('metrics.*.', $field);
+            $this->assertSame(1, substr_count($field, 'metrics.*.'), "{$field} must carry the prefix exactly once");
+        }
+
+        $this->assertArrayHasKey('metrics.*.key', $prefixed);
+        $this->assertContains('distinct', $prefixed['metrics.*.key']);
+
+        $bare = StoreMonitorMetricRequest::metricFieldRules();
+        $this->assertArrayNotHasKey('key', $bare);
+    }
+
+    public function test_metric_field_rules_is_callable_statically_with_no_bound_request(): void
+    {
+        // metricFieldRules() carries no $this reference so that a static call
+        // from StoreMonitorRequest's bulk path, with no FormRequest instance
+        // resolved, cannot fatal.
+        $rules = StoreMonitorMetricRequest::metricFieldRules('metrics.*.');
+
+        $this->assertNotEmpty($rules);
+    }
+
+    public function test_validate_metric_row_cross_fields_names_the_offending_row_on_every_check(): void
+    {
+        // The bulk loop calls this once per submitted row with THAT row's own
+        // dotted prefix; an implementation that dropped $errorPrefix from
+        // errors()->add() would report every collision on row 0 regardless of
+        // which row actually failed. Row 0 is deliberately clean so its
+        // absence from the error bag is itself part of the assertion.
+        $rows = [
+            [
+                'key' => 'ok_one',
+                'label' => 'Fine',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn_bound' => 100,
+                'critical_bound' => 200,
+            ],
+            [
+                'key' => 'bad_two',
+                'label' => 'Inverted',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn_bound' => 900,
+                'critical_bound' => 100,
+            ],
+            [
+                'key' => 'bad_three',
+                'label' => 'Overlap',
+                'type' => MetricType::String->value,
+                'ok_values' => ['ok'],
+                'warn_values' => ['OK'],
+            ],
+        ];
+
+        $validator = Validator::make(
+            ['metrics' => $rows],
+            [
+                'metrics' => ['array'],
+                ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
+            ],
+        );
+        // Mirrors StoreMonitorRequest::withValidator(): the field rules run and
+        // populate the message bag BEFORE the after() callback (here, the loop
+        // below) appends its own errors on top.
+        $validator->fails();
+
+        foreach ($rows as $index => $row) {
+            StoreMonitorMetricRequest::validateMetricRowCrossFields($validator, $row, "metrics.{$index}.");
+        }
+
+        $errors = $validator->errors();
+
+        $this->assertFalse($errors->has('metrics.0.critical_bound'));
+        $this->assertTrue($errors->has('metrics.1.critical_bound'));
+        $this->assertTrue($errors->has('metrics.2.ok_values.0'));
+        $this->assertTrue($errors->has('metrics.2.warn_values.0'));
+        $this->assertFalse($errors->has('critical_bound'), 'the bare field key must not receive a bulk-row error');
+    }
+
+    public function test_validate_metric_row_cross_fields_rejects_an_unmatched_band_with_all_lists_empty(): void
+    {
+        // The third check's own row: an unmatched band with nothing configured
+        // to match against would band every sample, and its error must land on
+        // the row's own prefixed key.
+        $row = [
+            'key' => 'no_lists',
+            'label' => 'No lists',
+            'type' => MetricType::String->value,
+            'unmatched_band' => MetricBand::Critical->value,
+        ];
+
+        $validator = Validator::make(
+            ['metrics' => [$row]],
+            [
+                'metrics' => ['array'],
+                ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
+            ],
+        );
+        $validator->fails();
+
+        StoreMonitorMetricRequest::validateMetricRowCrossFields($validator, $row, 'metrics.0.');
+
+        $this->assertTrue($validator->errors()->has('metrics.0.unmatched_band'));
+    }
+
+    public function test_update_monitor_endpoint_leaves_the_metrics_cross_field_loop_dormant(): void
+    {
+        // UpdateMonitorRequest::rules() never declares `metrics` (only
+        // StoreMonitorRequest::rules() will, in Step 10), so the per-row loop
+        // StoreMonitorRequest::withValidator() runs stays unreached on a PUT
+        // even carrying a metrics[] row every cross-field check would
+        // otherwise fail: an inverted warn/critical pair on a numeric metric.
+        // A 200 here is only possible because the loop never ran.
+        [$monitor, $user] = $this->makeMonitor();
+        Sanctum::actingAs($user);
+
+        $response = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'metrics' => [
+                [
+                    'key' => 'bad',
+                    'label' => 'Bad',
+                    'type' => MetricType::Numeric->value,
+                    'threshold_direction' => ThresholdDirection::HighBad->value,
+                    'warn_bound' => 900,
+                    'critical_bound' => 100,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertArrayNotHasKey('metrics', (new UpdateMonitorRequest)->rules());
+        $this->assertSame(0, MonitorMetric::query()->where('monitor_id', $monitor->id)->count());
     }
 
     /**

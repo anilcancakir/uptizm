@@ -133,77 +133,122 @@ class StoreMonitorMetricRequest extends FormRequest
      * `sometimes|required` rather than becoming nullable: an edit may omit the
      * label, it may not blank it.
      *
+     * Composes {@see self::metricFieldRules()} (the route-INDEPENDENT half,
+     * shared with the bulk `POST /monitors` path) with this route's own `key`
+     * uniqueness, which needs `$this->route('monitor')` and therefore cannot
+     * live in the static method.
+     *
      * @return array<string, mixed>
      */
     protected function metricRules(bool $partial): array
     {
         $optional = $partial ? ['sometimes'] : [];
+        $rules = [];
 
-        return [
-            'group_name' => [
-                ...$optional,
+        foreach (self::metricFieldRules() as $field => $fieldRules) {
+            // The string-band rules already carry their own unconditional
+            // `sometimes` (an omitted list leaves the stored default alone,
+            // regardless of $partial), so they are taken as-is; every other
+            // field gets the `sometimes` a partial edit needs.
+            $rules[$field] = $fieldRules !== [] && $fieldRules[0] === 'sometimes'
+                ? $fieldRules
+                : [...$optional, ...$fieldRules];
+        }
+
+        $rules['key'] = [
+            ...$optional,
+            'required',
+            'string',
+            'max:40',
+            'regex:/^[a-z][a-z0-9_]*$/',
+            $this->uniqueKeyRule(),
+        ];
+
+        return $rules;
+    }
+
+    /**
+     * The route-INDEPENDENT half of a metric definition's field rules.
+     *
+     * Shared by this route-bound request (via {@see self::metricRules()},
+     * which composes its own `key` uniqueness on top) and by
+     * {@see StoreMonitorRequest}'s bulk `metrics[]` field on `POST /monitors`,
+     * which has no `{monitor}` route parameter to scope a uniqueness check
+     * against. `$prefix` lets the bulk caller reach every field as
+     * `metrics.*.<field>` without a second copy of the rule set; this method
+     * contains no `$this` reference so a static call from another request
+     * class cannot fatal.
+     *
+     * `key` is emitted here ONLY when a prefix is supplied: on the bulk path
+     * there is no persisted monitor to scope `Rule::unique` against, so
+     * `distinct` (uniqueness within the submitted array) is the strongest
+     * check this method can express. With no prefix, `key` is omitted
+     * entirely and {@see self::metricRules()} keeps composing its
+     * route-bound {@see self::uniqueKeyRule()} exactly as before.
+     *
+     * @return array<string, mixed>
+     */
+    public static function metricFieldRules(string $prefix = ''): array
+    {
+        $rules = [
+            "{$prefix}group_name" => [
                 'nullable',
                 'string',
                 'max:80',
             ],
-            'label' => [
-                ...$optional,
+            "{$prefix}label" => [
                 'required',
                 'string',
                 'max:120',
             ],
-            'key' => [
-                ...$optional,
-                'required',
-                'string',
-                'max:40',
-                'regex:/^[a-z][a-z0-9_]*$/',
-                $this->uniqueKeyRule(),
-            ],
-            'type' => [
-                ...$optional,
+            "{$prefix}type" => [
                 'required',
                 Rule::enum(MetricType::class),
             ],
-            'source' => [
-                ...$optional,
+            "{$prefix}source" => [
                 'nullable',
                 Rule::enum(MetricSource::class),
             ],
-            'extraction_path' => [
-                ...$optional,
+            "{$prefix}extraction_path" => [
                 'nullable',
                 'string',
                 'max:500',
             ],
-            'unit' => [
-                ...$optional,
+            "{$prefix}unit" => [
                 'nullable',
                 Rule::enum(MetricUnit::class),
             ],
-            'threshold_direction' => [
-                ...$optional,
+            "{$prefix}threshold_direction" => [
                 'nullable',
                 Rule::enum(ThresholdDirection::class),
             ],
-            'warn_bound' => [
-                ...$optional,
+            "{$prefix}warn_bound" => [
                 'nullable',
                 'numeric',
             ],
-            'critical_bound' => [
-                ...$optional,
+            "{$prefix}critical_bound" => [
                 'nullable',
                 'numeric',
             ],
-            'display_order' => [
-                ...$optional,
+            "{$prefix}display_order" => [
                 'nullable',
                 'integer',
                 'min:0',
             ],
-            ...self::stringBandRules(),
+            ...self::stringBandRules($prefix),
         ];
+
+        if ($prefix !== '') {
+            $rules["{$prefix}key"] = [
+                'required',
+                'string',
+                'max:40',
+                'regex:/^[a-z][a-z0-9_]*$/',
+                'distinct',
+            ];
+        }
+
+        return $rules;
     }
 
     /**
@@ -227,19 +272,24 @@ class StoreMonitorMetricRequest extends FormRequest
      * `distinct:ignore_case` catches the duplicate WITHIN
      * one list, which the cross-list overlap rule cannot see.
      *
+     * `$prefix` lets {@see self::metricFieldRules()} reach these as
+     * `metrics.*.<field>` on the bulk create path; the default keeps every
+     * existing caller (this class's own `metricRules()`, and
+     * `MonitorMetricController`'s preview rule set) unchanged.
+     *
      * @return array<string, mixed>
      */
-    public static function stringBandRules(): array
+    public static function stringBandRules(string $prefix = ''): array
     {
         $rules = [];
 
         foreach (self::VALUE_LIST_FIELDS as $field) {
-            $rules[$field] = [
+            $rules["{$prefix}{$field}"] = [
                 'sometimes',
                 'array',
                 'max:50',
             ];
-            $rules[$field.'.*'] = [
+            $rules["{$prefix}{$field}.*"] = [
                 'string',
                 'min:1',
                 'max:120',
@@ -255,7 +305,7 @@ class StoreMonitorMetricRequest extends FormRequest
             ];
         }
 
-        $rules['unmatched_band'] = [
+        $rules["{$prefix}unmatched_band"] = [
             'sometimes',
             'nullable',
             Rule::enum(MetricBand::class),
@@ -402,6 +452,208 @@ class StoreMonitorMetricRequest extends FormRequest
             'unmatched_band',
             'Add at least one healthy, warning or critical value before choosing a band for unmatched values.',
         );
+    }
+
+    /**
+     * The three cross-field checks above, run for ONE `metrics.*` row on the
+     * route-free bulk create path.
+     *
+     * {@see StoreMonitorRequest::withValidator()} calls this once per submitted
+     * row, because none of {@see self::validateBoundOrder()},
+     * {@see self::validateNoOverlappingValues()} and
+     * {@see self::validateUnmatchedBandHasAList()} are reachable there: they are
+     * instance methods reading `$this->route('metric')` and `$this->has()` off
+     * THIS request, not the caller's.
+     *
+     * There is no stored-row merge here, unlike the route-bound checks: a
+     * create has no existing metric to merge against, so every read is the
+     * row's own submitted value or nothing. That is the simplification that
+     * makes this cheap to keep in step with the three checks above.
+     *
+     * `$errorPrefix` has to reach `errors()->add()`, not only the field
+     * reads: without it every row's overlap error would land on
+     * `ok_values.0` regardless of which row actually collided, and the
+     * per-call `$reported` dedupe below is naturally scoped to one row
+     * because this method runs once per row.
+     *
+     * @param  array<string, mixed>  $row  The one `metrics.*` entry, keyed by
+     *                                     column name.
+     * @param  string  $errorPrefix  The dotted path to this row's fields on
+     *                               the parent request, e.g. `metrics.1.`.
+     */
+    public static function validateMetricRowCrossFields(Validator $validator, array $row, string $errorPrefix): void
+    {
+        self::validateBulkBoundOrder($validator, $row, $errorPrefix);
+        self::validateBulkNoOverlappingValues($validator, $row, $errorPrefix);
+        self::validateBulkUnmatchedBandHasAList($validator, $row, $errorPrefix);
+    }
+
+    /**
+     * Bulk-path analogue of {@see self::validateBoundOrder()}, reading the row
+     * array instead of merged request/model state.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected static function validateBulkBoundOrder(Validator $validator, array $row, string $errorPrefix): void
+    {
+        if (self::bulkType($row) !== MetricType::Numeric) {
+            return;
+        }
+
+        $direction = self::bulkDirection($row);
+        $warn = self::bulkBound($row, 'warn_bound');
+        $critical = self::bulkBound($row, 'critical_bound');
+
+        if ($direction === null || $warn === null || $critical === null) {
+            return;
+        }
+
+        if ($direction->validateBounds($warn, $critical)) {
+            return;
+        }
+
+        $validator->errors()->add("{$errorPrefix}critical_bound", match ($direction) {
+            ThresholdDirection::HighBad => 'Critical must be above the warning bound when higher values are worse.',
+            ThresholdDirection::LowBad => 'Critical must be below the warning bound when lower values are worse.',
+        });
+    }
+
+    /**
+     * Bulk-path analogue of {@see self::validateNoOverlappingValues()}, over
+     * the row's own three lists only: a bulk row has no stored counterpart to
+     * merge, and the overlap this checks for is always within one metric.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected static function validateBulkNoOverlappingValues(Validator $validator, array $row, string $errorPrefix): void
+    {
+        /** @var array<string, list<array{field: string, index: int|string, raw: string}>> $owners */
+        $owners = [];
+
+        foreach (self::VALUE_LIST_FIELDS as $field) {
+            foreach (self::bulkList($row, $field) as $index => $raw) {
+                $owners[ThresholdEvaluator::normalizeMatchValue($raw)][] = [
+                    'field' => $field,
+                    'index' => $index,
+                    'raw' => $raw,
+                ];
+            }
+        }
+
+        $reported = [];
+
+        foreach ($owners as $occurrences) {
+            if (count(array_unique(array_column($occurrences, 'field'))) < 2) {
+                continue;
+            }
+
+            foreach ($occurrences as $occurrence) {
+                $key = "{$errorPrefix}{$occurrence['field']}.{$occurrence['index']}";
+
+                if (isset($reported[$key])) {
+                    continue;
+                }
+                $reported[$key] = true;
+
+                $validator->errors()->add($key, sprintf(
+                    '"%s" is configured in more than one band. Matching ignores case and surrounding '
+                    .'whitespace, so a value may appear in one list only.',
+                    $occurrence['raw'],
+                ));
+            }
+        }
+    }
+
+    /**
+     * Bulk-path analogue of {@see self::validateUnmatchedBandHasAList()}.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected static function validateBulkUnmatchedBandHasAList(Validator $validator, array $row, string $errorPrefix): void
+    {
+        if (self::bulkUnmatchedBand($row) === null) {
+            return;
+        }
+
+        foreach (self::VALUE_LIST_FIELDS as $field) {
+            if (self::bulkList($row, $field) !== []) {
+                return;
+            }
+        }
+
+        $validator->errors()->add(
+            "{$errorPrefix}unmatched_band",
+            'Add at least one healthy, warning or critical value before choosing a band for unmatched values.',
+        );
+    }
+
+    /**
+     * Row-array `type`, or null when absent or not a valid case.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected static function bulkType(array $row): ?MetricType
+    {
+        $value = $row['type'] ?? null;
+
+        return is_string($value) ? MetricType::tryFrom($value) : null;
+    }
+
+    /**
+     * Row-array `threshold_direction`, or null when absent or not a valid case.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected static function bulkDirection(array $row): ?ThresholdDirection
+    {
+        $value = $row['threshold_direction'] ?? null;
+
+        return is_string($value) ? ThresholdDirection::tryFrom($value) : null;
+    }
+
+    /**
+     * Row-array `unmatched_band`, or null when absent or not a valid case.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected static function bulkUnmatchedBand(array $row): ?MetricBand
+    {
+        $value = $row['unmatched_band'] ?? null;
+
+        return is_string($value) ? MetricBand::tryFrom($value) : null;
+    }
+
+    /**
+     * Row-array numeric bound as a float, or null when absent or non-numeric.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected static function bulkBound(array $row, string $field): ?float
+    {
+        $value = $row[$field] ?? null;
+
+        return is_numeric($value) ? (float) $value : null;
+    }
+
+    /**
+     * Row-array value list, keys preserved so an offending element keeps its
+     * request index for the dot-notation error key. Non-string elements and a
+     * non-array value are dropped rather than inspected, mirroring
+     * {@see self::mergedList()}'s reasoning: both already failed a field
+     * rule, and this hook runs anyway.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<int|string, string>
+     */
+    protected static function bulkList(array $row, string $field): array
+    {
+        $value = $row[$field] ?? null;
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_filter($value, static fn (mixed $item): bool => is_string($item));
     }
 
     /**

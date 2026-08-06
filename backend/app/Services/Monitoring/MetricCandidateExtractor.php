@@ -60,8 +60,14 @@ class MetricCandidateExtractor
     /** The same shape with the unit REQUIRED, which is the strongest metric signal. */
     protected const string UNIT_SUFFIXED = '/^[+-]?\d+(?:[.,]\d+)?\s?(?:%|[a-zA-Z\/µ°]{1,8})$/u';
 
-    /** Hard cap on the returned list, whatever the page throws at it. */
-    protected const int MAX_CANDIDATES = 40;
+    /**
+     * Hard cap on the returned list, whatever the page throws at it.
+     *
+     * Public because {@see \App\Http\Requests\StoreMonitorRequest} caps its
+     * bulk `metrics[]` submission at this same bound: a request may not
+     * accept more metric rows than this extractor could ever propose.
+     */
+    public const int MAX_CANDIDATES = 40;
 
     /**
      * Work bounds. Every one of them is reached only by a body far outside what

@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\LocationBasis;
+use App\Enums\RegionBasis;
 
 /**
  * The immutable, prefilled monitor configuration the analysis LLM suggests
@@ -17,15 +18,17 @@ use App\Enums\LocationBasis;
  * object was built. `strippedCitations` records what was removed so the
  * caller can audit the hallucination rate.
  *
- * The three classification fields are closed sets rather than free text, and
- * {@see LaravelAiAnalysisGateway} owns each catalog because it is the class
- * that puts them in the schema and refuses an answer outside them:
- * {@see LaravelAiAnalysisGateway::SERVICE_CLASSES},
- * {@see LaravelAiAnalysisGateway::REGION_BASES} and
- * {@see LaravelAiAnalysisGateway::SLO_TARGETS}. They all default to the
- * honest, uninformative member of their set, so a caller that never ran a
- * model (the deterministic fallback, the fake) says "I do not know" rather
- * than accidentally asserting a classification.
+ * The three classification fields are closed sets rather than free text.
+ * {@see LaravelAiAnalysisGateway} owns two of the catalogs, because it is the
+ * class that puts them in the schema and refuses an answer outside them:
+ * {@see LaravelAiAnalysisGateway::SERVICE_CLASSES} and
+ * {@see LaravelAiAnalysisGateway::SLO_TARGETS}. The third is the
+ * {@see RegionBasis} enum, which stands alone only because it is easy to
+ * mistake for {@see LocationBasis} and that distinction needed one home; the
+ * gateway schemas and refuses it exactly as it does the other two. All three
+ * default to the honest, uninformative member of their set, so a caller that
+ * never ran a model (the deterministic fallback, the fake) says "I do not
+ * know" rather than accidentally asserting a classification.
  */
 readonly class AnalysisResult
 {

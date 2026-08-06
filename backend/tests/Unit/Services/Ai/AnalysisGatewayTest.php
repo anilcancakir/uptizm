@@ -8,6 +8,7 @@ use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
+use App\Enums\RegionBasis;
 use App\Enums\ThresholdDirection;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnalysisPayload;
@@ -333,7 +334,7 @@ class AnalysisGatewayTest extends TestCase
             $properties['service_class']['enum'],
         );
         $this->assertSame(
-            LaravelAiAnalysisGateway::REGION_BASES,
+            RegionBasis::values(),
             $properties['region_basis']['enum'],
         );
         $this->assertSame(
