@@ -5,8 +5,11 @@ namespace App\Services\Ai;
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
 use App\Models\Monitor;
+use App\Models\MonitorMetric;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
+use App\Services\Monitoring\ThresholdEvaluator;
+use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 use Illuminate\Http\Client\ConnectionException;
@@ -28,12 +31,19 @@ use RuntimeException;
  * nothing it said supplies the machine `key` either: that is slugged from the
  * sanitized label and made unique per monitor here.
  *
- * One more refusal lives here because only this class holds the candidates: a
- * selection whose type is not in that candidate's `eligibleTypes`.
- * {@see MetricExtractor::validateType()} discards a non-numeric value under
- * `numeric`, so a `120ms` candidate accepted as numeric would extract on every
- * check and record nothing, which reads to the operator as a metric that is
- * silently always empty.
+ * Three more corrections live here because only this class holds the candidate,
+ * and therefore the OBSERVED sample the gateway never sees:
+ *
+ * - A selection whose type is not in that candidate's `eligibleTypes` is
+ *   dropped. {@see MetricExtractor::validateType()} discards a non-numeric value
+ *   under `numeric`, so a `120ms` candidate accepted as numeric would extract on
+ *   every check and record nothing, which reads to the operator as a metric that
+ *   is silently always empty.
+ * - A selection whose sample the {@see CredentialRedactor} touched is dropped
+ *   entirely, because its path names a field that echoed the operator's own
+ *   credential and a metric records its path on every check, forever.
+ * - Its string bands are corrected against the observation and against each
+ *   other ({@see self::bandsFor()}).
  *
  * Degradation mirrors {@see IncidentAnalysisService}: over budget, an
  * unreachable provider, or output the gateway refuses past its retry all return
@@ -219,8 +229,24 @@ class MetricDiscoveryService
                 continue;
             }
 
+            // 3. Refuse a candidate the redactor touched. The analyze path hands
+            //    this service a body that has already been through
+            //    {@see CredentialRedactor}, so a sample carrying the marker was
+            //    read from a field that echoed the operator's own credential.
+            //    Accepting it would write that field's value into
+            //    `monitor_metric_values.string_value`, a plain text column, on
+            //    every check forever, and from there into the anomaly prompt.
+            //    This is the only seam that still holds the sample, so it is the
+            //    only place the drop can happen.
+
+            if (str_contains($candidate->sampleValue, CredentialRedactor::MARKER)) {
+                continue;
+            }
+
             $key = $this->uniqueKey($selection['label'], $takenKeys);
             $takenKeys[] = $key;
+
+            $bands = $this->bandsFor($candidate, $selection);
 
             $rows[] = [
                 'key' => $key,
@@ -242,6 +268,11 @@ class MetricDiscoveryService
                 'unit' => $this->unitFor($candidate, $selection),
                 'warn' => $selection['warnBound'],
                 'critical' => $selection['criticalBound'],
+                // The string bands travel under their COLUMN names, unlike
+                // `path` / `warn` / `critical` above: there is no Flutter form
+                // vocabulary for a value list, so the client passes these three
+                // through to the write endpoint unchanged.
+                ...$bands,
                 // The digest representation, so the pill shows exactly the sample
                 // the model was shown rather than an unbounded page fragment.
                 'sample_value' => $candidate->toDigestRow()['value'],
@@ -249,6 +280,71 @@ class MetricDiscoveryService
         }
 
         return $rows;
+    }
+
+    /**
+     * The three string-band lists an accepted selection ships with, after the
+     * two corrections only this class can make.
+     *
+     * The gateway already bounded each list to what the write endpoint accepts
+     * per item. What it cannot do is compare across lists or against the
+     * observation, and both of those are how a banded suggestion turns into a
+     * page rather than a configuration:
+     *
+     *   1. The OBSERVED value is dropped from `warn_values` and
+     *      `critical_values`. {@see ThresholdEvaluator::bandString()} tests
+     *      critical first and {@see MonitorMetric::alertsOnString()} is true the
+     *      moment any list is non-empty, so a model that transcribed the sample
+     *      it was shown into the wrong list hands the operator a metric that
+     *      bands Critical on its very first check and pages. The rule is the one
+     *      already written on the metric preview endpoint: a preview may
+     *      under-promise, it may never over-promise.
+     *   2. A value sitting in two lists is kept in the LEAST severe one and
+     *      dropped from the others. `validateNoOverlappingValues` refuses the
+     *      pair with a 422 on `metrics.2.warn_values.0`, which is an error the
+     *      operator saw as a pill and cannot act on, and under the all-or-nothing
+     *      create it would take the whole monitor down with it. The 422 stays
+     *      correct for a hand-authored bulk row; a suggestion is corrected
+     *      instead, downward.
+     *
+     * @param  array{okValues: list<string>, warnValues: list<string>, criticalValues: list<string>}  $selection
+     * @return array{ok_values: list<string>, warn_values: list<string>, critical_values: list<string>}
+     */
+    protected function bandsFor(MetricCandidate $candidate, array $selection): array
+    {
+        $observed = ThresholdEvaluator::normalizeMatchValue($candidate->sampleValue);
+
+        $submitted = [
+            'ok_values' => $selection['okValues'],
+            'warn_values' => $selection['warnValues'],
+            'critical_values' => $selection['criticalValues'],
+        ];
+
+        $bands = [];
+        $claimed = [];
+
+        foreach ($submitted as $field => $values) {
+            $kept = [];
+
+            foreach ($values as $value) {
+                $normalized = ThresholdEvaluator::normalizeMatchValue($value);
+
+                if ($field !== 'ok_values' && $normalized === $observed) {
+                    continue;
+                }
+
+                if (isset($claimed[$normalized])) {
+                    continue;
+                }
+
+                $claimed[$normalized] = true;
+                $kept[] = $value;
+            }
+
+            $bands[$field] = $kept;
+        }
+
+        return $bands;
     }
 
     /**

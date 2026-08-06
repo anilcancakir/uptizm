@@ -5,22 +5,26 @@ namespace App\Http\Controllers\Api\V1;
 use App\Enums\BodyShape;
 use App\Enums\HttpAuthType;
 use App\Enums\HttpMethod;
+use App\Enums\MetricBand;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
 use App\Enums\RegionBasis;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AnalyzeMonitorRequest;
+use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Requests\StoreMonitorRequest;
 use App\Http\Requests\UpdateMonitorRequest;
 use App\Http\Resources\MonitorResource;
 use App\Jobs\PerformMonitorCheck;
 use App\Models\Monitor;
+use App\Models\MonitorMetric;
 use App\Models\Team;
 use App\Services\Ai\AiBudget;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
 use App\Services\Ai\LaravelAiAnalysisGateway;
+use App\Services\Ai\LaravelAiMetricDiscoveryGateway;
 use App\Services\Ai\MetricDiscoveryService;
 use App\Services\Ai\ResponseTimeAnomalyDetector;
 use App\Services\Billing\PlanGate;
@@ -42,6 +46,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Laravel\Ai\Exceptions\AiException;
 use RuntimeException;
@@ -131,26 +136,139 @@ class MonitorController extends Controller
     }
 
     /**
-     * Create a monitor for the current team and kick off a first check.
+     * Create a monitor for the current team, with the metrics submitted
+     * alongside it, and kick off a first check.
+     *
+     * The monitor and its metrics are one write or none. The AI create flow
+     * submits a monitor and the metric rows the operator accepted in the same
+     * request, and a monitor that exists while the metrics it was created for do
+     * not is a monitor silently measuring nothing: the operator saw the pills,
+     * the create answered 201, and the detail screen shows no metrics.
+     *
+     * The dispatch is OUTSIDE that transaction, and the ordering is the whole
+     * reason the transaction needs a comment. `config/queue.php` sets
+     * `after_commit => false` on every connection, so a dispatch from inside
+     * pushes the payload to Redis before the row is committed; the worker
+     * re-resolves the monitor by key, misses it, and deletes the job. The first
+     * check then never runs, in production only, with nothing failing. It is
+     * fixed here rather than with `->afterCommit()` on the job because
+     * {@see self::test()} and {@see self::resume()} dispatch the same job with
+     * no transaction around it, and a modifier one of three callers needs is a
+     * worse rule than an ordering all three already satisfy.
      */
     public function store(StoreMonitorRequest $request): JsonResponse
     {
+        $attributes = $request->validated();
+        $metrics = $this->pullMetricRows($attributes);
+
         // 1. Persist the monitor scoped to the acting team, primed for the
-        //    scheduler to pick up on its next tick.
-        $monitor = Monitor::create([
-            ...$request->validated(),
-            'team_id' => $request->user()->current_team_id,
-            'status' => 'active',
-            'next_check_at' => now(),
-        ]);
+        //    scheduler to pick up on its next tick, and its metrics with it.
+        $monitor = DB::transaction(function () use ($attributes, $metrics, $request): Monitor {
+            $monitor = Monitor::create([
+                ...$attributes,
+                'team_id' => $request->user()->current_team_id,
+                'status' => 'active',
+                'next_check_at' => now(),
+            ]);
+
+            $this->createMetrics($monitor, $metrics);
+
+            return $monitor;
+        });
 
         // 2. Fan out an immediate first check per region so the detail page
-        //    lands on real data instead of empty placeholders.
+        //    lands on real data instead of empty placeholders. After the commit,
+        //    never inside it.
         $this->dispatchChecks($monitor);
 
         return MonitorResource::make($monitor)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Take the bulk `metrics[]` rows out of the validated attributes.
+     *
+     * By reference and removed rather than read and left in place: `metrics` is
+     * not a monitor column, and {@see Monitor} guards nothing, so leaving it in
+     * the create array sets an attribute the INSERT then names as a column that
+     * does not exist.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return list<array<string, mixed>>
+     */
+    protected function pullMetricRows(array &$attributes): array
+    {
+        $rows = $attributes['metrics'] ?? null;
+        unset($attributes['metrics']);
+
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        return array_values(array_filter($rows, 'is_array'));
+    }
+
+    /**
+     * Write the submitted metric rows for a freshly created monitor.
+     *
+     * Two columns are stamped here rather than accepted from the client:
+     *
+     * - `team_id`, from the monitor, because the column is a denormalized tenant
+     *   link that team-scoped metric queries read directly.
+     * - `display_order`, from the ARRAY INDEX. The submitted order is the order
+     *   the operator saw the suggestions in, and it is already expressed by the
+     *   array itself; honouring a per-row `display_order` as well would let two
+     *   rows claim one position, which {@see MonitorMetricController::reorder()}
+     *   then has no way to resolve.
+     *
+     * `unmatched_band` is pinned to `ok` for a row that arrived with at least
+     * one non-empty band list and did not choose a band itself. The discovery
+     * schema deliberately offers the model no field to say otherwise
+     * ({@see LaravelAiMetricDiscoveryGateway::schema()}), because
+     * {@see MetricBand} has no neutral case and a model pinning `critical` would
+     * page on every unrecognized reading. The pin is CONDITIONAL for a reason
+     * that is easy to miss: `validateUnmatchedBandHasAList` refuses a band with
+     * all three lists empty, which is every AI-proposed numeric metric, so an
+     * unconditional pin would 422 the common case.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    protected function createMetrics(Monitor $monitor, array $rows): void
+    {
+        foreach ($rows as $index => $row) {
+            MonitorMetric::query()->create([
+                ...$row,
+                'monitor_id' => $monitor->id,
+                'team_id' => $monitor->team_id,
+                'display_order' => $index,
+                'unmatched_band' => $this->unmatchedBandFor($row),
+            ]);
+        }
+    }
+
+    /**
+     * The `unmatched_band` a submitted metric row is written with.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected function unmatchedBandFor(array $row): ?string
+    {
+        if (array_key_exists('unmatched_band', $row)) {
+            $chosen = $row['unmatched_band'];
+
+            return is_string($chosen) ? $chosen : null;
+        }
+
+        foreach (StoreMonitorMetricRequest::VALUE_LIST_FIELDS as $field) {
+            $list = $row[$field] ?? null;
+
+            if (is_array($list) && $list !== []) {
+                return MetricBand::Ok->value;
+            }
+        }
+
+        return null;
     }
 
     /**

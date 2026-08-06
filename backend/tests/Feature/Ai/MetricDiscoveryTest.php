@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ai;
 
+use App\Enums\MetricBand;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
@@ -12,6 +13,7 @@ use App\Enums\ThresholdDirection;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorContentVersion;
+use App\Models\MonitorMetric;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Ai\AnalysisGateway;
@@ -24,10 +26,12 @@ use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\RelayClient;
 use App\Support\Monitoring\CheckResult;
+use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Ai\Exceptions\RateLimitedException;
@@ -70,7 +74,12 @@ class MetricDiscoveryTest extends TestCase
      *
      * The Flutter DTO decodes exactly these, and the WIRE field is `path` while
      * the backend column is `extraction_path`. `key` is backend-generated and
-     * the model never supplies it.
+     * the model never supplies it. The three value lists travel under their
+     * COLUMN names, because there is no form vocabulary for a value list and the
+     * client passes them straight through to the write endpoint.
+     *
+     * `unmatched_band` is deliberately absent: the model has no schema field for
+     * it and {@see MonitorController::store()} pins it server-side.
      */
     protected const SUGGESTION_KEYS = [
         'key',
@@ -81,6 +90,9 @@ class MetricDiscoveryTest extends TestCase
         'unit',
         'warn',
         'critical',
+        'ok_values',
+        'warn_values',
+        'critical_values',
         'sample_value',
     ];
 
@@ -485,6 +497,248 @@ class MetricDiscoveryTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // (2b) The string band channel
+    // -----------------------------------------------------------------
+
+    public function test_a_banded_selection_survives_the_gateways_own_key_check(): void
+    {
+        // The single assertion standing between the band channel and a silent
+        // zero-suggestion path. `acceptSelection()` refuses a selection carrying
+        // any key outside SELECTION_KEYS, so adding the three list fields to the
+        // SCHEMA alone discards every compliant banded answer whole: no retry
+        // (`acceptSelections()` answers `[]`, not null), no log line, and every
+        // other test here stays green because no other fixture carries a band.
+        $gateway = $this->fakeGateway(null);
+
+        $accepted = $gateway->acceptSelections(
+            $this->selectionsFor([
+                $this->selection('c1') + [
+                    'ok_values' => ['ok'],
+                    'warn_values' => ['degraded'],
+                    'critical_values' => ['down'],
+                ],
+            ]),
+            $this->payload(),
+        );
+
+        $this->assertCount(1, (array) $accepted);
+        $this->assertSame(['ok'], $accepted[0]['okValues']);
+        $this->assertSame(['degraded'], $accepted[0]['warnValues']);
+        $this->assertSame(['down'], $accepted[0]['criticalValues']);
+    }
+
+    public function test_a_health_status_travels_end_to_end_as_a_banded_string_metric(): void
+    {
+        Queue::fake();
+        // The case the whole band channel exists for: a health payload reading
+        // `"status": "ok"` used to be proposable as a String metric that records
+        // a word and can never band it.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->healthFixture());
+        $status = $this->candidateIn($this->healthFixture(), 'ok');
+
+        $this->fakeGateway($this->selectionsFor([
+            $this->selection($status->ref, label: 'Service status') + [
+                'ok_values' => ['ok'],
+                'warn_values' => ['degraded'],
+                'critical_values' => ['down'],
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(['ok'], $suggestion['ok_values']);
+        $this->assertSame(['degraded'], $suggestion['warn_values']);
+        $this->assertSame(['down'], $suggestion['critical_values']);
+
+        // And the write endpoint accepts that row verbatim, which is the half a
+        // suggestion-only assertion cannot prove.
+        $written = $this->postJson('/api/v1/monitors', [
+            ...$this->monitorPayload(),
+            'metrics' => [$this->asMetricRow($suggestion)],
+        ]);
+
+        $written->assertStatus(201);
+        $metric = MonitorMetric::query()->where('team_id', $team->id)->sole();
+        $this->assertSame(['ok'], $metric->ok_values);
+        $this->assertSame(MetricBand::Ok, $metric->unmatched_band);
+        $this->assertTrue($metric->alertsOnString());
+    }
+
+    public function test_the_observed_value_is_never_transcribed_into_a_paging_band(): void
+    {
+        // The reachable harm is mis-assignment, not invention: `bandString()`
+        // tests critical FIRST and `alertsOnString()` is true the moment any
+        // list is non-empty, so a model that copied the sample it was shown into
+        // `critical_values` hands the operator a metric that pages on its very
+        // first check.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->healthFixture());
+        $status = $this->candidateIn($this->healthFixture(), 'ok');
+
+        $this->fakeGateway($this->selectionsFor([
+            $this->selection($status->ref) + [
+                // Case-shifted, because matching ignores case and a raw string
+                // comparison here would let `OK` through.
+                'critical_values' => ['OK'],
+                'warn_values' => ['ok'],
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame([], $suggestion['critical_values']);
+        $this->assertSame([], $suggestion['warn_values']);
+    }
+
+    public function test_a_value_in_two_lists_is_kept_in_the_least_severe_one(): void
+    {
+        Queue::fake();
+        // `validateNoOverlappingValues` 422s this pair, on an error key
+        // (`metrics.0.warn_values.0`) the operator saw as a pill and cannot act
+        // on, and under the all-or-nothing create it would take the monitor with
+        // it. Corrected downward here instead.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->healthFixture());
+        $status = $this->candidateIn($this->healthFixture(), 'ok');
+
+        $this->fakeGateway($this->selectionsFor([
+            $this->selection($status->ref) + [
+                'ok_values' => ['maintenance'],
+                'warn_values' => ['MAINTENANCE'],
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(['maintenance'], $suggestion['ok_values']);
+        $this->assertSame([], $suggestion['warn_values']);
+
+        // And it survives the endpoint that would otherwise have refused it.
+        $this->postJson('/api/v1/monitors', [
+            ...$this->monitorPayload(),
+            'metrics' => [$this->asMetricRow($suggestion)],
+        ])->assertStatus(201);
+    }
+
+    public function test_a_band_value_at_the_digest_cap_never_reaches_the_write_endpoint(): void
+    {
+        Queue::fake();
+        // No hostile input needed: DIGEST_VALUE_MAX_LENGTH is 128 and the write
+        // endpoint's per-item rule is max:120, so a value the model transcribes
+        // verbatim from a full-length digest row is eight characters over and
+        // would 422 the whole monitor create.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->healthFixture());
+        $status = $this->candidateIn($this->healthFixture(), 'ok');
+        $overCap = str_repeat('x', MetricCandidate::DIGEST_VALUE_MAX_LENGTH);
+
+        $this->fakeGateway($this->selectionsFor([
+            $this->selection($status->ref) + [
+                'ok_values' => [
+                    'ok',
+                    $overCap,
+                ],
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(['ok'], $suggestion['ok_values']);
+
+        $this->postJson('/api/v1/monitors', [
+            ...$this->monitorPayload(),
+            'metrics' => [$this->asMetricRow($suggestion)],
+        ])->assertStatus(201);
+    }
+
+    public function test_a_blank_band_value_is_dropped_rather_than_configured(): void
+    {
+        // A value that normalizes to empty matches every empty reading, so the
+        // write endpoint refuses it; here it is dropped so the rest of the list
+        // still travels.
+        $gateway = $this->fakeGateway(null);
+
+        $accepted = $gateway->acceptSelections(
+            $this->selectionsFor([
+                $this->selection('c1') + [
+                    'ok_values' => [
+                        "\u{00A0}",
+                        'ok',
+                        ' OK ',
+                    ],
+                ],
+            ]),
+            $this->payload(),
+        );
+
+        $this->assertSame(['ok'], $accepted[0]['okValues']);
+    }
+
+    public function test_a_non_string_band_element_refuses_the_whole_selection(): void
+    {
+        // Same false-means-refuse contract the scalar resolvers hold: a number
+        // where the schema declares a string array is non-conforming output, not
+        // an unhelpful value.
+        $gateway = $this->fakeGateway(null);
+
+        $this->assertSame([], $gateway->acceptSelections(
+            $this->selectionsFor([
+                $this->selection('c1') + ['ok_values' => [42]],
+            ]),
+            $this->payload(),
+        ));
+    }
+
+    public function test_a_numeric_selection_carries_no_band_lists(): void
+    {
+        // Mirrors the bounds gate in the other direction: `alertsOnString()`
+        // requires MetricType::String, so lists on a numeric metric are three
+        // columns nothing ever reads plus a pinned `unmatched_band`.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $this->candidateWithValue('4200')->ref,
+                'label' => 'Requests served',
+                'type' => MetricType::Numeric->value,
+                'ok_values' => ['4200'],
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame([], $suggestion['ok_values']);
+    }
+
+    public function test_the_model_has_no_channel_for_the_unmatched_band(): void
+    {
+        // MetricBand has no neutral case, so the cheapest way to stop a model
+        // pinning `critical` on every unrecognized reading is to give it no
+        // channel at all: not in the schema, and refused whole here exactly as
+        // an extraction path is. The pin is the CREATE path's, conditionally.
+        $gateway = $this->fakeGateway(null);
+
+        $this->assertSame([], $gateway->acceptSelections(
+            $this->selectionsFor([
+                $this->selection('c1') + ['unmatched_band' => MetricBand::Critical->value],
+            ]),
+            $this->payload(),
+        ));
+    }
+
+    // -----------------------------------------------------------------
     // (3) The prompt's two trust zones
     // -----------------------------------------------------------------
 
@@ -794,6 +1048,50 @@ class MetricDiscoveryTest extends TestCase
         $response->assertDontSee('set-cookie');
     }
 
+    public function test_a_suggestion_built_from_a_redacted_sample_never_travels(): void
+    {
+        // The persistence half of the credential rule, and the only seam that
+        // still holds the sample. A metric is not a one-off read: an accepted
+        // string metric pointed at a credential-echoing field writes that value
+        // into `monitor_metric_values.string_value`, a plain text column, on
+        // every check forever, and `TriageAnomalyCandidate` then feeds it into
+        // the anomaly prompt.
+        $token = 'SECRETBEARERTOKEN';
+        $echoed = (string) json_encode([
+            'status' => 'ok',
+            'request' => ['authorization' => 'Bearer '.$token],
+        ]);
+        $this->fakeRelay($echoed);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        // Refs are minted from the body the redactor already scrubbed, so the
+        // echoing leaf reads as the marker by the time discovery sees it.
+        $redacted = str_replace('Bearer '.$token, CredentialRedactor::MARKER, $echoed);
+        $this->fakeGateway($this->selectionsFor([
+            $this->selection($this->candidateIn($redacted, CredentialRedactor::MARKER)->ref, label: 'Auth echo'),
+            $this->selection($this->candidateIn($redacted, 'ok')->ref, label: 'Service status'),
+        ]));
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+            'auth_config' => [
+                'type' => 'bearer',
+                'token' => $token,
+            ],
+        ]);
+
+        $response->assertStatus(200);
+        $suggestions = (array) $response->json('data.suggested_metrics');
+
+        // The healthy sibling survives, so this measures the DROP and not a
+        // discovery path that happened to yield nothing.
+        $this->assertCount(1, $suggestions);
+        $this->assertSame('ok', $suggestions[0]['sample_value']);
+        $response->assertDontSee($token);
+        $response->assertDontSee(CredentialRedactor::MARKER);
+    }
+
     public function test_analyze_without_a_body_still_answers_an_empty_array(): void
     {
         $this->fakeRelay(null);
@@ -1035,6 +1333,77 @@ class MetricDiscoveryTest extends TestCase
         }
 
         $this->fail('the filtered headers no longer yield a header candidate.');
+    }
+
+    /**
+     * The candidate `$body` yields holding exactly `$value`, so no test
+     * hardcodes a ref whose position the extractor's ranking owns.
+     */
+    protected function candidateIn(string $body, string $value): MetricCandidate
+    {
+        foreach ($this->app->make(MetricCandidateExtractor::class)->extract($body) as $candidate) {
+            if ($candidate->sampleValue === $value) {
+                return $candidate;
+            }
+        }
+
+        $this->fail("That body no longer yields a candidate valued [{$value}].");
+    }
+
+    /**
+     * A health payload whose `status` reads `ok`: the case the band channel
+     * exists for, and the one the original request named.
+     */
+    protected function healthFixture(): string
+    {
+        return (string) json_encode([
+            'status' => 'ok',
+            'checks' => ['database' => 'ok'],
+        ]);
+    }
+
+    /**
+     * Translate one `suggested_metrics` entry into the row `POST /monitors`
+     * accepts, exactly as the client does.
+     *
+     * The wire vocabulary is not the column vocabulary: `path` is
+     * `extraction_path`, `warn`/`critical` are the numeric bounds, and
+     * `sample_value` is display-only and never sent. The three value lists
+     * already travel under their column names.
+     *
+     * @param  array<string, mixed>  $suggestion
+     * @return array<string, mixed>
+     */
+    protected function asMetricRow(array $suggestion): array
+    {
+        $row = $suggestion;
+        unset($row['path'], $row['warn'], $row['critical'], $row['sample_value']);
+
+        return [
+            ...$row,
+            'extraction_path' => $suggestion['path'],
+            'warn_bound' => $suggestion['warn'],
+            'critical_bound' => $suggestion['critical'],
+        ];
+    }
+
+    /**
+     * A valid `POST /monitors` payload, minus the metrics a test adds.
+     *
+     * @return array<string, mixed>
+     */
+    protected function monitorPayload(): array
+    {
+        return [
+            'name' => 'API Health',
+            'type' => MonitorType::Http->value,
+            'url' => 'https://example.com/health',
+            'method' => 'get',
+            'check_interval_sec' => 180,
+            'timeout_sec' => 30,
+            'regions' => [MonitorRegion::USEast->value],
+            'expected_status_code' => 200,
+        ];
     }
 
     /**

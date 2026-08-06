@@ -10,6 +10,7 @@ use App\Http\Requests\Concerns\ValidatesAuthConfig;
 use App\Models\Monitor;
 use App\Models\Team;
 use App\Services\Billing\PlanGate;
+use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Support\Monitoring\HostGuard;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
@@ -27,6 +28,13 @@ use Illuminate\Validation\Rule;
  * The host-resolution logic lives in the shared {@see HostGuard} service;
  * this request only wires it onto the `url` field (see
  * {@see self::noInternalHost()}).
+ *
+ * It also carries the optional bulk `metrics[]` the AI create flow submits with
+ * the monitor. Those rows are validated by
+ * {@see StoreMonitorMetricRequest::metricFieldRules()} under a `metrics.*.`
+ * prefix, which is the same definition the single-metric endpoint enforces, and
+ * they are written inside the monitor's own transaction by
+ * {@see MonitorController::store()}.
  */
 class StoreMonitorRequest extends FormRequest
 {
@@ -138,12 +146,10 @@ class StoreMonitorRequest extends FormRequest
             // being an array: `UpdateMonitorRequest` overrides `rules()` and
             // never declares `metrics` there, so this loop is inherited but
             // permanently dormant on a PUT, even one carrying a stray
-            // `metrics[]` the update endpoint never reads. Today's
-            // `StoreMonitorRequest::rules()` does not declare `metrics`
-            // either (that is Step 10's change), so on `POST /monitors` this
-            // loop is dormant too until that field rule lands; a direct
-            // `Validator` instance carrying `metricFieldRules()` is what
-            // proves the check itself in the meantime.
+            // `metrics[]` the update endpoint never reads. On `POST /monitors`
+            // the bare `metrics` key in `rules()` below is what arms it, and
+            // dropping that key while keeping the `metrics.*` rules would
+            // disarm all three checks without a single field rule changing.
             if (array_key_exists('metrics', $this->rules())) {
                 $metrics = $this->input('metrics');
 
@@ -267,6 +273,42 @@ class StoreMonitorRequest extends FormRequest
                 'min:1',
                 'max:365',
             ],
+            // The bulk metric rows, written with the monitor in one
+            // transaction by MonitorController::store(). The BARE key is
+            // load-bearing twice over and neither failure is loud: it is what
+            // self::withValidator() gates its per-row cross-field loop on, and
+            // it is what makes `metrics` reach `validated()` at all, since a
+            // payload key with only wildcard rules under it is not validated
+            // data. Capped at the number of candidates discovery can ever
+            // propose, because that is the only producer of a bulk row today
+            // and no plan tier gates metric COUNT
+            // (`backend/config/plans.php`).
+            // The bulk metric rows, written with the monitor in one
+            // transaction by MonitorController::store(). The BARE key is
+            // load-bearing beyond the `array` type and the cap: it is what
+            // self::withValidator() gates its per-row cross-field loop on, so
+            // declaring only the `metrics.*` rules leaves an inverted
+            // warn/critical pair, an overlapping band value and an unmatched
+            // band with no list all unrefused on this path while every field
+            // rule still fires. Measured, not assumed: with this key removed
+            // the rows still validate, still reach `validated()` and still
+            // persist, and only the three cross-field checks go quiet.
+            //
+            // Capped at the number of candidates discovery can ever propose,
+            // because that is the only producer of a bulk row today and no
+            // plan tier gates metric COUNT (`backend/config/plans.php`).
+            'metrics' => [
+                'sometimes',
+                'array',
+                'max:'.MetricCandidateExtractor::MAX_CANDIDATES,
+            ],
+            // Reached as `metrics.*.<field>` from the ONE definition of what a
+            // metric may contain, prefix and all, rather than a second copy:
+            // a rule that drifts between two copies governs a persisted metric
+            // on one path and not the other. `rules()` itself is unusable here,
+            // route-bound through its `key` uniqueness, so the static
+            // route-free half is what this composes.
+            ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
             ...$this->authConfigRules(partial: false),
         ];
     }

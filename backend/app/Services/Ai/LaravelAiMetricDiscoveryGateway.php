@@ -5,8 +5,12 @@ namespace App\Services\Ai;
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
 use App\Enums\ThresholdDirection;
+use App\Http\Requests\StoreMonitorMetricRequest;
+use App\Models\MonitorMetric;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
+use App\Services\Monitoring\ThresholdEvaluator;
+use App\Support\Monitoring\MetricCandidate;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Contracts\Agent;
@@ -85,11 +89,46 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
     protected const string LABEL_ALLOWED = '/[^\p{L}\p{N} ._\-()\/%:+]/u';
 
     /**
+     * Item ceiling on one string-band list.
+     *
+     * Matches the `max:50` {@see StoreMonitorMetricRequest::stringBandRules()}
+     * enforces per list, under the same principle as
+     * {@see self::LABEL_MAX_LENGTH}: a suggestion the operator accepts unchanged
+     * cannot be rejected by the endpoint it was built for.
+     */
+    public const int VALUE_LIST_MAX_ITEMS = 50;
+
+    /**
+     * Character ceiling on one string-band value.
+     *
+     * Matches the `max:120` the same rule set enforces per item, and the gap it
+     * closes is reachable without any hostile input:
+     * {@see MetricCandidate::DIGEST_VALUE_MAX_LENGTH} is 128, so a value the
+     * model transcribes verbatim from a full-length digest row is eight
+     * characters over. Under this plan's all-or-nothing bulk create that would
+     * 422 the whole monitor, so the value is dropped here instead.
+     *
+     * Dropped rather than truncated on purpose. A truncated band value is a
+     * value that can never match at check time, silently and forever, which is
+     * a worse answer than a band list that is one entry shorter than the model
+     * proposed.
+     */
+    public const int VALUE_MAX_LENGTH = 120;
+
+    /**
      * The exact key set one selection may carry.
      *
      * A selection carrying anything else is refused whole. `unit` is a closed
      * string enum so resolving it constrains it completely; there is no path key
      * here and there never can be.
+     *
+     * The three value lists have to be listed HERE as well as in
+     * {@see self::schema()}, and nothing says so if they are not:
+     * {@see self::acceptSelection()}'s first check refuses a selection carrying
+     * an undeclared key, so a schema-only addition would silently discard every
+     * compliant banded answer, {@see self::acceptSelections()} would return an
+     * empty list rather than null, no retry would fire and no line would be
+     * logged.
      */
     protected const array SELECTION_KEYS = [
         'ref',
@@ -99,6 +138,21 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
         'threshold_direction',
         'warn',
         'critical',
+        'ok_values',
+        'warn_values',
+        'critical_values',
+    ];
+
+    /**
+     * The three string-band list keys, in the order a value's least severe
+     * owner should win when the same value is transcribed into two of them.
+     *
+     * @var list<string>
+     */
+    public const array VALUE_LIST_KEYS = [
+        'ok_values',
+        'warn_values',
+        'critical_values',
     ];
 
     /**
@@ -196,6 +250,36 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
                             ->description('The warn-severity bound, for a numeric metric with thresholds.'),
                         'critical' => $schema->number()
                             ->description('The critical-severity bound, for a numeric metric with thresholds.'),
+                        // The band channel for a STRING metric, and the reason
+                        // it exists: a health payload's "status": "ok" was
+                        // proposable as a string metric that recorded a word and
+                        // could never band it. Every description says
+                        // TRANSCRIBE, because a band value only means something
+                        // when the service really answers with it; an invented
+                        // synonym is a value that never matches, and under
+                        // `unmatched_band` it would read as a healthy service
+                        // being unrecognized.
+                        'ok_values' => $schema->array()
+                            ->items($schema->string()->max(self::VALUE_MAX_LENGTH))
+                            ->max(self::VALUE_LIST_MAX_ITEMS)
+                            ->description(
+                                'For a string metric: the healthy values, transcribed exactly as the observed '
+                                .'sample writes them. Never invent a value the response did not show.',
+                            ),
+                        'warn_values' => $schema->array()
+                            ->items($schema->string()->max(self::VALUE_MAX_LENGTH))
+                            ->max(self::VALUE_LIST_MAX_ITEMS)
+                            ->description(
+                                'For a string metric: the degraded values, transcribed from what this service '
+                                .'documents or shows. Never the value the sample is currently reading.',
+                            ),
+                        'critical_values' => $schema->array()
+                            ->items($schema->string()->max(self::VALUE_MAX_LENGTH))
+                            ->max(self::VALUE_LIST_MAX_ITEMS)
+                            ->description(
+                                'For a string metric: the failing values, transcribed from what this service '
+                                .'documents or shows. Never the value the sample is currently reading.',
+                            ),
                     ])->withoutAdditionalProperties(),
                 )
                 ->max(self::MAX_SELECTIONS)
@@ -224,6 +308,9 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
      *     thresholdDirection: ThresholdDirection|null,
      *     warnBound: float|null,
      *     criticalBound: float|null,
+     *     okValues: list<string>,
+     *     warnValues: list<string>,
+     *     criticalValues: list<string>,
      * }>|null
      */
     public function acceptSelections(?array $data, MetricDiscoveryPayload $payload): ?array
@@ -316,6 +403,9 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
      *     thresholdDirection: ThresholdDirection|null,
      *     warnBound: float|null,
      *     criticalBound: float|null,
+     *     okValues: list<string>,
+     *     warnValues: list<string>,
+     *     criticalValues: list<string>,
      * }|null
      */
     protected function acceptSelection(array $row, MetricDiscoveryPayload $payload): ?array
@@ -362,6 +452,11 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
             return null;
         }
 
+        $lists = $this->resolveLists($row, $type);
+        if ($lists === false) {
+            return null;
+        }
+
         return [
             'ref' => $ref,
             'label' => $label,
@@ -370,7 +465,100 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
             'thresholdDirection' => $direction,
             'warnBound' => $bounds['warn'],
             'criticalBound' => $bounds['critical'],
+            'okValues' => $lists['ok_values'],
+            'warnValues' => $lists['warn_values'],
+            'criticalValues' => $lists['critical_values'],
         ];
+    }
+
+    /**
+     * The selection's three string-band lists, or `false` when one of them is
+     * declared as something that is not a list of strings.
+     *
+     * The type gate mirrors {@see self::resolveBounds()}'s: bounds mean nothing
+     * on a string metric and band lists mean nothing on a numeric one, because
+     * {@see MonitorMetric::alertsOnString()} is the only predicate that reads
+     * them and it requires {@see MetricType::String}. A numeric metric arriving
+     * with lists would otherwise be written with a pinned `unmatched_band` and
+     * three lists nothing ever consults. Emptied rather than refused, for the
+     * same reason a misplaced bound is: this is the model being unhelpful, not
+     * hostile.
+     *
+     * @param  array<array-key, mixed>  $row
+     * @return array{ok_values: list<string>, warn_values: list<string>, critical_values: list<string>}|false
+     */
+    protected function resolveLists(array $row, MetricType $type): array|false
+    {
+        $lists = [];
+
+        foreach (self::VALUE_LIST_KEYS as $key) {
+            $list = $this->resolveList($row, $key);
+
+            if ($list === false) {
+                return false;
+            }
+
+            $lists[$key] = $type === MetricType::String ? ($list ?? []) : [];
+        }
+
+        return $lists;
+    }
+
+    /**
+     * One string-band list, bounded to what the metric write path accepts:
+     * null when absent, `false` when it is not a list of strings, otherwise the
+     * usable values in the order the model gave them.
+     *
+     * Three kinds of entry are dropped rather than refused, and each one would
+     * otherwise 422 the whole bulk create the operator kicked off by accepting a
+     * suggestion, or configure a value that can never match:
+     *
+     *   - a blank or whitespace-only value, which {@see ThresholdEvaluator::normalizeMatchValue()}
+     *     reduces to the empty string and which the endpoint's own per-item
+     *     closure refuses;
+     *   - a value over {@see self::VALUE_MAX_LENGTH}, the endpoint's `max:120`;
+     *   - a value that repeats an earlier one once case and surrounding
+     *     whitespace are ignored, which the endpoint's `distinct:ignore_case`
+     *     refuses. Normalizing here is stricter than the endpoint's comparison
+     *     rather than looser, so nothing survives this filter that the endpoint
+     *     would then reject.
+     *
+     * @param  array<array-key, mixed>  $row
+     * @return list<string>|false|null
+     */
+    protected function resolveList(array $row, string $key): array|false|null
+    {
+        $value = $row[$key] ?? null;
+
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_array($value)) {
+            return false;
+        }
+
+        $kept = [];
+        $seen = [];
+
+        foreach (array_slice($value, 0, self::VALUE_LIST_MAX_ITEMS) as $item) {
+            // A non-string element is non-conforming output rather than an
+            // unhelpful value, exactly as a string in a `number` bound is.
+            if (! is_string($item)) {
+                return false;
+            }
+
+            $normalized = ThresholdEvaluator::normalizeMatchValue($item);
+
+            if ($normalized === '' || mb_strlen($item) > self::VALUE_MAX_LENGTH || isset($seen[$normalized])) {
+                continue;
+            }
+
+            $seen[$normalized] = true;
+            $kept[] = $item;
+        }
+
+        return $kept;
     }
 
     /**
