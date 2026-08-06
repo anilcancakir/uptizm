@@ -56,7 +56,6 @@ class ProbeHeaderAllowListTest extends TestCase
         $this->assertSame(['server' => 'nginx'], ProbeHeaderAllowList::filter(['Server' => 'nginx']));
     }
 
-    /** A kept value over the cap is truncated to it, not dropped. */
     /**
      * A value that is not a string is handled rather than cast.
      *
@@ -83,6 +82,7 @@ class ProbeHeaderAllowListTest extends TestCase
         $this->assertArrayNotHasKey('server', $kept, 'a nested array is not a header value');
     }
 
+    /** A kept value over the cap is truncated to it, not dropped. */
     public function test_truncates_an_oversized_value_to_the_cap(): void
     {
         $filtered = ProbeHeaderAllowList::filter([

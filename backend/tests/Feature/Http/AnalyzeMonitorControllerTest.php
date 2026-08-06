@@ -415,7 +415,7 @@ class AnalyzeMonitorControllerTest extends TestCase
         $response->assertJsonPath('data.recommended_regions', ['us-east']);
     }
 
-    public function test_the_analysis_model_inherits_the_surface_the_deployment_actually_configured(): void
+    public function test_both_models_one_analyze_calls_inherit_the_surface_the_deployment_configured(): void
     {
         // Re-evaluating the config FILE rather than reading the resolved value,
         // because the fallback chain only shows itself while `env()` is being
@@ -425,13 +425,21 @@ class AnalyzeMonitorControllerTest extends TestCase
         // not serve. The gateway's own degrade would then answer deterministically
         // on every request with only a log line, so the feature would ship dark
         // and look healthy: the worst failure shape this endpoint has.
+        //
+        // BOTH keys, because one analyze spends both: the suggestion turn reads
+        // `analysis.model` and `MetricDiscoveryService` reads
+        // `metric_discovery.model` on the same request. Asserting only the first
+        // would let the second regress to a literal id and answer every request
+        // with an empty `suggested_metrics`, green suite and all.
         putenv('AI_TRIAGE_MODEL=openai/gpt-4o-mini');
 
         try {
             $config = require config_path('ai.php');
 
             $this->assertSame('openai/gpt-4o-mini', $config['analysis']['model']);
+            $this->assertSame('openai/gpt-4o-mini', $config['metric_discovery']['model']);
             $this->assertSame($config['triage']['model'], $config['analysis']['model']);
+            $this->assertSame($config['triage']['model'], $config['metric_discovery']['model']);
         } finally {
             putenv('AI_TRIAGE_MODEL');
         }

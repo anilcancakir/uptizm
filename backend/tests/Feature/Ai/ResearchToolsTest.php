@@ -359,6 +359,31 @@ class ResearchToolsTest extends TestCase
         $this->assertStringContainsString('no usable', $result);
     }
 
+    public function test_the_rows_examined_are_bounded_even_when_none_of_them_can_be_kept(): void
+    {
+        // The bound is on rows EXAMINED, not rows kept, and only a payload whose
+        // early rows are all unusable can tell the two apart: with a keep-only
+        // bound the loop would walk every row hunting for a fifth result.
+        //
+        // Each iteration can reach `HostGuard`, which resolves DNS, inside a
+        // synchronous request the operator is holding, repeatable up to the
+        // agent's step budget. So the failure this pins is latency, not a wrong
+        // answer, and the assertion has to be structural: the usable rows sit
+        // PAST the ceiling, and a run that reports them is a run that walked
+        // further than it may.
+        $ceiling = config('research.limits.results') * 4;
+
+        $refused = array_map(static fn (int $i): string => 'https://10.0.0.'.$i.'/admin', range(1, $ceiling));
+        $usable = array_fill(0, 3, 'https://docs.vendor.example/guide');
+
+        $this->fakeKodizm($this->searchPayload([...$refused, ...$usable]));
+
+        $result = $this->searchTool($this->allowList())->handle(new Request(['query' => 'status.example.com']));
+
+        $this->assertStringContainsString('no usable', $result);
+        $this->assertStringNotContainsString('docs.vendor.example', $result);
+    }
+
     // -----------------------------------------------------------------
     // (5) The measured wire shape, and the bounds on what comes back
     // -----------------------------------------------------------------
