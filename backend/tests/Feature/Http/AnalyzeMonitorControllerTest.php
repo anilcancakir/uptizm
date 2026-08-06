@@ -6,6 +6,7 @@ use App\Enums\BodyShape;
 use App\Enums\LocationBasis;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
+use App\Enums\RegionBasis;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Models\Monitor;
 use App\Models\User;
@@ -14,15 +15,19 @@ use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
 use App\Services\Ai\FakeAnalysisGateway;
 use App\Services\Ai\LaravelAiAnalysisGateway;
+use App\Services\Ai\MetricDiscoveryPayload;
 use App\Services\Ai\MetricDiscoveryService;
+use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\RelayClient;
 use App\Services\Monitoring\TargetLocation;
 use App\Services\Monitoring\TargetLocationResult;
 use App\Support\Monitoring\CheckResult;
+use App\Support\Monitoring\CredentialRedactor;
 use DateTimeImmutable;
 use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Sanctum\Sanctum;
@@ -610,6 +615,147 @@ class AnalyzeMonitorControllerTest extends TestCase
         );
     }
 
+    public function test_analyze_probes_the_target_with_the_submitted_credential(): void
+    {
+        $relay = $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+            'auth_config' => [
+                'type' => 'basic',
+                'username' => 'ops',
+                'password' => 'SECRETPASSWORD',
+            ],
+        ])->assertStatus(200);
+
+        // Read the ACCESSOR and never `getAttributes()`: the `encrypted:array`
+        // cast holds ciphertext even on this unsaved instance, and
+        // `RelayClient::buildSpec()` reads the decrypted array. Asserting on the
+        // raw attribute would chase a ghost.
+        $probed = $relay->probed;
+        $this->assertInstanceOf(Monitor::class, $probed);
+        $this->assertSame([
+            'type' => 'basic',
+            'username' => 'ops',
+            'password' => 'SECRETPASSWORD',
+        ], $probed->auth_config);
+
+        // Transient means transient: an analyze leaves no row behind, which is
+        // also why its log line is the only record that it happened.
+        $this->assertFalse($probed->exists);
+        $this->assertSame(0, Monitor::query()->count());
+    }
+
+    public function test_analyze_validates_the_credential_shape(): void
+    {
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        // The shared `ValidatesAuthConfig` rules apply here exactly as they do
+        // on create: a basic credential without its password is refused before
+        // any probe runs, rather than probing unauthenticated and reporting a
+        // 401 as the target's own answer.
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+            'auth_config' => ['type' => 'basic', 'username' => 'ops'],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('auth_config.password');
+    }
+
+    public function test_a_credential_the_target_echoes_reaches_neither_prompt_nor_the_response(): void
+    {
+        // The discriminating case for the whole control. The worker sends
+        // `Basic base64("user:pass")`, so a debug page echoing its request
+        // headers prints THAT and never the pair, which is why a redactor built
+        // from the submitted username and password would pass every other test
+        // here and fail this one.
+        $secret = 'SECRETPASSWORD';
+        $wireForm = base64_encode('ops:'.$secret);
+
+        $this->fakeRelay(MonitorStatus::Up, $this->cloudflareHeaders(), $this->echoingBody($wireForm));
+        $discovery = $this->recordingMetricDiscovery();
+        $gateway = $this->recordingGateway();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+            'auth_config' => [
+                'type' => 'basic',
+                'username' => 'ops',
+                'password' => $secret,
+            ],
+        ]);
+
+        $response->assertStatus(200);
+
+        $analysisMessage = $gateway->payload?->buildUserMessage() ?? '';
+        $discoveryMessage = $discovery->captured?->buildUserMessage() ?? '';
+
+        // BOTH prompts, because one analyze builds two through two payload
+        // classes. The marker assertions come first and are not decoration:
+        // a credential is absent from a prompt that was never built too, so
+        // without them both halves of this test could pass vacuously.
+        $this->assertStringContainsString(CredentialRedactor::MARKER, $analysisMessage);
+        $this->assertStringContainsString(CredentialRedactor::MARKER, $discoveryMessage);
+
+        foreach ([$analysisMessage, $discoveryMessage, (string) $response->getContent()] as $rendered) {
+            $this->assertStringNotContainsString($wireForm, $rendered);
+            $this->assertStringNotContainsString($secret, $rendered);
+        }
+    }
+
+    public function test_a_credentialled_analyze_is_logged_with_the_host_and_the_type_and_never_a_value(): void
+    {
+        Log::spy();
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $team = $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health?token=QUERYSECRET',
+            'auth_config' => ['type' => 'bearer', 'token' => 'SECRETTOKEN'],
+        ])->assertStatus(200);
+
+        Log::shouldHaveReceived('info')
+            ->withArgs(function (string $message, array $context) use ($team): bool {
+                $rendered = $message.' '.json_encode($context);
+
+                return str_contains($message, 'operator-supplied credential')
+                    && $context['team_id'] === (string) $team->id
+                    // The HOST, not the URL: a monitor target is frequently
+                    // `…/health?token=…` and a log line is a place a query
+                    // string would sit forever.
+                    && $context['host'] === 'example.com'
+                    && $context['auth_type'] === 'bearer'
+                    && ! str_contains($rendered, 'SECRETTOKEN')
+                    && ! str_contains($rendered, 'QUERYSECRET');
+            })
+            ->once();
+    }
+
+    public function test_an_auth_config_of_type_none_behaves_as_an_unauthenticated_analyze(): void
+    {
+        Log::spy();
+        $relay = $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+            'auth_config' => ['type' => 'none'],
+        ])->assertStatus(200);
+
+        // The worker sends no header for `none`, so nothing was exposed and the
+        // audit line stays silent: the same boundary `CredentialRedactor::for()`
+        // draws, and the reason the ordinary path gains no noise.
+        $this->assertSame(['type' => 'none'], $relay->probed?->auth_config);
+        Log::shouldNotHaveReceived('info');
+    }
+
     public function test_a_degraded_response_carries_the_same_shape_as_a_modelled_one(): void
     {
         // The client decodes one shape. A bad provider day changes the VALUES it
@@ -636,6 +782,98 @@ class AnalyzeMonitorControllerTest extends TestCase
         $this->assertContains('service_class', $degraded);
         $this->assertContains('region_basis', $degraded);
         $this->assertContains('recommended_slo_target', $degraded);
+    }
+
+    public function test_a_degraded_analyze_reports_low_confidence(): void
+    {
+        // Over budget on purpose: no model ran, so the deterministic path
+        // answered. That is the only condition `low` gates on.
+        config(['ai.budget.daily_per_team' => 0]);
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.confidence', 'low');
+    }
+
+    public function test_a_modelled_analyze_with_an_inferred_region_basis_reports_medium_confidence(): void
+    {
+        // A model answered (the fake gateway is bound, not thrown), but its
+        // `region_basis` is `default`, the inferred member of the set. A
+        // digest is present too, which proves `medium` gates on the BASIS and
+        // not merely on the absence of one.
+        $this->fakeRelay(MonitorStatus::Up, $this->cloudflareHeaders(), $this->healthBody());
+        $this->stubMetricDiscovery();
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.region_basis', RegionBasis::Default->value);
+        $response->assertJsonPath('data.confidence', 'medium');
+    }
+
+    public function test_a_modelled_analyze_with_a_measured_basis_and_a_digest_reports_high_confidence(): void
+    {
+        // A model answered with a MEASURED basis (`geoip`) over a probe that
+        // returned a body, so both conditions `high` requires are met.
+        $this->fakeRelay(MonitorStatus::Up, $this->cloudflareHeaders(), $this->healthBody());
+        $this->stubMetricDiscovery();
+        $this->app->instance(AnalysisGateway::class, new class implements AnalysisGateway
+        {
+            public function analyze(AnalysisPayload $payload): AnalysisResult
+            {
+                return new AnalysisResult(
+                    recommendedIntervalSeconds: 60,
+                    recommendedWarnThresholdMs: 800,
+                    recommendedCriticalThresholdMs: 2000,
+                    recommendedRegions: [MonitorRegion::USEast->value],
+                    rationale: 'Recorded suggestion.',
+                    regionBasis: RegionBasis::Geoip->value,
+                );
+            }
+        });
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.region_basis', RegionBasis::Geoip->value);
+        $response->assertJsonPath('data.confidence', 'high');
+    }
+
+    public function test_a_model_reporting_its_own_confidence_cannot_influence_the_wire_value(): void
+    {
+        // The fake's answer carries a `confidence` no real schema offers a
+        // model, deliberately set to the OPPOSITE of what the evidence
+        // (`region_basis: default`, an inferred value) actually supports. If
+        // the controller ever forwarded a model's self-report, this would
+        // read `high`; it must still read the derived `medium`.
+        $this->fakeRelay(MonitorStatus::Up, $this->cloudflareHeaders(), $this->healthBody());
+        $this->stubMetricDiscovery();
+        $this->app->instance(
+            AnalysisGateway::class,
+            FakeAnalysisGateway::selfReportingConfidence('high'),
+        );
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.region_basis', RegionBasis::Default->value);
+        $response->assertJsonPath('data.confidence', 'medium');
     }
 
     public function test_the_deterministic_slo_table_stays_inside_the_catalogs_the_gateway_owns(): void
@@ -766,51 +1004,62 @@ class AnalyzeMonitorControllerTest extends TestCase
      * default to what a bare probe carries (none, and no captured body) and a
      * test that cares supplies a realistic set.
      *
+     * The double is RETURNED and records the transient monitor it was handed,
+     * because that instance is the whole probe spec: the only honest way to ask
+     * "did the credential actually reach the target" is to read what the relay
+     * was asked to send.
+     *
      * @param  array<string, string>  $headers  RAW response headers, in the target's own
      *                                          casing, exactly as the worker returns them.
      */
-    protected function fakeRelay(MonitorStatus $status, array $headers = [], ?string $content = null): void
+    protected function fakeRelay(MonitorStatus $status, array $headers = [], ?string $content = null): object
     {
-        $this->app->bind(RelayClient::class, function () use ($status, $headers, $content): RelayClient {
-            return new class($status, $headers, $content) extends RelayClient
-            {
-                /**
-                 * @param  array<string, string>  $headers
-                 */
-                public function __construct(
-                    private readonly MonitorStatus $status,
-                    private readonly array $headers,
-                    private readonly ?string $content,
-                ) {}
+        $double = new class($status, $headers, $content) extends RelayClient
+        {
+            public ?Monitor $probed = null;
 
-                public function dispatch(Monitor $monitor, string $region): CheckResult
-                {
-                    return new CheckResult(
-                        monitorId: (string) ($monitor->id ?? ''),
-                        region: $region,
-                        checkedAt: new DateTimeImmutable,
-                        status: $this->status,
-                        statusCode: $this->status === MonitorStatus::Up ? 200 : 503,
-                        responseMs: 180,
-                        errorMessage: null,
-                        timingDnsMs: 10,
-                        timingConnectMs: 20,
-                        timingTlsMs: 30,
-                        timingTtfbMs: 100,
-                        timingDownloadMs: 20,
-                        responseHeaders: $this->headers,
-                        // The worker sends a 10 KiB preview beside the full body,
-                        // so a fake that carries one without the other would let
-                        // the prompt look tidier than it is.
-                        responseBodyPreview: $this->content !== null
-                            ? mb_substr($this->content, 0, 10240)
-                            : null,
-                        probeRunId: (string) Str::uuid(),
-                        content: $this->content,
-                    );
-                }
-            };
-        });
+            /**
+             * @param  array<string, string>  $headers
+             */
+            public function __construct(
+                private readonly MonitorStatus $status,
+                private readonly array $headers,
+                private readonly ?string $content,
+            ) {}
+
+            public function dispatch(Monitor $monitor, string $region): CheckResult
+            {
+                $this->probed = $monitor;
+
+                return new CheckResult(
+                    monitorId: (string) ($monitor->id ?? ''),
+                    region: $region,
+                    checkedAt: new DateTimeImmutable,
+                    status: $this->status,
+                    statusCode: $this->status === MonitorStatus::Up ? 200 : 503,
+                    responseMs: 180,
+                    errorMessage: null,
+                    timingDnsMs: 10,
+                    timingConnectMs: 20,
+                    timingTlsMs: 30,
+                    timingTtfbMs: 100,
+                    timingDownloadMs: 20,
+                    responseHeaders: $this->headers,
+                    // The worker sends a 10 KiB preview beside the full body,
+                    // so a fake that carries one without the other would let
+                    // the prompt look tidier than it is.
+                    responseBodyPreview: $this->content !== null
+                        ? mb_substr($this->content, 0, 10240)
+                        : null,
+                    probeRunId: (string) Str::uuid(),
+                    content: $this->content,
+                );
+            }
+        };
+
+        $this->app->instance(RelayClient::class, $double);
+
+        return $double;
     }
 
     /**
@@ -903,6 +1152,44 @@ class AnalyzeMonitorControllerTest extends TestCase
     }
 
     /**
+     * Bind a {@see MetricDiscoveryService} that records the payload the SECOND
+     * prompt would have been built from, and proposes nothing.
+     *
+     * The service builds its payload internally and hands it straight to a
+     * gateway, so this overrides `discover()` with the one half that matters
+     * here: the real {@see MetricCandidateExtractor} over the real body, then
+     * the real payload. No budget unit, no provider call, no suggestions.
+     *
+     * It exists because one analyze builds TWO prompts through two payload
+     * classes, and a control asserted against only {@see AnalysisPayload} is a
+     * fix landing on one of two identical sites.
+     */
+    protected function recordingMetricDiscovery(): object
+    {
+        $service = new class(new MetricCandidateExtractor) extends MetricDiscoveryService
+        {
+            public ?MetricDiscoveryPayload $captured = null;
+
+            public function __construct(protected MetricCandidateExtractor $extractor) {}
+
+            public function discover(Monitor $monitor, ?string $body, string $teamId): array
+            {
+                if ($body === null || trim($body) === '') {
+                    return [];
+                }
+
+                $this->captured = $this->payload($monitor, $this->extractor->extract($body));
+
+                return [];
+            }
+        };
+
+        $this->app->instance(MetricDiscoveryService::class, $service);
+
+        return $service;
+    }
+
+    /**
      * A realistic Cloudflare-fronted response header set, in the target's own
      * casing, including two names the allowlist drops.
      *
@@ -918,6 +1205,33 @@ class AnalyzeMonitorControllerTest extends TestCase
             'Strict-Transport-Security' => 'max-age=31536000',
             'X-Secret-Token' => 'nothing-unenumerated-survives',
         ];
+    }
+
+    /**
+     * A health body that echoes the request's own `Authorization` header, the
+     * exact shape the redactor exists for.
+     *
+     * Written inline rather than added to `tests/fixtures/content/` because the
+     * echoed value has to be built from the credential the test submits; a
+     * fixture file would have to hardcode one and would then keep passing after
+     * the test changed its secret.
+     *
+     * The echo sits FIRST so it lands inside `AnalysisPayload`'s 500-character
+     * body preview as well as in the digest: a redactor that missed would then
+     * show up in both renderers rather than in whichever one happened to reach
+     * it.
+     */
+    protected function echoingBody(string $wireForm): string
+    {
+        return (string) json_encode([
+            'request' => [
+                'headers' => [
+                    'authorization' => 'Basic '.$wireForm,
+                ],
+            ],
+            'status' => 'ok',
+            'latency_ms' => 42,
+        ], JSON_PRETTY_PRINT);
     }
 
     /**

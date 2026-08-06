@@ -4,6 +4,7 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
+use App\Http\Requests\StoreMonitorRequest;
 use App\Support\Monitoring\MetricCandidate;
 use DOMDocument;
 use DOMElement;
@@ -63,9 +64,9 @@ class MetricCandidateExtractor
     /**
      * Hard cap on the returned list, whatever the page throws at it.
      *
-     * Public because {@see \App\Http\Requests\StoreMonitorRequest} caps its
-     * bulk `metrics[]` submission at this same bound: a request may not
-     * accept more metric rows than this extractor could ever propose.
+     * Public because {@see StoreMonitorRequest} caps its bulk `metrics[]`
+     * submission at this same bound: a request may not accept more metric rows
+     * than this extractor could ever propose.
      */
     public const int MAX_CANDIDATES = 40;
 

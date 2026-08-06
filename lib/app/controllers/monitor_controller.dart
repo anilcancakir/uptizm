@@ -8,6 +8,7 @@ import 'entitlement_controller.dart';
 import '../models/monitor.dart';
 import '../support/monitor_types.dart' show UptimeSegment;
 import '../enums/status_key.dart';
+import '../enums/ai_confidence.dart';
 import '../../resources/views/monitors/monitor_form_support.dart' show AiMetricSeed;
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
@@ -48,6 +49,26 @@ class MonitorAnalysis {
   /// must both keep working) or proposes nothing.
   final List<AiMetricSeed> suggestedMetrics;
 
+  /// How much weight the review screen should give this suggestion, derived
+  /// server-side from evidence quality (see the backend `AnalysisResult`
+  /// docblock). Absent on a backend that predates the field, so
+  /// [aiConfidenceFromWire] falls back to [AiConfidence.low], the most
+  /// conservative reading rather than a fabricated "high".
+  final AiConfidence confidence;
+
+  /// What kind of service the target was read to be (e.g. `"json_api"`),
+  /// or `"unknown"` when the classifier declined to guess.
+  final String serviceClass;
+
+  /// WHY [recommendedRegions] were suggested (a measured basis like
+  /// `"geoip"` vs. an inferred one like `"default"`), a different question
+  /// from what a lookup achieved. Mirrors the backend `RegionBasis` enum.
+  final String regionBasis;
+
+  /// One of the three uptime SLO targets the client offers, or `"none"`
+  /// when a single probe does not justify committing to one.
+  final String recommendedSloTarget;
+
   /// Creates a [MonitorAnalysis].
   const MonitorAnalysis({
     required this.url,
@@ -58,6 +79,10 @@ class MonitorAnalysis {
     required this.recommendedRegions,
     required this.rationale,
     this.suggestedMetrics = const [],
+    this.confidence = AiConfidence.low,
+    this.serviceClass = 'unknown',
+    this.regionBasis = 'default',
+    this.recommendedSloTarget = 'none',
   });
 
   /// Decodes a [MonitorAnalysis] from the `data` object of the `POST
@@ -82,6 +107,10 @@ class MonitorAnalysis {
               .map(AiMetricSeed.fromMap)
               .toList() ??
           const [],
+      confidence: aiConfidenceFromWire(map['confidence'] as String?),
+      serviceClass: map['service_class'] as String? ?? 'unknown',
+      regionBasis: map['region_basis'] as String? ?? 'default',
+      recommendedSloTarget: map['recommended_slo_target'] as String? ?? 'none',
     );
   }
 }

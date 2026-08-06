@@ -172,6 +172,90 @@ readonly class CheckResult
     ) {}
 
     /**
+     * A copy of this result with every target-chosen text field scrubbed of the
+     * operator's own credential.
+     *
+     * The class is `readonly`, so this reconstructs rather than mutates. It
+     * reconstructs with NAMED arguments beside the promoted property list, the
+     * same discipline {@see fromWorkerPayload()} carries, because the
+     * alternative (a hand-rolled `new CheckResult(...)` at the call site) is
+     * where a positional argument silently lands in the wrong slot.
+     *
+     * Five fields carry text the monitored TARGET chose and can therefore echo
+     * a credential back: {@see $errorMessage}, {@see $responseHeaders},
+     * {@see $responseBodyPreview}, {@see $content} and {@see $assertions},
+     * whose per-rule `observed` excerpts are up to 256 characters of the same
+     * target-chosen text. Every other property is our own telemetry (timings,
+     * status, colo, probe run id), and redacting a credential out of an integer
+     * is not a thing.
+     *
+     * `assertions` is scrubbed even though the analyze path cannot produce one
+     * today (its transient monitor sets no assertion rules), because this is a
+     * general method on a shared value object and the next caller will assume
+     * it scrubbed everything. Its `passed` verdict is carried through untouched:
+     * it is a boolean decided at the edge, and re-deriving it is what
+     * {@see $assertions} forbids.
+     *
+     * THE RESIDUAL, stated because the design accepts it rather than solves it:
+     * a property added to the constructor and not added here silently resets to
+     * its DEFAULT instead of failing, and only the seven defaulted properties
+     * can do that (a required one is a fatal, which is the loud half). There is
+     * no reflection-driven copy that would catch it without giving up the named
+     * arguments that make the mapping readable, so the mitigation is that this
+     * method sits directly beneath the property list it must stay in step with.
+     */
+    public function withRedacted(CredentialRedactor $redactor): self
+    {
+        return new self(
+            monitorId: $this->monitorId,
+            region: $this->region,
+            checkedAt: $this->checkedAt,
+            status: $this->status,
+            statusCode: $this->statusCode,
+            responseMs: $this->responseMs,
+            errorMessage: $redactor->redact($this->errorMessage),
+            timingDnsMs: $this->timingDnsMs,
+            timingConnectMs: $this->timingConnectMs,
+            timingTlsMs: $this->timingTlsMs,
+            timingTtfbMs: $this->timingTtfbMs,
+            timingDownloadMs: $this->timingDownloadMs,
+            responseHeaders: $redactor->redactMap($this->responseHeaders),
+            responseBodyPreview: $redactor->redact($this->responseBodyPreview),
+            probeRunId: $this->probeRunId,
+            colo: $this->colo,
+            exitVia: $this->exitVia,
+            probeRefused: $this->probeRefused,
+            content: $redactor->redact($this->content),
+            contentType: $this->contentType,
+            contentTruncated: $this->contentTruncated,
+            assertions: $this->redactedAssertions($redactor),
+        );
+    }
+
+    /**
+     * The assertion report with its outcome rows scrubbed, or null.
+     *
+     * `array_values()` because {@see $assertions} declares `results` a LIST and
+     * {@see CredentialRedactor::redactMap()} preserves keys: a report whose
+     * list-ness was lost would still serialize, and would then decode as an
+     * object through {@see assertionsFrom()}'s `array_is_list()` check and be
+     * discarded as a shape this build does not understand.
+     *
+     * @return array{passed: bool, results: list<array<string, mixed>>}|null
+     */
+    private function redactedAssertions(CredentialRedactor $redactor): ?array
+    {
+        if ($this->assertions === null) {
+            return null;
+        }
+
+        return [
+            'passed' => $this->assertions['passed'],
+            'results' => array_values($redactor->redactMap($this->assertions['results'])),
+        ];
+    }
+
+    /**
      * Read the assertion report out of a worker payload, or null.
      *
      * The shape is validated HERE, at the boundary where untrusted data enters,
