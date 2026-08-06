@@ -4,7 +4,9 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
+use App\Http\Requests\StoreMonitorRequest;
 use App\Support\Monitoring\MetricCandidate;
+use App\Support\Monitoring\ProbeHeaderAllowList;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -24,6 +26,14 @@ use Illuminate\Support\Arr;
  * one node holding exactly the candidate's full sample value, and no model, no
  * network call and no configuration influences the output. The same body always
  * yields the same digest.
+ *
+ * A candidate comes from one of two places, and the second one is narrower on
+ * purpose. The response BODY is mined structurally, and the response HEADERS are
+ * mined from the ALLOWLISTED map only ({@see ProbeHeaderAllowList::filter()}'s
+ * output, never a raw header set): the probe that produced those headers may
+ * have run with the operator's own credential, so `Set-Cookie` on the raw set is
+ * an authenticated session token and `Authorization` echoes the credential
+ * itself. This class never sees either, because it is never handed the raw set.
  *
  * Two properties of the paths matter as much as their correctness:
  *
@@ -60,8 +70,14 @@ class MetricCandidateExtractor
     /** The same shape with the unit REQUIRED, which is the strongest metric signal. */
     protected const string UNIT_SUFFIXED = '/^[+-]?\d+(?:[.,]\d+)?\s?(?:%|[a-zA-Z\/µ°]{1,8})$/u';
 
-    /** Hard cap on the returned list, whatever the page throws at it. */
-    protected const int MAX_CANDIDATES = 40;
+    /**
+     * Hard cap on the returned list, whatever the page throws at it.
+     *
+     * Public because {@see StoreMonitorRequest} caps its bulk `metrics[]`
+     * submission at this same bound: a request may not accept more metric rows
+     * than this extractor could ever propose.
+     */
+    public const int MAX_CANDIDATES = 40;
 
     /**
      * Work bounds. Every one of them is reached only by a body far outside what
@@ -106,6 +122,17 @@ class MetricCandidateExtractor
     protected const int WEIGHT_TAG = 20;
 
     protected const int WEIGHT_POSITIONAL = 0;
+
+    /**
+     * A header name IS the path, so no markup edit can ever break it: as an
+     * anchor it is the most stable one here. It still sits at the tag anchor's
+     * weight rather than the id's, because a perfectly stable path to
+     * `content-type` is a stable path to something that is not a measurement.
+     * The value signals below are what should decide whether `x-runtime: 0.024`
+     * outranks a number on the page, and this weight is deliberately low enough
+     * that a metadata string does not crowd real page candidates out of the cap.
+     */
+    protected const int WEIGHT_HEADER = 20;
 
     protected const int WEIGHT_UNIT_SUFFIX = 40;
 
@@ -161,29 +188,100 @@ class MetricCandidateExtractor
     ];
 
     /**
-     * Every extraction target in `$body` that this class has proved evaluable,
-     * ranked best first and capped.
+     * Every extraction target in `$body` and `$allowedHeaders` that this class
+     * has proved evaluable, ranked best first and capped.
      *
+     * `$allowedHeaders` defaults to empty and that default is load-bearing: the
+     * candidate-browser endpoint mines an archived body that arrives with no
+     * headers at all, and it must keep behaving exactly as it did. A caller
+     * that HAS headers passes {@see ProbeHeaderAllowList::filter()}'s output and
+     * never the raw set; see the class docblock for why that is a security
+     * boundary rather than a preference.
+     *
+     * @param  array<string, mixed>  $allowedHeaders  Allowlisted response headers,
+     *                                                lowercase names to values.
      * @return list<MetricCandidate>
      */
-    public function extract(string $body): array
+    public function extract(string $body, array $allowedHeaders = []): array
     {
-        if (trim($body) === '') {
-            return [];
+        // 1. The headers first, and independently of the body: a probe can
+        //    return a `content-length` worth measuring with a body the edge
+        //    filtered out entirely.
+        $found = $this->headerCandidates($allowedHeaders);
+
+        if (trim($body) !== '') {
+            // 2. Sniff the structure instead of trusting a content-type header
+            //    the monitored target controls: a decodable JSON document is
+            //    the stronger and cheaper source, and it never needs the DOM.
+            $decoded = $this->decodeJson($body);
+
+            $found = [
+                ...$found,
+                ...($decoded !== null ? $this->jsonCandidates($decoded) : $this->htmlCandidates($body)),
+            ];
         }
 
-        // 1. Sniff the structure instead of trusting a content-type header the
-        //    monitored target controls: a decodable JSON document is the
-        //    stronger and cheaper source, and it never needs the DOM.
-        $decoded = $this->decodeJson($body);
-
-        $found = $decoded !== null
-            ? $this->jsonCandidates($decoded)
-            : $this->htmlCandidates($body);
-
-        // 2. Rank before capping, so the single worthwhile value on a page full
+        // 3. Rank before capping, so the single worthwhile value on a page full
         //    of list numbering is not the one the cap discards.
         return $this->rank($found);
+    }
+
+    /**
+     * One candidate per allowlisted header worth measuring.
+     *
+     * The path is the header NAME, which is the whole of the dialect
+     * {@see MetricExtractor::extractHeader()} evaluates: it lowercases both
+     * sides of a map lookup, so a name taken from the filtered map resolves
+     * against the raw-cased map the check pipeline holds. There is no
+     * re-extraction proof here because there is no expression to prove; what
+     * has to be proved instead is that the SAMPLE this candidate advertises is
+     * the value a check would really read, and the two refusals below are that
+     * proof:
+     *
+     *   - A value at {@see ProbeHeaderAllowList::VALUE_MAX_LENGTH} is refused as
+     *     suspect. `filter()` caps a value at 256 characters and joins a
+     *     repeated header with `', '`, while `extractHeader()` does neither and
+     *     returns what the target sent. A candidate proposed from a cut sample
+     *     therefore advertises a value no check will ever produce, and it breaks
+     *     {@see MetricCandidate}'s contract that `sampleValue` is the full
+     *     extracted value. Deliberately conservative: a legitimate header of
+     *     exactly 256 characters is indistinguishable from a cut one here, so it
+     *     is dropped too.
+     *   - A non-string value is refused. `extractHeader()` casts with
+     *     `(string) $value`, and on an array that raises the warning Laravel
+     *     rethrows as an `ErrorException` inside the check job.
+     *
+     * @param  array<string, mixed>  $allowedHeaders
+     * @return list<array{source: MetricSource, path: string, value: string, label: ?string, score: int}>
+     */
+    protected function headerCandidates(array $allowedHeaders): array
+    {
+        $found = [];
+
+        foreach ($allowedHeaders as $rawName => $value) {
+            $name = strtolower(trim((string) $rawName));
+
+            if ($name === '' || ! is_string($value) || trim($value) === '') {
+                continue;
+            }
+
+            if (mb_strlen($value) >= ProbeHeaderAllowList::VALUE_MAX_LENGTH) {
+                continue;
+            }
+
+            $found[] = [
+                'source' => MetricSource::Header,
+                'path' => $name,
+                // The UNtrimmed value: `extractHeader()` returns the header
+                // verbatim, so a trimmed sample would fail the round trip the
+                // candidate promises.
+                'value' => $value,
+                'label' => $this->normalizeLabel($name),
+                'score' => self::WEIGHT_HEADER + $this->valueScore($value),
+            ];
+        }
+
+        return $found;
     }
 
     /**
@@ -228,6 +326,9 @@ class MetricCandidateExtractor
                 sampleValue: $row['value'],
                 labelHint: $row['label'],
                 eligibleTypes: $this->eligibleTypes($row['value']),
+                // The sample stays FULL and unmodified (the round-trip proof
+                // compares against it verbatim); the unit rides alongside it.
+                unit: MetricExtractor::splitUnit($row['value'])[1] ?? null,
             );
         }
 
@@ -237,18 +338,24 @@ class MetricCandidateExtractor
     /**
      * The metric types this sample can actually sustain.
      *
-     * `numeric` is offered only for a genuinely numeric sample.
-     * {@see MetricExtractor::validateType()} discards a non-numeric value under
-     * `MetricType::Numeric`, so a `120ms` candidate accepted as numeric would
-     * extract on every check and record nothing. A unit suffix therefore makes
-     * the candidate string-only until something teaches the extractor to strip
-     * units.
+     * `numeric` is offered for a sample the check-time extractor can actually
+     * reduce to a number, and for no other. {@see MetricExtractor::validateType()}
+     * discards a non-numeric value under `MetricType::Numeric`, so a candidate
+     * accepted as numeric on a sample that survives extraction as text would
+     * extract on every check and record nothing.
+     *
+     * That is now two shapes rather than one. A bare `4200` qualifies, and so
+     * does `120ms`, because {@see MetricExtractor::splitUnit()} strips a MAPPED
+     * unit suffix ahead of the type gate. The condition is deliberately the
+     * same function the check path calls: a suffix the map does not name (`12
+     * widgets`) still leaves the candidate string-only, and the two sides
+     * cannot drift into disagreeing about which is which.
      *
      * @return list<MetricType>
      */
     protected function eligibleTypes(string $value): array
     {
-        return is_numeric($value)
+        return is_numeric($value) || MetricExtractor::splitUnit($value) !== null
             ? [MetricType::Numeric, MetricType::String]
             : [MetricType::String];
     }

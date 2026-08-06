@@ -2,10 +2,16 @@
 
 namespace App\Services\Ai;
 
+use App\Enums\MetricType;
+use App\Enums\MetricUnit;
 use App\Models\Monitor;
+use App\Models\MonitorMetric;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
+use App\Services\Monitoring\ThresholdEvaluator;
+use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\MetricCandidate;
+use App\Support\Monitoring\ProbeHeaderAllowList;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
@@ -25,12 +31,19 @@ use RuntimeException;
  * nothing it said supplies the machine `key` either: that is slugged from the
  * sanitized label and made unique per monitor here.
  *
- * One more refusal lives here because only this class holds the candidates: a
- * selection whose type is not in that candidate's `eligibleTypes`.
- * {@see MetricExtractor::validateType()} discards a non-numeric value under
- * `numeric`, so a `120ms` candidate accepted as numeric would extract on every
- * check and record nothing, which reads to the operator as a metric that is
- * silently always empty.
+ * Three more corrections live here because only this class holds the candidate,
+ * and therefore the OBSERVED sample the gateway never sees:
+ *
+ * - A selection whose type is not in that candidate's `eligibleTypes` is
+ *   dropped. {@see MetricExtractor::validateType()} discards a non-numeric value
+ *   under `numeric`, so a `120ms` candidate accepted as numeric would extract on
+ *   every check and record nothing, which reads to the operator as a metric that
+ *   is silently always empty.
+ * - A selection whose sample the {@see CredentialRedactor} touched is dropped
+ *   entirely, because its path names a field that echoed the operator's own
+ *   credential and a metric records its path on every check, forever.
+ * - Its string bands are corrected against the observation and against each
+ *   other ({@see self::bandsFor()}).
  *
  * Degradation mirrors {@see IncidentAnalysisService}: over budget, an
  * unreachable provider, or output the gateway refuses past its retry all return
@@ -64,15 +77,30 @@ class MetricDiscoveryService
      * with no candidates, an exhausted budget, or a gateway that could not be
      * trusted.
      *
+     * The two callers differ on `$headers` deliberately. `MonitorController::analyze()`
+     * passes the filtered headers of the one `CheckResult` it just probed, so
+     * body and headers are one observation. The re-runnable
+     * `POST /monitors/{monitor}/metrics/discover` leaves the default and
+     * therefore proposes no header candidate: it mines the newest ARCHIVED body,
+     * while the only headers within its reach are a separate sample check's
+     * `response_headers`, and those two are not guaranteed to come from the same
+     * check. A header candidate proposed from one check's headers beside another
+     * check's body is evidence that was never observed together, and this class
+     * only ever advertises a sample a single response really carried.
+     *
      * @param  Monitor  $monitor  Persisted, or the transient instance the analyze
      *                            path probes with before a row exists.
      * @param  string|null  $body  The captured response body to mine.
      * @param  string  $teamId  The team whose daily AI budget this spends. Passed
      *                          explicitly because the analyze path's monitor is
      *                          transient and carries no `team_id`.
+     * @param  array<string, mixed>  $headers  {@see ProbeHeaderAllowList::filter()}'s
+     *                                         output for the SAME response `$body`
+     *                                         came from, never a raw header set.
+     *                                         Empty means no header candidates.
      * @return list<array<string, mixed>>
      */
-    public function discover(Monitor $monitor, ?string $body, string $teamId): array
+    public function discover(Monitor $monitor, ?string $body, string $teamId, array $headers = []): array
     {
         // 1. Generate the candidates first. No candidates means there is nothing
         //    for a model to select among, so this costs neither a budget unit nor
@@ -81,7 +109,7 @@ class MetricDiscoveryService
             return [];
         }
 
-        $candidates = $this->extractor->extract($body);
+        $candidates = $this->extractor->extract($body, $headers);
         if ($candidates === []) {
             return [];
         }
@@ -201,7 +229,30 @@ class MetricDiscoveryService
                 continue;
             }
 
+            // 3. Refuse a candidate the redactor touched. The analyze path hands
+            //    this service a body that has already been through
+            //    {@see CredentialRedactor}, so a sample carrying the marker was
+            //    read from a field that echoed the operator's own credential.
+            //    Accepting it would write that field's value into
+            //    `monitor_metric_values.string_value`, a plain text column, on
+            //    every check forever, and from there into the anomaly prompt.
+            //    This is the only seam that still holds the sample, so it is the
+            //    only place the drop can happen.
+
+            if (str_contains($candidate->sampleValue, CredentialRedactor::MARKER)) {
+                continue;
+            }
+
             $key = $this->uniqueKey($selection['label'], $takenKeys);
+            $bands = $this->bandsFor($candidate, $selection);
+
+            // 4. Refuse a banded selection that would report the observation as
+            //    healthy after correction. See bandsFor()'s docblock; the key
+            //    is claimed only after this, so a refused row does not burn one.
+            if ($bands === null) {
+                continue;
+            }
+
             $takenKeys[] = $key;
 
             $rows[] = [
@@ -213,9 +264,33 @@ class MetricDiscoveryService
                 // column is `extraction_path`. The value is the candidate's own
                 // path, never anything the model returned.
                 'path' => $candidate->extractionPath,
-                'unit' => $selection['unit']?->value,
+                // The candidate's own unit outranks the model's choice, and only
+                // under `numeric`. It was derived from the very suffix
+                // `MetricExtractor::splitUnit()` strips at check time, so it is
+                // the one unit the recorded number is actually expressed in; a
+                // model that read `120ms` and answered `second` would otherwise
+                // render 120 ms as two minutes. Under `string` the value keeps
+                // its suffix verbatim, so attaching a unit there would print it
+                // twice.
+                'unit' => $this->unitFor($candidate, $selection),
+                // Without the direction the two bounds beside it are inert.
+                // `ThresholdEvaluator::numericBreach()` needs to know which
+                // side of a bound is bad before it can band anything, so a
+                // numeric metric that arrives with `warn_bound: 400` and no
+                // direction records its readings forever and never bands one,
+                // never breaches, and never opens an incident. The screen
+                // meanwhile says "warn at 400". The gateway resolves this
+                // against the real enum and `SELECTION_KEYS` admits it; it was
+                // simply never put on the wire, which is a failure with no
+                // error attached to it anywhere.
+                'threshold_direction' => $selection['thresholdDirection']?->value,
                 'warn' => $selection['warnBound'],
                 'critical' => $selection['criticalBound'],
+                // The string bands travel under their COLUMN names, unlike
+                // `path` / `warn` / `critical` above: there is no Flutter form
+                // vocabulary for a value list, so the client passes these three
+                // through to the write endpoint unchanged.
+                ...$bands,
                 // The digest representation, so the pill shows exactly the sample
                 // the model was shown rather than an unbounded page fragment.
                 'sample_value' => $candidate->toDigestRow()['value'],
@@ -223,6 +298,107 @@ class MetricDiscoveryService
         }
 
         return $rows;
+    }
+
+    /**
+     * The three string-band lists an accepted selection ships with, after the
+     * two corrections only this class can make.
+     *
+     * The gateway already bounded each list to what the write endpoint accepts
+     * per item. What it cannot do is compare across lists or against the
+     * observation, and both of those are how a banded suggestion turns into a
+     * page rather than a configuration:
+     *
+     *   1. A selection that puts the OBSERVED value in `warn_values` or
+     *      `critical_values`, and nowhere else, is REFUSED WHOLE (this method
+     *      answers null). {@see ThresholdEvaluator::bandString()} tests critical
+     *      first and {@see MonitorMetric::alertsOnString()} is true the moment
+     *      any list is non-empty, so keeping such a selection and merely
+     *      deleting the offending entry is the worse of the two failures: the
+     *      value the model called critical then matches nothing, falls through
+     *      to `unmatched_band`, which the create path pins to `ok`, and the
+     *      metric reports the reading the model flagged as HEALTHY. A false Ok
+     *      on an alerting metric is worse than no metric, so the row goes.
+     *      Refusing the row also matches the two drops directly above it in
+     *      {@see self::toWireRows()} (a redacted sample, an ineligible type):
+     *      one vocabulary, "we do not propose what we cannot stand behind".
+     *   2. A value sitting in two lists is kept in the LEAST severe one and
+     *      dropped from the others. `validateNoOverlappingValues` refuses the
+     *      pair with a 422 on `metrics.2.warn_values.0`, which is an error the
+     *      operator saw as a pill and cannot act on, and under the all-or-nothing
+     *      create it would take the whole monitor down with it. The 422 stays
+     *      correct for a hand-authored bulk row; a suggestion is corrected
+     *      instead, downward.
+     *
+     * @param  array{okValues: list<string>, warnValues: list<string>, criticalValues: list<string>}  $selection
+     * @return array{ok_values: list<string>, warn_values: list<string>, critical_values: list<string>}|null Null
+     *                                                                                                       refuses the whole row.
+     */
+    protected function bandsFor(MetricCandidate $candidate, array $selection): ?array
+    {
+        $observed = ThresholdEvaluator::normalizeMatchValue($candidate->sampleValue);
+
+        $submitted = [
+            'ok_values' => $selection['okValues'],
+            'warn_values' => $selection['warnValues'],
+            'critical_values' => $selection['criticalValues'],
+        ];
+
+        $bands = [];
+        $claimed = [];
+
+        foreach ($submitted as $field => $values) {
+            $kept = [];
+
+            foreach ($values as $value) {
+                $normalized = ThresholdEvaluator::normalizeMatchValue($value);
+
+                // The observed value in a severe list, and not also in
+                // `ok_values`. Deleting the entry would leave the reading the
+                // model flagged unmatched and therefore banded `ok`, so the
+                // whole row is refused instead. When it IS also in `ok_values`
+                // the `$claimed` dedupe below has already resolved it downward,
+                // because `ok_values` is walked first.
+                if ($field !== 'ok_values' && $normalized === $observed
+                    && ! isset($claimed[$normalized])) {
+                    return null;
+                }
+
+                if (isset($claimed[$normalized])) {
+                    continue;
+                }
+
+                $claimed[$normalized] = true;
+                $kept[] = $value;
+            }
+
+            $bands[$field] = $kept;
+        }
+
+        return $bands;
+    }
+
+    /**
+     * The unit an accepted selection ships with.
+     *
+     * @param  array{type: MetricType, unit: MetricUnit|null}  $selection
+     */
+    protected function unitFor(MetricCandidate $candidate, array $selection): ?string
+    {
+        // Nothing carries a unit but a numeric metric, and the gate belongs
+        // here because the gateway does not apply one: `resolveBounds()` and
+        // `resolveLists()` both clear on the wrong type, `resolveUnit()` does
+        // not. Without this a `120ms` candidate selected as `string` keeps its
+        // suffix in the value AND ships `millisecond` beside it, and the pill
+        // renders "120ms ms".
+        if ($selection['type'] !== MetricType::Numeric) {
+            return null;
+        }
+
+        // The candidate's own unit outranks the model's: it was derived from
+        // the very suffix the check path strips, so it is the one unit the
+        // recorded number is actually expressed in.
+        return $candidate->unit?->value ?? $selection['unit']?->value;
     }
 
     /**

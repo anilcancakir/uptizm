@@ -8,7 +8,6 @@ import 'monitor_form_support.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/ai_confidence.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
-import '../../../ui/components/key_value_editor/key_value_editor.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 
 /// The setup mode: AI-assisted or manual hand configuration.
@@ -106,6 +105,34 @@ class _MonitorCreateViewState
   /// successfully. Backs the [_AiStep.review] prefill; `null` until then.
   MonitorAnalysis? _analysis;
 
+  /// Whether the credential disclosure on the input card is open.
+  ///
+  /// Closed by default, and staying closed is what keeps the ordinary case (a
+  /// public URL) one field and one button. A closed disclosure sends no
+  /// credential at all, whatever [_credential] happens to hold.
+  bool _authDisclosureOpen = false;
+
+  /// The credential the operator composed for the probe.
+  ///
+  /// Kept while the disclosure is closed so reopening it restores what was
+  /// typed, but only read by [_analyzeAuthConfig] when the disclosure is open.
+  MonitorCredential _credential = const MonitorCredential();
+
+  /// Inline credential errors keyed by the wire field name, from the same
+  /// client-side check [MonitorForm] runs. Without it an incomplete credential
+  /// reaches `AnalyzeMonitorRequest`, whose `required_if` answers 422, and the
+  /// input card would then blame the URL for being unreachable.
+  Map<String, String> _credentialErrors = const <String, String>{};
+
+  /// The `key`s of suggested metrics the operator declined on the review step.
+  ///
+  /// A declined SET rather than an accepted one, so the default is accept: the
+  /// operator asked for an AI setup and the proposals are the setup. Keyed by
+  /// `key` rather than by index because the backend already guarantees it
+  /// unique within one answer, and an index would drift the moment the list is
+  /// re-rendered.
+  final Set<String> _declinedMetricKeys = <String>{};
+
   /// A human-facing error shown on the input card when the last [_analyze]
   /// failed (an unreachable URL, a down relay, a non-2xx). `null` when the
   /// input step has not just bounced back from a failed probe. The controller
@@ -131,17 +158,49 @@ class _MonitorCreateViewState
   int? get _trialsRemaining =>
       EntitlementController.instance.aiAnalysisTrialsRemaining;
 
+  /// The credential to probe with, or `null` for an unauthenticated probe.
+  ///
+  /// Null whenever the disclosure is closed or the scheme is `none`, so the
+  /// request is byte for byte what it was before this control existed.
+  ///
+  /// Also what the review form is seeded with ([_buildAiReview]), so the
+  /// monitor is created with the credential its analysis was actually read
+  /// through: one source, so the probe and the monitor can never disagree.
+  Map<String, dynamic>? _analyzeAuthConfig() {
+    if (!_authDisclosureOpen) return null;
+
+    return _credential.toWireMap();
+  }
+
   /// Runs the live AI probe: flips to [_AiStep.analyzing], awaits
   /// [MonitorController.analyze], then flips to [_AiStep.review] pre-filled
   /// from the response. A failed analyze (the controller already surfaced the
   /// error toast) falls back to [_AiStep.input] instead of stalling on the
   /// analyzing step.
+  ///
+  /// An incomplete credential never leaves the client: it would come back as a
+  /// 422 the input card can only report as "check that the URL is reachable",
+  /// which is a wrong diagnosis of a URL that is fine.
   Future<void> _analyze() async {
+    final Map<String, dynamic>? authConfig = _analyzeAuthConfig();
+    final Map<String, String> credentialErrors = authConfig == null
+        ? const <String, String>{}
+        : validateMonitorCredential(_credential);
+    if (credentialErrors.isNotEmpty) {
+      setState(() => _credentialErrors = credentialErrors);
+
+      return;
+    }
+
     setState(() {
       _step = _AiStep.analyzing;
       _analyzeError = null;
+      _credentialErrors = const <String, String>{};
     });
-    final MonitorAnalysis? result = await controller.analyze(_url);
+    final MonitorAnalysis? result = await controller.analyze(
+      _url,
+      authConfig: authConfig,
+    );
     if (!mounted) return;
 
     if (result == null) {
@@ -187,7 +246,30 @@ class _MonitorCreateViewState
   /// request settles, and returns any backend 422 field errors so the form
   /// renders them inline instead of a generic toast.
   Future<Map<String, String>> _submit(Map<String, dynamic> fields) {
-    return controller.create(fields);
+    final List<Map<String, dynamic>> metrics = _acceptedMetricRows();
+
+    return controller.create({
+      ...fields,
+      if (metrics.isNotEmpty) 'metrics': metrics,
+    });
+  }
+
+  /// The suggested metrics the operator did not decline, as `metrics[]` rows.
+  ///
+  /// Empty on the manual path and on an analysis that proposed nothing, in
+  /// which case the key is omitted entirely rather than sent as `[]`, so a
+  /// manual create is byte for byte the request it was before this existed.
+  ///
+  /// The rename from the analyze response's wire shape to the write endpoint's
+  /// column shape lives on [AiMetricSeed.toCreateRow], beside the fields it
+  /// renames, rather than here.
+  List<Map<String, dynamic>> _acceptedMetricRows() {
+    final List<AiMetricSeed> suggested = _analysis?.suggestedMetrics ?? const [];
+
+    return [
+      for (final AiMetricSeed metric in suggested)
+        if (!_declinedMetricKeys.contains(metric.key)) metric.toCreateRow(),
+    ];
   }
 
   @override
@@ -328,6 +410,7 @@ class _MonitorCreateViewState
             ),
           ),
         ),
+        _buildAuthDisclosure(),
         // Auto-width button (React `w-full sm:w-auto`): a `w-full` button inside
         // a Wind flex context aborts layout, so the analyze CTA stays auto-width
         // and left-aligned within the card column.
@@ -345,6 +428,55 @@ class _MonitorCreateViewState
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  /// Builds the credential disclosure under the URL field: a switch row and,
+  /// once it is on, the shared [MonitorCredentialFields] block.
+  ///
+  /// Closed by default, because a public URL is the ordinary case and a probe
+  /// that needs no credential must stay one field and one button. Open, it
+  /// probes the endpoint the way the monitor eventually will, so the analysis
+  /// reads the real payload instead of a 401 page.
+  ///
+  /// The same widget the monitor form renders, not a second copy: one credential
+  /// UI means one place where a secret is composed, obscured and bounded.
+  Widget _buildAuthDisclosure() {
+    return WDiv(
+      className: 'mt-5 flex flex-col gap-3',
+      children: [
+        WDiv(
+          className: 'flex flex-row items-center gap-3',
+          children: [
+            MSSwitch(
+              value: _authDisclosureOpen,
+              onChanged: (value) => setState(() {
+                _authDisclosureOpen = value;
+                _credentialErrors = const <String, String>{};
+              }),
+              semanticLabel: trans('uptizm.monitors.create_ai_auth_toggle'),
+            ),
+            WText(
+              trans('uptizm.monitors.create_ai_auth_toggle'),
+              className: 'min-w-0 text-sm text-fg',
+            ),
+          ],
+        ),
+        if (_authDisclosureOpen)
+          WText(
+            trans('uptizm.monitors.create_ai_auth_hint'),
+            className: 'text-xs text-fg-muted',
+          ),
+        if (_authDisclosureOpen)
+          MonitorCredentialFields(
+            value: _credential,
+            errors: _credentialErrors,
+            onChanged: (next) => setState(() {
+              _credential = next;
+              _credentialErrors = const <String, String>{};
+            }),
+          ),
       ],
     );
   }
@@ -423,9 +555,12 @@ class _MonitorCreateViewState
       initialRegions: analysis != null && analysis.recommendedRegions.isNotEmpty
           ? analysis.recommendedRegions
           : const ['eu-central'],
-      initialHeaders: const [
-        KeyValueRow(key: 'Accept', value: 'application/json'),
-      ],
+      // The credential the probe just authenticated with, carried into the
+      // review form secret and all, because this step is where the monitor is
+      // created: without it the created monitor holds no credential and its
+      // first check answers 401 on the endpoint the analysis just read. Null
+      // whenever the disclosure stayed closed, so a public URL is unaffected.
+      initialPendingAuthConfig: _analyzeAuthConfig(),
       startAdvanced: true,
       submitLabel: trans('uptizm.monitors.form_submit_create'),
       onSubmit: _submit,
@@ -459,10 +594,11 @@ class _MonitorCreateViewState
   ///
   /// An ai-wash surface (the dedicated `bg-ai-wash` / `border-ai-soft` tokens,
   /// mirroring the [AiInsight] banner recipe) carrying the glyph tile, the
-  /// "AI configured this monitor" title with a high-confidence
-  /// [AiConfidenceBadge], the summary sentence, and (when the backend
-  /// actually proposed any) the suggested-metrics pills + help text. React
-  /// lines 164-202.
+  /// "AI configured this monitor" title with the decoded [AiConfidenceBadge],
+  /// the real backend [MonitorAnalysis.rationale] (never a canned template
+  /// that asserts measurements nobody took), and (when the backend actually
+  /// proposed any) the suggested-metrics pills + help text. React lines
+  /// 164-202.
   ///
   /// The suggested-metrics section is sourced from [_analysis]'s
   /// [MonitorAnalysis.suggestedMetrics] rather than a fixture, and renders
@@ -471,6 +607,7 @@ class _MonitorCreateViewState
   Widget _buildReviewBanner() {
     final List<AiMetricSeed> suggestedMetrics =
         _analysis?.suggestedMetrics ?? const [];
+    final String rationale = _analysis?.rationale ?? '';
     return WDiv(
       className:
           'flex flex-row items-start gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
@@ -487,15 +624,18 @@ class _MonitorCreateViewState
                   trans('uptizm.monitors.create_ai_review_banner_title'),
                   className: 'text-sm font-semibold text-fg',
                 ),
-                AiConfidenceBadge(AiConfidence.high),
+                AiConfidenceBadge(_analysis?.confidence ?? AiConfidence.low),
               ],
             ),
 
-            // 2. The AI summary sentence (carries the derived monitor name).
+            // 2. What the backend actually said. A degraded analyze (budget
+            //    exhausted or the model unavailable) carries an empty
+            //    rationale, so a neutral line replaces the model narration
+            //    rather than rendering an empty box or inventing one.
             WText(
-              trans('uptizm.monitors.create_ai_review_summary', {
-                'name': _aiName,
-              }),
+              rationale.isNotEmpty
+                  ? rationale
+                  : trans('uptizm.monitors.create_ai_review_no_rationale'),
               className: 'mt-1 text-sm text-fg-muted',
             ),
 
@@ -528,18 +668,77 @@ class _MonitorCreateViewState
     );
   }
 
-  /// Builds a single suggested-metric pill: the label plus a monospace unit
-  /// (when present). React lines 184-194.
+  /// Builds a single suggested-metric pill: the label, the observed sample
+  /// beside the proposed bound, and a tap target that declines the metric.
+  ///
+  /// The observation and the proposal are shown TOGETHER on purpose. A
+  /// threshold is a policy default and not a measurement (the deterministic
+  /// path ships `max(500, observed * 3)`), so a pill that showed only "warn at
+  /// 400" would read as something the probe found. Showing "observed 120 ms,
+  /// warn at 400" puts the one number that was measured next to the one that
+  /// was chosen, and the help line underneath says the observation is a single
+  /// reading.
+  ///
+  /// Declining is a tap on the whole pill rather than a separate control: the
+  /// pill is already small, and the declined state is legible from the pill
+  /// itself (muted, struck through) rather than from a checkbox beside it.
   Widget _buildMetricPill(AiMetricSeed metric) {
-    return WDiv(
-      className:
-          'flex flex-row items-center gap-1 rounded-md border border-color-border bg-surface px-2 py-0.5',
-      children: [
-        WText(metric.label, className: 'text-xs text-fg'),
-        if (metric.unit.isNotEmpty)
-          WText(metric.unit, className: 'font-mono text-xs text-fg-muted'),
-      ],
+    final bool declined = _declinedMetricKeys.contains(metric.key);
+    final String detail = _metricPillDetail(metric);
+
+    // WAnchor rather than a bare GestureDetector, the same reason
+    // MonitorListRow and the metrics tab use it: it sets the pointer cursor and
+    // drives the `hover:` state, so the pill reads as something you can press.
+    return WAnchor(
+      onTap: () => setState(() {
+        if (!_declinedMetricKeys.remove(metric.key)) {
+          _declinedMetricKeys.add(metric.key);
+        }
+      }),
+      child: WDiv(
+        className: declined
+            ? 'flex flex-row items-center gap-1 rounded-md border border-color-border-subtle bg-surface-container px-2 py-0.5 hover:bg-surface transition-colors'
+            : 'flex flex-row items-center gap-1 rounded-md border border-color-border bg-surface px-2 py-0.5 hover:bg-surface-container transition-colors',
+        children: [
+          WText(
+            metric.label,
+            className: declined
+                ? 'text-xs text-fg-disabled line-through'
+                : 'text-xs text-fg',
+          ),
+          if (detail.isNotEmpty)
+            WText(
+              detail,
+              className: declined
+                  ? 'font-mono text-xs text-fg-disabled'
+                  : 'font-mono text-xs text-fg-muted',
+            ),
+        ],
+      ),
     );
+  }
+
+  /// The monospace half of a metric pill: what was observed, and what is being
+  /// proposed on top of it.
+  ///
+  /// Degrades in the honest direction. With no sample there is nothing measured
+  /// to report, so only the unit shows; with a sample but no bound the pill
+  /// says what was seen and claims nothing further.
+  String _metricPillDetail(AiMetricSeed metric) {
+    final String unit = metric.unit.isNotEmpty ? ' ${metric.unit}' : '';
+
+    if (metric.sampleValue.isEmpty) return metric.unit;
+
+    if (metric.warn.isEmpty) {
+      return trans('uptizm.monitors.create_ai_metric_observed', {
+        'observed': '${metric.sampleValue}$unit',
+      });
+    }
+
+    return trans('uptizm.monitors.create_ai_metric_observed_warn', {
+      'observed': '${metric.sampleValue}$unit',
+      'warn': metric.warn,
+    });
   }
 
   // ---------------------------------------------------------------------------

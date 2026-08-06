@@ -21,6 +21,12 @@ use Throwable;
  * the HTTP client throws when the provider cannot be reached. Both are the
  * caller's problem to degrade from, so the fake can raise either on demand
  * instead of every degrade test declaring its own anonymous gateway.
+ *
+ * {@see self::selfReportingConfidence()} models a THIRD thing, and it is not a
+ * capability of the real gateway: no schema anywhere offers a model a
+ * `confidence` field to answer with. It exists only so a test can prove that
+ * even if a model's answer carried one, {@see MonitorController} would still
+ * overwrite it with the evidence-derived value rather than trusting it.
  */
 class FakeAnalysisGateway implements AnalysisGateway
 {
@@ -45,12 +51,33 @@ class FakeAnalysisGateway implements AnalysisGateway
     protected ?Throwable $failure = null;
 
     /**
+     * A model self-report to attach to the fixed suggestion, or null for none.
+     *
+     * No real schema has a slot for this; it exists purely to prove the
+     * controller ignores it. See {@see self::selfReportingConfidence()}.
+     */
+    protected ?string $selfReportedConfidence = null;
+
+    /**
      * A fake that raises [$failure] instead of suggesting anything.
      */
     public static function throwing(Throwable $failure): self
     {
         $fake = new self;
         $fake->failure = $failure;
+
+        return $fake;
+    }
+
+    /**
+     * A fake whose answer carries a `confidence` no real gateway would ever
+     * produce, so a test can assert the controller's derived value replaces it
+     * rather than trusting it.
+     */
+    public static function selfReportingConfidence(string $confidence): self
+    {
+        $fake = new self;
+        $fake->selfReportedConfidence = $confidence;
 
         return $fake;
     }
@@ -66,7 +93,7 @@ class FakeAnalysisGateway implements AnalysisGateway
             throw $this->failure;
         }
 
-        return new AnalysisResult(
+        $result = new AnalysisResult(
             recommendedIntervalSeconds: self::DEFAULT_INTERVAL_SECONDS,
             recommendedWarnThresholdMs: self::DEFAULT_WARN_THRESHOLD_MS,
             recommendedCriticalThresholdMs: self::DEFAULT_CRITICAL_THRESHOLD_MS,
@@ -82,5 +109,9 @@ class FakeAnalysisGateway implements AnalysisGateway
             regionBasis: 'default',
             recommendedSloTarget: '99.9',
         );
+
+        return $this->selfReportedConfidence !== null
+            ? $result->withConfidence($this->selfReportedConfidence)
+            : $result;
     }
 }

@@ -2,11 +2,11 @@
 
 namespace App\Services\Ai;
 
-use App\Enums\LocationBasis;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
+use App\Enums\RegionBasis;
 use App\Enums\ThresholdDirection;
 use App\Services\Ai\Tools\ResearchUrlAllowList;
 use App\Services\Ai\Tools\WebFetchTool;
@@ -104,29 +104,6 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
         'web_page',
         'tcp_service',
         'unknown',
-    ];
-
-    /**
-     * Why the MODEL chose the regions it chose.
-     *
-     * Deliberately a different set from {@see LocationBasis}, which records what
-     * a LOOKUP achieved: `unresolved` is a lookup outcome and has no place here,
-     * while `content_language` is a reason only a model can give.
-     *
-     * There is NO mapping between the two sets, and there deliberately is not
-     * one. A lookup outcome is not a reason: only this model, which reads the
-     * location facts and can weigh them against the page's language, answers
-     * anything here other than `default`. The deterministic path always answers
-     * `default`, because the region it suggests is the one the request asked to
-     * probe from.
-     *
-     * @var list<string>
-     */
-    public const array REGION_BASES = [
-        'geoip',
-        'cdn_edge',
-        'content_language',
-        'default',
     ];
 
     /**
@@ -369,7 +346,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
                 ->description('What kind of service the evidence shows this target to be.')
                 ->required(),
             'region_basis' => $schema->string()
-                ->enum(self::REGION_BASES)
+                ->enum(RegionBasis::values())
                 ->description('Why those regions: what in the evidence located the target, if anything did.')
                 ->required(),
             'recommended_slo_target' => $schema->string()
@@ -598,7 +575,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
 
         $classification = [
             'service_class' => $this->member($data, 'service_class', self::SERVICE_CLASSES),
-            'region_basis' => $this->member($data, 'region_basis', self::REGION_BASES),
+            'region_basis' => $this->member($data, 'region_basis', RegionBasis::values()),
             'recommended_slo_target' => $this->member($data, 'recommended_slo_target', self::SLO_TARGETS),
         ];
 
@@ -731,7 +708,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
             'WHAT YOU ANSWER',
             '- `service_class`: one of '.$this->catalog(self::SERVICE_CLASSES).'. `unknown` is a real'
                 .' answer when the evidence does not say.',
-            '- `region_basis`: WHY you chose those regions, one of '.$this->catalog(self::REGION_BASES)
+            '- `region_basis`: WHY you chose those regions, one of '.$this->catalog(RegionBasis::values())
                 .'. `geoip` only when an origin country was actually supplied; `cdn_edge` when the target'
                 .' sits behind a CDN, which means no origin location is knowable from here;'
                 .' `content_language` when the only locational hint was the body or its language;'

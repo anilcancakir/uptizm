@@ -14,6 +14,14 @@ on:
     branches: [master]
   push:
     branches: [master]
+  # Hand-runnable on any ref. Added because GitHub silently failed to dispatch
+  # this workflow for one pull request across three separate events (opened, a
+  # later synchronize, and a close/reopen) while the workflow was active, the
+  # repository public and Actions enabled, and while the same workflow ran
+  # normally for the two pull requests before it. When that happens the branch
+  # protection sits on "Expected, waiting for status to be reported" forever and
+  # there is otherwise no way to produce the evidence the gate is asking for.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}

@@ -63,6 +63,33 @@ class MonitorEncryptionTest extends TestCase
         $this->assertStringNotContainsString('SECRET', $response->getContent());
     }
 
+    public function test_the_cast_round_trips_in_memory_so_an_unsaved_probe_monitor_carries_the_plaintext(): void
+    {
+        // The mechanism the analyze path depends on, pinned here because it
+        // looks like a leak from one angle and like a bug from the other. The
+        // `encrypted:array` cast encrypts inside `setAttribute`, so the RAW
+        // attribute is ciphertext even on an instance that was never saved,
+        // while the accessor decrypts it back. `RelayClient::buildSpec()` reads
+        // the ACCESSOR, so the transient monitor the analyze endpoint probes
+        // with puts the plain credential on the signed spec without ever
+        // touching the database.
+        $monitor = new Monitor([
+            'auth_config' => [
+                'type' => 'basic',
+                'username' => 'ops',
+                'password' => 'SECRET',
+            ],
+        ]);
+
+        $this->assertFalse($monitor->exists);
+
+        $rawAttribute = $monitor->getAttributes()['auth_config'];
+        $this->assertIsString($rawAttribute);
+        $this->assertStringNotContainsString('SECRET', $rawAttribute);
+
+        $this->assertSame('SECRET', $monitor->auth_config['password']);
+    }
+
     /**
      * Authenticate as a user whose current team is a freshly created team.
      */

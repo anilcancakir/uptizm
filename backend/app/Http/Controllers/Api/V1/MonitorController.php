@@ -3,22 +3,28 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\BodyShape;
+use App\Enums\HttpAuthType;
 use App\Enums\HttpMethod;
+use App\Enums\MetricBand;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
+use App\Enums\RegionBasis;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AnalyzeMonitorRequest;
+use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Requests\StoreMonitorRequest;
 use App\Http\Requests\UpdateMonitorRequest;
 use App\Http\Resources\MonitorResource;
 use App\Jobs\PerformMonitorCheck;
 use App\Models\Monitor;
+use App\Models\MonitorMetric;
 use App\Models\Team;
 use App\Services\Ai\AiBudget;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
 use App\Services\Ai\LaravelAiAnalysisGateway;
+use App\Services\Ai\LaravelAiMetricDiscoveryGateway;
 use App\Services\Ai\MetricDiscoveryService;
 use App\Services\Ai\ResponseTimeAnomalyDetector;
 use App\Services\Billing\PlanGate;
@@ -29,6 +35,7 @@ use App\Services\Monitoring\ResponseDigestResult;
 use App\Services\Monitoring\TargetLocation;
 use App\Services\Monitoring\TargetLocationResult;
 use App\Support\Monitoring\CheckResult;
+use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\HostGuard;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 use Carbon\Carbon;
@@ -39,6 +46,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Laravel\Ai\Exceptions\AiException;
 use RuntimeException;
@@ -128,26 +136,139 @@ class MonitorController extends Controller
     }
 
     /**
-     * Create a monitor for the current team and kick off a first check.
+     * Create a monitor for the current team, with the metrics submitted
+     * alongside it, and kick off a first check.
+     *
+     * The monitor and its metrics are one write or none. The AI create flow
+     * submits a monitor and the metric rows the operator accepted in the same
+     * request, and a monitor that exists while the metrics it was created for do
+     * not is a monitor silently measuring nothing: the operator saw the pills,
+     * the create answered 201, and the detail screen shows no metrics.
+     *
+     * The dispatch is OUTSIDE that transaction, and the ordering is the whole
+     * reason the transaction needs a comment. `config/queue.php` sets
+     * `after_commit => false` on every connection, so a dispatch from inside
+     * pushes the payload to Redis before the row is committed; the worker
+     * re-resolves the monitor by key, misses it, and deletes the job. The first
+     * check then never runs, in production only, with nothing failing. It is
+     * fixed here rather than with `->afterCommit()` on the job because
+     * {@see self::test()} and {@see self::resume()} dispatch the same job with
+     * no transaction around it, and a modifier one of three callers needs is a
+     * worse rule than an ordering all three already satisfy.
      */
     public function store(StoreMonitorRequest $request): JsonResponse
     {
+        $attributes = $request->validated();
+        $metrics = $this->pullMetricRows($attributes);
+
         // 1. Persist the monitor scoped to the acting team, primed for the
-        //    scheduler to pick up on its next tick.
-        $monitor = Monitor::create([
-            ...$request->validated(),
-            'team_id' => $request->user()->current_team_id,
-            'status' => 'active',
-            'next_check_at' => now(),
-        ]);
+        //    scheduler to pick up on its next tick, and its metrics with it.
+        $monitor = DB::transaction(function () use ($attributes, $metrics, $request): Monitor {
+            $monitor = Monitor::create([
+                ...$attributes,
+                'team_id' => $request->user()->current_team_id,
+                'status' => 'active',
+                'next_check_at' => now(),
+            ]);
+
+            $this->createMetrics($monitor, $metrics);
+
+            return $monitor;
+        });
 
         // 2. Fan out an immediate first check per region so the detail page
-        //    lands on real data instead of empty placeholders.
+        //    lands on real data instead of empty placeholders. After the commit,
+        //    never inside it.
         $this->dispatchChecks($monitor);
 
         return MonitorResource::make($monitor)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Take the bulk `metrics[]` rows out of the validated attributes.
+     *
+     * By reference and removed rather than read and left in place: `metrics` is
+     * not a monitor column, and {@see Monitor} guards nothing, so leaving it in
+     * the create array sets an attribute the INSERT then names as a column that
+     * does not exist.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return list<array<string, mixed>>
+     */
+    protected function pullMetricRows(array &$attributes): array
+    {
+        $rows = $attributes['metrics'] ?? null;
+        unset($attributes['metrics']);
+
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        return array_values(array_filter($rows, 'is_array'));
+    }
+
+    /**
+     * Write the submitted metric rows for a freshly created monitor.
+     *
+     * Two columns are stamped here rather than accepted from the client:
+     *
+     * - `team_id`, from the monitor, because the column is a denormalized tenant
+     *   link that team-scoped metric queries read directly.
+     * - `display_order`, from the ARRAY INDEX. The submitted order is the order
+     *   the operator saw the suggestions in, and it is already expressed by the
+     *   array itself; honouring a per-row `display_order` as well would let two
+     *   rows claim one position, which {@see MonitorMetricController::reorder()}
+     *   then has no way to resolve.
+     *
+     * `unmatched_band` is pinned to `ok` for a row that arrived with at least
+     * one non-empty band list and did not choose a band itself. The discovery
+     * schema deliberately offers the model no field to say otherwise
+     * ({@see LaravelAiMetricDiscoveryGateway::schema()}), because
+     * {@see MetricBand} has no neutral case and a model pinning `critical` would
+     * page on every unrecognized reading. The pin is CONDITIONAL for a reason
+     * that is easy to miss: `validateUnmatchedBandHasAList` refuses a band with
+     * all three lists empty, which is every AI-proposed numeric metric, so an
+     * unconditional pin would 422 the common case.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    protected function createMetrics(Monitor $monitor, array $rows): void
+    {
+        foreach ($rows as $index => $row) {
+            MonitorMetric::query()->create([
+                ...$row,
+                'monitor_id' => $monitor->id,
+                'team_id' => $monitor->team_id,
+                'display_order' => $index,
+                'unmatched_band' => $this->unmatchedBandFor($row),
+            ]);
+        }
+    }
+
+    /**
+     * The `unmatched_band` a submitted metric row is written with.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected function unmatchedBandFor(array $row): ?string
+    {
+        if (array_key_exists('unmatched_band', $row)) {
+            $chosen = $row['unmatched_band'];
+
+            return is_string($chosen) ? $chosen : null;
+        }
+
+        foreach (StoreMonitorMetricRequest::VALUE_LIST_FIELDS as $field) {
+            $list = $row[$field] ?? null;
+
+            if (is_array($list) && $list !== []) {
+                return MetricBand::Ok->value;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -290,6 +411,14 @@ class MonitorController extends Controller
      * the set it already carries, and the digest is rendered from the body already
      * in memory. No second probe, ever.
      *
+     * That single-source property is also what makes an authenticated analyze
+     * safe to serve. The request may carry an `auth_config`, so the probe sends
+     * the operator's own credential and a target that echoes its request headers
+     * sends it straight back. One {@see CredentialRedactor} pass over the one
+     * `CheckResult`, immediately after the dispatch, therefore covers both
+     * prompts, the digest, the metric candidates and the JSON response at once,
+     * and every consumer below stays credential-unaware.
+     *
      * What the request DOES spend beyond the probe, stated in full because a
      * short version of this list was wrong: DNS is resolved TWICE, once in
      * validation ({@see AnalyzeMonitorRequest::noInternalHost()} ->
@@ -324,13 +453,34 @@ class MonitorController extends Controller
 
         $url = (string) $request->validated('url');
         $region = $request->probeRegion();
+        $authConfig = $request->authConfig();
 
         // 1. Probe the target through a transient monitor: the URL has no row
         //    yet, so a throwaway instance carries the probe spec the relay
         //    (and its SSRF-checked worker) executes. The SSRF host denylist
         //    already rejected an internal target in request validation.
-        $transient = $this->transientMonitor($url, $region);
+        //
+        //    The audit line goes out BEFORE the dispatch, so an attempt is
+        //    recorded even when the relay throws: this endpoint is a credential
+        //    validity oracle by construction (200-versus-401 is readable in the
+        //    response and no row is left behind), and a detection control that
+        //    only fires on success detects the wrong half.
+        $this->logCredentialledProbe($url, $authConfig, (string) $request->user()->current_team_id);
+
+        $transient = $this->transientMonitor($url, $region, $authConfig);
         $probe = $relay->dispatch($transient, $region);
+
+        // 1b. THE redaction seam, and there is exactly one. The probe now
+        //     carries the operator's own credential, so a target that echoes
+        //     its request headers (a debug page, a request-echo endpoint, a
+        //     verbose error) has just put that credential in the body, the
+        //     preview, the headers and the error message. Everything below
+        //     derives from this one object: step 3's digest, both prompts, the
+        //     metric candidates, the JSON `probe` block and the deterministic
+        //     path. Reassigning here is what makes every one of those consumers
+        //     credential-unaware; a second variable handed to the two prompt
+        //     builders would leave the other consumers reading the raw object.
+        $probe = $probe->withRedacted(CredentialRedactor::for($authConfig));
 
         // 2. Run the detector over the single-probe window. One sample never
         //    clears the cold-start gate, so the candidate is null here; wiring
@@ -398,11 +548,25 @@ class MonitorController extends Controller
             digest: $digest,
         );
 
-        // 6. Mine the SAME probe body for metrics worth proposing. The body is
-        //    already in memory here, so this costs no second probe; discovery
-        //    spends its own budget unit and degrades to an empty array on its
-        //    own, so a create flow never fails because of a suggestion.
-        $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId);
+        // 5b. Attach the confidence the evidence actually supports, overwriting
+        //     whatever either construction path above left in place. Deriving
+        //     it here rather than trusting `$result->confidence` is the whole
+        //     point: neither the gateway's schema nor a fake model answer gets
+        //     a vote, only what this controller can observe about the run.
+        $result = $result->withConfidence($this->confidenceFor($modelled !== null, $result->regionBasis, $digest));
+
+        // 6. Mine the SAME probe body and the SAME filtered headers for metrics
+        //    worth proposing. Both are already in memory here, so this costs no
+        //    second probe, and passing them together is what keeps a proposed
+        //    header metric an observation rather than a guess. `$headers` and
+        //    never `$probe->responseHeaders`: the allowlist at step 3 is the
+        //    only thing standing between a credentialled probe's `Set-Cookie`
+        //    and a metric that would persist it on every check.
+        //
+        //    Discovery spends its own budget unit and degrades to an empty
+        //    array on its own, so a create flow never fails because of a
+        //    suggestion.
+        $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId, $headers);
 
         // 7. A metered try buys AI ANALYSIS, so it is spent only when a model
         //    actually delivered one: neither degrade path above ran a model, so
@@ -440,13 +604,60 @@ class MonitorController extends Controller
     }
 
     /**
+     * How much evidence the suggestion actually rests on, matching the Dart
+     * `AiConfidence` enum's case names exactly (`high`, `medium`, `low`) so
+     * `aiConfidenceFromWire()` decodes it with no mapping table.
+     *
+     * Three branches over evidence already in scope on both construction
+     * paths, never over anything a model reported about itself:
+     *
+     * - `low`: [$modelled] is false, meaning {@see self::deterministicSuggestion()}
+     *   answered instead of a model, whichever of the two named causes forced
+     *   that (budget exhausted, or the provider/output degrade).
+     * - `medium`: a model answered, but [$regionBasis] is an INFERRED value
+     *   ({@see RegionBasis::ContentLanguage} or {@see RegionBasis::Default}):
+     *   nothing measured located the target, so the model's regions are a
+     *   guess dressed as a suggestion.
+     * - `high`: a model answered, [$regionBasis] is a MEASURED value
+     *   ({@see RegionBasis::Geoip} or {@see RegionBasis::CdnEdge}), and
+     *   [$digest] is not null, i.e. the probe actually returned a body to
+     *   describe. A measured basis with no body evidence stays `medium`
+     *   rather than borrowing the higher grade from a fact the model never
+     *   read.
+     */
+    protected function confidenceFor(bool $modelled, string $regionBasis, ?ResponseDigestResult $digest): string
+    {
+        if (! $modelled) {
+            return 'low';
+        }
+
+        $measuredBasis = in_array($regionBasis, [RegionBasis::Geoip->value, RegionBasis::CdnEdge->value], true);
+
+        return $measuredBasis && $digest !== null ? 'high' : 'medium';
+    }
+
+    /**
      * Wrap a candidate URL in a transient, unsaved monitor the relay can probe.
      *
      * The instance is never persisted: it only carries the fields
      * {@see RelayClient} reads to build the worker probe spec, defaulted to a
      * plain HTTP GET expecting a 200.
+     *
+     * [$authConfig] needs nothing else to reach the target:
+     * {@see RelayClient::buildSpec()} already puts `$monitor->auth_config` on
+     * the signed spec and the worker already applies all four auth types.
+     * `Monitor` is `$guarded = []`, so mass assignment lands it here.
+     *
+     * One mechanism worth naming, because it looks like a bug from the outside:
+     * the `encrypted:array` cast encrypts inside `setAttribute`, so the RAW
+     * attribute holds ciphertext on this unsaved instance too, while
+     * `$monitor->auth_config` decrypts it back on read. The cast round-trips in
+     * memory and the spec receives the plain array either way; an assertion
+     * against `getAttributes()` is reading the ciphertext and proves nothing.
+     *
+     * @param  array<string, mixed>|null  $authConfig  Validated credential map, or null.
      */
-    protected function transientMonitor(string $url, string $region): Monitor
+    protected function transientMonitor(string $url, string $region, ?array $authConfig): Monitor
     {
         return new Monitor([
             'type' => MonitorType::Http,
@@ -455,6 +666,50 @@ class MonitorController extends Controller
             'timeout_sec' => 30,
             'expected_status_code' => 200,
             'regions' => [$region],
+            'auth_config' => $authConfig,
+        ]);
+    }
+
+    /**
+     * Record that an analyze sent an operator-supplied credential to a target.
+     *
+     * The audit trail for the validity-oracle risk this endpoint accepts: a
+     * tenant can make the relay send an arbitrary `Authorization` header to any
+     * public host and read the answer, and unlike `POST /monitors` the request
+     * leaves no row behind. This line is the only record that it happened. It
+     * is a DETECTION control, not a prevention one; the named limiter bounds
+     * throughput, not capability.
+     *
+     * Three fields and no fourth. The team is who to ask, the HOST is where it
+     * went, and the TYPE is what shape of secret left the building. Never a
+     * value, and never the raw URL: a monitor target is frequently
+     * `…/health?token=…`, so the query string is dropped for the same reason
+     * `AnalysisPayload::displayUrl()` drops it before showing the URL to a
+     * model. The host alone is narrower than that rendering rather than a
+     * second copy of it, which is why this is not the third caller that would
+     * trigger extracting it.
+     *
+     * Silent for an absent credential and for `type: none`, which is the same
+     * boundary {@see CredentialRedactor::for()} draws: nothing was sent, so
+     * there is nothing to audit and no noise on the ordinary path.
+     *
+     * @param  array<string, mixed>|null  $authConfig
+     */
+    protected function logCredentialledProbe(string $url, ?array $authConfig, string $teamId): void
+    {
+        $submittedType = $authConfig['type'] ?? null;
+        $type = is_string($submittedType) ? HttpAuthType::tryFrom($submittedType) : null;
+
+        if ($type === null || $type === HttpAuthType::None) {
+            return;
+        }
+
+        $host = parse_url($url, PHP_URL_HOST);
+
+        Log::info('Monitor analysis probed a target with an operator-supplied credential.', [
+            'team_id' => $teamId,
+            'host' => is_string($host) && $host !== '' ? $host : 'n/a',
+            'auth_type' => $type->value,
         ]);
     }
 

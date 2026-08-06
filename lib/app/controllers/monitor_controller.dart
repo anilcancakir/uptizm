@@ -8,6 +8,7 @@ import 'entitlement_controller.dart';
 import '../models/monitor.dart';
 import '../support/monitor_types.dart' show UptimeSegment;
 import '../enums/status_key.dart';
+import '../enums/ai_confidence.dart';
 import '../../resources/views/monitors/monitor_form_support.dart' show AiMetricSeed;
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
@@ -48,6 +49,26 @@ class MonitorAnalysis {
   /// must both keep working) or proposes nothing.
   final List<AiMetricSeed> suggestedMetrics;
 
+  /// How much weight the review screen should give this suggestion, derived
+  /// server-side from evidence quality (see the backend `AnalysisResult`
+  /// docblock). Absent on a backend that predates the field, so
+  /// [aiConfidenceFromWire] falls back to [AiConfidence.low], the most
+  /// conservative reading rather than a fabricated "high".
+  final AiConfidence confidence;
+
+  /// What kind of service the target was read to be (e.g. `"json_api"`),
+  /// or `"unknown"` when the classifier declined to guess.
+  final String serviceClass;
+
+  /// WHY [recommendedRegions] were suggested (a measured basis like
+  /// `"geoip"` vs. an inferred one like `"default"`), a different question
+  /// from what a lookup achieved. Mirrors the backend `RegionBasis` enum.
+  final String regionBasis;
+
+  /// One of the three uptime SLO targets the client offers, or `"none"`
+  /// when a single probe does not justify committing to one.
+  final String recommendedSloTarget;
+
   /// Creates a [MonitorAnalysis].
   const MonitorAnalysis({
     required this.url,
@@ -58,6 +79,10 @@ class MonitorAnalysis {
     required this.recommendedRegions,
     required this.rationale,
     this.suggestedMetrics = const [],
+    this.confidence = AiConfidence.low,
+    this.serviceClass = 'unknown',
+    this.regionBasis = 'default',
+    this.recommendedSloTarget = 'none',
   });
 
   /// Decodes a [MonitorAnalysis] from the `data` object of the `POST
@@ -82,6 +107,10 @@ class MonitorAnalysis {
               .map(AiMetricSeed.fromMap)
               .toList() ??
           const [],
+      confidence: aiConfidenceFromWire(map['confidence'] as String?),
+      serviceClass: map['service_class'] as String? ?? 'unknown',
+      regionBasis: map['region_basis'] as String? ?? 'default',
+      recommendedSloTarget: map['recommended_slo_target'] as String? ?? 'none',
     );
   }
 }
@@ -702,6 +731,21 @@ class MonitorController extends MagicController
       if (monitor == null) return const {};
 
       monitor.fill(fields);
+
+      // An omitted `auth_config` has to stay omitted ON THE WIRE, and filling
+      // alone does not achieve that. The monitor was re-fetched above, so it
+      // already carries the REDACTED map the API publishes (`type`, `username`
+      // and `header`, never a secret: MonitorResource::redactAuthConfig), and
+      // `save()` PUTs the whole `toArray()`. So a rename that deliberately sent
+      // no credential would still ship `{type: basic, username: svc}`, and the
+      // backend's `required_if:auth_config.type,basic` on the password answers
+      // 422 for an edit the operator never made. Hiding the attribute is what
+      // makes the form's "the operator did not touch the secret" decision
+      // survive the round trip.
+      if (!fields.containsKey('auth_config')) {
+        monitor.makeHidden(['auth_config']);
+      }
+
       final bool ok = await monitor.save();
       if (!ok) {
         final Map<String, String>? fieldErrors = _fieldErrorsOrToast(monitor);
@@ -759,12 +803,22 @@ class MonitorController extends MagicController
   /// an error toast (reusing [create]'s `toast_save_failed_*` copy; there is
   /// no dedicated analyze-failed string yet) and logs via [Log.error], never
   /// a silent swallow.
-  Future<MonitorAnalysis?> analyze(String url, {String? region}) async {
+  ///
+  /// [authConfig] is the same wire map the create form assembles
+  /// (`MonitorCredential.toWireMap`), so a protected endpoint can be analyzed
+  /// at all: the backend probes WITH it and redacts the credential out of the
+  /// probe result before anything derives a prompt from it. Omitted for a
+  /// public target, which is the ordinary case.
+  Future<MonitorAnalysis?> analyze(
+    String url, {
+    String? region,
+    Map<String, dynamic>? authConfig,
+  }) async {
     _lastAnalyzeWasGated = false;
     try {
       final response = await Http.post(
         '/monitors/analyze',
-        data: {'url': url, 'region': ?region},
+        data: {'url': url, 'region': ?region, 'auth_config': ?authConfig},
       );
       if (!response.successful) {
         Log.error('[MonitorController.analyze] $url: ${response.errorMessage}');
