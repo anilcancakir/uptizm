@@ -275,16 +275,6 @@ class StoreMonitorRequest extends FormRequest
             ],
             // The bulk metric rows, written with the monitor in one
             // transaction by MonitorController::store(). The BARE key is
-            // load-bearing twice over and neither failure is loud: it is what
-            // self::withValidator() gates its per-row cross-field loop on, and
-            // it is what makes `metrics` reach `validated()` at all, since a
-            // payload key with only wildcard rules under it is not validated
-            // data. Capped at the number of candidates discovery can ever
-            // propose, because that is the only producer of a bulk row today
-            // and no plan tier gates metric COUNT
-            // (`backend/config/plans.php`).
-            // The bulk metric rows, written with the monitor in one
-            // transaction by MonitorController::store(). The BARE key is
             // load-bearing beyond the `array` type and the cap: it is what
             // self::withValidator() gates its per-row cross-field loop on, so
             // declaring only the `metrics.*` rules leaves an inverted

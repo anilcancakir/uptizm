@@ -88,6 +88,11 @@ class MetricDiscoveryTest extends TestCase
         'source',
         'path',
         'unit',
+        // Added during the final review. Without it a numeric metric arrives
+        // with both bounds and no side to compare them against, so it records
+        // every reading and bands none: `ThresholdEvaluator::numericBreach()`
+        // needs the direction before it can breach anything.
+        'threshold_direction',
         'warn',
         'critical',
         'ok_values',
@@ -567,13 +572,21 @@ class MetricDiscoveryTest extends TestCase
         $this->assertTrue($metric->alertsOnString());
     }
 
-    public function test_the_observed_value_is_never_transcribed_into_a_paging_band(): void
+    public function test_the_observed_value_in_a_paging_band_refuses_the_whole_row(): void
     {
         // The reachable harm is mis-assignment, not invention: `bandString()`
         // tests critical FIRST and `alertsOnString()` is true the moment any
         // list is non-empty, so a model that copied the sample it was shown into
         // `critical_values` hands the operator a metric that pages on its very
         // first check.
+        //
+        // The expectation CHANGED during the final review, and the reason is
+        // the reason the refusal exists. This used to assert that the offending
+        // entry was deleted and the row kept. That is the worse of the two
+        // failures: the observed value then matches nothing, falls through to
+        // `unmatched_band`, which the create path pins to `ok`, and the metric
+        // reports the very reading the model flagged as HEALTHY. A false Ok on
+        // an alerting metric is worse than no metric, so the row goes.
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
         $this->archiveVersion($monitor, $this->healthFixture());
@@ -588,11 +601,14 @@ class MetricDiscoveryTest extends TestCase
             ],
         ]));
 
-        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
-            ->json('data.suggested_metrics.0');
+        $suggested = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
 
-        $this->assertSame([], $suggestion['critical_values']);
-        $this->assertSame([], $suggestion['warn_values']);
+        $this->assertSame(
+            [],
+            $suggested,
+            'a selection that would report the observation as healthy is not proposed at all',
+        );
     }
 
     public function test_a_value_in_two_lists_is_kept_in_the_least_severe_one(): void
@@ -625,6 +641,59 @@ class MetricDiscoveryTest extends TestCase
             ...$this->monitorPayload(),
             'metrics' => [$this->asMetricRow($suggestion)],
         ])->assertStatus(201);
+    }
+
+    public function test_a_numeric_suggestion_arrives_with_the_direction_its_bounds_need(): void
+    {
+        Queue::fake();
+        // The defect this pins was live until the final review, and nothing
+        // failed while it was: the gateway resolved `threshold_direction`
+        // against the real enum and `SELECTION_KEYS` admitted it, but
+        // `toWireRows()` never put it on the wire. So every AI-proposed numeric
+        // metric was created with `warn_bound`, `critical_bound` and NO
+        // direction, and `ThresholdEvaluator::numericBreach()` needs the
+        // direction before it can breach anything: the metric recorded every
+        // reading, banded none, and opened no incident, while the review screen
+        // said "warn at 400".
+        //
+        // Asserting the metric exists, or that its bounds match, passes on all
+        // of that. The direction is the assertion.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['status' => 'ok', 'latency_ms' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $latency = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            $this->selection($latency->ref, label: 'Latency', type: MetricType::Numeric) + [
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn' => 400,
+                'critical' => 900,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(
+            ThresholdDirection::HighBad->value,
+            $suggestion['threshold_direction'],
+            'the direction has to reach the wire, not just the gateway',
+        );
+
+        $this->postJson('/api/v1/monitors', [
+            ...$this->monitorPayload(),
+            'metrics' => [$this->asMetricRow($suggestion)],
+        ])->assertStatus(201);
+
+        $metric = MonitorMetric::query()->where('team_id', $team->id)->sole();
+
+        $this->assertSame(
+            ThresholdDirection::HighBad,
+            $metric->threshold_direction,
+            'a persisted numeric metric without a direction can never band a reading',
+        );
+        $this->assertNotNull($metric->warn_bound);
     }
 
     public function test_a_band_value_at_the_digest_cap_never_reaches_the_write_endpoint(): void

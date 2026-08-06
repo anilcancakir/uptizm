@@ -582,6 +582,16 @@ class AiMetricSeed {
   /// metric, e.g. `"120"`.
   final String sampleValue;
 
+  /// Which side of a bound is bad (`high_bad` / `low_bad`), or `''` when the
+  /// metric carries no numeric threshold.
+  ///
+  /// Travels under its column name and is load-bearing rather than decorative:
+  /// `ThresholdEvaluator::numericBreach()` cannot band a reading without it, so
+  /// a numeric metric created with `warn_bound` and no direction records every
+  /// check and breaches on none of them, while the review screen says "warn at
+  /// 400".
+  final String thresholdDirection;
+
   /// Observed string values that read as healthy, e.g. `["ok"]`.
   ///
   /// The three band lists are the one part of the wire shape that already
@@ -606,6 +616,7 @@ class AiMetricSeed {
     required this.warn,
     required this.critical,
     required this.sampleValue,
+    this.thresholdDirection = '',
     this.okValues = const [],
     this.warnValues = const [],
     this.criticalValues = const [],
@@ -644,6 +655,8 @@ class AiMetricSeed {
       if (source.isNotEmpty) 'source': source,
       if (path.isNotEmpty) 'extraction_path': path,
       if (unit.isNotEmpty) 'unit': unit,
+      if (thresholdDirection.isNotEmpty)
+        'threshold_direction': thresholdDirection,
       'warn_bound': ?warnBound,
       'critical_bound': ?criticalBound,
       if (okValues.isNotEmpty) 'ok_values': okValues,
@@ -671,6 +684,7 @@ class AiMetricSeed {
       warn: _wireThresholdToString(map['warn']),
       critical: _wireThresholdToString(map['critical']),
       sampleValue: map['sample_value'] as String? ?? '',
+      thresholdDirection: map['threshold_direction'] as String? ?? '',
       okValues: _wireValueList(map['ok_values']),
       warnValues: _wireValueList(map['warn_values']),
       criticalValues: _wireValueList(map['critical_values']),

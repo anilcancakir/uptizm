@@ -400,6 +400,47 @@ void main() {
       expect(() => controller.save(monitors.first.id), returnsNormally);
       expect(notifications, equals(0));
     });
+
+    test('an edit that omits auth_config does not put it back on the wire', () async {
+      // The form omitting the key is not the same as the request omitting it,
+      // and that gap was a live defect: save() re-fetches the monitor through
+      // Monitor.find(), which hydrates the REDACTED map the API publishes
+      // (type + username, never a secret), and then PUTs the whole toArray().
+      // So renaming a basic-auth monitor shipped {type: basic, username: svc}
+      // with no password and 422'd on the backend's required_if rule, for an
+      // edit the operator never made.
+      //
+      // Every other credential test in this branch reads what the form BUILT.
+      // This one reads what left the client, which is the only level the bug
+      // was ever visible at: delete the makeHidden line and the rest stay green.
+      final FakeNetworkDriver fake = Http.fake({
+        'monitors/api': Http.response({
+          'data': {
+            'id': 'api',
+            'name': 'API',
+            'url': 'https://api.uptizm.com',
+            'type': 'http',
+            'auth_config': {'type': 'basic', 'username': 'svc'},
+          },
+        }),
+      });
+
+      await MonitorController.instance.save('api', {'name': 'Renamed'});
+
+      final put = fake.recorded.firstWhere(
+        (entry) => entry.$1.method.toUpperCase() == 'PUT',
+        orElse: () => throw StateError('no PUT was recorded'),
+      );
+      final Map<String, dynamic> body = put.$1.data as Map<String, dynamic>;
+
+      expect(body['name'], equals('Renamed'));
+      expect(
+        body.containsKey('auth_config'),
+        isFalse,
+        reason: 'the stored credential must not ride along on an edit that '
+            'never touched it',
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------

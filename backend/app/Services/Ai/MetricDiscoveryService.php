@@ -244,9 +244,16 @@ class MetricDiscoveryService
             }
 
             $key = $this->uniqueKey($selection['label'], $takenKeys);
-            $takenKeys[] = $key;
-
             $bands = $this->bandsFor($candidate, $selection);
+
+            // 4. Refuse a banded selection that would report the observation as
+            //    healthy after correction. See bandsFor()'s docblock; the key
+            //    is claimed only after this, so a refused row does not burn one.
+            if ($bands === null) {
+                continue;
+            }
+
+            $takenKeys[] = $key;
 
             $rows[] = [
                 'key' => $key,
@@ -266,6 +273,17 @@ class MetricDiscoveryService
                 // its suffix verbatim, so attaching a unit there would print it
                 // twice.
                 'unit' => $this->unitFor($candidate, $selection),
+                // Without the direction the two bounds beside it are inert.
+                // `ThresholdEvaluator::numericBreach()` needs to know which
+                // side of a bound is bad before it can band anything, so a
+                // numeric metric that arrives with `warn_bound: 400` and no
+                // direction records its readings forever and never bands one,
+                // never breaches, and never opens an incident. The screen
+                // meanwhile says "warn at 400". The gateway resolves this
+                // against the real enum and `SELECTION_KEYS` admits it; it was
+                // simply never put on the wire, which is a failure with no
+                // error attached to it anywhere.
+                'threshold_direction' => $selection['thresholdDirection']?->value,
                 'warn' => $selection['warnBound'],
                 'critical' => $selection['criticalBound'],
                 // The string bands travel under their COLUMN names, unlike
@@ -291,14 +309,19 @@ class MetricDiscoveryService
      * observation, and both of those are how a banded suggestion turns into a
      * page rather than a configuration:
      *
-     *   1. The OBSERVED value is dropped from `warn_values` and
-     *      `critical_values`. {@see ThresholdEvaluator::bandString()} tests
-     *      critical first and {@see MonitorMetric::alertsOnString()} is true the
-     *      moment any list is non-empty, so a model that transcribed the sample
-     *      it was shown into the wrong list hands the operator a metric that
-     *      bands Critical on its very first check and pages. The rule is the one
-     *      already written on the metric preview endpoint: a preview may
-     *      under-promise, it may never over-promise.
+     *   1. A selection that puts the OBSERVED value in `warn_values` or
+     *      `critical_values`, and nowhere else, is REFUSED WHOLE (this method
+     *      answers null). {@see ThresholdEvaluator::bandString()} tests critical
+     *      first and {@see MonitorMetric::alertsOnString()} is true the moment
+     *      any list is non-empty, so keeping such a selection and merely
+     *      deleting the offending entry is the worse of the two failures: the
+     *      value the model called critical then matches nothing, falls through
+     *      to `unmatched_band`, which the create path pins to `ok`, and the
+     *      metric reports the reading the model flagged as HEALTHY. A false Ok
+     *      on an alerting metric is worse than no metric, so the row goes.
+     *      Refusing the row also matches the two drops directly above it in
+     *      {@see self::toWireRows()} (a redacted sample, an ineligible type):
+     *      one vocabulary, "we do not propose what we cannot stand behind".
      *   2. A value sitting in two lists is kept in the LEAST severe one and
      *      dropped from the others. `validateNoOverlappingValues` refuses the
      *      pair with a 422 on `metrics.2.warn_values.0`, which is an error the
@@ -308,9 +331,10 @@ class MetricDiscoveryService
      *      instead, downward.
      *
      * @param  array{okValues: list<string>, warnValues: list<string>, criticalValues: list<string>}  $selection
-     * @return array{ok_values: list<string>, warn_values: list<string>, critical_values: list<string>}
+     * @return array{ok_values: list<string>, warn_values: list<string>, critical_values: list<string>}|null Null
+     *                                                                                                       refuses the whole row.
      */
-    protected function bandsFor(MetricCandidate $candidate, array $selection): array
+    protected function bandsFor(MetricCandidate $candidate, array $selection): ?array
     {
         $observed = ThresholdEvaluator::normalizeMatchValue($candidate->sampleValue);
 
@@ -329,8 +353,15 @@ class MetricDiscoveryService
             foreach ($values as $value) {
                 $normalized = ThresholdEvaluator::normalizeMatchValue($value);
 
-                if ($field !== 'ok_values' && $normalized === $observed) {
-                    continue;
+                // The observed value in a severe list, and not also in
+                // `ok_values`. Deleting the entry would leave the reading the
+                // model flagged unmatched and therefore banded `ok`, so the
+                // whole row is refused instead. When it IS also in `ok_values`
+                // the `$claimed` dedupe below has already resolved it downward,
+                // because `ok_values` is walked first.
+                if ($field !== 'ok_values' && $normalized === $observed
+                    && ! isset($claimed[$normalized])) {
+                    return null;
                 }
 
                 if (isset($claimed[$normalized])) {
@@ -354,11 +385,20 @@ class MetricDiscoveryService
      */
     protected function unitFor(MetricCandidate $candidate, array $selection): ?string
     {
-        if ($selection['type'] === MetricType::Numeric && $candidate->unit !== null) {
-            return $candidate->unit->value;
+        // Nothing carries a unit but a numeric metric, and the gate belongs
+        // here because the gateway does not apply one: `resolveBounds()` and
+        // `resolveLists()` both clear on the wrong type, `resolveUnit()` does
+        // not. Without this a `120ms` candidate selected as `string` keeps its
+        // suffix in the value AND ships `millisecond` beside it, and the pill
+        // renders "120ms ms".
+        if ($selection['type'] !== MetricType::Numeric) {
+            return null;
         }
 
-        return $selection['unit']?->value;
+        // The candidate's own unit outranks the model's: it was derived from
+        // the very suffix the check path strips, so it is the one unit the
+        // recorded number is actually expressed in.
+        return $candidate->unit?->value ?? $selection['unit']?->value;
     }
 
     /**
