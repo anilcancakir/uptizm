@@ -71,10 +71,20 @@ class ContentArchiveConfigTest extends TestCase
         $this->assertSame(500, config('content-archive.queue_backlog_limit'));
     }
 
-    /** The normalizer version starts at 1. */
-    public function test_normalizer_version_starts_at_one(): void
+    /**
+     * The normalizer version is a tripwire, not a fact about the past: it exists
+     * so an archived hash can be recomputed rather than assumed comparable to a
+     * new one. Changing how a body is normalized WITHOUT bumping it makes rows
+     * written by the two algorithms silently incomparable, which is the failure
+     * this assertion is here to force somebody to think about.
+     *
+     * 2 added the JSON rules: every numeric leaf and every ISO-8601 datetime is
+     * erased before hashing, so a status document dedupes between real changes
+     * instead of archiving a fresh blob on every check.
+     */
+    public function test_normalizer_version_is_bumped_with_the_algorithm(): void
     {
-        $this->assertSame(1, config('content-archive.normalizer_version'));
+        $this->assertSame(2, config('content-archive.normalizer_version'));
     }
 
     /** retention_days and queue carry their documented defaults. */
