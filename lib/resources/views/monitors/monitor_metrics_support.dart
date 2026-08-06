@@ -52,8 +52,9 @@ List<MetricOption> get kMetricSources => [
 ///
 /// The four original tokens (`ms`, `s`, `%`, `bytes`, plus `count` and
 /// `custom`) keep their short names; the other ten were added so every
-/// `MetricUnit` value has a form-side pairing in [_unitToWire] and none of
-/// them collapse to `custom` on decode (see that map's docblock).
+/// `MetricUnit` value has a form-side pairing in the private `_unitToWire` map
+/// in `monitor_metrics_controller.dart` (not linkable from here: it is private
+/// to that library) and none of them collapse to `custom` on decode.
 List<MetricOption> get kMetricUnits => [
   MetricOption(label: trans('uptizm.monitors.metrics_unit_bytes_auto'), value: 'bytes_auto'),
   MetricOption(label: trans('uptizm.monitors.metrics_unit_bytes'), value: 'bytes'),

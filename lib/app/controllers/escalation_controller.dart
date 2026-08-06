@@ -80,7 +80,7 @@ class EscalationController extends MagicController
       Magic.findOrPut(EscalationController.new);
 
   /// In-memory cache of the id-carrying policy models, keyed by policy id.
-  /// Populated by [reload]/[seedForTest] and kept warm by [_refreshDetail].
+  /// Populated by [reload]/[seedForTest] and kept warm by [refreshDetail].
   /// A policy is its own detail, so this single map backs both [policies] and
   /// [detailById].
   final Map<String, EscalationPolicy> _details = {};

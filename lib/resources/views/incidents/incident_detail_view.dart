@@ -945,9 +945,12 @@ class _IncidentDetailViewState
 
   /// Builds the composer's status [Select], bound to [_lifecycle].
   ///
-  /// [kIncidentStatuses] carries title-case string values matching
-  /// [IncidentLifecycle.label]; the Select rides on the current lifecycle's
-  /// label and maps the chosen label back to the enum via [_lifecycleForLabel].
+  /// [kIncidentStatuses] carries the lifecycle's WIRE token as each option's
+  /// value, not its display label. It used to carry the label, and the consumer
+  /// mapped a pick back by comparing against the TRANSLATED label, so the two
+  /// only lined up in English: on a Turkish UI the Select showed no current
+  /// selection and every status pick was silently dropped. The chosen token maps
+  /// back through [lifecycleFromWire].
   Widget _buildStatusSelect() {
     return MSSelect<String>(
       // Keyed by the lifecycle's WIRE token, never its display label: the
