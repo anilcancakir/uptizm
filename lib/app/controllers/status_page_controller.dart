@@ -894,8 +894,9 @@ class StatusPageController extends MagicController
   /// Builds a clean [StatusPage] persistence model from the editor's [draft]
   /// model.
   ///
-  /// Fills the backend's `Store`/`UpdateStatusPageRequest` field shape (using
-  /// the forward write-casts [_wireDomainMode]/[_wireBrandColor]) and, when
+  /// Fills the backend's `Store`/`UpdateStatusPageRequest` field shape (the
+  /// domain mode goes out as its enum `name`, the colour through the forward
+  /// write-cast [_wireBrandColor]) and, when
   /// [existing] is true, stamps the id and marks the model as already existing
   /// so `save()` routes to `PUT` rather than `POST`.
   ///

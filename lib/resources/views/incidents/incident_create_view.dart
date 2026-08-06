@@ -969,7 +969,7 @@ class _IncidentCreateViewState
 
   /// Builds the `POST /incidents` field map (`StoreIncidentRequest`):
   /// `monitor_id` from the first selected affected monitor (the backend
-  /// accepts a single monitor per incident; [_canSubmit] guarantees
+  /// accepts a single monitor per incident; [_validateClientSide] guarantees
   /// [_affected] is non-empty here), `severity` mapped to the backend enum
   /// value via [_severityForBackend], the trimmed `title`, and an optional
   /// trimmed `message`.

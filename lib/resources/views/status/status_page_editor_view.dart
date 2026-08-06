@@ -62,7 +62,7 @@ import '../../../ui/components/status_page_preview/index.dart';
 /// slug directly ([_slugEdited]). The draft is projected into a [StatusPage]
 /// through [_draftPage] for the read-side helpers ([pageUrl]) and the live
 /// [StatusPagePreview]; Save / Create hands that same projection to the
-/// controller and is enabled only while [_canSave].
+/// controller and is enabled only while [_isDirty].
 ///
 /// Logo file-upload is a deliberate mock affordance (initials + brand color
 /// only); no file picker is wired (Risk Accepted in the plan).
