@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Enums\LocationBasis;
+
 /**
  * The immutable, prefilled monitor configuration the analysis LLM suggests
  * for a URL the operator is about to turn into a monitor.
@@ -14,6 +16,16 @@ namespace App\Services\Ai;
  * that was not in the payload's owned catalog has been stripped before this
  * object was built. `strippedCitations` records what was removed so the
  * caller can audit the hallucination rate.
+ *
+ * The three classification fields are closed sets rather than free text, and
+ * {@see LaravelAiAnalysisGateway} owns each catalog because it is the class
+ * that puts them in the schema and refuses an answer outside them:
+ * {@see LaravelAiAnalysisGateway::SERVICE_CLASSES},
+ * {@see LaravelAiAnalysisGateway::REGION_BASES} and
+ * {@see LaravelAiAnalysisGateway::SLO_TARGETS}. They all default to the
+ * honest, uninformative member of their set, so a caller that never ran a
+ * model (the deterministic fallback, the fake) says "I do not know" rather
+ * than accidentally asserting a classification.
  */
 readonly class AnalysisResult
 {
@@ -23,7 +35,14 @@ readonly class AnalysisResult
      * @param  int  $recommendedCriticalThresholdMs  The suggested critical-severity response-time bound, in milliseconds.
      * @param  list<string>  $recommendedRegions  The suggested relay regions to probe from.
      * @param  string  $rationale  The allowlist-cleaned narration behind the suggestion.
-     * @param  list<string>  $strippedCitations  Out-of-catalog region citations removed from the rationale.
+     * @param  list<string>  $strippedCitations  Out-of-catalog citations removed from the rationale.
+     * @param  string  $serviceClass  What kind of service the target was read to be.
+     * @param  string  $regionBasis  WHY these regions were suggested, which is a different
+     *                               question from what a lookup achieved
+     *                               ({@see LocationBasis}).
+     * @param  string  $recommendedSloTarget  One of the three uptime targets the client
+     *                                        offers, or `none` when a single probe does not
+     *                                        justify committing to one.
      */
     public function __construct(
         public int $recommendedIntervalSeconds,
@@ -32,6 +51,9 @@ readonly class AnalysisResult
         public array $recommendedRegions,
         public string $rationale,
         public array $strippedCitations = [],
+        public string $serviceClass = 'unknown',
+        public string $regionBasis = 'default',
+        public string $recommendedSloTarget = 'none',
     ) {}
 
     /**
@@ -48,6 +70,9 @@ readonly class AnalysisResult
             'recommended_regions' => $this->recommendedRegions,
             'rationale' => $this->rationale,
             'stripped_citations' => $this->strippedCitations,
+            'service_class' => $this->serviceClass,
+            'region_basis' => $this->regionBasis,
+            'recommended_slo_target' => $this->recommendedSloTarget,
         ];
     }
 }

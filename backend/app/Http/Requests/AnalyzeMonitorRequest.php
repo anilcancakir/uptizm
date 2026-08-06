@@ -46,6 +46,7 @@ class AnalyzeMonitorRequest extends FormRequest
                 'string',
                 'url',
                 'max:2048',
+                $this->noEmbeddedCredential(),
                 $this->noInternalHost(),
             ],
             'region' => [
@@ -65,6 +66,33 @@ class AnalyzeMonitorRequest extends FormRequest
         $region = $this->validated('region');
 
         return is_string($region) ? $region : MonitorRegion::USEast->value;
+    }
+
+    /**
+     * Refuse a URL carrying its credential in the userinfo component.
+     *
+     * Laravel's `url` rule accepts `https://user:s3cr3t@example.com/health`
+     * (measured), and this endpoint hands the URL to the analysis prompt as a
+     * TRUSTED fact, on both the suggestion turn and the research turn that
+     * holds the web-search tool. The whole reason a free-text search query is
+     * safe here is that nothing secret is in the model's context, so a userinfo
+     * URL is not an inconvenience, it is the one inlet that premise cannot
+     * survive. Refused rather than stripped: an operator who pasted a
+     * credential should be told, not quietly have it removed and then probed
+     * without it.
+     *
+     * A monitor that genuinely needs credentials gets them through
+     * `auth_config`, which is encrypted at rest and never reaches a prompt.
+     *
+     * @return Closure(string, mixed, Closure): void
+     */
+    protected function noEmbeddedCredential(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if ($this->hostGuard()->carriesCredentials((string) $value)) {
+                $fail('The :attribute must not embed a username or password. Use the monitor\'s authentication settings instead.');
+            }
+        };
     }
 
     /**

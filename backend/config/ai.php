@@ -46,7 +46,43 @@ return [
      * same cheap, fast model handles well.
      */
     'metric_discovery' => [
-        'model' => env('AI_METRIC_DISCOVERY_MODEL', 'claude-haiku-4-5-20251001'),
+        // Falls back through `AI_TRIAGE_MODEL` for the reason spelled out at the
+        // `analysis` key below: this gateway runs on the same analyze request, so
+        // a literal default here degrades the metrics half of every setup on any
+        // deployment that moved the AI surface, silently and identically.
+        'model' => env('AI_METRIC_DISCOVERY_MODEL', env('AI_TRIAGE_MODEL', 'claude-haiku-4-5-20251001')),
+    ],
+
+    /*
+     * Monitor-setup analysis reads its own model key for the same reason, and
+     * has the strongest claim to one: it is the only task here that runs a
+     * bounded TOOL LOOP before its structured turn, so it is the first that
+     * would need a different model, and retuning it must not retune the five
+     * gateways still on `triage`.
+     *
+     * It falls back through `AI_TRIAGE_MODEL` rather than straight to the
+     * literal, and that is not tidiness. A deployment that has moved the AI
+     * surface to another provider sets `AI_DEFAULT` and `AI_TRIAGE_MODEL` and
+     * nothing else, so a literal default here would ask THAT provider for an
+     * Anthropic-native id it does not serve. The gateway's degrade would then
+     * catch the failure and answer deterministically on every single request,
+     * with only a log line to say so: the feature would ship dark and look
+     * healthy. Inheriting the value the rest of the surface already resolves to
+     * is what makes an unset env genuinely change nothing.
+     */
+    'analysis' => [
+        'model' => env('AI_ANALYSIS_MODEL', env('AI_TRIAGE_MODEL', 'claude-haiku-4-5-20251001')),
+    ],
+
+    /*
+     * The hard character budget one response digest may spend in the setup
+     * prompt. The worker returns up to 1 MiB of body, which is two orders of
+     * magnitude more context than a monitor suggestion needs and all of it
+     * target-authored, so the budget is a ceiling rather than a target: when it
+     * binds, whole subtrees are dropped and the digest says so.
+     */
+    'digest' => [
+        'max_characters' => env('AI_DIGEST_MAX_CHARACTERS', 8000),
     ],
 
     /*

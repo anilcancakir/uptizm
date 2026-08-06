@@ -29,6 +29,7 @@ use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Sanctum\Sanctum;
 use RuntimeException;
 use Tests\TestCase;
@@ -481,6 +482,27 @@ class MetricDiscoveryTest extends TestCase
         $this->assertSame(str_repeat('x', 500), $rows[0]['value']);
     }
 
+    public function test_a_query_string_credential_never_reaches_the_discovery_prompt(): void
+    {
+        // The analyze request builds TWO provider prompts from one
+        // operator-supplied URL: the analysis one and this one. A monitor target
+        // gated by `?token=` is common, and covering one prompt while the other
+        // prints the whole URL covers neither. The probe still fetches the full
+        // URL; this is only about what a third party is shown.
+        $payload = new MetricDiscoveryPayload(
+            url: 'https://example.com/health?token=T0KENSECRET&verbose=1',
+            monitorType: 'http',
+            candidateRefs: ['c1'],
+            digestRows: [['ref' => 'c1', 'src' => 'json_path', 'path' => 'status', 'value' => 'ok']],
+        );
+
+        $message = $payload->buildUserMessage();
+
+        $this->assertStringNotContainsString('T0KENSECRET', $message);
+        $this->assertStringNotContainsString('token=', $message);
+        $this->assertStringContainsString('url: https://example.com/health', $message);
+    }
+
     public function test_an_untrusted_value_cannot_close_the_fence_or_add_a_line(): void
     {
         // The whole reason the digest is JSON-ENCODED rather than concatenated: a
@@ -571,6 +593,33 @@ class MetricDiscoveryTest extends TestCase
         // endpoint must still answer the empty-array wire shape, never null and
         // never a 500.
         $this->fakeGateway(null);
+
+        $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
+
+        $response->assertStatus(200);
+        $this->assertSame([], $response->json('data.suggested_metrics'));
+    }
+
+    public function test_a_rate_limited_provider_degrades_to_an_empty_array(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+
+        // A provider 429 does NOT arrive as a client RequestException:
+        // `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors` converts 429, 402
+        // and 503 into `AiException` SUBCLASSES first, and `AiException` extends
+        // `Exception`, not `RuntimeException`. Before this was handled, the most
+        // ordinary provider bad day there is threw straight out of `discover()`
+        // and 500'd a request that had only asked for a suggestion.
+        $gateway = new class extends LaravelAiMetricDiscoveryGateway
+        {
+            protected function rawSelections(MetricDiscoveryPayload $payload): ?array
+            {
+                throw RateLimitedException::forProvider('openrouter', 429);
+            }
+        };
+        $this->app->instance(LaravelAiMetricDiscoveryGateway::class, $gateway);
 
         $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
 

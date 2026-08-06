@@ -10,6 +10,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Laravel\Ai\Exceptions\AiException;
 use RuntimeException;
 
 /**
@@ -126,6 +127,25 @@ class MetricDiscoveryService
             Log::warning('Metric discovery degraded: the AI service was unreachable.', [
                 'monitor_id' => (string) ($monitor->getKey() ?? ''),
                 'exception' => $exception->getMessage(),
+            ]);
+
+            return null;
+        } catch (AiException) {
+            // The fourth class, and not redundant with the two above:
+            // `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors` converts a
+            // provider 429, 402 or 503 into an `AiException` SUBCLASS before it
+            // reaches a caller, and the OpenRouter gateway raises a plain
+            // `AiException` for an error body delivered in-band with HTTP 200.
+            // `AiException extends Exception`, so neither is caught above, and
+            // without this branch the most ordinary provider bad day there is
+            // would throw out of `discover()` and 500 the whole analyze request
+            // that only asked for a metric SUGGESTION.
+            //
+            // No `exception` key here, unlike the two branches above: this class
+            // reaches us from a provider we do not control, and a message it
+            // chose is not something to copy into our logs.
+            Log::warning('Metric discovery degraded: the AI provider could not complete the request.', [
+                'monitor_id' => (string) ($monitor->getKey() ?? ''),
             ]);
 
             return null;

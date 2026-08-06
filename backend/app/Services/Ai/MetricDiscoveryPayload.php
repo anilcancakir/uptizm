@@ -82,7 +82,16 @@ readonly class MetricDiscoveryPayload
         //    refs were minted by the extractor, so both are safe as fact.
         $trusted = implode("\n", [
             'EVIDENCE (backend-owned, trusted):',
-            "url: {$this->url}",
+            // Scheme, host and path, never the query. A monitor target is
+            // frequently `…/health?token=…`, and the query is not evidence a
+            // model needs to pick a metric: it names no key and proves no
+            // extraction path. The FULL url is what the probe fetched; this is
+            // only what a third party is shown. Same rule, same reason, as
+            // {@see AnalysisPayload::displayUrl()}, which the analyze request's
+            // other prompt already applies: both prompts are built from one
+            // operator-supplied URL on one request, so covering one and not the
+            // other covers neither.
+            'url: '.$this->displayUrl(),
             "monitor_type: {$this->monitorType}",
             'candidate_refs: '.$this->encode($this->candidateRefs),
         ]);
@@ -100,6 +109,25 @@ readonly class MetricDiscoveryPayload
             'Select the candidates worth recording as monitor metrics and name each one.',
             'Answer with the candidate ref and nothing that resembles a path or a selector.',
         ]);
+    }
+
+    /**
+     * The monitor URL as the model is shown it: scheme, host and path.
+     *
+     * Public so a caller that logs the target can log the same safe form.
+     */
+    public function displayUrl(): string
+    {
+        $parts = parse_url($this->url);
+
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return 'n/a';
+        }
+
+        $scheme = isset($parts['scheme']) ? $parts['scheme'].'://' : '';
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
+
+        return $scheme.$parts['host'].$port.($parts['path'] ?? '');
     }
 
     /**

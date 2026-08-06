@@ -52,5 +52,29 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!--
+            Third-party credentials the suite must never hold, pinned EMPTY for
+            the same reason CACHE_STORE and DB_CONNECTION are pinned above: a
+            developer who exports one of these in their shell would otherwise
+            run a different suite than CI does, and the difference is a live
+            outbound request rather than a slower assertion. Both integrations
+            are dormant-when-unconfigured by design, so an empty value is also
+            the branch worth exercising. Measured: with KODIZM_MCP_TOKEN in this
+            machine's environment, a research-tool test sent a real request to
+            mcp.kodizm.com before it was pinned.
+        -->
+        <env name="KODIZM_MCP_TOKEN" value=""/>
+        <env name="IPINFO_TOKEN" value=""/>
+        <!--
+            The provider keys belong on that list for the same reason, and the
+            path is less obvious: a probe body in a fake relay wakes the REAL
+            MetricDiscoveryService, which generates candidates and asks a model
+            to select among them. Every analyze test predating this work carried
+            a null body, so the reachable-provider trap only appears once bodies
+            enter a fixture. Pinned empty so no test can reach a model on any
+            machine, rather than each test remembering to bind a double.
+        -->
+        <env name="OPENROUTER_API_KEY" value=""/>
+        <env name="ANTHROPIC_API_KEY" value=""/>
     </php>
 </phpunit>

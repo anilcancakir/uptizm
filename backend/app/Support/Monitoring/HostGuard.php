@@ -74,6 +74,74 @@ class HostGuard
     }
 
     /**
+     * Whether a URL carries a credential in its userinfo component.
+     *
+     * Lives here because this class is where URL-shape judgement belongs, and
+     * because the question is worth naming: `https://example.com@evil.net/`
+     * reads as one host and resolves as another, and
+     * `https://ops:secret@example.com/` puts a secret somewhere a URL gets
+     * logged, printed and handed to a third party.
+     *
+     * Two other places in this codebase look at userinfo, and they deliberately
+     * do NOT call this: {@see self::resolveAndAssertAllowed()} and
+     * `ResearchUrlAllowList::admissibleHost()` each test userinfo OR an explicit
+     * port as ONE rule about a URL's shape, which is a larger predicate than
+     * this one. Routing them through here would split a coherent condition and
+     * buy a second `parse_url()` per call. The single caller today is the analyze
+     * request, whose rule really is only about a credential.
+     *
+     * A URL this cannot parse carries nothing knowable, so it answers false and
+     * leaves the refusing to whichever caller cares about a malformed URL.
+     */
+    public function carriesCredentials(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        return is_array($parts) && (isset($parts['user']) || isset($parts['pass']));
+    }
+
+    /**
+     * The public IPs a host resolves to, or an empty list when it resolves to
+     * none or to any address this guard denies.
+     *
+     * Exists because a caller that wants to know something ABOUT a target's
+     * address, rather than whether it may be probed, had no entry point:
+     * {@see self::isBlockedHost()} resolves internally and returns only a
+     * boolean, and {@see self::resolveAndAssertAllowed()} is https-only and
+     * refuses a URL carrying a port or credentials, which an ordinary monitor
+     * target may well have. Adding a second resolver elsewhere in the codebase
+     * was the alternative, and this class is deliberately the only DNS code in
+     * the backend.
+     *
+     * Fail-closed and all-or-nothing on purpose: one denied address discards
+     * the whole list rather than returning the survivors, because a host that
+     * resolves to both a public and an internal address is exactly the
+     * DNS-rebinding shape the rest of this class exists to refuse, and a
+     * caller handed the public half would treat it as a clean answer.
+     *
+     * @param  string  $host  A bare host (not a full URL).
+     * @return list<string> The resolved addresses, or `[]`.
+     */
+    public function resolvePublicHostIps(string $host): array
+    {
+        $host = strtolower(trim($host, '[]'));
+
+        if ($host === '' || $host === 'localhost' || str_ends_with($host, '.internal')) {
+            return [];
+        }
+
+        $ips = $this->resolveHostIps($host);
+
+        foreach ($ips as $ip) {
+            if ($this->isBlockedIp($ip)) {
+                return [];
+            }
+        }
+
+        return $ips;
+    }
+
+    /**
      * Assert a full URL points at an allowed host, or throw.
      *
      * Parses the host out of the URL and raises a validation error keyed on

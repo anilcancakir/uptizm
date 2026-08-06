@@ -1,0 +1,45 @@
+{
+  "status": "pass",
+  "version": "1",
+  "releaseId": "2026.8.1",
+  "serviceId": "billing-api",
+  "description": "Billing API health",
+  "checks": {
+    "database": {
+      "status": "pass",
+      "componentType": "datastore",
+      "details": {
+        "latency_ms": 12.4,
+        "pool_in_use": 3,
+        "pool_size": 20,
+        "driver": "pgsql"
+      }
+    },
+    "cache": {
+      "status": "pass",
+      "componentType": "component",
+      "details": {
+        "latency_ms": 0.8,
+        "hit_ratio": 0.93,
+        "evictions": 0
+      }
+    },
+    "queue": {
+      "status": "warn",
+      "componentType": "system",
+      "details": {
+        "pending_jobs": 148,
+        "oldest_pending_sec": 62,
+        "workers_online": true
+      }
+    }
+  },
+  "links": {
+    "about": "https://billing.example.com/about"
+  },
+  "notes": [
+    "queue backlog rising",
+    "scheduled maintenance 2026-08-09",
+    "read replica lag nominal"
+  ]
+}

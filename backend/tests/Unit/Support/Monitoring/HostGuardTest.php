@@ -32,6 +32,27 @@ class HostGuardTest extends TestCase
         $this->assertTrue($this->guard->isBlockedHost('127.0.0.1'));
     }
 
+    /** A literal public address resolves to itself, so a caller gets an answer without DNS. */
+    public function test_resolves_a_public_literal_to_itself(): void
+    {
+        $this->assertSame(['203.0.113.5'], $this->guard->resolvePublicHostIps('203.0.113.5'));
+    }
+
+    /**
+     * Every denied shape yields an empty list rather than a partial answer,
+     * including the integer-encoded loopback that reads as a hostname.
+     */
+    public function test_resolving_a_denied_host_yields_no_addresses(): void
+    {
+        $this->assertSame([], $this->guard->resolvePublicHostIps('127.0.0.1'));
+        $this->assertSame([], $this->guard->resolvePublicHostIps('10.0.0.5'));
+        $this->assertSame([], $this->guard->resolvePublicHostIps('169.254.169.254'));
+        $this->assertSame([], $this->guard->resolvePublicHostIps('2130706433'));
+        $this->assertSame([], $this->guard->resolvePublicHostIps('localhost'));
+        $this->assertSame([], $this->guard->resolvePublicHostIps('db.internal'));
+        $this->assertSame([], $this->guard->resolvePublicHostIps(''));
+    }
+
     /** An RFC1918 private address is blocked. */
     public function test_blocks_rfc1918_private_address(): void
     {
