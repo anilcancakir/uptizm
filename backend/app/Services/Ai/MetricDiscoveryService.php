@@ -2,10 +2,13 @@
 
 namespace App\Services\Ai;
 
+use App\Enums\MetricType;
+use App\Enums\MetricUnit;
 use App\Models\Monitor;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 use App\Support\Monitoring\MetricCandidate;
+use App\Support\Monitoring\ProbeHeaderAllowList;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
@@ -64,15 +67,30 @@ class MetricDiscoveryService
      * with no candidates, an exhausted budget, or a gateway that could not be
      * trusted.
      *
+     * The two callers differ on `$headers` deliberately. `MonitorController::analyze()`
+     * passes the filtered headers of the one `CheckResult` it just probed, so
+     * body and headers are one observation. The re-runnable
+     * `POST /monitors/{monitor}/metrics/discover` leaves the default and
+     * therefore proposes no header candidate: it mines the newest ARCHIVED body,
+     * while the only headers within its reach are a separate sample check's
+     * `response_headers`, and those two are not guaranteed to come from the same
+     * check. A header candidate proposed from one check's headers beside another
+     * check's body is evidence that was never observed together, and this class
+     * only ever advertises a sample a single response really carried.
+     *
      * @param  Monitor  $monitor  Persisted, or the transient instance the analyze
      *                            path probes with before a row exists.
      * @param  string|null  $body  The captured response body to mine.
      * @param  string  $teamId  The team whose daily AI budget this spends. Passed
      *                          explicitly because the analyze path's monitor is
      *                          transient and carries no `team_id`.
+     * @param  array<string, mixed>  $headers  {@see ProbeHeaderAllowList::filter()}'s
+     *                                         output for the SAME response `$body`
+     *                                         came from, never a raw header set.
+     *                                         Empty means no header candidates.
      * @return list<array<string, mixed>>
      */
-    public function discover(Monitor $monitor, ?string $body, string $teamId): array
+    public function discover(Monitor $monitor, ?string $body, string $teamId, array $headers = []): array
     {
         // 1. Generate the candidates first. No candidates means there is nothing
         //    for a model to select among, so this costs neither a budget unit nor
@@ -81,7 +99,7 @@ class MetricDiscoveryService
             return [];
         }
 
-        $candidates = $this->extractor->extract($body);
+        $candidates = $this->extractor->extract($body, $headers);
         if ($candidates === []) {
             return [];
         }
@@ -213,7 +231,15 @@ class MetricDiscoveryService
                 // column is `extraction_path`. The value is the candidate's own
                 // path, never anything the model returned.
                 'path' => $candidate->extractionPath,
-                'unit' => $selection['unit']?->value,
+                // The candidate's own unit outranks the model's choice, and only
+                // under `numeric`. It was derived from the very suffix
+                // `MetricExtractor::splitUnit()` strips at check time, so it is
+                // the one unit the recorded number is actually expressed in; a
+                // model that read `120ms` and answered `second` would otherwise
+                // render 120 ms as two minutes. Under `string` the value keeps
+                // its suffix verbatim, so attaching a unit there would print it
+                // twice.
+                'unit' => $this->unitFor($candidate, $selection),
                 'warn' => $selection['warnBound'],
                 'critical' => $selection['criticalBound'],
                 // The digest representation, so the pill shows exactly the sample
@@ -223,6 +249,20 @@ class MetricDiscoveryService
         }
 
         return $rows;
+    }
+
+    /**
+     * The unit an accepted selection ships with.
+     *
+     * @param  array{type: MetricType, unit: MetricUnit|null}  $selection
+     */
+    protected function unitFor(MetricCandidate $candidate, array $selection): ?string
+    {
+        if ($selection['type'] === MetricType::Numeric && $candidate->unit !== null) {
+            return $candidate->unit->value;
+        }
+
+        return $selection['unit']?->value;
     }
 
     /**

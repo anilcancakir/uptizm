@@ -46,6 +46,27 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.form_method_label': 'HTTP method',
       'uptizm.monitors.form_headers_label': 'Request headers',
       'uptizm.monitors.form_headers_hint': 'Key / value pairs.',
+      // MonitorForm: the credential block.
+      'uptizm.monitors.form_auth_label': 'Authentication',
+      'uptizm.monitors.form_auth_hint': 'Sent with every check.',
+      'uptizm.monitors.form_auth_type_none': 'None',
+      'uptizm.monitors.form_auth_type_basic': 'Basic',
+      'uptizm.monitors.form_auth_type_bearer': 'Bearer',
+      'uptizm.monitors.form_auth_type_api_key': 'API key',
+      'uptizm.monitors.form_auth_username_label': 'Username',
+      'uptizm.monitors.form_auth_username_placeholder': 'svc-user',
+      'uptizm.monitors.form_auth_password_label': 'Password',
+      'uptizm.monitors.form_auth_token_label': 'Token',
+      'uptizm.monitors.form_auth_key_label': 'API key',
+      'uptizm.monitors.form_auth_header_label': 'Header name',
+      'uptizm.monitors.form_auth_header_placeholder': 'X-Api-Key',
+      'uptizm.monitors.form_auth_secret_stored_placeholder': 'Blank keeps it',
+      'uptizm.monitors.form_auth_error_username_required': 'Enter a username.',
+      'uptizm.monitors.form_auth_error_password_required': 'Enter a password.',
+      'uptizm.monitors.form_auth_error_token_required': 'Enter a token.',
+      'uptizm.monitors.form_auth_error_key_required': 'Enter a key.',
+      'uptizm.monitors.form_auth_error_header_required': 'Enter a header.',
+      'uptizm.monitors.form_auth_error_too_long': 'Max :max characters.',
       'uptizm.monitors.form_body_label': 'Request body',
       'uptizm.monitors.form_body_placeholder': 'JSON payload',
       'uptizm.monitors.form_timeout_label': 'Timeout (seconds)',
@@ -74,7 +95,6 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.create_ai_analyzing_title': 'Analyzing endpoint…',
       'uptizm.monitors.create_ai_review_banner_title':
           'AI configured this monitor',
-      'uptizm.monitors.create_ai_review_summary': 'Ready: :name.',
       'uptizm.monitors.create_ai_suggested_metrics': 'Suggested metrics',
       'uptizm.monitors.create_ai_suggested_metrics_help':
           'These will be tracked after creation.',
@@ -516,6 +536,474 @@ void main() {
         ),
         findsOneWidget,
         reason: 'Submit button must be in the footer',
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // MonitorForm credentials (the auth_config block)
+  //
+  // The edit half is the one that can destroy data: `MonitorResource` reduces a
+  // stored credential to `type` / `username` / `header`, so the form never
+  // receives the secret and must omit `auth_config` from the request rather
+  // than round-trip a partial map (which 422s) or a masked placeholder (which
+  // would be submitted as the literal new password).
+  // ---------------------------------------------------------------------------
+
+  group('MonitorForm credentials', () {
+    /// The obscured secret input, whichever scheme is selected. Found by its
+    /// [InputType] rather than a placeholder, because on a create it has none.
+    Finder secretInput() {
+      return find.byWidgetPredicate(
+        (widget) => widget is MSInput && widget.type == InputType.password,
+      );
+    }
+
+    /// Pumps a form with the advanced section open, runs [interact], taps
+    /// Submit, and returns the posted field map (null when the client-side
+    /// checks blocked the submit).
+    Future<Map<String, dynamic>?> submitWith(
+      WidgetTester tester, {
+      required String submitLabelKey,
+      bool isEdit = false,
+      Map<String, dynamic>? initialAuthConfig,
+      Map<String, dynamic>? initialPendingAuthConfig,
+      required Future<void> Function(WidgetTester tester) interact,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Map<String, dynamic>? captured;
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            isEdit: isEdit,
+            startAdvanced: true,
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            initialAuthConfig: initialAuthConfig,
+            initialPendingAuthConfig: initialPendingAuthConfig,
+            submitLabel: trans(submitLabelKey),
+            onSubmit: (fields) async {
+              captured = fields;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      await interact(tester);
+
+      final Finder submit = find.widgetWithText(
+        MSButton,
+        trans(submitLabelKey),
+      );
+      await tester.ensureVisible(submit);
+      await tester.pump();
+      await tester.tap(submit);
+      await tester.pump();
+
+      return captured;
+    }
+
+    testWidgets('a create with basic auth posts a complete credential map', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {
+          await tester.tap(find.text(trans('uptizm.monitors.form_auth_type_basic')));
+          await tester.pump();
+          await tester.enterText(
+            find.widgetWithText(
+              MSInput,
+              trans('uptizm.monitors.form_auth_username_placeholder'),
+            ),
+            'svc',
+          );
+          await tester.pump();
+          await tester.enterText(secretInput(), 's3cret');
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull, reason: 'a complete credential must submit');
+      expect(
+        fields!['auth_config'],
+        equals({'type': 'basic', 'username': 'svc', 'password': 's3cret'}),
+        reason: 'the create request carries the whole credential the worker '
+            'needs, and only the keys the selected scheme uses',
+      );
+    });
+
+    testWidgets('a create with no credential still posts an explicit null', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {},
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!.containsKey('auth_config'),
+        isTrue,
+        reason: 'a create sends the full request shape',
+      );
+      expect(fields['auth_config'], isNull);
+    });
+
+    testWidgets(
+      'an edit that changes only the name omits auth_config from the request',
+      (tester) async {
+        // The destructive case. The form holds no secret to resend, so a
+        // request carrying `{type: basic, username: svc}` would be refused by
+        // `required_if:auth_config.type,basic` and one carrying an explicit
+        // null would blank a credential nobody asked to change. Omitting the
+        // key is the only shape that leaves the stored credential alone.
+        final Map<String, dynamic>? fields = await submitWith(
+          tester,
+          submitLabelKey: 'uptizm.monitors.form_submit_save',
+          isEdit: true,
+          initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+          interact: (tester) async {
+            await tester.enterText(
+              find.widgetWithText(MSInput, 'API gateway'),
+              'API gateway (renamed)',
+            );
+            await tester.pump();
+          },
+        );
+
+        expect(fields, isNotNull, reason: 'a rename must not be blocked');
+        expect(fields!['name'], equals('API gateway (renamed)'));
+        expect(
+          fields.containsKey('auth_config'),
+          isFalse,
+          reason: 'an untouched credential must not travel at all: neither a '
+              'partial map (422) nor an explicit null (blanks the secret)',
+        );
+      },
+    );
+
+    testWidgets(
+      'a credential carried in from the AI setup step posts its secret',
+      (tester) async {
+        // The other half of the seed contract, and the opposite of the edit
+        // case above. This credential was typed on the AI input step and
+        // nothing has stored it, so a form that dropped its secret the way a
+        // redacted seed drops one would create a monitor with no credential and
+        // its first check would 401 on an endpoint the analysis just read.
+        final Map<String, dynamic>? fields = await submitWith(
+          tester,
+          submitLabelKey: 'uptizm.monitors.form_submit_create',
+          initialPendingAuthConfig: const {
+            'type': 'basic',
+            'username': 'svc',
+            'password': 's3cret',
+          },
+          interact: (tester) async {},
+        );
+
+        expect(fields, isNotNull, reason: 'a complete credential must submit');
+        expect(
+          fields!['auth_config'],
+          equals({'type': 'basic', 'username': 'svc', 'password': 's3cret'}),
+          reason: 'the secret has to reach the create request: it exists '
+              'nowhere else',
+        );
+      },
+    );
+
+    testWidgets(
+      'a pending credential fills the secret input, a stored one does not',
+      (tester) async {
+        // What the operator sees is the same distinction: a secret that will be
+        // sent is present in the field, a secret the backend holds and withheld
+        // is announced by the placeholder and never faked into the value.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              startAdvanced: true,
+              initialName: 'API gateway',
+              initialUrl: 'https://api.example.com/health',
+              initialPendingAuthConfig: const {
+                'type': 'basic',
+                'username': 'svc',
+                'password': 's3cret',
+              },
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (_) async => <String, String>{},
+              onCancel: () {},
+            ),
+            size: const Size(1200, 5000),
+          ),
+        );
+        await tester.pump();
+
+        final MSInput secret = tester.widget<MSInput>(secretInput());
+        expect(secret.value, equals('s3cret'));
+        expect(
+          secret.placeholder,
+          isNull,
+          reason: 'nothing is stored, so nothing can be kept by leaving it '
+              'blank; claiming otherwise would be the wrong affordance',
+        );
+      },
+    );
+
+    testWidgets('the stored secret is never rendered, only announced', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            isEdit: true,
+            startAdvanced: true,
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+            submitLabel: trans('uptizm.monitors.form_submit_save'),
+            onSubmit: (_) async => <String, String>{},
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      final MSInput secret = tester.widget<MSInput>(secretInput());
+      expect(
+        secret.value ?? '',
+        isEmpty,
+        reason: 'a masked placeholder would be posted as the literal password',
+      );
+      expect(
+        secret.placeholder,
+        equals(trans('uptizm.monitors.form_auth_secret_stored_placeholder')),
+        reason: 'the operator has to be told blank means unchanged',
+      );
+      expect(
+        find.widgetWithText(MSInput, 'svc'),
+        findsOneWidget,
+        reason: 'the non-secret username the backend does return is seeded',
+      );
+    });
+
+    testWidgets('typing a new password on an edit replaces the credential', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_save',
+        isEdit: true,
+        initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+        interact: (tester) async {
+          await tester.enterText(secretInput(), 'rotated');
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!['auth_config'],
+        equals({'type': 'basic', 'username': 'svc', 'password': 'rotated'}),
+        reason: 'the seeded username rides along with the retyped secret',
+      );
+    });
+
+    testWidgets('switching an edit to None clears the stored credential', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_save',
+        isEdit: true,
+        initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_none')),
+          );
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!.containsKey('auth_config'),
+        isTrue,
+        reason: 'clearing is a deliberate act and has to reach the backend',
+      );
+      expect(fields['auth_config'], isNull);
+    });
+
+    testWidgets('switching scheme without retyping the secret blocks submit', (
+      tester,
+    ) async {
+      // The stored basic password says nothing about a bearer token, so the
+      // scheme change makes the secret required again rather than posting
+      // `{type: bearer}` and collecting a 422.
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_save',
+        isEdit: true,
+        initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_bearer')),
+          );
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNull, reason: 'an incomplete credential must not post');
+      expect(
+        find.text(trans('uptizm.monitors.form_auth_error_token_required')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an api_key create posts the header name beside the key', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_api_key')),
+          );
+          await tester.pump();
+          await tester.enterText(
+            find.widgetWithText(
+              MSInput,
+              trans('uptizm.monitors.form_auth_header_placeholder'),
+            ),
+            'X-Api-Key',
+          );
+          await tester.pump();
+          await tester.enterText(secretInput(), 'k-123');
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!['auth_config'],
+        equals({'type': 'api_key', 'key': 'k-123', 'header': 'X-Api-Key'}),
+      );
+    });
+
+    testWidgets('an oversized token is refused here, not by a 422', (
+      tester,
+    ) async {
+      // `max:2048` on the backend, and these values travel inside the
+      // HMAC-signed relay spec, so the bound is worth stating locally.
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_bearer')),
+          );
+          await tester.pump();
+          await tester.enterText(secretInput(), 'x' * 2049);
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNull, reason: 'an over-long token must not post');
+      expect(
+        find.text(
+          trans('uptizm.monitors.form_auth_error_too_long', {'max': '2048'}),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a server 422 on auth_config lands under the named field', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            startAdvanced: true,
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            // Laravel reports the map's inner shape with dotted keys; anything
+            // the form owns no slot for becomes a generic toast instead.
+            onSubmit: (_) async => {
+              'auth_config.password': 'That password was rejected.',
+            },
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text(trans('uptizm.monitors.form_auth_type_basic')));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(
+          MSInput,
+          trans('uptizm.monitors.form_auth_username_placeholder'),
+        ),
+        'svc',
+      );
+      await tester.pump();
+      await tester.enterText(secretInput(), 'wrong');
+      await tester.pump();
+
+      final Finder submit = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      expect(find.text('That password was rejected.'), findsOneWidget);
+    });
+
+    testWidgets('a TCP monitor renders no credential block', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            startAdvanced: true,
+            initialType: 'tcp',
+            initialUrl: 'db.example.com:5432',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (_) async => <String, String>{},
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.monitors.form_auth_label')),
+        findsNothing,
+        reason: 'a socket connect has nothing to authenticate with',
       );
     });
   });

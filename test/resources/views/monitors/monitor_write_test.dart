@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/entitlement_controller.dart';
+import 'package:uptizm/app/enums/ai_confidence.dart' show AiConfidence;
 import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/models/monitor.dart';
@@ -11,7 +12,9 @@ import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan, PlanLimits;
 import 'package:uptizm/app/support/team_types.dart'
     show PaymentMethod, UsageStat;
+import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
+import 'package:uptizm/ui/components/ai_confidence_badge/ai_confidence_badge.dart';
 import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart'
     show KeyValueRow;
 
@@ -111,8 +114,50 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_body_placeholder': 'JSON payload',
       'uptizm.monitors.form_timeout_label': 'Timeout (seconds)',
       'uptizm.monitors.form_timeout_hint': 'Max wait for a response.',
+      // The credential block, which the advanced section now renders. Without
+      // these the four scheme labels lay out as raw ~36-character keys and the
+      // segmented control overflows for a reason that has nothing to do with
+      // the widget under test.
+      'uptizm.monitors.form_auth_label': 'Authentication',
+      'uptizm.monitors.form_auth_hint': 'Sent with every check.',
+      'uptizm.monitors.form_auth_type_none': 'None',
+      'uptizm.monitors.form_auth_type_basic': 'Basic',
+      'uptizm.monitors.form_auth_type_bearer': 'Bearer',
+      'uptizm.monitors.form_auth_type_api_key': 'API key',
+      'uptizm.monitors.form_auth_username_label': 'Username',
+      'uptizm.monitors.form_auth_username_placeholder': 'svc-user',
+      'uptizm.monitors.form_auth_password_label': 'Password',
+      'uptizm.monitors.create_ai_auth_toggle': 'Needs credentials',
+      'uptizm.monitors.create_ai_auth_hint': 'Used for this probe only.',
       'uptizm.monitors.form_cancel': 'Cancel',
       'uptizm.monitors.form_submit_create': 'Create monitor',
+
+      // MonitorCreateView (AI review banner group below).
+      'uptizm.monitors.create_header_title': 'New monitor',
+      'uptizm.monitors.create_header_description': 'Set up a new health check.',
+      'uptizm.monitors.back_to_monitors': 'Back to monitors',
+      'uptizm.monitors.create_mode_ai': 'AI setup',
+      'uptizm.monitors.create_mode_manual': 'Manual',
+      'uptizm.monitors.create_ai_card_title': 'AI setup',
+      'uptizm.monitors.create_ai_card_description':
+          'Paste a URL and AI configures the monitor.',
+      'uptizm.monitors.create_ai_url_label': 'Endpoint URL',
+      'uptizm.monitors.create_ai_url_placeholder':
+          'https://api.example.com/health',
+      'uptizm.monitors.create_ai_analyze_button': 'Analyze with AI',
+      'uptizm.monitors.create_ai_analyzing_title': 'Analyzing endpoint…',
+      'uptizm.monitors.create_ai_step_1': 'Probing',
+      'uptizm.monitors.create_ai_step_2': 'Detecting type',
+      'uptizm.monitors.create_ai_step_3': 'Measuring latency',
+      'uptizm.monitors.create_ai_step_4': 'Selecting regions',
+      'uptizm.monitors.create_ai_step_5': 'Drafting checks',
+      'uptizm.monitors.create_ai_review_banner_title':
+          'AI configured this monitor',
+      'uptizm.monitors.create_ai_review_no_rationale':
+          'Configured from one probe, no model narration.',
+      'uptizm.monitors.create_ai_suggested_metrics': 'Suggested metrics',
+      'uptizm.monitors.create_ai_suggested_metrics_help':
+          'These will be tracked after creation.',
     };
   }
 }
@@ -1072,6 +1117,401 @@ void main() {
           reason:
               'A grandfathered monitor must keep all five stored regions and '
               'the form must stay saveable on the current (downgraded) plan',
+        );
+      },
+    );
+  });
+
+  group('MonitorCreateView AI review banner (honest rationale)', () {
+    /// Types [url] into the AI input step, taps Analyze, and settles.
+    Future<void> analyzeUrl(WidgetTester tester, String url) async {
+      final Finder urlInput = find.widgetWithText(
+        MSInput,
+        trans('uptizm.monitors.create_ai_url_placeholder'),
+      );
+      await tester.enterText(urlInput, url);
+      await tester.pump();
+      await tester.tap(
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.create_ai_analyze_button'),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'renders the real backend rationale, never the deleted canned summary',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        const String sentinelRationale =
+            'SENTINEL-RATIONALE: a TCP probe on port 5432, one region, no '
+            'JSON body to classify.';
+        Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_warn_threshold_ms': 300,
+              'recommended_critical_threshold_ms': 1000,
+              'recommended_regions': ['us-east'],
+              'rationale': sentinelRationale,
+              'confidence': 'medium',
+            },
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        expect(
+          find.text(sentinelRationale),
+          findsOneWidget,
+          reason: 'The review banner must render the real backend rationale',
+        );
+        expect(
+          find.textContaining('responding in ~120ms'),
+          findsNothing,
+          reason: 'The deleted canned review-summary template must never '
+              'reappear',
+        );
+        expect(
+          find.textContaining('3 regions'),
+          findsNothing,
+          reason: 'The fabricated region-count claim must not render',
+        );
+
+        final AiConfidenceBadge badge = tester.widget<AiConfidenceBadge>(
+          find.byType(AiConfidenceBadge),
+        );
+        expect(
+          badge.level,
+          equals(AiConfidence.medium),
+          reason: 'The badge must render the decoded confidence, not a '
+              'literal AiConfidence.high',
+        );
+      },
+    );
+
+    testWidgets(
+      'a degraded analysis (empty rationale) renders the neutral line and a '
+      'low badge, not an empty box',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 30,
+              'recommended_warn_threshold_ms': 500,
+              'recommended_critical_threshold_ms': 1500,
+              'recommended_regions': ['us-east'],
+              // The degrade path: no model ran, so no narration exists.
+              'rationale': '',
+            },
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_review_no_rationale')),
+          findsOneWidget,
+          reason: 'An empty rationale must render the neutral degrade line, '
+              'not an empty box',
+        );
+
+        final AiConfidenceBadge badge = tester.widget<AiConfidenceBadge>(
+          find.byType(AiConfidenceBadge),
+        );
+        expect(
+          badge.level,
+          equals(AiConfidence.low),
+          reason: 'An absent confidence field must fall back to low, the '
+              'conservative reading',
+        );
+      },
+    );
+
+    testWidgets(
+      'no AI-created monitor carries an Accept header the operator did not '
+      'type',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_warn_threshold_ms': 300,
+              'recommended_critical_threshold_ms': 1000,
+              'recommended_regions': ['us-east'],
+              'rationale': 'Stable JSON API.',
+            },
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        final MonitorForm form = tester.widget<MonitorForm>(
+          find.byType(MonitorForm),
+        );
+        expect(
+          form.initialHeaders,
+          isEmpty,
+          reason: 'The AI review form must not seed a header the operator '
+              'never typed',
+        );
+      },
+    );
+
+    /// The body of the one recorded `POST /monitors/analyze`, so an assertion
+    /// reads the request that actually left the client rather than the state
+    /// behind it.
+    Map<String, dynamic> analyzePayload(FakeNetworkDriver fake) {
+      final recorded = fake.recorded.firstWhere(
+        (entry) => entry.$1.url.contains('monitors/analyze'),
+      );
+
+      return recorded.$1.data as Map<String, dynamic>;
+    }
+
+    testWidgets(
+      'the credential disclosure is closed by default and the probe carries '
+      'no auth_config',
+      (tester) async {
+        // The ordinary case is a public URL, and it must stay byte for byte
+        // the request it was before the disclosure existed.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_regions': ['us-east'],
+              'rationale': 'Stable JSON API.',
+            },
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        expect(
+          find.text(trans('uptizm.monitors.form_auth_label')),
+          findsNothing,
+          reason: 'The credential block must not add a step to a public URL',
+        );
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        expect(
+          analyzePayload(fake).containsKey('auth_config'),
+          isFalse,
+          reason: 'a closed disclosure must leave the request exactly as it '
+              'was before the credential control existed',
+        );
+      },
+    );
+
+    testWidgets(
+      'opening the disclosure probes with the credential the operator typed',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_regions': ['us-east'],
+              'rationale': 'Stable JSON API.',
+            },
+          }),
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        // Open the disclosure: it is the only MSSwitch on the input card.
+        await tester.tap(find.byType(MSSwitch));
+        await tester.pump();
+        await tester.tap(
+          find.text(trans('uptizm.monitors.form_auth_type_basic')),
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.monitors.form_auth_username_placeholder'),
+          ),
+          'svc',
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.byWidgetPredicate(
+            (widget) => widget is MSInput && widget.type == InputType.password,
+          ),
+          's3cret',
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        final Map<String, dynamic> sent = analyzePayload(fake);
+        expect(
+          sent['auth_config'],
+          equals({
+            'type': 'basic',
+            'username': 'svc',
+            'password': 's3cret',
+          }),
+          reason: 'the probe has to authenticate the way the monitor will, or '
+              'the analysis reads a 401 page',
+        );
+      },
+    );
+
+    testWidgets(
+      'accepting the review creates the monitor with the credential the probe '
+      'used, secret included',
+      (tester) async {
+        // The 401 this closes: the review form used to mount with no
+        // credential at all, so a monitor created straight off the AI step
+        // authenticated with nothing and its very first check failed on the
+        // endpoint the analysis had just read successfully.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake({
+          'monitors/analyze': Http.response({
+            'data': {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_regions': ['us-east'],
+              'rationale': 'Stable JSON API.',
+            },
+          }),
+          'monitors': Http.response({
+            'data': {
+              'id': 'brand-new-id',
+              'name': 'api.example.com',
+              'type': 'http',
+            },
+          }),
+        });
+
+        // A successful create navigates (`MagicRoute.to`), which throws
+        // unless a router is mounted, so the screen is driven through the real
+        // router rather than a bare `MaterialApp.home`.
+        MagicRouter.reset();
+        MagicRoute.page(
+          '/',
+          () => MediaQuery(
+            data: const MediaQueryData(size: Size(1200, 5000)),
+            child: WindTheme(
+              data: WindThemeData(),
+              child: const Scaffold(
+                body: SingleChildScrollView(child: MonitorCreateView()),
+              ),
+            ),
+          ),
+        );
+        MagicRoute.page('/monitors', () => const SizedBox());
+        MagicRoute.page('/monitors/:id', () => const SizedBox());
+        addTearDown(MagicRouter.reset);
+
+        await tester.pumpWidget(
+          MaterialApp.router(routerConfig: MagicRouter.instance.routerConfig),
+        );
+        await tester.pumpAndSettle();
+
+        // Open the disclosure and compose the credential on the INPUT step.
+        await tester.tap(find.byType(MSSwitch));
+        await tester.pump();
+        await tester.tap(
+          find.text(trans('uptizm.monitors.form_auth_type_basic')),
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.monitors.form_auth_username_placeholder'),
+          ),
+          'svc',
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.byWidgetPredicate(
+            (widget) => widget is MSInput && widget.type == InputType.password,
+          ),
+          's3cret',
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        // Accept the review as it stands: the operator retypes nothing.
+        final Finder submit = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submit);
+        await tester.pump();
+        await tester.tap(submit);
+        await tester.pumpAndSettle();
+
+        final recorded = fake.recorded.firstWhere(
+          (entry) =>
+              entry.$1.method.toUpperCase() == 'POST' &&
+              !entry.$1.url.contains('analyze'),
+          orElse: () => throw StateError('no create request was recorded'),
+        );
+        final Map<String, dynamic> created =
+            recorded.$1.data as Map<String, dynamic>;
+
+        expect(
+          created['auth_config'],
+          equals({
+            'type': 'basic',
+            'username': 'svc',
+            'password': 's3cret',
+          }),
+          reason: 'the monitor has to be created with the credential its '
+              'analysis was read through, secret and all',
         );
       },
     );

@@ -731,6 +731,21 @@ class MonitorController extends MagicController
       if (monitor == null) return const {};
 
       monitor.fill(fields);
+
+      // An omitted `auth_config` has to stay omitted ON THE WIRE, and filling
+      // alone does not achieve that. The monitor was re-fetched above, so it
+      // already carries the REDACTED map the API publishes (`type`, `username`
+      // and `header`, never a secret: MonitorResource::redactAuthConfig), and
+      // `save()` PUTs the whole `toArray()`. So a rename that deliberately sent
+      // no credential would still ship `{type: basic, username: svc}`, and the
+      // backend's `required_if:auth_config.type,basic` on the password answers
+      // 422 for an edit the operator never made. Hiding the attribute is what
+      // makes the form's "the operator did not touch the secret" decision
+      // survive the round trip.
+      if (!fields.containsKey('auth_config')) {
+        monitor.makeHidden(['auth_config']);
+      }
+
       final bool ok = await monitor.save();
       if (!ok) {
         final Map<String, String>? fieldErrors = _fieldErrorsOrToast(monitor);
@@ -788,12 +803,22 @@ class MonitorController extends MagicController
   /// an error toast (reusing [create]'s `toast_save_failed_*` copy; there is
   /// no dedicated analyze-failed string yet) and logs via [Log.error], never
   /// a silent swallow.
-  Future<MonitorAnalysis?> analyze(String url, {String? region}) async {
+  ///
+  /// [authConfig] is the same wire map the create form assembles
+  /// (`MonitorCredential.toWireMap`), so a protected endpoint can be analyzed
+  /// at all: the backend probes WITH it and redacts the credential out of the
+  /// probe result before anything derives a prompt from it. Omitted for a
+  /// public target, which is the ordinary case.
+  Future<MonitorAnalysis?> analyze(
+    String url, {
+    String? region,
+    Map<String, dynamic>? authConfig,
+  }) async {
     _lastAnalyzeWasGated = false;
     try {
       final response = await Http.post(
         '/monitors/analyze',
-        data: {'url': url, 'region': ?region},
+        data: {'url': url, 'region': ?region, 'auth_config': ?authConfig},
       );
       if (!response.successful) {
         Log.error('[MonitorController.analyze] $url: ${response.errorMessage}');

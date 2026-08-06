@@ -9,11 +9,17 @@ use App\Enums\MetricUnit;
 use App\Enums\ThresholdDirection;
 use App\Models\Monitor;
 use App\Models\MonitorMetric;
+use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\ThresholdEvaluator;
+use App\Support\Monitoring\ProbeHeaderAllowList;
+use Closure;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Arr;
+use Illuminate\Validation\ClosureValidationRule;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Unique;
+use Illuminate\Validation\Validator as ValidatorInstance;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -45,6 +51,34 @@ class StoreMonitorMetricRequest extends FormRequest
         'ok_values',
         'warn_values',
         'critical_values',
+    ];
+
+    /**
+     * Response header names a `header` metric may never extract, whatever a
+     * value on one of them might be worth diagnostically.
+     *
+     * These are the four names {@see ProbeHeaderAllowList} permanently
+     * excludes, refused here for the same reason it refuses them: once a probe
+     * runs with the operator's own credential, `set-cookie` is an authenticated
+     * session token, `authorization` echoes the credential itself, and the two
+     * challenge headers can carry a realm or nonce tied to that session.
+     *
+     * A metric is not a one-off read. Its value is extracted and persisted on
+     * EVERY check into `monitor_metric_values.string_value`, a plain text
+     * column, and read back from there into the anomaly prompt. Nothing
+     * downstream would stop that:
+     * {@see MetricExtractor::extractHeader()} is handed the RAW header set by
+     * the check job, not the allowlisted map, so a metric pointed at
+     * `set-cookie` records a session cookie per check for as long as it exists.
+     * This rule is what keeps such a metric from being written at all.
+     *
+     * @var list<string>
+     */
+    public const array DENIED_HEADER_NAMES = [
+        'set-cookie',
+        'authorization',
+        'www-authenticate',
+        'proxy-authenticate',
     ];
 
     /**
@@ -213,6 +247,7 @@ class StoreMonitorMetricRequest extends FormRequest
                 'nullable',
                 'string',
                 'max:500',
+                self::deniedHeaderNameRule(),
             ],
             "{$prefix}unit" => [
                 'nullable',
@@ -249,6 +284,63 @@ class StoreMonitorMetricRequest extends FormRequest
         }
 
         return $rules;
+    }
+
+    /**
+     * Refuse a credential-bearing header name as an extraction path, on a
+     * `header` metric only.
+     *
+     * The discriminator is the SIBLING `source`, and how it is resolved is the
+     * whole of this rule's correctness. It is derived from the CONCRETE
+     * `$attribute` rather than read off the request, for two reasons that both
+     * end in the rule silently doing nothing:
+     *
+     *   - `$this->input('source')` is unavailable here by design (this method
+     *     is reachable statically from the bulk path, which has no bound
+     *     instance of this request) and would read null on `POST /monitors`
+     *     anyway, where the field is `metrics.3.source`. A denylist that
+     *     no-ops on the bulk path is a denylist on the one path that did not
+     *     exist before this plan.
+     *   - `{$prefix}source` is `metrics.*.source` on that path, and a wildcard
+     *     is not a readable key. Swapping the last segment of `$attribute`
+     *     picks the right ROW as well as the right field.
+     *
+     * The fourth closure argument is Laravel's own:
+     * {@see ClosureValidationRule::passes()} invokes the callback with the
+     * validator after the failure callback, and the validator's data is the
+     * only route to a sibling field from a rule that must stay static.
+     */
+    protected static function deniedHeaderNameRule(): Closure
+    {
+        return static function (
+            string $attribute,
+            mixed $value,
+            callable $fail,
+            ValidatorInstance $validator,
+        ): void {
+            if (! is_string($value)) {
+                return;
+            }
+
+            $segments = explode('.', $attribute);
+            array_pop($segments);
+            $segments[] = 'source';
+
+            $source = Arr::get($validator->getData(), implode('.', $segments));
+
+            if (! is_string($source) || MetricSource::tryFrom($source) !== MetricSource::Header) {
+                return;
+            }
+
+            if (! in_array(strtolower(trim($value)), self::DENIED_HEADER_NAMES, true)) {
+                return;
+            }
+
+            $fail(
+                'This response header carries credentials, so it cannot be recorded as a metric. Every '
+                .'check would persist the value in cleartext.'
+            );
+        };
     }
 
     /**

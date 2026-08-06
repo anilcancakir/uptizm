@@ -25,6 +25,7 @@ use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\RelayClient;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\MetricCandidate;
+use App\Support\Monitoring\ProbeHeaderAllowList;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -359,26 +360,62 @@ class MetricDiscoveryTest extends TestCase
         $this->assertSame([], $response->json('data.suggested_metrics'));
     }
 
+    /**
+     * This test used to make its point with `120ms`, and cannot any more:
+     * {@see MetricExtractor::splitUnit()} strips a mapped unit ahead of the type
+     * gate, so that sample now sustains `numeric` honestly. The refusal itself
+     * is unchanged and still load-bearing, so it is asserted over a sample the
+     * check-time extractor genuinely cannot reduce to a number: `12 widgets`
+     * names no `MetricUnit`, `validateType()` would discard it on every check,
+     * and a metric that can never record a sample must not be proposed at all.
+     */
     public function test_a_type_outside_the_candidates_eligible_types_is_refused(): void
     {
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
-        $this->archiveVersion($monitor, $this->htmlFixture());
+        $body = (string) json_encode(['inventory' => '12 widgets']);
+        $this->archiveVersion($monitor, $body);
 
-        // `120ms` is not numeric, so `MetricExtractor::validateType()` would
-        // discard it on every check. A metric that can never record a sample
-        // must not be proposed at all.
-        $candidate = $this->candidateWithValue('120ms');
+        $candidate = $this->app->make(MetricCandidateExtractor::class)->extract($body)[0];
+        $this->assertSame('12 widgets', $candidate->sampleValue);
         $this->assertSame([MetricType::String], $candidate->eligibleTypes);
 
         $this->fakeGateway($this->selectionsFor([
-            $this->selection($candidate->ref, type: MetricType::Numeric, unit: MetricUnit::Millisecond),
+            $this->selection($candidate->ref, type: MetricType::Numeric, unit: MetricUnit::Count),
         ]));
 
         $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
 
         $response->assertStatus(200);
         $this->assertSame([], $response->json('data.suggested_metrics'));
+    }
+
+    /**
+     * The accepted suggestion arrives with the unit its sample was read in.
+     *
+     * The candidate's unit outranks the model's, and this asserts exactly that:
+     * the gateway answers `second` over a `120ms` sample, and the row ships
+     * `millisecond`, because that is the unit the number the check path records
+     * is expressed in.
+     */
+    public function test_an_accepted_numeric_suggestion_carries_the_candidates_unit(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+
+        $candidate = $this->candidateWithValue('120ms');
+        $this->assertSame(MetricUnit::Millisecond, $candidate->unit);
+
+        $this->fakeGateway($this->selectionsFor([
+            $this->selection($candidate->ref, type: MetricType::Numeric, unit: MetricUnit::Second),
+        ]));
+
+        $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.suggested_metrics.0.type', MetricType::Numeric->value);
+        $response->assertJsonPath('data.suggested_metrics.0.unit', MetricUnit::Millisecond->value);
     }
 
     public function test_the_same_candidate_is_accepted_under_its_eligible_type(): void
@@ -724,6 +761,39 @@ class MetricDiscoveryTest extends TestCase
         $this->assertSame(1, (int) $team->fresh()->ai_analysis_trials_used);
     }
 
+    public function test_analyze_proposes_an_allowlisted_header_and_never_a_credential_bearing_one(): void
+    {
+        // Asserted HERE rather than on the extractor alone, and that is the
+        // point: the headers have to travel controller -> discover() ->
+        // extract() for a header suggestion to exist at all. An extractor-level
+        // test passes while production emits none.
+        $raw = [
+            'X-Runtime' => '0.024',
+            'Set-Cookie' => 'session=SUPERSECRET; HttpOnly',
+        ];
+        $this->fakeRelay($this->htmlFixture(), $raw);
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->actingAsTeamMember();
+
+        $header = $this->headerCandidate($raw);
+        $this->fakeGateway($this->selectionsFor([$this->selection($header->ref, label: 'Runtime')]));
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.suggested_metrics.0.source', MetricSource::Header->value);
+        $response->assertJsonPath('data.suggested_metrics.0.path', 'x-runtime');
+        $response->assertJsonPath('data.suggested_metrics.0.sample_value', '0.024');
+
+        // The unlisted half. `Set-Cookie` reached the probe result and stops at
+        // the allowlist, so no ref was ever minted for it and its value cannot
+        // appear anywhere in the answer.
+        $response->assertDontSee('SUPERSECRET');
+        $response->assertDontSee('set-cookie');
+    }
+
     public function test_analyze_without_a_body_still_answers_an_empty_array(): void
     {
         $this->fakeRelay(null);
@@ -945,6 +1015,29 @@ class MetricDiscoveryTest extends TestCase
     }
 
     /**
+     * The first header candidate the extractor generates for the shared fixture
+     * body plus `$rawHeaders` filtered, so no test hardcodes a ref whose
+     * position the ranking owns.
+     *
+     * @param  array<string, mixed>  $rawHeaders
+     */
+    protected function headerCandidate(array $rawHeaders): MetricCandidate
+    {
+        $candidates = $this->app->make(MetricCandidateExtractor::class)->extract(
+            $this->htmlFixture(),
+            ProbeHeaderAllowList::filter($rawHeaders),
+        );
+
+        foreach ($candidates as $candidate) {
+            if ($candidate->source === MetricSource::Header) {
+                return $candidate;
+            }
+        }
+
+        $this->fail('the filtered headers no longer yield a header candidate.');
+    }
+
+    /**
      * The candidate holding exactly `$value`.
      */
     protected function candidateWithValue(string $value): MetricCandidate
@@ -1087,14 +1180,23 @@ class MetricDiscoveryTest extends TestCase
     }
 
     /**
-     * Bind a relay that answers with `$content` as the live probe body, so the
-     * analyze path never touches the network.
+     * Bind a relay that answers with `$content` as the live probe body and
+     * `$headers` as its RAW response headers, so the analyze path never touches
+     * the network.
+     *
+     * Raw on purpose: what the controller does with them (the allowlist filter)
+     * is part of what the header-candidate test is measuring.
+     *
+     * @param  array<string, mixed>  $headers
      */
-    protected function fakeRelay(?string $content): void
+    protected function fakeRelay(?string $content, array $headers = []): void
     {
-        $this->app->bind(RelayClient::class, fn (): RelayClient => new class($content) extends RelayClient
+        $this->app->bind(RelayClient::class, fn (): RelayClient => new class($content, $headers) extends RelayClient
         {
-            public function __construct(private readonly ?string $content) {}
+            /**
+             * @param  array<string, mixed>  $headers
+             */
+            public function __construct(private readonly ?string $content, private readonly array $headers = []) {}
 
             public function dispatch(Monitor $monitor, string $region): CheckResult
             {
@@ -1111,7 +1213,7 @@ class MetricDiscoveryTest extends TestCase
                     timingTlsMs: 30,
                     timingTtfbMs: 100,
                     timingDownloadMs: 20,
-                    responseHeaders: [],
+                    responseHeaders: $this->headers,
                     responseBodyPreview: $this->content === null ? null : substr($this->content, 0, 10240),
                     probeRunId: (string) Str::uuid(),
                     content: $this->content,

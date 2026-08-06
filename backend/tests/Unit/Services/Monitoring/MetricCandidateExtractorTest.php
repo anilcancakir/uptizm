@@ -4,9 +4,11 @@ namespace Tests\Unit\Services\Monitoring;
 
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
+use App\Enums\MetricUnit;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 use App\Support\Monitoring\MetricCandidate;
+use App\Support\Monitoring\ProbeHeaderAllowList;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
@@ -18,10 +20,10 @@ use Tests\TestCase;
  * Two assertions carry that weight and are made over EVERY candidate rather
  * than a sample: each path fed back through the real
  * {@see MetricExtractor::extract()} returns the candidate's full sample value,
- * and each candidate's `eligibleTypes` excludes `numeric` unless the sample is
- * genuinely numeric (a `120ms` metric typed numeric extracts fine and is then
- * discarded on every check, which reads to the user as a metric that never
- * records a sample).
+ * and each candidate's `eligibleTypes` excludes `numeric` unless the check-time
+ * extractor can actually reduce the sample to a number (a metric typed numeric
+ * over a sample it cannot is extracted fine and then discarded on every check,
+ * which reads to the user as a metric that never records a sample).
  */
 class MetricCandidateExtractorTest extends TestCase
 {
@@ -69,10 +71,17 @@ class MetricCandidateExtractorTest extends TestCase
     }
 
     /**
-     * `numeric` is offered only for a genuinely numeric sample; a unit suffix
-     * makes the candidate string-only.
+     * `numeric` is offered for a sample the check-time extractor can reduce to
+     * a number, which is now two shapes and not one.
+     *
+     * This test used to pin `120ms` to `[String]`. That expectation was correct
+     * only while {@see MetricExtractor} had no way to strip a unit: the value
+     * failed `is_numeric()` at check time, so proposing it as numeric would
+     * have produced a metric that records nothing forever. The extractor now
+     * strips a MAPPED suffix ahead of the type gate, so the same sample
+     * sustains `numeric` and carries the unit that number is expressed in.
      */
-    public function test_eligible_types_follow_is_numeric_on_the_sample(): void
+    public function test_a_unit_bearing_sample_is_numeric_eligible_and_carries_its_unit(): void
     {
         $candidates = $this->extract('candidates-with-id.html');
 
@@ -81,8 +90,47 @@ class MetricCandidateExtractorTest extends TestCase
         $unitBearing = $this->candidateFor($candidates, '120ms');
         $bareNumber = $this->candidateFor($candidates, '4200');
 
-        $this->assertSame([MetricType::String], $unitBearing->eligibleTypes);
+        $this->assertSame([MetricType::Numeric, MetricType::String], $unitBearing->eligibleTypes);
+        $this->assertSame(MetricUnit::Millisecond, $unitBearing->unit);
+
+        // The sample itself is never rewritten: the round-trip proof compares
+        // against it verbatim, so the strip belongs at check time and the unit
+        // travels beside the value rather than inside it.
+        $this->assertSame('120ms', $unitBearing->sampleValue);
+
         $this->assertSame([MetricType::Numeric, MetricType::String], $bareNumber->eligibleTypes);
+        $this->assertNull($bareNumber->unit);
+    }
+
+    /**
+     * The map is a MAP and not a pattern.
+     *
+     * `12 widgets` has the exact shape of a unit-suffixed number and stays
+     * string-only, because `widgets` names no {@see MetricUnit} case and a
+     * stripped `12` would then be stored under no unit at all. `1,2 MB` is the
+     * second refusal: the comma could be a decimal separator or a thousands
+     * separator depending on the page's locale, which the body does not carry.
+     */
+    public function test_only_a_mapped_suffix_makes_a_sample_numeric_eligible(): void
+    {
+        $candidates = (new MetricCandidateExtractor)->extract((string) json_encode([
+            'transfer_size' => '1.2 MB',
+            'inventory' => '12 widgets',
+            'european_size' => '1,2 MB',
+        ]));
+
+        $mapped = $this->candidateFor($candidates, '1.2 MB');
+        $unmapped = $this->candidateFor($candidates, '12 widgets');
+        $commaDecimal = $this->candidateFor($candidates, '1,2 MB');
+
+        $this->assertSame([MetricType::Numeric, MetricType::String], $mapped->eligibleTypes);
+        $this->assertSame(MetricUnit::Megabyte, $mapped->unit);
+
+        $this->assertSame([MetricType::String], $unmapped->eligibleTypes);
+        $this->assertNull($unmapped->unit);
+
+        $this->assertSame([MetricType::String], $commaDecimal->eligibleTypes);
+        $this->assertNull($commaDecimal->unit);
     }
 
     /**
@@ -330,6 +378,114 @@ class MetricCandidateExtractorTest extends TestCase
         $this->assertCount(1, $candidates);
         $this->assertSame('99.9%', $candidates[0]->sampleValue);
         $this->assertSame('//*[@id="uptime"]', $candidates[0]->extractionPath);
+    }
+
+    /**
+     * An allowlisted header becomes a candidate whose path resolves through the
+     * REAL extractor against the raw-cased header map a check actually holds.
+     */
+    public function test_an_allowlisted_header_yields_a_candidate_that_round_trips(): void
+    {
+        $raw = [
+            'X-Runtime' => '0.024',
+            'Set-Cookie' => 'session=SUPERSECRET; HttpOnly',
+        ];
+
+        $candidates = (new MetricCandidateExtractor)->extract(
+            '<html><body><p id="uptime">99.9%</p></body></html>',
+            ProbeHeaderAllowList::filter($raw),
+        );
+
+        $header = $this->candidateFor($candidates, '0.024');
+
+        $this->assertSame(MetricSource::Header, $header->source);
+        $this->assertSame('x-runtime', $header->extractionPath);
+        $this->assertSame('x-runtime', $header->labelHint);
+
+        // The check job passes the raw set with the target's own casing, so the
+        // emitted path has to resolve against THAT and not only against the
+        // filtered map this candidate was built from.
+        $result = (new MetricExtractor)->extract(
+            $header->source,
+            $header->extractionPath,
+            MetricType::String,
+            '',
+            $raw,
+        );
+
+        $this->assertNull($result->error);
+        $this->assertSame($header->sampleValue, $result->value);
+    }
+
+    /**
+     * The allowlist is the only header source, so a credential-bearing name is
+     * unreachable from a suggestion no matter what the target sent.
+     */
+    public function test_an_unlisted_header_never_becomes_a_candidate(): void
+    {
+        $candidates = (new MetricCandidateExtractor)->extract(
+            '<html><body><p id="uptime">99.9%</p></body></html>',
+            ProbeHeaderAllowList::filter([
+                'Set-Cookie' => 'session=SUPERSECRET',
+                'Authorization' => 'Basic dXNlcjpwYXNz',
+                'X-Runtime' => '0.024',
+            ]),
+        );
+
+        $headerPaths = array_map(
+            fn (MetricCandidate $candidate): string => $candidate->extractionPath,
+            array_filter($candidates, fn (MetricCandidate $candidate): bool => $candidate->source === MetricSource::Header),
+        );
+
+        $this->assertSame(['x-runtime'], array_values($headerPaths));
+
+        foreach ($this->values($candidates) as $value) {
+            $this->assertStringNotContainsString('SUPERSECRET', $value);
+            $this->assertStringNotContainsString('dXNlcjpwYXNz', $value);
+        }
+    }
+
+    /**
+     * A value at the filter's cap is refused, because it is indistinguishable
+     * from one the filter cut.
+     *
+     * `filter()` caps at 256 characters; `MetricExtractor::extractHeader()`
+     * caps at nothing and returns what the target sent. A candidate proposed
+     * from a cut sample advertises a value no check will ever extract, so it
+     * would be silently wrong forever. Deliberately conservative: a legitimate
+     * 256-character header is dropped along with the cut ones.
+     */
+    public function test_a_header_value_at_the_filter_cap_is_refused(): void
+    {
+        $filtered = ProbeHeaderAllowList::filter([
+            'Link' => str_repeat('a', ProbeHeaderAllowList::VALUE_MAX_LENGTH + 40),
+            'X-Cache' => 'HIT',
+        ]);
+
+        $this->assertSame(ProbeHeaderAllowList::VALUE_MAX_LENGTH, mb_strlen($filtered['link']));
+
+        $candidates = (new MetricCandidateExtractor)->extract('', $filtered);
+
+        $this->assertSame(['x-cache'], $this->paths($candidates));
+    }
+
+    /**
+     * A non-string header value is refused rather than cast.
+     *
+     * `extractHeader()` casts with `(string) $value`, and on an array that
+     * raises the warning Laravel rethrows as an `ErrorException`, inside the
+     * check job. Unreachable through `ProbeHeaderAllowList::filter()`, which
+     * joins a list first, and refused here anyway because this parameter is
+     * what a future caller hands over.
+     */
+    public function test_a_non_string_header_value_is_refused(): void
+    {
+        $candidates = (new MetricCandidateExtractor)->extract('', [
+            'x-cache' => ['HIT', 'MISS'],
+            'age' => '300',
+        ]);
+
+        $this->assertSame(['age'], $this->paths($candidates));
     }
 
     /** A body with nothing to measure yields an empty list, never an error. */

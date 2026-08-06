@@ -437,11 +437,18 @@ class MonitorController extends Controller
         //     a vote, only what this controller can observe about the run.
         $result = $result->withConfidence($this->confidenceFor($modelled !== null, $result->regionBasis, $digest));
 
-        // 6. Mine the SAME probe body for metrics worth proposing. The body is
-        //    already in memory here, so this costs no second probe; discovery
-        //    spends its own budget unit and degrades to an empty array on its
-        //    own, so a create flow never fails because of a suggestion.
-        $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId);
+        // 6. Mine the SAME probe body and the SAME filtered headers for metrics
+        //    worth proposing. Both are already in memory here, so this costs no
+        //    second probe, and passing them together is what keeps a proposed
+        //    header metric an observation rather than a guess. `$headers` and
+        //    never `$probe->responseHeaders`: the allowlist at step 3 is the
+        //    only thing standing between a credentialled probe's `Set-Cookie`
+        //    and a metric that would persist it on every check.
+        //
+        //    Discovery spends its own budget unit and degrades to an empty
+        //    array on its own, so a create flow never fails because of a
+        //    suggestion.
+        $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId, $headers);
 
         // 7. A metered try buys AI ANALYSIS, so it is spent only when a model
         //    actually delivered one: neither degrade path above ran a model, so

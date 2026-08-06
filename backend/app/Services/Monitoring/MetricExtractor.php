@@ -4,6 +4,7 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
+use App\Enums\MetricUnit;
 use App\Enums\MonitorStatus;
 use DOMDocument;
 use DOMXPath;
@@ -21,6 +22,48 @@ use Illuminate\Support\Arr;
  */
 class MetricExtractor
 {
+    /**
+     * Value suffixes a numeric metric may carry, mapped to the
+     * {@see MetricUnit} each one names.
+     *
+     * This is a MAP and not a pattern on purpose. Every key is a suffix some
+     * `MetricUnit` case already advertises through `defaultSuffix()`, so a
+     * stripped number always has a unit the rest of the product can render and
+     * store. A page printing `12 widgets` therefore keeps its suffix and stays
+     * a string, because there is no unit to record it under.
+     *
+     * Keys are lower case and matched case-insensitively, since `120MS` is the
+     * same measurement as `120ms`. Two consequences worth naming: `%` maps to
+     * `Percent` rather than `Ratio` (a page that prints a percent sign has
+     * already scaled the number), and `Mb` reads as megaBYTE because the enum
+     * has no bit family at all.
+     */
+    public const array UNIT_SUFFIXES = [
+        'ms' => MetricUnit::Millisecond,
+        's' => MetricUnit::Second,
+        'min' => MetricUnit::Minute,
+        'h' => MetricUnit::Hour,
+        'b' => MetricUnit::Byte,
+        'kb' => MetricUnit::Kilobyte,
+        'mb' => MetricUnit::Megabyte,
+        'gb' => MetricUnit::Gigabyte,
+        'tb' => MetricUnit::Terabyte,
+        '%' => MetricUnit::Percent,
+    ];
+
+    /**
+     * A number followed by a unit token, with the decimal separator restricted
+     * to a period.
+     *
+     * {@see MetricCandidateExtractor}'s own `NUMERIC_LIKE` admits a comma there
+     * and this pattern deliberately does not: `1,2 MB` is 1.2 to a German page
+     * and `1,200 MB` is twelve hundred to an English one, and a response body
+     * carries no locale to tell them apart. Guessing would silently record a
+     * number three orders of magnitude off, so a comma-separated value keeps
+     * its suffix and behaves exactly as it does today.
+     */
+    protected const string UNIT_SUFFIXED_VALUE = '/^([+-]?\d+(?:\.\d+)?)\s?([a-zA-Z%µ°\/]{1,8})$/u';
+
     /**
      * Apply the extraction rule and validate the result against the
      * declared metric type.
@@ -47,7 +90,58 @@ class MetricExtractor
             return $raw;
         }
 
-        return $this->validateType($raw->value, $type);
+        // Every source above converges here, so the strip sits on the one path
+        // all five share rather than inside any single branch.
+        return $this->validateType($this->stripUnit((string) $raw->value, $type), $type);
+    }
+
+    /**
+     * Drop a known unit suffix from a NUMERIC metric's extracted value.
+     *
+     * This runs on every check of every monitor and it CHANGES the behaviour of
+     * metrics that already exist, deliberately: a numeric metric whose value
+     * arrives as `120ms` fails {@see validateType()}'s `is_numeric()` gate
+     * today, so it extracts on every check and records nothing, silently and
+     * forever. From here it records `120`, and the unit its suggestion was
+     * accepted with is what renders the `ms` back. The operator accepted that
+     * cost explicitly; it is the whole reason a unit-bearing sample may now be
+     * proposed as numeric at all.
+     *
+     * Nothing else moves. A `string` or `status` metric keeps its value
+     * verbatim, and a suffix {@see UNIT_SUFFIXES} does not name is left exactly
+     * as it was.
+     */
+    protected function stripUnit(string $value, MetricType $type): string
+    {
+        if ($type !== MetricType::Numeric) {
+            return $value;
+        }
+
+        return self::splitUnit($value)[0] ?? $value;
+    }
+
+    /**
+     * Split `120ms` into its number and the unit its suffix names.
+     *
+     * Static and pure because the proposal side needs the same answer this
+     * class applies at check time: {@see MetricCandidateExtractor} calls it to
+     * decide whether a unit-bearing sample can sustain `MetricType::Numeric`,
+     * and one shared function is what stops the two from ever disagreeing (a
+     * candidate proposed as numeric that then records nothing is precisely the
+     * silent failure this method exists to prevent).
+     *
+     * @return array{0: string, 1: MetricUnit}|null Null when the value is not a
+     *                                              number followed by a MAPPED unit.
+     */
+    public static function splitUnit(string $value): ?array
+    {
+        if (preg_match(self::UNIT_SUFFIXED_VALUE, trim($value), $matches) !== 1) {
+            return null;
+        }
+
+        $unit = self::UNIT_SUFFIXES[mb_strtolower($matches[2])] ?? null;
+
+        return $unit === null ? null : [$matches[1], $unit];
     }
 
     /**

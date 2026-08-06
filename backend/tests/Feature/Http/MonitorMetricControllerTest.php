@@ -132,6 +132,90 @@ class MonitorMetricControllerTest extends TestCase
         $this->assertSame('critical', $payload['band']);
     }
 
+    /**
+     * The assertion the whole unit-stripping change exists for, made on the
+     * shared extractor rather than only on the candidate side.
+     *
+     * A numeric metric over a `120ms` value used to extract the string, fail
+     * `validateType()`'s `is_numeric()` gate, and record NOTHING on every
+     * check, silently and forever. The strip runs ahead of that gate now, so
+     * the sample records as `120`. The second half of the test is what keeps
+     * the change honest: a suffix the map does not name is still left exactly
+     * as it was, gate included.
+     */
+    public function test_a_numeric_metric_records_a_value_carrying_a_known_unit(): void
+    {
+        $extractor = new MetricExtractor;
+
+        $stripped = $extractor->extract(
+            MetricSource::JsonPath,
+            'data.latency',
+            MetricType::Numeric,
+            (string) json_encode(['data' => ['latency' => '120ms']]),
+        );
+
+        $this->assertSame('120', $stripped->value);
+        $this->assertTrue($stripped->typeValid);
+        $this->assertNull($stripped->error);
+
+        $unmapped = $extractor->extract(
+            MetricSource::JsonPath,
+            'data.inventory',
+            MetricType::Numeric,
+            (string) json_encode(['data' => ['inventory' => '12 widgets']]),
+        );
+
+        $this->assertSame('12 widgets', $unmapped->value);
+        $this->assertFalse($unmapped->typeValid);
+    }
+
+    /**
+     * The strip is scoped to `numeric`. A string metric is how an operator asks
+     * for the page's own wording, so rewriting `120ms` to `120` there would
+     * silently drop information the metric was created to capture.
+     */
+    public function test_a_string_metric_keeps_its_unit_suffix_verbatim(): void
+    {
+        $result = (new MetricExtractor)->extract(
+            MetricSource::JsonPath,
+            'data.latency',
+            MetricType::String,
+            (string) json_encode(['data' => ['latency' => '120ms']]),
+        );
+
+        $this->assertSame('120ms', $result->value);
+        $this->assertTrue($result->typeValid);
+    }
+
+    /**
+     * The same strip seen where the operator sees it: the form's live preview
+     * shows the number that will be recorded, and bands it.
+     */
+    public function test_preview_strips_a_known_unit_before_banding(): void
+    {
+        [$monitor, $user] = $this->makeMonitor();
+        $controller = $this->app->make(MonitorMetricController::class);
+
+        $request = Request::create('/monitors/'.$monitor->id.'/metrics/preview', 'POST', [
+            'source' => MetricSource::JsonPath->value,
+            'extraction_path' => 'data.latency',
+            'type' => MetricType::Numeric->value,
+            'sample_body' => json_encode(['data' => ['latency' => '950 ms']]),
+            'threshold_direction' => ThresholdDirection::HighBad->value,
+            'warn_bound' => 500,
+            'critical_bound' => 900,
+        ]);
+        $request->setUserResolver(fn () => $user);
+
+        $payload = $controller
+            ->preview($request, $monitor, $this->app->make(MetricExtractor::class))
+            ->getData(true);
+
+        $this->assertSame('950', $payload['extracted_value']);
+        $this->assertTrue($payload['type_valid']);
+        $this->assertSame('critical', $payload['band']);
+    }
+
     public function test_preview_falls_back_to_the_monitors_last_check_as_the_sample(): void
     {
         // The form's panel promises to verify a rule against what the monitor
@@ -798,6 +882,106 @@ class MonitorMetricControllerTest extends TestCase
         $response->assertStatus(200);
         $this->assertArrayNotHasKey('metrics', (new UpdateMonitorRequest)->rules());
         $this->assertSame(0, MonitorMetric::query()->where('monitor_id', $monitor->id)->count());
+    }
+
+    public function test_store_refuses_a_header_metric_on_a_credential_bearing_name(): void
+    {
+        // A metric is read and PERSISTED on every check, and the check job
+        // hands MetricExtractor the RAW header set, so a metric pointed at
+        // `set-cookie` would write an authenticated session cookie into a
+        // cleartext column for as long as it exists.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $this->expectException(ValidationException::class);
+
+        $this->makeStoreRequest([
+            'label' => 'Session',
+            'key' => 'session',
+            'type' => MetricType::String->value,
+            'source' => MetricSource::Header->value,
+            'extraction_path' => 'Set-Cookie',
+        ], $monitor, $user);
+    }
+
+    public function test_store_still_accepts_a_header_metric_on_an_ordinary_name(): void
+    {
+        // The denylist is four names, not the `header` source: refusing the
+        // source outright would be a different feature and would break every
+        // header metric that already exists.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $response = $this->app->make(MonitorMetricController::class)->store(
+            $this->makeStoreRequest([
+                'label' => 'Content type',
+                'key' => 'content_type',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::Header->value,
+                'extraction_path' => 'content-type',
+            ], $monitor, $user),
+            $monitor,
+        );
+
+        $this->assertSame(201, $response->status());
+    }
+
+    public function test_store_leaves_a_denied_name_alone_under_another_source(): void
+    {
+        // The rule is keyed off the SIBLING `source`, so the same string under
+        // `json_path` addresses a body key of that name and is nobody's
+        // credential. A rule that refused the string unconditionally would pass
+        // the test above and quietly forbid this.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $response = $this->app->make(MonitorMetricController::class)->store(
+            $this->makeStoreRequest([
+                'label' => 'Echoed name',
+                'key' => 'echoed_name',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::JsonPath->value,
+                'extraction_path' => 'set-cookie',
+            ], $monitor, $user),
+            $monitor,
+        );
+
+        $this->assertSame(201, $response->status());
+    }
+
+    public function test_the_header_denylist_fires_through_the_bulk_prefix_too(): void
+    {
+        // The discriminating case. On `POST /monitors` the sibling is
+        // `metrics.0.source`, so a rule reading `$this->input('source')` sees
+        // null, no-ops, and lets the row through on exactly the path this plan
+        // opens. Row 0 is deliberately clean, so an implementation that
+        // reported every row's error on the bare key fails here too.
+        $rows = [
+            [
+                'key' => 'content_type',
+                'label' => 'Content type',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::Header->value,
+                'extraction_path' => 'content-type',
+            ],
+            [
+                'key' => 'session',
+                'label' => 'Session',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::Header->value,
+                'extraction_path' => 'Set-Cookie',
+            ],
+        ];
+
+        $validator = Validator::make(
+            ['metrics' => $rows],
+            [
+                'metrics' => ['array'],
+                ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
+            ],
+        );
+
+        $this->assertTrue($validator->fails());
+        $this->assertTrue($validator->errors()->has('metrics.1.extraction_path'));
+        $this->assertFalse($validator->errors()->has('metrics.0.extraction_path'));
+        $this->assertFalse($validator->errors()->has('extraction_path'));
     }
 
     /**

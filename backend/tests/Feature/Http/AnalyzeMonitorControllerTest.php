@@ -1144,7 +1144,10 @@ class AnalyzeMonitorControllerTest extends TestCase
         {
             public function __construct() {}
 
-            public function discover(Monitor $monitor, ?string $body, string $teamId): array
+            /**
+             * @param  array<string, mixed>  $headers
+             */
+            public function discover(Monitor $monitor, ?string $body, string $teamId, array $headers = []): array
             {
                 return [];
             }
@@ -1172,13 +1175,19 @@ class AnalyzeMonitorControllerTest extends TestCase
 
             public function __construct(protected MetricCandidateExtractor $extractor) {}
 
-            public function discover(Monitor $monitor, ?string $body, string $teamId): array
+            /**
+             * @param  array<string, mixed>  $headers
+             */
+            public function discover(Monitor $monitor, ?string $body, string $teamId, array $headers = []): array
             {
                 if ($body === null || trim($body) === '') {
                     return [];
                 }
 
-                $this->captured = $this->payload($monitor, $this->extractor->extract($body));
+                // The headers travel into the candidate extractor exactly as
+                // the real service passes them, so the recorded payload keeps
+                // carrying every digest row the second prompt would see.
+                $this->captured = $this->payload($monitor, $this->extractor->extract($body, $headers));
 
                 return [];
             }
