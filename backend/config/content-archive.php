@@ -31,7 +31,7 @@ return [
 
     // Bumped whenever the body-normalization algorithm changes, so an archived
     // hash can be recomputed instead of assumed stale-equivalent to a new one.
-    'normalizer_version' => 1,
+    'normalizer_version' => 2,
 
     // Circuit breaker for the archive write path: once the `queue` above holds
     // more than this many pending jobs, the check pipeline stops enqueueing new
