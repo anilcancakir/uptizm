@@ -72,6 +72,16 @@ readonly class CredentialRedactor
      * that skipping the password does NOT skip the type: the basic wire form
      * `base64("user:pas")` is long enough and stays in the set, which is the
      * form that would actually be echoed.
+     *
+     * FOUR here and EIGHT in the plan's Risks Accepted are two different
+     * statements, and reading one as the other is the obvious mistake. Four is
+     * a hard floor: below it a value is never added as a needle. Eight is where
+     * the protection stops being MEANINGFUL: a five-to-seven character secret
+     * IS added and IS replaced, but at that length a value match either misses
+     * the form the target actually echoed or matches so widely that the digest
+     * is destroyed, so no guarantee is claimed for it either way. Raising this
+     * constant to eight would not close that gap, it would widen it, by
+     * dropping those needles entirely.
      */
     public const int MIN_MATCH_LENGTH = 4;
 
