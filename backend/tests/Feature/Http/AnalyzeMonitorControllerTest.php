@@ -431,17 +431,58 @@ class AnalyzeMonitorControllerTest extends TestCase
         // `metric_discovery.model` on the same request. Asserting only the first
         // would let the second regress to a literal id and answer every request
         // with an empty `suggested_metrics`, green suite and all.
-        putenv('AI_TRIAGE_MODEL=openai/gpt-4o-mini');
+        //
+        // The override has to move all THREE channels, and the earlier version of
+        // this test measured nothing because it moved one. `Env::getRepository()`
+        // reads `$_SERVER` and `$_ENV` BEFORE `getenv()`, so a bare `putenv()` is
+        // inert for any key the loaded `.env` already holds, which is every key
+        // here. It passed on a machine whose `.env` happened to carry the expected
+        // value and failed in CI, where `.env.example` carries another.
+        //
+        // The sentinel is deliberately a model id no `.env` in this repo contains,
+        // so the assertion cannot come out true by inheriting the environment.
+        $sentinel = 'test-provider/sentinel-model';
+        $keys = ['AI_TRIAGE_MODEL' => $sentinel, 'AI_ANALYSIS_MODEL' => null, 'AI_METRIC_DISCOVERY_MODEL' => null];
+        $previous = [];
+
+        foreach ($keys as $key => $value) {
+            // `=== false` rather than a falsy test: an empty string is a value
+            // the restore has to put back, and `getenv()` answers a miss with
+            // `false`. Collapsing the two would leak an unset key into whatever
+            // test the parallel runner schedules next in this process.
+            $current = $_SERVER[$key] ?? $_ENV[$key] ?? getenv($key);
+            $previous[$key] = $current === false ? null : $current;
+
+            if ($value === null) {
+                unset($_SERVER[$key], $_ENV[$key]);
+                putenv($key);
+
+                continue;
+            }
+
+            $_SERVER[$key] = $_ENV[$key] = $value;
+            putenv($key.'='.$value);
+        }
 
         try {
             $config = require config_path('ai.php');
 
-            $this->assertSame('openai/gpt-4o-mini', $config['analysis']['model']);
-            $this->assertSame('openai/gpt-4o-mini', $config['metric_discovery']['model']);
+            $this->assertSame($sentinel, $config['analysis']['model']);
+            $this->assertSame($sentinel, $config['metric_discovery']['model']);
             $this->assertSame($config['triage']['model'], $config['analysis']['model']);
             $this->assertSame($config['triage']['model'], $config['metric_discovery']['model']);
         } finally {
-            putenv('AI_TRIAGE_MODEL');
+            foreach ($previous as $key => $value) {
+                if ($value === null) {
+                    unset($_SERVER[$key], $_ENV[$key]);
+                    putenv($key);
+
+                    continue;
+                }
+
+                $_SERVER[$key] = $_ENV[$key] = $value;
+                putenv($key.'='.$value);
+            }
         }
     }
 
