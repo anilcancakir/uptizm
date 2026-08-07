@@ -405,6 +405,11 @@ class MonitorMetricController extends Controller
                     $monitor,
                     $this->bodyReader->newestArchivedBody($monitor),
                     (string) $monitor->team_id,
+                    // No headers, for the reason documented on `discover()`: this
+                    // path mines an archived body and cannot pair it with headers
+                    // from the same response.
+                    [],
+                    $request->user()->locale,
                 ),
             ],
         ]);

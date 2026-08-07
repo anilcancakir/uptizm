@@ -73,14 +73,19 @@ class AnalyzeMonitorRequest extends FormRequest
     }
 
     /**
-     * The region the exploratory probe runs from, defaulting to US East when
-     * the caller does not pin one.
+     * The region the exploratory probe runs from.
+     *
+     * The fallback is {@see MonitorRegion::default()} rather than a literal,
+     * because it is not private to this request: the deterministic degrade
+     * echoes the probe's region back as `recommended_regions`, so this is the
+     * region an operator is shown whenever the model could not reason about
+     * geography.
      */
     public function probeRegion(): string
     {
         $region = $this->validated('region');
 
-        return is_string($region) ? $region : MonitorRegion::USEast->value;
+        return is_string($region) ? $region : MonitorRegion::default()->value;
     }
 
     /**
