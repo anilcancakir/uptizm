@@ -51,19 +51,29 @@ return [
      * It was 45, which is EXACTLY the suggestion turn's own ceiling, so a slow
      * suggestion left zero for the metric-discovery call behind it and the
      * metrics half of the setup came back empty with only a log line to say why.
-     * 75 funds that ceiling and still leaves 30, comfortably over
-     * `minimum_call_seconds`, so a degraded analysis no longer takes discovery
-     * down with it.
+     * The value has to stay at least `minimum_call_seconds` above that ceiling,
+     * or a degraded analysis takes discovery down with it. That bound is
+     * asserted in {@see Tests\Unit\Services\Ai\AiDeadlineTest}.
      *
-     * Raising it was only safe because the clock now starts at the top of the
-     * analyze action rather than at the first prompt, so the target probe (30
-     * seconds of its own) spends from this same number instead of sitting
-     * outside it. Keep that anchor if you touch either value, and keep this
-     * BELOW `octane.max_execution_time`, which carries the full ordering of the
-     * four walls. Above that, the budget is decorative: PHP kills the worker
-     * before any timeout can fire.
+     * It was then briefly 75, and 75 is too big. MEASURED in production on
+     * 2026-08-07: a request that spent 36 seconds on the suggestion and 39 on
+     * discovery (`cURL error 28: Operation timed out after 39001 milliseconds`)
+     * answered the operator with a 504, twice. Something between the client and
+     * this worker cuts at 60 seconds and it is NOT any wall we had written down:
+     * nginx's `proxy_read_timeout` on the api vhost is 3600 and
+     * `octane.max_execution_time` is 90. The 60 is an observation, its owner is
+     * unidentified, and until it is identified this number is what keeps the
+     * request inside it. A 504 gives the operator nothing at all; a degrade
+     * gives them a working monitor with deterministic values, so the budget is
+     * sized to guarantee the degrade.
+     *
+     * 50 leaves the worst case around 53 with serialization, under the observed
+     * 60. It only works because the clock starts at the top of the analyze
+     * action rather than at the first prompt, so the target probe (30 seconds of
+     * its own) spends from this same number instead of sitting outside it. Keep
+     * that anchor if you touch either value.
      */
-    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 75),
+    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 50),
 
     /*
      * The least time worth starting a model call with. Below this the provider

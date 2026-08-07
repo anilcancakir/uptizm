@@ -141,8 +141,14 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      * Explicit rather than the package's 60-second default, because two turns
      * now run inside one synchronous request and the operator is waiting on
      * both.
+     *
+     * Lowered from 45 to fit under the 60-second wall documented at
+     * `ai.request_budget_seconds`: that budget has to exceed this ceiling by at
+     * least `ai.minimum_call_seconds` or metric discovery behind this turn never
+     * starts, and the budget itself has to stay under 60 or the operator gets a
+     * 504 instead of a degrade. 40 and 50 are the pair that satisfies both.
      */
-    private const int SUGGESTION_TIMEOUT_SECONDS = 45;
+    private const int SUGGESTION_TIMEOUT_SECONDS = 40;
 
     /**
      * Seconds the research turn may take.

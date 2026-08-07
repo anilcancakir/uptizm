@@ -234,16 +234,24 @@ return [
     | This is one of FOUR walls a slow request runs into, and they have to stay
     | in this order or the innermost one never gets to do its job:
     |
-    |   AI budget (`ai.request_budget_seconds`, 75)
+    |   AI budget (`ai.request_budget_seconds`, 50)
+    |     < an UNIDENTIFIED proxy wall (60, measured, see below)
     |     < Octane, here (90)
-    |     < Cloudflare's origin timeout (~100, not ours to set)
     |     < the Flutter client (`lib/config/network.dart`, 120)
     |
     | The innermost number covers the probe as well as the model calls, because
     | `MonitorController::analyze()` starts the budget's clock before probing.
-    | That is what leaves the 15 second gap to this wall: without the anchor the
-    | probe's own 30 second timeout would sit OUTSIDE the budget and 30 + 75
-    | would be past 90 again.
+    | Without that anchor the probe's own 30 second timeout would sit OUTSIDE the
+    | budget and the sum would clear every wall above.
+    |
+    | This wall, at 90, is NOT the binding one, and believing it was cost an
+    | operator two 504s. Something between the client and this worker cuts at 60
+    | seconds: measured at 60.1 on 2026-08-07, against an api vhost whose
+    | `proxy_read_timeout` is 3600 and this setting at 90. Cloudflare's documented
+    | origin timeout is ~100 and its own timeout error is 524, not 504, so the
+    | owner of the 60 is genuinely unknown. It is pinned as an observation with its
+    | evidence in `AiDeadlineTest::OBSERVED_PROXY_WALL_SECONDS`. Identify it before
+    | raising the budget again.
     |
     | It was 30, which is below the AI budget AND below the 30 second probe
     | timeout `MonitorController::transientMonitor()` sets, so a slow provider on

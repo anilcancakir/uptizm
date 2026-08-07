@@ -79,7 +79,7 @@ class AiDeadline
      */
     public function budget(): int
     {
-        return (int) $this->app['config']->get('ai.request_budget_seconds', 75);
+        return (int) $this->app['config']->get('ai.request_budget_seconds', 50);
     }
 
     /**
