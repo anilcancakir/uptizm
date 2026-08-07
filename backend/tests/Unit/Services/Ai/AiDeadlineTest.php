@@ -126,6 +126,39 @@ class AiDeadlineTest extends TestCase
         );
     }
 
+    /**
+     * The shortest wall between the operator and this worker, measured rather
+     * than configured.
+     *
+     * Nothing we own cuts here: nginx's `proxy_read_timeout` on the api vhost is
+     * 3600 and `octane.max_execution_time` is 90. Yet a 75-second analyze
+     * answered 504 twice in production on 2026-08-07, and a direct measurement
+     * came back at 60.1 seconds. The owner is unidentified, so the number lives
+     * in this test as an observation with its evidence attached, not in config as
+     * if it were ours to set.
+     */
+    private const int OBSERVED_PROXY_WALL_SECONDS = 60;
+
+    public function test_the_budget_keeps_the_request_inside_the_wall_the_operator_actually_hits(): void
+    {
+        // The regression this exists for: raising the budget to 75 to give metric
+        // discovery room turned a degrade into a 504. A degrade hands the operator
+        // a working monitor with deterministic values; a 504 hands them nothing,
+        // so the budget is sized to guarantee the degrade rather than to maximise
+        // model time.
+        //
+        // The margin is for what the budget does NOT cover: validation, the DB
+        // writes, resource serialization. Those are small but they are not free,
+        // and a budget sized flush against the wall spends them past it.
+        $margin = 5;
+
+        $this->assertLessThanOrEqual(
+            self::OBSERVED_PROXY_WALL_SECONDS - $margin,
+            (int) config('ai.request_budget_seconds'),
+            'a budget that can outlast the proxy answers 504 instead of degrading',
+        );
+    }
+
     public function test_the_budget_sits_below_the_worker_wall_that_would_kill_the_request(): void
     {
         // The ordering IS the fix, so it is asserted rather than left in a
