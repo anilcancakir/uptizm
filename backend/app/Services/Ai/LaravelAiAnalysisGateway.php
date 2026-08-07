@@ -187,7 +187,13 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
     public function __construct(
         protected KodizmResearchClient $researchClient = new KodizmResearchClient,
         protected AiBudget $budget = new AiBudget,
-    ) {}
+        protected ?AiDeadline $deadline = null,
+    ) {
+        // Resolved rather than defaulted, because the SCOPED binding is the
+        // whole point: a `new AiDeadline` here would give each gateway its own
+        // budget and the three calls in one analyze would stop sharing one.
+        $this->deadline ??= app(AiDeadline::class);
+    }
 
     /**
      * Suggest a monitor configuration from a probe result and its optional
@@ -463,11 +469,21 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
             return null;
         }
 
+        // The research turn is an enrichment, so it is the first thing to give
+        // up when the request's shared budget is thin. Null here is the same
+        // "no research" the two guards above return, and the suggestion that
+        // follows is unaffected by its absence.
+        $seconds = $this->deadline->secondsForCall(self::RESEARCH_TIMEOUT_SECONDS);
+
+        if ($seconds === null) {
+            return null;
+        }
+
         try {
             $response = $this->researchAgent($payload)->prompt(
                 $payload->buildResearchMessage(),
                 model: $this->analysisModel(),
-                timeout: self::RESEARCH_TIMEOUT_SECONDS,
+                timeout: $seconds,
             );
         } catch (AiException|ConnectionException|RequestException|RuntimeException) {
             // Four named classes, not `Throwable`: a provider 429, 402 or 503
@@ -502,7 +518,17 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      */
     protected function rawSuggestion(string $message): ?array
     {
-        $response = $this->prompt($message, model: $this->analysisModel());
+        // Spends from the request's shared budget rather than the class's own
+        // `#[Timeout]`, which is a per-call ceiling and cannot know that a
+        // research turn already ran. Null degrades exactly as a refused answer
+        // does, one layer up.
+        $seconds = $this->deadline->secondsForCall(self::SUGGESTION_TIMEOUT_SECONDS);
+
+        if ($seconds === null) {
+            return null;
+        }
+
+        $response = $this->prompt($message, model: $this->analysisModel(), timeout: $seconds);
 
         return $response instanceof StructuredAgentResponse ? $response->toArray() : null;
     }

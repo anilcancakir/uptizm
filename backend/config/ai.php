@@ -35,6 +35,32 @@ return [
         'daily_per_team' => env('AI_BUDGET_DAILY_PER_TEAM', 100),
     ],
 
+    /*
+     * How many seconds of PROVIDER WALL TIME one HTTP request may spend across
+     * every model call it makes, not per call.
+     *
+     * Per-call timeouts are not enough here and the difference is what produced
+     * a production 500: `POST /monitors/analyze` makes up to THREE model calls
+     * (the suggestion, the research turn, and metric discovery), so three
+     * comfortable per-call limits still add up past any request-level wall. This
+     * is the shared budget {@see App\Services\Ai\AiDeadline} hands out, and a
+     * call that would start with too little left is not made at all: the caller
+     * degrades to its deterministic answer, which every one of them already
+     * knows how to do.
+     *
+     * Keep it BELOW `octane.max_execution_time`, which has the full ordering of
+     * the four walls written on it. Above that value this budget is decorative,
+     * because PHP kills the worker before the timeout can fire.
+     */
+    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 45),
+
+    /*
+     * The least time worth starting a model call with. Below this the provider
+     * cannot realistically answer, and burning the remainder only delays the
+     * degrade the caller is going to perform anyway.
+     */
+    'minimum_call_seconds' => (int) env('AI_MINIMUM_CALL_SECONDS', 8),
+
     'triage' => [
         'model' => env('AI_TRIAGE_MODEL', 'claude-haiku-4-5-20251001'),
     ],

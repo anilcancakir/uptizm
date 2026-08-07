@@ -7,6 +7,7 @@ use App\Models\Team;
 use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use App\Services\Ai\AiDeadline;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnomalyTriageGateway;
 use App\Services\Ai\AssistantGateway;
@@ -80,6 +81,14 @@ class AppServiceProvider extends ServiceProvider
         // is not enough on its own, since nothing can reach it from a container
         // resolution.
         $this->app->singleton(StatusPagePreviewRenderer::class);
+
+        // SCOPED, not singleton, and the difference is load-bearing under
+        // Octane: the container persists across requests there, so a singleton
+        // would carry the first request's start time forever and every later
+        // analyze would believe its budget was already spent. `scoped` is reset
+        // per request and per queued job, which is exactly the unit the budget
+        // is meant to cover.
+        $this->app->scoped(AiDeadline::class);
     }
 
     /**

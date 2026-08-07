@@ -382,10 +382,23 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
         // feature's, so retuning one task cannot silently retune the others.
         $model = config('ai.metric_discovery.model');
 
-        // verify-at-execute: confirm against installed vendor/laravel/ai.
+        // This class carried NO timeout at all, neither an attribute nor an
+        // argument, which made it the unbounded third call in an analyze that
+        // had already spent its budget on the suggestion and the research turn.
+        // It is also the LAST of the three, so it is the one most likely to
+        // start with nothing left; null degrades to no suggestions, which
+        // `MetricDiscoveryService::select()` already treats as an ordinary
+        // empty answer.
+        $seconds = app(AiDeadline::class)->secondsForCall();
+
+        if ($seconds === null) {
+            return null;
+        }
+
         $response = $this->prompt(
             $payload->buildUserMessage(),
             model: is_string($model) ? $model : null,
+            timeout: $seconds,
         );
 
         return $response instanceof StructuredAgentResponse ? $response->toArray() : null;
