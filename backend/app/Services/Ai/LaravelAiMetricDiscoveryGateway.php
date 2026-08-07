@@ -5,6 +5,7 @@ namespace App\Services\Ai;
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
 use App\Enums\ThresholdDirection;
+use App\Exceptions\AiBudgetExhaustedException;
 use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Models\MonitorMetric;
 use App\Services\Monitoring\MetricCandidateExtractor;
@@ -158,6 +159,7 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
     /**
      * Ask the model which candidates are worth recording as metrics.
      *
+     * @throws AiBudgetExhaustedException When the request's shared budget could not fund the call.
      * @throws RuntimeException When the model returns non-conforming output twice.
      */
     public function discover(MetricDiscoveryPayload $payload): MetricDiscoveryResult
@@ -375,6 +377,8 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
      * against a crafted response instead of being bypassed by a faked gateway.
      *
      * @return array<string, mixed>|null
+     *
+     * @throws AiBudgetExhaustedException When the request's shared budget could not fund the call.
      */
     protected function rawSelections(MetricDiscoveryPayload $payload): ?array
     {
@@ -386,13 +390,17 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
         // argument, which made it the unbounded third call in an analyze that
         // had already spent its budget on the suggestion and the research turn.
         // It is also the LAST of the three, so it is the one most likely to
-        // start with nothing left; null degrades to no suggestions, which
-        // `MetricDiscoveryService::select()` already treats as an ordinary
-        // empty answer.
+        // start with nothing left.
+        //
+        // It THROWS rather than returning null, and the difference is the whole
+        // reason the exception exists: null is this method's word for "the model
+        // did not answer with structured output", which `discover()` retries
+        // once and then reports as non-conforming output. A refused call is
+        // neither. Production logged exactly that mislabel, twice per analyze.
         $seconds = app(AiDeadline::class)->secondsForCall();
 
         if ($seconds === null) {
-            return null;
+            throw AiBudgetExhaustedException::before('metric discovery');
         }
 
         $response = $this->prompt(

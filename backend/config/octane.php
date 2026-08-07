@@ -234,10 +234,16 @@ return [
     | This is one of FOUR walls a slow request runs into, and they have to stay
     | in this order or the innermost one never gets to do its job:
     |
-    |   AI budget (`ai.request_budget_seconds`, 45)
+    |   AI budget (`ai.request_budget_seconds`, 75)
     |     < Octane, here (90)
     |     < Cloudflare's origin timeout (~100, not ours to set)
     |     < the Flutter client (`lib/config/network.dart`, 120)
+    |
+    | The innermost number covers the probe as well as the model calls, because
+    | `MonitorController::analyze()` starts the budget's clock before probing.
+    | That is what leaves the 15 second gap to this wall: without the anchor the
+    | probe's own 30 second timeout would sit OUTSIDE the budget and 30 + 75
+    | would be past 90 again.
     |
     | It was 30, which is below the AI budget AND below the 30 second probe
     | timeout `MonitorController::transientMonitor()` sets, so a slow provider on

@@ -8,6 +8,7 @@ use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
 use App\Enums\RegionBasis;
 use App\Enums\ThresholdDirection;
+use App\Exceptions\AiBudgetExhaustedException;
 use App\Services\Ai\Tools\ResearchUrlAllowList;
 use App\Services\Ai\Tools\WebFetchTool;
 use App\Services\Ai\Tools\WebSearchTool;
@@ -199,6 +200,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      * Suggest a monitor configuration from a probe result and its optional
      * detector output.
      *
+     * @throws AiBudgetExhaustedException When the request's shared budget could not fund the call.
      * @throws RuntimeException When the model returns non-conforming output twice.
      */
     public function analyze(AnalysisPayload $payload): AnalysisResult
@@ -515,17 +517,27 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      * {@see LaravelAiMetricDiscoveryGateway::rawSelections()}.
      *
      * @return array<string, mixed>|null
+     *
+     * @throws AiBudgetExhaustedException When the request's shared budget could not fund the call.
      */
     protected function rawSuggestion(string $message): ?array
     {
         // Spends from the request's shared budget rather than the class's own
         // `#[Timeout]`, which is a per-call ceiling and cannot know that a
-        // research turn already ran. Null degrades exactly as a refused answer
-        // does, one layer up.
+        // research turn already ran.
+        //
+        // It THROWS rather than returning null, unlike `research()` above, and
+        // the asymmetry is deliberate: research is the optional half, so its
+        // null genuinely means "no research happened" and the suggestion still
+        // answers. Here null is this method's word for "the model did not answer
+        // with structured output", which `analyze()` retries once and then
+        // reports as non-conforming output. A call that was never made is
+        // neither, and calling it that sends whoever reads the log looking at a
+        // prompt that was never issued.
         $seconds = $this->deadline->secondsForCall(self::SUGGESTION_TIMEOUT_SECONDS);
 
         if ($seconds === null) {
-            return null;
+            throw AiBudgetExhaustedException::before('monitor analysis');
         }
 
         $response = $this->prompt($message, model: $this->analysisModel(), timeout: $seconds);

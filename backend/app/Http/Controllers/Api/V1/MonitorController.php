@@ -9,6 +9,7 @@ use App\Enums\MetricBand;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
 use App\Enums\RegionBasis;
+use App\Exceptions\AiBudgetExhaustedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AnalyzeMonitorRequest;
 use App\Http\Requests\StoreMonitorMetricRequest;
@@ -20,6 +21,7 @@ use App\Models\Monitor;
 use App\Models\MonitorMetric;
 use App\Models\Team;
 use App\Services\Ai\AiBudget;
+use App\Services\Ai\AiDeadline;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
@@ -440,7 +442,19 @@ class MonitorController extends Controller
         ResponseDigest $digester,
         TargetLocation $targetLocation,
         HostGuard $hostGuard,
+        AiDeadline $deadline,
     ): JsonResponse {
+        // The budget is anchored HERE rather than at the first model call, and
+        // that is what makes it safe to raise. Everything under this line shares
+        // one Octane wall, and the PROBE sits under it too with a 30 second
+        // timeout of its own (see `transientMonitor()`), so a budget that starts
+        // counting only once the first prompt goes out bounds the AI work
+        // without bounding the request: 30 + 75 is past the 90 second wall that
+        // produced the original 500. Started from the action instead, a slow
+        // probe simply leaves the model less, which is the correct trade and
+        // needs no second number to keep in sync.
+        $deadline->restart();
+
         $gate = new PlanGate;
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
@@ -746,6 +760,15 @@ class MonitorController extends Controller
     {
         try {
             return $gateway->analyze($payload);
+        } catch (AiBudgetExhaustedException) {
+            // FIRST, because it extends RuntimeException. See the same branch in
+            // {@see MetricDiscoveryService::select()}: nothing was sent, so this
+            // is a signal about the request budget or a slow provider rather
+            // than about the model's output.
+            Log::warning("Monitor analysis degraded: the request's AI budget was already spent.", [
+                'url' => $payload->displayUrl(),
+                'region' => $payload->region,
+            ]);
         } catch (RuntimeException) {
             Log::warning('Monitor analysis degraded: the model output could not be trusted.', [
                 'url' => $payload->displayUrl(),

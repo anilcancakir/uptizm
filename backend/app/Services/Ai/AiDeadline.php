@@ -79,7 +79,7 @@ class AiDeadline
      */
     public function budget(): int
     {
-        return (int) $this->app['config']->get('ai.request_budget_seconds', 45);
+        return (int) $this->app['config']->get('ai.request_budget_seconds', 75);
     }
 
     /**
@@ -93,9 +93,16 @@ class AiDeadline
     /**
      * Restart the budget.
      *
-     * For a long-lived worker that handles several logical units of work inside
-     * one container lifetime, and for tests. An HTTP request never needs it:
-     * the scoped binding is already fresh.
+     * {@see App\Http\Controllers\Api\V1\MonitorController::analyze()} calls this
+     * on entry, and that call is load-bearing rather than defensive. Lazy
+     * resolution would otherwise start the clock at the FIRST PROMPT, leaving
+     * the 30 second target probe ahead of it outside the budget entirely; the
+     * request wall would then be probe plus budget, which is the arithmetic the
+     * budget exists to prevent. Anchoring at the action makes a slow probe cost
+     * the model its own time instead of the worker's.
+     *
+     * Also for a long-lived worker handling several logical units of work in one
+     * container lifetime, and for tests.
      */
     public function restart(): void
     {
