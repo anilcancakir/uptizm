@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Services\Monitoring\MetricCandidateExtractor;
+use App\Support\Ai\PromptLanguage;
 use App\Support\Monitoring\MetricCandidate;
 
 /**
@@ -63,12 +64,17 @@ readonly class MetricDiscoveryPayload
      * @param  list<string>  $candidateRefs  The exact ref catalog the model may answer with.
      * @param  list<array<string, mixed>>  $digestRows  UNTRUSTED candidate rows, as
      *                                                  {@see MetricCandidate::toDigestRow()} builds them.
+     * @param  string  $language  The language the model must write labels in, as
+     *                            {@see PromptLanguage::nameFor()} resolves it. Defaulted
+     *                            rather than required only so a test payload stays cheap
+     *                            to build; both production call sites pass the operator's.
      */
     public function __construct(
         public string $url,
         public string $monitorType,
         public array $candidateRefs,
         public array $digestRows,
+        public string $language = PromptLanguage::FALLBACK,
     ) {}
 
     /**
@@ -93,6 +99,10 @@ readonly class MetricDiscoveryPayload
             // other covers neither.
             'url: '.$this->displayUrl(),
             "monitor_type: {$this->monitorType}",
+            // Outside the fence, because it is ours: the operator's stored locale,
+            // not anything the target said. A language name read from inside the
+            // fence would be a page choosing what language our labels come back in.
+            "label_language: {$this->language}",
             'candidate_refs: '.$this->encode($this->candidateRefs),
         ]);
 
@@ -107,6 +117,8 @@ readonly class MetricDiscoveryPayload
 
         return $trusted."\n\n".$untrusted."\n\n".implode(' ', [
             'Select the candidates worth recording as monitor metrics and name each one.',
+            "Write every label in {$this->language}, as a short phrase a person would say,",
+            'never the candidate key or path.',
             'Answer with the candidate ref and nothing that resembles a path or a selector.',
         ]);
     }

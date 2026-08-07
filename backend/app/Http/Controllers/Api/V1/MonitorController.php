@@ -580,7 +580,17 @@ class MonitorController extends Controller
         //    Discovery spends its own budget unit and degrades to an empty
         //    array on its own, so a create flow never fails because of a
         //    suggestion.
-        $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId, $headers);
+        // The operator's OWN stored locale decides the label language, not the
+        // request's `Accept-Language`: the header is client state and the column
+        // is a preference they set, and these labels are persisted the moment the
+        // suggestion is accepted.
+        $suggestedMetrics = $discovery->discover(
+            $transient,
+            $probe->content,
+            $teamId,
+            $headers,
+            $request->user()->locale,
+        );
 
         // 7. A metered try buys AI ANALYSIS, so it is spent only when a model
         //    actually delivered one: neither degrade path above ran a model, so

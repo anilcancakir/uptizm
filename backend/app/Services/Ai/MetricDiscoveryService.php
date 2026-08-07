@@ -10,6 +10,7 @@ use App\Models\MonitorMetric;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\ThresholdEvaluator;
+use App\Support\Ai\PromptLanguage;
 use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
@@ -99,10 +100,20 @@ class MetricDiscoveryService
      *                                         output for the SAME response `$body`
      *                                         came from, never a raw header set.
      *                                         Empty means no header candidates.
+     * @param  string|null  $locale  The OPERATOR's locale, which decides the language the
+     *                               model writes labels in. Null falls back to English via
+     *                               {@see PromptLanguage::nameFor()}. It is the operator's
+     *                               stored preference and never the target's, because a page
+     *                               must not choose what language our dashboard reads in.
      * @return list<array<string, mixed>>
      */
-    public function discover(Monitor $monitor, ?string $body, string $teamId, array $headers = []): array
-    {
+    public function discover(
+        Monitor $monitor,
+        ?string $body,
+        string $teamId,
+        array $headers = [],
+        ?string $locale = null,
+    ): array {
         // 1. Generate the candidates first. No candidates means there is nothing
         //    for a model to select among, so this costs neither a budget unit nor
         //    a provider call.
@@ -122,7 +133,7 @@ class MetricDiscoveryService
             return [];
         }
 
-        $result = $this->select($monitor, $candidates);
+        $result = $this->select($monitor, $candidates, $locale);
         if ($result === null) {
             return [];
         }
@@ -136,9 +147,9 @@ class MetricDiscoveryService
      *
      * @param  list<MetricCandidate>  $candidates
      */
-    protected function select(Monitor $monitor, array $candidates): ?MetricDiscoveryResult
+    protected function select(Monitor $monitor, array $candidates, ?string $locale = null): ?MetricDiscoveryResult
     {
-        $payload = $this->payload($monitor, $candidates);
+        $payload = $this->payload($monitor, $candidates, $locale);
 
         // Non-conforming output past the gateway's own retry, and an unreachable
         // provider (outage, timeout, or a missing key), degrade identically. The
@@ -201,13 +212,17 @@ class MetricDiscoveryService
      *
      * @param  list<MetricCandidate>  $candidates
      */
-    protected function payload(Monitor $monitor, array $candidates): MetricDiscoveryPayload
-    {
+    protected function payload(
+        Monitor $monitor,
+        array $candidates,
+        ?string $locale = null,
+    ): MetricDiscoveryPayload {
         return new MetricDiscoveryPayload(
             url: (string) $monitor->url,
             monitorType: $monitor->type?->value ?? '',
             candidateRefs: array_map(fn (MetricCandidate $candidate): string => $candidate->ref, $candidates),
             digestRows: array_map(fn (MetricCandidate $candidate): array => $candidate->toDigestRow(), $candidates),
+            language: PromptLanguage::nameFor($locale),
         );
     }
 

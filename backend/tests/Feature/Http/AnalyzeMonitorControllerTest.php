@@ -15,6 +15,7 @@ use App\Services\Ai\AnalysisPayload;
 use App\Services\Ai\AnalysisResult;
 use App\Services\Ai\FakeAnalysisGateway;
 use App\Services\Ai\LaravelAiAnalysisGateway;
+use App\Services\Ai\LaravelAiMetricDiscoveryGateway;
 use App\Services\Ai\MetricDiscoveryPayload;
 use App\Services\Ai\MetricDiscoveryService;
 use App\Services\Monitoring\MetricCandidateExtractor;
@@ -62,7 +63,11 @@ class AnalyzeMonitorControllerTest extends TestCase
         $response->assertJsonPath('data.recommended_interval_seconds', 60);
         $response->assertJsonPath('data.recommended_warn_threshold_ms', 800);
         $response->assertJsonPath('data.recommended_critical_threshold_ms', 2000);
-        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        // The FAKE's canned answer, deliberately not `MonitorRegion::default()`:
+        // this test asserts that a gateway's recommendation is passed through
+        // untouched, so it has to differ from the value the degrade would supply
+        // or it could not tell the two paths apart.
+        $response->assertJsonPath('data.recommended_regions', [MonitorRegion::USEast->value]);
         $response->assertJsonPath('data.name', 'example.com');
         $response->assertJsonPath('data.url', 'https://example.com/health');
     }
@@ -191,7 +196,7 @@ class AnalyzeMonitorControllerTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $response->assertJsonPath('data.recommended_regions', [MonitorRegion::default()->value]);
         $this->assertIsInt($response->json('data.recommended_warn_threshold_ms'));
         $this->assertStringContainsString('budget', strtolower((string) $response->json('data.rationale')));
     }
@@ -213,7 +218,7 @@ class AnalyzeMonitorControllerTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $response->assertJsonPath('data.recommended_regions', [MonitorRegion::default()->value]);
         $this->assertIsInt($response->json('data.recommended_warn_threshold_ms'));
         // And it does not blame the budget: the budget is intact, the model is not.
         $rationale = strtolower((string) $response->json('data.rationale'));
@@ -237,7 +242,7 @@ class AnalyzeMonitorControllerTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $response->assertJsonPath('data.recommended_regions', [MonitorRegion::default()->value]);
         $this->assertStringContainsString(
             'unavailable',
             strtolower((string) $response->json('data.rationale')),
@@ -282,13 +287,76 @@ class AnalyzeMonitorControllerTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $response->assertJsonPath('data.recommended_regions', [MonitorRegion::default()->value]);
         $this->assertStringContainsString(
             'unavailable',
             strtolower((string) $response->json('data.rationale')),
             'a budget that cannot fund a call has to read as an unavailable provider',
         );
         $response->assertJsonPath('data.confidence', 'low');
+    }
+
+    public function test_the_operators_stored_locale_decides_the_metric_label_language(): void
+    {
+        // The wiring, which is the half a unit test cannot reach: the language has
+        // to travel from the `users.locale` COLUMN, through the controller and the
+        // service, into the payload the gateway is handed. Every layer in that
+        // chain defaults to English, so a break anywhere reads as "the model
+        // ignored the instruction" rather than as a missing argument.
+        //
+        // The column and not `Accept-Language`, deliberately: the header is client
+        // state that changes with a browser, and these labels are PERSISTED the
+        // moment the operator accepts a suggestion.
+        $gateway = new class extends LaravelAiMetricDiscoveryGateway
+        {
+            public ?string $language = null;
+
+            protected function rawSelections(MetricDiscoveryPayload $payload): ?array
+            {
+                $this->language = $payload->language;
+
+                // Non-conforming on purpose: the endpoint then degrades to no
+                // suggestions and the assertion below is about the prompt, which
+                // has already been built by the time we get here.
+                return null;
+            }
+        };
+
+        $this->app->instance(LaravelAiMetricDiscoveryGateway::class, $gateway);
+        $this->fakeRelay(MonitorStatus::Up, [], '{"latency_ms": 12.5}');
+        $this->actingAsTeamMember();
+        auth()->user()->forceFill(['locale' => 'tr'])->save();
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ])->assertStatus(200);
+
+        $this->assertSame('Turkish', $gateway->language);
+    }
+
+    public function test_an_unpinned_analyze_probes_from_eu_central_and_says_so(): void
+    {
+        // The one place the wire value is SPELLED OUT. Every other assertion in
+        // this file reads `MonitorRegion::default()`, which keeps them honest
+        // about their own subject but could not catch the default changing, so
+        // this test carries the literal on purpose.
+        //
+        // Two halves, because only together do they mean anything: the probe has
+        // to actually LEAVE from eu-central (read off the transient monitor the
+        // relay was handed), and the answer has to SAY eu-central. A default that
+        // only reached the response would recommend a region the evidence never
+        // came from.
+        $relay = $this->fakeRelay(MonitorStatus::Up);
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame(['eu-central'], $relay->probed?->regions, 'the probe has to leave from the default region');
+        $response->assertJsonPath('data.recommended_regions', ['eu-central']);
+        $response->assertJsonPath('data.probe.region', 'eu-central');
     }
 
     public function test_the_probe_spends_from_the_same_budget_the_model_calls_do(): void
@@ -502,7 +570,7 @@ class AnalyzeMonitorControllerTest extends TestCase
         // An earlier revision asserted `cdn_edge` here and passed, which is what
         // a test pinning a fabrication looks like from the inside.
         $response->assertJsonPath('data.region_basis', 'default');
-        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $response->assertJsonPath('data.recommended_regions', [MonitorRegion::default()->value]);
         $response->assertJsonPath('data.service_class', 'json_api');
     }
 
@@ -531,7 +599,7 @@ class AnalyzeMonitorControllerTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertJsonPath('data.region_basis', 'default');
-        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $response->assertJsonPath('data.recommended_regions', [MonitorRegion::default()->value]);
     }
 
     public function test_both_models_one_analyze_calls_inherit_the_surface_the_deployment_configured(): void
@@ -1273,8 +1341,13 @@ class AnalyzeMonitorControllerTest extends TestCase
             /**
              * @param  array<string, mixed>  $headers
              */
-            public function discover(Monitor $monitor, ?string $body, string $teamId, array $headers = []): array
-            {
+            public function discover(
+                Monitor $monitor,
+                ?string $body,
+                string $teamId,
+                array $headers = [],
+                ?string $locale = null,
+            ): array {
                 return [];
             }
         });
@@ -1304,16 +1377,23 @@ class AnalyzeMonitorControllerTest extends TestCase
             /**
              * @param  array<string, mixed>  $headers
              */
-            public function discover(Monitor $monitor, ?string $body, string $teamId, array $headers = []): array
-            {
+            public function discover(
+                Monitor $monitor,
+                ?string $body,
+                string $teamId,
+                array $headers = [],
+                ?string $locale = null,
+            ): array {
                 if ($body === null || trim($body) === '') {
                     return [];
                 }
 
                 // The headers travel into the candidate extractor exactly as
-                // the real service passes them, so the recorded payload keeps
-                // carrying every digest row the second prompt would see.
-                $this->captured = $this->payload($monitor, $this->extractor->extract($body, $headers));
+                // the real service passes them, and the locale into the payload
+                // exactly as it does, so the recorded payload keeps carrying
+                // every digest row AND the label language the second prompt
+                // would see.
+                $this->captured = $this->payload($monitor, $this->extractor->extract($body, $headers), $locale);
 
                 return [];
             }
