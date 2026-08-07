@@ -231,8 +231,24 @@ return [
     | being handled by Octane. You may set this value to 0 to indicate that
     | there isn't a specific time limit on Octane request execution time.
     |
+    | This is one of FOUR walls a slow request runs into, and they have to stay
+    | in this order or the innermost one never gets to do its job:
+    |
+    |   AI budget (`ai.request_budget_seconds`, 45)
+    |     < Octane, here (90)
+    |     < Cloudflare's origin timeout (~100, not ours to set)
+    |     < the Flutter client (`lib/config/network.dart`, 120)
+    |
+    | It was 30, which is below the AI budget AND below the 30 second probe
+    | timeout `MonitorController::transientMonitor()` sets, so a slow provider on
+    | `POST /monitors/analyze` produced a PHP fatal inside Guzzle's curl handler
+    | and a 500, instead of the graceful degrade to a deterministic suggestion
+    | that the gateway is written to perform on exactly that condition. The
+    | timeout that was supposed to protect the request sat ABOVE the wall that
+    | killed it, so it could never fire. Measured in production on 2026-08-07.
+    |
     */
 
-    'max_execution_time' => 30,
+    'max_execution_time' => (int) env('OCTANE_MAX_EXECUTION_TIME', 90),
 
 ];

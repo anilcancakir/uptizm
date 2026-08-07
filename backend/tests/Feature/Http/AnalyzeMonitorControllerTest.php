@@ -244,6 +244,53 @@ class AnalyzeMonitorControllerTest extends TestCase
         );
     }
 
+    public function test_analyze_degrades_rather_than_starting_a_call_its_budget_cannot_finish(): void
+    {
+        // The production 500 of 2026-08-07, at the level it was visible from.
+        // Analyze makes up to three model calls; each carried a limit at or
+        // above `octane.max_execution_time` (45, 30, and none at all against a
+        // wall of 30), so PHP's fatal always won the race and the endpoint
+        // answered 500 with `Maximum execution time of 30 seconds exceeded`
+        // raised inside Guzzle's curl handler. The degrade below is what the
+        // gateway was always written to do; it simply never got to run.
+        //
+        // WHAT THIS TEST DOES AND DOES NOT PROVE, because two drafts of it were
+        // vacuous and both were caught by deleting the guard and watching it
+        // stay green.
+        //
+        // It proves the user-visible contract: an exhausted budget answers 200
+        // with a deterministic suggestion, never a 500. That is the whole point
+        // of the fix from the operator's side.
+        //
+        // It does NOT prove that the deadline guard is what produced that. No
+        // provider is configured in this harness, so a degrade happens whether
+        // the call was refused before it started or attempted and failed, and
+        // the two are indistinguishable from out here. Distinguishing them would
+        // need the real gateway pointed at a fake slow provider, which is a
+        // harness this suite does not have. The guard itself is pinned at the
+        // unit level instead, in {@see Tests\Unit\Services\Ai\AiDeadlineTest},
+        // where the refusal and the shared spend-down are directly observable.
+        //
+        // A budget under the minimum stands in for "the earlier calls already
+        // spent it", which is the state the third call actually found itself in.
+        $this->fakeRelay(MonitorStatus::Up);
+        config(['ai.request_budget_seconds' => 1, 'ai.minimum_call_seconds' => 8]);
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.recommended_regions', ['us-east']);
+        $this->assertStringContainsString(
+            'unavailable',
+            strtolower((string) $response->json('data.rationale')),
+            'a budget that cannot fund a call has to read as an unavailable provider',
+        );
+        $response->assertJsonPath('data.confidence', 'low');
+    }
+
     public function test_analyze_degrades_when_the_provider_rate_limits_the_application(): void
     {
         // A provider 429 / 402 / 503 does NOT reach us as a client
