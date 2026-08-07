@@ -36,8 +36,8 @@ return [
     ],
 
     /*
-     * How many seconds of PROVIDER WALL TIME one HTTP request may spend across
-     * every model call it makes, not per call.
+     * How many seconds of WALL TIME one analyze may spend on its target and its
+     * model calls together, not per call.
      *
      * Per-call timeouts are not enough here and the difference is what produced
      * a production 500: `POST /monitors/analyze` makes up to THREE model calls
@@ -48,11 +48,22 @@ return [
      * degrades to its deterministic answer, which every one of them already
      * knows how to do.
      *
-     * Keep it BELOW `octane.max_execution_time`, which has the full ordering of
-     * the four walls written on it. Above that value this budget is decorative,
-     * because PHP kills the worker before the timeout can fire.
+     * It was 45, which is EXACTLY the suggestion turn's own ceiling, so a slow
+     * suggestion left zero for the metric-discovery call behind it and the
+     * metrics half of the setup came back empty with only a log line to say why.
+     * 75 funds that ceiling and still leaves 30, comfortably over
+     * `minimum_call_seconds`, so a degraded analysis no longer takes discovery
+     * down with it.
+     *
+     * Raising it was only safe because the clock now starts at the top of the
+     * analyze action rather than at the first prompt, so the target probe (30
+     * seconds of its own) spends from this same number instead of sitting
+     * outside it. Keep that anchor if you touch either value, and keep this
+     * BELOW `octane.max_execution_time`, which carries the full ordering of the
+     * four walls. Above that, the budget is decorative: PHP kills the worker
+     * before any timeout can fire.
      */
-    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 45),
+    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 75),
 
     /*
      * The least time worth starting a model call with. Below this the provider

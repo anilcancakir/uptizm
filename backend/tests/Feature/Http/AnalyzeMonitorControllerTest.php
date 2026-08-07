@@ -291,6 +291,73 @@ class AnalyzeMonitorControllerTest extends TestCase
         $response->assertJsonPath('data.confidence', 'low');
     }
 
+    public function test_the_probe_spends_from_the_same_budget_the_model_calls_do(): void
+    {
+        // The wall arithmetic the budget's SIZE depends on. The probe carries its
+        // own 30 second timeout and runs under the same Octane wall as the model
+        // calls, so a budget anchored at the first prompt would make the worst
+        // case 30 + 75 and put the request back over the 90 second wall that
+        // produced the original 500. Anchored at the action instead, a slow probe
+        // costs the model its own time and the wall holds with one number.
+        //
+        // Two mechanisms currently agree on that anchor and only one of them is
+        // deliberate: `analyze()` restarts the scoped deadline on entry, AND the
+        // analysis gateway resolves the same instance in its own constructor, so
+        // method injection would start the clock at the action either way. The
+        // assertion is therefore on the PROPERTY, and the three seconds burned
+        // before the request are what make it discriminating: they are spent
+        // inside the container's lifetime but outside the unit of work, so a
+        // budget that failed to re-anchor would show them.
+        config(['ai.request_budget_seconds' => 75, 'ai.minimum_call_seconds' => 8]);
+
+        $gateway = new class extends LaravelAiAnalysisGateway
+        {
+            /**
+             * What the budget had left when the suggestion turn asked for it.
+             */
+            public ?int $granted = null;
+
+            protected function rawSuggestion(string $message): ?array
+            {
+                // No ceiling: the raw remainder is the thing under test, and the
+                // real ceiling is private to the parent. Declining to answer
+                // sends the endpoint down its deterministic path with no
+                // provider involved.
+                $this->granted = $this->deadline->secondsForCall();
+
+                return null;
+            }
+        };
+
+        $this->app->instance(AnalysisGateway::class, $gateway);
+        $this->fakeRelay(MonitorStatus::Up, [], null, 1.2);
+        $this->actingAsTeamMember();
+
+        // Time inside the container but before the unit of work. Under Octane
+        // this is the previous request; here it stands in for it.
+        usleep(3_000_000);
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ])->assertStatus(200);
+
+        $this->assertNotNull($gateway->granted, 'the suggestion turn has to have asked the budget for a limit');
+
+        // A RANGE, because the answer is wall time. 73 is 75 less the probe;
+        // failing to re-anchor would show 70 or lower, and never charging the
+        // probe at all would show 75.
+        $this->assertGreaterThanOrEqual(
+            72,
+            $gateway->granted,
+            'work done before the action began must not be charged to the model budget',
+        );
+        $this->assertLessThanOrEqual(
+            73,
+            $gateway->granted,
+            'the probe must be charged to the model budget, or the request wall is probe PLUS budget',
+        );
+    }
+
     public function test_analyze_degrades_when_the_provider_rate_limits_the_application(): void
     {
         // A provider 429 / 402 / 503 does NOT reach us as a client
@@ -1056,12 +1123,19 @@ class AnalyzeMonitorControllerTest extends TestCase
      * "did the credential actually reach the target" is to read what the relay
      * was asked to send.
      *
+     * [$delaySeconds] makes the probe take measurable wall time, which only the
+     * budget-anchoring test needs: everything else wants it instant.
+     *
      * @param  array<string, string>  $headers  RAW response headers, in the target's own
      *                                          casing, exactly as the worker returns them.
      */
-    protected function fakeRelay(MonitorStatus $status, array $headers = [], ?string $content = null): object
-    {
-        $double = new class($status, $headers, $content) extends RelayClient
+    protected function fakeRelay(
+        MonitorStatus $status,
+        array $headers = [],
+        ?string $content = null,
+        float $delaySeconds = 0.0,
+    ): object {
+        $double = new class($status, $headers, $content, $delaySeconds) extends RelayClient
         {
             public ?Monitor $probed = null;
 
@@ -1072,11 +1146,16 @@ class AnalyzeMonitorControllerTest extends TestCase
                 private readonly MonitorStatus $status,
                 private readonly array $headers,
                 private readonly ?string $content,
+                private readonly float $delaySeconds = 0.0,
             ) {}
 
             public function dispatch(Monitor $monitor, string $region): CheckResult
             {
                 $this->probed = $monitor;
+
+                if ($this->delaySeconds > 0) {
+                    usleep((int) round($this->delaySeconds * 1_000_000));
+                }
 
                 return new CheckResult(
                     monitorId: (string) ($monitor->id ?? ''),

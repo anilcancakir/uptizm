@@ -4,6 +4,7 @@ namespace App\Services\Ai;
 
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
+use App\Exceptions\AiBudgetExhaustedException;
 use App\Models\Monitor;
 use App\Models\MonitorMetric;
 use App\Services\Monitoring\MetricCandidateExtractor;
@@ -144,6 +145,20 @@ class MetricDiscoveryService
         // transport failure is logged first so the ops problem stays visible.
         try {
             return $this->gateway->discover($payload);
+        } catch (AiBudgetExhaustedException $exception) {
+            // FIRST, because it extends RuntimeException and the branch below
+            // would otherwise swallow it under a label that describes a
+            // different failure. Nothing was sent, so there is no output to
+            // distrust: the two earlier calls on this request used the wall
+            // clock this one needed. It is an ops signal about the BUDGET
+            // (`ai.request_budget_seconds`) or about a slow provider, not about
+            // the model, and production spent a day reading it as the latter.
+            Log::warning("Metric discovery degraded: the request's AI budget was already spent.", [
+                'monitor_id' => (string) ($monitor->getKey() ?? ''),
+                'exception' => $exception->getMessage(),
+            ]);
+
+            return null;
         } catch (RuntimeException $exception) {
             Log::warning('Metric discovery degraded: the model output could not be trusted.', [
                 'monitor_id' => (string) ($monitor->getKey() ?? ''),
