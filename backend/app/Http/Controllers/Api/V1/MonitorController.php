@@ -67,7 +67,15 @@ class MonitorController extends Controller
      * What the accept now COSTS changed with the async split and the rate has to
      * be read against the new number rather than the old one: the request no
      * longer holds a worker for the model calls, so it returns in well under a
-     * second instead of occupying one for a minute.
+     * second instead of occupying one for a minute. Re-checked against that: the
+     * ~60s wall was an ACCIDENTAL rate limiter (a client waiting on its own
+     * response could only fire near one request a minute), and the 200ms accept
+     * removes it, so the bucket sizes in `bootstrap/app.php` were tightened from
+     * 10/20 to 6 (actor) and 12 (team) per minute. See the comment on that
+     * `RateLimiter::for()` call for the full reasoning; this limiter bounds
+     * SERIAL abuse (repeated live relay probes and AI-budget spends), which is a
+     * different control from {@see self::IN_FLIGHT_LOCK_SECONDS}, which bounds
+     * CONCURRENCY.
      *
      * Unlike {@see self::test()} this cannot be a per-resource cooldown: the
      * target of an analyze is not a monitor yet, so there is no row to claim.

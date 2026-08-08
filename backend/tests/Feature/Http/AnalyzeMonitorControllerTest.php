@@ -897,6 +897,44 @@ class AnalyzeMonitorControllerTest extends TestCase
         );
     }
 
+    /**
+     * THE ACTOR LIMITER'S THRESHOLD IS PINNED, not merely its existence.
+     *
+     * {@see self::test_analyze_is_throttled_per_actor()} already proves a limiter
+     * exists by looping until a 429 appears somewhere in the first 30 attempts;
+     * it does not prove the number is the DOCUMENTED one, so a future edit could
+     * widen `bootstrap/app.php`'s literal from 6 back toward 10 and every test in
+     * this file would still pass. This test posts exactly the pinned count (6, the
+     * `bootstrap/app.php` `RateLimiter::for(MonitorController::ANALYZE_LIMITER)`
+     * actor bucket) and expects 202 for each, then expects the seventh to 429.
+     *
+     * The in-flight lock is released between posts for the same reason it is in
+     * the sibling test above: without the release, the SECOND post would answer
+     * 409 (the lock, a concurrency control) and this test would never reach the
+     * limiter (a rate control) at all, which is a different bug from the one this
+     * test exists to catch. See `evidence/step-07-limiter-red.md` for the measured
+     * red phase.
+     */
+    public function test_analyze_actor_rate_limiter_refuses_the_seventh_post_in_a_minute(): void
+    {
+        $this->fakeRelay(MonitorStatus::Up);
+        // Pro entitles AI analysis outright, so a 403 plan wall can never be
+        // mistaken here for the 429 this test is looking for.
+        $team = $this->actingAsTeamMember('pro');
+
+        for ($attempt = 1; $attempt <= 6; $attempt++) {
+            $this->postJson('/api/v1/monitors/analyze', [
+                'url' => 'https://example.com/health',
+            ])->assertStatus(202);
+
+            $this->releaseInFlightLock((string) $team->id);
+        }
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ])->assertStatus(429);
+    }
+
     public function test_both_models_one_analyze_calls_inherit_the_surface_the_deployment_configured(): void
     {
         // Re-evaluating the config FILE rather than reading the resolved value,
