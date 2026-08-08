@@ -36,15 +36,15 @@ return [
     ],
 
     /*
-     * How many seconds of WALL TIME one analyze may spend on its target and its
-     * model calls together, not per call.
+     * How many seconds of WALL TIME one analyze's MODEL CALLS may spend
+     * together, not per call.
      *
      * Per-call timeouts are not enough here and the difference is what produced
-     * a production 500: `POST /monitors/analyze` makes up to THREE model calls
-     * (the suggestion, the research turn, and metric discovery), so three
-     * comfortable per-call limits still add up past any request-level wall. This
-     * is the shared budget {@see App\Services\Ai\AiDeadline} hands out, and a
-     * call that would start with too little left is not made at all: the caller
+     * a production 500: an analyze makes up to THREE model calls (the
+     * suggestion, the research turn, and metric discovery), so three
+     * comfortable per-call limits still add up past any single wall. This is
+     * the shared budget {@see App\Services\Ai\AiDeadline} hands out, and a call
+     * that would start with too little left is not made at all: the caller
      * degrades to its deterministic answer, which every one of them already
      * knows how to do.
      *
@@ -55,25 +55,43 @@ return [
      * or a degraded analysis takes discovery down with it. That bound is
      * asserted in {@see Tests\Unit\Services\Ai\AiDeadlineTest}.
      *
-     * It was then briefly 75, and 75 is too big. MEASURED in production on
-     * 2026-08-07: a request that spent 36 seconds on the suggestion and 39 on
-     * discovery (`cURL error 28: Operation timed out after 39001 milliseconds`)
-     * answered the operator with a 504, twice. Something between the client and
-     * this worker cuts at 60 seconds and it is NOT any wall we had written down:
+     * It was then briefly 75, and 75 is too big for a request that shares this
+     * number with the target probe. MEASURED in production on 2026-08-07: a
+     * request that spent 36 seconds on the suggestion and 39 on discovery
+     * (`cURL error 28: Operation timed out after 39001 milliseconds`) answered
+     * the operator with a 504, twice. Something between the client and the
+     * worker cut at 60 seconds and it was NOT any wall written down at the time:
      * nginx's `proxy_read_timeout` on the api vhost is 3600 and
-     * `octane.max_execution_time` is 90. The 60 is an observation, its owner is
-     * unidentified, and until it is identified this number is what keeps the
-     * request inside it. A 504 gives the operator nothing at all; a degrade
-     * gives them a working monitor with deterministic values, so the budget is
-     * sized to guarantee the degrade.
+     * `octane.max_execution_time` is 90. That 60 is still unidentified
+     * (`config/octane.php`'s wall list; step 13 of the async-analyze plan chases
+     * it down before the deploy that removes the only reproducer). It was set to
+     * 50 for exactly that reason: sized to guarantee the degrade instead of the
+     * 504, because it shared one clock with `POST /monitors/analyze`'s own HTTP
+     * request.
      *
-     * 50 leaves the worst case around 53 with serialization, under the observed
-     * 60. It only works because the clock starts at the top of the analyze
-     * action rather than at the first prompt, so the target probe (30 seconds of
-     * its own) spends from this same number instead of sitting outside it. Keep
-     * that anchor if you touch either value.
+     * It is 150 now because that constraint is gone. The model calls no longer
+     * run inside the HTTP request at all: they run inside
+     * `App\Jobs\AnalyzeMonitorJob` on its own `analyze` Horizon queue
+     * (`config/horizon.php`), so the wall this number has to clear is not a
+     * proxy or `octane.max_execution_time` any more, it is the JOB's own
+     * `$timeout` (160), which sits under the `analyze` supervisor's `timeout`
+     * (170), which sits under the `redis-analyze` connection's `retry_after`
+     * (200). `AnalyzeQueueConfigTest` pins that whole chain, and
+     * `AiDeadlineTest` pins this value against the supervisor half of it. 150
+     * gives metric discovery real room instead of the sliver 50 left it, and it
+     * can afford to because it now only has to clear its own worker's ceiling
+     * rather than a wall shared with every other request on the box.
+     *
+     * The clock no longer covers the probe either. It used to: the clock started
+     * at the top of `MonitorController::analyze()`, before the probe, so the
+     * probe's own 30 second timeout spent from this same number instead of
+     * sitting outside it and clearing every wall above. The probe stays in the
+     * request now; `AiDeadline::restart()` is called from
+     * `AnalyzeMonitorJob::handle()` on entry instead, so this number funds the
+     * model calls alone. Do not re-anchor it to cover the probe again without
+     * re-deriving the sum against the job's own 160 second ceiling.
      */
-    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 50),
+    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 150),
 
     /*
      * The least time worth starting a model call with. Below this the provider

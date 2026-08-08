@@ -237,26 +237,43 @@ return [
     | had written down turned out to be the binding one, and a number in this
     | sentence would have gone stale rather than the list being wrong.
     |
-    |   AI budget (`ai.request_budget_seconds`, 50)
-    |     < an UNIDENTIFIED proxy wall (60, measured, see below)
+    |   an UNIDENTIFIED proxy wall (60, measured, see below)
     |     < Octane, here (90)
     |     < Cloudflare's origin timeout (~100, not ours to set)
     |     < the Flutter client (`lib/config/network.dart`, 120)
     |
-    | The innermost number covers the probe as well as the model calls, because
-    | `MonitorController::analyze()` starts the budget's clock before probing.
-    | Without that anchor the probe's own 30 second timeout would sit OUTSIDE the
-    | budget and the sum would clear every wall above.
+    | `ai.request_budget_seconds` (150) is no longer part of this chain, and it
+    | is worth saying explicitly because it USED TO be the innermost entry.
+    | `POST /monitors/analyze`'s model calls ran inside this same request, so the
+    | budget had to clear every wall above it. They now run inside
+    | `App\Jobs\AnalyzeMonitorJob` on its own `analyze` Horizon queue, so 150 is
+    | a WORKER bound: it has to clear that job's own `$timeout` (160) under the
+    | `analyze` supervisor's `timeout` (170) under the `redis-analyze`
+    | connection's `retry_after` (200), none of which are on this list.
+    | `AnalyzeQueueConfigTest` pins that chain; `AiDeadlineTest` pins 150 against
+    | the supervisor half of it. It is named here anyway, out of the ordering,
+    | because this comment is the one place the whole picture used to live, and
+    | the next reader chasing the 60 below should learn that the budget moved
+    | rather than assume it vanished.
+    |
+    | The probe moved the other way, in effect: it stays in the request, with
+    | its own 30 second timeout (`MonitorController::transientMonitor()`), so it
+    | no longer shares a clock with the AI budget the way the next paragraph
+    | describes for when it did.
     |
     | This wall, at 90, is NOT the binding one, and believing it was cost an
-    | operator two 504s. Something between the client and this worker cuts at 60
-    | seconds: measured at 60.1 on 2026-08-07, against an api vhost whose
+    | operator two 504s while the AI budget still ran inside this request.
+    | Something between the client and this worker cuts at 60 seconds regardless:
+    | measured at 60.1 on 2026-08-07, against an api vhost whose
     | `proxy_read_timeout` is 3600 and this setting at 90. It is not the
     | Cloudflare line above either: that one is documented at ~100, and its own
     | timeout error is 524 rather than the 504 we measured. So the owner of the 60
-    | is genuinely unknown. It is pinned as an observation with its
-    | evidence in `AiDeadlineTest::OBSERVED_PROXY_WALL_SECONDS`. Identify it before
-    | raising the budget again.
+    | is genuinely unknown, and it still sits on the path of every OTHER request
+    | this server answers even after analyze moved off it. It is pinned as an
+    | observation with its evidence in `AiDeadlineTest::OBSERVED_PROXY_WALL_SECONDS`.
+    | Identify it before trusting this list again; that is step 13 of the
+    | async-analyze plan, run before the deploy that removes the only known
+    | reproducer.
     |
     | It was 30, which is below the AI budget AND below the 30 second probe
     | timeout `MonitorController::transientMonitor()` sets, so a slow provider on
