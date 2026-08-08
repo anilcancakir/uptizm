@@ -34,6 +34,12 @@ return [
     | twice. The 90s floor here keeps a comfortable margin over the 60s timeout;
     | idempotency (ProcessedWebhookEvent) is the second line of defense.
     |
+    | One job outgrew that 90 rather than breaking the invariant: monitor analyze
+    | needs 160 seconds, so it got its own connection ("redis-analyze" below,
+    | retry_after 200) instead of a raise here. The invariant is per connection,
+    | so read it as: no worker may outlive the retry_after of the connection it
+    | names.
+    |
     */
 
     'connections' => [
@@ -76,6 +82,58 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            'block_for' => null,
+            'after_commit' => false,
+        ],
+
+        /*
+        | The analyze queue's own connection, and it exists for exactly ONE
+        | reason: to carry a `retry_after` above the shared 90 the invariant note
+        | at the top of this file governs.
+        |
+        | App\Jobs\AnalyzeMonitorJob is the first job in this repo whose timeout
+        | crosses that 90. It funds up to three model calls plus their
+        | serialization out of `ai.request_budget_seconds` (150), so its own
+        | `$timeout` is 160 and the Horizon supervisor above it is 170. On the
+        | shared `redis` connection Redis would release a still-running analyze
+        | back to the ready list at 90 seconds and a second worker would pick the
+        | SAME run up: two AI spends, two broadcast streams, and two writes into
+        | one run's state. That double-spend is precisely what moving analyze off
+        | the request thread is meant to make structurally impossible, so the
+        | connection is part of the correctness argument and not a tidiness one.
+        |
+        | 200 is the smallest round number above the 170 supervisor timeout. Do
+        | NOT solve this by raising `redis` instead: that connection carries the
+        | customer uptime checks, and a stuck check would then sit 200 seconds
+        | before re-dispatch rather than 90.
+        |
+        | The full chain, pinned by Tests\Unit\AnalyzeQueueConfigTest:
+        | retry_after 200 > supervisor timeout 170 > job $timeout 160 >
+        | ai.request_budget_seconds 150.
+        |
+        | `queue` defaults to `analyze` rather than to `default`, and that
+        | default is load bearing. Both connections point at the same Redis
+        | connection, so the list a job lands in is `queues:{queue}` either way:
+        | an `onConnection('redis-analyze')` that forgot its `onQueue()` would
+        | land in the very same `queues:default` list supervisor-1 drains with a
+        | 60-second timeout, and a 150-second analyze there is killed at 60 with
+        | nothing to show the operator.
+        |
+        | READ THE PRECONDITION, because this value alone does not carry it.
+        | `retry_after` is a property of the CONSUMER's connection config, not of
+        | the Redis list, and both connections share one list namespace. So a
+        | worker that drains `analyze` while naming a different connection gets
+        | that connection's number instead: `composer dev`'s single
+        | `queue:listen` runs on `queue.default` (redis, 90) and would re-run a
+        | >90s analyze once it finished the first pass, and an ad-hoc
+        | `php artisan queue:work --queue=analyze` does the same. Drain this
+        | queue by hand with `--connection=redis-analyze`.
+        */
+        'redis-analyze' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => env('REDIS_ANALYZE_QUEUE', 'analyze'),
+            'retry_after' => (int) env('REDIS_ANALYZE_QUEUE_RETRY_AFTER', 200),
             'block_for' => null,
             'after_commit' => false,
         ],
