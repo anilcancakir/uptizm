@@ -533,10 +533,31 @@ class MonitorCredentialFields extends StatelessWidget {
 // Matches ANALYZE_STEPS and aiMetrics in MonitorCreatePage.tsx.
 // ---------------------------------------------------------------------------
 
-/// Ordered list of status strings shown while the AI probes the endpoint.
+/// Ordered list of status strings shown while the AI analyzes the endpoint.
 ///
 /// A getter (not a `const`) so each step resolves through [trans] at the
-/// current locale. Matches `ANALYZE_STEPS` in MonitorCreatePage.tsx.
+/// current locale.
+///
+/// **THIS LIST IS ONE HALF OF A CROSS-LANGUAGE CONTRACT.** Its POSITION is its
+/// meaning: entry N is the label for ordinal N in `AnalyzeMonitorJob::STEPS`
+/// (`backend/app/Jobs/AnalyzeMonitorJob.php`), which the worker reports on and
+/// `MonitorCreateView` renders one row per. The mapping, in order: the relay
+/// probe (already done inside the accepting request), the body digest that IS
+/// "detecting the monitor type", the response-time detector, the target-location
+/// lookup plus the model call that reads it, and metric discovery. A sixth label
+/// here would render a row the backend never reports on, which the client can
+/// only display as permanently in flight; a fifth removed would silently drop a
+/// step the worker still runs.
+///
+/// The count is PINNED FROM THE BACKEND SIDE, deliberately, because only the
+/// backend knows how many steps there are:
+/// `AnalyzeMonitorJobTest::test_the_step_ordinals_agree_with_the_clients_step_list`
+/// counts the `create_ai_step_` + digit keys in THIS FILE and asserts it equals
+/// `count(AnalyzeMonitorJob::STEPS)`. So the count only ever changes in both
+/// languages at once. Note the mechanism when you edit this docblock: it is a
+/// regex over the whole file, so writing one of those key names in PROSE adds a
+/// phantom step and turns a backend test red for a comment. That is why the
+/// paragraph above spells the prefix without its digit.
 List<String> get kAnalyzeSteps => [
   trans('uptizm.monitors.create_ai_step_1'),
   trans('uptizm.monitors.create_ai_step_2'),

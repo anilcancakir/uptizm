@@ -7,6 +7,8 @@ import 'monitor_form.dart';
 import 'monitor_form_support.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/enums/ai_confidence.dart';
+import '../../../app/support/monitor_types.dart'
+    show AnalyzeFailure, AnalyzeRunProgress, AnalyzeStepState;
 import '../../../ui/components/ai_confidence_badge/index.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 
@@ -29,11 +31,39 @@ enum _AiStep {
   /// The URL prompt + "Analyze with AI" call to action.
   input,
 
-  /// The simulated probe is in flight (the analyze-step list with spinners).
+  /// A real run is in flight: the analyze-step list, each row rendering the
+  /// state the worker reported for that ordinal (see [_AnalyzeRowState]).
   analyzing,
 
   /// The AI-prefilled [MonitorForm] behind the AI summary banner.
   review,
+}
+
+/// How one row of the analyze-step list renders.
+///
+/// FIVE cases for FOUR the operator normally sees. The wire's per-step vocabulary
+/// is terminal only (`done` / `skipped` / `failed`), so [pending] and [running]
+/// are both DERIVED from which ordinals have reported rather than reported
+/// themselves, and [failed] is the transient one: a step that raised also fails
+/// the run, and the flow leaves for the input step with the reason on screen. It
+/// still gets its own case, because a switch that folded it into [done] would
+/// paint a failure as a success for exactly as long as it was visible.
+enum _AnalyzeRowState {
+  /// Nothing has reported this ordinal and it is not the one in flight.
+  pending,
+
+  /// The row after the last terminal tick: the step the worker is on now.
+  running,
+
+  /// The step ran and produced its finding.
+  done,
+
+  /// The step genuinely did not run (no body to digest, no response time to
+  /// detect against, no budget left for the model call).
+  skipped,
+
+  /// The step raised and ended the run.
+  failed,
 }
 
 /// **The Monitor Create screen (`/monitors/new`).**
@@ -47,10 +77,18 @@ enum _AiStep {
 ///
 /// The AI flow is a small state machine over two axes:
 /// - [_CreateMode] (`ai` / `manual`, default `ai`): switching mode always
-///   resets the step to [_AiStep.input] and drops any in-flight analysis.
+///   resets the step to [_AiStep.input] and ABANDONS the run in flight, which is
+///   load-bearing rather than tidy (see [_MonitorCreateViewState._switchMode]).
 /// - [_AiStep] (`input` -> `analyzing` -> `review`, default `input`): only
 ///   meaningful in AI mode. A failed analyze falls back to [_AiStep.input]
-///   with an error toast (surfaced by [MonitorController.analyze] itself).
+///   with a line on the card naming the cause it can actually name.
+///
+/// **The analyze is ASYNCHRONOUS and the step list is not decoration.**
+/// `POST /monitors/analyze` answers 202 and a worker does the model calls, so
+/// [_AiStep.analyzing] can last minutes and every row renders the state the run
+/// reported for its ordinal, `skipped` included. That state arrives on
+/// [MonitorController.analyzeProgress] and this view rebuilds on it; the ordinals
+/// are a contract with the backend, documented on `kAnalyzeSteps`.
 ///
 /// On the review step the [MonitorForm] is pre-filled with the AI's choices and
 /// carries an AI summary banner (the `banner` slot) so the human stays in
@@ -133,6 +171,16 @@ class _MonitorCreateViewState
   /// re-rendered.
   final Set<String> _declinedMetricKeys = <String>{};
 
+  /// Which analyze attempt the pending [_analyze] continuation belongs to.
+  ///
+  /// Bumped on every start AND on every abandon, because the future
+  /// [MonitorController.analyze] hands back settles with `null` for BOTH a real
+  /// failure and an abandoned run, and those two must not look the same on
+  /// screen. Without it, switching to Manual mid-run would drop the operator on
+  /// the input card with "couldn't analyze that URL" for a run they cancelled
+  /// themselves.
+  int _analyzeAttempt = 0;
+
   /// A human-facing error shown on the input card when the last [_analyze]
   /// failed (an unreachable URL, a down relay, a non-2xx). `null` when the
   /// input step has not just bounced back from a failed probe. The controller
@@ -172,11 +220,23 @@ class _MonitorCreateViewState
     return _credential.toWireMap();
   }
 
-  /// Runs the live AI probe: flips to [_AiStep.analyzing], awaits
-  /// [MonitorController.analyze], then flips to [_AiStep.review] pre-filled
-  /// from the response. A failed analyze (the controller already surfaced the
-  /// error toast) falls back to [_AiStep.input] instead of stalling on the
-  /// analyzing step.
+  /// Runs the live AI analyze and owns the whole run, not one request.
+  ///
+  /// **THE ONE CALL IS NO LONGER THE WHOLE OPERATION.** `POST /monitors/analyze`
+  /// answers 202 and a worker does the model calls, so the await below is up to
+  /// four minutes long: it still settles exactly once per operator action (the
+  /// contract [MonitorController.analyze] pins), but the analyzing card has to
+  /// render [MonitorController.analyzeProgress] the whole time it is pending, and
+  /// it does: this state rebuilds on every `refreshUI()` the controller emits, so
+  /// the step rows advance without this method touching them.
+  ///
+  /// What this method still decides is the exit. Four of them:
+  /// - an analysis: flip to [_AiStep.review], prefilled from it;
+  /// - a plan wall: the controller already showed the upgrade dialog, so bounce
+  ///   to the input step silently;
+  /// - a lost run: the run's cache entry is gone (evicted or expired), which is
+  ///   NOT a fault of the target, so it gets its own copy;
+  /// - anything else: the generic analyze-failed line.
   ///
   /// An incomplete credential never leaves the client: it would come back as a
   /// 422 the input card can only report as "check that the URL is reachable",
@@ -192,6 +252,7 @@ class _MonitorCreateViewState
       return;
     }
 
+    final int attempt = ++_analyzeAttempt;
     setState(() {
       _step = _AiStep.analyzing;
       _analyzeError = null;
@@ -201,17 +262,17 @@ class _MonitorCreateViewState
       _url,
       authConfig: authConfig,
     );
-    if (!mounted) return;
+    // Two ways this continuation no longer speaks for the screen, and both are
+    // reachable now that the await spans minutes rather than one request: the
+    // view was disposed, or the run it belongs to was abandoned (switching mode
+    // settles the future with null exactly as a failure does, and reporting a
+    // failure the operator caused by leaving would be a lie).
+    if (!mounted || attempt != _analyzeAttempt) return;
 
     if (result == null) {
       setState(() {
         _step = _AiStep.input;
-        // A plan wall already showed its own upgrade dialog, and the URL is
-        // fine: telling the user to check that it is reachable would be a wrong
-        // diagnosis, so only a real failure gets the input-card error.
-        _analyzeError = controller.lastAnalyzeWasGated
-            ? null
-            : trans('uptizm.monitors.create_ai_analyze_failed');
+        _analyzeError = _analyzeFailureMessage();
       });
       return;
     }
@@ -222,15 +283,53 @@ class _MonitorCreateViewState
     });
   }
 
+  /// The input-card line for a run that produced no analysis, or `null` when the
+  /// operator has already been told why by something else.
+  ///
+  /// A plan wall has shown its own upgrade dialog and the URL is fine, so the
+  /// reachability hint would be a wrong diagnosis. [AnalyzeFailure.lost] is the
+  /// same class of wrongness for a different reason and it is the one this app
+  /// used to get wrong: the run's cache entry was evicted or expired, so the
+  /// target was never the problem and there is nothing to check. Every other
+  /// cause keeps the generic line.
+  String? _analyzeFailureMessage() {
+    if (controller.lastAnalyzeWasGated) return null;
+
+    if (controller.analyzeProgress?.failure == AnalyzeFailure.lost) {
+      return trans('uptizm.monitors.create_ai_analyze_lost');
+    }
+
+    return trans('uptizm.monitors.create_ai_analyze_failed');
+  }
+
   /// Switches the setup mode and resets the AI step to [_AiStep.input],
   /// dropping any previously resolved analysis (React `switchMode`).
+  ///
+  /// It also ABANDONS the run, and that is not tidying: the controller polls the
+  /// run every 2500ms for up to four minutes, so a run nobody is watching keeps
+  /// costing a request until it happens to finish. The attempt bump above it is
+  /// what keeps the abandoned run's own continuation from painting a failure on
+  /// the card the operator just switched to.
   void _switchMode(_CreateMode next) {
+    _analyzeAttempt++;
+    controller.abandonAnalyzeRun();
     setState(() {
       _mode = next;
       _step = _AiStep.input;
       _analysis = null;
       _analyzeError = null;
     });
+  }
+
+  /// Abandons any run still in flight when the screen goes away.
+  ///
+  /// Same reason as [_switchMode]: the poll outlives this widget (it lives on the
+  /// controller, which is a container singleton), so without this an operator who
+  /// navigates away mid-analyze leaves a read going out every 2500ms with nothing
+  /// left to render it.
+  @override
+  void onClose() {
+    controller.abandonAnalyzeRun();
   }
 
   /// Leaves the create flow for the monitors list WITHOUT creating anything
@@ -482,8 +581,13 @@ class _MonitorCreateViewState
   }
 
   /// Builds the AI analyzing step: the same ai-wash card with the "Analyzing
-  /// endpoint…" title, the URL echoed in monospace, and the [kAnalyzeSteps]
-  /// list rendered as spinner rows. React lines 130-150.
+  /// endpoint…" title, the URL echoed in monospace, and one [kAnalyzeSteps] row
+  /// per backend ordinal, each rendering that ordinal's real state.
+  ///
+  /// The rows used to be five identical spinners on nothing but a mounted widget,
+  /// so the card said the same thing whatever the worker was doing and kept
+  /// saying it after the worker had stopped. Now every row is derived from
+  /// [MonitorController.analyzeProgress] ([_analyzeRowState]).
   Widget _buildAiAnalyzing() {
     return _buildAiCard(
       children: [
@@ -509,28 +613,103 @@ class _MonitorCreateViewState
         WDiv(
           className: 'mt-5 flex flex-col gap-3',
           children: [
-            for (final String stepLabel in kAnalyzeSteps)
-              _buildAnalyzeRow(stepLabel),
+            // 1-BASED ORDINALS, and the index is the contract: entry N of
+            // [kAnalyzeSteps] is the label for ordinal N of the backend's
+            // `AnalyzeMonitorJob::STEPS`, which is what the run reports on. See
+            // that getter's docblock for the mapping and for the test that pins
+            // the count from the backend side.
+            for (int ordinal = 1; ordinal <= kAnalyzeSteps.length; ordinal++)
+              _buildAnalyzeRow(ordinal, kAnalyzeSteps[ordinal - 1]),
           ],
         ),
       ],
     );
   }
 
-  /// Builds a single analyze-step row: a spinning `ai`-toned indicator followed
-  /// by the step label.
+  /// The visual state of the analyze row at [ordinal], derived from the run
+  /// [MonitorController.analyzeProgress] publishes.
   ///
-  /// The spinner is a Wind `animate-spin` [WIcon] tinted `text-ai`, mirroring
-  /// the React `<Spinner>` motion without resolving a raw [Color] (token-only).
-  Widget _buildAnalyzeRow(String label) {
+  /// **SKIPPED IS NOT DECORATION, it is the state a naive implementation omits.**
+  /// The worker reports a step `skipped` when it genuinely did not run: there was
+  /// no response body to digest, no response time to detect against, or no budget
+  /// left for the model call. At least one step routinely lands there, so a
+  /// client with only pending/running/done would leave that row spinning on work
+  /// that was never going to happen, for as long as the operator watched.
+  ///
+  /// The derivation reflects the wire's asymmetry, which is deliberate: ticks are
+  /// TERMINAL ONLY (`done` / `skipped` / `failed`), nothing ever reports
+  /// `running`, and the row in flight is the one after the last terminal tick
+  /// ([AnalyzeRunProgress.inFlightStep]). No row can therefore claim to be
+  /// working on its own behalf, which is what makes an eternal spinner
+  /// structurally impossible rather than merely defended against.
+  _AnalyzeRowState _analyzeRowState(int ordinal) {
+    final AnalyzeRunProgress? progress = controller.analyzeProgress;
+    // A null run means the accept itself is still in flight, and the relay probe
+    // runs INSIDE that accepting request, so ordinal 1 is genuinely the one
+    // working. Past the accept the run answers for itself, and a terminal run
+    // answers `null` (nothing is in flight any more).
+    final int? inFlight = progress == null ? 1 : progress.inFlightStep;
+
+    return switch (progress?.stateOf(ordinal)) {
+      AnalyzeStepState.done => _AnalyzeRowState.done,
+      AnalyzeStepState.skipped => _AnalyzeRowState.skipped,
+      AnalyzeStepState.failed => _AnalyzeRowState.failed,
+      null => ordinal == inFlight
+          ? _AnalyzeRowState.running
+          : _AnalyzeRowState.pending,
+    };
+  }
+
+  /// Builds a single analyze-step row: a state glyph followed by the step label,
+  /// and for a skipped step the note that says why nothing happened.
+  ///
+  /// Each of the five states reads differently at a glance AND in words. The
+  /// glyph alone would leave "skipped" and "done" a colour apart, which is
+  /// exactly the distinction an operator has to be able to make: one step
+  /// produced a finding, the other had nothing to produce. The running spinner is
+  /// a Wind `animate-spin` [WIcon] tinted `text-ai`, the same motion the card
+  /// used before any of this state existed; every colour is an alias or status
+  /// token carrying its own `dark:` pair, so no raw [Color] is resolved here.
+  Widget _buildAnalyzeRow(int ordinal, String label) {
+    final _AnalyzeRowState state = _analyzeRowState(ordinal);
+
     return WDiv(
       className: 'flex flex-row items-center gap-3',
       children: [
         WIcon(
-          Icons.autorenew,
-          className: 'size-4 shrink-0 text-ai animate-spin',
+          switch (state) {
+            _AnalyzeRowState.pending => Icons.radio_button_unchecked,
+            _AnalyzeRowState.running => Icons.autorenew,
+            _AnalyzeRowState.done => Icons.check_circle_outline,
+            _AnalyzeRowState.skipped => Icons.remove_circle_outline,
+            _AnalyzeRowState.failed => Icons.error_outline,
+          },
+          className: switch (state) {
+            _AnalyzeRowState.pending => 'size-4 shrink-0 text-fg-disabled',
+            _AnalyzeRowState.running =>
+              'size-4 shrink-0 text-ai animate-spin',
+            _AnalyzeRowState.done => 'size-4 shrink-0 text-up',
+            _AnalyzeRowState.skipped => 'size-4 shrink-0 text-paused',
+            _AnalyzeRowState.failed => 'size-4 shrink-0 text-destructive',
+          },
         ),
-        WText(label, className: 'text-sm text-fg'),
+        WText(
+          label,
+          className: switch (state) {
+            _AnalyzeRowState.pending => 'text-sm text-fg-muted',
+            _AnalyzeRowState.running => 'text-sm text-fg',
+            _AnalyzeRowState.done => 'text-sm text-fg',
+            _AnalyzeRowState.skipped => 'text-sm text-fg-muted',
+            _AnalyzeRowState.failed => 'text-sm text-destructive',
+          },
+        ),
+        // The word, not just the tone: a skipped step is a claim about what the
+        // analysis did NOT do, and a muted glyph is not a claim anybody reads.
+        if (state == _AnalyzeRowState.skipped)
+          WText(
+            trans('uptizm.monitors.create_ai_analyze_skipped_note'),
+            className: 'text-xs text-paused',
+          ),
       ],
     );
   }
@@ -538,10 +717,13 @@ class _MonitorCreateViewState
   /// Builds the AI review step: the [MonitorForm] pre-filled with the AI's
   /// choices, behind the AI summary banner. React lines 152-204.
   ///
-  /// [_analysis] carries the live `POST /monitors/analyze` response by the
-  /// time this step renders (set right before the [_AiStep.review]
-  /// transition); the `_aiName`/default-regions fallbacks only guard against
-  /// a null value defensively, they are never exercised in the wired flow.
+  /// [_analysis] carries the completed run's analysis by the time this step
+  /// renders (set right before the [_AiStep.review] transition, from what
+  /// [MonitorController.analyze] resolved with; a run is only ever reviewed once
+  /// it has completed). Held locally rather than read back off the controller so
+  /// the form under review cannot be blanked by anything that later abandons the
+  /// run. The `_aiName`/default-regions fallbacks only guard against a null value
+  /// defensively, they are never exercised in the wired flow.
   Widget _buildAiReview() {
     final MonitorAnalysis? analysis = _analysis;
     return MonitorForm(

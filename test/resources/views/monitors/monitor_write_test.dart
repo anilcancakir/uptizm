@@ -1123,7 +1123,69 @@ void main() {
   });
 
   group('MonitorCreateView AI review banner (honest rationale)', () {
-    /// Types [url] into the AI input step, taps Analyze, and settles.
+    /// The stubs ONE analyze run needs, now that `POST /monitors/analyze` is a
+    /// 202 accept rather than the answer.
+    ///
+    /// The analysis does not travel in the POST response any more: the accept
+    /// hands back a run id, a worker does the model calls, and [analysis] (the
+    /// old synchronous body, unchanged) arrives under `result.data` on
+    /// `GET /monitors/analyze/{run}`. Every assertion in this group therefore
+    /// still reads the same subject; only the round trip that carries it moved.
+    /// [extra] is for a test that also drives the create.
+    Map<String, MagicResponse> analyzeStubs(
+      Map<String, dynamic> analysis, {
+      Map<String, MagicResponse> extra = const {},
+    }) {
+      return <String, MagicResponse>{
+        // `steps` is a json ARRAY on the accept because PHP encodes an empty
+        // array as one, and an object once an ordinal has reported.
+        'monitors/analyze': Http.response({
+          'data': {
+            'run_id': 'run-1',
+            'status': 'queued',
+            'step': 0,
+            'steps': <dynamic>[],
+            'probe': {
+              'region': 'us-east',
+              'status_code': 200,
+              'response_ms': 120,
+            },
+            'reason': null,
+            'result': null,
+          },
+        }, 202),
+        'monitors/analyze/run-1': Http.response({
+          'data': {
+            'run_id': 'run-1',
+            'status': 'completed',
+            'step': 5,
+            'steps': {
+              '1': 'done',
+              '2': 'done',
+              '3': 'done',
+              '4': 'done',
+              '5': 'done',
+            },
+            'probe': {
+              'region': 'us-east',
+              'status_code': 200,
+              'response_ms': 120,
+            },
+            'reason': null,
+            'result': {'data': analysis, 'meta': null},
+          },
+        }),
+        ...extra,
+      };
+    }
+
+    /// Types [url] into the AI input step, taps Analyze, and settles the whole
+    /// RUN, not just the accept.
+    ///
+    /// The 2600ms is a poll interval plus a tick: the controller reads the run on
+    /// a [Timer] every 2500ms and fake time does not move on its own, so without
+    /// it the screen stays on the analyzing step and every review assertion below
+    /// would read an absent widget.
     Future<void> analyzeUrl(WidgetTester tester, String url) async {
       final Finder urlInput = find.widgetWithText(
         MSInput,
@@ -1137,6 +1199,8 @@ void main() {
           trans('uptizm.monitors.create_ai_analyze_button'),
         ),
       );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 2600));
       await tester.pumpAndSettle();
     }
 
@@ -1149,20 +1213,18 @@ void main() {
         const String sentinelRationale =
             'SENTINEL-RATIONALE: a TCP probe on port 5432, one region, no '
             'JSON body to classify.';
-        Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
-              'url': 'https://api.example.com/health',
-              'name': 'api.example.com',
-              'recommended_interval_seconds': 60,
-              'recommended_warn_threshold_ms': 300,
-              'recommended_critical_threshold_ms': 1000,
-              'recommended_regions': ['us-east'],
-              'rationale': sentinelRationale,
-              'confidence': 'medium',
-            },
+        Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_warn_threshold_ms': 300,
+            'recommended_critical_threshold_ms': 1000,
+            'recommended_regions': ['us-east'],
+            'rationale': sentinelRationale,
+            'confidence': 'medium',
           }),
-        });
+        );
 
         await tester.pumpWidget(
           wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
@@ -1207,20 +1269,18 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1200, 5000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
-              'url': 'https://api.example.com/health',
-              'name': 'api.example.com',
-              'recommended_interval_seconds': 30,
-              'recommended_warn_threshold_ms': 500,
-              'recommended_critical_threshold_ms': 1500,
-              'recommended_regions': ['us-east'],
-              // The degrade path: no model ran, so no narration exists.
-              'rationale': '',
-            },
+        Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 30,
+            'recommended_warn_threshold_ms': 500,
+            'recommended_critical_threshold_ms': 1500,
+            'recommended_regions': ['us-east'],
+            // The degrade path: no model ran, so no narration exists.
+            'rationale': '',
           }),
-        });
+        );
 
         await tester.pumpWidget(
           wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
@@ -1255,19 +1315,17 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1200, 5000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
-              'url': 'https://api.example.com/health',
-              'name': 'api.example.com',
-              'recommended_interval_seconds': 60,
-              'recommended_warn_threshold_ms': 300,
-              'recommended_critical_threshold_ms': 1000,
-              'recommended_regions': ['us-east'],
-              'rationale': 'Stable JSON API.',
-            },
+        Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_warn_threshold_ms': 300,
+            'recommended_critical_threshold_ms': 1000,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
           }),
-        });
+        );
 
         await tester.pumpWidget(
           wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
@@ -1308,17 +1366,15 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1200, 5000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
-              'url': 'https://api.example.com/health',
-              'name': 'api.example.com',
-              'recommended_interval_seconds': 60,
-              'recommended_regions': ['us-east'],
-              'rationale': 'Stable JSON API.',
-            },
+        final fake = Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
           }),
-        });
+        );
 
         await tester.pumpWidget(
           wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
@@ -1348,17 +1404,15 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1200, 5000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
-              'url': 'https://api.example.com/health',
-              'name': 'api.example.com',
-              'recommended_interval_seconds': 60,
-              'recommended_regions': ['us-east'],
-              'rationale': 'Stable JSON API.',
-            },
+        final fake = Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
           }),
-        });
+        );
 
         await tester.pumpWidget(
           wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
@@ -1415,24 +1469,26 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1200, 5000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
+        final fake = Http.fake(
+          analyzeStubs(
+            {
               'url': 'https://api.example.com/health',
               'name': 'api.example.com',
               'recommended_interval_seconds': 60,
               'recommended_regions': ['us-east'],
               'rationale': 'Stable JSON API.',
             },
-          }),
-          'monitors': Http.response({
-            'data': {
-              'id': 'brand-new-id',
-              'name': 'api.example.com',
-              'type': 'http',
+            extra: {
+              'monitors': Http.response({
+                'data': {
+                  'id': 'brand-new-id',
+                  'name': 'api.example.com',
+                  'type': 'http',
+                },
+              }),
             },
-          }),
-        });
+          ),
+        );
 
         // A successful create navigates (`MagicRoute.to`), which throws
         // unless a router is mounted, so the screen is driven through the real
@@ -1541,9 +1597,9 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1200, 5000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final fake = Http.fake({
-        'monitors/analyze': Http.response({
-          'data': {
+      final fake = Http.fake(
+        analyzeStubs(
+          {
             'url': 'https://api.example.com/health',
             'name': 'api.example.com',
             'recommended_interval_seconds': 60,
@@ -1551,11 +1607,17 @@ void main() {
             'rationale': 'Stable JSON API.',
             'suggested_metrics': suggestedMetrics,
           },
-        }),
-        'monitors': Http.response({
-          'data': {'id': 'brand-new-id', 'name': 'api.example.com', 'type': 'http'},
-        }),
-      });
+          extra: {
+            'monitors': Http.response({
+              'data': {
+                'id': 'brand-new-id',
+                'name': 'api.example.com',
+                'type': 'http',
+              },
+            }),
+          },
+        ),
+      );
 
       MagicRouter.reset();
       MagicRoute.page(

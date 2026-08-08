@@ -27,18 +27,22 @@ enum _ReloadTarget {
 /// mounted monitoring controllers whenever the backend broadcasts a change.
 ///
 /// The backend is the sole author of monitoring truth: it broadcasts
-/// `incident.opened`/`incident.resolved`/`monitor.status` on the private
-/// `teams.{teamId}` channel. This service is the thin client half. It mirrors
-/// `AppServiceProvider._syncPollingWithAuthState`'s idempotent auth lifecycle
-/// (safe to call [syncWithAuthState] on every `Auth.stateNotifier` bump) and
-/// adds team-awareness: it re-reads the current team on each sync and moves the
-/// subscription when the team changes.
+/// `incident.opened`/`incident.resolved`/`monitor.status`/`analyze.progress`
+/// on the private `teams.{teamId}` channel. This service is the thin client
+/// half. It mirrors `AppServiceProvider._syncPollingWithAuthState`'s
+/// idempotent auth lifecycle (safe to call [syncWithAuthState] on every
+/// `Auth.stateNotifier` bump) and adds team-awareness: it re-reads the current
+/// team on each sync and moves the subscription when the team changes.
 ///
-/// On any event it schedules a single coalesced (debounced) reload pass over
-/// the monitoring controllers, and it reloads a controller ONLY when it is
-/// already registered in the IoC container, so a background event never
-/// instantiates a screen the user is not viewing. A reload failure is caught
-/// and logged as a documented degradation, never thrown out of the listener.
+/// On the first three events it schedules a single coalesced (debounced)
+/// reload pass over the monitoring controllers, and it reloads a controller
+/// ONLY when it is already registered in the IoC container, so a background
+/// event never instantiates a screen the user is not viewing. A reload
+/// failure is caught and logged as a documented degradation, never thrown out
+/// of the listener. `analyze.progress` diverges: it carries the progress
+/// itself rather than a dirty signal, so it is forwarded straight to
+/// [MonitorController.noteAnalyzeProgress] instead of scheduling a reload; see
+/// [onAnalyzeProgress].
 ///
 /// Reverb has no replay, so any change that fired while the socket was down is
 /// lost from the stream. The service therefore also refetches every registered
@@ -166,11 +170,17 @@ class RealtimeService {
     _leaveCurrentChannel();
     _subscribedTeamId = null;
     await Echo.connect();
+    // Each event name is listened to exactly ONCE here: `listen()` twice for
+    // the same event REPLACES the previous subscription rather than adding a
+    // second one (`ReverbBroadcastChannel.listen`, magic's
+    // `reverb_broadcast_driver.dart:846-847`), so a second registration
+    // anywhere else would silently drop this one.
     final BroadcastChannel channel = Echo.private('teams.$teamId');
     channel
       ..listen('incident.opened', onIncidentEvent)
       ..listen('incident.resolved', onIncidentEvent)
-      ..listen('monitor.status', onMonitorEvent);
+      ..listen('monitor.status', onMonitorEvent)
+      ..listen('analyze.progress', onAnalyzeProgress);
     _channel = channel;
     _subscribedTeamId = teamId;
 
@@ -254,6 +264,28 @@ class RealtimeService {
       _ReloadTarget.dashboard,
       _ReloadTarget.monitor,
     });
+  }
+
+  /// Handles an `analyze.progress` event by forwarding its decoded payload to
+  /// [MonitorController.noteAnalyzeProgress], the run this client started.
+  ///
+  /// Unlike [onIncidentEvent] and [onMonitorEvent], this handler does not mark
+  /// a target dirty for the debounced reload pass: the payload IS the
+  /// progress, and there is nothing to refetch. Forwarding is unconditional
+  /// and unfiltered by design: [MonitorController.noteAnalyzeProgress] is the
+  /// method's OWN authorisation point for a tick (the channel is team-wide, so
+  /// it drops any `run_id` that is not the tracked run, and any `sequence` at
+  /// or below the highest already seen). Re-checking `run_id` here would be a
+  /// second guard on the same outcome: with two filters, deleting either one
+  /// leaves the other still dropping the payload, so the plan's mandated
+  /// foreign-run red phase would stay green over a filter that had actually
+  /// been removed. Guarded on the controller being registered, like the other
+  /// three handlers, so a background event never instantiates a screen the
+  /// user is not viewing.
+  @visibleForTesting
+  void onAnalyzeProgress(BroadcastEvent event) {
+    if (!Magic.isRegistered<MonitorController>()) return;
+    Magic.find<MonitorController>().noteAnalyzeProgress(event.data);
   }
 
   /// Schedules a coalesced reload of every monitoring controller.

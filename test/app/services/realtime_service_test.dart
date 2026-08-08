@@ -28,13 +28,23 @@ class _SpyIncidentController extends IncidentController {
   }
 }
 
-/// Monitor spy: mirrors [_SpyDashboardController] for the monitor target.
+/// Monitor spy: mirrors [_SpyDashboardController] for the monitor target, and
+/// additionally records every `analyze.progress` payload handed to
+/// [MonitorController.noteAnalyzeProgress] so a test can assert the wiring
+/// without exercising the real run-id/sequence filter that method owns (that
+/// filter is step 8's, measured in `evidence/step-08-null-run-red.md`).
 class _SpyMonitorController extends MonitorController {
   int reloadCount = 0;
+  final List<Map<String, dynamic>> notedPayloads = <Map<String, dynamic>>[];
 
   @override
   Future<void> reload() async {
     reloadCount++;
+  }
+
+  @override
+  void noteAnalyzeProgress(Map<String, dynamic> payload) {
+    notedPayloads.add(payload);
   }
 }
 
@@ -71,6 +81,16 @@ void main() {
     event: name,
     channel: 'private-teams.t1',
     data: const <String, dynamic>{},
+    receivedAt: DateTime(2026),
+  );
+
+  /// A synthetic `analyze.progress` event carrying [data], for driving
+  /// [RealtimeService.onAnalyzeProgress] directly (see [event] above for why
+  /// the fake channel cannot push one through the wire).
+  BroadcastEvent progressEvent(Map<String, dynamic> data) => BroadcastEvent(
+    event: 'analyze.progress',
+    channel: 'private-teams.t1',
+    data: data,
     receivedAt: DateTime(2026),
   );
 
@@ -130,6 +150,60 @@ void main() {
       expect(dashboard.reloadCount, 1);
       expect(monitor.reloadCount, 1);
       expect(incident.reloadCount, 0);
+    },
+  );
+
+  test(
+    'an analyze.progress event forwards the decoded payload to the registered '
+    'MonitorController exactly once, and marks nothing dirty',
+    () async {
+      Auth.fake(user: userWithTeam('t1'));
+      final _SpyDashboardController dashboard = _SpyDashboardController();
+      final _SpyIncidentController incident = _SpyIncidentController();
+      final _SpyMonitorController monitor = _SpyMonitorController();
+      Magic.put<DashboardController>(dashboard);
+      Magic.put<IncidentController>(incident);
+      Magic.put<MonitorController>(monitor);
+      final RealtimeService service = RealtimeService(debounce: Duration.zero);
+      await service.syncWithAuthState();
+
+      final Map<String, dynamic> payload = <String, dynamic>{
+        'run_id': 'run-1',
+        'sequence': 3,
+        'step': 2,
+        'state': 'done',
+        'status': 'analyzing',
+      };
+      service.onAnalyzeProgress(progressEvent(payload));
+      await flushDebounce();
+
+      // The wiring forwards the decoded payload untouched, exactly once. The
+      // run-id/sequence filter is `noteAnalyzeProgress`'s own (step 8), so
+      // this test's subject is that the handler reaches it with the data
+      // intact, not that filter.
+      expect(monitor.notedPayloads, <Map<String, dynamic>>[payload]);
+      // Unlike the other three handlers, a progress tick carries the progress
+      // itself, so it never schedules the coalesced reload pass: no target,
+      // including the monitor list, is refetched.
+      expect(dashboard.reloadCount, 0);
+      expect(incident.reloadCount, 0);
+      expect(monitor.reloadCount, 0);
+    },
+  );
+
+  test(
+    'an analyze.progress event never instantiates an unregistered MonitorController',
+    () async {
+      Auth.fake(user: userWithTeam('t1'));
+      final RealtimeService service = RealtimeService(debounce: Duration.zero);
+      await service.syncWithAuthState();
+
+      service.onAnalyzeProgress(
+        progressEvent(const <String, dynamic>{'run_id': 'run-1'}),
+      );
+      await flushDebounce();
+
+      expect(Magic.isRegistered<MonitorController>(), isFalse);
     },
   );
 
