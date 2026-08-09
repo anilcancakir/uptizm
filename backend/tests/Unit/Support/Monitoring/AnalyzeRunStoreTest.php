@@ -120,6 +120,37 @@ class AnalyzeRunStoreTest extends TestCase
         $this->assertNull($run['reason']);
     }
 
+    /**
+     * A COMPLETED run is never downgraded to failed, and the window is real.
+     *
+     * `AnalyzeMonitorJob::handle()` writes `complete()` and then, still inside its
+     * 160-second alarm, broadcasts and releases its lock. A SIGALRM in that window
+     * runs the job's `failed()` hook, which lands in `fail()`. Without the guard
+     * this test measures, `status` became `failed` while the finished `result` sat
+     * underneath it, and the client reads the STATUS: an operator whose analysis
+     * had genuinely succeeded was handed nothing.
+     *
+     * Found by review, not by the suite. Nothing here failed before the fix, which
+     * is why the assertion is written from the operator's side (the result is still
+     * reachable) rather than only from the status.
+     */
+    public function test_a_completed_run_is_never_downgraded_by_a_late_failure(): void
+    {
+        $store = new AnalyzeRunStore;
+        $runId = (string) Str::uuid();
+
+        $store->start($runId, 'team-1', []);
+        $store->complete($runId, ['data' => ['rationale' => 'it worked']]);
+
+        // The worker's own timeout hook, arriving after the result was written.
+        $store->fail($runId, 'stopped');
+
+        $run = $store->find($runId);
+
+        $this->assertSame(AnalyzeRunStatus::Completed->value, $run['status']);
+        $this->assertSame(['rationale' => 'it worked'], $run['result']['data']);
+    }
+
     /** advance()/complete()/fail() against a run that never existed are silent no-ops. */
     public function test_writes_against_an_unknown_run_id_are_silent_no_ops(): void
     {

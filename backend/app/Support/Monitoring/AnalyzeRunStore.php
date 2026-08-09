@@ -173,12 +173,30 @@ class AnalyzeRunStore
      * possibly-null `Throwable` and has nothing to say beyond "it failed".
      * A caller that DOES know why passes it through, so a status page or an
      * operator log line can distinguish a gateway error from a timeout.
+     *
+     * A COMPLETED RUN IS NEVER DOWNGRADED, and the window that makes this
+     * necessary is small, real and reachable. The analyze job (`App\Jobs\
+     * AnalyzeMonitorJob`, named in prose rather than imported: a store that
+     * depended on a job would be the wrong direction, and a `{@see}` with a
+     * fully-qualified name trips Pint's `fully_qualified_strict_types`)
+     * writes {@see complete()} and then, still inside its 160-second alarm,
+     * broadcasts the terminal tick and releases its lock. A SIGALRM in that
+     * window runs the job's `failed()` hook, which lands here, and without this
+     * guard it would overwrite `status` with `failed` while leaving the finished
+     * `result` sitting underneath it. The client reads the status, not the
+     * result, so an operator whose analysis had genuinely succeeded would be
+     * handed nothing at all. Terminal means terminal: the first terminal write
+     * for a run is the one that stands.
      */
     public function fail(string $runId, ?string $reason = null): void
     {
         $run = $this->read($runId);
 
         if ($run === null) {
+            return;
+        }
+
+        if (($run['status'] ?? null) === AnalyzeRunStatus::Completed->value) {
             return;
         }
 

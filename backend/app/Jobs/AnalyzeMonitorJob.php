@@ -473,19 +473,6 @@ class AnalyzeMonitorJob implements ShouldBeEncrypted, ShouldQueue
             $trialsRemaining = $this->spendTrial($gate, $modelled !== null);
 
             $runs->complete($this->runId, $this->resultPayload($result, $suggestedMetrics, $trialsRemaining));
-
-            // 8. One last tick, carrying the COMPLETED status rather than a new
-            //    step. Without it the socket delivers five step ticks and then
-            //    goes quiet, and the client learns the result exists only on
-            //    its next poll, which is the one signal a broadcast-only
-            //    verification pass would have no way to observe.
-            $this->broadcastTick(
-                self::STEP_DISCOVERY,
-                $this->probe->content !== null
-                    ? AnalyzeProgressBroadcast::STATE_DONE
-                    : AnalyzeProgressBroadcast::STATE_SKIPPED,
-                AnalyzeRunStatus::Completed,
-            );
         } catch (Throwable $e) {
             // Record the terminal state, then let the failure out: the queue
             // has to see it to record a failed job, and swallowing it here
@@ -503,6 +490,28 @@ class AnalyzeMonitorJob implements ShouldBeEncrypted, ShouldQueue
             // like a rate limiter nobody configured.
             $this->releaseLock();
         }
+
+        // 8. One last tick, carrying the COMPLETED status rather than a new step.
+        //    Without it the socket delivers five step ticks and then goes quiet,
+        //    and the client learns the result exists only on its next poll, which
+        //    is the one signal a broadcast-only verification pass would have no
+        //    way to observe.
+        //
+        //    OUTSIDE the try, and that placement is the fix for a real defect
+        //    rather than tidiness. Inside it, a throw from this `event()` routed
+        //    into the catch above and flipped a run whose result was already
+        //    written and complete into `failed`, handing the operator nothing.
+        //    `ShouldRescue` does not cover it: that wraps the Redis enqueue only,
+        //    as the event's own docblock says. Out here a broadcast failure costs
+        //    the operator one poll interval instead of the whole analysis, which
+        //    is the right trade for a progress report.
+        $this->broadcastTick(
+            self::STEP_DISCOVERY,
+            $this->probe->content !== null
+                ? AnalyzeProgressBroadcast::STATE_DONE
+                : AnalyzeProgressBroadcast::STATE_SKIPPED,
+            AnalyzeRunStatus::Completed,
+        );
     }
 
     /**
