@@ -455,16 +455,23 @@ class MetricDiscoveryTest extends TestCase
         $response->assertJsonPath('data.suggested_metrics.0.path', $candidate->extractionPath);
     }
 
-    public function test_bounds_ordered_against_the_direction_are_dropped(): void
+    public function test_bounds_ordered_against_the_direction_never_reach_the_wire(): void
     {
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
         $this->archiveVersion($monitor, $this->htmlFixture());
         // high_bad requires warn < critical; the reverse would band every sample
-        // as critical the moment it crossed warn.
+        // as critical the moment it crossed warn, so the gateway clears the pair.
+        //
+        // What ships INSTEAD changed with the derivation rule in (2c): a cleared
+        // pair leaves a numeric metric with no bound, which is the exact state
+        // that made every AI-proposed metric unable to alert, so the observed
+        // reading supplies the pair. The model's own two numbers still never
+        // survive, and that is what this test measures.
+        $requests = $this->candidateWithValue('4200');
         $this->fakeGateway($this->selectionsFor([
             [
-                'ref' => 'c2',
+                'ref' => $requests->ref,
                 'label' => 'Requests served',
                 'type' => 'numeric',
                 'threshold_direction' => ThresholdDirection::HighBad->value,
@@ -476,8 +483,9 @@ class MetricDiscoveryTest extends TestCase
         $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
 
         $response->assertStatus(200);
-        $response->assertJsonPath('data.suggested_metrics.0.warn', null);
-        $response->assertJsonPath('data.suggested_metrics.0.critical', null);
+        // 4200 is the fixture's own reading, so 3x and 6x of it.
+        $this->assertSame(12600.0, (float) $response->json('data.suggested_metrics.0.warn'));
+        $this->assertSame(25200.0, (float) $response->json('data.suggested_metrics.0.critical'));
     }
 
     public function test_consistent_bounds_survive(): void
@@ -784,6 +792,9 @@ class MetricDiscoveryTest extends TestCase
                 'ref' => $this->candidateWithValue('4200')->ref,
                 'label' => 'Requests served',
                 'type' => MetricType::Numeric->value,
+                // Carried because a numeric selection without it is dropped now,
+                // which would make this test pass over an empty list.
+                'threshold_direction' => ThresholdDirection::HighBad->value,
                 'ok_values' => ['4200'],
             ],
         ]));
@@ -808,6 +819,303 @@ class MetricDiscoveryTest extends TestCase
             ]),
             $this->payload(),
         ));
+    }
+
+    // -----------------------------------------------------------------
+    // (2c) The threshold contract: a numeric metric that can alert
+    // -----------------------------------------------------------------
+    //
+    // Measured on a production analyze: nine suggestions came back with correct
+    // Turkish labels, correct JSON paths, and `threshold_direction` null plus
+    // both bounds null on every single one. A numeric metric with no direction
+    // records a reading and can never band it, because
+    // {@see ThresholdEvaluator::band()} needs the side of the range that is bad
+    // before it can compare anything. So the feature looked like it worked and
+    // alerted on nothing, with no error anywhere. Two rules close it: a numeric
+    // selection arrives with its direction or it is dropped, and a bound the
+    // model omitted is anchored to the observed reading.
+
+    public function test_a_numeric_selection_with_no_direction_is_dropped_at_the_gateway(): void
+    {
+        // Asserted at the gateway rather than only through the endpoint, and the
+        // second half is what makes the first mean anything: the identical row
+        // WITH a direction survives, so this measures the direction gate and not
+        // a row that was unacceptable for some other reason.
+        $gateway = $this->fakeGateway(null);
+
+        $directionless = [
+            'ref' => 'c1',
+            'label' => 'Render time',
+            'type' => MetricType::Numeric->value,
+        ];
+
+        $this->assertSame([], $gateway->acceptSelections(
+            $this->selectionsFor([$directionless]),
+            $this->payload(),
+        ));
+        $this->assertCount(1, (array) $gateway->acceptSelections(
+            $this->selectionsFor([
+                $directionless + ['threshold_direction' => ThresholdDirection::HighBad->value],
+            ]),
+            $this->payload(),
+        ));
+    }
+
+    public function test_a_numeric_selection_with_no_direction_never_reaches_the_wire(): void
+    {
+        // The end-to-end half, and the sibling row is deliberate: a STRING
+        // selection with no direction still ships, because nothing but `band()`
+        // reads a direction and a banded string metric goes through
+        // `bandString()` instead. So this measures the drop rather than a
+        // discovery path that happened to yield nothing.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+        $numeric = $this->candidateWithValue('4200');
+        $string = $this->candidateWithValue('120ms');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $numeric->ref,
+                'label' => 'Requests served',
+                'type' => MetricType::Numeric->value,
+            ],
+            [
+                'ref' => $string->ref,
+                'label' => 'Render time',
+                'type' => MetricType::String->value,
+            ],
+        ]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions);
+        $this->assertSame(MetricType::String->value, $suggestions[0]['type']);
+        $this->assertSame($string->extractionPath, $suggestions[0]['path']);
+    }
+
+    public function test_a_bound_the_model_omitted_is_derived_from_the_observed_value(): void
+    {
+        Queue::fake();
+        // The convention is the one {@see AnalyzeMonitorJob} already applies to a
+        // response-time threshold: warn at three times the observed reading,
+        // critical at six.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['latency_ms' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $latency = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $latency->ref,
+                'label' => 'Latency',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(360.0, (float) $suggestion['warn']);
+        $this->assertSame(720.0, (float) $suggestion['critical']);
+
+        // And the derived pair survives the write endpoint, which is the half a
+        // suggestion-only assertion cannot prove: `validateBulkBoundOrder` 422s a
+        // pair ordered against its own direction, and under the all-or-nothing
+        // create it would take the whole monitor with it.
+        $this->postJson('/api/v1/monitors', [
+            ...$this->monitorPayload(),
+            'metrics' => [$this->asMetricRow($suggestion)],
+        ])->assertStatus(201);
+
+        $metric = MonitorMetric::query()->where('team_id', $team->id)->sole();
+        $this->assertSame(360.0, (float) $metric->warn_bound);
+        $this->assertSame(720.0, (float) $metric->critical_bound);
+    }
+
+    public function test_a_model_supplied_bound_outranks_the_derived_one(): void
+    {
+        // Derivation is a fallback, never a correction. The model may have read
+        // the service's own documented budget; the observation is only the one
+        // reading this backend happens to hold.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['latency_ms' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $latency = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $latency->ref,
+                'label' => 'Latency',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn' => 400,
+                'critical' => 900,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(400.0, (float) $suggestion['warn']);
+        $this->assertSame(900.0, (float) $suggestion['critical']);
+    }
+
+    public function test_only_the_bound_the_model_omitted_is_derived(): void
+    {
+        // The mixed answer, and the ordinary one: a model that knows the failing
+        // bound and not the degraded one keeps its own critical and is given a
+        // warn.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['latency_ms' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $latency = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $latency->ref,
+                'label' => 'Latency',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'critical' => 900,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(360.0, (float) $suggestion['warn']);
+        $this->assertSame(900.0, (float) $suggestion['critical']);
+    }
+
+    public function test_a_low_bad_direction_inverts_the_derived_factors(): void
+    {
+        // Lower is worse (free disk, a remaining quota), so the same 3 and 6
+        // divide instead of multiplying. A bound ABOVE the observed reading would
+        // band the very first check as critical.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['free_disk_gb' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $disk = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $disk->ref,
+                'label' => 'Free disk',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::LowBad->value,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(40.0, (float) $suggestion['warn']);
+        $this->assertSame(20.0, (float) $suggestion['critical']);
+    }
+
+    public function test_a_zero_observed_value_derives_no_bounds_and_keeps_the_suggestion(): void
+    {
+        // Zero multiplies and divides to itself, so the derived pair would be 0
+        // and 0: `ThresholdDirection::validateBounds()` refuses it (warn has to
+        // sit strictly below critical) and the write endpoint would 422 it. The
+        // suggestion still ships, because a direction with no bound is a form the
+        // operator can finish, and this is the guard that keeps the multiply from
+        // inventing a pair it cannot stand behind.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['error_count' => 0]);
+        $this->archiveVersion($monitor, $body);
+        $errors = $this->candidateIn($body, '0');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $errors->ref,
+                'label' => 'Errors',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+            ],
+        ]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions, 'a bound that cannot be derived is not a reason to drop the metric');
+        $this->assertSame(ThresholdDirection::HighBad->value, $suggestions[0]['threshold_direction']);
+        $this->assertNull($suggestions[0]['warn']);
+        $this->assertNull($suggestions[0]['critical']);
+    }
+
+    public function test_a_negative_observed_value_derives_no_bound_beside_a_model_supplied_one(): void
+    {
+        // A negative reading with the model supplying the OTHER bound, and the
+        // pairing is the whole point: -50 x 3 is -150, which sits BELOW a
+        // model-supplied critical of 900, so the ordering check has no objection
+        // and would let it through. The metric would then warn on its very first
+        // check, at a bound 150 units below the reading it was derived from. Only
+        // the "the anchor has to be a positive reading" guard catches this one, so
+        // it is measured on its own rather than through a case the ordering check
+        // also happens to refuse.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['clock_drift' => -50]);
+        $this->archiveVersion($monitor, $body);
+        $drift = $this->candidateIn($body, '-50');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $drift->ref,
+                'label' => 'Clock drift',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'critical' => 900,
+            ],
+        ]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions);
+        $this->assertNull($suggestions[0]['warn'], 'a bound below the reading it came from is not a suggestion');
+        $this->assertSame(900.0, (float) $suggestions[0]['critical']);
+    }
+
+    public function test_a_derived_bound_that_would_invert_a_model_supplied_pair_is_given_up(): void
+    {
+        // The ordering check's own case, reachable with a perfectly ordinary
+        // reading: the model quotes a warn of 5000 over an observed 120, so a
+        // derived critical of 720 lands BELOW it. `validateBulkBoundOrder` 422s
+        // that pair on the bulk create the operator kicked off by accepting the
+        // suggestion, and under all-or-nothing it takes the whole monitor with it.
+        // The model's own bound is kept and only the derived half is given up.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['latency_ms' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $latency = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $latency->ref,
+                'label' => 'Latency',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn' => 5000,
+            ],
+        ]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions);
+        $this->assertSame(5000.0, (float) $suggestions[0]['warn']);
+        $this->assertNull($suggestions[0]['critical']);
     }
 
     // -----------------------------------------------------------------
@@ -1420,6 +1728,11 @@ class MetricDiscoveryTest extends TestCase
     /**
      * One well-formed selection row, as a conforming model would answer.
      *
+     * A NUMERIC row carries a `threshold_direction` whether the caller named one
+     * or not, because that is what well-formed means since the gateway started
+     * dropping a directionless numeric selection. The tests that measure the drop
+     * build their row literally instead, so this default cannot hide it.
+     *
      * @return array<string, mixed>
      */
     protected function selection(
@@ -1427,6 +1740,7 @@ class MetricDiscoveryTest extends TestCase
         string $label = 'Render time',
         MetricType $type = MetricType::String,
         ?MetricUnit $unit = null,
+        ?ThresholdDirection $direction = null,
     ): array {
         $row = [
             'ref' => $ref,
@@ -1436,6 +1750,10 @@ class MetricDiscoveryTest extends TestCase
 
         if ($unit !== null) {
             $row['unit'] = $unit->value;
+        }
+
+        if ($type === MetricType::Numeric) {
+            $row['threshold_direction'] = ($direction ?? ThresholdDirection::HighBad)->value;
         }
 
         return $row;

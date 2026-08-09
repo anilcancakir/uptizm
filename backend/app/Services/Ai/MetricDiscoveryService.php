@@ -4,7 +4,9 @@ namespace App\Services\Ai;
 
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
+use App\Enums\ThresholdDirection;
 use App\Exceptions\AiBudgetExhaustedException;
+use App\Jobs\AnalyzeMonitorJob;
 use App\Models\Monitor;
 use App\Models\MonitorMetric;
 use App\Services\Monitoring\MetricCandidateExtractor;
@@ -33,7 +35,7 @@ use RuntimeException;
  * nothing it said supplies the machine `key` either: that is slugged from the
  * sanitized label and made unique per monitor here.
  *
- * Three more corrections live here because only this class holds the candidate,
+ * Four more corrections live here because only this class holds the candidate,
  * and therefore the OBSERVED sample the gateway never sees:
  *
  * - A selection whose type is not in that candidate's `eligibleTypes` is
@@ -46,6 +48,9 @@ use RuntimeException;
  *   credential and a metric records its path on every check, forever.
  * - Its string bands are corrected against the observation and against each
  *   other ({@see self::bandsFor()}).
+ * - A numeric bound the model left out is anchored to the observed reading
+ *   ({@see self::boundsFor()}), because a metric with a direction and no bound
+ *   bands nothing either.
  *
  * Degradation mirrors {@see IncidentAnalysisService}: over budget, an
  * unreachable provider, or output the gateway refuses past its retry all return
@@ -65,6 +70,21 @@ class MetricDiscoveryService
      * in a script `Str::slug()` transliterates away.
      */
     protected const string KEY_FALLBACK = 'metric';
+
+    /**
+     * How far from the observed reading a DERIVED warn bound sits, and its
+     * critical sibling below.
+     *
+     * Not new numbers: {@see AnalyzeMonitorJob::deterministicSuggestion()}
+     * already anchors a response-time threshold at three and six times the
+     * probe's own reading, and one convention across both surfaces is worth more
+     * than a second one tuned here. They MULTIPLY under `high_bad` and DIVIDE
+     * under `low_bad`, so the bad side is always the far one
+     * ({@see self::derivedBound()}).
+     */
+    protected const int WARN_MULTIPLIER = 3;
+
+    protected const int CRITICAL_MULTIPLIER = 6;
 
     public function __construct(
         protected MetricCandidateExtractor $extractor,
@@ -275,6 +295,7 @@ class MetricDiscoveryService
 
             $key = $this->uniqueKey($selection['label'], $takenKeys);
             $bands = $this->bandsFor($candidate, $selection);
+            $bounds = $this->boundsFor($candidate, $selection);
 
             // 4. Refuse a banded selection that would report the observation as
             //    healthy after correction. See bandsFor()'s docblock; the key
@@ -314,8 +335,12 @@ class MetricDiscoveryService
                 // simply never put on the wire, which is a failure with no
                 // error attached to it anywhere.
                 'threshold_direction' => $selection['thresholdDirection']?->value,
-                'warn' => $selection['warnBound'],
-                'critical' => $selection['criticalBound'],
+                // Anchored to the observed reading wherever the model supplied
+                // no bound, because a direction on its own bands nothing either:
+                // `ThresholdEvaluator::band()` compares against a bound, and a
+                // null one is never crossed. See boundsFor().
+                'warn' => $bounds['warn'],
+                'critical' => $bounds['critical'],
                 // The string bands travel under their COLUMN names, unlike
                 // `path` / `warn` / `critical` above: there is no Flutter form
                 // vocabulary for a value list, so the client passes these three
@@ -406,6 +431,112 @@ class MetricDiscoveryService
         }
 
         return $bands;
+    }
+
+    /**
+     * The numeric bounds an accepted selection ships with: the model's own
+     * wherever it supplied one, and a bound anchored to the OBSERVED reading
+     * wherever it did not.
+     *
+     * The gateway already refuses a numeric selection with no direction, which
+     * leaves the other half of the same defect: a direction with no bound bands
+     * nothing either, because {@see ThresholdEvaluator::band()} compares a
+     * reading against a bound and a null bound is never crossed. A model that
+     * has no documented budget to quote cannot honestly supply one, so the
+     * observation does, under the convention this codebase already applies to a
+     * response-time threshold in {@see AnalyzeMonitorJob::deterministicSuggestion()}:
+     * warn at {@see self::WARN_MULTIPLIER} times the reading, critical at
+     * {@see self::CRITICAL_MULTIPLIER}.
+     *
+     * Three properties are load-bearing:
+     *
+     *   - A model-supplied bound always wins, per bound and not per pair. The
+     *     model may have read the service's own documentation; the observation is
+     *     only the one reading this backend happens to hold.
+     *   - `low_bad` DIVIDES by the same two factors. A bound above the reading on
+     *     a metric where lower is worse would band the very first check.
+     *   - The pair has to satisfy {@see ThresholdDirection::validateBounds()} or
+     *     nothing is derived, and it is a reachable case rather than a
+     *     formality: a reading of 0 multiplies and divides to itself (an equal
+     *     pair, which the write endpoint 422s), and a negative reading inverts
+     *     the pair. A metric with a direction and no bound still ships, because
+     *     that is a form the operator can finish.
+     *
+     * @param  array{
+     *     type: MetricType,
+     *     thresholdDirection: ThresholdDirection|null,
+     *     warnBound: float|null,
+     *     criticalBound: float|null,
+     * }  $selection
+     * @return array{warn: float|null, critical: float|null}
+     */
+    protected function boundsFor(MetricCandidate $candidate, array $selection): array
+    {
+        $submitted = [
+            'warn' => $selection['warnBound'],
+            'critical' => $selection['criticalBound'],
+        ];
+        $direction = $selection['thresholdDirection'];
+
+        // 1. Only a numeric metric with a direction has anything to derive. The
+        //    gateway clears bounds on every other type, and nothing else reads a
+        //    direction. There is deliberately no second early return for the pair
+        //    the model supplied WHOLE: the `??` below is what keeps its bounds,
+        //    and a branch that skips work the `??` already does is a guard no test
+        //    can tell apart from its absence.
+        if ($selection['type'] !== MetricType::Numeric || $direction === null) {
+            return $submitted;
+        }
+
+        // 2. The reading the check path will actually record, which is the only
+        //    number a bound may be anchored to.
+        $observed = $this->observedNumber($candidate);
+        if ($observed === null || $observed <= 0) {
+            return $submitted;
+        }
+
+        $derived = [
+            'warn' => $submitted['warn'] ?? $this->derivedBound($observed, $direction, self::WARN_MULTIPLIER),
+            'critical' => $submitted['critical']
+                ?? $this->derivedBound($observed, $direction, self::CRITICAL_MULTIPLIER),
+        ];
+
+        // 3. A pair the direction's own ordering refuses is not a suggestion: it
+        //    is a 422 on the bulk create the operator kicked off by accepting it.
+        //    The model's half is kept and only the derived half is given up.
+        return $direction->validateBounds($derived['warn'], $derived['critical']) ? $derived : $submitted;
+    }
+
+    /**
+     * One bound `$multiplier` steps away from the observed reading, on the side
+     * the direction calls bad.
+     */
+    protected function derivedBound(float $observed, ThresholdDirection $direction, int $multiplier): float
+    {
+        return match ($direction) {
+            ThresholdDirection::HighBad => $observed * $multiplier,
+            ThresholdDirection::LowBad => $observed / $multiplier,
+        };
+    }
+
+    /**
+     * The number the check path will record for this candidate, or null when its
+     * sample does not reduce to one.
+     *
+     * {@see MetricExtractor::splitUnit()} is what makes the two agree: a `120ms`
+     * sample records `120` at check time, so a bound derived from anything else
+     * would be expressed in a unit the recorded number is not. A candidate whose
+     * sample reduces to no number cannot be `MetricType::Numeric` in the first
+     * place (it never reaches `eligibleTypes`), so null is unreachable through
+     * this class today; it is checked rather than asserted because the two rules
+     * live in different files and only one of them is this one.
+     */
+    protected function observedNumber(MetricCandidate $candidate): ?float
+    {
+        $split = MetricExtractor::splitUnit($candidate->sampleValue);
+        $value = $split === null ? trim($candidate->sampleValue) : $split[0];
+
+        return is_numeric($value) ? (float) $value : null;
     }
 
     /**
