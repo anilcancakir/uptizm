@@ -130,19 +130,27 @@ class AiDeadlineTest extends TestCase
      * The shortest wall between the operator and this worker, measured rather
      * than configured.
      *
-     * Nothing we own cuts here on the request side any more: nginx's
-     * `proxy_read_timeout` on the api vhost is 3600 and
-     * `octane.max_execution_time` is 90, and neither one runs this budget's
-     * clock now that the model calls live inside `App\Jobs\AnalyzeMonitorJob`
-     * on the `analyze` Horizon queue instead of inside `POST /monitors/analyze`
-     * itself. Yet a 75-second analyze answered 504 twice in production on
-     * 2026-08-07, back when it DID run inside that request, and a direct
-     * measurement came back at 60.1 seconds. The owner is still unidentified,
-     * so the number stays here as an observation with its evidence attached
-     * rather than in config as if it were ours to set; `config/octane.php`'s
-     * wall list carries it for the same reason, and step 13 of the
-     * async-analyze plan is what chases it down before the deploy that removes
-     * the only reproducer.
+     * IDENTIFIED 2026-08-09, and kept as a constant because the number is the
+     * cheapest reminder of how it was missed.
+     *
+     * A 75-second analyze answered an operator 504 twice on 2026-08-07, back when
+     * the model calls still ran inside `POST /monitors/analyze`, and a direct
+     * measurement cut at 60.1 seconds. It was OURS: the api vhost's `location /`
+     * proxies to Octane and declared no `proxy_read_timeout`, so it inherited
+     * nginx's DEFAULT of 60. Now 125 in `deploy/vhost-uptizm.com.conf` and on the
+     * box.
+     *
+     * Why it took a day: grepping the vhost for timeout directives returns 3600
+     * and 720 and no 60, so nginx was eliminated. The 3600 belongs to the Reverb
+     * WebSocket block above `location /`, and the `http` context sets nothing. A
+     * DEFAULT does not appear in a grep, and its absence was read as "a high value
+     * is set here". This budget was then sized around a wall believed to belong to
+     * somebody else.
+     *
+     * The constant stays at 60 rather than moving to 125 on purpose: it is not a
+     * live bound any more (this budget runs on a worker, so the assertions below
+     * measure against the analyze supervisor's timeout instead), it is the
+     * historical figure the reasoning hangs on.
      */
     private const int OBSERVED_PROXY_WALL_SECONDS = 60;
 
