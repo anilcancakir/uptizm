@@ -59,15 +59,17 @@ return [
      * number with the target probe. MEASURED in production on 2026-08-07: a
      * request that spent 36 seconds on the suggestion and 39 on discovery
      * (`cURL error 28: Operation timed out after 39001 milliseconds`) answered
-     * the operator with a 504, twice. Something between the client and the
-     * worker cut at 60 seconds and it was NOT any wall written down at the time:
-     * nginx's `proxy_read_timeout` on the api vhost is 3600 and
-     * `octane.max_execution_time` is 90. That 60 is still unidentified
-     * (`config/octane.php`'s wall list; step 13 of the async-analyze plan chases
-     * it down before the deploy that removes the only reproducer). It was set to
-     * 50 for exactly that reason: sized to guarantee the degrade instead of the
-     * 504, because it shared one clock with `POST /monitors/analyze`'s own HTTP
-     * request.
+     * the operator with a 504, twice. Something cut at 60 seconds and it was NOT
+     * any wall written down at the time, so this number was set to 50 to
+     * guarantee the degrade instead of the 504, back when it shared one clock
+     * with `POST /monitors/analyze`'s own HTTP request.
+     *
+     * That 60 IS identified now, and it was ours: the api vhost's `location /`
+     * proxies to Octane and declared no `proxy_read_timeout`, so it inherited
+     * nginx's DEFAULT of 60. The 3600 the hunt kept finding belongs to the Reverb
+     * WebSocket block above it. Fixed to 125 in `deploy/vhost-uptizm.com.conf`
+     * and on the box; `config/octane.php`'s wall list carries the full account,
+     * including why a grep for timeout directives could not see it.
      *
      * It is 150 now because that constraint is gone. The model calls no longer
      * run inside the HTTP request at all: they run inside

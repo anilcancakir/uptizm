@@ -256,8 +256,12 @@ class AnalyzeRunProgress {
   /// This progress with one broadcast tick folded in.
   ///
   /// [state] is null for a tick this client does not record (see
-  /// [analyzeStepStateFromWire]); the ordinal is still taken, because the
-  /// backend reporting on step 4 is itself evidence that steps 1 to 3 are done.
+  /// [analyzeStepStateFromWire]). The ordinal is still taken, so the row the view
+  /// shows as in flight moves forward; the earlier steps are NOT back-filled as
+  /// done, and this comment used to imply they were. Nothing needs them to be:
+  /// [inFlightStep] is derived from the ordinal alone, and the poll that follows
+  /// a tick rewrites the whole state map from the store anyway, which is where a
+  /// missed step's real state comes from.
   ///
   /// [failure] is deliberately NOT derived here. A broadcast carries no reason
   /// (the payload is bounded by Reverb's 10,000-byte inbound ceiling), and

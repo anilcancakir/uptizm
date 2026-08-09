@@ -295,6 +295,14 @@ class _MonitorCreateViewState
   String? _analyzeFailureMessage() {
     if (controller.lastAnalyzeWasGated) return null;
 
+    // NO RUN AT ALL means the request was refused before one existed, and the
+    // reachability hint is a wrong diagnosis for every member of that class. The
+    // one that actually happens is a 409, when a teammate's analyze is already in
+    // flight: the target is fine, and the controller has already shown the real
+    // reason as a toast. Saying "check the URL is reachable" underneath it would
+    // contradict the toast on the same screen.
+    if (controller.analyzeProgress == null) return null;
+
     if (controller.analyzeProgress?.failure == AnalyzeFailure.lost) {
       return trans('uptizm.monitors.create_ai_analyze_lost');
     }
