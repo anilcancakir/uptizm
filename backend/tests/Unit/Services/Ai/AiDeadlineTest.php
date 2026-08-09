@@ -126,6 +126,46 @@ class AiDeadlineTest extends TestCase
         );
     }
 
+    public function test_the_answer_turn_is_not_funded_worse_than_the_enrichment_behind_it(): void
+    {
+        // The third production symptom, measured 2026-08-09 at 22:43 and 22:46
+        // UTC: two analyzes came back with the deterministic baseline and
+        // `the AI service was unreachable`, on runs where metric discovery
+        // answered with nine correct metrics. Horizon's retained records put step
+        // 4 at 38.17s and 39.09s against the suggestion turn's 40 second ceiling,
+        // and the whole job at 57.68s and 75.10s against a 150 second budget. So
+        // the shared budget was never close; the ANSWER turn was the only one of
+        // the three wearing a tight per-call ceiling, and it wore the tightest
+        // one of all.
+        //
+        // The bound is a PRIORITY ordering, not a measurement, which is what
+        // makes it assertable at all. Of the three calls, the suggestion is the
+        // answer: without it the operator gets a deterministic prefill, a
+        // `default` region basis and a `low` confidence grade. Research is
+        // declared optional by its own gateway ("a suggestion without research is
+        // still a suggestion") and metric discovery degrades to an empty array on
+        // its own. So the answer must not be granted less wall time than the
+        // enrichment that runs behind it can spend, and that remainder is what
+        // `secondsForCall()` with no ceiling hands metric discovery.
+        //
+        // Both ceilings are read by reflection for the reason the test above
+        // states: a literal here would agree with the very edit that reintroduces
+        // the inversion.
+        $gateway = new ReflectionClass(LaravelAiAnalysisGateway::class);
+
+        $suggestion = $gateway->getConstant('SUGGESTION_TIMEOUT_SECONDS');
+        $research = $gateway->getConstant('RESEARCH_TIMEOUT_SECONDS');
+
+        $this->assertIsInt($suggestion, 'the suggestion ceiling has to exist for this bound to mean anything');
+        $this->assertIsInt($research, 'the research ceiling has to exist for this bound to mean anything');
+
+        $this->assertGreaterThanOrEqual(
+            (int) config('ai.request_budget_seconds') - $research - $suggestion,
+            $suggestion,
+            'metric discovery may spend more of the budget than the suggestion it enriches',
+        );
+    }
+
     /**
      * The shortest wall between the operator and this worker, measured rather
      * than configured.

@@ -138,17 +138,52 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
     /**
      * Seconds the suggestion turn may take.
      *
-     * Explicit rather than the package's 60-second default, because two turns
-     * now run inside one synchronous request and the operator is waiting on
-     * both.
+     * Explicit rather than the package's 60-second default, because up to three
+     * model calls share one budget and the operator is waiting on all of them.
      *
-     * Lowered from 45 to fit under the 60-second wall documented at
-     * `ai.request_budget_seconds`: that budget has to exceed this ceiling by at
-     * least `ai.minimum_call_seconds` or metric discovery behind this turn never
-     * starts, and the budget itself has to stay under 60 or the operator gets a
-     * 504 instead of a degrade. 40 and 50 are the pair that satisfies both.
+     * IT WAS 40, AND 40 IS WHAT CUT THE ANSWER TURN IN PRODUCTION. Measured on
+     * 2026-08-09 at 22:43 and 22:46 UTC, from Horizon's retained job records and
+     * the run's own progress ticks: two analyzes reported step 4 at 38.17 and
+     * 39.09 seconds and then degraded to the deterministic baseline, while the
+     * whole job took 57.68 and 75.10 seconds of a 150 second budget and metric
+     * discovery behind it answered on both runs, in 18.09 and 33.73 seconds. Two
+     * different targets, two runs three minutes apart, both stopping at the same
+     * elapsed time: that is a fixed wall and this was the only one in range. Our
+     * own HTTP client hung up, which {@see App\Jobs\AnalyzeMonitorJob} then
+     * reported as the provider being unreachable.
+     *
+     * The 40 was derived against two constraints that no longer exist. Its own
+     * previous wording says so: "the budget itself has to stay under 60 or the
+     * operator gets a 504", from when these calls ran inside
+     * `POST /monitors/analyze` under an nginx `proxy_read_timeout` that defaulted
+     * to 60. The calls now run in `AnalyzeMonitorJob` on the `analyze` queue, so
+     * the wall above them is that job's own `$timeout` (160) under a supervisor
+     * at 170, and the budget is 150 rather than 50.
+     *
+     * 70 partitions the budget instead of inheriting a dead number:
+     * 30 (the research ceiling) + 70 (this) + 50 left for metric discovery = 150.
+     * The 50 is sized off the slowest COMPLETED call measured against this
+     * account, 33.73 seconds above and 33.8 seconds in an earlier live pass; the
+     * variance is a routing artifact, since DeepSeek V4 Flash is served by a
+     * dozen OpenRouter providers and an unpinned request inherits whichever it
+     * lands on. Two bounds in {@see Tests\Unit\Services\Ai\AiDeadlineTest} hold
+     * the partition: the budget must fund this ceiling and still start discovery,
+     * and this ceiling must not be smaller than the remainder discovery may
+     * spend, because this turn is the answer and discovery is an enrichment that
+     * degrades to an empty array on its own.
+     *
+     * What this number CANNOT do is prove itself. Both observations above were
+     * truncated at 40, so how long the suggestion turn actually needs is still
+     * unmeasured, and only a live run answers it. The instrument is the degrade
+     * line in {@see App\Jobs\AnalyzeMonitorJob::suggestViaGateway()}, which now
+     * names a timeout as a timeout and records how much of the budget was spent
+     * when it fired. Pinning the provider is the fix for the variance itself and
+     * is not attempted here: this class already implements
+     * {@see HasProviderOptions}, so `['provider' => ['order' => [...]]]` is a
+     * one-line addition, but which providers to trust is a cost and data-residency
+     * decision rather than a timeout.
      */
-    private const int SUGGESTION_TIMEOUT_SECONDS = 40;
+    private const int SUGGESTION_TIMEOUT_SECONDS = 70;
 
     /**
      * Seconds the research turn may take.
