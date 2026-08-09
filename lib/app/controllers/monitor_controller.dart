@@ -1015,15 +1015,25 @@ class MonitorController extends MagicController
       // controller has stopped tracking. `abandonAnalyzeRun()` above cannot
       // cover it, because the other call creates its completer after that ran.
       _settleAnalyze(null);
-      _analyzeCompleter = Completer<MonitorAnalysis?>();
+      final Completer<MonitorAnalysis?> completer =
+          Completer<MonitorAnalysis?>();
+      _analyzeCompleter = completer;
+
+      // The local is not style, it is the fix for a crash on the terminal path.
+      // [_publishAnalyzeProgress] settles the completer when the run is already
+      // terminal, and settling nulls [_analyzeCompleter], so reading the field
+      // back afterwards threw a null-check error that the catch below then
+      // reported to the operator as a generic "couldn't analyze that URL". The
+      // comment that used to sit here claimed this case was guarded; it was the
+      // case that broke.
       _publishAnalyzeProgress(accepted);
+
       // The accept is `queued` in practice; the guard is for the run that
       // somehow finished (or failed) before the response was decoded, which
-      // must not arm a poll for a run nothing will ever report on again
-      // ([_publishAnalyzeProgress] has already settled the caller's future).
+      // must not arm a poll for a run nothing will ever report on again.
       if (!accepted.status.isTerminal) _scheduleAnalyzePoll();
 
-      return _analyzeCompleter!.future;
+      return completer.future;
     } catch (error) {
       Log.error('[MonitorController.analyze] $url failed: $error');
       Magic.error(

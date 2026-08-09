@@ -493,9 +493,9 @@ class _MonitorCreateViewState
             children: [
               WIcon(
                 Icons.error_outline,
-                className: 'size-4 shrink-0 text-destructive',
+                className: 'size-4 shrink-0 text-down',
               ),
-              WText(_analyzeError!, className: 'text-sm text-destructive'),
+              WText(_analyzeError!, className: 'text-sm text-down'),
             ],
           ),
         WDiv(
@@ -690,7 +690,7 @@ class _MonitorCreateViewState
               'size-4 shrink-0 text-ai animate-spin',
             _AnalyzeRowState.done => 'size-4 shrink-0 text-up',
             _AnalyzeRowState.skipped => 'size-4 shrink-0 text-paused',
-            _AnalyzeRowState.failed => 'size-4 shrink-0 text-destructive',
+            _AnalyzeRowState.failed => 'size-4 shrink-0 text-down',
           },
         ),
         WText(
@@ -700,7 +700,7 @@ class _MonitorCreateViewState
             _AnalyzeRowState.running => 'text-sm text-fg',
             _AnalyzeRowState.done => 'text-sm text-fg',
             _AnalyzeRowState.skipped => 'text-sm text-fg-muted',
-            _AnalyzeRowState.failed => 'text-sm text-destructive',
+            _AnalyzeRowState.failed => 'text-sm text-down',
           },
         ),
         // The word, not just the tone: a skipped step is a claim about what the

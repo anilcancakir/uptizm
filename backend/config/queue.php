@@ -127,7 +127,14 @@ return [
         | `queue:listen` runs on `queue.default` (redis, 90) and would re-run a
         | >90s analyze once it finished the first pass, and an ad-hoc
         | `php artisan queue:work --queue=analyze` does the same. Drain this
-        | queue by hand with `--connection=redis-analyze`.
+        | queue by hand as:
+        |
+        |   php artisan queue:work redis-analyze --queue=analyze --tries=1
+        |
+        | The connection is POSITIONAL. `--connection=redis-analyze` is not a
+        | thing (`WorkCommand`'s signature takes it as an argument) and errors
+        | out with `The "--connection" option does not exist.`, which is at
+        | least loud; this comment carried that wrong flag until it was run.
         */
         'redis-analyze' => [
             'driver' => 'redis',
