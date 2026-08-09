@@ -504,6 +504,8 @@
       "create_ai_auth_hint": "Bu yoklamayla birlikte gönderilir; böylece analiz 401 sayfasını değil gerçek yanıtı okur. Gözden geçirme formuna da taşınır, izleyici oluşturulmadan önce oradan değiştirebilirsiniz.",
       "create_ai_analyze_button": "Yapay zeka ile analiz et",
       "create_ai_analyze_failed": "Bu URL analiz edilemedi. Erişilebilir olduğundan emin olup tekrar deneyin veya elle kurmak için Manuel'e geçin.",
+      "create_ai_analyze_lost": "Bu analizin süresi tamamlanmadan doldu, sonucu artık elimizde yok. Uç noktanızda bir sorun yok: yeniden çalıştırın veya elle kurmak için Manuel'e geçin.",
+      "create_ai_analyze_skipped_note": "gerekmedi",
       "create_ai_trials_left": "Planınızda :count ücretsiz AI kurulumu kaldı.",
       "create_ai_trials_spent": "Ücretsiz AI kurulumu kalmadı. AI kurulumunu kullanmaya devam etmek için yükseltin.",
       "create_ai_analyzing_title": "Uç nokta analiz ediliyor…",

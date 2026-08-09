@@ -79,7 +79,7 @@ class AiDeadline
      */
     public function budget(): int
     {
-        return (int) $this->app['config']->get('ai.request_budget_seconds', 50);
+        return (int) $this->app['config']->get('ai.request_budget_seconds', 150);
     }
 
     /**
@@ -93,16 +93,35 @@ class AiDeadline
     /**
      * Restart the budget.
      *
-     * {@see App\Http\Controllers\Api\V1\MonitorController::analyze()} calls this
-     * on entry, and that call is load-bearing rather than defensive. Lazy
-     * resolution would otherwise start the clock at the FIRST PROMPT, leaving
-     * the 30 second target probe ahead of it outside the budget entirely; the
-     * request wall would then be probe plus budget, which is the arithmetic the
-     * budget exists to prevent. Anchoring at the action makes a slow probe cost
-     * the model its own time instead of the worker's.
+     * {@see App\Jobs\AnalyzeMonitorJob::handle()} will call this on entry once
+     * that job exists (the async-analyze plan's step 5), and it is BELT AND
+     * BRACES there rather than the thing that prevents a leak. The tempting
+     * claim is that a Horizon process would otherwise carry one analyze's spent
+     * time into the next, and it is false: the queue worker already resets
+     * scoped bindings between jobs, at
+     * `Illuminate\Queue\QueueServiceProvider:263`, which calls
+     * `$app->forgetScopedInstances()` in the reset callback it hands to the
+     * Worker. So a job gets a fresh instance either way. The call stays because
+     * it costs nothing, states the anchor explicitly at the top of the unit of
+     * work, and survives a future change to that reset; do not re-describe it as
+     * the mechanism that stops a leak.
      *
-     * Also for a long-lived worker handling several logical units of work in one
-     * container lifetime, and for tests.
+     * {@see App\Http\Controllers\Api\V1\MonitorController::analyze()} calls
+     * this today, before that split, and its own comment explains why: the
+     * clock has to start before the probe so the probe's 30 second timeout
+     * spends from the same budget instead of sitting outside it. That anchor
+     * moves with the model calls once the job owns them: the probe finishes
+     * inside the request, on its own 30 second timeout only, before the job
+     * (and this restart) ever runs, so it stops sharing this clock at all.
+     * Until then, the controller is still the caller and its comment still
+     * describes it.
+     *
+     * Anchoring at the top of a unit of work rather than at the first prompt is
+     * the point either way: lazy resolution would start the clock at the first
+     * model call and let anything ahead of it inside that same unit of work run
+     * for free against the wall this budget exists to protect.
+     *
+     * Also for tests.
      */
     public function restart(): void
     {

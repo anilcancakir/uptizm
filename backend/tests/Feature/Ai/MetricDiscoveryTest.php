@@ -10,6 +10,7 @@ use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\ThresholdDirection;
+use App\Jobs\AnalyzeMonitorJob;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorContentVersion;
@@ -25,8 +26,10 @@ use App\Services\Monitoring\ContentArchive;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\RelayClient;
+use App\Support\Monitoring\AnalyzeRunStore;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\CredentialRedactor;
+use App\Support\Monitoring\HostGuard;
 use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 use DateTimeImmutable;
@@ -1056,11 +1059,23 @@ class MetricDiscoveryTest extends TestCase
     // -----------------------------------------------------------------
     // (5) The analyze entry point
     // -----------------------------------------------------------------
+    //
+    // `POST /api/v1/monitors/analyze` no longer answers a synchronous
+    // analysis: it probes, mints a run and answers 202, and
+    // {@see AnalyzeMonitorJob} runs discovery over that same probe body on a
+    // queue worker. Every test below faked the queue rather than letting it
+    // dial `redis-analyze` (the connection {@see AnalyzeMonitorJob} pins,
+    // which does not fall back to `phpunit.xml`'s sync driver), ran the
+    // dispatched job in-process, and reads the outcome off
+    // {@see AnalyzeRunStore::find()} instead of the response body, which is
+    // where the client itself now reads it from.
 
     public function test_analyze_carries_suggested_metrics_from_the_live_probe_body(): void
     {
+        Queue::fake();
         $this->fakeRelay($this->htmlFixture());
         $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->stubHostGuard();
         // Free meters the analyze try, which is what makes the count below
         // observable at all; a Pro team is entitled and never metered.
         $team = $this->actingAsTeamMember('free');
@@ -1070,32 +1085,39 @@ class MetricDiscoveryTest extends TestCase
             'url' => 'https://example.com/health',
         ]);
 
-        $response->assertStatus(200);
+        $response->assertStatus(202);
+        $runId = (string) $response->json('data.run_id');
+
+        $result = $this->runAnalyzeJob($runId);
+
         $this->assertSame(
             self::SUGGESTION_KEYS,
-            array_keys((array) $response->json('data.suggested_metrics.0')),
+            array_keys((array) ($result['data']['suggested_metrics'][0] ?? [])),
         );
-        $response->assertJsonPath(
-            'data.suggested_metrics.0.path',
+        $this->assertSame(
             $this->candidateWithValue('120ms')->extractionPath,
+            $result['data']['suggested_metrics'][0]['path'],
         );
         // Discovery rides the analyze call's EXISTING spend: one call, one trial,
-        // never a second for the metrics it happened to also propose.
+        // never a second for the metrics it happened to also propose. Spent by
+        // the JOB now, so read back after it runs rather than after the request.
         $this->assertSame(1, (int) $team->fresh()->ai_analysis_trials_used);
     }
 
     public function test_analyze_proposes_an_allowlisted_header_and_never_a_credential_bearing_one(): void
     {
         // Asserted HERE rather than on the extractor alone, and that is the
-        // point: the headers have to travel controller -> discover() ->
+        // point: the headers have to travel controller -> job -> discover() ->
         // extract() for a header suggestion to exist at all. An extractor-level
         // test passes while production emits none.
         $raw = [
             'X-Runtime' => '0.024',
             'Set-Cookie' => 'session=SUPERSECRET; HttpOnly',
         ];
+        Queue::fake();
         $this->fakeRelay($this->htmlFixture(), $raw);
         $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->stubHostGuard();
         $this->actingAsTeamMember();
 
         $header = $this->headerCandidate($raw);
@@ -1105,16 +1127,22 @@ class MetricDiscoveryTest extends TestCase
             'url' => 'https://example.com/health',
         ]);
 
-        $response->assertStatus(200);
-        $response->assertJsonPath('data.suggested_metrics.0.source', MetricSource::Header->value);
-        $response->assertJsonPath('data.suggested_metrics.0.path', 'x-runtime');
-        $response->assertJsonPath('data.suggested_metrics.0.sample_value', '0.024');
+        $response->assertStatus(202);
+        $runId = (string) $response->json('data.run_id');
+
+        $result = $this->runAnalyzeJob($runId);
+
+        $this->assertSame(MetricSource::Header->value, $result['data']['suggested_metrics'][0]['source']);
+        $this->assertSame('x-runtime', $result['data']['suggested_metrics'][0]['path']);
+        $this->assertSame('0.024', $result['data']['suggested_metrics'][0]['sample_value']);
 
         // The unlisted half. `Set-Cookie` reached the probe result and stops at
         // the allowlist, so no ref was ever minted for it and its value cannot
-        // appear anywhere in the answer.
-        $response->assertDontSee('SUPERSECRET');
-        $response->assertDontSee('set-cookie');
+        // appear anywhere in the stored run, which is what the client's poll
+        // reads.
+        $stored = (string) json_encode(app(AnalyzeRunStore::class)->find($runId));
+        $this->assertStringNotContainsString('SUPERSECRET', $stored);
+        $this->assertStringNotContainsString('set-cookie', $stored);
     }
 
     public function test_a_suggestion_built_from_a_redacted_sample_never_travels(): void
@@ -1130,8 +1158,10 @@ class MetricDiscoveryTest extends TestCase
             'status' => 'ok',
             'request' => ['authorization' => 'Bearer '.$token],
         ]);
+        Queue::fake();
         $this->fakeRelay($echoed);
         $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->stubHostGuard();
         $this->actingAsTeamMember();
 
         // Refs are minted from the body the redactor already scrubbed, so the
@@ -1150,21 +1180,28 @@ class MetricDiscoveryTest extends TestCase
             ],
         ]);
 
-        $response->assertStatus(200);
-        $suggestions = (array) $response->json('data.suggested_metrics');
+        $response->assertStatus(202);
+        $runId = (string) $response->json('data.run_id');
+
+        $result = $this->runAnalyzeJob($runId);
+        $suggestions = (array) $result['data']['suggested_metrics'];
 
         // The healthy sibling survives, so this measures the DROP and not a
         // discovery path that happened to yield nothing.
         $this->assertCount(1, $suggestions);
         $this->assertSame('ok', $suggestions[0]['sample_value']);
-        $response->assertDontSee($token);
-        $response->assertDontSee(CredentialRedactor::MARKER);
+
+        $stored = (string) json_encode(app(AnalyzeRunStore::class)->find($runId));
+        $this->assertStringNotContainsString($token, $stored);
+        $this->assertStringNotContainsString(CredentialRedactor::MARKER, $stored);
     }
 
     public function test_analyze_without_a_body_still_answers_an_empty_array(): void
     {
+        Queue::fake();
         $this->fakeRelay(null);
         $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->stubHostGuard();
         $this->actingAsTeamMember();
         $spy = $this->fakeGateway($this->selectionsFor([$this->selection('c1')]));
 
@@ -1172,8 +1209,12 @@ class MetricDiscoveryTest extends TestCase
             'url' => 'https://example.com/health',
         ]);
 
-        $response->assertStatus(200);
-        $this->assertSame([], $response->json('data.suggested_metrics'));
+        $response->assertStatus(202);
+        $runId = (string) $response->json('data.run_id');
+
+        $result = $this->runAnalyzeJob($runId);
+
+        $this->assertSame([], $result['data']['suggested_metrics']);
         $this->assertSame(0, $spy->calls);
     }
 
@@ -1279,6 +1320,61 @@ class MetricDiscoveryTest extends TestCase
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
+
+    /**
+     * Bind a {@see HostGuard} that resolves nothing, for every "(5) analyze
+     * entry point" test that runs {@see AnalyzeMonitorJob} in-process.
+     *
+     * Copied from `AnalyzeMonitorJobTest::stubHostGuard()` rather than
+     * reinvented: the real one is the only DNS code in this backend, and the
+     * job calls it to assemble the location evidence. Left real, the suite
+     * resolves the fixture host from whatever machine runs it, which is a
+     * live outbound request in a unit run and a different answer per
+     * machine.
+     */
+    protected function stubHostGuard(): void
+    {
+        $this->app->instance(HostGuard::class, new class extends HostGuard
+        {
+            /**
+             * @return list<string>
+             */
+            public function resolvePublicHostIps(string $host): array
+            {
+                return [];
+            }
+        });
+    }
+
+    /**
+     * Run the `AnalyzeMonitorJob` the analyze request just queued, and hand
+     * back the run's stored `result`, which is where {@see AnalyzeRunStore}
+     * holds exactly what the synchronous response used to answer.
+     *
+     * `Queue::fake()` intercepts the dispatch regardless of the job's own
+     * pinned `redis-analyze` connection, so the job never reaches the store
+     * on its own; running it here in-process is what makes the run complete.
+     *
+     * @return array<string, mixed>
+     */
+    protected function runAnalyzeJob(string $runId): array
+    {
+        $job = Queue::pushed(AnalyzeMonitorJob::class)->first();
+
+        $this->assertInstanceOf(
+            AnalyzeMonitorJob::class,
+            $job,
+            'No analyze job was dispatched, so there is no run to complete.',
+        );
+
+        $this->app->call([$job, 'handle']);
+
+        $run = app(AnalyzeRunStore::class)->find($runId);
+
+        $this->assertIsArray($run, 'The run vanished from the store before the job could complete it.');
+
+        return (array) $run['result'];
+    }
 
     /**
      * Bind a gateway whose MODEL RESPONSE is faked while every guard below it

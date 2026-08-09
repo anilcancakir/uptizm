@@ -504,6 +504,8 @@
       "create_ai_auth_hint": "Sent with this probe, so the analysis reads the real response instead of a 401. It carries over to the review form, where you can change it before the monitor is created.",
       "create_ai_analyze_button": "Analyze with AI",
       "create_ai_analyze_failed": "Couldn't analyze that URL. Check that it's reachable and try again, or switch to Manual to set it up by hand.",
+      "create_ai_analyze_lost": "That analysis expired before it finished, so its result is gone. Nothing is wrong with your endpoint: run it again, or switch to Manual to set it up by hand.",
+      "create_ai_analyze_skipped_note": "not needed",
       "create_ai_trials_left": ":count free AI setups left on your plan.",
       "create_ai_trials_spent": "No free AI setups left. Upgrade to keep using AI setup.",
       "create_ai_analyzing_title": "Analyzing endpoint…",

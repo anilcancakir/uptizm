@@ -130,45 +130,84 @@ class AiDeadlineTest extends TestCase
      * The shortest wall between the operator and this worker, measured rather
      * than configured.
      *
-     * Nothing we own cuts here: nginx's `proxy_read_timeout` on the api vhost is
-     * 3600 and `octane.max_execution_time` is 90. Yet a 75-second analyze
-     * answered 504 twice in production on 2026-08-07, and a direct measurement
-     * came back at 60.1 seconds. The owner is unidentified, so the number lives
-     * in this test as an observation with its evidence attached, not in config as
-     * if it were ours to set.
+     * IDENTIFIED 2026-08-09, and kept as a constant because the number is the
+     * cheapest reminder of how it was missed.
+     *
+     * A 75-second analyze answered an operator 504 twice on 2026-08-07, back when
+     * the model calls still ran inside `POST /monitors/analyze`, and a direct
+     * measurement cut at 60.1 seconds. It was OURS: the api vhost's `location /`
+     * proxies to Octane and declared no `proxy_read_timeout`, so it inherited
+     * nginx's DEFAULT of 60. Now 125 in `deploy/vhost-uptizm.com.conf` and on the
+     * box.
+     *
+     * Why it took a day: grepping the vhost for timeout directives returns 3600
+     * and 720 and no 60, so nginx was eliminated. The 3600 belongs to the Reverb
+     * WebSocket block above `location /`, and the `http` context sets nothing. A
+     * DEFAULT does not appear in a grep, and its absence was read as "a high value
+     * is set here". This budget was then sized around a wall believed to belong to
+     * somebody else.
+     *
+     * The constant stays at 60 rather than moving to 125 on purpose: it is not a
+     * live bound any more (this budget runs on a worker, so the assertions below
+     * measure against the analyze supervisor's timeout instead), it is the
+     * historical figure the reasoning hangs on.
      */
     private const int OBSERVED_PROXY_WALL_SECONDS = 60;
 
     public function test_the_budget_keeps_the_request_inside_the_wall_the_operator_actually_hits(): void
     {
-        // The regression this exists for: raising the budget to 75 to give metric
-        // discovery room turned a degrade into a 504. A degrade hands the operator
-        // a working monitor with deterministic values; a 504 hands them nothing,
-        // so the budget is sized to guarantee the degrade rather than to maximise
-        // model time.
+        // Re-scoped: this used to compare against OBSERVED_PROXY_WALL_SECONDS
+        // above, because the budget ran inside the same HTTP request that wall
+        // cuts. It does not any more; the wall that can now strand an operator
+        // watching a spinner is the analyze Horizon supervisor's own worker
+        // timeout (config/horizon.php), read live so this test cannot drift
+        // away from AnalyzeQueueConfigTest's chain.
         //
-        // The margin is for what the budget does NOT cover: validation, the DB
-        // writes, resource serialization. Those are small but they are not free,
-        // and a budget sized flush against the wall spends them past it.
-        $margin = 5;
+        // The margin is for what the budget does NOT cover inside that worker:
+        // writing the terminal run state, broadcasting it, and releasing the
+        // in-flight lock, all AFTER the last model call answers or times out. A
+        // budget sized flush against the supervisor timeout spends that work
+        // past it, and Horizon kills the worker before failed() or the
+        // completion path can run, leaving the operator's form spinning
+        // forever. 10 is not a fresh guess: it is the same gap step 1 already
+        // reserved between the job's own $timeout (160) and its supervisor's
+        // (170) for exactly this overhead, so this test does not invent a
+        // second number for the one reservation.
+        $margin = 10;
+        $supervisorTimeout = (int) config('horizon.defaults.analyze.timeout');
+
+        $this->assertGreaterThan(
+            0,
+            $supervisorTimeout,
+            'the analyze supervisor timeout must resolve to a positive number for this bound to mean anything',
+        );
 
         $this->assertLessThanOrEqual(
-            self::OBSERVED_PROXY_WALL_SECONDS - $margin,
+            $supervisorTimeout - $margin,
             (int) config('ai.request_budget_seconds'),
-            'a budget that can outlast the proxy answers 504 instead of degrading',
+            'a budget that can outlast the analyze worker leaves the run killed mid-cleanup instead of failed()',
         );
     }
 
     public function test_the_budget_sits_below_the_worker_wall_that_would_kill_the_request(): void
     {
-        // The ordering IS the fix, so it is asserted rather than left in a
-        // comment: a budget at or above the worker's limit is decorative,
-        // because PHP kills the request before any timeout can fire. That is
-        // exactly the state production was in, at 45 against 30.
+        // Re-scoped from `octane.max_execution_time`: Octane's wall governs an
+        // HTTP REQUEST, and this budget does not run inside one any more. The
+        // wall that would now kill it before any timeout inside it can fire is
+        // the analyze Horizon supervisor's own worker timeout, read live for
+        // the same reason the test above does.
+        //
+        // Kept alongside the margin-based test above rather than folded into
+        // it: that one asks whether the budget leaves the worker room to clean
+        // up after itself; this one asks the narrower question the original
+        // test was for, whether the ordering itself holds at all. A budget at
+        // or above the worker's own limit is decorative, because Horizon kills
+        // the job before any timeout inside it can fire, which is exactly the
+        // state production was in once, at 45 against a 30 second Octane wall.
         $this->assertLessThan(
-            (int) config('octane.max_execution_time'),
+            (int) config('horizon.defaults.analyze.timeout'),
             (int) config('ai.request_budget_seconds'),
-            'ai.request_budget_seconds must stay below octane.max_execution_time',
+            'ai.request_budget_seconds must stay below the analyze supervisor\'s worker timeout',
         );
     }
 }

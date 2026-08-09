@@ -237,26 +237,66 @@ return [
     | had written down turned out to be the binding one, and a number in this
     | sentence would have gone stale rather than the list being wrong.
     |
-    |   AI budget (`ai.request_budget_seconds`, 50)
-    |     < an UNIDENTIFIED proxy wall (60, measured, see below)
-    |     < Octane, here (90)
-    |     < Cloudflare's origin timeout (~100, not ours to set)
-    |     < the Flutter client (`lib/config/network.dart`, 120)
+    | It is no longer a strictly nested chain, and pretending otherwise with `<`
+    | between the entries was wrong: after the vhost fix two of them are EQUAL and
+    | the client is the tightest, not the outermost. What each one is:
     |
-    | The innermost number covers the probe as well as the model calls, because
-    | `MonitorController::analyze()` starts the budget's clock before probing.
-    | Without that anchor the probe's own 30 second timeout would sit OUTSIDE the
-    | budget and the sum would clear every wall above.
+    |   the Flutter client   120  (`lib/config/network.dart`) - gives up FIRST
+    |   nginx, api vhost     125  (`proxy_read_timeout` on `location /`)
+    |   Cloudflare, origin   125  (this zone's setting, not ours to set)
+    |   Octane, here          90  - bounds a REQUEST only, see below
     |
-    | This wall, at 90, is NOT the binding one, and believing it was cost an
-    | operator two 504s. Something between the client and this worker cuts at 60
-    | seconds: measured at 60.1 on 2026-08-07, against an api vhost whose
-    | `proxy_read_timeout` is 3600 and this setting at 90. It is not the
-    | Cloudflare line above either: that one is documented at ~100, and its own
-    | timeout error is 524 rather than the 504 we measured. So the owner of the 60
-    | is genuinely unknown. It is pinned as an observation with its
-    | evidence in `AiDeadlineTest::OBSERVED_PROXY_WALL_SECONDS`. Identify it before
-    | raising the budget again.
+    | The client giving up before the server does is deliberate: an operator who
+    | has waited two minutes is better served by an error they can retry than by a
+    | connection nobody is watching. nginx and Cloudflare matching at 125 is also
+    | deliberate, since anything above the edge's number buys nothing a client can
+    | wait for.
+    |
+    | Octane's 90 sits under all of them and is not the binding wall for the work
+    | this file's history is about: it bounds a request, and the analyze model
+    | calls now run on the `analyze` Horizon queue instead, bounded by that
+    | supervisor's own timeout (170) rather than by anything here.
+    |
+    | `ai.request_budget_seconds` (150) is no longer part of this chain, and it
+    | is worth saying explicitly because it USED TO be the innermost entry.
+    | `POST /monitors/analyze`'s model calls ran inside this same request, so the
+    | budget had to clear every wall above it. They now run inside
+    | `App\Jobs\AnalyzeMonitorJob` on its own `analyze` Horizon queue, so 150 is
+    | a WORKER bound: it has to clear that job's own `$timeout` (160) under the
+    | `analyze` supervisor's `timeout` (170) under the `redis-analyze`
+    | connection's `retry_after` (200), none of which are on this list.
+    | `AnalyzeQueueConfigTest` pins that chain; `AiDeadlineTest` pins 150 against
+    | the supervisor half of it. It is named here anyway, out of the ordering,
+    | because this comment is the one place the whole picture used to live, and
+    | the next reader chasing the 60 below should learn that the budget moved
+    | rather than assume it vanished.
+    |
+    | The probe moved the other way, in effect: it stays in the request, with
+    | its own 30 second timeout (`MonitorController::transientMonitor()`), so it
+    | no longer shares a clock with the AI budget the way the next paragraph
+    | describes for when it did.
+    |
+    | RESOLVED 2026-08-09, and the resolution is the reason this list is worth
+    | maintaining at all. A wall cut at 60 seconds and answered an operator a 504
+    | on `POST /monitors/analyze`, twice, both in the access log. It was OURS:
+    | the api vhost's `location /` proxies to Octane and declared no
+    | `proxy_read_timeout`, so it inherited nginx's DEFAULT of 60. Fixed to 125 in
+    | `deploy/vhost-uptizm.com.conf` and on the box.
+    |
+    | It went unfound for a day, and that is the part to keep. Grepping the vhost
+    | for timeout directives returns 3600 and 720 and no 60, so nginx was
+    | eliminated early and confidently; the 3600 belongs to the Reverb WebSocket
+    | block above `location /`, and the `http` context sets nothing. A DEFAULT does
+    | not appear in a grep, and its absence was read as "a high value is set here".
+    | Everything downstream followed: Cloudflare was blamed by exclusion, and this
+    | budget was sized around a number believed to be somebody else's. When you
+    | eliminate a layer by reading its config, enumerate what the ACTIVE context
+    | resolves to, not what the file happens to say.
+    |
+    | Historical note, since the old text is what a reader may remember: this
+    | paragraph used to end by naming the hunt as step 13 of the async-analyze
+    | plan, to be run before the deploy that would remove the only known
+    | reproducer. That step is done and its answer is the paragraph above.
     |
     | It was 30, which is below the AI budget AND below the 30 second probe
     | timeout `MonitorController::transientMonitor()` sets, so a slow provider on

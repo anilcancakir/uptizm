@@ -112,13 +112,31 @@ Route::get('status-pages/{statusPage:id}/preview-image', StatusPagePreviewImageC
 */
 Route::middleware('auth:sanctum')->group(function (): void {
     // Throttled by name because one accepted request runs a live relay probe of
-    // an operator-supplied URL plus up to two provider calls, and nothing else
-    // bounds its RATE: `api/v1` never calls throttleApi(), and the per-team AI
-    // budget is a daily cost cap that degrades rather than refusing. The buckets
-    // are registered in `bootstrap/app.php`.
+    // an operator-supplied URL and queues a job that spends up to two provider
+    // calls, and nothing else bounds its RATE: `api/v1` never calls
+    // throttleApi(), and the per-team AI budget is a daily cost cap that
+    // degrades rather than refusing. The buckets are registered in
+    // `bootstrap/app.php`. A second CONCURRENT analyze for one team is a
+    // different control and answers 409, from the per-team in-flight lock the
+    // controller takes.
     Route::post('monitors/analyze', [MonitorController::class, 'analyze'])
         ->middleware('throttle:'.MonitorController::ANALYZE_LIMITER)
         ->name('api.v1.monitors.analyze');
+    // The accepted run's state, for the client's poll. Registered next to the
+    // POST rather than beside the other `monitors/{monitor}/...` reads, because
+    // its first segment is the LITERAL `analyze` and this file's convention is
+    // that a literal is declared ahead of the wildcard it could be swallowed by
+    // (see the `incidents/digest` and `content/candidates` notes below).
+    //
+    // Deliberately NOT carrying `MonitorController::ANALYZE_LIMITER`. That
+    // bucket is ten a minute, sized for a human pressing a button; the client
+    // polls this every 2500ms as the source of truth for a run that takes up to
+    // 150 seconds, which is twenty-four reads a minute for one analyze. The
+    // accept cost is the reason the two differ: this is a single cache read
+    // against a run the caller's own team owns, with no probe, no provider call
+    // and no write.
+    Route::get('monitors/analyze/{run}', [MonitorController::class, 'analyzeRun'])
+        ->name('api.v1.monitors.analyze.run');
     Route::apiResource('monitors', MonitorController::class);
     Route::post('monitors/{monitor}/pause', [MonitorController::class, 'pause'])
         ->name('api.v1.monitors.pause');
