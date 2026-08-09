@@ -237,13 +237,25 @@ return [
     | had written down turned out to be the binding one, and a number in this
     | sentence would have gone stale rather than the list being wrong.
     |
-    |   nginx's `proxy_read_timeout` on the api vhost (125, and see below)
-    |     < Cloudflare's origin timeout (125 on this zone, not ours to set)
-    |     < the Flutter client (`lib/config/network.dart`, 120)
+    | It is no longer a strictly nested chain, and pretending otherwise with `<`
+    | between the entries was wrong: after the vhost fix two of them are EQUAL and
+    | the client is the tightest, not the outermost. What each one is:
     |
-    | Octane's own limit, this setting at 90, is deliberately NOT in that line any
-    | more: it bounds a request, and the work that used to need more than a
-    | request now runs on a queue.
+    |   the Flutter client   120  (`lib/config/network.dart`) - gives up FIRST
+    |   nginx, api vhost     125  (`proxy_read_timeout` on `location /`)
+    |   Cloudflare, origin   125  (this zone's setting, not ours to set)
+    |   Octane, here          90  - bounds a REQUEST only, see below
+    |
+    | The client giving up before the server does is deliberate: an operator who
+    | has waited two minutes is better served by an error they can retry than by a
+    | connection nobody is watching. nginx and Cloudflare matching at 125 is also
+    | deliberate, since anything above the edge's number buys nothing a client can
+    | wait for.
+    |
+    | Octane's 90 sits under all of them and is not the binding wall for the work
+    | this file's history is about: it bounds a request, and the analyze model
+    | calls now run on the `analyze` Horizon queue instead, bounded by that
+    | supervisor's own timeout (170) rather than by anything here.
     |
     | `ai.request_budget_seconds` (150) is no longer part of this chain, and it
     | is worth saying explicitly because it USED TO be the innermost entry.
@@ -281,10 +293,10 @@ return [
     | eliminate a layer by reading its config, enumerate what the ACTIVE context
     | resolves to, not what the file happens to say.
     |
-    | Historical note, since the old text is what a reader may remember:
-    | that is step 13 of the
-    | async-analyze plan, run before the deploy that removes the only known
-    | reproducer.
+    | Historical note, since the old text is what a reader may remember: this
+    | paragraph used to end by naming the hunt as step 13 of the async-analyze
+    | plan, to be run before the deploy that would remove the only known
+    | reproducer. That step is done and its answer is the paragraph above.
     |
     | It was 30, which is below the AI budget AND below the 30 second probe
     | timeout `MonitorController::transientMonitor()` sets, so a slow provider on

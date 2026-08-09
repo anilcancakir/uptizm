@@ -66,11 +66,22 @@ class MonitorController extends Controller
      *
      * What the accept now COSTS changed with the async split and the rate has to
      * be read against the new number rather than the old one: the request no
-     * longer holds a worker for the model calls, so it returns in well under a
-     * second instead of occupying one for a minute. Re-checked against that: the
-     * ~60s wall was an ACCIDENTAL rate limiter (a client waiting on its own
-     * response could only fire near one request a minute), and the 200ms accept
-     * removes it, so the bucket sizes in `bootstrap/app.php` were tightened from
+     * longer holds a worker for the model calls, so a fast target answers in well
+     * under a second instead of occupying a worker for a minute.
+     *
+     * "Well under a second" is the TYPICAL accept, not the ceiling, and the
+     * distinction was wrong here before review caught it: the accept still runs
+     * the relay probe synchronously, and the transient it probes with carries
+     * `timeout_sec => 30` ({@see self::transientMonitor()}). So a deliberately
+     * slow target still parks this request for up to thirty seconds. The
+     * tightening below is right either way, and for the same reason, but the
+     * premise is "a fast accept is now possible" rather than "every accept is
+     * 200ms".
+     *
+     * Re-checked against that: the ~60s wall was an ACCIDENTAL rate limiter (a
+     * client waiting on its own response could only fire near one request a
+     * minute), and a sub-second accept removes it, so the buckets in
+     * `bootstrap/app.php` were tightened from
      * 10/20 to 6 (actor) and 12 (team) per minute. See the comment on that
      * `RateLimiter::for()` call for the full reasoning; this limiter bounds
      * SERIAL abuse (repeated live relay probes and AI-budget spends), which is a
@@ -96,6 +107,21 @@ class MonitorController extends Controller
      * The TTL lives here rather than beside {@see AnalyzeMonitorJob::lockName()}
      * because only the ACQUIRE names one: the job releases by owner and never
      * re-takes it.
+     *
+     * KNOWN WEAKNESS, and the docblock above used to overstate this: 200 clears
+     * the job's own 160-second work, but NOT queue wait plus work. The analyze
+     * supervisor runs `maxProcesses => 2`, so with two other teams' runs ahead a
+     * third can wait ~160 seconds and then run 160, and the lock expires
+     * mid-flight. A second accept for that team is then admitted. Nothing in the
+     * Must Have breaks, because both meters are keyed per RUN and stay
+     * at-most-once, but the concurrency guarantee is weaker than "a run that is
+     * still legitimately working can never lose its lock", which is what this
+     * comment claimed before review measured it.
+     *
+     * The proper fix is for the JOB to re-take the lock on entry, so the clock
+     * starts when the work does rather than when the request did; it is not done
+     * here because it moves the lock's ownership across the boundary and wants its
+     * own test. Until then, the exposure is bounded to a backlogged queue.
      */
     public const int IN_FLIGHT_LOCK_SECONDS = 200;
 
