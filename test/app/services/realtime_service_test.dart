@@ -109,6 +109,50 @@ void main() {
     expect(service.isListeningToReconnect, isTrue);
   });
 
+  test('every event this service depends on is actually registered', () async {
+    // THE GAP THIS CLOSES. `assertSubscribed` above proves a channel was opened
+    // and nothing more: an app can hold a live channel and register no handler at
+    // all. Until `magic`'s fake recorded them, `listen()` discarded both the event
+    // name and the callback, so deleting a `..listen(...)` line from
+    // `_reconcileSubscription` left this entire suite green. Two independent
+    // reviews landed on exactly that, and the realtime half of the analyze
+    // feature hangs off one of these four lines.
+    Auth.fake(user: userWithTeam('t1'));
+
+    await RealtimeService(debounce: Duration.zero).syncWithAuthState();
+
+    echo.assertListening('private-teams.t1', 'incident.opened');
+    echo.assertListening('private-teams.t1', 'incident.resolved');
+    echo.assertListening('private-teams.t1', 'monitor.status');
+    echo.assertListening('private-teams.t1', 'analyze.progress');
+  });
+
+  test('a dispatched analyze frame reaches the controller intact', () async {
+    // And this is the half an assertion on registration still cannot give you:
+    // that a real frame, delivered the way the driver delivers one, runs the
+    // handler and arrives with its payload undamaged. Everything else in this
+    // feature's tests calls `noteAnalyzeProgress` directly, which is honest about
+    // its own subject and proves nothing about the socket path.
+    Auth.fake(user: userWithTeam('t1'));
+    final _SpyMonitorController monitor = _SpyMonitorController();
+    Magic.put<MonitorController>(monitor);
+
+    await RealtimeService(debounce: Duration.zero).syncWithAuthState();
+
+    echo.dispatch('private-teams.t1', 'analyze.progress', <String, dynamic>{
+      'run_id': 'run-1',
+      'sequence': 3,
+      'step': 2,
+      'state': 'done',
+      'status': 'analyzing',
+    });
+
+    expect(monitor.notedPayloads, hasLength(1));
+    expect(monitor.notedPayloads.single['run_id'], 'run-1');
+    expect(monitor.notedPayloads.single['step'], 2);
+    expect(monitor.notedPayloads.single['state'], 'done');
+  });
+
   test(
     'an incident event reloads the registered dashboard and incident controllers',
     () async {
