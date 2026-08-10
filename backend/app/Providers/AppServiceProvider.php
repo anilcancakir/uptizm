@@ -18,12 +18,14 @@ use App\Services\Ai\LaravelAiAssistantGateway;
 use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
+use App\Services\Ai\OpenRouterUpstreamRecorder;
 use App\Services\Monitoring\ProbeTransport;
 use App\Services\Monitoring\RelayClient;
 use App\Services\StatusPages\StatusPagePreviewRenderer;
 use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Cashier\Cashier;
 use SocialiteProviders\GitHub\Provider as GitHubProvider;
@@ -100,6 +102,14 @@ class AppServiceProvider extends ServiceProvider
         // and payment method belongs to a team so billing stays scoped to
         // the workspace, matching the SaaS-team-billable pattern (research/01).
         Cashier::useCustomerModel(Team::class);
+
+        // Record which OpenRouter upstream served each AI call. Global on
+        // purpose: six gateways prompt a model and `laravel/ai` exposes no
+        // per-request header or raw-response seam above the HTTP client, so this
+        // is the one place that cannot be half applied. It gates on the
+        // OpenRouter host itself, so every other outbound request in the
+        // application passes through untouched and unread.
+        Http::globalMiddleware(new OpenRouterUpstreamRecorder);
 
         // Register the third-party Socialite drivers. The streamlined skeleton
         // has no EventServiceProvider, so SocialiteProviders' listener must be

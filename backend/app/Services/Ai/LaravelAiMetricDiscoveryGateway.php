@@ -8,6 +8,7 @@ use App\Enums\ThresholdDirection;
 use App\Exceptions\AiBudgetExhaustedException;
 use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Models\MonitorMetric;
+use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\ThresholdEvaluator;
@@ -16,6 +17,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\Conversational;
+use Laravel\Ai\Contracts\HasProviderOptions;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
@@ -61,9 +63,10 @@ use Stringable;
  *
  * No tools, no function-calling, no DB access are ever exposed to the model.
  */
-class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStructuredOutput
+class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasProviderOptions, HasStructuredOutput
 {
     use Promptable;
+    use RoutesOpenRouterByLatency;
 
     /**
      * Hard ceiling on accepted selections.

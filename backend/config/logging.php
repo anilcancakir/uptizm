@@ -127,6 +127,44 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        /*
+         * The AI routing instrument, and the only channel here that does not read
+         * LOG_LEVEL.
+         *
+         * `App\Services\Ai\OpenRouterUpstreamRecorder` writes one line per
+         * OpenRouter call naming the upstream that served it and how long it took.
+         * That line is an operational record rather than a warning, and production
+         * runs LOG_LEVEL=warning, so on any channel above it would be dropped and
+         * the latency routing it exists to measure would be unfalsifiable again.
+         * Promoting the line to `warning` instead was the other option and is
+         * worse: a successful AI call filed as a warning teaches an operator to
+         * ignore warnings.
+         *
+         * Hence AI_ROUTING_LOG_LEVEL rather than LOG_LEVEL, and hence `info` as
+         * its default: an unset variable has to leave the instrument WORKING,
+         * because a knob whose default is silence is the same bug under a new
+         * name. Nothing here reads the global level, deliberately.
+         *
+         * `daily` over `single`: the volume is a handful of lines a day (one per
+         * AI call, and roughly one AI call per analyze), so a day's file is
+         * kilobytes, but nothing rotates or prunes a `single` file and this one is
+         * meant to still be readable months out. 30 days is sized off what it is
+         * FOR, comparing latency before and after a routing change and noticing
+         * the slow tail return, against a provider roster that changes
+         * continuously; a month of it costs less than one response body.
+         *
+         * Its own file rather than the application stack, because it is read by
+         * grepping a provider name out of a time series, and `laravel.log` is
+         * where exceptions live.
+         */
+        'ai-routing' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/ai-routing.log'),
+            'level' => env('AI_ROUTING_LOG_LEVEL', 'info'),
+            'days' => env('AI_ROUTING_LOG_DAILY_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];
