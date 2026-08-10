@@ -101,6 +101,31 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'stripe/*',
         ]);
+
+        // `ApplicationBuilder::withMiddleware()` unconditionally sets
+        // `redirectGuestsTo(fn () => route('login'))` before this closure runs,
+        // and `Illuminate\Auth\Middleware\Authenticate::unauthenticated()`
+        // resolves that redirect target as a CONSTRUCTOR ARGUMENT of the
+        // `AuthenticationException` it is about to throw, before the `throw`
+        // statement itself executes. This app has no route named `login` (the
+        // sign-in UI is the separate Flutter client), so on an `api/*` guest
+        // request that call raised `RouteNotFoundException`, which replaced
+        // the `AuthenticationException` entirely: the exception handler never
+        // saw an authentication failure, it saw an unrelated routing exception
+        // and rendered it as a JSON 500. `shouldRenderJsonWhen()` above already
+        // covers the render FORMAT and cannot reach this: it never runs, because
+        // the crash happens one layer earlier, inside the middleware.
+        //
+        // Answering `null` for `api/*` leaves `AuthenticationException::redirectTo()`
+        // empty, so `Handler::unauthenticated()` falls through to `shouldReturnJson()`,
+        // which the `shouldRenderJsonWhen` callback above already answers `true`
+        // for `api/*` regardless of the request's `Accept` header, producing the
+        // correct JSON 401. Non-api guests keep the framework's default untouched:
+        // this is not a fix for the landing page, the status pages, or Filament,
+        // none of which use this middleware today.
+        $middleware->redirectGuestsTo(
+            fn (Request $request) => $request->is('api/*') ? null : route('login'),
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
