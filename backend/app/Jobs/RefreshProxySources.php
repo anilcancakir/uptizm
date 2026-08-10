@@ -176,6 +176,16 @@ class RefreshProxySources implements ShouldQueue
                 // and thrown away, so a pool losing 200 exits in one tick emitted
                 // nothing: no log, no metric, no column. The drop count was already
                 // logged one layer down, which is what made the asymmetry visible.
+                //
+                // This line stays on the default channel, and production runs
+                // `LOG_LEVEL=warning`, so it is DISCARDED there. That is a decision and
+                // not an oversight: five regions on the hourly default is roughly 120
+                // lines a day, and the `evidence` channel exists to hold a credential
+                // audit that fires maybe ten times a day plus paging suppression that
+                // fires a handful of times a year. Putting churn beside them buries the
+                // rare line the channel was built for. If pool churn is ever worth
+                // watching, it wants a counter or a column, not a log line: the counts
+                // are numbers over time, which is the shape a log answers worst.
                 Log::info('Proxy source refreshed.', ['region' => $source->region] + $counts);
             } catch (ConnectionException|RequestException|RuntimeException $exception) {
                 // Recorded as data, not rethrown: a provider being unreachable is not

@@ -13,8 +13,8 @@ use App\Models\ScheduledMaintenance;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Services\Monitoring\IncidentDispatcher;
+use App\Support\Logging\EvidenceLog;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -166,15 +166,20 @@ class EscalationDispatcher
     }
 
     /**
-     * Record a withheld escalation step at info level, mirroring the shape
-     * IncidentDispatcher logs so `pail` answers "why did nobody get paged"
-     * for both paging paths with one query.
+     * Record a withheld escalation step, mirroring the shape
+     * {@see IncidentDispatcher::logSuppression()} records so "why did nobody get
+     * paged" is answered for both paging paths by one grep.
+     *
+     * On {@see EvidenceLog::CHANNEL} for the reason that method's docblock gives,
+     * and this is the path where it matters most: a step fires minutes to hours
+     * after the incident opened, so by the time anyone asks, the reasoning is only
+     * reconstructible from a line that was actually kept.
      *
      * @param  list<string>  $monitorIds  The attached monitors, all suppressed.
      */
     protected function logSuppression(Incident $incident, array $monitorIds): void
     {
-        Log::info('Escalation step suppressed by an open maintenance window.', [
+        EvidenceLog::record('Escalation step suppressed by an open maintenance window.', [
             'incident_id' => $incident->getKey(),
             'monitor_ids' => $monitorIds,
         ]);

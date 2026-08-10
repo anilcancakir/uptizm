@@ -3,14 +3,17 @@
 namespace Tests\Feature\Http;
 
 use App\Enums\AnalyzeRunStatus;
+use App\Enums\HttpAuthType;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Jobs\AnalyzeMonitorJob;
+use App\Models\CredentialProbeAudit;
 use App\Models\Monitor;
 use App\Models\User;
 use App\Services\Ai\LaravelAiAnalysisGateway;
 use App\Services\Monitoring\RelayClient;
+use App\Support\Logging\EvidenceLog;
 use App\Support\Monitoring\AnalyzeRunStore;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\CredentialRedactor;
@@ -19,10 +22,12 @@ use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\CapturesEvidenceLog;
 use Tests\TestCase;
 
 /**
@@ -36,8 +41,9 @@ use Tests\TestCase;
  * beside the code that derives them. What is left here is the boundary itself,
  * and every control on the request side of it: the order they run in, the 202
  * contract, the per-team in-flight lock (including the aborts that must not leak
- * it), the daily budget spend and its handover, the credential audit line, and
- * that what crosses into the job carries no credential.
+ * it), the daily budget spend and its handover, the credential audit (its
+ * persisted row and the evidence line derived from it), and that what crosses
+ * into the job carries no credential.
  *
  * THE QUEUE IS FAKED IN `setUp()` AND MUST STAY THAT WAY. {@see AnalyzeMonitorJob}
  * pins `onConnection('redis-analyze')`, so an unfaked dispatch does NOT fall back
@@ -51,6 +57,7 @@ use Tests\TestCase;
  */
 class AnalyzeMonitorControllerTest extends TestCase
 {
+    use CapturesEvidenceLog;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -261,24 +268,36 @@ class AnalyzeMonitorControllerTest extends TestCase
     }
 
     /**
-     * THE AUDIT LINE IS RECORDED BEFORE ANYTHING IS DISPATCHED.
+     * THE AUDIT IS RECORDED BEFORE ANYTHING IS DISPATCHED.
      *
-     * Measured at the moment the line fires rather than inferred from the order
-     * of two assertions: the spy below reads the faked queue's push count from
-     * inside the log call, so the value is 0 only if nothing had been dispatched
-     * yet. Moving the line below the dispatch turns that into 1. Red phase
-     * measured in `evidence/step-06-lock-and-audit-order-red.md`.
+     * Measured at the moment each half fires rather than inferred from the order
+     * of two assertions: both probes read the faked queue's push count from
+     * inside the write, so a value of 0 means nothing had been dispatched yet.
+     * Moving either below the dispatch turns that into 1. Red phase measured in
+     * `evidence/step-06-lock-and-audit-order-red.md`.
+     *
+     * BOTH halves are measured because the row is the system of record and the
+     * line is derived from it: an ordering that held for one and not the other
+     * would mean the two disagree about when the capability was exercised.
      */
-    public function test_the_audit_line_is_recorded_before_anything_is_dispatched(): void
+    public function test_the_audit_row_and_its_line_are_recorded_before_anything_is_dispatched(): void
     {
         $this->fakeRelay(MonitorStatus::Up);
         $this->actingAsTeamMember();
 
-        $pushedWhenAudited = null;
-        Log::spy()->shouldReceive('info')->andReturnUsing(
-            function (string $message) use (&$pushedWhenAudited): void {
+        $pushedWhenPersisted = null;
+        $pushedWhenLogged = null;
+
+        CredentialProbeAudit::created(function () use (&$pushedWhenPersisted): void {
+            $pushedWhenPersisted = Queue::pushed(AnalyzeMonitorJob::class)->count();
+        });
+
+        Log::spy();
+        Log::shouldReceive('channel')->with(EvidenceLog::CHANNEL)->andReturnSelf();
+        Log::shouldReceive('info')->andReturnUsing(
+            function (string $message) use (&$pushedWhenLogged): void {
                 if (str_contains($message, 'operator-supplied credential')) {
-                    $pushedWhenAudited = Queue::pushed(AnalyzeMonitorJob::class)->count();
+                    $pushedWhenLogged = Queue::pushed(AnalyzeMonitorJob::class)->count();
                 }
             },
         );
@@ -288,8 +307,10 @@ class AnalyzeMonitorControllerTest extends TestCase
             'auth_config' => ['type' => 'bearer', 'token' => 'SECRETTOKEN'],
         ])->assertStatus(202);
 
-        $this->assertNotNull($pushedWhenAudited, 'The audit line never fired, so nothing was ordered.');
-        $this->assertSame(0, $pushedWhenAudited);
+        $this->assertNotNull($pushedWhenPersisted, 'No audit row was written, so nothing was ordered.');
+        $this->assertNotNull($pushedWhenLogged, 'The evidence line never fired, so nothing was ordered.');
+        $this->assertSame(0, $pushedWhenPersisted);
+        $this->assertSame(0, $pushedWhenLogged);
         $this->assertCount(1, Queue::pushed(AnalyzeMonitorJob::class));
     }
 
@@ -297,15 +318,19 @@ class AnalyzeMonitorControllerTest extends TestCase
      * AN ATTEMPT WHOSE PROBE THREW IS STILL AUDITED, which is the reason the
      * ordering above is load-bearing rather than aesthetic.
      *
-     * This endpoint is a credential-validity oracle by construction and leaves no
-     * row behind, so the log line is the only record that a tenant sent a
-     * credential to a host. A control that fired after the dispatch would detect
-     * only the attempts that got that far, and would miss exactly the ones an
-     * attacker probing for a valid credential produces.
+     * This endpoint is a credential-validity oracle by construction, so the audit
+     * is the only record that a tenant sent a credential to a host. A control that
+     * fired after the dispatch would detect only the attempts that got that far,
+     * and would miss exactly the ones an attacker probing for a valid credential
+     * produces.
+     *
+     * Asserted against the real table and the real log FILE, under production's
+     * own `warning` application level, because a probe that threw is precisely the
+     * path where a swallowed write would be easiest to miss.
      */
     public function test_an_attempt_whose_probe_threw_is_still_audited(): void
     {
-        Log::spy();
+        $this->captureLogsUnderProductionLevels();
         $this->throwingRelay();
         $team = $this->actingAsTeamMember();
 
@@ -316,13 +341,16 @@ class AnalyzeMonitorControllerTest extends TestCase
 
         Queue::assertNothingPushed();
 
-        Log::shouldHaveReceived('info')
-            ->withArgs(function (string $message, array $context) use ($team): bool {
-                return str_contains($message, 'operator-supplied credential')
-                    && $context['team_id'] === (string) $team->id
-                    && $context['host'] === 'example.com';
-            })
-            ->once();
+        $this->assertDatabaseHas('credential_probe_audits', [
+            'team_id' => (string) $team->id,
+            'host' => 'example.com',
+            'auth_type' => 'bearer',
+        ]);
+
+        $this->assertStringContainsString(
+            'Monitor analysis probed a target with an operator-supplied credential.',
+            $this->evidenceLogContents(),
+        );
     }
 
     public function test_the_request_no_longer_spends_the_plan_trial_meter(): void
@@ -606,37 +634,113 @@ class AnalyzeMonitorControllerTest extends TestCase
         }
     }
 
-    public function test_a_credentialled_analyze_is_logged_with_the_host_and_the_type_and_never_a_value(): void
+    /**
+     * THE AUDIT IS A ROW FIRST, AND THE LINE IS DERIVED FROM IT.
+     *
+     * The previous version of this test asserted a `Log::info()` through a spy,
+     * and it certified a decoration: production runs `LOG_LEVEL=warning`, so the
+     * line it asserted had never once been written on the box. So this one drives
+     * the real log manager under that same `warning` application level and reads
+     * the file back.
+     *
+     * `audit_id` is what makes "derived" measurable rather than asserted: it does
+     * not exist until the row does, so a line rebuilt from the request's own local
+     * variables cannot carry it. The control line is the anti-vacuity half: it
+     * proves this harness DOES drop an info line on the default channel, so a full
+     * evidence file is a property of the channel and not of the fixture.
+     */
+    public function test_a_credentialled_analyze_persists_an_audit_row_and_records_a_line_derived_from_it(): void
     {
-        Log::spy();
+        $this->captureLogsUnderProductionLevels();
         $this->fakeRelay(MonitorStatus::Up);
         $team = $this->actingAsTeamMember();
+        $user = auth()->user();
 
         $this->postJson('/api/v1/monitors/analyze', [
             'url' => 'https://example.com/health?token=QUERYSECRET',
             'auth_config' => ['type' => 'bearer', 'token' => 'SECRETTOKEN'],
         ])->assertStatus(202);
 
-        Log::shouldHaveReceived('info')
-            ->withArgs(function (string $message, array $context) use ($team): bool {
-                $rendered = $message.' '.json_encode($context);
+        Log::info('A control line the default channel must drop.');
 
-                return str_contains($message, 'operator-supplied credential')
-                    && $context['team_id'] === (string) $team->id
-                    // The HOST, not the URL: a monitor target is frequently
-                    // `…/health?token=…` and a log line is a place a query
-                    // string would sit forever.
-                    && $context['host'] === 'example.com'
-                    && $context['auth_type'] === 'bearer'
-                    && ! str_contains($rendered, 'SECRETTOKEN')
-                    && ! str_contains($rendered, 'QUERYSECRET');
-            })
-            ->once();
+        // 1. The system of record: five facts and no sixth. The HOST, not the
+        //    URL, because a monitor target is frequently `…/health?token=…` and a
+        //    stored column is a place a query string would sit forever.
+        $audit = CredentialProbeAudit::query()->sole();
+
+        $this->assertSame((string) $team->id, (string) $audit->team_id);
+        $this->assertSame((string) $user->id, (string) $audit->user_id);
+        $this->assertSame('example.com', $audit->host);
+        $this->assertSame(HttpAuthType::Bearer, $audit->auth_type);
+        $this->assertNotNull($audit->created_at);
+
+        // 2. The line, in the file, under a `warning` default level, carrying the
+        //    row's own id and the row's own stored values.
+        $written = $this->evidenceLogContents();
+
+        $this->assertStringContainsString(
+            'Monitor analysis probed a target with an operator-supplied credential.',
+            $written,
+        );
+        $this->assertStringContainsString('"audit_id":"'.$audit->getKey().'"', $written);
+        $this->assertStringContainsString('"team_id":"'.$audit->team_id.'"', $written);
+        $this->assertStringContainsString('"host":"'.$audit->host.'"', $written);
+        $this->assertStringContainsString('"auth_type":"'.$audit->auth_type->value.'"', $written);
+
+        // 3. The application log holds neither line, which is the whole reason
+        //    this channel exists: the control was dropped by its level, and the
+        //    evidence line never went there.
+        $application = $this->applicationLogContents();
+
+        $this->assertStringNotContainsString('A control line the default channel must drop.', $application);
+        $this->assertStringNotContainsString('operator-supplied credential', $application);
+    }
+
+    /**
+     * THE CREDENTIAL VALUE REACHES NEITHER SURFACE.
+     *
+     * The standing decision is that a credential may pass through to the relay
+     * and to the AI research turn behind redaction, which is exactly why
+     * visibility into credential USE is load-bearing and why the credential VALUE
+     * must not be what provides it. An audit control that stored the secret would
+     * turn a detection into a second copy of the thing being protected, in a table
+     * nobody encrypts and a file nobody rotates for a year.
+     *
+     * Both surfaces are read WHOLE rather than field by field: the row is
+     * serialised out of the database, so a column added later is covered without
+     * this test being touched, and the file is read as bytes.
+     */
+    public function test_neither_the_audit_row_nor_the_evidence_line_can_carry_the_credential_value(): void
+    {
+        $this->captureLogsUnderProductionLevels();
+        $this->fakeRelay(MonitorStatus::Up);
+        $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health?token=QUERYSECRET',
+            'auth_config' => ['type' => 'bearer', 'token' => 'SECRETTOKEN'],
+        ])->assertStatus(202);
+
+        // The positive control first: a negative over an empty table and an empty
+        // file would pass with the whole audit deleted.
+        $written = $this->evidenceLogContents();
+        $stored = (string) json_encode(
+            DB::table('credential_probe_audits')->get(),
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        );
+
+        $this->assertStringContainsString('operator-supplied credential', $written);
+        $this->assertStringContainsString('example.com', $stored);
+
+        foreach (['SECRETTOKEN', 'QUERYSECRET', base64_encode('SECRETTOKEN')] as $secret) {
+            $this->assertStringNotContainsString($secret, $stored);
+            $this->assertStringNotContainsString($secret, $written);
+        }
     }
 
     public function test_an_auth_config_of_type_none_behaves_as_an_unauthenticated_analyze(): void
     {
-        Log::spy();
+        $this->captureLogsUnderProductionLevels();
         $relay = $this->fakeRelay(MonitorStatus::Up);
         $this->actingAsTeamMember();
 
@@ -646,10 +750,12 @@ class AnalyzeMonitorControllerTest extends TestCase
         ])->assertStatus(202);
 
         // The worker sends no header for `none`, so nothing was exposed and the
-        // audit line stays silent: the same boundary `CredentialRedactor::for()`
-        // draws, and the reason the ordinary path gains no noise.
+        // audit stays silent, in the table as well as in the file: the same
+        // boundary `CredentialRedactor::for()` draws, and the reason the ordinary
+        // path gains neither a row nor a line.
         $this->assertSame(['type' => 'none'], $relay->probed?->auth_config);
-        Log::shouldNotHaveReceived('info');
+        $this->assertDatabaseCount('credential_probe_audits', 0);
+        $this->assertSame('', $this->evidenceLogContents());
     }
 
     public function test_the_job_is_handed_the_operators_stored_locale(): void

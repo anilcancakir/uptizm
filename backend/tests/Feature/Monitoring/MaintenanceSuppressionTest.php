@@ -31,6 +31,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Tests\Concerns\CapturesEvidenceLog;
 use Tests\Concerns\FindsScheduledJobs;
 use Tests\TestCase;
 
@@ -48,6 +49,7 @@ use Tests\TestCase;
  */
 class MaintenanceSuppressionTest extends TestCase
 {
+    use CapturesEvidenceLog;
     use FindsScheduledJobs;
     use RefreshDatabase;
 
@@ -240,7 +242,23 @@ class MaintenanceSuppressionTest extends TestCase
         Notification::assertSentTo($user, IncidentOpened::class);
     }
 
-    public function test_the_suppression_writes_a_log_line_naming_the_monitor_and_the_window(): void
+    /**
+     * THE WITHHELD PAGE LEAVES A LINE THAT PRODUCTION ACTUALLY KEEPS.
+     *
+     * The previous version of this test asserted through `Log::spy()`, which
+     * replaces the log manager and therefore cannot see a level at all. MEASURED
+     * on the box: `LOG_LEVEL=warning`, so the `Log::info()` it asserted was
+     * discarded before it reached a file and this test certified a decoration. A
+     * withheld page is the one thing here that leaves NO row behind, so the line
+     * was also the only answer to "why did nobody get paged", and it had never
+     * once been written.
+     *
+     * So this drives the real log manager, with the application channel pinned to
+     * production's `warning`, and reads the file back. The control line is the
+     * anti-vacuity half: it proves this harness DOES drop an info line on the
+     * default channel.
+     */
+    public function test_the_suppression_writes_an_evidence_line_naming_the_monitor_and_the_window(): void
     {
         Notification::fake();
 
@@ -249,14 +267,58 @@ class MaintenanceSuppressionTest extends TestCase
         $page = $this->makePage($team, 'ops', $monitor);
         $window = $this->makeWindow($team, $page, [$monitor], now()->subMinutes(10), now()->addMinutes(50));
 
-        Log::spy();
+        $this->captureLogsUnderProductionLevels();
 
         $this->drivePersist($monitor, MonitorStatus::Down);
 
-        Log::shouldHaveReceived('info')
-            ->withArgs(fn (string $message, array $context): bool => $context['monitor_id'] === $monitor->getKey()
-                && $context['scheduled_maintenance_id'] === $window->getKey())
-            ->once();
+        Log::info('A control line the default channel must drop.');
+
+        $written = $this->evidenceLogContents();
+
+        $this->assertStringContainsString('Incident paging suppressed by an open maintenance window.', $written);
+        $this->assertStringContainsString('"monitor_id":"'.$monitor->getKey().'"', $written);
+        $this->assertStringContainsString('"scheduled_maintenance_id":"'.$window->getKey().'"', $written);
+
+        $application = $this->applicationLogContents();
+
+        $this->assertStringNotContainsString('A control line the default channel must drop.', $application);
+        $this->assertStringNotContainsString('Incident paging suppressed', $application);
+    }
+
+    /**
+     * The ladder's own withheld step leaves its own line, on the same channel.
+     *
+     * Both paging paths are asked "why did nobody get paged" together, so one
+     * grep has to answer for both. This is the fire-time path, which is the one
+     * that has already produced a real incident here: a step queued before a
+     * window existed and fired inside it, and the review had nothing to read.
+     */
+    public function test_a_withheld_escalation_step_records_its_own_evidence_line(): void
+    {
+        [$team, $user] = $this->makeTeam();
+        $monitor = $this->makeMonitor($team, 'API');
+        $page = $this->makePage($team, 'ops', $monitor);
+        $step = $this->makeUserEscalationStep($team, $user);
+
+        Notification::fake();
+        Queue::fake();
+        $this->drivePersist($monitor, MonitorStatus::Down);
+        $incident = Incident::query()->latest('created_at')->firstOrFail();
+
+        // The window arrives after the incident, so the dispatcher's own line is
+        // not in the file and what is read below can only be the ladder's.
+        $this->makeWindow($team, $page, [$monitor], now()->subMinute(), now()->addMinutes(59));
+
+        $this->captureLogsUnderProductionLevels();
+
+        app(EscalationDispatcher::class)->pageStep((string) $incident->id, (string) $step->id);
+
+        $written = $this->evidenceLogContents();
+
+        $this->assertStringContainsString('Escalation step suppressed by an open maintenance window.', $written);
+        $this->assertStringContainsString('"incident_id":"'.$incident->getKey().'"', $written);
+        $this->assertStringContainsString($monitor->getKey(), $written);
+        $this->assertStringNotContainsString('Escalation step suppressed', $this->applicationLogContents());
     }
 
     public function test_a_recovery_inside_an_open_window_is_withheld_too(): void
