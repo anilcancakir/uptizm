@@ -254,7 +254,7 @@ class AnalyzeMonitorJob implements ShouldBeEncrypted, ShouldQueue
      * one {@see RenderStatusPagePreview} made and then some: an operator is
      * watching, a silent retry would double both the wait and the trial meter,
      * and the realistic failure set already degrades in band
-     * ({@see self::suggestViaGateway()} catches four exception families and
+     * ({@see self::suggestViaGateway()} catches five exception families and
      * discovery degrades to `[]`), so what is left for a retry to absorb is the
      * failure an operator is better placed to answer by pressing the button
      * again.
@@ -430,6 +430,7 @@ class AnalyzeMonitorJob implements ShouldBeEncrypted, ShouldQueue
                         digest: $digest,
                         location: $location,
                     ),
+                    deadline: $deadline,
                 );
             }
             $this->tick($runs, self::STEP_SUGGESTION, ran: $this->withinBudget);
@@ -778,52 +779,117 @@ class AnalyzeMonitorJob implements ShouldBeEncrypted, ShouldQueue
      * The model's suggestion for this probe, or null when it could not be
      * trusted or the provider could not be reached.
      *
-     * Four exception families, all named, and the fourth is not redundant with
-     * the client ones: `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors` maps
+     * Five exception families, all named, and the last is not redundant with the
+     * client ones: `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors` maps
      * a provider 429, 402 or 503 onto an {@see AiException} SUBCLASS before it
      * reaches a caller, and the OpenRouter gateway raises a plain one for an
      * error payload delivered in-band with HTTP 200. Neither descends from
      * `RuntimeException`, so without that branch the most ordinary provider bad
      * day there is would fail the run instead of degrading it.
      *
-     * Only those four. A `TypeError` or an `Error` from our own code still
+     * Only those five. A `TypeError` or an `Error` from our own code still
      * escapes, reaches {@see handle()}'s catch, and fails the run loudly rather
      * than hiding behind a plausible suggestion.
      *
      * Two things are deliberately absent from the log lines: the exception
      * MESSAGE, because a gateway message can quote the model, which was reading
-     * text the target authored, and every probe field, for the same reason.
+     * text the target authored, and every probe field, for the same reason. What
+     * IS present is everything about the failure that WE authored, and see
+     * {@see self::degradeContext()} for why that distinction had to be drawn
+     * again.
+     *
+     * FIVE BRANCHES, BECAUSE A TIMEOUT IS NOT AN OUTAGE. `ConnectionException`
+     * and `RequestException` used to share one, and sharing it hid a real
+     * production defect for a day: on 2026-08-09 two analyzes degraded saying the
+     * AI service was unreachable, and the service had answered discovery on both
+     * of the same runs. Our own client had hung up at the suggestion turn's
+     * per-call ceiling. One is a wall of ours and the other is the provider's
+     * word, they are reached by different fixes, and a line that cannot tell them
+     * apart sends the next reader to the wrong one.
      */
-    protected function suggestViaGateway(AnalysisGateway $gateway, AnalysisPayload $payload): ?AnalysisResult
-    {
+    protected function suggestViaGateway(
+        AnalysisGateway $gateway,
+        AnalysisPayload $payload,
+        AiDeadline $deadline,
+    ): ?AnalysisResult {
         try {
             return $gateway->analyze($payload);
-        } catch (AiBudgetExhaustedException) {
+        } catch (AiBudgetExhaustedException $e) {
             // FIRST, because it extends RuntimeException. Nothing was sent, so
             // this is a signal about the wall-time budget or a slow provider
             // rather than about the model's output.
-            Log::warning("Monitor analysis degraded: the request's AI budget was already spent.", [
-                'url' => $payload->displayUrl(),
-                'region' => $payload->region,
-            ]);
-        } catch (RuntimeException) {
-            Log::warning('Monitor analysis degraded: the model output could not be trusted.', [
-                'url' => $payload->displayUrl(),
-                'region' => $payload->region,
-            ]);
-        } catch (ConnectionException|RequestException) {
-            Log::warning('Monitor analysis degraded: the AI service was unreachable.', [
-                'url' => $payload->displayUrl(),
-                'region' => $payload->region,
-            ]);
-        } catch (AiException) {
-            Log::warning('Monitor analysis degraded: the AI provider could not complete the request.', [
-                'url' => $payload->displayUrl(),
-                'region' => $payload->region,
-            ]);
+            Log::warning(
+                "Monitor analysis degraded: the request's AI budget was already spent.",
+                $this->degradeContext($payload, $deadline, $e),
+            );
+        } catch (RuntimeException $e) {
+            Log::warning(
+                'Monitor analysis degraded: the model output could not be trusted.',
+                $this->degradeContext($payload, $deadline, $e),
+            );
+        } catch (ConnectionException $e) {
+            // OURS, not theirs: the provider never got to answer because the
+            // call reached the timeout this request handed it. Nothing here is
+            // waiting-out-able, so the number that matters is how much of the
+            // budget was still unspent, which says whether a per-call ceiling or
+            // the shared budget did the cutting.
+            Log::warning(
+                'Monitor analysis degraded: the AI service did not answer in time.',
+                $this->degradeContext($payload, $deadline, $e),
+            );
+        } catch (RequestException $e) {
+            // THEIRS: the provider answered, with a refusal. The status is the
+            // one fact worth having and it is the provider's own.
+            Log::warning(
+                'Monitor analysis degraded: the AI provider answered with an error status.',
+                $this->degradeContext($payload, $deadline, $e),
+            );
+        } catch (AiException $e) {
+            Log::warning(
+                'Monitor analysis degraded: the AI provider could not complete the request.',
+                $this->degradeContext($payload, $deadline, $e),
+            );
         }
 
         return null;
+    }
+
+    /**
+     * The facts a degrade line may carry, which are exactly the ones nobody
+     * outside this system authored.
+     *
+     * The exception MESSAGE stays out, for the reason
+     * {@see self::suggestViaGateway()} gives: a gateway message can quote the
+     * model quoting the target. Its CLASS does not, and neither does an HTTP
+     * status the provider itself set, so both go in. That pair is what turns the
+     * next occurrence of this degrade into a log read.
+     *
+     * The two budget numbers are here because their RATIO is the answer to the
+     * question a degraded run actually raises. A run that gave up 42 seconds into
+     * a 150 second budget was cut by a per-call ceiling; one that gave up at 149
+     * was cut by the budget. Reading that off Horizon's retained job records
+     * instead, which is how it was read the first time, works for about an hour
+     * and then the records are trimmed.
+     *
+     * @return array<string, mixed>
+     */
+    protected function degradeContext(AnalysisPayload $payload, AiDeadline $deadline, Throwable $failure): array
+    {
+        return array_filter(
+            [
+                'url' => $payload->displayUrl(),
+                'region' => $payload->region,
+                'failure' => class_basename($failure),
+                'status' => $failure instanceof RequestException ? $failure->response->status() : null,
+                'budget_elapsed_seconds' => (int) round($deadline->elapsed()),
+                'budget_seconds' => $deadline->budget(),
+            ],
+            // Only the absent status is dropped. A comparison against null and
+            // not a truthiness test, because an elapsed of 0 is a real reading
+            // and the most interesting one there is: it means the call was
+            // refused before it was made.
+            static fn (mixed $value): bool => $value !== null,
+        );
     }
 
     /**

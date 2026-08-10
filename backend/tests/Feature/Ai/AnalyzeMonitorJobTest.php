@@ -21,11 +21,16 @@ use App\Support\Monitoring\AnalyzeRunStore;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\HostGuard;
 use DateTimeImmutable;
+use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use LogicException;
 use RuntimeException;
@@ -384,11 +389,101 @@ class AnalyzeMonitorJobTest extends TestCase
     }
 
     /**
+     * A CALL THAT RAN OUT OF ITS OWN TIMEOUT IS NAMED A TIMEOUT, and the line
+     * says which wall it was not.
+     *
+     * The production run this exists for, 2026-08-09 22:43 and 22:46 UTC: two
+     * analyzes degraded with `the AI service was unreachable`, and the service
+     * was reachable on both of them. Metric discovery answered on the same runs.
+     * What actually happened is that the suggestion turn spent its whole
+     * per-call ceiling and our own HTTP client hung up, which the old wording
+     * described as the provider being down.
+     *
+     * That mislabel cost a forensics pass over Horizon's retained job records to
+     * undo, because the line carried nothing that could tell a client-side
+     * timeout from an HTTP error status, and nothing that could tell either from
+     * the shared budget running out. So the three facts asserted here are the
+     * three that were missing: the exception FAMILY, the budget CEILING, and how
+     * much of that budget had actually been spent when the call gave up.
+     *
+     * `budget_elapsed_seconds` is the one that answers the question this whole
+     * investigation opened with: a number far below `budget_seconds` says a
+     * per-call ceiling cut the call, not the shared budget, and no other artifact
+     * in the system says so.
+     */
+    public function test_a_call_that_ran_out_of_time_is_named_a_timeout_rather_than_an_unreachable_service(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam();
+        $runId = $this->startRun($team->id);
+
+        $this->app->instance(
+            AnalysisGateway::class,
+            FakeAnalysisGateway::throwing(
+                new ConnectionException('cURL error 28: Operation timed out after 40001 milliseconds'),
+            ),
+        );
+
+        $this->runJob($this->makeJob(runId: $runId, teamId: $team->id));
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'did not answer in time')
+                && $context['failure'] === 'ConnectionException'
+                && $context['budget_seconds'] === (int) config('ai.request_budget_seconds')
+                && is_int($context['budget_elapsed_seconds'])
+                && ! array_key_exists('status', $context))
+            ->once();
+
+        // The operator-facing half is deliberately UNCHANGED: a timeout and a
+        // provider error are answered the same way, by trying again shortly, and
+        // the degrade vocabulary is split by what the operator should do rather
+        // than by what the log needs to say.
+        $result = app(AnalyzeRunStore::class)->find($runId)['result']['data'];
+
+        $this->assertStringContainsString('AI analysis temporarily unavailable', $result['rationale']);
+        $this->assertSame('low', $result['confidence']);
+    }
+
+    /**
+     * A provider that ANSWERED, with a refusal, is named with its status.
+     *
+     * The other half of the branch the run above shared. An HTTP status is the
+     * single most useful fact about a provider refusal and it is OpenRouter's own
+     * word, not the monitored target's, so it is safe to record where the
+     * exception message is not: a 404 is `require_parameters` finding no endpoint
+     * that can serve the request as sent, a 400 is a schema it rejected, and
+     * neither is reached by waiting.
+     */
+    public function test_a_provider_error_response_is_named_with_the_status_it_answered_with(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam();
+        $runId = $this->startRun($team->id);
+
+        $this->app->instance(
+            AnalysisGateway::class,
+            FakeAnalysisGateway::throwing(new RequestException(
+                new Response(new Psr7Response(404, [], '{"error":{"message":"No endpoints found"}}')),
+            )),
+        );
+
+        $this->runJob($this->makeJob(runId: $runId, teamId: $team->id));
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'answered with an error status')
+                && $context['failure'] === 'RequestException'
+                && $context['status'] === 404)
+            ->once();
+    }
+
+    /**
      * A failure the degrade path does not cover leaves a terminal state and a
      * terminal tick, and still fails the job.
      *
      * `LogicException` deliberately: {@see AnalyzeMonitorJob::suggestViaGateway()}
-     * catches four families on purpose, so a test that threw one of those would
+     * catches five families on purpose, so a test that threw one of those would
      * be exercising the degrade rather than the failure path. What must not
      * happen is a run left saying `analyzing` while the queue records a failed
      * job.
