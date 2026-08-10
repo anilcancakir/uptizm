@@ -165,6 +165,48 @@ return [
             'replace_placeholders' => true,
         ],
 
+        /*
+         * Evidence: what the system deliberately did NOT do, and what a tenant
+         * did with a credential. The roster is closed and lives in
+         * `App\Support\Logging\EvidenceLog`.
+         *
+         * Same reasoning as `ai-routing` above, and the same measurement behind
+         * it: production runs `LOG_LEVEL=warning`, so the three `Log::info()`
+         * lines this channel now carries had never once been written there. Hence
+         * EVIDENCE_LOG_LEVEL rather than LOG_LEVEL, and hence `info` as its
+         * default, because a knob whose default is silence is the same bug under a
+         * new name. Nothing here reads the global level, deliberately.
+         *
+         * A SECOND channel rather than a second use of `ai-routing`: that one is
+         * a latency time series, grepped for a provider name and compared before
+         * and after a routing change, and it is sized (30 days) for exactly that.
+         * Mixing a page that was withheld into it would make both harder to read
+         * and would force one retention onto two questions.
+         *
+         * `daily` over `single`: nothing rotates or prunes a `single` file, and
+         * this one has to still be readable long after it is written. The volume
+         * makes that cheap, a few lines a day (a suppressed page happens during
+         * planned work, a credentialled analyze maybe ten times a day), so a day's
+         * file is bytes.
+         *
+         * 365 days, an order of magnitude above the application log's 14 and above
+         * `ai-routing`'s 30, is sized off WHEN it is read. "Why did nobody get
+         * paged" arrives at an incident review, days to weeks out; a question
+         * about who sent a credential where can arrive a quarter or a year later,
+         * and by then the answer either exists or the control was decoration. A
+         * year of this volume costs less than one archived response body. The
+         * credential half also has a queryable system of record in
+         * `credential_probe_audits`; this file is the copy a human greps, and the
+         * copy that survives the table being pruned.
+         */
+        'evidence' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/evidence.log'),
+            'level' => env('EVIDENCE_LOG_LEVEL', 'info'),
+            'days' => env('EVIDENCE_LOG_DAILY_DAYS', 365),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

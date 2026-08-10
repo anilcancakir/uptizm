@@ -15,6 +15,7 @@ use App\Http\Requests\UpdateMonitorRequest;
 use App\Http\Resources\MonitorResource;
 use App\Jobs\AnalyzeMonitorJob;
 use App\Jobs\PerformMonitorCheck;
+use App\Models\CredentialProbeAudit;
 use App\Models\Monitor;
 use App\Models\MonitorMetric;
 use App\Models\Team;
@@ -24,6 +25,7 @@ use App\Services\Ai\LaravelAiMetricDiscoveryGateway;
 use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\CheckAggregateService;
 use App\Services\Monitoring\RelayClient;
+use App\Support\Logging\EvidenceLog;
 use App\Support\Monitoring\AnalyzeRunStore;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\CredentialRedactor;
@@ -36,7 +38,6 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 use Throwable;
@@ -433,11 +434,12 @@ class MonitorController extends Controller
      *
      * 1. The per-team in-flight lock, taken BEFORE the gate (see below).
      * 2. The plan gate, {@see PlanGate::assertAiAnalysisAllowed()}.
-     * 3. The credential audit line, {@see self::logCredentialledProbe()}, before
+     * 3. The credential audit, {@see self::auditCredentialledProbe()}, before
      *    any dispatch of any kind: this endpoint is a credential-validity oracle
      *    by construction, so a detection control that recorded only what a
      *    worker picked up would miss every attempt that never ran (a refused
-     *    relay, a probe that threw, a run whose job was never drained).
+     *    relay, a probe that threw, a run whose job was never drained). It is a
+     *    persisted row plus a line derived from it, not a log line alone.
      * 4. The relay probe itself, on the relay's own 30-second timeout.
      * 5. THE redaction seam, {@see CheckResult::withRedacted()}, and there is
      *    exactly one. The probe carries the operator's own credential, so a
@@ -510,9 +512,17 @@ class MonitorController extends Controller
             $region = $request->probeRegion();
             $authConfig = $request->authConfig();
 
-            // 3. The audit line, ahead of the probe and therefore ahead of every
-            //    later step, for the reason in this method's docblock.
-            $this->logCredentialledProbe($url, $authConfig, $teamId);
+            // 3. The audit, ahead of the probe and therefore ahead of every
+            //    later step, for the reason in this method's docblock. Named
+            //    arguments because two of the four are same-typed identifier
+            //    strings and a transposition would attribute the row to the
+            //    wrong party while type-checking silently.
+            $this->auditCredentialledProbe(
+                url: $url,
+                authConfig: $authConfig,
+                teamId: $teamId,
+                userId: (string) $request->user()->getKey(),
+            );
 
             // 4. Probe the target through a transient monitor: the URL has no
             //    row yet, so a throwaway instance carries the probe spec the
@@ -705,27 +715,42 @@ class MonitorController extends Controller
      * The audit trail for the validity-oracle risk this endpoint accepts: a
      * tenant can make the relay send an arbitrary `Authorization` header to any
      * public host and read the answer, and unlike `POST /monitors` the request
-     * leaves no row behind. This line is the only record that it happened. It
-     * is a DETECTION control, not a prevention one; the named limiter bounds
-     * throughput, not capability.
+     * leaves nothing else behind. It is a DETECTION control, not a prevention
+     * one; the named limiter bounds throughput, not capability.
      *
-     * Three fields and no fourth. The team is who to ask, the HOST is where it
-     * went, and the TYPE is what shape of secret left the building. Never a
-     * value, and never the raw URL: a monitor target is frequently
-     * `…/health?token=…`, so the query string is dropped for the same reason
-     * `AnalysisPayload::displayUrl()` drops it before showing the URL to a
-     * model. The host alone is narrower than that rendering rather than a
-     * second copy of it, which is why this is not the third caller that would
-     * trigger extracting it.
+     * A ROW AND THEN A LINE, in that order, and the order is the whole design.
+     * {@see CredentialProbeAudit} is the system of record: it can be queried,
+     * it survives a server move, and nothing rotates it away. The line on
+     * {@see EvidenceLog::CHANNEL} is DERIVED from the row that was just
+     * persisted ({@see CredentialProbeAudit::evidenceContext()}), never rebuilt
+     * from the local variables above, so the file and the table cannot come to
+     * describe different attempts. A failed insert is deliberately left to
+     * propagate: a swallowed write here is the control silently switching
+     * itself off, which is the failure this whole method exists to remove.
+     *
+     * Five facts and no sixth. The team is who to ask, the USER is who to ask
+     * first, the HOST is where it went, and the TYPE is what shape of secret
+     * left the building. Never a value, and never the raw URL: a monitor target
+     * is frequently `…/health?token=…`, so the query string is dropped for the
+     * same reason `AnalysisPayload::displayUrl()` drops it before showing the
+     * URL to a model. The host alone is narrower than that rendering rather
+     * than a second copy of it, which is why this is not the third caller that
+     * would trigger extracting it.
      *
      * Silent for an absent credential and for `type: none`, which is the same
      * boundary {@see CredentialRedactor::for()} draws: nothing was sent, so
      * there is nothing to audit and no noise on the ordinary path.
      *
-     * @param  array<string, mixed>|null  $authConfig
+     * @param  array<string, mixed>|null  $authConfig  Validated credential map, or null.
+     * @param  string  $teamId  The acting team, and the row's owner.
+     * @param  string  $userId  The acting operator, kept for a follow-up question.
      */
-    protected function logCredentialledProbe(string $url, ?array $authConfig, string $teamId): void
-    {
+    protected function auditCredentialledProbe(
+        string $url,
+        ?array $authConfig,
+        string $teamId,
+        string $userId,
+    ): void {
         $submittedType = $authConfig['type'] ?? null;
         $type = is_string($submittedType) ? HttpAuthType::tryFrom($submittedType) : null;
 
@@ -735,11 +760,23 @@ class MonitorController extends Controller
 
         $host = parse_url($url, PHP_URL_HOST);
 
-        Log::info('Monitor analysis probed a target with an operator-supplied credential.', [
+        // 1. The record itself, first, because everything below it is a copy.
+        $audit = CredentialProbeAudit::query()->create([
             'team_id' => $teamId,
-            'host' => is_string($host) && $host !== '' ? $host : 'n/a',
-            'auth_type' => $type->value,
+            'user_id' => $userId,
+            'host' => is_string($host) && $host !== '' ? $host : null,
+            'auth_type' => $type,
         ]);
+
+        // 2. Then the human-readable copy, off the STORED row. `refresh()` is
+        //    not ceremony: it reads back what the database actually holds, so
+        //    the line cannot report a value a column truncated or a default
+        //    overrode, and a row that vanished between the two statements
+        //    raises here instead of being narrated as a success.
+        EvidenceLog::record(
+            'Monitor analysis probed a target with an operator-supplied credential.',
+            $audit->refresh()->evidenceContext(),
+        );
     }
 
     /**
