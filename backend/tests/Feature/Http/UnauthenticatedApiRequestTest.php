@@ -2,9 +2,8 @@
 
 namespace Tests\Feature\Http;
 
-use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
 use Tests\TestCase;
 
@@ -67,22 +66,30 @@ class UnauthenticatedApiRequestTest extends TestCase
     }
 
     /**
-     * Proves the scoping without inventing a non-existent route: the same
-     * registered callback still calls `route('login')` for a request outside
-     * `api/*`, which still throws `RouteNotFoundException` because this app
-     * genuinely has no such route. That is the framework's UNCHANGED default
-     * behaviour for a guest outside the API, not a regression this fix
-     * introduces; the fix only short-circuits the `api/*` branch before that
-     * call is ever reached.
+     * Proves the scoping through the real middleware pipeline rather than
+     * through `Authenticate`'s internals: a guest on a route OUTSIDE `api/*`
+     * still resolves `route('login')` and still raises
+     * `RouteNotFoundException`, because this app genuinely has no such route.
+     *
+     * That is the framework's UNCHANGED default for a guest outside the API,
+     * not a regression this fix introduces; the fix only short-circuits the
+     * `api/*` branch before the call is reached. Asserting it here rather than
+     * against `redirectToCallback` keeps the test black-box: a Laravel upgrade
+     * is free to rename or re-scope that property, and this test should only
+     * fail when the BEHAVIOUR changes.
+     *
+     * The route is defined by the test because the app has no non-API route
+     * behind `auth` today. That is the point: it is the shape a future one
+     * would take, and it is what a change to the non-`api/*` branch would
+     * break.
      */
     public function test_the_redirect_default_is_untouched_outside_api(): void
     {
-        $reflection = new \ReflectionClass(Authenticate::class);
-        $callback = $reflection->getStaticPropertyValue('redirectToCallback');
+        Route::middleware('auth')->get('/scoping-probe', fn () => 'unreachable');
 
-        $this->assertIsCallable($callback);
+        $this->withoutExceptionHandling();
         $this->expectException(RouteNotFoundException::class);
 
-        $callback(Request::create('/dashboard'));
+        $this->get('/scoping-probe');
     }
 }
