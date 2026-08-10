@@ -72,8 +72,11 @@ class MetricDiscoveryService
     protected const string KEY_FALLBACK = 'metric';
 
     /**
-     * How far from the observed reading a DERIVED warn bound sits, and its
-     * critical sibling below.
+     * How far from the observed reading a DERIVED warn bound sits, and how much
+     * farther out on the bad side its critical sibling sits.
+     *
+     * Neither factor names a numeric direction, because neither has one: under
+     * `high_bad` critical lands ABOVE warn, under `low_bad` BELOW it.
      *
      * Not new numbers: {@see AnalyzeMonitorJob::deterministicSuggestion()}
      * already anchors a response-time threshold at three and six times the
