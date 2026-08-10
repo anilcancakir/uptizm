@@ -23,6 +23,70 @@ use Illuminate\Support\Str;
 
 /*
 |--------------------------------------------------------------------------
+| Route parameter patterns: enforce the uuid shape for every parameter that
+| addresses a `uuid` primary key.
+|--------------------------------------------------------------------------
+|
+| Without this, an implicit-bound route parameter (or a plain string handed
+| to a manual `findOrFail()`) that fails to parse as a uuid still reaches the
+| database as a bare string, and PostgreSQL raises
+| `22P02: invalid input syntax for type uuid` for the resulting query, which
+| surfaces as an uncaught 500 instead of the 404 a malformed identifier
+| should answer. `Route::pattern()` rejects the segment before the route
+| matches at all, so a malformed value never reaches `SubstituteBindings` or
+| a manual lookup.
+|
+| Registered here, before every route in this file, because
+| `Router::addWhereClausesToRoute()` snapshots the global pattern list at the
+| MOMENT a route is created (`Router.php:707-714`); a pattern registered
+| after a route would not apply to it. That includes the signed
+| preview-image route below, which sits outside the `auth:sanctum` group but
+| still implicit-binds `{statusPage:id}`.
+|
+| `Route::pattern()` is process-global (`Router::$patterns`), so it also
+| reaches any later-loaded route file that happens to reuse one of these
+| parameter names. None of `routes/web.php`, `routes/marketing.php`, or
+| `routes/status.php` do today (they address `{slug}`, `{token}`,
+| `{locale}`, resolved by an explicit `->where()` lookup rather than
+| implicit binding), so there is no live collision, but a new route
+| elsewhere reusing one of these names inherits the constraint too.
+|
+| Deliberately NOT constrained here:
+|   - `{contentHash}`: a sha256 hex digest, not a uuid; constrained inline
+|     at its own route (`where('contentHash', '[0-9a-f]{64}')` below).
+|   - `{run}`: an analyze run id. It IS minted as a uuid
+|     (`MonitorController::analyze()`, `Str::uuid()`), but it never reaches a
+|     `uuid` column: `AnalyzeRunStore` reads it back with `Cache::get()`
+|     against Redis, so a malformed value is already a clean cache miss and
+|     `analyzeRun()`'s `abort_if($stored === null, ...)` already 404s it.
+|   - Every parameter in `routes/status.php` (`{slug}`, `{token}`): resolved
+|     by an explicit `->where('slug', $slug)->first()` lookup rather than
+|     implicit binding, so a malformed value already 404s on a miss with no
+|     type coercion involved.
+*/
+// The same expression Route::whereUuid() applies per-parameter; used here as
+// a global pattern instead since every name below needs the identical shape.
+$uuidPattern = '[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}';
+
+Route::patterns([
+    'monitor' => $uuidPattern,
+    'check' => $uuidPattern,
+    'metric' => $uuidPattern,
+    'incident' => $uuidPattern,
+    'suggestion' => $uuidPattern,
+    'statusPage' => $uuidPattern,
+    'subscriber' => $uuidPattern,
+    'maintenance' => $uuidPattern,
+    'schedule' => $uuidPattern,
+    'rotation' => $uuidPattern,
+    'override' => $uuidPattern,
+    'policy' => $uuidPattern,
+    'step' => $uuidPattern,
+    'channel' => $uuidPattern,
+]);
+
+/*
+|--------------------------------------------------------------------------
 | API v1: Public routes (no auth).
 |--------------------------------------------------------------------------
 */
