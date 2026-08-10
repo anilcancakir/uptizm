@@ -452,12 +452,22 @@ class AnalysisGatewayTest extends TestCase
         $this->assertGreaterThanOrEqual(2048, (int) $options->maxTokens);
     }
 
+    /**
+     * `require_parameters` is this gateway's OWN routing constraint, and it
+     * survives the shared latency sort every gateway now carries. Asserted as
+     * the whole array rather than one key, because the two arriving together in
+     * one `provider` object is the contract: the sort reorders the upstreams and
+     * the constraint decides which of them may serve the request at all, and
+     * whichever one a later edit drops, this fails.
+     * {@see Tests\Unit\Services\Ai\OpenRouterRoutingTest} holds the sort across
+     * all six gateways.
+     */
     public function test_openrouter_is_asked_to_refuse_a_parameter_it_cannot_serve(): void
     {
         $gateway = new LaravelAiAnalysisGateway;
 
         $this->assertSame(
-            ['provider' => ['require_parameters' => true]],
+            ['provider' => ['sort' => 'latency', 'require_parameters' => true]],
             $gateway->providerOptions(Lab::OpenRouter),
         );
         $this->assertSame([], $gateway->providerOptions(Lab::Anthropic));

@@ -3,10 +3,12 @@
 namespace App\Services\Ai;
 
 use App\Enums\AiConfidence;
+use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\Conversational;
+use Laravel\Ai\Contracts\HasProviderOptions;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
@@ -39,9 +41,10 @@ use Stringable;
  *
  * No tools, no function-calling, no DB access are ever exposed to the model.
  */
-class LaravelAiAssistantGateway implements Agent, AssistantGateway, Conversational, HasStructuredOutput
+class LaravelAiAssistantGateway implements Agent, AssistantGateway, Conversational, HasProviderOptions, HasStructuredOutput
 {
     use Promptable;
+    use RoutesOpenRouterByLatency;
 
     /**
      * Answer a team-scoped question grounded in the team's own telemetry.

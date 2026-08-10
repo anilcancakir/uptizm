@@ -9,6 +9,7 @@ use App\Enums\MonitorStatus;
 use App\Enums\RegionBasis;
 use App\Enums\ThresholdDirection;
 use App\Exceptions\AiBudgetExhaustedException;
+use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use App\Services\Ai\Tools\ResearchUrlAllowList;
 use App\Services\Ai\Tools\WebFetchTool;
 use App\Services\Ai\Tools\WebSearchTool;
@@ -26,7 +27,6 @@ use Laravel\Ai\Contracts\Conversational;
 use Laravel\Ai\Contracts\HasProviderOptions;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Contracts\HasTools;
-use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
@@ -75,9 +75,9 @@ use Stringable;
  *   2. A SUGGESTION turn: the schema declared, no tools, its notes carried in
  *      as one more fenced field.
  *
- * `providerOptions()` still asks for `require_parameters` on both, because
- * being told that a provider cannot serve a parameter is what makes either
- * turn's silence readable.
+ * {@see openRouterRoutingConstraints()} still asks for `require_parameters` on
+ * both, because being told that a provider cannot serve a parameter is what
+ * makes either turn's silence readable.
  *
  * The model never reaches a database, and the only outbound surface it has is
  * the two research tools, whose fetch URL must be one the backend minted.
@@ -88,6 +88,7 @@ use Stringable;
 class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational, HasProviderOptions, HasStructuredOutput, HasTools
 {
     use Promptable;
+    use RoutesOpenRouterByLatency;
 
     /**
      * The service classes the model may answer with.
@@ -177,11 +178,17 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      * unmeasured, and only a live run answers it. The instrument is the degrade
      * line in {@see App\Jobs\AnalyzeMonitorJob::suggestViaGateway()}, which now
      * names a timeout as a timeout and records how much of the budget was spent
-     * when it fired. Pinning the provider is the fix for the variance itself and
-     * is not attempted here: this class already implements
-     * {@see HasProviderOptions}, so `['provider' => ['order' => [...]]]` is a
-     * one-line addition, but which providers to trust is a cost and data-residency
-     * decision rather than a timeout.
+     * when it fired.
+     *
+     * The variance itself is now addressed one layer over, and NOT by pinning:
+     * {@see RoutesOpenRouterByLatency} asks OpenRouter to order its upstreams by
+     * measured latency instead of price, which prefers the fast cluster without
+     * giving up the fallbacks a pinned `order` would cost. That should compress
+     * the spread this number was sized against, so re-derive the partition from a
+     * fresh measurement before trusting the 33.8 seconds above: it was measured
+     * under price-weighted routing and is now an upper bound rather than a typical
+     * case. The instrument for that measurement is the provider and `duration_ms`
+     * {@see OpenRouterUpstreamRecorder} logs per call.
      */
     private const int SUGGESTION_TIMEOUT_SECONDS = 70;
 
@@ -339,15 +346,21 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      * provider does not support. Without this, a `response_format` that never
      * reached the provider is indistinguishable from a model that ignored it,
      * and the retry below would spend a second call on the same silence. It is
-     * correct for both turns and is a no-op for every other provider.
+     * correct for both turns.
+     *
+     * It is a CONSTRAINT rather than a preference: it narrows the set of
+     * upstreams eligible to serve the call, which is why it lives here and not
+     * in {@see RoutesOpenRouterByLatency} beside the latency sort every gateway
+     * shares. The other five gateways deliberately do not ask for it: each
+     * already retries once and then degrades, and narrowing their eligible
+     * upstreams is a routing decision of its own rather than a side effect of
+     * this one.
      *
      * @return array<string, mixed>
      */
-    public function providerOptions(Lab|string $provider): array
+    protected function openRouterRoutingConstraints(): array
     {
-        return $provider === Lab::OpenRouter
-            ? ['provider' => ['require_parameters' => true]]
-            : [];
+        return ['require_parameters' => true];
     }
 
     /**
