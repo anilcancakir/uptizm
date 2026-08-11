@@ -125,6 +125,20 @@ class StoreStatusPageRequest extends FormRequest
                 'string',
                 'max:500',
             ],
+            // The language this page publishes in: its own copy, its banner label
+            // and its incident titles. Nullable means the deployment default, so
+            // an owner who never picks one keeps exactly today's page.
+            //
+            // Constrained to the locales this app actually ships a catalogue for,
+            // because an unlisted code would resolve to nothing and render dotted
+            // keys on a page a customer publishes. One language per page: there is
+            // no path segment, no switcher and no Accept-Language negotiation, and
+            // a visitor cannot override it.
+            'locale' => [
+                'nullable',
+                'string',
+                Rule::in((array) config('magic-starter.supported_locales', [])),
+            ],
             'is_public' => [
                 'boolean',
             ],

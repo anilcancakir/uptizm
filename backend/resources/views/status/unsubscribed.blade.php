@@ -6,21 +6,20 @@
     see confirmed.blade.php for why this flow carries its own head.
 --}}
 <!doctype html>
-<html lang="en">
+<html lang="{{ app()->getLocale() }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light dark">
-        <title>Unsubscribed</title>
+        <title>{{ __('status.unsubscribed.title') }}</title>
 
         @vite(['resources/css/app.css'])
     </head>
     <body class="min-h-screen bg-surface text-fg antialiased">
         <div class="mx-auto max-w-lg px-4 py-16 text-center">
-            <h1 class="text-xl font-semibold">You are unsubscribed</h1>
+            <h1 class="text-xl font-semibold">{{ __('status.unsubscribed.heading') }}</h1>
             <p class="mt-2 text-fg-muted">
-                You will no longer receive incident updates. You can subscribe again any time
-                from the status page.
+                {{ __('status.unsubscribed.body') }}
             </p>
         </div>
     </body>

@@ -19,10 +19,10 @@
 @endphp
 
 <section class="mb-6 rounded-lg border border-border bg-surface-container">
-    <h2 class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">Components</h2>
+    <h2 class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">{{ __('status.components.heading') }}</h2>
 
     @if ($vm->components === [])
-        <p class="px-5 py-6 text-sm text-fg-muted">No components are currently published on this page.</p>
+        <p class="px-5 py-6 text-sm text-fg-muted">{{ __('status.components.empty') }}</p>
     @else
         <ul>
             @foreach ($vm->components as $component)
@@ -34,6 +34,12 @@
 
                     <div class="flex items-center gap-3">
                         <div class="flex gap-px" aria-hidden="true">
+                            {{-- The `title` here is NOT translated, and that is not an
+                                 oversight: the strip is `aria-hidden`, and the value beside
+                                 the date is the raw ladder key (`operational`,
+                                 `major_outage`), which is machine vocabulary in every
+                                 locale. Translating only the "not measured" half would
+                                 leave one Turkish word next to five English ones. --}}
                             @foreach ($component['strip'] as $day)
                                 <span
                                     class="h-4 w-1 rounded-sm {{ $statusClass($day['status'] ?? '') }}"

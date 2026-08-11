@@ -65,6 +65,11 @@ class StatusPageResource extends JsonResource
             'logo_path' => $this->resource->logo_path,
             'logo_text' => $this->resource->logo_text,
             'description' => $this->resource->description,
+            // The language the public page publishes in, null for the deployment
+            // default. Emitted so the operator UI can show and change it; without
+            // it the column would be writable through the API and invisible in the
+            // app, which is a setting nobody can find.
+            'locale' => $this->resource->locale,
             // The URL the page is actually served at, resolved from the route
             // itself. The client used to compose this string ("uptizm.com/
             // status/<slug>"), which no route answers: an operator who copied

@@ -164,7 +164,13 @@ class AiSuggestedAction {
 /// A historically similar incident surfaced by the AI.
 @immutable
 class AiSimilarIncident {
-  /// Title of the past incident.
+  /// Title of the past incident, a plain string BY DESIGN.
+  ///
+  /// Unlike the `Incident` model's headline, this one carries no structural key
+  /// and no parameters: the AI surface hands over a bare sentence, so there is
+  /// nothing to render from a catalogue and nothing to localize. The parameter
+  /// that holds one of these is named `incident` at its render site, which has
+  /// misled a reader into converting it once; the type is the thing to check.
   final String title;
 
   /// Cosine similarity score in the range [0, 1].

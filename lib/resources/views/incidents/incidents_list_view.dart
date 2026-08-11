@@ -145,10 +145,14 @@ class _IncidentsListViewState
       };
       if (!matchesFilter) return false;
 
-      // 2. Then narrow by the case-insensitive title/monitorName query.
+      // 2. Then narrow by the case-insensitive title/monitorName query. The
+      //    title read is the RENDERED one, not the stored English: an
+      //    automatically opened incident displays its title in the app's
+      //    language, and searching the column instead would make every such row
+      //    unmatchable by the words on screen.
       final String trimmed = _query.trim().toLowerCase();
       if (trimmed.isEmpty) return true;
-      return i.title.toLowerCase().contains(trimmed) ||
+      return i.displayTitle.toLowerCase().contains(trimmed) ||
           i.monitorName.toLowerCase().contains(trimmed);
     }).toList();
   }

@@ -34,14 +34,14 @@
     };
 
     $stateLabel = static fn (string $state): string => match ($state) {
-        'in_progress' => 'in progress',
-        default => 'scheduled',
+        'in_progress' => (string) __('status.maintenances.state.in_progress'),
+        default => (string) __('status.maintenances.state.scheduled'),
     };
 @endphp
 
 @if ($vm->maintenances !== [])
     <section class="mb-6 rounded-lg border border-border bg-surface-container">
-        <h2 class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">Scheduled maintenance</h2>
+        <h2 class="border-b border-border px-5 py-3 text-sm font-semibold text-fg-muted uppercase">{{ __('status.maintenances.heading') }}</h2>
 
         <ul class="divide-y divide-border-subtle">
             @foreach ($vm->maintenances as $window)
@@ -60,7 +60,7 @@
                         <time datetime="{{ $window['startsAt'] }}">
                             {{ \Illuminate\Support\Carbon::parse($window['startsAt'])->format('M j, Y H:i T') }}
                         </time>
-                        to
+                        {{ __('status.maintenances.range_separator') }}
                         <time datetime="{{ $window['endsAt'] }}">
                             {{ \Illuminate\Support\Carbon::parse($window['endsAt'])->format('M j, Y H:i T') }}
                         </time>

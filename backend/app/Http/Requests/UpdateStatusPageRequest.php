@@ -75,6 +75,15 @@ class UpdateStatusPageRequest extends StoreStatusPageRequest
                 'string',
                 'max:500',
             ],
+            // See StoreStatusPageRequest for what this decides. Constrained to the
+            // locales this app ships a catalogue for: an unlisted code renders
+            // dotted keys on a page a customer publishes.
+            'locale' => [
+                'sometimes',
+                'nullable',
+                'string',
+                Rule::in((array) config('magic-starter.supported_locales', [])),
+            ],
             'is_public' => [
                 'sometimes',
                 'boolean',

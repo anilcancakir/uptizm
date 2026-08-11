@@ -7,6 +7,8 @@ import '../enums/ai_degrade_reason.dart' show aiDegradeReasonFromWire;
 import '../enums/incident_impact.dart' show IncidentImpact, impactFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle, lifecycleFromWire;
 import '../enums/incident_severity.dart' show IncidentSeverity, severityFromWire;
+import '../enums/incident_title_key.dart'
+    show IncidentTitleKey, incidentTitleKeyFromWire;
 import '../enums/signal_source.dart' show SignalSource, signalSourceFromWire;
 import '../enums/timeline_actor.dart' show TimelineActor;
 import '../support/formatters.dart' show formatDuration, formatRelativeMeta;
@@ -107,11 +109,47 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   @override
   String get id => getAttribute('id')?.toString() ?? '';
 
-  /// Incident headline.
+  /// Incident headline, as the backend stored it.
+  ///
+  /// Always English for an automatically opened incident: the backend composes
+  /// this column from its own `en` catalogue so search, the LLM prompts and any
+  /// reader without a locale still see a real sentence. An operator-authored
+  /// title is whatever the operator typed.
   String get title => (getAttribute('title') as String?) ?? '';
 
   /// Set the incident headline.
   set title(String? value) => setAttribute('title', value);
+
+  /// Which sentence the backend composed [title] from, or `null` when a human
+  /// authored the title (or the row predates the structured-title seam).
+  ///
+  /// Decoded through [incidentTitleKeyFromWire], so a backend that ships a
+  /// seventh key answers `null` on an older client rather than throwing, and the
+  /// stored English is what renders.
+  IncidentTitleKey? get titleKey =>
+      incidentTitleKeyFromWire(getAttribute('title_key')?.toString());
+
+  /// The display-ready values that go into the composed sentence, keyed by the
+  /// `:placeholder` name the catalogue entry uses (`monitor`, `metric`, `value`,
+  /// `days`).
+  ///
+  /// Every value is already presentable: the backend truncates the extracted
+  /// metric value before it becomes a parameter, so nothing here needs a
+  /// relation loaded or a rule re-applied. The values are coerced to strings
+  /// because `jsonb` round-trips a day count as a number.
+  ///
+  /// An absent, null or empty payload all read as an empty map: the resource
+  /// emits `[]` for "no parameters", which decodes as a LIST rather than a map,
+  /// and this is the one place that shape is absorbed.
+  Map<String, String> get titleParams {
+    final Object? raw = getAttribute('title_params');
+    if (raw is! Map) return const {};
+
+    return {
+      for (final MapEntry<Object?, Object?> entry in raw.entries)
+        entry.key.toString(): entry.value?.toString() ?? '',
+    };
+  }
 
   /// Optional first-update or composer message body.
   String? get message => getAttribute('message') as String?;
@@ -233,6 +271,28 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   // ---------------------------------------------------------------------------
   // Derived display accessors (reproduce IncidentSummary surface)
   // ---------------------------------------------------------------------------
+
+  /// The headline to put on screen, in the app's language.
+  ///
+  /// Every operator-facing reader takes this instead of [title]: the header, the
+  /// list card, the toasts and the list search filter. Searching and rendering
+  /// have to read the SAME string, or typing a monitor name would stop matching
+  /// the row that displays it.
+  ///
+  /// With no [titleKey] there is nothing to render from, so the stored [title]
+  /// is the answer, and that covers three cases at once: an operator wrote it, a
+  /// row predates the seam, or the backend sent a key this client does not know.
+  ///
+  /// A missing catalogue entry renders its own dotted key (magic's `trans()`
+  /// answers the key for an unknown one), which is why both locales carry all
+  /// seven `uptizm.incidents.title_*` entries.
+  String get displayTitle {
+    final IncidentTitleKey? key = titleKey;
+    if (key == null) return title;
+
+    final Map<String, String> params = titleParams;
+    return trans(key.catalogueKey(params), params);
+  }
 
   /// Relative-time meta line, e.g. `"started 14m ago"` or `"resolved 2h ago"`.
   ///

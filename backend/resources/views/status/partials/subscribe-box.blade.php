@@ -13,8 +13,8 @@
 @endphp
 
 <section class="mb-6 rounded-lg border border-border bg-surface-container px-5 py-4">
-    <h2 class="mb-1 text-sm font-semibold text-fg-muted uppercase">Subscribe to updates</h2>
-    <p class="mb-3 text-sm text-fg-muted">Get an email when {{ $vm->page['name'] }} posts a new incident.</p>
+    <h2 class="mb-1 text-sm font-semibold text-fg-muted uppercase">{{ __('status.subscribe.heading') }}</h2>
+    <p class="mb-3 text-sm text-fg-muted">{{ __('status.subscribe.body', ['page' => $vm->page['name']]) }}</p>
 
     <form method="POST" action="{{ route('status.subscribe', $vm->page['slug']) }}" class="flex flex-col gap-2 sm:flex-row">
         {{-- `rounded-base` (8px), not `md`: DESIGN.md puts inputs and small controls
@@ -36,7 +36,7 @@
             ])
             @if ($brandColor !== null) style="background-color: {{ $brandColor }}" @endif
         >
-            Subscribe
+            {{ __('status.subscribe.action') }}
         </button>
     </form>
 </section>

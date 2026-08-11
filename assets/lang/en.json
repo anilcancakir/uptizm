@@ -1032,7 +1032,14 @@
       "maintenance_empty_title": "No maintenance planned",
       "maintenance_empty_description": "Plan a window and Uptizm announces it on the status page and holds alerts for the affected components while it runs.",
       "maintenance_empty_action": "Plan a window",
-      "maintenance_alerts_held": "Alerts held"
+      "maintenance_alerts_held": "Alerts held",
+      "title_monitor_down": ":monitor is down",
+      "title_metric_warn_bound": ":metric breached warn bound",
+      "title_metric_critical_bound": ":metric breached critical bound",
+      "title_metric_string_value": ":metric reported \":value\"",
+      "title_ssl_expiring_one": ":monitor SSL cert expires in :days day",
+      "title_ssl_expiring_other": ":monitor SSL cert expires in :days days",
+      "title_ai_anomaly": "Anomaly detected on :monitor"
     },
     "settings": {
       "hub_title": "Settings",
