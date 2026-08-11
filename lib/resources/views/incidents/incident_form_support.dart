@@ -110,6 +110,11 @@ String draftUpdate(Incident i) {
 
 /// A postmortem draft built only from what Uptizm observed. Ports
 /// `postmortemDraft` from IncidentDetailPage.tsx.
+///
+/// The incident's title is deliberately NOT passed: the draft renders under the
+/// incident's own heading, and interpolating an English title made it the
+/// grammatical subject of the Turkish sentence ("fluttersdk.com is down 1m
+/// sürdü"). Each locale's template now supplies its own subject.
 String postmortemDraft(Incident i) {
   // English pluralizes the noun after a count; Turkish does not, so the two
   // count variants pick the right English wording while sharing one TR value.
@@ -119,7 +124,6 @@ String postmortemDraft(Incident i) {
         : 'uptizm.incidents.postmortem_monitor_other',
   );
   return trans('uptizm.incidents.postmortem', {
-    'title': i.title,
     'duration': i.duration,
     'count': '${i.affectedCount}',
     'monitorWord': monitorWord,

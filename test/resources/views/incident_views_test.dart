@@ -175,9 +175,17 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.draft_signal_errors': 'errors across regions',
       'uptizm.incidents.draft_signal_latency': 'elevated response times',
       'uptizm.incidents.postmortem':
-          ':title lasted :duration and affected :count :monitorWord.',
+          'The incident lasted :duration and affected :count :monitorWord. '
+          'Uptizm first detected it via :signal, then saw checks recover '
+          'before it was resolved. This draft covers only what Uptizm '
+          'observed from the outside; add the internal root cause before '
+          'publishing.',
       'uptizm.incidents.postmortem_monitor_one': 'monitor',
       'uptizm.incidents.postmortem_monitor_other': 'monitors',
+      // `formatDuration` reads its units from the catalogue, so without these
+      // the duration inside the rendered postmortem is a raw key.
+      'uptizm.units.minutes': 'm',
+      'uptizm.units.hours': 'h',
 
       // Shared status labels (StatusBadge / chip row).
       'uptizm.status.up': 'Operational',

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -33,13 +36,67 @@ class _DraftLangLoader implements TranslationLoader {
     'uptizm.incidents.draft_what_info': 'a service issue',
     'uptizm.incidents.draft_signal_errors': 'errors across regions',
     'uptizm.incidents.draft_signal_latency': 'elevated response times',
-    'uptizm.incidents.postmortem':
-        ':title lasted :duration and affected :count :monitorWord. Uptizm first '
-        'detected it via :signal, then saw checks recover before it was '
-        'resolved.',
-    'uptizm.incidents.postmortem_monitor_one': 'monitor',
-    'uptizm.incidents.postmortem_monitor_other': 'monitors',
   };
+}
+
+/// Feeds [trans] from the SHIPPED `assets/lang/<languageCode>.json`, flattened
+/// the way `JsonAssetLoader` does at runtime.
+///
+/// The postmortem assertions below are about the sentence an operator reads, so
+/// an inline map would have them agree with a fixture instead of with the
+/// product: the previous English-only map is precisely why an ungrammatical
+/// Turkish postmortem shipped past a green suite, and `lang_parity_test.dart`
+/// compares key SETS and never values. The suite runs with the repo root as its
+/// cwd (that same parity test reads `assets/lang/en.json` off disk), so the
+/// bundled asset is readable from here.
+class _BundledLangLoader implements TranslationLoader {
+  const _BundledLangLoader();
+
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    final File file = File('assets/lang/${locale.languageCode}.json');
+
+    return _flatten(json.decode(file.readAsStringSync()) as Map<String, dynamic>);
+  }
+
+  /// Flattens the nested catalogue into the dotted keys [Translator] caches.
+  Map<String, dynamic> _flatten(
+    Map<String, dynamic> source, [
+    String prefix = '',
+  ]) {
+    final Map<String, dynamic> flat = {};
+    source.forEach((String key, Object? value) {
+      final String path = prefix.isEmpty ? key : '$prefix.$key';
+      if (value is Map<String, dynamic>) {
+        flat.addAll(_flatten(value, path));
+      } else {
+        flat[path] = value;
+      }
+    });
+
+    return flat;
+  }
+}
+
+/// A resolved incident lasting exactly one minute and affecting [monitors]
+/// monitors.
+///
+/// Built through [Incident.fromMap] instead of from the shared fixtures because
+/// every fixture spans a full hour, and the sub-hour branch of [formatDuration]
+/// is the one whose unit an operator reads as "1dk" or "1m".
+Incident _postmortemIncident({required int monitors}) {
+  return Incident.fromMap(<String, dynamic>{
+    'id': 'pm-1',
+    'title': 'Checkout service returning 503s',
+    'lifecycle': 'resolved',
+    'signal_source': 'user_threshold',
+    'started_at': '2026-07-09T14:20:00.000Z',
+    'resolved_at': '2026-07-09T14:21:00.000Z',
+    'monitors': <Map<String, dynamic>>[
+      for (int i = 0; i < monitors; i++)
+        <String, dynamic>{'monitor_id': 'm$i', 'name': 'checkout-$i'},
+    ],
+  });
 }
 
 void main() {
@@ -89,13 +146,53 @@ void main() {
   });
 
   group('postmortemDraft', () {
-    test('produces a non-empty string referencing the duration', () {
-      final Incident incident = findIncidentFixture('eu-packet-loss')!;
+    setUp(() {
+      Translator.instance.setLoader(const _BundledLangLoader());
+    });
+
+    test('reads as publishable Turkish, from the shipped catalogue', () async {
+      await Translator.instance.setLocale(const Locale('tr'));
+      final Incident incident = _postmortemIncident(monitors: 1);
+
+      final String draft = postmortemDraft(incident);
+
+      // Passive, so the count's noun is a nominative subject needing no case
+      // suffix. The active `etkiledi` demands an accusative (`izleyiciyi`) that
+      // no Dart-side suffixing may supply.
+      expect(draft, contains('1 izleyici etkilendi'));
+      expect(draft, isNot(contains('etkiledi')));
+      // The draft renders under the incident's own heading, so repeating an
+      // English title inside a Turkish sentence bought nothing but a broken
+      // grammatical subject.
+      expect(draft, isNot(contains(incident.title)));
+      // The unit comes from the catalogue: an English `1m` here is the same
+      // defect class as the English title was.
+      expect(draft, contains('1dk'));
+      expect(draft, isNot(contains('1m')));
+    });
+
+    test('keeps the English monitor plural pair working', () async {
+      await Translator.instance.setLocale(const Locale('en'));
+
+      expect(
+        postmortemDraft(_postmortemIncident(monitors: 1)),
+        contains('affected 1 monitor'),
+      );
+      expect(
+        postmortemDraft(_postmortemIncident(monitors: 3)),
+        contains('affected 3 monitors'),
+      );
+    });
+
+    test('states the duration and the detecting signal', () async {
+      await Translator.instance.setLocale(const Locale('en'));
+      final Incident incident = _postmortemIncident(monitors: 1);
+
       final String draft = postmortemDraft(incident);
 
       expect(draft, isNotEmpty);
       expect(draft, contains(incident.duration));
-      expect(draft, contains(incident.title));
+      expect(draft, contains(incident.signalSource.label.toLowerCase()));
     });
   });
 

@@ -58,8 +58,8 @@ class SloErrorBudget {
 /// so there is no mixed state to reconcile.
 String formatBudgetMinutes(double minutes) {
   final int total = minutes.round();
-  final String m = trans('uptizm.slo.unit_minutes');
-  final String h = trans('uptizm.slo.unit_hours');
+  final String m = trans('uptizm.units.minutes');
+  final String h = trans('uptizm.units.hours');
   if (total < 60) return '$total$m';
   final int hours = total ~/ 60;
   final int rem = total % 60;

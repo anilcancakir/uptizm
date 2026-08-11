@@ -1003,7 +1003,7 @@
       "draft_what_info": "bir servis sorunu",
       "draft_signal_errors": "bölgeler genelinde hatalar",
       "draft_signal_latency": "yükselen yanıt süreleri",
-      "postmortem": ":title :duration sürdü ve :count :monitorWord etkiledi. Uptizm bunu ilk olarak :signal üzerinden tespit etti, ardından çözülmeden önce kontrollerin toparlandığını gördü. Bu taslak yalnızca Uptizm'in dışarıdan gözlemlediklerini kapsar; yayınlamadan önce dahili kök nedeni ekleyin.",
+      "postmortem": "Olay :duration sürdü ve :count izleyici etkilendi. Uptizm bunu ilk olarak :signal üzerinden tespit etti, ardından çözülmeden önce kontrollerin toparlandığını gördü. Bu taslak yalnızca Uptizm'in dışarıdan gözlemlediklerini kapsar; yayınlamadan önce dahili kök nedeni ekleyin.",
       "postmortem_monitor_one": "izleyici",
       "postmortem_monitor_other": "izleyici",
       "timeline_tag_public": "Herkese açık",
@@ -1474,9 +1474,11 @@
       "coverage_partial_days": ":window pencerenin :days günü gözlendi.",
       "gap_unmeasured": "Bu pencerede :amount ölçülemedi.",
       "window_7day": "7 günlük",
-      "window_30day": "30 günlük",
-      "unit_minutes": "dk",
-      "unit_hours": "sa"
+      "window_30day": "30 günlük"
+    },
+    "units": {
+      "minutes": "dk",
+      "hours": "sa"
     },
     "ranges": {
       "custom": "Özel aralık",

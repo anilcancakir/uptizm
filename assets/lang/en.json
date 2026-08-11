@@ -1003,7 +1003,7 @@
       "draft_what_info": "a service issue",
       "draft_signal_errors": "errors across regions",
       "draft_signal_latency": "elevated response times",
-      "postmortem": ":title lasted :duration and affected :count :monitorWord. Uptizm first detected it via :signal, then saw checks recover before it was resolved. This draft covers only what Uptizm observed from the outside; add the internal root cause before publishing.",
+      "postmortem": "The incident lasted :duration and affected :count :monitorWord. Uptizm first detected it via :signal, then saw checks recover before it was resolved. This draft covers only what Uptizm observed from the outside; add the internal root cause before publishing.",
       "postmortem_monitor_one": "monitor",
       "postmortem_monitor_other": "monitors",
       "timeline_tag_public": "Public",
@@ -1474,9 +1474,11 @@
       "coverage_partial_days": "Observed :days days of the :window window.",
       "gap_unmeasured": "Not measured this window: :amount.",
       "window_7day": "7-day",
-      "window_30day": "30-day",
-      "unit_minutes": "m",
-      "unit_hours": "h"
+      "window_30day": "30-day"
+    },
+    "units": {
+      "minutes": "m",
+      "hours": "h"
     },
     "ranges": {
       "custom": "Custom range",
