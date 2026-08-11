@@ -15,11 +15,12 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 /**
  * Read-only access to a monitor's check history plus the two aggregate
  * endpoints (uptime, response-times) that power the charts on the monitor
- * show screen. Aggregations delegate to {@see CheckAggregateService}; this
- * codebase's service only exposes `uptimeSummary()` and
- * `responseTimeSamples()` (no broader per-monitor `summary()` with
- * previous-window deltas, unlike the v2 reference), so `uptime()` is the
- * only summary-style action.
+ * show screen. Aggregations delegate to {@see CheckAggregateService}; the two
+ * this controller uses are `uptimeSummary()` and `responseTimeSamples()` (no
+ * broader per-monitor `summary()` with previous-window deltas, unlike the v2
+ * reference), so `uptime()` is the only summary-style action. The service also
+ * exposes `reliabilitySummary()`, which the monitor show action reads for the
+ * error-budget cards; it is deliberately not surfaced here.
  */
 class MonitorCheckController extends Controller
 {
