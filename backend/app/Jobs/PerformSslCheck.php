@@ -9,6 +9,7 @@ use App\Enums\SignalSource;
 use App\Events\IncidentBroadcast;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Services\Monitoring\IncidentTitle;
 use App\Services\Monitoring\ThresholdEvaluator;
 use App\Services\StatusPages\StatusPageCache;
 use App\Support\Monitoring\HostGuard;
@@ -217,13 +218,25 @@ class PerformSslCheck implements ShouldQueue
         int $daysRemaining,
         StatusPageCache $statusPageCache,
     ): void {
-        // 1. Persist the incident with the denormalized primary-monitor hint and
+        // 1. Compose the title through the shared seam. The key stays BARE:
+        //    the catalogue's `_one` / `_other` pair is chosen inside
+        //    IncidentTitle from the day count, and a suffixed key persisted here
+        //    would be a wire value the Flutter enum has no member for, which
+        //    would silently fall the client back to English forever.
+        $composed = IncidentTitle::compose(IncidentTitle::SSL_EXPIRING, [
+            'monitor' => $monitor->name,
+            'days' => $daysRemaining,
+        ]);
+
+        // 2. Persist the incident with the denormalized primary-monitor hint and
         //    the SSL trigger marker. A near-expiry cert is a warning, not a live
-        //    outage, so it opens at warn severity.
+        //    outage, so it opens at warn severity. This creator bypasses
+        //    ThresholdEvaluator::createIncident(), so the three title columns are
+        //    spread in here; compose() returns exactly those three.
         $incident = Incident::query()->create([
             'team_id' => $monitor->team_id,
             'primary_monitor_id' => $monitor->id,
-            'title' => "{$monitor->name} SSL cert expires in {$daysRemaining} days",
+            ...$composed,
             'impact' => IncidentSeverity::Warn->toImpact(),
             'severity' => IncidentSeverity::Warn,
             'signal_source' => SignalSource::UserThreshold,
@@ -233,7 +246,7 @@ class PerformSslCheck implements ShouldQueue
             'started_at' => now(),
         ]);
 
-        // 2. Attach the monitor to the affected-component pivot so the incident
+        // 3. Attach the monitor to the affected-component pivot so the incident
         //    serializes its affected set (name + component status), matching
         //    ThresholdEvaluator::openIncident. The status freezes the monitor's
         //    current health at open time and mirrors it as the live status.
@@ -243,13 +256,13 @@ class PerformSslCheck implements ShouldQueue
             'component_status_current' => $componentStatus,
         ]);
 
-        // 3. Broadcast the newly opened incident to the team's live dashboard so
+        // 4. Broadcast the newly opened incident to the team's live dashboard so
         //    the Flutter Echo client refreshes without polling. Dispatched after
         //    the pivot attach so the payload's affected-set is already durable;
         //    the event is ShouldDispatchAfterCommit.
         event(new IncidentBroadcast($incident, 'opened'));
 
-        // 4. Forget the cached read model of every status page showing this
+        // 5. Forget the cached read model of every status page showing this
         //    monitor now that the pivot is attached, so the page reflects the
         //    SSL incident immediately. Placed after attach() (the pivot boundary)
         //    because an Incident observer would fire before it and miss the pages.

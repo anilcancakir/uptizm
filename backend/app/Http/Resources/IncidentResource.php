@@ -30,6 +30,13 @@ class IncidentResource extends JsonResource
             'id' => $this->resource->id,
             'team_id' => $this->resource->team_id,
             'title' => $this->resource->title,
+            // Flat, alongside `title`, not nested: the client reads attributes
+            // through getAttribute() and a nested map would need a hand-rolled
+            // decode at every reader. `title_params` defaults to an empty array
+            // rather than null so absent/null/empty are not three states meaning
+            // the same thing.
+            'title_key' => $this->resource->title_key,
+            'title_params' => $this->resource->title_params ?? [],
             'lifecycle' => $this->resource->lifecycle?->value,
             'severity' => $this->resource->severity?->value,
             'impact' => $this->resource->impact?->value,

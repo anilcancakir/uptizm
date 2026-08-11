@@ -89,7 +89,10 @@ class IncidentWriteService
      *
      * @param  Monitor  $monitor  The monitor the incident is about.
      * @param  IncidentSeverity  $severity  Operator-chosen severity, projected to impact.
-     * @param  string  $title  Human-facing incident title.
+     * @param  string  $title  Human-facing incident title, stored verbatim and never
+     *                         re-rendered: an authored title carries no
+     *                         {@see IncidentTitle} key, which is the reading that
+     *                         makes `title_key IS NULL` mean "a human wrote this".
      * @param  string  $author  Display label for the opening timeline note.
      * @param  string|null  $message  Optional opening note; when null no note is posted.
      * @return Incident The newly opened incident, or the existing active one on dedupe.
@@ -130,6 +133,12 @@ class IncidentWriteService
 
                 // 1b. Create through the shared creator so the manual path lands
                 //     the exact same row + pivot shape as the automated path.
+                //     No `titleKey` travels with it, deliberately: a human wrote
+                //     this sentence in the language they chose, so there is no
+                //     catalogue entry to re-render it from, and a null
+                //     `title_key` is exactly what tells every localized surface
+                //     to show the stored text untouched. Composing a key here
+                //     would overwrite an operator's words with our own.
                 $incident = $this->evaluator->createIncident(
                     monitor: $monitor,
                     source: SignalSource::Manual,
