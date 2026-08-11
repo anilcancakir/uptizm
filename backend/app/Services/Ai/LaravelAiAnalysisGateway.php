@@ -201,6 +201,21 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
     private const int RESEARCH_TIMEOUT_SECONDS = 30;
 
     /**
+     * Ceiling on how many regions a single suggestion may recommend.
+     *
+     * There is no region quorum anywhere in this product: `ThresholdEvaluator`
+     * opens an incident on a single region's failure, so every extra region a
+     * suggestion prefills is one more vantage point whose own blip alone can
+     * page a human. Two is the smallest number that still lets a suggestion
+     * say "check from here AND from there" for a target whose location is
+     * genuinely ambiguous (`region_basis` other than `default`); it is a
+     * correctness cap, not a plan allowance (`config/plans.php` grants every
+     * paid plan all five), so it is a class constant rather than a config
+     * value an operator could raise by accident.
+     */
+    private const int RECOMMENDED_REGIONS_MAX = 2;
+
+    /**
      * Floor on the suggested check interval, in seconds.
      */
     private const MIN_INTERVAL_SECONDS = 30;
@@ -401,6 +416,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
             'recommended_regions' => $schema->array()
                 ->items($schema->string()->enum(MonitorRegion::values()))
                 ->min(1)
+                ->max(self::RECOMMENDED_REGIONS_MAX)
                 ->description('The suggested relay regions to probe this target from.')
                 ->required(),
             'service_class' => $schema->string()
@@ -665,6 +681,13 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
             }
         }
 
+        // The schema's `maxItems` and the prompt's own ceiling are both
+        // instructions to the model, not guarantees about it: this clamp is
+        // what actually enforces the cap, and it runs only AFTER every value
+        // above has already proven owned, so an invalid region is rejected
+        // outright rather than truncated away alongside the valid ones.
+        $regions = array_slice($regions, 0, self::RECOMMENDED_REGIONS_MAX);
+
         $classification = [
             'service_class' => $this->member($data, 'service_class', self::SERVICE_CLASSES),
             'region_basis' => $this->member($data, 'region_basis', RegionBasis::values()),
@@ -810,7 +833,10 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
             '- `recommended_interval_seconds`, `recommended_warn_threshold_ms`,'
                 .' `recommended_critical_threshold_ms`: anchored to the response time actually observed,'
                 .' warn below critical.',
-            '- `recommended_regions`: from the known regions catalog only.',
+            '- `recommended_regions`: from the known regions catalog only, at most '.self::RECOMMENDED_REGIONS_MAX
+                .'. Prefer the FEWEST regions that actually locate the target: a target sitting behind a CDN'
+                .' with no observable origin is a reason to answer `default` region_basis, not a reason to'
+                .' probe from everywhere.',
             '- `rationale`: one or two sentences an operator reads. Name what in the evidence drove the'
                 .' suggestion.',
             '',

@@ -513,7 +513,154 @@ class MetricDiscoveryTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // (2b) The string band channel
+    // (2b) Quantisation and the zero-observed absolute pair
+    // -----------------------------------------------------------------
+
+    public function test_a_computed_warn_bound_is_quantised_to_three_significant_figures(): void
+    {
+        // The model's own arithmetic (18.29 / 3) must not reach the UI raw.
+        $gateway = $this->fakeGateway(null);
+
+        $accepted = $gateway->acceptSelections($this->selectionsFor([
+            [
+                'ref' => 'c1',
+                'label' => 'Free disk space',
+                'type' => 'numeric',
+                'threshold_direction' => ThresholdDirection::LowBad->value,
+                'warn' => 6.096666666666667,
+            ],
+        ]), $this->payload());
+
+        $this->assertCount(1, $accepted);
+        $this->assertSame(6.1, $accepted[0]['warnBound']);
+    }
+
+    public function test_quantisation_rounds_significant_figures_not_a_fixed_decimal_count(): void
+    {
+        // 67.14 has two decimals kept, 6.096666... above has one: a fixed decimal
+        // count cannot serve both, so the rule must be significant figures.
+        $gateway = $this->fakeGateway(null);
+
+        $accepted = $gateway->acceptSelections($this->selectionsFor([
+            [
+                'ref' => 'c1',
+                'label' => 'Free disk space',
+                'type' => 'numeric',
+                'threshold_direction' => ThresholdDirection::LowBad->value,
+                'warn' => 67.14,
+            ],
+        ]), $this->payload());
+
+        $this->assertCount(1, $accepted);
+        $this->assertSame(67.1, $accepted[0]['warnBound']);
+    }
+
+    public function test_a_pair_that_quantisation_collapses_onto_one_value_is_nulled(): void
+    {
+        // Rounding is monotonic but not injective: 1236 and 1237 both land on
+        // 1240, and `high_bad` requires a strict warn < critical. Quantising
+        // after the direction check would pass the pre-rounded pair and then
+        // emit the equal one, so this pins the order rather than the values.
+        $gateway = $this->fakeGateway(null);
+        // Observed non-zero, so the absolute pair cannot fire and mask this.
+        $payload = $this->payloadWithSample('c1', '1236');
+
+        $accepted = $gateway->acceptSelections($this->selectionsFor([
+            [
+                'ref' => 'c1',
+                'label' => 'Queued jobs',
+                'type' => 'numeric',
+                'unit' => 'count',
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn' => 1236,
+                'critical' => 1237,
+            ],
+        ]), $payload);
+
+        $this->assertCount(1, $accepted);
+        $this->assertNull($accepted[0]['warnBound']);
+        $this->assertNull($accepted[0]['criticalBound']);
+    }
+
+    public function test_a_count_metric_observed_at_zero_gets_an_absolute_pair_that_survives_validation(): void
+    {
+        $gateway = $this->fakeGateway(null);
+        // The model's own bounds are deliberately ordered WRONG for high_bad
+        // (50 > 10): the absolute pair must replace them outright, not merely
+        // sit alongside a pair that would otherwise be nulled.
+        $payload = $this->payloadWithSample('c1', '0');
+
+        $accepted = $gateway->acceptSelections($this->selectionsFor([
+            [
+                'ref' => 'c1',
+                'label' => 'Pending migrations',
+                'type' => 'numeric',
+                'unit' => 'count',
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn' => 50,
+                'critical' => 10,
+            ],
+        ]), $payload);
+
+        $this->assertCount(1, $accepted);
+        $this->assertSame(1.0, $accepted[0]['warnBound']);
+        $this->assertSame(5.0, $accepted[0]['criticalBound']);
+    }
+
+    public function test_a_non_numeric_metric_still_returns_null_bounds(): void
+    {
+        // Same unit/direction/observed-zero shape as the test above, but the
+        // type is not numeric, so neither quantisation nor the absolute pair
+        // may apply; the existing non-numeric branch must win outright.
+        $gateway = $this->fakeGateway(null);
+        $payload = $this->payloadWithSample('c1', '0');
+
+        $accepted = $gateway->acceptSelections($this->selectionsFor([
+            [
+                'ref' => 'c1',
+                'label' => 'Status text',
+                'type' => 'string',
+                'unit' => 'count',
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn' => 50,
+                'critical' => 10,
+            ],
+        ]), $payload);
+
+        $this->assertCount(1, $accepted);
+        $this->assertNull($accepted[0]['warnBound']);
+        $this->assertNull($accepted[0]['criticalBound']);
+    }
+
+    public function test_a_truncated_sample_never_triggers_the_absolute_pair(): void
+    {
+        // A truncated digest value carries the truncation mark
+        // ({@see MetricCandidate::DIGEST_TRUNCATION_MARK}), so a loose `== 0`
+        // read would treat this as zero; `is_numeric` must refuse it. Without
+        // the substitution, the model's own (invalid for high_bad) bounds fall
+        // through to the existing direction check and are nulled there.
+        $gateway = $this->fakeGateway(null);
+        $payload = $this->payloadWithSample('c1', '0'.MetricCandidate::DIGEST_TRUNCATION_MARK);
+
+        $accepted = $gateway->acceptSelections($this->selectionsFor([
+            [
+                'ref' => 'c1',
+                'label' => 'Pending migrations',
+                'type' => 'numeric',
+                'unit' => 'count',
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn' => 50,
+                'critical' => 10,
+            ],
+        ]), $payload);
+
+        $this->assertCount(1, $accepted);
+        $this->assertNull($accepted[0]['warnBound']);
+        $this->assertNull($accepted[0]['criticalBound']);
+    }
+
+    // -----------------------------------------------------------------
+    // (2c) The string band channel
     // -----------------------------------------------------------------
 
     public function test_a_banded_selection_survives_the_gateways_own_key_check(): void
@@ -893,6 +1040,37 @@ class MetricDiscoveryTest extends TestCase
         $this->assertCount(1, $suggestions);
         $this->assertSame(MetricType::String->value, $suggestions[0]['type']);
         $this->assertSame($string->extractionPath, $suggestions[0]['path']);
+    }
+
+    public function test_a_derived_bound_is_quantised_like_a_model_supplied_one(): void
+    {
+        Queue::fake();
+        // The number that started the whole thing. A live run rendered "warn
+        // 6.096666666666667" for free disk space, which is 18.29 / 3, and the
+        // DERIVATION produces exactly the same float from the same reading. So
+        // quantising only the model's own arithmetic would have left this path
+        // printing it.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['free_disk_gb' => 18.29]);
+        $this->archiveVersion($monitor, $body);
+        $disk = $this->candidateIn($body, '18.29');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $disk->ref,
+                'label' => 'Free disk space',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::LowBad->value,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        // 18.29 / 3 and 18.29 / 6, both to three significant figures.
+        $this->assertSame(6.1, (float) $suggestion['warn']);
+        $this->assertSame(3.05, (float) $suggestion['critical']);
     }
 
     public function test_a_bound_the_model_omitted_is_derived_from_the_observed_value(): void
@@ -1778,6 +1956,29 @@ class MetricDiscoveryTest extends TestCase
                     'src' => MetricSource::Xpath->value,
                     'path' => '//p',
                     'value' => '1',
+                    'types' => [MetricType::Numeric->value],
+                ],
+            ],
+        );
+    }
+
+    /**
+     * A payload whose ref `$ref` carries `$value` as its digest sample, so a
+     * test can exercise the observed-sample threading without extracting real
+     * HTML.
+     */
+    protected function payloadWithSample(string $ref, string $value): MetricDiscoveryPayload
+    {
+        return new MetricDiscoveryPayload(
+            url: 'https://example.com/health',
+            monitorType: MonitorType::Http->value,
+            candidateRefs: [$ref],
+            digestRows: [
+                [
+                    'ref' => $ref,
+                    'src' => MetricSource::Xpath->value,
+                    'path' => '//p',
+                    'value' => $value,
                     'types' => [MetricType::Numeric->value],
                 ],
             ],

@@ -18,6 +18,7 @@ use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
 use App\Models\User;
 use App\Services\Monitoring\MetricCandidateExtractor;
+use Carbon\CarbonImmutable;
 use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -337,12 +338,12 @@ class MonitorControllerTest extends TestCase
         $this->assertStringNotContainsString('super-secret', $response->getContent());
     }
 
-    public function test_show_includes_measured_slo_uptime_from_checks(): void
+    public function test_show_includes_measured_uptime_24h_from_checks(): void
     {
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
 
-        // 2 up + 1 down in the trailing window -> 2/3 = 66.67% over both 7d/30d.
+        // 2 up + 1 down in the trailing window -> 2/3 = 66.67% over 24h.
         foreach ([MonitorStatus::Up, MonitorStatus::Up, MonitorStatus::Down] as $status) {
             $this->makeCheck($monitor, $status);
         }
@@ -351,11 +352,9 @@ class MonitorControllerTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertEqualsWithDelta(66.67, $response->json('data.uptime_24h'), 0.01);
-        $this->assertEqualsWithDelta(66.67, $response->json('data.slo_uptime_7d'), 0.01);
-        $this->assertEqualsWithDelta(66.67, $response->json('data.slo_uptime_30d'), 0.01);
     }
 
-    public function test_show_reports_null_slo_uptime_when_a_monitor_has_no_checks(): void
+    public function test_show_reports_null_uptime_24h_when_a_monitor_has_no_checks(): void
     {
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
@@ -366,8 +365,81 @@ class MonitorControllerTest extends TestCase
         // A brand-new monitor has no checks: uptime is null (no data), never a
         // fabricated 0% that would read as a total breach on the client.
         $this->assertNull($response->json('data.uptime_24h'));
-        $this->assertNull($response->json('data.slo_uptime_7d'));
-        $this->assertNull($response->json('data.slo_uptime_30d'));
+    }
+
+    public function test_show_includes_real_reliability_minutes_from_checks(): void
+    {
+        $now = CarbonImmutable::create(2026, 8, 1, 9, 15, 0, 'UTC');
+        $this->travelTo($now);
+
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id, ['created_at' => $now->subHours(15)]);
+
+        // 767 checks over the last 767 minutes with two of them down in two
+        // distinct minutes: the shape production monitor
+        // a276e7c5-26d5-4b53-b522-f0ce3b52d226 carried while the old
+        // ratio-times-window formula reported 26.2 down minutes on 7d and
+        // 112.3 on 30d.
+        $rows = [];
+        for ($i = 0; $i < 767; $i++) {
+            $rows[] = [
+                'id' => (string) Str::orderedUuid(),
+                'checked_at' => $now->subMinutes($i)->format('Y-m-d H:i:s'),
+                'monitor_id' => $monitor->id,
+                'team_id' => $monitor->team_id,
+                'region' => 'us-east',
+                'status' => in_array($i, [10, 11], true) ? MonitorStatus::Down->value : MonitorStatus::Up->value,
+            ];
+        }
+        foreach (array_chunk($rows, 100) as $chunk) {
+            MonitorCheck::query()->insert($chunk);
+        }
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}");
+
+        $response->assertStatus(200);
+
+        foreach (['7d', '30d'] as $range) {
+            // assertEqualsWithDelta rather than assertSame: a whole-number
+            // float round-trips through JSON as a PHP int (2.0 -> "2" -> 2),
+            // which is a JSON artefact, not a wire defect.
+            foreach ([
+                'down' => 2.0,
+                'observed' => 900.0,
+                'measured' => 767.0,
+                'gap' => 133.0,
+            ] as $field => $expected) {
+                $this->assertEqualsWithDelta(
+                    $expected,
+                    $response->json("data.slo_{$field}_minutes_{$range}"),
+                    0.01,
+                    "{$field} minutes for {$range}",
+                );
+            }
+        }
+
+        $response->assertJsonMissingPath('data.slo_uptime_7d');
+        $response->assertJsonMissingPath('data.slo_uptime_30d');
+        $response->assertJsonMissingPath('data.slo_window_minutes_7d');
+        $response->assertJsonMissingPath('data.slo_window_minutes_30d');
+    }
+
+    public function test_show_reports_zero_measured_minutes_when_a_monitor_has_no_checks(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}");
+
+        $response->assertStatus(200);
+
+        // A brand-new monitor with a fully-elapsed window still needs a
+        // representable answer: 0.0 rather than a missing key, so the client
+        // can tell "nothing measured" from "measured and fine".
+        foreach (['7d', '30d'] as $range) {
+            $this->assertEqualsWithDelta(0.0, $response->json("data.slo_measured_minutes_{$range}"), 0.01);
+            $this->assertEqualsWithDelta(0.0, $response->json("data.slo_down_minutes_{$range}"), 0.01);
+        }
     }
 
     public function test_pause_sets_status_to_paused(): void

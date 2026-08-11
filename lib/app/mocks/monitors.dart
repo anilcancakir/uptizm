@@ -54,8 +54,17 @@ final List<Monitor> monitors = [
     'check_interval_sec': 30,
     'regions': <String>['us-east', 'eu-west'],
     'slo_target': 99.9,
-    'slo_uptime_7d': 100,
-    'slo_uptime_30d': 100,
+    // Flawless and mature: both windows fully observed, every minute measured,
+    // nothing down. The reliability cards read full headroom with no coverage
+    // note and no gap note.
+    'slo_down_minutes_7d': 0,
+    'slo_observed_minutes_7d': 10080,
+    'slo_gap_minutes_7d': 0,
+    'slo_measured_minutes_7d': 10080,
+    'slo_down_minutes_30d': 0,
+    'slo_observed_minutes_30d': 43200,
+    'slo_gap_minutes_30d': 0,
+    'slo_measured_minutes_30d': 43200,
   }),
   Monitor.fromMap(<String, dynamic>{
     'id': 'api',
@@ -67,8 +76,18 @@ final List<Monitor> monitors = [
     'check_interval_sec': 30,
     'regions': <String>['us-east', 'us-west', 'eu-west', 'ap-southeast'],
     'slo_target': 99.95,
-    'slo_uptime_7d': 99.99,
-    'slo_uptime_30d': 99.94,
+    // Degraded: one 30-second bucket down this week (0.5 min against a 5-minute
+    // 7-day allowance) and 20 minutes down over the month against a 21.6-minute
+    // one, so the 30-day card sits at risk while the 7-day card is comfortable.
+    // A small gap on both windows, which is the honest steady state.
+    'slo_down_minutes_7d': 0.5,
+    'slo_observed_minutes_7d': 10080,
+    'slo_gap_minutes_7d': 60,
+    'slo_measured_minutes_7d': 10020,
+    'slo_down_minutes_30d': 20,
+    'slo_observed_minutes_30d': 43200,
+    'slo_gap_minutes_30d': 220,
+    'slo_measured_minutes_30d': 42980,
   }),
   Monitor.fromMap(<String, dynamic>{
     'id': 'checkout',
@@ -79,8 +98,17 @@ final List<Monitor> monitors = [
     'check_interval_sec': 10,
     'regions': <String>['us-east', 'eu-west'],
     'slo_target': 99.9,
-    'slo_uptime_7d': 99.98,
-    'slo_uptime_30d': 99.91,
+    // Breached: 75 down minutes over the month against a 43.2-minute allowance,
+    // and 8 of the 10.08 minutes the week allows, so the 30-day card is over
+    // budget while the 7-day card is at risk but still inside it.
+    'slo_down_minutes_7d': 8,
+    'slo_observed_minutes_7d': 10080,
+    'slo_gap_minutes_7d': 280,
+    'slo_measured_minutes_7d': 9800,
+    'slo_down_minutes_30d': 75,
+    'slo_observed_minutes_30d': 43200,
+    'slo_gap_minutes_30d': 1200,
+    'slo_measured_minutes_30d': 42000,
   }),
   Monitor.fromMap(<String, dynamic>{
     'id': 'docs',

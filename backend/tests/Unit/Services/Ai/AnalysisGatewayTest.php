@@ -346,6 +346,53 @@ class AnalysisGatewayTest extends TestCase
         $this->assertContains('recommended_slo_target', $schema['required']);
     }
 
+    public function test_the_schema_caps_recommended_regions_at_two(): void
+    {
+        $schema = (new ObjectSchema(
+            (new LaravelAiAnalysisGateway)->schema(new JsonSchemaTypeFactory)
+        ))->toSchema();
+
+        $this->assertSame(2, $schema['properties']['recommended_regions']['maxItems']);
+    }
+
+    public function test_five_valid_regions_are_clamped_to_two(): void
+    {
+        // The fake gateway response bypasses schema enforcement entirely, so
+        // this is the test that measures the CLAMP in validation, not the
+        // schema's own `maxItems`: a live run returned all five despite the
+        // prompt already asking for the known catalog only.
+        $gateway = $this->gatewayAnswering($this->answer([
+            'recommended_regions' => MonitorRegion::values(),
+        ]));
+
+        $result = $gateway->analyze($this->payload());
+
+        $this->assertCount(2, $result->recommendedRegions);
+    }
+
+    public function test_an_invalid_region_is_still_rejected_and_the_retry_still_caps_at_two(): void
+    {
+        // The clamp must run AFTER the per-value catalog check, never before
+        // it: a naive "keep the first two" would let an invalid entry hide
+        // among three valid ones. The first attempt below must still be
+        // rejected outright, and the retry (a corrected, five-region answer)
+        // proves the cap also threads through the non-conforming-retry path.
+        $gateway = $this->gatewayAnsweringSequence([
+            $this->answer(['recommended_regions' => [
+                'mars',
+                MonitorRegion::USEast->value,
+                MonitorRegion::USWest->value,
+                MonitorRegion::EUWest->value,
+            ]]),
+            $this->answer(['recommended_regions' => MonitorRegion::values()]),
+        ]);
+
+        $result = $gateway->analyze($this->payload());
+
+        $this->assertCount(2, $result->recommendedRegions);
+        $this->assertSame(2, $gateway->calls);
+    }
+
     public function test_a_conforming_answer_carries_the_new_fields_in_snake_case(): void
     {
         $gateway = $this->gatewayAnswering($this->answer());
@@ -658,6 +705,42 @@ class AnalysisGatewayTest extends TestCase
                 $this->calls++;
 
                 return $this->answer;
+            }
+        };
+    }
+
+    /**
+     * A real gateway whose model answer changes between the first attempt and
+     * the retry, so a test can pin the non-conforming-retry path itself
+     * rather than a single canned answer repeated twice.
+     *
+     * @param  list<array<string, mixed>>  $answers  One entry per call, in order.
+     */
+    private function gatewayAnsweringSequence(array $answers): object
+    {
+        return new class($answers) extends LaravelAiAnalysisGateway
+        {
+            public int $calls = 0;
+
+            /**
+             * @param  list<array<string, mixed>>  $answers
+             */
+            public function __construct(protected array $answers)
+            {
+                parent::__construct();
+            }
+
+            protected function research(AnalysisPayload $payload): ?string
+            {
+                return null;
+            }
+
+            protected function rawSuggestion(string $message): ?array
+            {
+                $answer = $this->answers[$this->calls] ?? null;
+                $this->calls++;
+
+                return $answer;
             }
         };
     }

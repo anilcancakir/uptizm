@@ -16,6 +16,7 @@ use App\Support\Ai\PromptLanguage;
 use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
+use App\Support\Monitoring\ThresholdQuantiser;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
@@ -498,10 +499,19 @@ class MetricDiscoveryService
             return $submitted;
         }
 
+        // Quantised on the way out, exactly like a bound the model supplied
+        // (`LaravelAiMetricDiscoveryGateway::resolveBounds()`). Without it this
+        // path prints the very number that started the whole fix: an 18.29
+        // reading divided by WARN_MULTIPLIER is 6.096666666666667, which is what
+        // a live run rendered as "warn 6.096666666666667" for free disk space.
+        // Quantising BEFORE the ordering check below is load-bearing: rounding
+        // can collapse two bounds onto one value, and a collapsed pair has to be
+        // given up like any other pair the direction refuses.
         $derived = [
-            'warn' => $submitted['warn'] ?? $this->derivedBound($observed, $direction, self::WARN_MULTIPLIER),
+            'warn' => $submitted['warn']
+                ?? ThresholdQuantiser::quantise($this->derivedBound($observed, $direction, self::WARN_MULTIPLIER)),
             'critical' => $submitted['critical']
-                ?? $this->derivedBound($observed, $direction, self::CRITICAL_MULTIPLIER),
+                ?? ThresholdQuantiser::quantise($this->derivedBound($observed, $direction, self::CRITICAL_MULTIPLIER)),
         ];
 
         // 3. A pair the direction's own ordering refuses is not a suggestion: it

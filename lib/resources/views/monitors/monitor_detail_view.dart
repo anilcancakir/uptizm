@@ -108,6 +108,24 @@ enum _DetailTab {
   incidents,
 }
 
+// ---------------------------------------------------------------------------
+// Reliability read-model
+// ---------------------------------------------------------------------------
+
+/// One error-budget window's four measured minute fields, all present.
+///
+/// A record rather than four loose locals per window because the reliability
+/// section reads eight nullable doubles of the same type, and the whole point of
+/// the rebuild is that a minute value is never interchangeable with another
+/// number. Built only by
+/// [_MonitorDetailViewState._reliabilityWindow], which refuses a partial window.
+typedef _ReliabilityWindow = ({
+  double down,
+  double observed,
+  double gap,
+  double measured,
+});
+
 class _MonitorDetailViewState
     extends MagicStatefulViewState<MonitorController, MonitorDetailView>
     with RefetchesOnMount<MonitorController, MonitorDetailView> {
@@ -150,6 +168,17 @@ class _MonitorDetailViewState
   static const List<MetricSeries> _liveResponseSeries = [
     MetricSeries(key: 'response', label: 'Response', tone: ChartTone.up),
   ];
+
+  /// Observed coverage, in minutes, below which the reliability section prints
+  /// the no-data empty state instead of an error budget.
+  ///
+  /// A day is a judgment, not a measured threshold: no monitoring vendor
+  /// documents what a monitor younger than its SLO window should show. It lives
+  /// in one place so it can be tuned once there is evidence. The reason for
+  /// having a floor at all is that the allowance is the FULL window, so a
+  /// two-hour-old monitor's single bad bucket eats a visible slice of a 30-day
+  /// budget and the gauge says more about the monitor's age than its health.
+  static const int _reliabilityCoverageFloorMinutes = 24 * 60;
 
   /// The shared incident roster this screen reads to answer "which incidents
   /// touch this monitor". Listened to because it is NOT this view's backing
@@ -707,14 +736,33 @@ class _MonitorDetailViewState
   ///
   /// Shown only for active monitors with a configured [sloTarget] (the caller
   /// gates on `!paused && sloTarget != null`).
+  ///
+  /// Each window is gated on its own by [_windowSpeaks], so the section renders
+  /// a card for every window that has evidence and the neutral no-data
+  /// [MSEmptyState] only when NEITHER does. A payload carrying no measurement at
+  /// all (a list row, or a detail page never opened) is the third way to reach
+  /// the empty state, through [_reliabilityWindow] returning null.
   Widget _buildReliabilitySection(Monitor monitor, double sloTarget) {
-    // Measured uptime windows from the backend show endpoint; null until this
-    // monitor has checks. With no measured data we render a neutral "no data
-    // yet" note instead of fabricating a 0% breach (the removed
-    // `?? _parseUptime(monitor.uptime)` fallback treated an unmeasured monitor
-    // as fully down, so every fresh monitor read as "budget breached").
-    final double? u7 = monitor.sloUptime7d;
-    final double? u30 = monitor.sloUptime30d;
+    final _ReliabilityWindow? w7 = _reliabilityWindow(
+      down: monitor.sloDownMinutes7d,
+      observed: monitor.sloObservedMinutes7d,
+      gap: monitor.sloGapMinutes7d,
+      measured: monitor.sloMeasuredMinutes7d,
+    );
+    final _ReliabilityWindow? w30 = _reliabilityWindow(
+      down: monitor.sloDownMinutes30d,
+      observed: monitor.sloObservedMinutes30d,
+      gap: monitor.sloGapMinutes30d,
+      measured: monitor.sloMeasuredMinutes30d,
+    );
+    // Each window answers for itself. A single global gate looked simpler and
+    // was wrong: a monitor whose checks stopped eight days ago has an empty
+    // 7-day window and a full, possibly breached 30-day one, and gating on the
+    // 7-day window hid that behind "Uptizm has not been checking this monitor
+    // for long", a sentence that is false for a monitor watched for a month.
+    final _ReliabilityWindow? s7 = _windowSpeaks(w7) ? w7 : null;
+    final _ReliabilityWindow? s30 = _windowSpeaks(w30) ? w30 : null;
+    final bool renderable = s7 != null || s30 != null;
 
     // Uniform 12px (gap-3) between the heading and the content below it.
     return WDiv(
@@ -724,7 +772,7 @@ class _MonitorDetailViewState
           trans('uptizm.monitors.section_reliability'),
           className: 'text-sm font-medium text-fg',
         ),
-        if (u7 == null || u30 == null)
+        if (!renderable)
           WDiv(
             className: 'rounded-xl border border-dashed border-color-border',
             child: MSEmptyState(
@@ -735,62 +783,113 @@ class _MonitorDetailViewState
             ),
           )
         else
-          ..._buildReliabilityBudgets(monitor, sloTarget, u7, u30),
+          ..._buildReliabilityBudgets(monitor, sloTarget, s7, s30),
       ],
     );
   }
 
-  /// Builds the populated reliability content from measured uptime: the 7-day
-  /// and 30-day error-budget gauges, plus the budget-burn [AiInsight] shown
-  /// only when the 30-day budget is at risk or breached (tone != up).
+  /// Folds one window's four show-only minute fields into a [_ReliabilityWindow],
+  /// or `null` when the payload does not carry all four.
+  ///
+  /// All-or-nothing on purpose: a missing field cannot be defaulted to zero,
+  /// because a zero in the down column is the claim that nothing broke and a
+  /// zero in the measured column is the claim that nothing was watched. A list
+  /// row carries all four as null (see
+  /// `MonitorController._measuredUptimeAttributes`).
+  _ReliabilityWindow? _reliabilityWindow({
+    required double? down,
+    required double? observed,
+    required double? gap,
+    required double? measured,
+  }) {
+    if (down == null || observed == null || gap == null || measured == null) {
+      return null;
+    }
+
+    return (down: down, observed: observed, gap: gap, measured: measured);
+  }
+
+  /// Whether one window has enough evidence to print a number.
+  ///
+  /// Two conditions, and the second is the one arithmetic cannot catch. Coverage
+  /// under [_reliabilityCoverageFloorMinutes] says the window has barely begun.
+  /// Zero measured minutes says nobody watched it, which a full window of
+  /// elapsed time and zero downtime would otherwise render as a perfect score.
+  ///
+  /// Compared as a double rather than rounded, so the floor means what it says: a
+  /// rounded 1439.6 passes as 1440 and prints a budget almost half a minute
+  /// before the monitor has earned one.
+  bool _windowSpeaks(_ReliabilityWindow? window) =>
+      window != null &&
+      window.observed >= _reliabilityCoverageFloorMinutes &&
+      window.measured > 0;
+
+  /// Builds the populated reliability content from the measured minutes: an
+  /// error-budget gauge per window that can speak for itself, plus the
+  /// budget-burn [AiInsight] when the 30-day budget is at risk or breached.
+  ///
+  /// Either window may be absent, and the grid then holds one card. The burn
+  /// copy needs BOTH: every variant of it compares the 7-day tone against the
+  /// 30-day one ("back inside SLO" versus "still burning"), and with no 7-day
+  /// evidence there is no honest way to pick between them.
   List<Widget> _buildReliabilityBudgets(
     Monitor monitor,
     double sloTarget,
-    double u7,
-    double u30,
+    _ReliabilityWindow? w7,
+    _ReliabilityWindow? w30,
   ) {
-    final SloErrorBudget budget7 = computeErrorBudget(
-      sloTarget,
-      u7,
-      windowDays: 7,
-    );
-    final SloErrorBudget budget30 = computeErrorBudget(
-      sloTarget,
-      u30,
-      windowDays: 30,
-    );
+    final SloErrorBudget? budget7 = w7 == null
+        ? null
+        : computeErrorBudget(sloTarget, downMinutes: w7.down, windowDays: 7);
+    final SloErrorBudget? budget30 = w30 == null
+        ? null
+        : computeErrorBudget(sloTarget, downMinutes: w30.down, windowDays: 30);
 
     return [
       WDiv(
         className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
         children: [
-          SloBudgetCard(
-            target: sloTarget,
-            uptimePct: u7,
-            windowDays: 7,
-            windowLabel: trans('uptizm.slo.window_7day'),
-          ),
-          SloBudgetCard(
-            target: sloTarget,
-            uptimePct: u30,
-            windowDays: 30,
-            windowLabel: trans('uptizm.slo.window_30day'),
-          ),
+          if (w7 != null)
+            SloBudgetCard(
+              target: sloTarget,
+              downMinutes: w7.down,
+              observedMinutes: w7.observed,
+              gapMinutes: w7.gap,
+              windowDays: 7,
+              windowLabel: trans('uptizm.slo.window_7day'),
+            ),
+          if (w30 != null)
+            SloBudgetCard(
+              target: sloTarget,
+              downMinutes: w30.down,
+              observedMinutes: w30.observed,
+              gapMinutes: w30.gap,
+              windowDays: 30,
+              windowLabel: trans('uptizm.slo.window_30day'),
+            ),
         ],
       ),
-      if (budget30.tone != SloBudgetTone.up)
+      if (budget7 != null &&
+          budget30 != null &&
+          budget30.tone != SloBudgetTone.up)
         AiInsight(
           child: WText(_budgetBurnCopy(monitor, sloTarget, budget7, budget30)),
         ),
     ];
   }
 
-  /// Picks the budget-burn copy variant from the 7-day / 30-day budget tones,
-  /// mirroring the React `MonitorDetailPage` branch (lines ~226-232):
+  /// Picks the budget-burn copy variant from the 7-day / 30-day budget tones:
   ///
   /// - 30-day breached + 7-day recovered → "back inside SLO, budget spent".
   /// - 30-day breached + still burning → "spent and still burning".
   /// - 30-day at risk (degraded) → "burned most of its 30-day budget".
+  ///
+  /// Every variant now carries the real 30-day figures ([budget30]'s used and
+  /// allowed minutes) rather than asserting a burn in prose alone. This is a
+  /// deterministic client-side template rendered inside an [AiInsight], so while
+  /// `used` was a ratio scaled back onto the full window it read as an AI
+  /// recommendation built on a number nothing had measured. The rate claims went
+  /// with it: this screen has no burn rate, only a total.
   String _budgetBurnCopy(
     Monitor monitor,
     double sloTarget,
@@ -800,6 +899,8 @@ class _MonitorDetailViewState
     final Map<String, Object> args = {
       'name': monitor.name ?? '',
       'slo': _formatSloTarget(sloTarget),
+      'used': formatBudgetMinutes(budget30.used),
+      'allowed': formatBudgetMinutes(budget30.allowed),
     };
 
     if (budget30.tone == SloBudgetTone.down) {
