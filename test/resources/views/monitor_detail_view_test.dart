@@ -85,6 +85,9 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.slo.budget_left': ':pct% budget left',
       'uptizm.slo.budget_of': ':used of :allowed',
       'uptizm.slo.over_budget': 'Over budget by :amount this window.',
+      'uptizm.slo.coverage_partial':
+          'Observed :hours hours of the :window window.',
+      'uptizm.slo.gap_unmeasured': 'Not measured this window: :amount.',
       'uptizm.slo.window_7day': '7-day',
       'uptizm.slo.window_30day': '30-day',
       // DateRangePicker (response-time section), now trans()-driven.
@@ -448,12 +451,12 @@ void main() {
   );
 
   testWidgets(
-    'MonitorDetailView shows a no-data reliability note when uptime is '
-    'unmeasured',
+    'MonitorDetailView shows a no-data reliability note when nothing is '
+    'measured',
     (tester) async {
-      // A fresh monitor: it has an SLO target but no measured uptime yet
-      // (slo_uptime_7d/30d null). The reliability section must show the "no
-      // data yet" note rather than fabricated gauges reading as breached.
+      // A fresh monitor: it has an SLO target, but the reliability minutes are
+      // absent (a list row carries all eight as null). The section must show the
+      // "no data yet" note rather than gauges built on numbers nobody measured.
       MonitorController.instance.seedForTest([
         Monitor.fromMap({
           'id': 'fresh',
@@ -488,6 +491,119 @@ void main() {
       );
     },
   );
+
+  /// Seeds one monitor with an SLO target and the eight reliability minutes, so
+  /// each coverage case below differs only in the numbers it is judged on.
+  void seedReliability({
+    required String id,
+    required double observed,
+    required double measured,
+    required double down,
+    double gap = 0,
+  }) {
+    MonitorController.instance.seedForTest([
+      Monitor.fromMap({
+        'id': id,
+        'name': 'Coverage Monitor',
+        'url': 'https://coverage.test/health',
+        'type': 'http',
+        'method': 'get',
+        'status': 'active',
+        'last_status': 'up',
+        'slo_target': 99.9,
+        'check_interval_sec': 60,
+        'regions': ['us-east'],
+        'slo_down_minutes_7d': down,
+        'slo_observed_minutes_7d': observed,
+        'slo_gap_minutes_7d': gap,
+        'slo_measured_minutes_7d': measured,
+        'slo_down_minutes_30d': down,
+        'slo_observed_minutes_30d': observed,
+        'slo_gap_minutes_30d': gap,
+        'slo_measured_minutes_30d': measured,
+      }),
+    ]);
+  }
+
+  testWidgets('20 hours of coverage prints no reliability number at all', (
+    tester,
+  ) async {
+    // Below the 24-hour floor the arithmetic works and means nothing: the
+    // allowance is the full window, so one bad bucket on a monitor this young
+    // eats a visible slice of a 30-day budget.
+    seedReliability(id: 'young', observed: 1200, measured: 1180, down: 0);
+
+    await tester.binding.setSurfaceSize(const Size(1280, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      wrap(const MonitorDetailView(id: 'young'), size: const Size(1280, 4000)),
+    );
+    await settleSkeleton(tester);
+
+    expect(find.byType(SloBudgetCard), findsNothing);
+    expect(
+      find.text(trans('uptizm.monitors.reliability_no_data_title')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('25 hours of coverage prints the budgets and its coverage', (
+    tester,
+  ) async {
+    seedReliability(id: 'past-floor', observed: 1500, measured: 1450, down: 2);
+
+    await tester.binding.setSurfaceSize(const Size(1280, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      wrap(
+        const MonitorDetailView(id: 'past-floor'),
+        size: const Size(1280, 4000),
+      ),
+    );
+    await settleSkeleton(tester);
+
+    expect(find.byType(SloBudgetCard), findsNWidgets(2));
+    expect(
+      find.text(trans('uptizm.monitors.reliability_no_data_title')),
+      findsNothing,
+    );
+    // 2 real down minutes against a 43-minute 30-day allowance is headroom,
+    // and both cards say what they actually watched: 25 hours of each window.
+    expect(find.text('Healthy'), findsNWidgets(2));
+    expect(find.textContaining('Observed 25 hours'), findsNWidgets(2));
+  });
+
+  testWidgets('a fully elapsed window with nothing measured is not healthy', (
+    tester,
+  ) async {
+    // The condition arithmetic cannot catch: 30 days of observed time, zero
+    // downtime, and no check ever recorded reads as a perfect score. The whole
+    // window is uptizm's own blind spot, so it prints no number.
+    seedReliability(
+      id: 'silent',
+      observed: 43200,
+      measured: 0,
+      down: 0,
+      gap: 43200,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(1280, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      wrap(const MonitorDetailView(id: 'silent'), size: const Size(1280, 4000)),
+    );
+    await settleSkeleton(tester);
+
+    expect(find.byType(SloBudgetCard), findsNothing);
+    expect(find.text('Healthy'), findsNothing);
+    expect(
+      find.text(trans('uptizm.monitors.reliability_no_data_title')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets(
     'MonitorDetailView renders the real measured 24h uptime in the KPI row',

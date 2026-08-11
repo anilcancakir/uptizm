@@ -70,8 +70,43 @@ void main() {
       expect(monitor.intervalLabel, '30s');
       expect(monitor.regions, <String>['us-east', 'eu-west']);
       expect(monitor.sloTarget, 99.95);
-      expect(monitor.sloUptime7d, isNull);
-      expect(monitor.sloUptime30d, isNull);
+      // The reliability minutes are show-only, and this payload is a list-shaped
+      // row: absent reads as null, never as a zero that would claim a measured
+      // window with nothing down in it.
+      expect(monitor.sloDownMinutes7d, isNull);
+      expect(monitor.sloObservedMinutes7d, isNull);
+      expect(monitor.sloGapMinutes7d, isNull);
+      expect(monitor.sloMeasuredMinutes7d, isNull);
+      expect(monitor.sloDownMinutes30d, isNull);
+      expect(monitor.sloObservedMinutes30d, isNull);
+      expect(monitor.sloGapMinutes30d, isNull);
+      expect(monitor.sloMeasuredMinutes30d, isNull);
+    });
+
+    test('decodes the reliability minutes, including whole-number floats', () {
+      // The backend sends floats, but a whole-number float round-trips through
+      // JSON as an int (`2.0` arrives as `2`), so every one of these accessors
+      // would throw on the `as double?` without the cast-map entry behind it.
+      final Monitor monitor = Monitor.fromMap(<String, dynamic>{
+        'id': 'api',
+        'slo_down_minutes_7d': 2,
+        'slo_observed_minutes_7d': 900,
+        'slo_gap_minutes_7d': 0,
+        'slo_measured_minutes_7d': 880.5,
+        'slo_down_minutes_30d': 2,
+        'slo_observed_minutes_30d': 900,
+        'slo_gap_minutes_30d': 19.5,
+        'slo_measured_minutes_30d': 880.5,
+      });
+
+      expect(monitor.sloDownMinutes7d, 2.0);
+      expect(monitor.sloObservedMinutes7d, 900.0);
+      expect(monitor.sloGapMinutes7d, 0.0);
+      expect(monitor.sloMeasuredMinutes7d, 880.5);
+      expect(monitor.sloDownMinutes30d, 2.0);
+      expect(monitor.sloObservedMinutes30d, 900.0);
+      expect(monitor.sloGapMinutes30d, 19.5);
+      expect(monitor.sloMeasuredMinutes30d, 880.5);
     });
 
     test('hydrates the typed write-surface + runtime-state accessors', () {

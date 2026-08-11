@@ -108,17 +108,27 @@ class MonitorController extends MagicController
   static MonitorController get instance =>
       Magic.findOrPut(MonitorController.new);
 
-  /// The attributes only `GET /monitors/:id` measures: the trailing 24h, 7-day
-  /// and 30-day uptime, computed from the raw check stream.
+  /// The attributes only `GET /monitors/:id` measures: the trailing 24h uptime
+  /// percentage plus the four 7-day and four 30-day reliability minutes, all
+  /// computed from the raw check stream.
   ///
   /// Named once here because [_withMeasuredUptime] has to know exactly which
   /// fields a list row cannot speak for. Adding a show-only measurement to
   /// `MonitorController::show` on the backend means adding its key here, or the
-  /// next list reload silently nulls it out again.
+  /// next list reload silently nulls it out again. The eight minute keys took
+  /// the place of the two trailing-uptime percentage keys when the error budget
+  /// moved off percentages; leaving the retired names here would have populated
+  /// the reliability card once and emptied it on the next inventory refresh.
   static const List<String> _measuredUptimeAttributes = [
     'uptime_24h',
-    'slo_uptime_7d',
-    'slo_uptime_30d',
+    'slo_down_minutes_7d',
+    'slo_observed_minutes_7d',
+    'slo_gap_minutes_7d',
+    'slo_measured_minutes_7d',
+    'slo_down_minutes_30d',
+    'slo_observed_minutes_30d',
+    'slo_gap_minutes_30d',
+    'slo_measured_minutes_30d',
   ];
 
   /// In-memory cache of the monitor inventory, populated by [reload] and kept

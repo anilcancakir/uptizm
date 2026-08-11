@@ -13,9 +13,12 @@ import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
 ///
 /// The accessor surface reproduces the predecessor [MonitorSummary] DTO one
 /// for one (computed [status], [responseMs], [uptime], [intervalLabel],
-/// [regions], [sloTarget], [sloUptime7d], [sloUptime30d]) so view call-sites
-/// migrate to this model without shape changes, while the typed write-surface
-/// accessors cover every field the create/edit form posts.
+/// [regions], [sloTarget]) so view call-sites migrate to this model without
+/// shape changes, while the typed write-surface accessors cover every field
+/// the create/edit form posts. The SLO reliability surface is the eight
+/// show-only minute accessors ([sloDownMinutes7d] and friends), which replaced
+/// the two trailing uptime PERCENTAGES the error-budget card used to convert
+/// back into minutes of the full window.
 ///
 /// ## Usage with the ORM
 ///
@@ -113,8 +116,18 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     // Float percentages.
     'slo_target': 'double',
     'uptime_24h': 'double',
-    'slo_uptime_7d': 'double',
-    'slo_uptime_30d': 'double',
+    // Float minutes: the show-only reliability read-model. The cast is what
+    // makes them safe to read as a double, because a whole-number float
+    // round-trips through JSON as an int (the backend's `2.0` arrives as `2`)
+    // and magic's `'double'` cast coerces that back (`double.tryParse`).
+    'slo_down_minutes_7d': 'double',
+    'slo_observed_minutes_7d': 'double',
+    'slo_gap_minutes_7d': 'double',
+    'slo_measured_minutes_7d': 'double',
+    'slo_down_minutes_30d': 'double',
+    'slo_observed_minutes_30d': 'double',
+    'slo_gap_minutes_30d': 'double',
+    'slo_measured_minutes_30d': 'double',
     // Booleans.
     'show_on_status_page': 'bool',
     'only_show_if_degraded': 'bool',
@@ -247,15 +260,53 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// Set the SLO target percentage.
   set sloTarget(double? value) => setAttribute('slo_target', value);
 
-  /// Trailing-7-day uptime percentage for the short error-budget window.
-  ///
-  /// `null` until the backend emits the `slo_uptime_7d` rollup.
-  double? get sloUptime7d => getAttribute('slo_uptime_7d') as double?;
+  // ---------------------------------------------------------------------------
+  // Typed Accessors: SLO Reliability Minutes (show-only)
+  // ---------------------------------------------------------------------------
 
-  /// Trailing-30-day uptime percentage for the contractual error-budget window.
-  ///
-  /// `null` until the backend emits the `slo_uptime_30d` rollup.
-  double? get sloUptime30d => getAttribute('slo_uptime_30d') as double?;
+  // Four measurements per error-budget window, all in MINUTES and all
+  // populated by `GET /monitors/:id` alone (a list row carries them as null,
+  // which is why `MonitorController._measuredUptimeAttributes` names every key
+  // below). They replaced the two uptime PERCENTAGES this model used to expose:
+  // the card converted a ratio measured over whatever had been checked back
+  // into minutes of the full window, so a 15-hour-old monitor with 2 real down
+  // minutes reported 112 of them over 30 days.
+  //
+  // `measured` is the field that separates "never measured" from "measured and
+  // fine": a 30-day-old monitor that recorded nothing has a full window of
+  // observed time and zero downtime, which reads as a perfect score without it.
+  // `gap` is observed time holding no check at all, reported on its own because
+  // counting it down invents downtime and counting it up forgives uptizm's own
+  // blind spot.
+
+  /// Measured downtime minutes over the trailing 7 days.
+  double? get sloDownMinutes7d => getAttribute('slo_down_minutes_7d') as double?;
+
+  /// Elapsed minutes of the trailing 7 days this monitor existed for.
+  double? get sloObservedMinutes7d =>
+      getAttribute('slo_observed_minutes_7d') as double?;
+
+  /// Observed minutes over the trailing 7 days holding no check at all.
+  double? get sloGapMinutes7d => getAttribute('slo_gap_minutes_7d') as double?;
+
+  /// Observed minutes over the trailing 7 days a check was recorded for.
+  double? get sloMeasuredMinutes7d =>
+      getAttribute('slo_measured_minutes_7d') as double?;
+
+  /// Measured downtime minutes over the trailing 30 days.
+  double? get sloDownMinutes30d =>
+      getAttribute('slo_down_minutes_30d') as double?;
+
+  /// Elapsed minutes of the trailing 30 days this monitor existed for.
+  double? get sloObservedMinutes30d =>
+      getAttribute('slo_observed_minutes_30d') as double?;
+
+  /// Observed minutes over the trailing 30 days holding no check at all.
+  double? get sloGapMinutes30d => getAttribute('slo_gap_minutes_30d') as double?;
+
+  /// Observed minutes over the trailing 30 days a check was recorded for.
+  double? get sloMeasuredMinutes30d =>
+      getAttribute('slo_measured_minutes_30d') as double?;
 
   // ---------------------------------------------------------------------------
   // Typed Accessors: Write Surface (fillable fields)
