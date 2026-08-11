@@ -59,9 +59,12 @@ class IncidentAnalysisControllerTest extends TestCase
         );
         $response->assertJsonPath('data.stripped_citations', []);
 
-        // Nothing degraded on the LLM path, so the reason is null. The key is
-        // still PRESENT (the structure assertion below pins that): the client
-        // reads null as "the model answered" and an absent key as a hole.
+        // Nothing degraded on the LLM path, so the reason is null. This line
+        // cannot speak for PRESENCE, because `Arr::get()` answers null for an
+        // absent key too; what it catches is a reason leaking onto the path
+        // where the model answered. Presence is pinned by the
+        // `assertJsonStructure` in
+        // test_analysis_emits_the_enriched_evidence_and_actions_shape.
         $response->assertJsonPath('data.degrade_reason', null);
     }
 
@@ -164,7 +167,18 @@ class IncidentAnalysisControllerTest extends TestCase
         $this->assertSame([], $response->json('data.evidence_against'));
         $this->assertSame([], $response->json('data.suggested_actions'));
 
-        Log::shouldHaveReceived('warning')->once();
+        // The class is named even though this branch also carries the message,
+        // because it is what tells a reader which of the folded failures fired
+        // without parsing prose. `status` is null here and not omitted: a
+        // connection that never opened has no response to take one from.
+        Log::shouldHaveReceived('warning')->once()->withArgs(
+            fn (string $message, array $context) => $context === [
+                'incident_id' => (string) $incident->id,
+                'failure' => 'ConnectionException',
+                'status' => null,
+                'exception' => 'cURL error 7: connection refused.',
+            ],
+        );
     }
 
     public function test_analysis_degrades_when_the_provider_answers_with_an_error_body(): void
@@ -196,10 +210,17 @@ class IncidentAnalysisControllerTest extends TestCase
         $response->assertJsonPath('data.degrade_reason', 'service_unreachable');
         $this->assertSame([], $response->json('data.evidence_for'));
 
-        // The provider chose that message, so it is not copied into our logs:
-        // the log line names the incident and nothing the provider authored.
+        // The log carries the exception CLASS, which is `laravel/ai`'s own name
+        // for the failure and the only place the 429-vs-402-vs-503 distinction
+        // folded into one reason code survives. It does NOT carry the message:
+        // the provider authored that text, and the equality below is what keeps
+        // it out, since a `rate_limited` substring would otherwise pass a
+        // key-by-key check.
         Log::shouldHaveReceived('warning')->once()->withArgs(
-            fn (string $message, array $context) => $context === ['incident_id' => (string) $incident->id],
+            fn (string $message, array $context) => $context === [
+                'incident_id' => (string) $incident->id,
+                'failure' => 'AiException',
+            ],
         );
     }
 

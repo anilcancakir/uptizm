@@ -37,7 +37,11 @@ use App\Enums\EvidenceSource;
 readonly class IncidentAnalysisResult
 {
     /**
-     * @param  string  $summary  The allowlist-cleaned root-cause narration.
+     * @param  string  $summary  The allowlist-cleaned root-cause narration. On any
+     *                           degrade path (`$degradeReason` non-null) this is a
+     *                           machine-readable English baseline built from the
+     *                           incident's own fields, NOT display copy: render the
+     *                           reason code in the reader's language instead.
      * @param  AiConfidence  $confidence  How strongly the summary is supported by the evidence.
      * @param  list<string>  $contributingFactors  Allowlist-cleaned contributing-factor bullets.
      * @param  list<string>  $strippedCitations  Out-of-catalog citations removed from every free-text field.

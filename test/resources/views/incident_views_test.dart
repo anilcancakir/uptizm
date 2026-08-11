@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -17,6 +14,7 @@ import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
 import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 
+import '../../support/bundled_lang.dart';
 import '../../support/incident_fixtures.dart';
 import '../../support/monitor_fixtures.dart';
 import '../../support/skeleton_matchers.dart';
@@ -228,10 +226,7 @@ class _TurkishDegradeLangLoader implements TranslationLoader {
 
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
-    final Map<String, dynamic> shipped = _flatten(
-      json.decode(File('assets/lang/tr.json').readAsStringSync())
-          as Map<String, dynamic>,
-    );
+    final Map<String, dynamic> shipped = readBundledLang('tr');
 
     return {
       ...await _IncidentViewsLangLoader().load(locale),
@@ -239,24 +234,6 @@ class _TurkishDegradeLangLoader implements TranslationLoader {
         if (_shippedPrefixes.any((String p) => entry.key.startsWith(p)))
           entry.key: entry.value,
     };
-  }
-
-  /// Flattens the nested catalogue into the dotted keys [Translator] caches.
-  Map<String, dynamic> _flatten(
-    Map<String, dynamic> source, [
-    String prefix = '',
-  ]) {
-    final Map<String, dynamic> flat = {};
-    source.forEach((String key, Object? value) {
-      final String path = prefix.isEmpty ? key : '$prefix.$key';
-      if (value is Map<String, dynamic>) {
-        flat.addAll(_flatten(value, path));
-      } else {
-        flat[path] = value;
-      }
-    });
-
-    return flat;
   }
 }
 
@@ -1701,10 +1678,14 @@ void main() {
           reason: 'the operator is told WHY the summary is a baseline, in TR',
         );
         // The objective core, composed client-side from the incident's own
-        // localized severity + lifecycle labels.
+        // localized severity + lifecycle labels. The colon is deliberate: the
+        // lifecycle is a chip LABEL and keeps its capital, so it needs a
+        // position where a capital reads as a label rather than a typo, and
+        // Turkish `İ` cannot be lowercased by Dart's locale-blind
+        // `toLowerCase()` anyway.
         expect(
           find.textContaining(
-            'Kritik önem derecesinde bir olay, şu anda İnceleniyor.',
+            'Kritik önem derecesinde bir olay, durumu: İnceleniyor.',
           ),
           findsOneWidget,
         );

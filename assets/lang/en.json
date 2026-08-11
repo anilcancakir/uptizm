@@ -990,7 +990,7 @@
       "analysis_degraded_budget": "Today's AI budget is spent, so the summary below was derived from the incident's own record.",
       "analysis_degraded_untrusted": "The model could not produce a reliable answer, so the summary below was derived from the incident's own record.",
       "analysis_degraded_unreachable": "The AI service is currently unreachable, so the summary below was derived from the incident's own record.",
-      "analysis_degraded_core": ":severity severity incident, currently :lifecycle.",
+      "analysis_degraded_core": ":severity severity incident, status: :lifecycle.",
       "form_kind_incident": "Incident",
       "form_kind_maintenance": "Scheduled maintenance",
       "form_severity_critical": "Critical",

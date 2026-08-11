@@ -738,13 +738,14 @@ void main() {
     });
 
     test(
-      'the merge lets the FRESHER degrade reason win over the first paint',
+      'the fetched analysis wins wholesale over whatever the incident carried',
       () async {
-        // The inversion this pins: every other merged field puts `base` first so
-        // the first paint does not flicker, and a degrade reason is the opposite
-        // case, because only the analysis endpoint learns that a degrade
-        // happened. Both values are non-null on purpose: with a null base both
-        // merge orders answer the same and the test could not tell them apart.
+        // What this pins: the fetch is taken as a WHOLE object, so no field can
+        // be dropped by a later addition. Both reasons are non-null and
+        // different on purpose: with a null base, or with two equal values,
+        // either precedence answers the same and the test could not tell them
+        // apart. The base shape here is the dashboard AI-suggestion one, which
+        // is the only producer of a non-null `Incident.ai`.
         Http.fake({
           'incidents/deg-3/analysis': Http.response({
             'data': {
@@ -774,9 +775,14 @@ void main() {
 
         await controller.loadAnalysis(incident.id);
 
+        final resolved = controller.analysisFor(incident)!;
+        expect(resolved.degradeReason, equals(AiDegradeReason.serviceUnreachable));
         expect(
-          controller.analysisFor(incident)!.degradeReason,
-          equals(AiDegradeReason.serviceUnreachable),
+          resolved.tldr,
+          equals('critical severity incident, currently resolved.'),
+          reason:
+              'the whole object comes from the fetch, so the first paint cannot '
+              'hold any field back',
         );
       },
     );

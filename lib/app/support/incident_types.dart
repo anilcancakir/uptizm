@@ -298,7 +298,9 @@ class IncidentSummary {
   /// Relative time string for the list row, e.g. `"started 14m ago"`.
   final String startedAt;
 
-  /// Human-readable elapsed duration, e.g. `"14m"` or `"1h 08m"`.
+  /// Human-readable elapsed duration, localized: `"14m"` / `"1h 08m"` in
+  /// English, `"14dk"` / `"1sa 08dk"` in Turkish. Formatted by
+  /// `formatDuration()`, which reads its units from the catalogue.
   final String duration;
 
   /// Number of monitors affected.

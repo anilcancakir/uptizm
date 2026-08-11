@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -16,6 +13,7 @@ import 'package:uptizm/resources/views/incidents/incident_form_support.dart';
 import 'package:uptizm/ui/components/incident_timeline/index.dart'
     show TimelineActor;
 
+import '../../support/bundled_lang.dart';
 import '../../support/incident_fixtures.dart';
 
 /// Feeds the incident draft templates so [trans] substitutes the incident's
@@ -53,29 +51,8 @@ class _BundledLangLoader implements TranslationLoader {
   const _BundledLangLoader();
 
   @override
-  Future<Map<String, dynamic>> load(Locale locale) async {
-    final File file = File('assets/lang/${locale.languageCode}.json');
-
-    return _flatten(json.decode(file.readAsStringSync()) as Map<String, dynamic>);
-  }
-
-  /// Flattens the nested catalogue into the dotted keys [Translator] caches.
-  Map<String, dynamic> _flatten(
-    Map<String, dynamic> source, [
-    String prefix = '',
-  ]) {
-    final Map<String, dynamic> flat = {};
-    source.forEach((String key, Object? value) {
-      final String path = prefix.isEmpty ? key : '$prefix.$key';
-      if (value is Map<String, dynamic>) {
-        flat.addAll(_flatten(value, path));
-      } else {
-        flat[path] = value;
-      }
-    });
-
-    return flat;
-  }
+  Future<Map<String, dynamic>> load(Locale locale) async =>
+      readBundledLang(locale.languageCode);
 }
 
 /// A resolved incident lasting exactly one minute and affecting [monitors]

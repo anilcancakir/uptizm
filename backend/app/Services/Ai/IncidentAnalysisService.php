@@ -78,13 +78,20 @@ class IncidentAnalysisService
         } catch (NonConformingAnalysisException) {
             return $this->deterministicSummary($incident, AiDegradeReason::OutputUntrusted);
         } catch (ConnectionException|RequestException $exception) {
+            // `failure` and `status` alongside the message, following
+            // {@see AnalyzeMonitorJob::degradeContext()}: one reason code now
+            // covers three provider failures the operator cannot act on
+            // differently, and {@see AiDegradeReason} states that the finer
+            // taxonomy survives in the log. It only survives if it is written.
             Log::warning('Incident AI analysis degraded: the AI service was unreachable.', [
                 'incident_id' => (string) $incident->id,
+                'failure' => class_basename($exception),
+                'status' => $exception instanceof RequestException ? $exception->response->status() : null,
                 'exception' => $exception->getMessage(),
             ]);
 
             return $this->deterministicSummary($incident, AiDegradeReason::ServiceUnreachable);
-        } catch (AiException) {
+        } catch (AiException $exception) {
             // The third class, and not redundant with the two above:
             // `AiException extends Exception`, so it descends from neither this
             // app's own exception nor the Guzzle pair, and OpenRouter's
@@ -97,12 +104,14 @@ class IncidentAnalysisService
             // answer; the finer distinction (429 vs 402 vs 503, all
             // `AiException` subclasses) is an ops concern, not an operator one.
             //
-            // No `exception` key here, unlike the branch above: a Guzzle message
-            // is our own client describing what it could not reach, while this
-            // one is text the PROVIDER chose, and a message a third party
-            // authored is not something to copy into our logs.
+            // The CLASS but not the message, unlike the branch above: the class
+            // is `laravel/ai`'s own name for the failure and it is the only place
+            // the 429-vs-402-vs-503 distinction the enum promises survives,
+            // while the message is text the PROVIDER chose, and a message a third
+            // party authored is not something to copy into our logs.
             Log::warning('Incident AI analysis degraded: the AI provider could not complete the request.', [
                 'incident_id' => (string) $incident->id,
+                'failure' => class_basename($exception),
             ]);
 
             return $this->deterministicSummary($incident, AiDegradeReason::ServiceUnreachable);
