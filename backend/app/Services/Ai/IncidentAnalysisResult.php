@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\AiConfidence;
+use App\Enums\AiDegradeReason;
 use App\Enums\EvidenceSource;
 
 /**
@@ -26,6 +27,12 @@ use App\Enums\EvidenceSource;
  * LLM path and every fallback path therefore return the IDENTICAL wire shape
  * (empty arrays, never null, never omitted), so the client renders no hole and
  * never sees a fabricated source.
+ *
+ * `degradeReason` is the one field that differs between those paths: null when
+ * the model answered, and the {@see AiDegradeReason} case naming what went
+ * wrong on each fallback. It is what lets the client narrate a degrade in the
+ * operator's own language instead of reading an English clause out of
+ * `summary`.
  */
 readonly class IncidentAnalysisResult
 {
@@ -37,6 +44,7 @@ readonly class IncidentAnalysisResult
      * @param  list<array{label: string, detail: string, source: string}>  $evidenceFor  Evidence supporting the root cause.
      * @param  list<array{label: string, detail: string, source: string}>  $evidenceAgainst  Evidence that qualifies or contradicts it.
      * @param  list<array{title: string, rationale: string}>  $suggestedActions  Concrete next steps derived from the evidence.
+     * @param  AiDegradeReason|null  $degradeReason  Why the baseline was used, or null when the model answered.
      */
     public function __construct(
         public string $summary,
@@ -46,10 +54,15 @@ readonly class IncidentAnalysisResult
         public array $evidenceFor = [],
         public array $evidenceAgainst = [],
         public array $suggestedActions = [],
+        public ?AiDegradeReason $degradeReason = null,
     ) {}
 
     /**
      * Flatten to the snake_case wire shape the API response returns.
+     *
+     * `degrade_reason` is always PRESENT, carrying null on the LLM path rather
+     * than being omitted: the client distinguishes null ("the model answered")
+     * from an absent key ("this response is a shape I do not know").
      *
      * @return array<string, mixed>
      */
@@ -63,6 +76,7 @@ readonly class IncidentAnalysisResult
             'evidence_for' => $this->evidenceFor,
             'evidence_against' => $this->evidenceAgainst,
             'suggested_actions' => $this->suggestedActions,
+            'degrade_reason' => $this->degradeReason?->value,
         ];
     }
 }

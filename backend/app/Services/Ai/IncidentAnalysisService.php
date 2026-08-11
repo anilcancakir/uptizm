@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\AiConfidence;
+use App\Enums\AiDegradeReason;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Models\Incident;
 use App\Models\MonitorCheck;
@@ -10,6 +11,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Laravel\Ai\Exceptions\AiException;
 
 /**
  * Composes an incident's timeline plus the checks recorded against its
@@ -61,26 +63,49 @@ class IncidentAnalysisService
         // 1. Over budget never calls the LLM: degrade to the deterministic
         //    baseline so the endpoint still answers.
         if (! $this->budget->tryConsume($teamId)) {
-            return $this->deterministicSummary($incident, 'AI analysis budget exhausted for today');
+            return $this->deterministicSummary($incident, AiDegradeReason::BudgetExhausted);
         }
 
-        // 2. A model that returns non-conforming output past the gateway's
-        //    single retry, OR an unreachable AI service (outage, timeout, or a
-        //    missing/invalid key), both degrade to the SAME deterministic
-        //    baseline, so the endpoint returns the identical empty-array wire
-        //    shape rather than a 500. The transport failure is logged first so
-        //    the ops problem stays visible.
+        // 2. Three failures, one baseline: non-conforming output past the
+        //    gateway's single retry, an unreachable AI service (outage, timeout,
+        //    or a missing/invalid key), and a provider that answered with an
+        //    error body all degrade to the SAME deterministic baseline, so the
+        //    endpoint returns the identical empty-array wire shape rather than a
+        //    500. They differ only in the reason code the client reads. The two
+        //    provider-side failures are logged so the ops problem stays visible.
         try {
             return $this->gateway->analyze($payload);
         } catch (NonConformingAnalysisException) {
-            return $this->deterministicSummary($incident, 'AI analysis could not be produced reliably for this incident');
+            return $this->deterministicSummary($incident, AiDegradeReason::OutputUntrusted);
         } catch (ConnectionException|RequestException $exception) {
             Log::warning('Incident AI analysis degraded: the AI service was unreachable.', [
                 'incident_id' => (string) $incident->id,
                 'exception' => $exception->getMessage(),
             ]);
 
-            return $this->deterministicSummary($incident, 'the AI service was temporarily unavailable');
+            return $this->deterministicSummary($incident, AiDegradeReason::ServiceUnreachable);
+        } catch (AiException) {
+            // The third class, and not redundant with the two above:
+            // `AiException extends Exception`, so it descends from neither this
+            // app's own exception nor the Guzzle pair, and OpenRouter's
+            // `ParsesTextResponses::validateTextResponse()` raises a PLAIN one
+            // for an error body delivered in-band with HTTP 200. Without this
+            // branch the most ordinary provider bad day there is answered 500,
+            // against this method's own promise to degrade. It maps to the same
+            // reason as an unreachable service because to a caller a provider
+            // that answered with an error body is a provider that did not
+            // answer; the finer distinction (429 vs 402 vs 503, all
+            // `AiException` subclasses) is an ops concern, not an operator one.
+            //
+            // No `exception` key here, unlike the branch above: a Guzzle message
+            // is our own client describing what it could not reach, while this
+            // one is text the PROVIDER chose, and a message a third party
+            // authored is not something to copy into our logs.
+            Log::warning('Incident AI analysis degraded: the AI provider could not complete the request.', [
+                'incident_id' => (string) $incident->id,
+            ]);
+
+            return $this->deterministicSummary($incident, AiDegradeReason::ServiceUnreachable);
         }
     }
 
@@ -162,14 +187,22 @@ class IncidentAnalysisService
      * returns the IDENTICAL wire shape as the LLM path: the client renders no
      * hole and never sees a fabricated source.
      *
-     * @param  string  $reason  A short clause naming why the baseline was used.
+     * `summary` here is a MACHINE-READABLE BASELINE, not display copy. It
+     * carries only the incident's own severity and lifecycle, in English, so a
+     * direct API consumer sees a summary rather than an empty string; the client
+     * ignores it and composes its own localized sentence from `degradeReason`
+     * plus the labels it already translates. It used to open with a preamble
+     * naming the baseline and parenthesising the reason as an English clause, and
+     * a Turkish operator read that clause verbatim on the incident screen, which
+     * is why the reason left the prose and became a field.
+     *
+     * @param  AiDegradeReason  $reason  Which failure sent us to the baseline.
      */
-    protected function deterministicSummary(Incident $incident, string $reason): IncidentAnalysisResult
+    protected function deterministicSummary(Incident $incident, AiDegradeReason $reason): IncidentAnalysisResult
     {
         return new IncidentAnalysisResult(
             summary: sprintf(
-                'Deterministic baseline from the incident record (%s): %s severity incident, currently %s.',
-                $reason,
+                '%s severity incident, currently %s.',
                 $incident->severity?->value ?? 'unknown',
                 $incident->lifecycle?->value ?? 'unknown',
             ),
@@ -179,6 +212,7 @@ class IncidentAnalysisService
             evidenceFor: [],
             evidenceAgainst: [],
             suggestedActions: [],
+            degradeReason: $reason,
         );
     }
 }
