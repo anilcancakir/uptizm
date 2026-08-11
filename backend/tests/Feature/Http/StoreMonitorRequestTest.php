@@ -213,6 +213,61 @@ class StoreMonitorRequestTest extends TestCase
         $response->assertJsonValidationErrors('auth_config.type');
     }
 
+    public function test_store_rejects_an_oversized_bearer_token(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        // Every credential field travels inside the HMAC-signed relay spec
+        // and was unbounded before ValidatesAuthConfig added a max: rule.
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'auth_config' => [
+                'type' => 'bearer',
+                'token' => str_repeat('a', 3000),
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('auth_config.token');
+    }
+
+    public function test_store_accepts_a_bearer_token_at_the_max_bound(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'auth_config' => [
+                'type' => 'bearer',
+                'token' => str_repeat('a', 2048),
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $monitor = Monitor::query()->where('team_id', $team->id)->sole();
+        $this->assertSame(2048, strlen((string) $monitor->auth_config['token']));
+    }
+
+    public function test_store_rejects_an_oversized_basic_auth_username(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'auth_config' => [
+                'type' => 'basic',
+                'username' => str_repeat('a', 256),
+                'password' => 'secret',
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('auth_config.username');
+    }
+
     /**
      * Authenticate as a user whose current team is a freshly created team.
      */

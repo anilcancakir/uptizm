@@ -18,7 +18,7 @@ import '../../../ui/components/region_picker/region_picker.dart';
 /// monitor definition surface inside a surface [Card], with an optional
 /// [banner] slot above it (used by the AI-assisted flow to show its summary).
 /// Simple by default; the "Advanced configuration" switch reveals HTTP method,
-/// request headers, request body, and timeout.
+/// request headers, the credential block, request body, and timeout.
 ///
 /// The form is self-contained state: every field round-trips through this
 /// widget's [State] and the [onSubmit] / [onCancel] callbacks report the user's
@@ -85,6 +85,34 @@ class MonitorForm extends StatefulWidget {
   /// the preview, not in the create default.
   final List<KeyValueRow> initialHeaders;
 
+  /// The monitor's stored credential descriptor, as `MonitorResource` emits
+  /// it, or `null` when the monitor sends no credential.
+  ///
+  /// A fail-closed allowlist on the backend (`MonitorResource::redactAuthConfig`)
+  /// reduces it to `type`, `username` and `header`, so this map NEVER carries a
+  /// secret and the form must not pretend it does: the secret input renders
+  /// empty with a placeholder saying a credential is stored. Leaving it blank
+  /// omits `auth_config` from an edit entirely, which is the only way a rename
+  /// can leave a stored credential alone (see [_MonitorFormState.buildFields]).
+  final Map<String, dynamic>? initialAuthConfig;
+
+  /// A credential the operator TYPED but has not saved yet, secret included,
+  /// or `null` when there is none.
+  ///
+  /// The AI setup step's own credential block composes one to probe a protected
+  /// endpoint with, and the review form this input feeds is where that monitor
+  /// is actually created; without carrying it the created monitor would hold no
+  /// credential and its very first check would answer 401 on the endpoint the
+  /// analysis just read successfully.
+  ///
+  /// Deliberately NOT [initialAuthConfig]: that one describes a credential the
+  /// backend already holds and redacted, so its blank secret means "leave the
+  /// stored one alone". This one is not stored anywhere yet, so its secret has
+  /// to reach the create request. Seeded through
+  /// [MonitorCredential.fromPendingMap], which is where the two meanings are
+  /// named apart.
+  final Map<String, dynamic>? initialPendingAuthConfig;
+
   /// Initial escalation-policy id, or `null` for "no policy pinned".
   ///
   /// Null is a real, meaningful state rather than a missing value: the backend's
@@ -120,10 +148,12 @@ class MonitorForm extends StatefulWidget {
   /// It changes what [_MonitorFormState.buildFields] posts. A create sends the
   /// full request shape, including sensible defaults for the settings this form
   /// exposes no control for. An edit sends ONLY the fields the form owns, so a
-  /// monitor's unsurfaced configuration (`auth_config`, `expected_status_code`,
-  /// `tags`, the status-page and SSL flags) survives a save instead of being
-  /// reset to a create-time default. Every rule in `UpdateMonitorRequest` is
-  /// `sometimes`, so a partial payload is the intended update shape.
+  /// monitor's unsurfaced configuration (`expected_status_code`, `tags`, the
+  /// status-page and SSL flags) survives a save instead of being reset to a
+  /// create-time default, and `auth_config` travels only when the operator
+  /// changed the credential ([initialAuthConfig]). Every rule in
+  /// `UpdateMonitorRequest` is `sometimes`, so a partial payload is the
+  /// intended update shape.
   final bool isEdit;
 
   /// Open the advanced section on mount (the AI flow pre-fills advanced
@@ -164,6 +194,8 @@ class MonitorForm extends StatefulWidget {
     this.initialIntervalSec,
     this.initialRegions = const ['eu-central'],
     this.initialHeaders = const <KeyValueRow>[],
+    this.initialAuthConfig,
+    this.initialPendingAuthConfig,
     this.initialPolicy,
     this.initialSlo = '99.9',
     this.initialMethod = 'get',
@@ -237,6 +269,27 @@ class _MonitorFormState extends State<MonitorForm>
 
   /// Request headers for the advanced section (React `headers`).
   late List<KeyValueRow> _headers;
+
+  /// The credential the operator has composed in the advanced section.
+  ///
+  /// Seeded from [MonitorForm.initialAuthConfig], which carries no secret, so
+  /// on an edit this starts equal to [_storedCredential] and stays that way
+  /// until the operator touches the block.
+  late MonitorCredential _credential;
+
+  /// The credential as the backend described it, kept verbatim so
+  /// [_credentialTouched] can answer "did the operator change anything here?".
+  ///
+  /// That question is the whole edit contract: a form that round-trips what it
+  /// received would post `{type: basic, username: x}` with no password, which
+  /// 422s, and one that helpfully filled a masked placeholder would post the
+  /// placeholder as the new password.
+  late MonitorCredential _storedCredential;
+
+  /// Inline credential errors keyed by the wire field name (`username`,
+  /// `password`, `token`, `key`, `header`, or `type`), from the client-side
+  /// checks or from a server 422 on `auth_config.*`.
+  Map<String, String> _credentialErrors = const <String, String>{};
 
   /// Request body for the advanced section (React `body`).
   String _body = '';
@@ -341,6 +394,17 @@ class _MonitorFormState extends State<MonitorForm>
     _regions = _defaultRegions();
     _advanced = widget.startAdvanced;
     _headers = List<KeyValueRow>.from(widget.initialHeaders);
+    _storedCredential = MonitorCredential.fromRedactedMap(
+      widget.initialAuthConfig,
+    );
+    // A pending credential (typed on the AI setup step, never saved) starts the
+    // block already composed, secret included, while [_storedCredential] stays
+    // the redacted description of what the backend holds. Keeping the two
+    // separate is what lets [_credentialTouched] read this as a real change
+    // rather than as "nothing happened here".
+    _credential = widget.initialPendingAuthConfig == null
+        ? _storedCredential
+        : MonitorCredential.fromPendingMap(widget.initialPendingAuthConfig);
     _policy = widget.initialPolicy;
     _slo = widget.initialSlo;
     _method = widget.initialMethod;
@@ -454,6 +518,29 @@ class _MonitorFormState extends State<MonitorForm>
   /// method/headers/body fields.
   bool get _isHttp => _type == 'http';
 
+  /// Whether the operator changed anything in the credential block.
+  ///
+  /// False means "leave the stored credential alone", which on an edit is
+  /// expressed by omitting `auth_config` from the request entirely: the form
+  /// holds no secret to resend and an explicit null would blank the stored one.
+  bool get _credentialTouched => _credential != _storedCredential;
+
+  /// Whether the request this form is about to build carries `auth_config`.
+  ///
+  /// Always on a create (the backend expects the full request shape and a
+  /// monitor with no credential says so with an explicit null); on an edit only
+  /// when the operator touched the block.
+  bool get _sendsCredential => !widget.isEdit || _credentialTouched;
+
+  /// Whether leaving the secret input blank keeps the credential the backend
+  /// already holds: only while editing a monitor whose stored scheme is still
+  /// the selected one. Switching the scheme retires the stored secret, so the
+  /// field stops being optional and the placeholder stops claiming otherwise.
+  bool get _keepsStoredSecret =>
+      widget.isEdit &&
+      !_storedCredential.isNone &&
+      _credential.type == _storedCredential.type;
+
   // ---------------------------------------------------------------------------
   // Build.
   // ---------------------------------------------------------------------------
@@ -524,6 +611,15 @@ class _MonitorFormState extends State<MonitorForm>
           // The target's valid shape depends on the type, so a pending error
           // no longer applies once the type changes.
           _urlError = null;
+          // Only an HTTP probe carries a credential, so the block is hidden for
+          // TCP. Reverting it to what the monitor already stores (nothing, on a
+          // create) is what keeps a hidden field out of the payload: the form
+          // would otherwise post a credential the operator can no longer see,
+          // or on an edit read as "touched" and blank a stored one.
+          if (!_isHttp) {
+            _credential = _storedCredential;
+            _credentialErrors = const <String, String>{};
+          }
         }),
       ),
     );
@@ -875,6 +971,20 @@ class _MonitorFormState extends State<MonitorForm>
             onChanged: (next) => setState(() => _headers = next),
           ),
         ),
+      // The credential block sits beside the headers because it shapes the
+      // same outbound request; the worker turns it into an `Authorization` (or
+      // custom) header at the edge. HTTP only: a TCP probe opens a socket and
+      // has nothing to authenticate with.
+      if (_isHttp)
+        MonitorCredentialFields(
+          value: _credential,
+          hasStoredSecret: _keepsStoredSecret,
+          errors: _credentialErrors,
+          onChanged: (next) => setState(() {
+            _credential = next;
+            _credentialErrors = const <String, String>{};
+          }),
+        ),
       if (showBody)
         MSFormField(
           label: trans('uptizm.monitors.form_body_label'),
@@ -958,22 +1068,33 @@ class _MonitorFormState extends State<MonitorForm>
   /// Runs every client-side required check, painting each field's inline error
   /// slot, and returns whether the form may be submitted.
   ///
-  /// Currently the required Name and the target shape (via [_targetError]); both
-  /// are checks the client can make before any round trip. Both slots are always
-  /// written (a passing check clears its slot) so a previously shown error never
-  /// lingers after a corrected resubmit.
+  /// Currently the required Name, the target shape (via [_targetError]) and the
+  /// credential block; all three are checks the client can make before any
+  /// round trip. Every slot is always written (a passing check clears its slot)
+  /// so a previously shown error never lingers after a corrected resubmit.
+  ///
+  /// The credential is only checked when the request will actually carry it: an
+  /// untouched edit omits `auth_config`, and demanding a password for a
+  /// credential nobody is changing would make a rename impossible.
   bool _validateClientSide() {
     final String? nameError = _name.trim().isEmpty
         ? trans('uptizm.monitors.form_name_error_required')
         : null;
     final String? targetError = _targetError();
+    final Map<String, String> credentialErrors = _sendsCredential && _isHttp
+        ? validateMonitorCredential(_credential)
+        : const <String, String>{};
 
     setState(() {
       _nameError = nameError;
       _urlError = targetError;
+      _credentialErrors = credentialErrors;
+      // A credential error lives in the advanced section, so open it rather
+      // than blocking submit with an explanation nobody can see.
+      if (credentialErrors.isNotEmpty) _advanced = true;
     });
 
-    return nameError == null && targetError == null;
+    return nameError == null && targetError == null && credentialErrors.isEmpty;
   }
 
   /// Routes a backend 422 field-error map (keyed by the wire field names the
@@ -985,11 +1106,22 @@ class _MonitorFormState extends State<MonitorForm>
   /// hidden behind the collapsed toggle.
   Map<String, String> _applyServerErrors(Map<String, String> errors) {
     final Map<String, String> unmapped = {};
+    final Map<String, String> credentialErrors = {};
     bool expandAdvanced = false;
 
     setState(() {
       for (final MapEntry<String, String> entry in errors.entries) {
         switch (entry.key) {
+          // Laravel reports the credential map's inner shape with dotted keys
+          // (`auth_config.password`), which are exactly the field names
+          // [MonitorCredentialFields] renders its error slots by, so the
+          // rejection lands under the field it names instead of a toast.
+          case final String key
+              when key == 'auth_config' || key.startsWith('auth_config.'):
+            credentialErrors[key == 'auth_config'
+                ? 'type'
+                : key.substring('auth_config.'.length)] = entry.value;
+            expandAdvanced = true;
           case 'name':
             _nameError = entry.value;
           case 'url':
@@ -1010,6 +1142,7 @@ class _MonitorFormState extends State<MonitorForm>
             unmapped[entry.key] = entry.value;
         }
       }
+      _credentialErrors = credentialErrors;
       if (expandAdvanced) _advanced = true;
     });
 
@@ -1062,12 +1195,23 @@ class _MonitorFormState extends State<MonitorForm>
   /// labelled "Timeout (seconds)"; despite its variable name it already holds
   /// seconds, not milliseconds).
   ///
-  /// The settings this form exposes no control for (`auth_config`,
-  /// `expected_status_code`, `tags`, the status-page and SSL toggles) are sent
-  /// as request-shape defaults on a CREATE only. On an edit they are omitted:
-  /// posting a default for a field the operator cannot see would silently reset
-  /// it, which is how a plain rename used to wipe a monitor's auth config and
-  /// SSL settings ([MonitorForm.isEdit]).
+  /// The settings this form exposes no control for (`expected_status_code`,
+  /// `tags`, the status-page and SSL toggles) are sent as request-shape
+  /// defaults on a CREATE only. On an edit they are omitted: posting a default
+  /// for a field the operator cannot see would silently reset it, which is how
+  /// a plain rename used to wipe a monitor's SSL settings
+  /// ([MonitorForm.isEdit]).
+  ///
+  /// `auth_config` follows the same rule for a sharper reason. The form can
+  /// never receive the stored secret (`MonitorResource` allowlists it away), so
+  /// on an edit the key travels ONLY when the operator touched the credential
+  /// block: an untouched save omits it and the backend leaves the credential
+  /// alone, while an explicit null (which switching the scheme to `none`
+  /// produces) is the deliberate way to clear it. A create always sends the
+  /// key, null included, because there is nothing stored to preserve, and that
+  /// is the path a credential carried in through
+  /// [MonitorForm.initialPendingAuthConfig] travels on: it was never stored, so
+  /// the create request is where its secret has to land.
   Map<String, dynamic> buildFields() {
     return {
       'name': _name,
@@ -1076,7 +1220,7 @@ class _MonitorFormState extends State<MonitorForm>
       'method': _method,
       'request_headers': _headersToMap(_headers),
       'request_body': _body,
-      if (!widget.isEdit) 'auth_config': null,
+      if (_sendsCredential) 'auth_config': _credential.toWireMap(),
       if (!widget.isEdit) 'expected_status_code': null,
       'check_interval_sec': _intervalValue == _customIntervalToken
           ? _customIntervalSec!

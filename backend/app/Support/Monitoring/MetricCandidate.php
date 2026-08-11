@@ -4,6 +4,7 @@ namespace App\Support\Monitoring;
 
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
+use App\Enums\MetricUnit;
 use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 
@@ -25,9 +26,17 @@ use App\Services\Monitoring\MetricExtractor;
  *
  * `eligibleTypes` is the set of {@see MetricType} cases this sample can
  * actually sustain. It exists because {@see MetricExtractor::validateType()}
- * discards a non-numeric value under `MetricType::Numeric`, so a `120ms`
- * candidate accepted as numeric would extract on every check and record
- * nothing, which reads to the user as a metric that is silently always empty.
+ * discards a non-numeric value under `MetricType::Numeric`, so a candidate
+ * accepted as numeric on a sample the extractor cannot reduce to a number
+ * would extract on every check and record nothing, which reads to the user as
+ * a metric that is silently always empty.
+ *
+ * `unit` is that rule's other half. A sample like `120ms` IS numeric-eligible,
+ * because {@see MetricExtractor::splitUnit()} strips the suffix at check time,
+ * and the unit it stripped is the only one under which the recorded `120`
+ * means anything. Carrying it here is what lets an accepted suggestion arrive
+ * with the measurement it was read in. Null for a bare number or for a sample
+ * whose suffix the map does not name.
  */
 readonly class MetricCandidate
 {
@@ -53,6 +62,7 @@ readonly class MetricCandidate
         public string $sampleValue,
         public ?string $labelHint,
         public array $eligibleTypes,
+        public ?MetricUnit $unit = null,
     ) {}
 
     /**

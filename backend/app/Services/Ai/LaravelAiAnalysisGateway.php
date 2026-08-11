@@ -2,12 +2,14 @@
 
 namespace App\Services\Ai;
 
-use App\Enums\LocationBasis;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
+use App\Enums\RegionBasis;
 use App\Enums\ThresholdDirection;
+use App\Exceptions\AiBudgetExhaustedException;
+use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use App\Services\Ai\Tools\ResearchUrlAllowList;
 use App\Services\Ai\Tools\WebFetchTool;
 use App\Services\Ai\Tools\WebSearchTool;
@@ -25,7 +27,6 @@ use Laravel\Ai\Contracts\Conversational;
 use Laravel\Ai\Contracts\HasProviderOptions;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Contracts\HasTools;
-use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
@@ -74,9 +75,9 @@ use Stringable;
  *   2. A SUGGESTION turn: the schema declared, no tools, its notes carried in
  *      as one more fenced field.
  *
- * `providerOptions()` still asks for `require_parameters` on both, because
- * being told that a provider cannot serve a parameter is what makes either
- * turn's silence readable.
+ * {@see openRouterRoutingConstraints()} still asks for `require_parameters` on
+ * both, because being told that a provider cannot serve a parameter is what
+ * makes either turn's silence readable.
  *
  * The model never reaches a database, and the only outbound surface it has is
  * the two research tools, whose fetch URL must be one the backend minted.
@@ -87,6 +88,7 @@ use Stringable;
 class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational, HasProviderOptions, HasStructuredOutput, HasTools
 {
     use Promptable;
+    use RoutesOpenRouterByLatency;
 
     /**
      * The service classes the model may answer with.
@@ -104,29 +106,6 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
         'web_page',
         'tcp_service',
         'unknown',
-    ];
-
-    /**
-     * Why the MODEL chose the regions it chose.
-     *
-     * Deliberately a different set from {@see LocationBasis}, which records what
-     * a LOOKUP achieved: `unresolved` is a lookup outcome and has no place here,
-     * while `content_language` is a reason only a model can give.
-     *
-     * There is NO mapping between the two sets, and there deliberately is not
-     * one. A lookup outcome is not a reason: only this model, which reads the
-     * location facts and can weigh them against the page's language, answers
-     * anything here other than `default`. The deterministic path always answers
-     * `default`, because the region it suggests is the one the request asked to
-     * probe from.
-     *
-     * @var list<string>
-     */
-    public const array REGION_BASES = [
-        'geoip',
-        'cdn_edge',
-        'content_language',
-        'default',
     ];
 
     /**
@@ -160,11 +139,58 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
     /**
      * Seconds the suggestion turn may take.
      *
-     * Explicit rather than the package's 60-second default, because two turns
-     * now run inside one synchronous request and the operator is waiting on
-     * both.
+     * Explicit rather than the package's 60-second default, because up to three
+     * model calls share one budget and the operator is waiting on all of them.
+     *
+     * IT WAS 40, AND 40 IS WHAT CUT THE ANSWER TURN IN PRODUCTION. Measured on
+     * 2026-08-09 at 22:43 and 22:46 UTC, from Horizon's retained job records and
+     * the run's own progress ticks: two analyzes reported step 4 at 38.17 and
+     * 39.09 seconds and then degraded to the deterministic baseline, while the
+     * whole job took 57.68 and 75.10 seconds of a 150 second budget and metric
+     * discovery behind it answered on both runs, in 18.09 and 33.73 seconds. Two
+     * different targets, two runs three minutes apart, both stopping at the same
+     * elapsed time: that is a fixed wall and this was the only one in range. Our
+     * own HTTP client hung up, which {@see App\Jobs\AnalyzeMonitorJob} then
+     * reported as the provider being unreachable.
+     *
+     * The 40 was derived against two constraints that no longer exist. Its own
+     * previous wording says so: "the budget itself has to stay under 60 or the
+     * operator gets a 504", from when these calls ran inside
+     * `POST /monitors/analyze` under an nginx `proxy_read_timeout` that defaulted
+     * to 60. The calls now run in `AnalyzeMonitorJob` on the `analyze` queue, so
+     * the wall above them is that job's own `$timeout` (160) under a supervisor
+     * at 170, and the budget is 150 rather than 50.
+     *
+     * 70 partitions the budget instead of inheriting a dead number:
+     * 30 (the research ceiling) + 70 (this) + 50 left for metric discovery = 150.
+     * The 50 is sized off the slowest COMPLETED call measured against this
+     * account, 33.73 seconds above and 33.8 seconds in an earlier live pass; the
+     * variance is a routing artifact, since DeepSeek V4 Flash is served by a
+     * dozen OpenRouter providers and an unpinned request inherits whichever it
+     * lands on. Two bounds in {@see Tests\Unit\Services\Ai\AiDeadlineTest} hold
+     * the partition: the budget must fund this ceiling and still start discovery,
+     * and this ceiling must not be smaller than the remainder discovery may
+     * spend, because this turn is the answer and discovery is an enrichment that
+     * degrades to an empty array on its own.
+     *
+     * What this number CANNOT do is prove itself. Both observations above were
+     * truncated at 40, so how long the suggestion turn actually needs is still
+     * unmeasured, and only a live run answers it. The instrument is the degrade
+     * line in {@see App\Jobs\AnalyzeMonitorJob::suggestViaGateway()}, which now
+     * names a timeout as a timeout and records how much of the budget was spent
+     * when it fired.
+     *
+     * The variance itself is now addressed one layer over, and NOT by pinning:
+     * {@see RoutesOpenRouterByLatency} asks OpenRouter to order its upstreams by
+     * measured latency instead of price, which prefers the fast cluster without
+     * giving up the fallbacks a pinned `order` would cost. That should compress
+     * the spread this number was sized against, so re-derive the partition from a
+     * fresh measurement before trusting the 33.8 seconds above: it was measured
+     * under price-weighted routing and is now an upper bound rather than a typical
+     * case. The instrument for that measurement is the provider and `duration_ms`
+     * {@see OpenRouterUpstreamRecorder} logs per call.
      */
-    private const int SUGGESTION_TIMEOUT_SECONDS = 45;
+    private const int SUGGESTION_TIMEOUT_SECONDS = 70;
 
     /**
      * Seconds the research turn may take.
@@ -225,12 +251,19 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
     public function __construct(
         protected KodizmResearchClient $researchClient = new KodizmResearchClient,
         protected AiBudget $budget = new AiBudget,
-    ) {}
+        protected ?AiDeadline $deadline = null,
+    ) {
+        // Resolved rather than defaulted, because the SCOPED binding is the
+        // whole point: a `new AiDeadline` here would give each gateway its own
+        // budget and the three calls in one analyze would stop sharing one.
+        $this->deadline ??= app(AiDeadline::class);
+    }
 
     /**
      * Suggest a monitor configuration from a probe result and its optional
      * detector output.
      *
+     * @throws AiBudgetExhaustedException When the request's shared budget could not fund the call.
      * @throws RuntimeException When the model returns non-conforming output twice.
      */
     public function analyze(AnalysisPayload $payload): AnalysisResult
@@ -328,15 +361,21 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      * provider does not support. Without this, a `response_format` that never
      * reached the provider is indistinguishable from a model that ignored it,
      * and the retry below would spend a second call on the same silence. It is
-     * correct for both turns and is a no-op for every other provider.
+     * correct for both turns.
+     *
+     * It is a CONSTRAINT rather than a preference: it narrows the set of
+     * upstreams eligible to serve the call, which is why it lives here and not
+     * in {@see RoutesOpenRouterByLatency} beside the latency sort every gateway
+     * shares. The other five gateways deliberately do not ask for it: each
+     * already retries once and then degrades, and narrowing their eligible
+     * upstreams is a routing decision of its own rather than a side effect of
+     * this one.
      *
      * @return array<string, mixed>
      */
-    public function providerOptions(Lab|string $provider): array
+    protected function openRouterRoutingConstraints(): array
     {
-        return $provider === Lab::OpenRouter
-            ? ['provider' => ['require_parameters' => true]]
-            : [];
+        return ['require_parameters' => true];
     }
 
     /**
@@ -385,7 +424,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
                 ->description('What kind of service the evidence shows this target to be.')
                 ->required(),
             'region_basis' => $schema->string()
-                ->enum(self::REGION_BASES)
+                ->enum(RegionBasis::values())
                 ->description('Why those regions: what in the evidence located the target, if anything did.')
                 ->required(),
             'recommended_slo_target' => $schema->string()
@@ -502,11 +541,21 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
             return null;
         }
 
+        // The research turn is an enrichment, so it is the first thing to give
+        // up when the request's shared budget is thin. Null here is the same
+        // "no research" the two guards above return, and the suggestion that
+        // follows is unaffected by its absence.
+        $seconds = $this->deadline->secondsForCall(self::RESEARCH_TIMEOUT_SECONDS);
+
+        if ($seconds === null) {
+            return null;
+        }
+
         try {
             $response = $this->researchAgent($payload)->prompt(
                 $payload->buildResearchMessage(),
                 model: $this->analysisModel(),
-                timeout: self::RESEARCH_TIMEOUT_SECONDS,
+                timeout: $seconds,
             );
         } catch (AiException|ConnectionException|RequestException|RuntimeException) {
             // Four named classes, not `Throwable`: a provider 429, 402 or 503
@@ -538,10 +587,30 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
      * {@see LaravelAiMetricDiscoveryGateway::rawSelections()}.
      *
      * @return array<string, mixed>|null
+     *
+     * @throws AiBudgetExhaustedException When the request's shared budget could not fund the call.
      */
     protected function rawSuggestion(string $message): ?array
     {
-        $response = $this->prompt($message, model: $this->analysisModel());
+        // Spends from the request's shared budget rather than the class's own
+        // `#[Timeout]`, which is a per-call ceiling and cannot know that a
+        // research turn already ran.
+        //
+        // It THROWS rather than returning null, unlike `research()` above, and
+        // the asymmetry is deliberate: research is the optional half, so its
+        // null genuinely means "no research happened" and the suggestion still
+        // answers. Here null is this method's word for "the model did not answer
+        // with structured output", which `analyze()` retries once and then
+        // reports as non-conforming output. A call that was never made is
+        // neither, and calling it that sends whoever reads the log looking at a
+        // prompt that was never issued.
+        $seconds = $this->deadline->secondsForCall(self::SUGGESTION_TIMEOUT_SECONDS);
+
+        if ($seconds === null) {
+            throw AiBudgetExhaustedException::before('monitor analysis');
+        }
+
+        $response = $this->prompt($message, model: $this->analysisModel(), timeout: $seconds);
 
         return $response instanceof StructuredAgentResponse ? $response->toArray() : null;
     }
@@ -621,7 +690,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
 
         $classification = [
             'service_class' => $this->member($data, 'service_class', self::SERVICE_CLASSES),
-            'region_basis' => $this->member($data, 'region_basis', self::REGION_BASES),
+            'region_basis' => $this->member($data, 'region_basis', RegionBasis::values()),
             'recommended_slo_target' => $this->member($data, 'recommended_slo_target', self::SLO_TARGETS),
         ];
 
@@ -754,7 +823,7 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
             'WHAT YOU ANSWER',
             '- `service_class`: one of '.$this->catalog(self::SERVICE_CLASSES).'. `unknown` is a real'
                 .' answer when the evidence does not say.',
-            '- `region_basis`: WHY you chose those regions, one of '.$this->catalog(self::REGION_BASES)
+            '- `region_basis`: WHY you chose those regions, one of '.$this->catalog(RegionBasis::values())
                 .'. `geoip` only when an origin country was actually supplied; `cdn_edge` when the target'
                 .' sits behind a CDN, which means no origin location is knowable from here;'
                 .' `content_language` when the only locational hint was the body or its language;'

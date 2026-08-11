@@ -23,6 +23,70 @@ use Illuminate\Support\Str;
 
 /*
 |--------------------------------------------------------------------------
+| Route parameter patterns: enforce the uuid shape for every parameter that
+| addresses a `uuid` primary key.
+|--------------------------------------------------------------------------
+|
+| Without this, an implicit-bound route parameter (or a plain string handed
+| to a manual `findOrFail()`) that fails to parse as a uuid still reaches the
+| database as a bare string, and PostgreSQL raises
+| `22P02: invalid input syntax for type uuid` for the resulting query, which
+| surfaces as an uncaught 500 instead of the 404 a malformed identifier
+| should answer. `Route::pattern()` rejects the segment before the route
+| matches at all, so a malformed value never reaches `SubstituteBindings` or
+| a manual lookup.
+|
+| Registered here, before every route in this file, because
+| `Router::addWhereClausesToRoute()` snapshots the global pattern list at the
+| MOMENT a route is created (`Router.php:707-714`); a pattern registered
+| after a route would not apply to it. That includes the signed
+| preview-image route below, which sits outside the `auth:sanctum` group but
+| still implicit-binds `{statusPage:id}`.
+|
+| `Route::pattern()` is process-global (`Router::$patterns`), so it also
+| reaches any later-loaded route file that happens to reuse one of these
+| parameter names. None of `routes/web.php`, `routes/marketing.php`, or
+| `routes/status.php` do today (they address `{slug}`, `{token}`,
+| `{locale}`, resolved by an explicit `->where()` lookup rather than
+| implicit binding), so there is no live collision, but a new route
+| elsewhere reusing one of these names inherits the constraint too.
+|
+| Deliberately NOT constrained here:
+|   - `{contentHash}`: a sha256 hex digest, not a uuid; constrained inline
+|     at its own route (`where('contentHash', '[0-9a-f]{64}')` below).
+|   - `{run}`: an analyze run id. It IS minted as a uuid
+|     (`MonitorController::analyze()`, `Str::uuid()`), but it never reaches a
+|     `uuid` column: `AnalyzeRunStore` reads it back with `Cache::get()`
+|     against Redis, so a malformed value is already a clean cache miss and
+|     `analyzeRun()`'s `abort_if($stored === null, ...)` already 404s it.
+|   - Every parameter in `routes/status.php` (`{slug}`, `{token}`): resolved
+|     by an explicit `->where('slug', $slug)->first()` lookup rather than
+|     implicit binding, so a malformed value already 404s on a miss with no
+|     type coercion involved.
+*/
+// The same expression Route::whereUuid() applies per-parameter; used here as
+// a global pattern instead since every name below needs the identical shape.
+$uuidPattern = '[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}';
+
+Route::patterns([
+    'monitor' => $uuidPattern,
+    'check' => $uuidPattern,
+    'metric' => $uuidPattern,
+    'incident' => $uuidPattern,
+    'suggestion' => $uuidPattern,
+    'statusPage' => $uuidPattern,
+    'subscriber' => $uuidPattern,
+    'maintenance' => $uuidPattern,
+    'schedule' => $uuidPattern,
+    'rotation' => $uuidPattern,
+    'override' => $uuidPattern,
+    'policy' => $uuidPattern,
+    'step' => $uuidPattern,
+    'channel' => $uuidPattern,
+]);
+
+/*
+|--------------------------------------------------------------------------
 | API v1: Public routes (no auth).
 |--------------------------------------------------------------------------
 */
@@ -112,13 +176,31 @@ Route::get('status-pages/{statusPage:id}/preview-image', StatusPagePreviewImageC
 */
 Route::middleware('auth:sanctum')->group(function (): void {
     // Throttled by name because one accepted request runs a live relay probe of
-    // an operator-supplied URL plus up to two provider calls, and nothing else
-    // bounds its RATE: `api/v1` never calls throttleApi(), and the per-team AI
-    // budget is a daily cost cap that degrades rather than refusing. The buckets
-    // are registered in `bootstrap/app.php`.
+    // an operator-supplied URL and queues a job that spends up to two provider
+    // calls, and nothing else bounds its RATE: `api/v1` never calls
+    // throttleApi(), and the per-team AI budget is a daily cost cap that
+    // degrades rather than refusing. The buckets are registered in
+    // `bootstrap/app.php`. A second CONCURRENT analyze for one team is a
+    // different control and answers 409, from the per-team in-flight lock the
+    // controller takes.
     Route::post('monitors/analyze', [MonitorController::class, 'analyze'])
         ->middleware('throttle:'.MonitorController::ANALYZE_LIMITER)
         ->name('api.v1.monitors.analyze');
+    // The accepted run's state, for the client's poll. Registered next to the
+    // POST rather than beside the other `monitors/{monitor}/...` reads, because
+    // its first segment is the LITERAL `analyze` and this file's convention is
+    // that a literal is declared ahead of the wildcard it could be swallowed by
+    // (see the `incidents/digest` and `content/candidates` notes below).
+    //
+    // Deliberately NOT carrying `MonitorController::ANALYZE_LIMITER`. That
+    // bucket is ten a minute, sized for a human pressing a button; the client
+    // polls this every 2500ms as the source of truth for a run that takes up to
+    // 150 seconds, which is twenty-four reads a minute for one analyze. The
+    // accept cost is the reason the two differ: this is a single cache read
+    // against a run the caller's own team owns, with no probe, no provider call
+    // and no write.
+    Route::get('monitors/analyze/{run}', [MonitorController::class, 'analyzeRun'])
+        ->name('api.v1.monitors.analyze.run');
     Route::apiResource('monitors', MonitorController::class);
     Route::post('monitors/{monitor}/pause', [MonitorController::class, 'pause'])
         ->name('api.v1.monitors.pause');

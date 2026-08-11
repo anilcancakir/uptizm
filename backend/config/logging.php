@@ -127,6 +127,86 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        /*
+         * The AI routing instrument, and the only channel here that does not read
+         * LOG_LEVEL.
+         *
+         * `App\Services\Ai\OpenRouterUpstreamRecorder` writes one line per
+         * OpenRouter call naming the upstream that served it and how long it took.
+         * That line is an operational record rather than a warning, and production
+         * runs LOG_LEVEL=warning, so on any channel above it would be dropped and
+         * the latency routing it exists to measure would be unfalsifiable again.
+         * Promoting the line to `warning` instead was the other option and is
+         * worse: a successful AI call filed as a warning teaches an operator to
+         * ignore warnings.
+         *
+         * Hence AI_ROUTING_LOG_LEVEL rather than LOG_LEVEL, and hence `info` as
+         * its default: an unset variable has to leave the instrument WORKING,
+         * because a knob whose default is silence is the same bug under a new
+         * name. Nothing here reads the global level, deliberately.
+         *
+         * `daily` over `single`: the volume is a handful of lines a day (one per
+         * AI call, and roughly one AI call per analyze), so a day's file is
+         * kilobytes, but nothing rotates or prunes a `single` file and this one is
+         * meant to still be readable months out. 30 days is sized off what it is
+         * FOR, comparing latency before and after a routing change and noticing
+         * the slow tail return, against a provider roster that changes
+         * continuously; a month of it costs less than one response body.
+         *
+         * Its own file rather than the application stack, because it is read by
+         * grepping a provider name out of a time series, and `laravel.log` is
+         * where exceptions live.
+         */
+        'ai-routing' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/ai-routing.log'),
+            'level' => env('AI_ROUTING_LOG_LEVEL', 'info'),
+            'days' => env('AI_ROUTING_LOG_DAILY_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
+        /*
+         * Evidence: what the system deliberately did NOT do, and what a tenant
+         * did with a credential. The roster is closed and lives in
+         * `App\Support\Logging\EvidenceLog`.
+         *
+         * Same reasoning as `ai-routing` above, and the same measurement behind
+         * it: production runs `LOG_LEVEL=warning`, so the three `Log::info()`
+         * lines this channel now carries had never once been written there. Hence
+         * EVIDENCE_LOG_LEVEL rather than LOG_LEVEL, and hence `info` as its
+         * default, because a knob whose default is silence is the same bug under a
+         * new name. Nothing here reads the global level, deliberately.
+         *
+         * A SECOND channel rather than a second use of `ai-routing`: that one is
+         * a latency time series, grepped for a provider name and compared before
+         * and after a routing change, and it is sized (30 days) for exactly that.
+         * Mixing a page that was withheld into it would make both harder to read
+         * and would force one retention onto two questions.
+         *
+         * `daily` over `single`: nothing rotates or prunes a `single` file, and
+         * this one has to still be readable long after it is written. The volume
+         * makes that cheap, a few lines a day (a suppressed page happens during
+         * planned work, a credentialled analyze maybe ten times a day), so a day's
+         * file is bytes.
+         *
+         * 365 days, an order of magnitude above the application log's 14 and above
+         * `ai-routing`'s 30, is sized off WHEN it is read. "Why did nobody get
+         * paged" arrives at an incident review, days to weeks out; a question
+         * about who sent a credential where can arrive a quarter or a year later,
+         * and by then the answer either exists or the control was decoration. A
+         * year of this volume costs less than one archived response body. The
+         * credential half also has a queryable system of record in
+         * `credential_probe_audits`; this file is the copy a human greps, and the
+         * copy that survives the table being pruned.
+         */
+        'evidence' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/evidence.log'),
+            'level' => env('EVIDENCE_LOG_LEVEL', 'info'),
+            'days' => env('EVIDENCE_LOG_DAILY_DAYS', 365),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

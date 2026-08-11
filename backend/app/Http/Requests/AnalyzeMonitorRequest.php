@@ -3,6 +3,8 @@
 namespace App\Http\Requests;
 
 use App\Enums\MonitorRegion;
+use App\Http\Requests\Concerns\ValidatesAuthConfig;
+use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\HostGuard;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
@@ -18,9 +20,18 @@ use Illuminate\Validation\Rule;
  * reach into the platform's own internal network. The host-resolution logic
  * lives in the shared {@see HostGuard} service; this request only wires it
  * onto the `url` field (see {@see self::noInternalHost()}).
+ *
+ * It also accepts an OPTIONAL `auth_config`, so a protected endpoint can be
+ * analyzed at all. The credential is sent to the target on the probe and can
+ * therefore come back in the target's own body, which is why the controller
+ * runs {@see CredentialRedactor} over the probe result before anything reads
+ * it (see {@see self::noEmbeddedCredential()} for what that does and does not
+ * buy).
  */
 class AnalyzeMonitorRequest extends FormRequest
 {
+    use ValidatesAuthConfig;
+
     /**
      * Shared, stateless SSRF host guard, memoized per request instance.
      */
@@ -54,18 +65,44 @@ class AnalyzeMonitorRequest extends FormRequest
                 'string',
                 Rule::enum(MonitorRegion::class),
             ],
+            // Optional here, unlike on create: an analyze of a public target
+            // carries no credential at all, and `partial: true` is what makes
+            // the key omissible rather than required-and-nullable.
+            ...$this->authConfigRules(partial: true),
         ];
     }
 
     /**
-     * The region the exploratory probe runs from, defaulting to US East when
-     * the caller does not pin one.
+     * The region the exploratory probe runs from.
+     *
+     * The fallback is {@see MonitorRegion::default()} rather than a literal,
+     * because it is not private to this request: the deterministic degrade
+     * echoes the probe's region back as `recommended_regions`, so this is the
+     * region an operator is shown whenever the model could not reason about
+     * geography.
      */
     public function probeRegion(): string
     {
         $region = $this->validated('region');
 
-        return is_string($region) ? $region : MonitorRegion::USEast->value;
+        return is_string($region) ? $region : MonitorRegion::default()->value;
+    }
+
+    /**
+     * The validated credential map the probe should authenticate with, or null.
+     *
+     * Null covers both an omitted key and an explicit null, which is the same
+     * thing to every consumer: {@see CredentialRedactor::for()} answers a no-op
+     * redactor for it and the transient monitor carries no `auth_config`, so
+     * the whole path behaves exactly as it did before credentials existed.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function authConfig(): ?array
+    {
+        $authConfig = $this->validated('auth_config');
+
+        return is_array($authConfig) ? $authConfig : null;
     }
 
     /**
@@ -74,15 +111,24 @@ class AnalyzeMonitorRequest extends FormRequest
      * Laravel's `url` rule accepts `https://user:s3cr3t@example.com/health`
      * (measured), and this endpoint hands the URL to the analysis prompt as a
      * TRUSTED fact, on both the suggestion turn and the research turn that
-     * holds the web-search tool. The whole reason a free-text search query is
-     * safe here is that nothing secret is in the model's context, so a userinfo
-     * URL is not an inconvenience, it is the one inlet that premise cannot
-     * survive. Refused rather than stripped: an operator who pasted a
-     * credential should be told, not quietly have it removed and then probed
-     * without it.
+     * holds the web-search tool. Refused rather than stripped: an operator who
+     * pasted a credential should be told, not quietly have it removed and then
+     * probed without it.
      *
-     * A monitor that genuinely needs credentials gets them through
-     * `auth_config`, which is encrypted at rest and never reaches a prompt.
+     * The reason held to be "nothing secret is in the model's context" and that
+     * is no longer true: `auth_config` above sends the operator's own
+     * credential to the target, and a target that echoes its request headers
+     * puts it in the probe body. What keeps it out of the two prompts is the
+     * {@see CredentialRedactor} seam the controller runs over the probe result,
+     * a control on the DATA path with a known residual (a value under eight
+     * characters, a decoded or derived echo).
+     *
+     * The refusal here stands on a narrower and still-intact reason: a URL is
+     * handed to the model as a TRUSTED fact, with no redaction seam in front of
+     * it. `AnalysisPayload::displayUrl()` drops the query for exactly that
+     * reason, and userinfo is the other half of the same hole. So the rule is
+     * not redundant with the redactor; it covers the one inlet the redactor
+     * never sees.
      *
      * @return Closure(string, mixed, Closure): void
      */

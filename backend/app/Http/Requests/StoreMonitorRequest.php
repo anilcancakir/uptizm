@@ -3,13 +3,14 @@
 namespace App\Http\Requests;
 
 use App\Enums\AiMode;
-use App\Enums\HttpAuthType;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
+use App\Http\Requests\Concerns\ValidatesAuthConfig;
 use App\Models\Monitor;
 use App\Models\Team;
 use App\Services\Billing\PlanGate;
+use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Support\Monitoring\HostGuard;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
@@ -27,9 +28,18 @@ use Illuminate\Validation\Rule;
  * The host-resolution logic lives in the shared {@see HostGuard} service;
  * this request only wires it onto the `url` field (see
  * {@see self::noInternalHost()}).
+ *
+ * It also carries the optional bulk `metrics[]` the AI create flow submits with
+ * the monitor. Those rows are validated by
+ * {@see StoreMonitorMetricRequest::metricFieldRules()} under a `metrics.*.`
+ * prefix, which is the same definition the single-metric endpoint enforces, and
+ * they are written inside the monitor's own transaction by
+ * {@see MonitorController::store()}.
  */
 class StoreMonitorRequest extends FormRequest
 {
+    use ValidatesAuthConfig;
+
     /**
      * Shared, stateless SSRF host guard, memoized per request instance.
      */
@@ -124,6 +134,38 @@ class StoreMonitorRequest extends FormRequest
                     'regions',
                     "Your {$gate->planLabel($team)} plan checks from at most {$allowance} {$noun} per monitor. Upgrade to add more.",
                 );
+            }
+
+            // The bulk metric rows carry the same three cross-field checks
+            // the single-metric endpoint enforces (see
+            // StoreMonitorMetricRequest::withValidator()), so an inverted
+            // warn/critical pair, an overlapping band value or an unmatched
+            // band with no list is refused here exactly as it is there.
+            //
+            // Gated on `rules()` declaring `metrics`, not merely on the input
+            // being an array: `UpdateMonitorRequest` overrides `rules()` and
+            // never declares `metrics` there, so this loop is inherited but
+            // permanently dormant on a PUT, even one carrying a stray
+            // `metrics[]` the update endpoint never reads. On `POST /monitors`
+            // the bare `metrics` key in `rules()` below is what arms it, and
+            // dropping that key while keeping the `metrics.*` rules would
+            // disarm all three checks without a single field rule changing.
+            if (array_key_exists('metrics', $this->rules())) {
+                $metrics = $this->input('metrics');
+
+                if (is_array($metrics)) {
+                    foreach ($metrics as $index => $row) {
+                        if (! is_array($row)) {
+                            continue;
+                        }
+
+                        StoreMonitorMetricRequest::validateMetricRowCrossFields(
+                            $validator,
+                            $row,
+                            "metrics.{$index}.",
+                        );
+                    }
+                }
             }
         });
     }
@@ -231,58 +273,33 @@ class StoreMonitorRequest extends FormRequest
                 'min:1',
                 'max:365',
             ],
+            // The bulk metric rows, written with the monitor in one
+            // transaction by MonitorController::store(). The BARE key is
+            // load-bearing beyond the `array` type and the cap: it is what
+            // self::withValidator() gates its per-row cross-field loop on, so
+            // declaring only the `metrics.*` rules leaves an inverted
+            // warn/critical pair, an overlapping band value and an unmatched
+            // band with no list all unrefused on this path while every field
+            // rule still fires. Measured, not assumed: with this key removed
+            // the rows still validate, still reach `validated()` and still
+            // persist, and only the three cross-field checks go quiet.
+            //
+            // Capped at the number of candidates discovery can ever propose,
+            // because that is the only producer of a bulk row today and no
+            // plan tier gates metric COUNT (`backend/config/plans.php`).
+            'metrics' => [
+                'sometimes',
+                'array',
+                'max:'.MetricCandidateExtractor::MAX_CANDIDATES,
+            ],
+            // Reached as `metrics.*.<field>` from the ONE definition of what a
+            // metric may contain, prefix and all, rather than a second copy:
+            // a rule that drifts between two copies governs a persisted metric
+            // on one path and not the other. `rules()` itself is unusable here,
+            // route-bound through its `key` uniqueness, so the static
+            // route-free half is what this composes.
+            ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
             ...$this->authConfigRules(partial: false),
-        ];
-    }
-
-    /**
-     * Inner-shape rules for the `auth_config` credential map.
-     *
-     * The `type` selects the auth flow and each flow requires its own
-     * secret fields: `basic` needs username + password, `bearer` a token,
-     * `api_key` a key + header, and `none` nothing. These conditional rules
-     * are identical on create and edit, so both requests share them; only
-     * the top-level `auth_config` presence rule differs (create requires it
-     * to be present-or-null, an edit may omit it entirely).
-     *
-     * @param  bool  $partial  True for a partial (update) request.
-     * @return array<string, mixed>
-     */
-    protected function authConfigRules(bool $partial): array
-    {
-        return [
-            'auth_config' => $partial
-                ? ['sometimes', 'nullable', 'array']
-                : ['nullable', 'array'],
-            'auth_config.type' => [
-                'required_with:auth_config',
-                Rule::enum(HttpAuthType::class),
-            ],
-            'auth_config.username' => [
-                'nullable',
-                'string',
-                'required_if:auth_config.type,basic',
-            ],
-            'auth_config.password' => [
-                'nullable',
-                'string',
-                'required_if:auth_config.type,basic',
-            ],
-            'auth_config.token' => [
-                'nullable',
-                'string',
-                'required_if:auth_config.type,bearer',
-            ],
-            'auth_config.key' => [
-                'nullable',
-                'string',
-                'required_if:auth_config.type,api_key',
-            ],
-            'auth_config.header' => [
-                'nullable',
-                'string',
-                'required_if:auth_config.type,api_key',
-            ],
         ];
     }
 

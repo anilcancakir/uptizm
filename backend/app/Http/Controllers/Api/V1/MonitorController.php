@@ -2,47 +2,45 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Enums\BodyShape;
+use App\Enums\AnalyzeRunStatus;
+use App\Enums\HttpAuthType;
 use App\Enums\HttpMethod;
-use App\Enums\MonitorRegion;
+use App\Enums\MetricBand;
 use App\Enums\MonitorType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AnalyzeMonitorRequest;
+use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Requests\StoreMonitorRequest;
 use App\Http\Requests\UpdateMonitorRequest;
 use App\Http\Resources\MonitorResource;
+use App\Jobs\AnalyzeMonitorJob;
 use App\Jobs\PerformMonitorCheck;
+use App\Models\CredentialProbeAudit;
 use App\Models\Monitor;
+use App\Models\MonitorMetric;
 use App\Models\Team;
 use App\Services\Ai\AiBudget;
-use App\Services\Ai\AnalysisGateway;
-use App\Services\Ai\AnalysisPayload;
-use App\Services\Ai\AnalysisResult;
 use App\Services\Ai\LaravelAiAnalysisGateway;
-use App\Services\Ai\MetricDiscoveryService;
-use App\Services\Ai\ResponseTimeAnomalyDetector;
+use App\Services\Ai\LaravelAiMetricDiscoveryGateway;
 use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\CheckAggregateService;
 use App\Services\Monitoring\RelayClient;
-use App\Services\Monitoring\ResponseDigest;
-use App\Services\Monitoring\ResponseDigestResult;
-use App\Services\Monitoring\TargetLocation;
-use App\Services\Monitoring\TargetLocationResult;
+use App\Support\Logging\EvidenceLog;
+use App\Support\Monitoring\AnalyzeRunStore;
 use App\Support\Monitoring\CheckResult;
-use App\Support\Monitoring\HostGuard;
+use App\Support\Monitoring\CredentialRedactor;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Log;
-use Laravel\Ai\Exceptions\AiException;
-use RuntimeException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
+use Throwable;
 
 /**
  * Team-scoped CRUD + lifecycle controls for {@see Monitor}.
@@ -61,11 +59,35 @@ class MonitorController extends Controller
      * Declared here and referenced by name from `routes/api.php` and
      * `bootstrap/app.php`, so a rename cannot leave the route silently
      * unbounded. The limiter is REQUIRED rather than defensive: `api/v1` never
-     * calls `throttleApi()`, and one accepted request runs a live relay probe
-     * against an operator-supplied URL plus up to two provider calls. The
-     * per-team daily AI budget caps the model spend over a DAY and degrades
-     * instead of refusing, so it bounds cost rather than rate, and it does not
-     * bound the probe at all.
+     * calls `throttleApi()`, and one accepted request still runs a live relay
+     * probe against an operator-supplied URL and then queues a job that spends
+     * up to two provider calls. The per-team daily AI budget caps the model
+     * spend over a DAY and degrades instead of refusing, so it bounds cost
+     * rather than rate, and it does not bound the probe at all.
+     *
+     * What the accept now COSTS changed with the async split and the rate has to
+     * be read against the new number rather than the old one: the request no
+     * longer holds a worker for the model calls, so a fast target answers in well
+     * under a second instead of occupying a worker for a minute.
+     *
+     * "Well under a second" is the TYPICAL accept, not the ceiling, and the
+     * distinction was wrong here before review caught it: the accept still runs
+     * the relay probe synchronously, and the transient it probes with carries
+     * `timeout_sec => 30` ({@see self::transientMonitor()}). So a deliberately
+     * slow target still parks this request for up to thirty seconds. The
+     * tightening below is right either way, and for the same reason, but the
+     * premise is "a fast accept is now possible" rather than "every accept is
+     * 200ms".
+     *
+     * Re-checked against that: the ~60s wall was an ACCIDENTAL rate limiter (a
+     * client waiting on its own response could only fire near one request a
+     * minute), and a sub-second accept removes it, so the buckets in
+     * `bootstrap/app.php` were tightened from
+     * 10/20 to 6 (actor) and 12 (team) per minute. See the comment on that
+     * `RateLimiter::for()` call for the full reasoning; this limiter bounds
+     * SERIAL abuse (repeated live relay probes and AI-budget spends), which is a
+     * different control from {@see self::IN_FLIGHT_LOCK_SECONDS}, which bounds
+     * CONCURRENCY.
      *
      * Unlike {@see self::test()} this cannot be a per-resource cooldown: the
      * target of an analyze is not a monitor yet, so there is no row to claim.
@@ -73,20 +95,45 @@ class MonitorController extends Controller
     public const string ANALYZE_LIMITER = 'monitor-analyze';
 
     /**
-     * Why {@see self::deterministicSuggestion()} answered instead of a model, in
-     * the operator's own terms.
+     * Seconds the per-team single-in-flight analyze lock survives unreleased.
      *
-     * Two causes, two wordings, deliberately not shared: an exhausted budget is
-     * answered by waiting for tomorrow or upgrading, while a model that
-     * misbehaved is answered by trying again shortly. Telling an operator their
-     * budget is gone when it is intact sends them to the wrong place.
+     * A BACKSTOP, not the mechanism: {@see AnalyzeMonitorJob} releases the lock
+     * on both of its exits, and this TTL only covers the worker that dies
+     * without reaching either. It sits ABOVE that job's own 160-second timeout
+     * (and equals the `redis-analyze` connection's `retry_after`, pinned by
+     * Tests\Unit\AnalyzeQueueConfigTest) so a run that is still legitimately
+     * working can never lose its lock to expiry and let a second analyze in
+     * beside it.
+     *
+     * The TTL lives here rather than beside {@see AnalyzeMonitorJob::lockName()}
+     * because only the ACQUIRE names one: the job releases by owner and never
+     * re-takes it.
+     *
+     * KNOWN WEAKNESS, and the docblock above used to overstate this: 200 clears
+     * the job's own 160-second work, but NOT queue wait plus work. The analyze
+     * supervisor runs `maxProcesses => 2`, so with two other teams' runs ahead a
+     * third can wait ~160 seconds and then run 160, and the lock expires
+     * mid-flight. A second accept for that team is then admitted. Nothing in the
+     * Must Have breaks, because both meters are keyed per RUN and stay
+     * at-most-once, but the concurrency guarantee is weaker than "a run that is
+     * still legitimately working can never lose its lock", which is what this
+     * comment claimed before review measured it.
+     *
+     * The proper fix is for the JOB to re-take the lock on entry, so the clock
+     * starts when the work does rather than when the request did; it is not done
+     * here because it moves the lock's ownership across the boundary and wants its
+     * own test. Until then, the exposure is bounded to a backlogged queue.
      */
-    protected const string DEGRADE_BUDGET_EXHAUSTED = 'AI analysis budget exhausted for today';
-
-    protected const string DEGRADE_AI_UNAVAILABLE = 'AI analysis temporarily unavailable';
+    public const int IN_FLIGHT_LOCK_SECONDS = 200;
 
     /**
      * The uptime target the deterministic path prefills for each service class.
+     *
+     * READ FROM {@see AnalyzeMonitorJob::deterministicSuggestion()}, which owns
+     * that path now, and deliberately not copied there: this table's keys and
+     * values are pinned against the gateway's two closed catalogs by
+     * `AnalyzeMonitorControllerTest`, and a second copy would be a twin site
+     * where a fix lands on one of two identical places.
      *
      * A table rather than a judgement, because this path reads no semantics: the
      * body's SHAPE is all it has. Its keys are exactly
@@ -128,26 +175,139 @@ class MonitorController extends Controller
     }
 
     /**
-     * Create a monitor for the current team and kick off a first check.
+     * Create a monitor for the current team, with the metrics submitted
+     * alongside it, and kick off a first check.
+     *
+     * The monitor and its metrics are one write or none. The AI create flow
+     * submits a monitor and the metric rows the operator accepted in the same
+     * request, and a monitor that exists while the metrics it was created for do
+     * not is a monitor silently measuring nothing: the operator saw the pills,
+     * the create answered 201, and the detail screen shows no metrics.
+     *
+     * The dispatch is OUTSIDE that transaction, and the ordering is the whole
+     * reason the transaction needs a comment. `config/queue.php` sets
+     * `after_commit => false` on every connection, so a dispatch from inside
+     * pushes the payload to Redis before the row is committed; the worker
+     * re-resolves the monitor by key, misses it, and deletes the job. The first
+     * check then never runs, in production only, with nothing failing. It is
+     * fixed here rather than with `->afterCommit()` on the job because
+     * {@see self::test()} and {@see self::resume()} dispatch the same job with
+     * no transaction around it, and a modifier one of three callers needs is a
+     * worse rule than an ordering all three already satisfy.
      */
     public function store(StoreMonitorRequest $request): JsonResponse
     {
+        $attributes = $request->validated();
+        $metrics = $this->pullMetricRows($attributes);
+
         // 1. Persist the monitor scoped to the acting team, primed for the
-        //    scheduler to pick up on its next tick.
-        $monitor = Monitor::create([
-            ...$request->validated(),
-            'team_id' => $request->user()->current_team_id,
-            'status' => 'active',
-            'next_check_at' => now(),
-        ]);
+        //    scheduler to pick up on its next tick, and its metrics with it.
+        $monitor = DB::transaction(function () use ($attributes, $metrics, $request): Monitor {
+            $monitor = Monitor::create([
+                ...$attributes,
+                'team_id' => $request->user()->current_team_id,
+                'status' => 'active',
+                'next_check_at' => now(),
+            ]);
+
+            $this->createMetrics($monitor, $metrics);
+
+            return $monitor;
+        });
 
         // 2. Fan out an immediate first check per region so the detail page
-        //    lands on real data instead of empty placeholders.
+        //    lands on real data instead of empty placeholders. After the commit,
+        //    never inside it.
         $this->dispatchChecks($monitor);
 
         return MonitorResource::make($monitor)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Take the bulk `metrics[]` rows out of the validated attributes.
+     *
+     * By reference and removed rather than read and left in place: `metrics` is
+     * not a monitor column, and {@see Monitor} guards nothing, so leaving it in
+     * the create array sets an attribute the INSERT then names as a column that
+     * does not exist.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return list<array<string, mixed>>
+     */
+    protected function pullMetricRows(array &$attributes): array
+    {
+        $rows = $attributes['metrics'] ?? null;
+        unset($attributes['metrics']);
+
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        return array_values(array_filter($rows, 'is_array'));
+    }
+
+    /**
+     * Write the submitted metric rows for a freshly created monitor.
+     *
+     * Two columns are stamped here rather than accepted from the client:
+     *
+     * - `team_id`, from the monitor, because the column is a denormalized tenant
+     *   link that team-scoped metric queries read directly.
+     * - `display_order`, from the ARRAY INDEX. The submitted order is the order
+     *   the operator saw the suggestions in, and it is already expressed by the
+     *   array itself; honouring a per-row `display_order` as well would let two
+     *   rows claim one position, which {@see MonitorMetricController::reorder()}
+     *   then has no way to resolve.
+     *
+     * `unmatched_band` is pinned to `ok` for a row that arrived with at least
+     * one non-empty band list and did not choose a band itself. The discovery
+     * schema deliberately offers the model no field to say otherwise
+     * ({@see LaravelAiMetricDiscoveryGateway::schema()}), because
+     * {@see MetricBand} has no neutral case and a model pinning `critical` would
+     * page on every unrecognized reading. The pin is CONDITIONAL for a reason
+     * that is easy to miss: `validateUnmatchedBandHasAList` refuses a band with
+     * all three lists empty, which is every AI-proposed numeric metric, so an
+     * unconditional pin would 422 the common case.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    protected function createMetrics(Monitor $monitor, array $rows): void
+    {
+        foreach ($rows as $index => $row) {
+            MonitorMetric::query()->create([
+                ...$row,
+                'monitor_id' => $monitor->id,
+                'team_id' => $monitor->team_id,
+                'display_order' => $index,
+                'unmatched_band' => $this->unmatchedBandFor($row),
+            ]);
+        }
+    }
+
+    /**
+     * The `unmatched_band` a submitted metric row is written with.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected function unmatchedBandFor(array $row): ?string
+    {
+        if (array_key_exists('unmatched_band', $row)) {
+            $chosen = $row['unmatched_band'];
+
+            return is_string($chosen) ? $chosen : null;
+        }
+
+        foreach (StoreMonitorMetricRequest::VALUE_LIST_FIELDS as $field) {
+            $list = $row[$field] ?? null;
+
+            if (is_array($list) && $list !== []) {
+                return MetricBand::Ok->value;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -283,182 +443,258 @@ class MonitorController extends Controller
     }
 
     /**
-     * Probe a candidate URL and suggest a starting monitor configuration.
+     * Probe a candidate URL, then hand the model half to a worker and answer
+     * 202 with the run to poll.
      *
-     * Backs the "Analyze with AI" flow on the create-monitor screen. The URL
-     * is not yet a monitor, so it is wrapped in a transient (unsaved)
-     * {@see Monitor} the {@see RelayClient} can probe. The probe timing is
-     * run through {@see ResponseTimeAnomalyDetector} (a single sample stays in
-     * cold-start, so no anomaly is manufactured) and the probe plus any
-     * detector read are handed to the {@see AnalysisGateway} for a suggested
-     * configuration.
+     * Backs the "Analyze with AI" flow on the create-monitor screen. The URL is
+     * not yet a monitor, so it is wrapped in a transient (unsaved)
+     * {@see Monitor} the {@see RelayClient} can probe.
      *
-     * The per-team AI budget is spent AT THIS call site: over budget degrades
-     * to a deterministic suggestion derived from the probe alone, never
-     * calling the LLM, so the endpoint still prefills a config. A model whose
-     * output the gateway refuses, and a provider we cannot reach, degrade the
-     * same way ({@see self::suggestViaGateway()}): this is a prefill on a form
-     * the operator still submits, so it must never become a 500 in the middle
-     * of creating a monitor. The gateway only SUGGESTS: the operator still
-     * submits the create form and can override every field.
+     * SPLIT AT THE REDACTION SEAM, and the split is a security boundary rather
+     * than a performance one. What stays in the REQUEST is everything that
+     * cannot cross a process without losing a property, in this order:
      *
-     * The same probe body also feeds {@see MetricDiscoveryService}, so the
-     * response carries `suggested_metrics` beside the configuration. That rides
-     * this call's EXISTING metered try: the operator asked for one analysis and
-     * spends one, whatever the probe body turned out to contain.
+     * 1. The per-team in-flight lock, taken BEFORE the gate (see below).
+     * 2. The plan gate, {@see PlanGate::assertAiAnalysisAllowed()}.
+     * 3. The credential audit, {@see self::auditCredentialledProbe()}, before
+     *    any dispatch of any kind: this endpoint is a credential-validity oracle
+     *    by construction, so a detection control that recorded only what a
+     *    worker picked up would miss every attempt that never ran (a refused
+     *    relay, a probe that threw, a run whose job was never drained). It is a
+     *    persisted row plus a line derived from it, not a log line alone.
+     * 4. The relay probe itself, on the relay's own 30-second timeout.
+     * 5. THE redaction seam, {@see CheckResult::withRedacted()}, and there is
+     *    exactly one. The probe carries the operator's own credential, so a
+     *    target that echoes its request headers has just put it in the body, the
+     *    preview, the headers and the error message.
+     * 6. The header allowlist, {@see ProbeHeaderAllowList::filter()}, which has
+     *    to run ABOVE the boundary and not below it. The redactor masks the
+     *    operator's SUBMITTED value; it cannot mask a `Set-Cookie` the target
+     *    minted in response to it, so that one is stopped by NAME, here, before
+     *    anything crosses.
+     * 7. The daily AI budget spend, {@see AiBudget::tryConsume()}.
      *
-     * Every piece of evidence past the probe's own metadata is DERIVED from that
-     * one {@see CheckResult}, never fetched again: the headers are filtered from
-     * the set it already carries, and the digest is rendered from the body already
-     * in memory. No second probe, ever.
+     * Everything past that is {@see AnalyzeMonitorJob}: the digest, the
+     * detector, the location lookup, both model calls, the deterministic
+     * degrade, the confidence derivation and the plan trial meter. The job is
+     * handed evidence already scrubbed and already decided, which is why its
+     * constructor signature can be read as proof no credential travels.
      *
-     * What the request DOES spend beyond the probe, stated in full because a
-     * short version of this list was wrong: DNS is resolved TWICE, once in
-     * validation ({@see AnalyzeMonitorRequest::noInternalHost()} ->
-     * {@see HostGuard::isBlockedHost()}) and once here
-     * ({@see self::targetIps()} -> {@see HostGuard::resolvePublicHostIps()}),
-     * each of which reads A and AAAA. Nothing memoizes between them: the two
-     * answer different questions (a bool for the guard, a fail-closed address
-     * list for the evidence) and the request holds a different guard instance
-     * than this method does. On top of that, when the target is not behind a
-     * CDN, one geo lookup that stays dormant unless a token is configured.
+     * THE IN-FLIGHT LOCK OUTLIVES THIS REQUEST ON PURPOSE. The window it closes
+     * is the 30-to-150 seconds between the plan gate above and the job's trial
+     * spend, during which three concurrent analyses would all pass a three-use
+     * guard and all consume one. That window is a REGRESSION the async split
+     * introduces, not a retry artefact, so a lock released when the response
+     * returns would be held for 200 milliseconds and close nothing. It is
+     * therefore acquired here with {@see self::IN_FLIGHT_LOCK_SECONDS} and
+     * released by the JOB, by owner, on both of its exits. The name comes from
+     * {@see AnalyzeMonitorJob::lockName()} rather than a literal written twice,
+     * so the request and the worker cannot disagree about which lock they hold.
+     *
+     * THE BUDGET SPEND CARRIES NO IDEMPOTENCY GUARD, and that is deliberate: a
+     * `Cache::add("analyze:{$runId}:budget", ...)` SETNX here would be vacuous.
+     * This request MINTS the run id and runs once, so `add` cannot lose a race
+     * against a key nobody else can mint, and the scenario such a guard appears
+     * to cover (a worker dying mid-run and being re-entered) cannot re-enter a
+     * request-side call at all. The job is handed the ANSWER as `withinBudget`
+     * rather than the ability to ask again. The plan TRIAL meter is the one with
+     * a real guard, and it lives in the job for the opposite reason.
      */
     public function analyze(
         AnalyzeMonitorRequest $request,
         RelayClient $relay,
-        ResponseTimeAnomalyDetector $detector,
-        AnalysisGateway $gateway,
         AiBudget $budget,
-        MetricDiscoveryService $discovery,
-        ResponseDigest $digester,
-        TargetLocation $targetLocation,
-        HostGuard $hostGuard,
+        AnalyzeRunStore $runs,
     ): JsonResponse {
-        $gate = new PlanGate;
-        $team = Team::find($request->user()->current_team_id);
-        if ($team !== null) {
-            // Open on Free for a metered number of setups, entitled outright on
-            // the AI tiers. The meter is spent below, only once a MODEL actually
-            // delivered an analysis, so neither a failed probe nor a degrade
-            // costs the user a try.
-            $gate->assertAiAnalysisAllowed($team);
-        }
-
-        $url = (string) $request->validated('url');
-        $region = $request->probeRegion();
-
-        // 1. Probe the target through a transient monitor: the URL has no row
-        //    yet, so a throwaway instance carries the probe spec the relay
-        //    (and its SSRF-checked worker) executes. The SSRF host denylist
-        //    already rejected an internal target in request validation.
-        $transient = $this->transientMonitor($url, $region);
-        $probe = $relay->dispatch($transient, $region);
-
-        // 2. Run the detector over the single-probe window. One sample never
-        //    clears the cold-start gate, so the candidate is null here; wiring
-        //    it keeps the analysis payload consistent with the sweep pipeline
-        //    once prior history exists.
-        $candidate = $detector->detect(
-            $probe->responseMs !== null ? [$probe->responseMs] : [],
-            [
-                'region' => $region,
-                'monitor_id' => '',
-            ],
-        );
-
-        // 3. Assemble the evidence from the ONE probe already in memory. The
-        //    header allowlist runs FIRST because everything below reads its
-        //    output and nothing may read the raw set: the worker returns every
-        //    response header verbatim, and once the next plan sends the
-        //    operator's own credential, `Set-Cookie` on that set is an
-        //    authenticated session token. It stops here, at this line.
-        //
-        //    A digest only where there is a body to describe: null content is a
-        //    TCP probe, a content type the edge filtered out, or an older worker,
-        //    and a null digest renders as an explicit `n/a` in the prompt rather
-        //    than as an empty body we never observed.
-        $headers = ProbeHeaderAllowList::filter($probe->responseHeaders);
-        $digest = $probe->content !== null ? $digester->digest($probe->content) : null;
-        $location = $targetLocation->resolve($url, $headers, $this->targetIps($hostGuard, $url));
-
-        // 4. Spend one unit of the team's daily AI budget atomically. Over
-        //    budget is not a failure: it degrades to a deterministic
-        //    suggestion (statistics as the source of truth), it never drops
-        //    the analyze. Within budget, the LLM labels the probe.
         $teamId = (string) $request->user()->current_team_id;
-        $withinBudget = $budget->tryConsume($teamId);
 
-        // Named arguments below, and not for decoration: the first three
-        // parameters of both calls are same-typed strings, so a transposition
-        // type-checks silently and produces a prompt or a rationale that is
-        // merely wrong.
-        $modelled = $withinBudget
-            ? $this->suggestViaGateway(
-                gateway: $gateway,
-                payload: $this->analysisPayload(
-                    url: $url,
-                    region: $region,
-                    teamId: $teamId,
-                    probe: $probe,
-                    candidate: $candidate,
-                    headers: $headers,
-                    digest: $digest,
-                    location: $location,
-                ),
-            )
-            : null;
+        // 1. Claim the team's single analyze slot, before the gate and before
+        //    anything is spent. A team already analysing is refused rather than
+        //    queued: the operator is watching a form, and a second run they did
+        //    not ask for would spend a second trial against the same allowance
+        //    the gate just measured.
+        $lock = Cache::lock(AnalyzeMonitorJob::lockName($teamId), self::IN_FLIGHT_LOCK_SECONDS);
 
-        // 5. Either degrade path answers with the same deterministic suggestion,
-        //    naming its own cause: within budget a null means the model or the
-        //    provider failed, outside it the budget did. It carries the same
-        //    fields a modelled answer does, read off the same evidence, so the
-        //    client decodes one shape on every path.
-        $result = $modelled ?? $this->deterministicSuggestion(
-            probe: $probe,
-            region: $region,
-            reason: $withinBudget ? self::DEGRADE_AI_UNAVAILABLE : self::DEGRADE_BUDGET_EXHAUSTED,
-            digest: $digest,
-        );
-
-        // 6. Mine the SAME probe body for metrics worth proposing. The body is
-        //    already in memory here, so this costs no second probe; discovery
-        //    spends its own budget unit and degrades to an empty array on its
-        //    own, so a create flow never fails because of a suggestion.
-        $suggestedMetrics = $discovery->discover($transient, $probe->content, $teamId);
-
-        // 7. A metered try buys AI ANALYSIS, so it is spent only when a model
-        //    actually delivered one: neither degrade path above ran a model, so
-        //    neither charges for one. A no-op on a tier that entitles AI
-        //    analysis. Reporting what is left lets the client count the
-        //    allowance down without a second request.
-        //
-        //    Residual, and unfixable from here: this is the last call before the
-        //    response, so the try is spent once the server has an answer to
-        //    deliver, but a client that disconnects after the response was
-        //    flushed has still spent it and the server cannot observe that. The
-        //    alternative is an acknowledgement round trip for a three-use meter.
-        if ($team !== null && $modelled !== null) {
-            $gate->consumeAiAnalysisTrial($team);
+        if (! $lock->get()) {
+            return $this->analyzeInFlightResponse();
         }
 
+        try {
+            // 2. Open on Free for a metered number of setups, entitled outright
+            //    on the AI tiers. The meter itself is spent by the worker, only
+            //    once a MODEL actually delivered an analysis, so neither a
+            //    failed probe nor a degrade costs the user a try.
+            $team = Team::find($teamId);
+
+            if ($team !== null) {
+                (new PlanGate)->assertAiAnalysisAllowed($team);
+            }
+
+            $url = (string) $request->validated('url');
+            $region = $request->probeRegion();
+            $authConfig = $request->authConfig();
+
+            // 3. The audit, ahead of the probe and therefore ahead of every
+            //    later step, for the reason in this method's docblock. Named
+            //    arguments because two of the four are same-typed identifier
+            //    strings and a transposition would attribute the row to the
+            //    wrong party while type-checking silently.
+            $this->auditCredentialledProbe(
+                url: $url,
+                authConfig: $authConfig,
+                teamId: $teamId,
+                userId: (string) $request->user()->getKey(),
+            );
+
+            // 4. Probe the target through a transient monitor: the URL has no
+            //    row yet, so a throwaway instance carries the probe spec the
+            //    relay (and its SSRF-checked worker) executes. The SSRF host
+            //    denylist already rejected an internal target in request
+            //    validation.
+            $probe = $relay->dispatch($this->transientMonitor($url, $region, $authConfig), $region);
+
+            // 5. THE redaction seam, and it is now also the PROCESS boundary.
+            //    Reassigning is what makes every consumer below credential
+            //    unaware, in this request and in the worker alike; a second
+            //    variable handed to one consumer would leave the others reading
+            //    the raw object.
+            $probe = $probe->withRedacted(CredentialRedactor::for($authConfig));
+
+            // 6. Filter the headers by NAME, above the cut. The worker returns
+            //    every response header verbatim, and on a credentialled probe
+            //    `Set-Cookie` is an authenticated session token the redactor
+            //    above never saw the value of. It stops here, at this line, and
+            //    the job is handed the filtered set only.
+            $headers = ProbeHeaderAllowList::filter($probe->responseHeaders);
+
+            // 7. Spend one unit of the team's daily AI budget atomically, and
+            //    hand the ANSWER down. Over budget is not a failure: the worker
+            //    degrades to a deterministic suggestion (statistics as the
+            //    source of truth) and still completes the run.
+            $withinBudget = $budget->tryConsume($teamId);
+
+            // 8. Mint the run and seed it with the probe block the client
+            //    already renders, so a poll that arrives before the worker picks
+            //    the job up still has something true to show.
+            $runId = (string) Str::uuid();
+
+            $runs->start($runId, $teamId, [
+                'region' => $probe->region,
+                'status_code' => $probe->statusCode,
+                'response_ms' => $probe->responseMs,
+            ]);
+
+            // 9. Hand over. Named arguments because the signature is the
+            //    security boundary: eleven arguments, several same-typed
+            //    strings, and a transposition would type-check silently.
+            AnalyzeMonitorJob::dispatch(
+                runId: $runId,
+                teamId: $teamId,
+                locale: $request->user()->locale,
+                probe: $probe,
+                headers: $headers,
+                url: $url,
+                region: $region,
+                type: MonitorType::Http,
+                method: HttpMethod::Get,
+                withinBudget: $withinBudget,
+                lockOwner: $lock->owner(),
+            );
+        } catch (Throwable $e) {
+            // RELEASE ON EVERY REQUEST-SIDE ABORT. The lock's own release lives
+            // in the job, and the job only runs if a dispatch happened, so
+            // without this a Free team hitting the plan wall at step 2 (or a
+            // relay that threw at step 4) would be locked out of analyze for the
+            // whole 200-second TTL while the 409 test above still passed. Both
+            // aborts are real: `assertAiAnalysisAllowed()` raises
+            // `PlanUpgradeRequiredException` and the relay raises a client
+            // exception.
+            $lock->release();
+
+            throw $e;
+        }
+
+        // 202, and the SAME shape the poll answers with (see
+        // {@see self::runPayload()}), so the client decodes one payload rather
+        // than two. Read back from the store rather than re-assembled, which is
+        // also what keeps the two endpoints from drifting.
         return response()->json([
-            'data' => [
-                'url' => $url,
-                'name' => $this->suggestedName($url),
-                ...$result->toArray(),
-                'suggested_metrics' => $suggestedMetrics,
-                'probe' => [
-                    'region' => $probe->region,
-                    'status_code' => $probe->statusCode,
-                    'response_ms' => $probe->responseMs,
-                ],
-            ],
-            'meta' => [
-                'ai_analysis_trials_remaining' => $team !== null
-                    ? $gate->aiAnalysisTrialsRemaining($team)
-                    : null,
-            ],
-        ]);
+            'data' => $this->runPayload($runId, $runs->find($runId) ?? []),
+        ], HttpResponse::HTTP_ACCEPTED);
+    }
+
+    /**
+     * One analyze run's state, for the client's poll.
+     *
+     * AUTHORISED ON `current_team_id`, NEVER ON POSSESSION OF THE RUN ID. The id
+     * is a uuid that travels through a 202 body, a Redis key and (via the
+     * broadcast) every teammate's socket, so treating it as a bearer token would
+     * make one leaked log line a read of another team's analysis. A run owned by
+     * another team and a run that does not exist are both masked as 404, per the
+     * same convention {@see self::authorizeTeam()} applies to monitors.
+     *
+     * A MISSING RUN IS A REAL STATE, not a bug: {@see AnalyzeRunStore} lives in
+     * a Redis instance running `volatile-lru` under a 512 MB ceiling, and the
+     * entry also simply expires. The 404 is what tells the client to stop
+     * polling and say "run it again"; a 200 saying `queued` for a run nothing
+     * will ever advance is the eternal spinner.
+     */
+    public function analyzeRun(Request $request, AnalyzeRunStore $runs, string $run): JsonResponse
+    {
+        $stored = $runs->find($run);
+
+        abort_if(
+            $stored === null || ($stored['team_id'] ?? null) !== (string) $request->user()->current_team_id,
+            HttpResponse::HTTP_NOT_FOUND,
+        );
+
+        return response()->json(['data' => $this->runPayload($run, $stored)]);
+    }
+
+    /**
+     * One run's wire shape, shared by the 202 and the poll.
+     *
+     * ONE SHAPE FOR BOTH, because the alternative is two decoders on the client
+     * for one subject and a drift nobody notices until a live run: the 202 is
+     * simply the run's first snapshot (`queued`, no steps, no result).
+     *
+     * `result` is the completed run's payload VERBATIM, `{data, meta}`, exactly
+     * as the synchronous response body used to be: `data` prefills the create
+     * form and `meta` carries `ai_analysis_trials_remaining`, the one number a
+     * 202 can no longer answer because the trial is now spent by a worker long
+     * after the request returned. Nested rather than flattened, so the run's own
+     * status and step map can sit beside it without colliding with either half.
+     *
+     * @param  array<string, mixed>  $run  What the store holds, or `[]` for a run
+     *                                     just created (the 202 path).
+     * @return array<string, mixed>
+     */
+    protected function runPayload(string $runId, array $run): array
+    {
+        return [
+            'run_id' => $runId,
+            'status' => $run['status'] ?? AnalyzeRunStatus::Queued->value,
+            'step' => $run['step'] ?? 0,
+            'steps' => $run['steps'] ?? [],
+            'probe' => $run['probe'] ?? null,
+            'reason' => $run['reason'] ?? null,
+            'result' => $run['result'] ?? null,
+        ];
+    }
+
+    /**
+     * Refuse a second concurrent analyze for one team.
+     *
+     * 409 and not 429: nothing about this is a rate, and the client renders the
+     * two differently (a limiter says wait, this says your other analysis is
+     * still running). The `message` is what the create form surfaces verbatim,
+     * so it names the state rather than the mechanism.
+     */
+    protected function analyzeInFlightResponse(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'An analysis is already running for this team. Wait for it to finish before starting another.',
+        ], HttpResponse::HTTP_CONFLICT);
     }
 
     /**
@@ -467,8 +703,22 @@ class MonitorController extends Controller
      * The instance is never persisted: it only carries the fields
      * {@see RelayClient} reads to build the worker probe spec, defaulted to a
      * plain HTTP GET expecting a 200.
+     *
+     * [$authConfig] needs nothing else to reach the target:
+     * {@see RelayClient::buildSpec()} already puts `$monitor->auth_config` on
+     * the signed spec and the worker already applies all four auth types.
+     * `Monitor` is `$guarded = []`, so mass assignment lands it here.
+     *
+     * One mechanism worth naming, because it looks like a bug from the outside:
+     * the `encrypted:array` cast encrypts inside `setAttribute`, so the RAW
+     * attribute holds ciphertext on this unsaved instance too, while
+     * `$monitor->auth_config` decrypts it back on read. The cast round-trips in
+     * memory and the spec receives the plain array either way; an assertion
+     * against `getAttributes()` is reading the ciphertext and proves nothing.
+     *
+     * @param  array<string, mixed>|null  $authConfig  Validated credential map, or null.
      */
-    protected function transientMonitor(string $url, string $region): Monitor
+    protected function transientMonitor(string $url, string $region, ?array $authConfig): Monitor
     {
         return new Monitor([
             'type' => MonitorType::Http,
@@ -477,232 +727,78 @@ class MonitorController extends Controller
             'timeout_sec' => 30,
             'expected_status_code' => 200,
             'regions' => [$region],
+            'auth_config' => $authConfig,
         ]);
     }
 
     /**
-     * The model's suggestion for this probe, or null when it could not be
-     * trusted or the provider could not be reached.
+     * Record that an analyze sent an operator-supplied credential to a target.
      *
-     * Mirrors {@see MetricDiscoveryService::select()}'s degrade: non-conforming
-     * output past the gateway's own retry raises a {@see RuntimeException},
-     * while an outage, a timeout or a missing key raises a client exception, and
-     * all of them return the same null so the caller's wire shape never changes
-     * on a bad day.
+     * The audit trail for the validity-oracle risk this endpoint accepts: a
+     * tenant can make the relay send an arbitrary `Authorization` header to any
+     * public host and read the answer, and unlike `POST /monitors` the request
+     * leaves nothing else behind. It is a DETECTION control, not a prevention
+     * one; the named limiter bounds throughput, not capability.
      *
-     * {@see AiException} is the fourth, and it is not redundant with the client
-     * exceptions: `Laravel\Ai\Gateway\Concerns\HandlesFailoverErrors` maps a
-     * provider 429, 402 or 503 onto an `AiException` SUBCLASS before it ever
-     * reaches a caller, and the OpenRouter gateway raises a plain `AiException`
-     * for an error payload the provider delivers in-band with HTTP 200. Neither
-     * descends from `RuntimeException`, so without this branch the most ordinary
-     * provider bad day there is would still 500 the create flow.
+     * A ROW AND THEN A LINE, in that order, and the order is the whole design.
+     * {@see CredentialProbeAudit} is the system of record: it can be queried,
+     * it survives a server move, and nothing rotates it away. The line on
+     * {@see EvidenceLog::CHANNEL} is DERIVED from the row that was just
+     * persisted ({@see CredentialProbeAudit::evidenceContext()}), never rebuilt
+     * from the local variables above, so the file and the table cannot come to
+     * describe different attempts. A failed insert is deliberately left to
+     * propagate: a swallowed write here is the control silently switching
+     * itself off, which is the failure this whole method exists to remove.
      *
-     * Only those four, all named: a `TypeError` or an `Error` from our own code
-     * still surfaces as a 500 rather than hiding behind a plausible suggestion.
+     * Five facts and no sixth. The team is who to ask, the USER is who to ask
+     * first, the HOST is where it went, and the TYPE is what shape of secret
+     * left the building. Never a value, and never the raw URL: a monitor target
+     * is frequently `…/health?token=…`, so the query string is dropped for the
+     * same reason `AnalysisPayload::displayUrl()` drops it before showing the
+     * URL to a model. The host alone is narrower than that rendering rather
+     * than a second copy of it, which is why this is not the third caller that
+     * would trigger extracting it.
      *
-     * Two things are deliberately absent from the log line. The exception
-     * MESSAGE, because a gateway message can quote the model, which was reading
-     * text the target authored ({@see MetricDiscoveryService} logs it; that key
-     * is not copied here). And every probe field, for the same reason. What is
-     * left is the operator's own validated target and the region it ran from,
-     * which is the only monitor context an analyze has: the URL is not a monitor
-     * yet, so there is no id to name.
+     * Silent for an absent credential and for `type: none`, which is the same
+     * boundary {@see CredentialRedactor::for()} draws: nothing was sent, so
+     * there is nothing to audit and no noise on the ordinary path.
+     *
+     * @param  array<string, mixed>|null  $authConfig  Validated credential map, or null.
+     * @param  string  $teamId  The acting team, and the row's owner.
+     * @param  string  $userId  The acting operator, kept for a follow-up question.
      */
-    protected function suggestViaGateway(AnalysisGateway $gateway, AnalysisPayload $payload): ?AnalysisResult
-    {
-        try {
-            return $gateway->analyze($payload);
-        } catch (RuntimeException) {
-            Log::warning('Monitor analysis degraded: the model output could not be trusted.', [
-                'url' => $payload->displayUrl(),
-                'region' => $payload->region,
-            ]);
-        } catch (ConnectionException|RequestException) {
-            Log::warning('Monitor analysis degraded: the AI service was unreachable.', [
-                'url' => $payload->displayUrl(),
-                'region' => $payload->region,
-            ]);
-        } catch (AiException) {
-            Log::warning('Monitor analysis degraded: the AI provider could not complete the request.', [
-                'url' => $payload->displayUrl(),
-                'region' => $payload->region,
-            ]);
-        }
-
-        return null;
-    }
-
-    /**
-     * Hydrate the analysis payload from the probe, the evidence derived from it,
-     * and its optional detector read.
-     *
-     * The attacker-influenceable probe fields (error message, body preview, the
-     * surviving header VALUES, the digest) are handed through untouched:
-     * {@see AnalysisPayload} fences and hard truncates them at the LLM boundary.
-     * Response headers used to be withheld entirely; they now reach the model
-     * because {@see ProbeHeaderAllowList} decided by NAME which of them the
-     * prompt has a consumer for, and nothing credential-bearing is on that list.
-     * The caller has already applied it, and this method must be handed its
-     * output rather than the raw set.
-     *
-     * @param  array<string, string>  $headers  Headers already through the allowlist.
-     */
-    protected function analysisPayload(
+    protected function auditCredentialledProbe(
         string $url,
-        string $region,
+        ?array $authConfig,
         string $teamId,
-        CheckResult $probe,
-        ?object $candidate,
-        array $headers,
-        ?ResponseDigestResult $digest,
-        TargetLocationResult $location,
-    ): AnalysisPayload {
-        return new AnalysisPayload(
-            url: $url,
-            region: $region,
-            statusCode: $probe->statusCode,
-            responseMs: $probe->responseMs,
-            timingDnsMs: $probe->timingDnsMs,
-            timingConnectMs: $probe->timingConnectMs,
-            timingTlsMs: $probe->timingTlsMs,
-            timingTtfbMs: $probe->timingTtfbMs,
-            timingDownloadMs: $probe->timingDownloadMs,
-            knownRegions: MonitorRegion::values(),
-            detectorSignal: $candidate->signal ?? null,
-            detectorMethod: $candidate->method ?? null,
-            detectorScore: $candidate->score ?? null,
-            detectorSeverity: $candidate->severity ?? null,
-            detectorEvidence: $candidate->evidence ?? [],
-            errorMessage: $probe->errorMessage,
-            responseBodyPreview: $probe->responseBodyPreview,
-            responseHeaders: $headers,
-            teamId: $teamId,
-            digest: $digest,
-            targetLocation: $location,
-        );
-    }
+        string $userId,
+    ): void {
+        $submittedType = $authConfig['type'] ?? null;
+        $type = is_string($submittedType) ? HttpAuthType::tryFrom($submittedType) : null;
 
-    /**
-     * The public addresses the target resolves to, or an empty list.
-     *
-     * Resolved AFTER the probe, and this is the only DNS lookup the analyze path
-     * adds. Two reasons for the ordering: nothing before the probe needs an
-     * address, because {@see TargetLocation} reads the RESPONSE headers to decide
-     * whether asking a geo provider is even honest, and moving the lookup earlier
-     * would only change where the same milliseconds are spent. Measured against
-     * `example.com` from this machine: 2-3 ms warm, 88 ms on a resolver cache
-     * miss, inside a request that already spends a relay probe plus up to two
-     * provider calls, so it does not move the latency budget the operator is
-     * waiting on.
-     *
-     * {@see HostGuard} is the only DNS code in this backend and
-     * {@see HostGuard::resolvePublicHostIps()} is its fail-closed entry point:
-     * one denied address discards the whole list, so an empty return covers an
-     * unresolvable host and a rebinding-shaped one alike, which is exactly how
-     * `TargetLocation` treats both.
-     *
-     * @return list<string>
-     */
-    protected function targetIps(HostGuard $hostGuard, string $url): array
-    {
-        $host = parse_url($url, PHP_URL_HOST);
-
-        return is_string($host) && $host !== ''
-            ? $hostGuard->resolvePublicHostIps($host)
-            : [];
-    }
-
-    /**
-     * Build a deterministic suggestion from the probe and the evidence derived
-     * from it, used on every path where no model narration is available.
-     *
-     * Bounds are anchored to the observed response time (warn at 3x, critical
-     * at 6x, with sane floors) so the prefill stays useful even without a
-     * model narration.
-     *
-     * [$reason] is carried into the rationale rather than hardcoded because two
-     * different causes reach here and the operator acts differently on each; see
-     * {@see self::DEGRADE_BUDGET_EXHAUSTED}.
-     *
-     * The three classification fields are answered from the SAME evidence a
-     * modelled suggestion reads, so a degraded response carries the same shape
-     * rather than a hole where a classification would be. Two are derived: the
-     * service class from the shape our own digest sniffed, and the SLO target
-     * from a fixed table over that class.
-     *
-     * The third is not derived, and that is the point. `region_basis` answers
-     * why THIS region was suggested, and on this path the answer is always that
-     * the request asked to probe from it, so it is always `default`. What the
-     * location lookup achieved is stated separately as a fact and is not a
-     * reason; borrowing it here would justify a suggestion with evidence that
-     * played no part in making it.
-     */
-    protected function deterministicSuggestion(
-        CheckResult $probe,
-        string $region,
-        string $reason,
-        ?ResponseDigestResult $digest,
-    ): AnalysisResult {
-        $observed = $probe->responseMs ?? 500;
-        $serviceClass = $this->serviceClassFor($digest?->shape);
-
-        return new AnalysisResult(
-            recommendedIntervalSeconds: 60,
-            recommendedWarnThresholdMs: max(500, $observed * 3),
-            recommendedCriticalThresholdMs: max(1000, $observed * 6),
-            recommendedRegions: [$region],
-            rationale: "Deterministic baseline from the exploratory probe ({$reason}).",
-            strippedCitations: [],
-            serviceClass: $serviceClass,
-            // ALWAYS `default`, whatever the lookup achieved, because this path
-            // does not use the lookup to choose a region: `recommendedRegions`
-            // above is the region the request asked to probe from. Reporting
-            // `geoip` here because a geo provider happened to answer would
-            // justify the suggestion by evidence that played no part in it,
-            // which is the same fabrication this plan removed from the
-            // dashboard's KPIs. Only the MODEL, which reads the location facts
-            // and can weigh them, may claim a basis other than this one.
-            regionBasis: 'default',
-            recommendedSloTarget: self::SLO_TARGET_BY_SERVICE_CLASS[$serviceClass],
-        );
-    }
-
-    /**
-     * The service class a sniffed body shape proves on its own, with no model
-     * reading a single key.
-     *
-     * Three of {@see LaravelAiAnalysisGateway::SERVICE_CLASSES} are unreachable
-     * from here and each absence is deliberate. `health_endpoint` needs the
-     * body's SEMANTICS (a `status` field, a `checks` map), which only the model
-     * reads, so a JSON body is `json_api` and nothing more. `tcp_service` cannot
-     * arise at all, because {@see self::transientMonitor()} always probes over
-     * HTTP. And an XML body answers `unknown` rather than being forced into the
-     * nearest member: a sitemap or a feed is neither an API nor a page, the
-     * closed set has no case for it, and `unknown` is then the true answer rather
-     * than a rounding of one.
-     */
-    protected function serviceClassFor(?BodyShape $shape): string
-    {
-        return match ($shape) {
-            BodyShape::Json => 'json_api',
-            BodyShape::Html => 'web_page',
-            default => 'unknown',
-        };
-    }
-
-    /**
-     * Derive a human-friendly default monitor name from the target host.
-     */
-    protected function suggestedName(string $url): string
-    {
-        $host = parse_url($url, PHP_URL_HOST);
-
-        if (! is_string($host) || $host === '') {
-            return 'New monitor';
+        if ($type === null || $type === HttpAuthType::None) {
+            return;
         }
 
-        return preg_replace('/^www\./', '', $host) ?? $host;
+        $host = parse_url($url, PHP_URL_HOST);
+
+        // 1. The record itself, first, because everything below it is a copy.
+        $audit = CredentialProbeAudit::query()->create([
+            'team_id' => $teamId,
+            'user_id' => $userId,
+            'host' => is_string($host) && $host !== '' ? $host : null,
+            'auth_type' => $type,
+        ]);
+
+        // 2. Then the human-readable copy, off the STORED row. `refresh()` is
+        //    not ceremony: it reads back what the database actually holds, so
+        //    the line cannot report a value a column truncated or a default
+        //    overrode, and a row that vanished between the two statements
+        //    raises here instead of being narrated as a success.
+        EvidenceLog::record(
+            'Monitor analysis probed a target with an operator-supplied credential.',
+            $audit->refresh()->evidenceContext(),
+        );
     }
 
     /**

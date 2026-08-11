@@ -98,6 +98,15 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'auth_config',
     'ai_mode',
     'escalation_policy_id',
+
+    // Write-only, and create-only in practice: `metrics` is not a monitor
+    // column. It is the bulk `metrics[]` the AI create flow submits alongside
+    // the monitor so the two land in one transaction, and it has to be listed
+    // here for the same reason as everything above it. Omitted, `fill()` strips
+    // it before the request leaves and `POST /monitors` answers 201 for a
+    // monitor with no metrics, which is precisely the silent 2xx this docblock
+    // warns about. The edit form never sets it, so a PUT never carries it.
+    'metrics',
   ];
 
   /// The attributes that should be cast.

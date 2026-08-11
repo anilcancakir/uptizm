@@ -101,6 +101,31 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'stripe/*',
         ]);
+
+        // `ApplicationBuilder::withMiddleware()` unconditionally sets
+        // `redirectGuestsTo(fn () => route('login'))` before this closure runs,
+        // and `Illuminate\Auth\Middleware\Authenticate::unauthenticated()`
+        // resolves that redirect target as a CONSTRUCTOR ARGUMENT of the
+        // `AuthenticationException` it is about to throw, before the `throw`
+        // statement itself executes. This app has no route named `login` (the
+        // sign-in UI is the separate Flutter client), so on an `api/*` guest
+        // request that call raised `RouteNotFoundException`, which replaced
+        // the `AuthenticationException` entirely: the exception handler never
+        // saw an authentication failure, it saw an unrelated routing exception
+        // and rendered it as a JSON 500. `shouldRenderJsonWhen()` above already
+        // covers the render FORMAT and cannot reach this: it never runs, because
+        // the crash happens one layer earlier, inside the middleware.
+        //
+        // Answering `null` for `api/*` leaves `AuthenticationException::redirectTo()`
+        // empty, so `Handler::unauthenticated()` falls through to `shouldReturnJson()`,
+        // which the `shouldRenderJsonWhen` callback above already answers `true`
+        // for `api/*` regardless of the request's `Accept` header, producing the
+        // correct JSON 401. Non-api guests keep the framework's default untouched:
+        // this is not a fix for the landing page, the status pages, or Filament,
+        // none of which use this middleware today.
+        $middleware->redirectGuestsTo(
+            fn (Request $request) => $request->is('api/*') ? null : route('login'),
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
@@ -220,17 +245,33 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Bound POST /monitors/analyze. REQUIRED for the same reason as the two
         // limiters above: `api/v1` never calls throttleApi(), and one accepted
-        // request runs a live relay probe against an operator-supplied URL plus
-        // up to two provider calls. The per-team daily AI budget does not cover
-        // this: it caps model spend over a DAY and degrades instead of refusing,
-        // so it bounds cost rather than rate, and it never bounds the probe.
+        // request runs a live relay probe against an operator-supplied URL and
+        // then queues a job that spends up to two provider calls. The per-team
+        // daily AI budget does not cover this: it caps model spend over a DAY and
+        // degrades instead of refusing, so it bounds cost rather than rate, and
+        // it never bounds the probe.
         //
-        // Sized for a human clicking Analyze, and the per-actor number has a
-        // FLOOR that is not aesthetic. A Free team's whole metered allowance plus
-        // the request that hits the plan wall is FOUR posts in one sitting
-        // (`AnalyzeMonitorControllerTest` fires exactly that), so a limit at or
-        // below four would answer 429 where the product means to answer 403 and
-        // explain the upgrade, which is a worse outcome than no limiter at all.
+        // RE-SIZED FOR THE ASYNC ACCEPT, and this is the rate this route always
+        // meant to bound, not a new one. Before the split, an accepted request
+        // occupied an Octane worker for the full model run (~60s, the same wall
+        // `config/octane.php`'s comment names), so ANY client that waited for its
+        // own response before sending the next one was naturally capped near one
+        // request a minute; the 10/min actor bucket that shipped with that shape
+        // was already generous headroom over that natural rate, not the rate
+        // itself. The split answers in well under a second
+        // ({@see MonitorController::analyze()}), so nothing about request
+        // duration serialises a client any more, and the OLD number would let one
+        // actor fire ten live relay probes plus ten AI-budget spends inside a
+        // minute. Tightened to 6/min actor and 12/min team: 6 sits just above the
+        // floor a human comparing candidate URLs needs (5 a minute; see
+        // `AnalyzeMonitorControllerTest::test_analyze_is_throttled_per_actor()`)
+        // and a Free team's whole metered allowance plus the request that hits
+        // the plan wall (`ai_analysis_trials` = 3, `config/plans.php`, plus one)
+        // is still well under it. The in-flight lock
+        // ({@see MonitorController::IN_FLIGHT_LOCK_SECONDS}) is a DIFFERENT
+        // control: it caps CONCURRENCY (one run per team at a time), never rate,
+        // so a team that lets each run finish before the next could still exhaust
+        // this bucket, and that is the abuse this limiter exists to catch.
         //
         // Two buckets, as everywhere above: the actor bucket holds one member
         // accountable, the team bucket bounds the aggregate a whole team could
@@ -244,8 +285,8 @@ return Application::configure(basePath: dirname(__DIR__))
         RateLimiter::for(
             MonitorController::ANALYZE_LIMITER,
             fn (Request $request) => [
-                Limit::perMinute(10)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
-                Limit::perMinute(20)->by('team:'.($request->user()?->current_team_id ?? $request->ip())),
+                Limit::perMinute(6)->by('actor:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
+                Limit::perMinute(12)->by('team:'.($request->user()?->current_team_id ?? $request->ip())),
             ],
         );
 

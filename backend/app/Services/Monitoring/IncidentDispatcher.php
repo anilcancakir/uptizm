@@ -16,10 +16,10 @@ use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\OnCall\EscalationDispatcher;
 use App\Services\StatusPages\StatusPageCache;
+use App\Support\Logging\EvidenceLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Notifications\Notification as NotificationInstance;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -222,14 +222,22 @@ class IncidentDispatcher
     }
 
     /**
-     * Record a withheld page at info level, naming the monitor and the window
-     * so `pail` answers "why did nobody get paged" without a database session.
+     * Record a withheld page, naming the monitor and the window so the question
+     * "why did nobody get paged" has an answer that outlives the shift.
+     *
+     * ON {@see EvidenceLog::CHANNEL}, NOT THE DEFAULT ONE. This was a
+     * `Log::info()` on the application stack, and production runs
+     * `LOG_LEVEL=warning`, so it was discarded before it reached a file: the one
+     * fact in this class that leaves no row behind was also the one nothing kept.
+     * The alternative of promoting it to `warning` was rejected deliberately, a
+     * suppression is the system doing what it was told, and filing it as a fault
+     * teaches an operator to ignore faults.
      *
      * @param  Incident|null  $incident  The lifecycle incident the page belonged to.
      */
     protected function logSuppression(Monitor $monitor, ScheduledMaintenance $window, ?Incident $incident): void
     {
-        Log::info('Incident paging suppressed by an open maintenance window.', [
+        EvidenceLog::record('Incident paging suppressed by an open maintenance window.', [
             'monitor_id' => $monitor->getKey(),
             'scheduled_maintenance_id' => $window->getKey(),
             'incident_id' => $incident?->getKey(),

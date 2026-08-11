@@ -12,6 +12,7 @@ use App\Enums\ThresholdDirection;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Requests\UpdateMonitorMetricRequest;
+use App\Http\Requests\UpdateMonitorRequest;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorContentVersion;
@@ -25,8 +26,10 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Redirector;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\Sanctum;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
@@ -126,6 +129,90 @@ class MonitorMetricControllerTest extends TestCase
         $this->assertSame('950', $payload['extracted_value']);
         $this->assertTrue($payload['type_valid']);
         $this->assertNull($payload['error']);
+        $this->assertSame('critical', $payload['band']);
+    }
+
+    /**
+     * The assertion the whole unit-stripping change exists for, made on the
+     * shared extractor rather than only on the candidate side.
+     *
+     * A numeric metric over a `120ms` value used to extract the string, fail
+     * `validateType()`'s `is_numeric()` gate, and record NOTHING on every
+     * check, silently and forever. The strip runs ahead of that gate now, so
+     * the sample records as `120`. The second half of the test is what keeps
+     * the change honest: a suffix the map does not name is still left exactly
+     * as it was, gate included.
+     */
+    public function test_a_numeric_metric_records_a_value_carrying_a_known_unit(): void
+    {
+        $extractor = new MetricExtractor;
+
+        $stripped = $extractor->extract(
+            MetricSource::JsonPath,
+            'data.latency',
+            MetricType::Numeric,
+            (string) json_encode(['data' => ['latency' => '120ms']]),
+        );
+
+        $this->assertSame('120', $stripped->value);
+        $this->assertTrue($stripped->typeValid);
+        $this->assertNull($stripped->error);
+
+        $unmapped = $extractor->extract(
+            MetricSource::JsonPath,
+            'data.inventory',
+            MetricType::Numeric,
+            (string) json_encode(['data' => ['inventory' => '12 widgets']]),
+        );
+
+        $this->assertSame('12 widgets', $unmapped->value);
+        $this->assertFalse($unmapped->typeValid);
+    }
+
+    /**
+     * The strip is scoped to `numeric`. A string metric is how an operator asks
+     * for the page's own wording, so rewriting `120ms` to `120` there would
+     * silently drop information the metric was created to capture.
+     */
+    public function test_a_string_metric_keeps_its_unit_suffix_verbatim(): void
+    {
+        $result = (new MetricExtractor)->extract(
+            MetricSource::JsonPath,
+            'data.latency',
+            MetricType::String,
+            (string) json_encode(['data' => ['latency' => '120ms']]),
+        );
+
+        $this->assertSame('120ms', $result->value);
+        $this->assertTrue($result->typeValid);
+    }
+
+    /**
+     * The same strip seen where the operator sees it: the form's live preview
+     * shows the number that will be recorded, and bands it.
+     */
+    public function test_preview_strips_a_known_unit_before_banding(): void
+    {
+        [$monitor, $user] = $this->makeMonitor();
+        $controller = $this->app->make(MonitorMetricController::class);
+
+        $request = Request::create('/monitors/'.$monitor->id.'/metrics/preview', 'POST', [
+            'source' => MetricSource::JsonPath->value,
+            'extraction_path' => 'data.latency',
+            'type' => MetricType::Numeric->value,
+            'sample_body' => json_encode(['data' => ['latency' => '950 ms']]),
+            'threshold_direction' => ThresholdDirection::HighBad->value,
+            'warn_bound' => 500,
+            'critical_bound' => 900,
+        ]);
+        $request->setUserResolver(fn () => $user);
+
+        $payload = $controller
+            ->preview($request, $monitor, $this->app->make(MetricExtractor::class))
+            ->getData(true);
+
+        $this->assertSame('950', $payload['extracted_value']);
+        $this->assertTrue($payload['type_valid']);
         $this->assertSame('critical', $payload['band']);
     }
 
@@ -650,6 +737,251 @@ class MonitorMetricControllerTest extends TestCase
 
         $this->assertSame('4242', $payload['extracted_value']);
         $this->assertTrue($payload['has_sample']);
+    }
+
+    public function test_metric_field_rules_prefixes_every_key_and_gates_key_behind_the_prefix(): void
+    {
+        // Step 10's bulk `metrics[]` field reaches this via `metrics.*.`; the
+        // route-bound path keeps composing its own `key` rule via
+        // uniqueKeyRule(), so `key` must be absent with no prefix and present,
+        // carrying `distinct`, only once a prefix is supplied. Asserting the
+        // property rather than a key count, since Step 9 is about to add
+        // another rule to this same method.
+        $prefixed = StoreMonitorMetricRequest::metricFieldRules('metrics.*.');
+
+        foreach (array_keys($prefixed) as $field) {
+            $this->assertStringStartsWith('metrics.*.', $field);
+            $this->assertSame(1, substr_count($field, 'metrics.*.'), "{$field} must carry the prefix exactly once");
+        }
+
+        $this->assertArrayHasKey('metrics.*.key', $prefixed);
+        $this->assertContains('distinct', $prefixed['metrics.*.key']);
+
+        $bare = StoreMonitorMetricRequest::metricFieldRules();
+        $this->assertArrayNotHasKey('key', $bare);
+    }
+
+    public function test_metric_field_rules_is_callable_statically_with_no_bound_request(): void
+    {
+        // metricFieldRules() carries no $this reference so that a static call
+        // from StoreMonitorRequest's bulk path, with no FormRequest instance
+        // resolved, cannot fatal.
+        $rules = StoreMonitorMetricRequest::metricFieldRules('metrics.*.');
+
+        $this->assertNotEmpty($rules);
+    }
+
+    public function test_validate_metric_row_cross_fields_names_the_offending_row_on_every_check(): void
+    {
+        // The bulk loop calls this once per submitted row with THAT row's own
+        // dotted prefix; an implementation that dropped $errorPrefix from
+        // errors()->add() would report every collision on row 0 regardless of
+        // which row actually failed. Row 0 is deliberately clean so its
+        // absence from the error bag is itself part of the assertion.
+        $rows = [
+            [
+                'key' => 'ok_one',
+                'label' => 'Fine',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn_bound' => 100,
+                'critical_bound' => 200,
+            ],
+            [
+                'key' => 'bad_two',
+                'label' => 'Inverted',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                'warn_bound' => 900,
+                'critical_bound' => 100,
+            ],
+            [
+                'key' => 'bad_three',
+                'label' => 'Overlap',
+                'type' => MetricType::String->value,
+                'ok_values' => ['ok'],
+                'warn_values' => ['OK'],
+            ],
+        ];
+
+        $validator = Validator::make(
+            ['metrics' => $rows],
+            [
+                'metrics' => ['array'],
+                ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
+            ],
+        );
+        // Mirrors StoreMonitorRequest::withValidator(): the field rules run and
+        // populate the message bag BEFORE the after() callback (here, the loop
+        // below) appends its own errors on top.
+        $validator->fails();
+
+        foreach ($rows as $index => $row) {
+            StoreMonitorMetricRequest::validateMetricRowCrossFields($validator, $row, "metrics.{$index}.");
+        }
+
+        $errors = $validator->errors();
+
+        $this->assertFalse($errors->has('metrics.0.critical_bound'));
+        $this->assertTrue($errors->has('metrics.1.critical_bound'));
+        $this->assertTrue($errors->has('metrics.2.ok_values.0'));
+        $this->assertTrue($errors->has('metrics.2.warn_values.0'));
+        $this->assertFalse($errors->has('critical_bound'), 'the bare field key must not receive a bulk-row error');
+    }
+
+    public function test_validate_metric_row_cross_fields_rejects_an_unmatched_band_with_all_lists_empty(): void
+    {
+        // The third check's own row: an unmatched band with nothing configured
+        // to match against would band every sample, and its error must land on
+        // the row's own prefixed key.
+        $row = [
+            'key' => 'no_lists',
+            'label' => 'No lists',
+            'type' => MetricType::String->value,
+            'unmatched_band' => MetricBand::Critical->value,
+        ];
+
+        $validator = Validator::make(
+            ['metrics' => [$row]],
+            [
+                'metrics' => ['array'],
+                ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
+            ],
+        );
+        $validator->fails();
+
+        StoreMonitorMetricRequest::validateMetricRowCrossFields($validator, $row, 'metrics.0.');
+
+        $this->assertTrue($validator->errors()->has('metrics.0.unmatched_band'));
+    }
+
+    public function test_update_monitor_endpoint_leaves_the_metrics_cross_field_loop_dormant(): void
+    {
+        // UpdateMonitorRequest::rules() never declares `metrics` (only
+        // StoreMonitorRequest::rules() will, in Step 10), so the per-row loop
+        // StoreMonitorRequest::withValidator() runs stays unreached on a PUT
+        // even carrying a metrics[] row every cross-field check would
+        // otherwise fail: an inverted warn/critical pair on a numeric metric.
+        // A 200 here is only possible because the loop never ran.
+        [$monitor, $user] = $this->makeMonitor();
+        Sanctum::actingAs($user);
+
+        $response = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'metrics' => [
+                [
+                    'key' => 'bad',
+                    'label' => 'Bad',
+                    'type' => MetricType::Numeric->value,
+                    'threshold_direction' => ThresholdDirection::HighBad->value,
+                    'warn_bound' => 900,
+                    'critical_bound' => 100,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertArrayNotHasKey('metrics', (new UpdateMonitorRequest)->rules());
+        $this->assertSame(0, MonitorMetric::query()->where('monitor_id', $monitor->id)->count());
+    }
+
+    public function test_store_refuses_a_header_metric_on_a_credential_bearing_name(): void
+    {
+        // A metric is read and PERSISTED on every check, and the check job
+        // hands MetricExtractor the RAW header set, so a metric pointed at
+        // `set-cookie` would write an authenticated session cookie into a
+        // cleartext column for as long as it exists.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $this->expectException(ValidationException::class);
+
+        $this->makeStoreRequest([
+            'label' => 'Session',
+            'key' => 'session',
+            'type' => MetricType::String->value,
+            'source' => MetricSource::Header->value,
+            'extraction_path' => 'Set-Cookie',
+        ], $monitor, $user);
+    }
+
+    public function test_store_still_accepts_a_header_metric_on_an_ordinary_name(): void
+    {
+        // The denylist is four names, not the `header` source: refusing the
+        // source outright would be a different feature and would break every
+        // header metric that already exists.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $response = $this->app->make(MonitorMetricController::class)->store(
+            $this->makeStoreRequest([
+                'label' => 'Content type',
+                'key' => 'content_type',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::Header->value,
+                'extraction_path' => 'content-type',
+            ], $monitor, $user),
+            $monitor,
+        );
+
+        $this->assertSame(201, $response->status());
+    }
+
+    public function test_store_leaves_a_denied_name_alone_under_another_source(): void
+    {
+        // The rule is keyed off the SIBLING `source`, so the same string under
+        // `json_path` addresses a body key of that name and is nobody's
+        // credential. A rule that refused the string unconditionally would pass
+        // the test above and quietly forbid this.
+        [$monitor, $user] = $this->makeMonitor();
+
+        $response = $this->app->make(MonitorMetricController::class)->store(
+            $this->makeStoreRequest([
+                'label' => 'Echoed name',
+                'key' => 'echoed_name',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::JsonPath->value,
+                'extraction_path' => 'set-cookie',
+            ], $monitor, $user),
+            $monitor,
+        );
+
+        $this->assertSame(201, $response->status());
+    }
+
+    public function test_the_header_denylist_fires_through_the_bulk_prefix_too(): void
+    {
+        // The discriminating case. On `POST /monitors` the sibling is
+        // `metrics.0.source`, so a rule reading `$this->input('source')` sees
+        // null, no-ops, and lets the row through on exactly the path this plan
+        // opens. Row 0 is deliberately clean, so an implementation that
+        // reported every row's error on the bare key fails here too.
+        $rows = [
+            [
+                'key' => 'content_type',
+                'label' => 'Content type',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::Header->value,
+                'extraction_path' => 'content-type',
+            ],
+            [
+                'key' => 'session',
+                'label' => 'Session',
+                'type' => MetricType::String->value,
+                'source' => MetricSource::Header->value,
+                'extraction_path' => 'Set-Cookie',
+            ],
+        ];
+
+        $validator = Validator::make(
+            ['metrics' => $rows],
+            [
+                'metrics' => ['array'],
+                ...StoreMonitorMetricRequest::metricFieldRules('metrics.*.'),
+            ],
+        );
+
+        $this->assertTrue($validator->fails());
+        $this->assertTrue($validator->errors()->has('metrics.1.extraction_path'));
+        $this->assertFalse($validator->errors()->has('metrics.0.extraction_path'));
+        $this->assertFalse($validator->errors()->has('extraction_path'));
     }
 
     /**

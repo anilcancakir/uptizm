@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/entitlement_controller.dart';
+import 'package:uptizm/app/enums/ai_confidence.dart' show AiConfidence;
 import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/models/monitor.dart';
@@ -11,7 +12,9 @@ import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan, PlanLimits;
 import 'package:uptizm/app/support/team_types.dart'
     show PaymentMethod, UsageStat;
+import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
+import 'package:uptizm/ui/components/ai_confidence_badge/ai_confidence_badge.dart';
 import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart'
     show KeyValueRow;
 
@@ -111,8 +114,50 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_body_placeholder': 'JSON payload',
       'uptizm.monitors.form_timeout_label': 'Timeout (seconds)',
       'uptizm.monitors.form_timeout_hint': 'Max wait for a response.',
+      // The credential block, which the advanced section now renders. Without
+      // these the four scheme labels lay out as raw ~36-character keys and the
+      // segmented control overflows for a reason that has nothing to do with
+      // the widget under test.
+      'uptizm.monitors.form_auth_label': 'Authentication',
+      'uptizm.monitors.form_auth_hint': 'Sent with every check.',
+      'uptizm.monitors.form_auth_type_none': 'None',
+      'uptizm.monitors.form_auth_type_basic': 'Basic',
+      'uptizm.monitors.form_auth_type_bearer': 'Bearer',
+      'uptizm.monitors.form_auth_type_api_key': 'API key',
+      'uptizm.monitors.form_auth_username_label': 'Username',
+      'uptizm.monitors.form_auth_username_placeholder': 'svc-user',
+      'uptizm.monitors.form_auth_password_label': 'Password',
+      'uptizm.monitors.create_ai_auth_toggle': 'Needs credentials',
+      'uptizm.monitors.create_ai_auth_hint': 'Used for this probe only.',
       'uptizm.monitors.form_cancel': 'Cancel',
       'uptizm.monitors.form_submit_create': 'Create monitor',
+
+      // MonitorCreateView (AI review banner group below).
+      'uptizm.monitors.create_header_title': 'New monitor',
+      'uptizm.monitors.create_header_description': 'Set up a new health check.',
+      'uptizm.monitors.back_to_monitors': 'Back to monitors',
+      'uptizm.monitors.create_mode_ai': 'AI setup',
+      'uptizm.monitors.create_mode_manual': 'Manual',
+      'uptizm.monitors.create_ai_card_title': 'AI setup',
+      'uptizm.monitors.create_ai_card_description':
+          'Paste a URL and AI configures the monitor.',
+      'uptizm.monitors.create_ai_url_label': 'Endpoint URL',
+      'uptizm.monitors.create_ai_url_placeholder':
+          'https://api.example.com/health',
+      'uptizm.monitors.create_ai_analyze_button': 'Analyze with AI',
+      'uptizm.monitors.create_ai_analyzing_title': 'Analyzing endpoint…',
+      'uptizm.monitors.create_ai_step_1': 'Probing',
+      'uptizm.monitors.create_ai_step_2': 'Detecting type',
+      'uptizm.monitors.create_ai_step_3': 'Measuring latency',
+      'uptizm.monitors.create_ai_step_4': 'Selecting regions',
+      'uptizm.monitors.create_ai_step_5': 'Drafting checks',
+      'uptizm.monitors.create_ai_review_banner_title':
+          'AI configured this monitor',
+      'uptizm.monitors.create_ai_review_no_rationale':
+          'Configured from one probe, no model narration.',
+      'uptizm.monitors.create_ai_suggested_metrics': 'Suggested metrics',
+      'uptizm.monitors.create_ai_suggested_metrics_help':
+          'These will be tracked after creation.',
     };
   }
 }
@@ -1075,5 +1120,690 @@ void main() {
         );
       },
     );
+  });
+
+  group('MonitorCreateView AI review banner (honest rationale)', () {
+    /// The stubs ONE analyze run needs, now that `POST /monitors/analyze` is a
+    /// 202 accept rather than the answer.
+    ///
+    /// The analysis does not travel in the POST response any more: the accept
+    /// hands back a run id, a worker does the model calls, and [analysis] (the
+    /// old synchronous body, unchanged) arrives under `result.data` on
+    /// `GET /monitors/analyze/{run}`. Every assertion in this group therefore
+    /// still reads the same subject; only the round trip that carries it moved.
+    /// [extra] is for a test that also drives the create.
+    Map<String, MagicResponse> analyzeStubs(
+      Map<String, dynamic> analysis, {
+      Map<String, MagicResponse> extra = const {},
+    }) {
+      return <String, MagicResponse>{
+        // `steps` is a json ARRAY on the accept because PHP encodes an empty
+        // array as one, and an object once an ordinal has reported.
+        'monitors/analyze': Http.response({
+          'data': {
+            'run_id': 'run-1',
+            'status': 'queued',
+            'step': 0,
+            'steps': <dynamic>[],
+            'probe': {
+              'region': 'us-east',
+              'status_code': 200,
+              'response_ms': 120,
+            },
+            'reason': null,
+            'result': null,
+          },
+        }, 202),
+        'monitors/analyze/run-1': Http.response({
+          'data': {
+            'run_id': 'run-1',
+            'status': 'completed',
+            'step': 5,
+            'steps': {
+              '1': 'done',
+              '2': 'done',
+              '3': 'done',
+              '4': 'done',
+              '5': 'done',
+            },
+            'probe': {
+              'region': 'us-east',
+              'status_code': 200,
+              'response_ms': 120,
+            },
+            'reason': null,
+            'result': {'data': analysis, 'meta': null},
+          },
+        }),
+        ...extra,
+      };
+    }
+
+    /// Types [url] into the AI input step, taps Analyze, and settles the whole
+    /// RUN, not just the accept.
+    ///
+    /// The 2600ms is a poll interval plus a tick: the controller reads the run on
+    /// a [Timer] every 2500ms and fake time does not move on its own, so without
+    /// it the screen stays on the analyzing step and every review assertion below
+    /// would read an absent widget.
+    Future<void> analyzeUrl(WidgetTester tester, String url) async {
+      final Finder urlInput = find.widgetWithText(
+        MSInput,
+        trans('uptizm.monitors.create_ai_url_placeholder'),
+      );
+      await tester.enterText(urlInput, url);
+      await tester.pump();
+      await tester.tap(
+        find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.create_ai_analyze_button'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 2600));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'renders the real backend rationale, never the deleted canned summary',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        const String sentinelRationale =
+            'SENTINEL-RATIONALE: a TCP probe on port 5432, one region, no '
+            'JSON body to classify.';
+        Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_warn_threshold_ms': 300,
+            'recommended_critical_threshold_ms': 1000,
+            'recommended_regions': ['us-east'],
+            'rationale': sentinelRationale,
+            'confidence': 'medium',
+          }),
+        );
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        expect(
+          find.text(sentinelRationale),
+          findsOneWidget,
+          reason: 'The review banner must render the real backend rationale',
+        );
+        expect(
+          find.textContaining('responding in ~120ms'),
+          findsNothing,
+          reason: 'The deleted canned review-summary template must never '
+              'reappear',
+        );
+        expect(
+          find.textContaining('3 regions'),
+          findsNothing,
+          reason: 'The fabricated region-count claim must not render',
+        );
+
+        final AiConfidenceBadge badge = tester.widget<AiConfidenceBadge>(
+          find.byType(AiConfidenceBadge),
+        );
+        expect(
+          badge.level,
+          equals(AiConfidence.medium),
+          reason: 'The badge must render the decoded confidence, not a '
+              'literal AiConfidence.high',
+        );
+      },
+    );
+
+    testWidgets(
+      'a degraded analysis (empty rationale) renders the neutral line and a '
+      'low badge, not an empty box',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 30,
+            'recommended_warn_threshold_ms': 500,
+            'recommended_critical_threshold_ms': 1500,
+            'recommended_regions': ['us-east'],
+            // The degrade path: no model ran, so no narration exists.
+            'rationale': '',
+          }),
+        );
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_review_no_rationale')),
+          findsOneWidget,
+          reason: 'An empty rationale must render the neutral degrade line, '
+              'not an empty box',
+        );
+
+        final AiConfidenceBadge badge = tester.widget<AiConfidenceBadge>(
+          find.byType(AiConfidenceBadge),
+        );
+        expect(
+          badge.level,
+          equals(AiConfidence.low),
+          reason: 'An absent confidence field must fall back to low, the '
+              'conservative reading',
+        );
+      },
+    );
+
+    testWidgets(
+      'no AI-created monitor carries an Accept header the operator did not '
+      'type',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_warn_threshold_ms': 300,
+            'recommended_critical_threshold_ms': 1000,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
+          }),
+        );
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        final MonitorForm form = tester.widget<MonitorForm>(
+          find.byType(MonitorForm),
+        );
+        expect(
+          form.initialHeaders,
+          isEmpty,
+          reason: 'The AI review form must not seed a header the operator '
+              'never typed',
+        );
+      },
+    );
+
+    /// The body of the one recorded `POST /monitors/analyze`, so an assertion
+    /// reads the request that actually left the client rather than the state
+    /// behind it.
+    Map<String, dynamic> analyzePayload(FakeNetworkDriver fake) {
+      final recorded = fake.recorded.firstWhere(
+        (entry) => entry.$1.url.contains('monitors/analyze'),
+      );
+
+      return recorded.$1.data as Map<String, dynamic>;
+    }
+
+    testWidgets(
+      'the credential disclosure is closed by default and the probe carries '
+      'no auth_config',
+      (tester) async {
+        // The ordinary case is a public URL, and it must stay byte for byte
+        // the request it was before the disclosure existed.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
+          }),
+        );
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        expect(
+          find.text(trans('uptizm.monitors.form_auth_label')),
+          findsNothing,
+          reason: 'The credential block must not add a step to a public URL',
+        );
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        expect(
+          analyzePayload(fake).containsKey('auth_config'),
+          isFalse,
+          reason: 'a closed disclosure must leave the request exactly as it '
+              'was before the credential control existed',
+        );
+      },
+    );
+
+    testWidgets(
+      'opening the disclosure probes with the credential the operator typed',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake(
+          analyzeStubs({
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
+          }),
+        );
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+
+        // Open the disclosure: it is the only MSSwitch on the input card.
+        await tester.tap(find.byType(MSSwitch));
+        await tester.pump();
+        await tester.tap(
+          find.text(trans('uptizm.monitors.form_auth_type_basic')),
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.monitors.form_auth_username_placeholder'),
+          ),
+          'svc',
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.byWidgetPredicate(
+            (widget) => widget is MSInput && widget.type == InputType.password,
+          ),
+          's3cret',
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        final Map<String, dynamic> sent = analyzePayload(fake);
+        expect(
+          sent['auth_config'],
+          equals({
+            'type': 'basic',
+            'username': 'svc',
+            'password': 's3cret',
+          }),
+          reason: 'the probe has to authenticate the way the monitor will, or '
+              'the analysis reads a 401 page',
+        );
+      },
+    );
+
+    testWidgets(
+      'accepting the review creates the monitor with the credential the probe '
+      'used, secret included',
+      (tester) async {
+        // The 401 this closes: the review form used to mount with no
+        // credential at all, so a monitor created straight off the AI step
+        // authenticated with nothing and its very first check failed on the
+        // endpoint the analysis had just read successfully.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = Http.fake(
+          analyzeStubs(
+            {
+              'url': 'https://api.example.com/health',
+              'name': 'api.example.com',
+              'recommended_interval_seconds': 60,
+              'recommended_regions': ['us-east'],
+              'rationale': 'Stable JSON API.',
+            },
+            extra: {
+              'monitors': Http.response({
+                'data': {
+                  'id': 'brand-new-id',
+                  'name': 'api.example.com',
+                  'type': 'http',
+                },
+              }),
+            },
+          ),
+        );
+
+        // A successful create navigates (`MagicRoute.to`), which throws
+        // unless a router is mounted, so the screen is driven through the real
+        // router rather than a bare `MaterialApp.home`.
+        MagicRouter.reset();
+        MagicRoute.page(
+          '/',
+          () => MediaQuery(
+            data: const MediaQueryData(size: Size(1200, 5000)),
+            child: WindTheme(
+              data: WindThemeData(),
+              child: const Scaffold(
+                body: SingleChildScrollView(child: MonitorCreateView()),
+              ),
+            ),
+          ),
+        );
+        MagicRoute.page('/monitors', () => const SizedBox());
+        MagicRoute.page('/monitors/:id', () => const SizedBox());
+        addTearDown(MagicRouter.reset);
+
+        await tester.pumpWidget(
+          MaterialApp.router(routerConfig: MagicRouter.instance.routerConfig),
+        );
+        await tester.pumpAndSettle();
+
+        // Open the disclosure and compose the credential on the INPUT step.
+        await tester.tap(find.byType(MSSwitch));
+        await tester.pump();
+        await tester.tap(
+          find.text(trans('uptizm.monitors.form_auth_type_basic')),
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.monitors.form_auth_username_placeholder'),
+          ),
+          'svc',
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.byWidgetPredicate(
+            (widget) => widget is MSInput && widget.type == InputType.password,
+          ),
+          's3cret',
+        );
+        await tester.pump();
+
+        await analyzeUrl(tester, 'https://api.example.com/health');
+
+        // Accept the review as it stands: the operator retypes nothing.
+        final Finder submit = find.widgetWithText(
+          MSButton,
+          trans('uptizm.monitors.form_submit_create'),
+        );
+        await tester.ensureVisible(submit);
+        await tester.pump();
+        await tester.tap(submit);
+        await tester.pumpAndSettle();
+
+        final recorded = fake.recorded.firstWhere(
+          (entry) =>
+              entry.$1.method.toUpperCase() == 'POST' &&
+              !entry.$1.url.contains('analyze'),
+          orElse: () => throw StateError('no create request was recorded'),
+        );
+        final Map<String, dynamic> created =
+            recorded.$1.data as Map<String, dynamic>;
+
+        expect(
+          created['auth_config'],
+          equals({
+            'type': 'basic',
+            'username': 'svc',
+            'password': 's3cret',
+          }),
+          reason: 'the monitor has to be created with the credential its '
+              'analysis was read through, secret and all',
+        );
+      },
+    );
+
+    /// The body of the one recorded `POST /monitors`, so an assertion reads the
+    /// request that actually left the client rather than the widget state
+    /// behind it.
+    Map<String, dynamic> createPayload(FakeNetworkDriver fake) {
+      final recorded = fake.recorded.firstWhere(
+        (entry) =>
+            entry.$1.method.toUpperCase() == 'POST' &&
+            !entry.$1.url.contains('analyze'),
+        orElse: () => throw StateError('no create request was recorded'),
+      );
+
+      return recorded.$1.data as Map<String, dynamic>;
+    }
+
+    /// Drives analyze-then-accept for an analysis carrying [suggestedMetrics],
+    /// optionally declining the pills whose label is in [decline], and answers
+    /// the recorded create payload.
+    Future<Map<String, dynamic>> createFromSuggestions(
+      WidgetTester tester,
+      List<Map<String, dynamic>> suggestedMetrics, {
+      List<String> decline = const [],
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final fake = Http.fake(
+        analyzeStubs(
+          {
+            'url': 'https://api.example.com/health',
+            'name': 'api.example.com',
+            'recommended_interval_seconds': 60,
+            'recommended_regions': ['us-east'],
+            'rationale': 'Stable JSON API.',
+            'suggested_metrics': suggestedMetrics,
+          },
+          extra: {
+            'monitors': Http.response({
+              'data': {
+                'id': 'brand-new-id',
+                'name': 'api.example.com',
+                'type': 'http',
+              },
+            }),
+          },
+        ),
+      );
+
+      MagicRouter.reset();
+      MagicRoute.page(
+        '/',
+        () => MediaQuery(
+          data: const MediaQueryData(size: Size(1200, 5000)),
+          child: WindTheme(
+            data: WindThemeData(),
+            child: const Scaffold(
+              body: SingleChildScrollView(child: MonitorCreateView()),
+            ),
+          ),
+        ),
+      );
+      MagicRoute.page('/monitors', () => const SizedBox());
+      MagicRoute.page('/monitors/:id', () => const SizedBox());
+      addTearDown(MagicRouter.reset);
+
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: MagicRouter.instance.routerConfig),
+      );
+      await tester.pumpAndSettle();
+
+      await analyzeUrl(tester, 'https://api.example.com/health');
+
+      // The pills have to be on screen before a decline can mean anything, and
+      // their absence would otherwise surface as an empty `metrics` further
+      // down, which reads as a mapping bug rather than a decode one.
+      for (final Map<String, dynamic> metric in suggestedMetrics) {
+        expect(
+          find.text(metric['label'] as String),
+          findsOneWidget,
+          reason: 'the suggestion did not decode into a pill',
+        );
+      }
+
+      for (final String label in decline) {
+        final Finder pill = find.text(label);
+        await tester.ensureVisible(pill);
+        await tester.pump();
+        await tester.tap(pill);
+        await tester.pump();
+      }
+
+      final Finder submit = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submit);
+      await tester.pump();
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      return createPayload(fake);
+    }
+
+    testWidgets(
+      'an accepted suggestion is sent under its COLUMN names, not the wire ones',
+      (tester) async {
+        // THE discriminating assertion of this step. `extraction_path`,
+        // `warn_bound` and `critical_bound` are all nullable in the backend
+        // rules, so sending the analyze response's wire names (`path`, `warn`,
+        // `critical`) is not a 422: it creates a metric that extracts nothing,
+        // forever, silently. Asserting that one metric was created passes on
+        // exactly that bug.
+        final Map<String, dynamic> created = await createFromSuggestions(tester, [
+          {
+            'key': 'latency_ms',
+            'label': 'Latency',
+            'type': 'numeric',
+            'source': 'json_path',
+            'path': 'latency_ms',
+            'unit': 'millisecond',
+            'warn': 400,
+            'critical': 900,
+            'sample_value': '120',
+          },
+        ]);
+
+        final List<dynamic> metrics = created['metrics'] as List<dynamic>;
+        final Map<String, dynamic> row = metrics.single as Map<String, dynamic>;
+
+        expect(row['extraction_path'], 'latency_ms');
+        expect(row['warn_bound'], 400);
+        expect(row['critical_bound'], 900);
+        expect(
+          row.containsKey('path'),
+          isFalse,
+          reason: 'the wire name must not survive into the create request',
+        );
+        expect(
+          row['source'],
+          'json_path',
+          reason: 'source is ALREADY backend vocabulary on the wire; routing '
+              'it through the form translator would map it to nothing',
+        );
+        expect(
+          row.containsKey('display_order'),
+          isFalse,
+          reason: 'the server stamps display_order from the array index',
+        );
+        expect(
+          row.containsKey('unmatched_band'),
+          isFalse,
+          reason: 'the server pins unmatched_band; the client never sets it',
+        );
+      },
+    );
+
+    testWidgets(
+      'an empty warn produces no warn_bound at all, never a zero',
+      (tester) async {
+        // A `?? 0` fallback here would create a metric that warns on every
+        // reading, and `""` would fail the endpoint's `numeric` rule. Omission
+        // is the only correct answer, and the string bands ride through under
+        // the names they already arrived with.
+        final Map<String, dynamic> created = await createFromSuggestions(tester, [
+          {
+            'key': 'health_status',
+            'label': 'Health',
+            'type': 'string',
+            'source': 'json_path',
+            'path': 'status',
+            'warn': null,
+            'critical': null,
+            'ok_values': ['ok'],
+            'sample_value': 'ok',
+          },
+        ]);
+
+        final List<dynamic> metrics = created['metrics'] as List<dynamic>;
+        final Map<String, dynamic> row = metrics.single as Map<String, dynamic>;
+
+        expect(row.containsKey('warn_bound'), isFalse);
+        expect(row.containsKey('critical_bound'), isFalse);
+        expect(row['ok_values'], equals(['ok']));
+      },
+    );
+
+    testWidgets('declining a suggestion omits it and creates the rest', (
+      tester,
+    ) async {
+      final Map<String, dynamic> created = await createFromSuggestions(
+        tester,
+        [
+          {
+            'key': 'latency_ms',
+            'label': 'Latency',
+            'type': 'numeric',
+            'source': 'json_path',
+            'path': 'latency_ms',
+            'warn': 400,
+            'sample_value': '120',
+          },
+          {
+            'key': 'health_status',
+            'label': 'Health',
+            'type': 'string',
+            'source': 'json_path',
+            'path': 'status',
+            'ok_values': ['ok'],
+            'sample_value': 'ok',
+          },
+        ],
+        decline: ['Latency'],
+      );
+
+      final List<dynamic> metrics = created['metrics'] as List<dynamic>;
+
+      expect(metrics, hasLength(1));
+      expect(
+        (metrics.single as Map<String, dynamic>)['key'],
+        'health_status',
+        reason: 'the declined row goes, the accepted one stays',
+      );
+    });
+
+    testWidgets('a create with no suggestions sends no metrics key', (
+      tester,
+    ) async {
+      // The manual path and an analysis that proposed nothing must both be the
+      // request they were before this step, rather than carrying an empty list.
+      final Map<String, dynamic> created =
+          await createFromSuggestions(tester, const []);
+
+      expect(created.containsKey('metrics'), isFalse);
+    });
   });
 }

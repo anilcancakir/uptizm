@@ -115,8 +115,9 @@ class _MonitorEditViewState
           //    probe. That default is empty now, which removes the payload but
           //    not the reason to seed every field.
           //    `isEdit` additionally stops the form posting defaults for the
-          //    settings it exposes no control for (auth, tags, status-page and
-          //    SSL flags), so those survive a save.
+          //    settings it exposes no control for (tags, status-page and SSL
+          //    flags), so those survive a save, and keeps `auth_config` off the
+          //    request unless the operator typed a new credential.
           //
           //    Cancel navigates to the detail route WITHOUT writing; it must
           //    never fire the same save call as Submit.
@@ -128,6 +129,11 @@ class _MonitorEditViewState
             initialRegions: monitor.regions,
             initialIntervalSec: monitor.checkIntervalSec,
             initialHeaders: keyValueRowsFromMap(monitor.requestHeaders),
+            // The REDACTED descriptor (`type`, `username`, `header`), which is
+            // all the backend will ever hand back. It seeds the scheme picker
+            // so the form states what this monitor authenticates with; the
+            // secret input stays empty and blank means "leave it alone".
+            initialAuthConfig: monitor.authConfig,
             initialPolicy: monitor.escalationPolicyId,
             initialSlo: monitor.sloTarget?.toString() ?? '',
             initialMethod: monitor.method ?? 'get',

@@ -3,22 +3,31 @@
 namespace Tests\Feature\Http;
 
 use App\Enums\AiMode;
+use App\Enums\MetricBand;
+use App\Enums\MetricSource;
+use App\Enums\MetricType;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorStatus;
 use App\Enums\Plan;
+use App\Enums\ThresholdDirection;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Jobs\PerformMonitorCheck;
 use App\Models\EscalationPolicy;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use App\Models\MonitorMetric;
 use App\Models\User;
+use App\Services\Monitoring\MetricCandidateExtractor;
 use Carbon\CarbonImmutable;
 use FlutterSdk\MagicStarter\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Illuminate\Support\Testing\Fakes\QueueFake;
 use Laravel\Sanctum\Sanctum;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -643,6 +652,335 @@ class MonitorControllerTest extends TestCase
             (string) $policy->id,
             (string) $monitor->fresh()->escalation_policy_id,
         );
+    }
+
+    // -----------------------------------------------------------------
+    // The bulk metrics[] the AI create flow submits with the monitor
+    // -----------------------------------------------------------------
+
+    public function test_store_writes_the_submitted_metrics_with_the_monitor(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('status', ['ok_values' => ['ok']]),
+                $this->metricRow('render_time', [
+                    'type' => MetricType::Numeric->value,
+                    'threshold_direction' => ThresholdDirection::HighBad->value,
+                    'warn_bound' => 400,
+                    'critical_bound' => 900,
+                ]),
+                $this->metricRow('request_count', ['type' => MetricType::Numeric->value]),
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        $monitor = Monitor::query()->sole();
+        $metrics = MonitorMetric::query()->orderBy('display_order')->get();
+
+        $this->assertCount(3, $metrics);
+        $this->assertSame(
+            ['status', 'render_time', 'request_count'],
+            $metrics->pluck('key')->all(),
+        );
+        // display_order comes from the ARRAY INDEX, which is what reorder()
+        // later rewrites; two rows claiming one position would leave it nothing
+        // to resolve.
+        $this->assertSame([0, 1, 2], $metrics->pluck('display_order')->all());
+        // team_id is denormalized onto the metric for direct team-scoped
+        // queries, and it comes from the monitor rather than the payload.
+        $this->assertSame(
+            [$team->id, $team->id, $team->id],
+            $metrics->pluck('team_id')->map(strval(...))->all(),
+        );
+        $this->assertSame(
+            [(string) $monitor->id],
+            $metrics->pluck('monitor_id')->map(strval(...))->unique()->values()->all(),
+        );
+    }
+
+    public function test_a_refused_metric_row_creates_neither_the_monitor_nor_a_metric(): void
+    {
+        // All or nothing. A monitor that exists while the metrics it was created
+        // for do not is a monitor silently measuring nothing: the operator saw
+        // the pills, the create answered 201, and the detail screen is empty.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('status'),
+                $this->metricRow('render_time'),
+                $this->metricRow('bad', ['label' => str_repeat('l', 121)]),
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('metrics.2.label');
+        $this->assertSame(0, Monitor::query()->count());
+        $this->assertSame(0, MonitorMetric::query()->count());
+    }
+
+    public function test_a_metric_write_that_fails_takes_the_monitor_back_with_it(): void
+    {
+        // The 422 above cannot measure the transaction: validation refuses
+        // before the controller method is entered, so nothing was ever written.
+        // This one fails INSIDE the write, after the monitor row already exists,
+        // which is the only shape that tells a transaction apart from two
+        // sequential creates.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        MonitorMetric::creating(function (MonitorMetric $metric): void {
+            if ($metric->key === 'boom') {
+                throw new RuntimeException('the metric write failed');
+            }
+        });
+
+        $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('status'),
+                $this->metricRow('boom'),
+            ],
+        ])->assertStatus(500);
+
+        $this->assertSame(0, Monitor::query()->count());
+        $this->assertSame(0, MonitorMetric::query()->count());
+    }
+
+    public function test_the_first_check_is_dispatched_after_the_transaction_commits(): void
+    {
+        // Asserting the dispatch OCCURRED passes on the broken ordering, which
+        // is the entire trap. `config/queue.php` sets `after_commit => false` on
+        // every connection, so a dispatch from inside the transaction pushes the
+        // payload to Redis before the row is committed; the worker re-resolves
+        // the monitor by key, misses it, and deletes the job. The first check
+        // then never runs, in production only, with nothing failing and the
+        // suite green on SQLite's database driver.
+        //
+        // So the transaction DEPTH at the moment of the push is what is
+        // measured. RefreshDatabase already holds one transaction open around
+        // the whole test, hence the baseline rather than a literal zero.
+        $queue = $this->fakeQueueRecordingTransactionDepth();
+        $this->actingAsTeamMember();
+        $baseline = DB::transactionLevel();
+
+        $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [$this->metricRow('status')],
+        ])->assertStatus(201);
+
+        Queue::assertPushed(PerformMonitorCheck::class, 1);
+        $this->assertSame([$baseline], $queue->transactionDepths);
+    }
+
+    public function test_a_bulk_row_cannot_record_a_credential_bearing_header(): void
+    {
+        // The denylist lives in the SHARED metricFieldRules() and resolves its
+        // `source` sibling from the concrete attribute, so it has to fire under
+        // the `metrics.*.` prefix too. Read off the request instead, it would
+        // evaluate null here and no-op on exactly the path this plan adds:
+        // `set-cookie` on a credentialled probe is an authenticated session
+        // token, and a metric persists its path's value on every check forever.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('session', [
+                    'source' => MetricSource::Header->value,
+                    'extraction_path' => 'set-cookie',
+                ]),
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('metrics.0.extraction_path');
+        $this->assertSame(0, Monitor::query()->count());
+    }
+
+    public function test_an_inverted_bound_pair_in_a_bulk_row_is_refused(): void
+    {
+        // The cross-field checks run from withValidator(), gated on rules()
+        // declaring a BARE `metrics` key. Declare only the `metrics.*` rules and
+        // the loop stays dormant forever, so a bulk row could save the inverted
+        // pair the single-metric endpoint refuses.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('render_time', [
+                    'type' => MetricType::Numeric->value,
+                    'threshold_direction' => ThresholdDirection::HighBad->value,
+                    'warn_bound' => 900,
+                    'critical_bound' => 400,
+                ]),
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('metrics.0.critical_bound');
+    }
+
+    public function test_two_bulk_rows_cannot_claim_one_key(): void
+    {
+        // There is no persisted monitor to scope a Rule::unique against yet, so
+        // `distinct` within the submitted array is the strongest check available;
+        // without it the second row would violate the per-monitor unique index at
+        // INSERT time and 500 instead of 422.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('status'),
+                $this->metricRow('status', ['label' => 'Status again']),
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('metrics.0.key');
+    }
+
+    public function test_more_rows_than_discovery_can_ever_propose_are_refused(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $rows = [];
+        for ($index = 0; $index <= MetricCandidateExtractor::MAX_CANDIDATES; $index++) {
+            $rows[] = $this->metricRow('metric_'.$index);
+        }
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => $rows,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('metrics');
+    }
+
+    public function test_a_banded_row_is_pinned_to_ok_and_an_unbanded_one_is_not(): void
+    {
+        // The pin has to be CONDITIONAL, and that is the trap:
+        // validateUnmatchedBandHasAList refuses a band with all three lists
+        // empty, which is every AI-proposed NUMERIC metric, so an unconditional
+        // pin 422s the common case rather than pinning it.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('status', ['ok_values' => ['ok']]),
+                $this->metricRow('render_time', ['type' => MetricType::Numeric->value]),
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        $banded = MonitorMetric::query()->where('key', 'status')->sole();
+        $plain = MonitorMetric::query()->where('key', 'render_time')->sole();
+
+        $this->assertSame(MetricBand::Ok, $banded->unmatched_band);
+        $this->assertSame(['ok'], $banded->ok_values);
+        $this->assertNull($plain->unmatched_band);
+    }
+
+    public function test_a_row_that_chose_its_own_unmatched_band_keeps_it(): void
+    {
+        // The pin fills a gap the model has no channel for; it does not overrule
+        // a hand-authored bulk row that named one.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('status', [
+                    'ok_values' => ['ok'],
+                    'unmatched_band' => MetricBand::Warn->value,
+                ]),
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertSame(
+            MetricBand::Warn,
+            MonitorMetric::query()->sole()->unmatched_band,
+        );
+    }
+
+    public function test_store_still_creates_a_monitor_with_no_metrics_at_all(): void
+    {
+        // `metrics` is optional: the manual create flow sends none, and the
+        // required label/type rules under `metrics.*` must not reach a payload
+        // that carries no rows.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/monitors', $this->validPayload())->assertStatus(201);
+
+        $this->assertSame(1, Monitor::query()->count());
+        $this->assertSame(0, MonitorMetric::query()->count());
+    }
+
+    /**
+     * A valid `metrics[]` row, keyed by COLUMN name (not the analyze wire
+     * vocabulary), overridable per field.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    protected function metricRow(string $key, array $overrides = []): array
+    {
+        return [
+            'key' => $key,
+            'label' => ucfirst(str_replace('_', ' ', $key)),
+            'type' => MetricType::String->value,
+            'source' => MetricSource::JsonPath->value,
+            'extraction_path' => '$.'.$key,
+            ...$overrides,
+        ];
+    }
+
+    /**
+     * Swap in a queue fake that records the transaction depth at the moment each
+     * job is pushed.
+     *
+     * A callback passed to `Queue::assertPushed()` cannot answer this: it runs at
+     * assertion time, long after the transaction closed, so it can only ever say
+     * that a job was pushed and never from where.
+     */
+    protected function fakeQueueRecordingTransactionDepth(): QueueFake
+    {
+        $fake = new class($this->app, [], $this->app->make('queue')) extends QueueFake
+        {
+            /** @var list<int> */
+            public array $transactionDepths = [];
+
+            public function push($job, $data = '', $queue = null)
+            {
+                $this->transactionDepths[] = DB::transactionLevel();
+
+                parent::push($job, $data, $queue);
+            }
+        };
+
+        Queue::swap($fake);
+
+        return $fake;
     }
 
     protected function validPayload(): array

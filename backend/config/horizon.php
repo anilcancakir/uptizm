@@ -289,6 +289,58 @@ return [
             'timeout' => 60,
             'nice' => 0,
         ],
+
+        /*
+        | Monitor analyze makes up to three model calls behind one operator
+        | click, and `ai.request_budget_seconds` funds 150 seconds of wall time
+        | for them. supervisor-1 cannot host that, for two independent reasons
+        | and only the first is about the analyze itself: its `timeout` is 60, so
+        | the worker would kill a 150-second run at 60 and the operator would get
+        | nothing back; and it runs the customer uptime `checks` at production
+        | maxProcesses 10, so an analyze parked in one of those slots delays
+        | outage detection, which is the one thing this product exists to do.
+        |
+        | TWO processes, and unlike `previews` and `content` above this is a COST
+        | bound rather than a correctness one: the run is already single-in-flight
+        | per team through a cache lock, so this number only decides how many
+        | teams may analyze at once. Two suits a product that meters analyze per
+        | team, and each process has to be able to hold a full response body.
+        |
+        | `memory` 512 is sized on RSS rather than on the payload. The job carries
+        | a probe response body (1 MB ceiling) and JSON-encodes it into a prompt
+        | fence, so that body exists two or three times over inside one worker,
+        | before the model client's own buffers. supervisor-1's 128 would restart
+        | the worker mid-run, and with `tries` 1 a restart is a lost run the
+        | operator is watching for.
+        |
+        | The 170 timeout is load bearing. It must stay ABOVE the analyze job's
+        | own 160s timeout, so the job can run failed(), which writes the
+        | terminal state and broadcasts it; without that the operator's form spins
+        | forever. And it must stay BELOW its connection's retry_after, so a
+        | still-running analyze is never released to a second worker.
+        |
+        | `connection` is `redis-analyze` and NOT `redis`, and that is the
+        | load-bearing half. The shared connection's retry_after is 90, below
+        | this timeout, so on it Redis would hand every analyze that passes 90
+        | seconds to a second worker: two AI spends, two broadcast streams, two
+        | writers on one run. This is the first job in the repo to cross that 90.
+        | See the invariant comment in config/queue.php; AnalyzeQueueConfigTest
+        | pins the whole chain, including this supervisor's presence in every
+        | environment below.
+        */
+        'analyze' => [
+            'connection' => 'redis-analyze',
+            'queue' => ['analyze'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 512,
+            'tries' => 1,
+            'timeout' => 170,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -351,6 +403,20 @@ return [
             'content' => [
                 'maxProcesses' => 1,
             ],
+
+            /*
+            | TWO processes, a cost bound. The per-team in-flight lock is what
+            | prevents one team spending its meter twice, so this number only
+            | caps how many DIFFERENT teams may analyze at once; raising it costs
+            | 512 MB and two model calls apiece. Zero is the failure that matters
+            | here: Horizon's ProvisioningPlan skips a supervisor provisioning no
+            | processes, the analyze queue is then consumed by nobody, and every
+            | run sits at `queued` until its cache key expires while the operator
+            | watches five spinners.
+            */
+            'analyze' => [
+                'maxProcesses' => 2,
+            ],
         ],
 
         'local' => [
@@ -364,6 +430,10 @@ return [
 
             'content' => [
                 'maxProcesses' => 1,
+            ],
+
+            'analyze' => [
+                'maxProcesses' => 2,
             ],
         ],
     ],

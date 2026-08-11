@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
+import 'package:uptizm/app/controllers/entitlement_controller.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/mocks/monitors.dart';
 import 'package:uptizm/app/enums/status_key.dart';
+import 'package:uptizm/app/support/monitor_types.dart';
 
 void main() {
   setUp(() {
@@ -427,59 +429,598 @@ void main() {
       expect(() => controller.save(monitors.first.id), returnsNormally);
       expect(notifications, equals(0));
     });
+
+    test('an edit that omits auth_config does not put it back on the wire', () async {
+      // The form omitting the key is not the same as the request omitting it,
+      // and that gap was a live defect: save() re-fetches the monitor through
+      // Monitor.find(), which hydrates the REDACTED map the API publishes
+      // (type + username, never a secret), and then PUTs the whole toArray().
+      // So renaming a basic-auth monitor shipped {type: basic, username: svc}
+      // with no password and 422'd on the backend's required_if rule, for an
+      // edit the operator never made.
+      //
+      // Every other credential test in this branch reads what the form BUILT.
+      // This one reads what left the client, which is the only level the bug
+      // was ever visible at: delete the makeHidden line and the rest stay green.
+      final FakeNetworkDriver fake = Http.fake({
+        'monitors/api': Http.response({
+          'data': {
+            'id': 'api',
+            'name': 'API',
+            'url': 'https://api.uptizm.com',
+            'type': 'http',
+            'auth_config': {'type': 'basic', 'username': 'svc'},
+          },
+        }),
+      });
+
+      await MonitorController.instance.save('api', {'name': 'Renamed'});
+
+      final put = fake.recorded.firstWhere(
+        (entry) => entry.$1.method.toUpperCase() == 'PUT',
+        orElse: () => throw StateError('no PUT was recorded'),
+      );
+      final Map<String, dynamic> body = put.$1.data as Map<String, dynamic>;
+
+      expect(body['name'], equals('Renamed'));
+      expect(
+        body.containsKey('auth_config'),
+        isFalse,
+        reason: 'the stored credential must not ride along on an edit that '
+            'never touched it',
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------
-  // analyze (S38): POST /monitors/analyze.
+  // analyze (S38, async since the 202 split): `POST /monitors/analyze` accepts
+  // a run and a worker does the model calls, so the client OWNS a run: it holds
+  // the id, polls `GET /monitors/analyze/{run}` as the source of truth, lets a
+  // team-wide broadcast advance the state early, and treats a run that is GONE
+  // as a failure instead of one that is still coming.
+  //
+  // Every test here drives the run through the real published surface
+  // ([MonitorController.analyzeProgress] / [analyzeResult]) rather than through
+  // the returned future alone, because that surface is what the create view
+  // renders while the future is still pending.
   // ---------------------------------------------------------------------------
 
   group('analyze', () {
-    test(
-      'posts the url to /monitors/analyze and decodes the prefill on success',
-      () async {
-        final fake = Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
-              'url': 'https://api.example.com/health',
-              'name': 'api.example.com',
-              'recommended_interval_seconds': 60,
-              'recommended_warn_threshold_ms': 300,
-              'recommended_critical_threshold_ms': 1000,
-              'recommended_regions': ['us-east', 'eu-west'],
-              'rationale': 'Stable JSON API, 60s checks are sufficient.',
-              'probe': {
-                'region': 'us-east',
-                'status_code': 200,
-                'response_ms': 120,
-              },
-            },
-          }),
-        });
-        final MonitorController controller = MonitorController.instance;
+    const String url = 'https://api.example.com/health';
 
-        final MonitorAnalysis? result = await controller.analyze(
-          'https://api.example.com/health',
-        );
-
-        expect(result, isNotNull);
-        expect(result!.url, equals('https://api.example.com/health'));
-        expect(result.name, equals('api.example.com'));
-        expect(result.recommendedIntervalSeconds, equals(60));
-        expect(result.recommendedWarnThresholdMs, equals(300));
-        expect(result.recommendedCriticalThresholdMs, equals(1000));
-        expect(result.recommendedRegions, equals(['us-east', 'eu-west']));
-        expect(
-          result.rationale,
-          equals('Stable JSON API, 60s checks are sufficient.'),
-        );
-        fake.assertSent(
-          (request) =>
-              request.method == 'POST' &&
-              request.url.contains('monitors/analyze') &&
-              (request.data as Map)['url'] == 'https://api.example.com/health',
-        );
+    /// The 202 body: the run's first snapshot, in the same shape the poll uses.
+    ///
+    /// `steps` is a json ARRAY here and an OBJECT once a step has reported,
+    /// because that is what PHP encodes an empty array as; both shapes have to
+    /// decode, so the fixtures keep the difference rather than smoothing it.
+    Map<String, dynamic> acceptedBody({String runId = 'run-1'}) => {
+      'data': {
+        'run_id': runId,
+        'status': 'queued',
+        'step': 0,
+        'steps': <dynamic>[],
+        'probe': {
+          'region': 'eu-central',
+          'status_code': 200,
+          'response_ms': 180,
+        },
+        'reason': null,
+        'result': null,
       },
-    );
+    };
+
+    /// One `GET /monitors/analyze/{run}` body.
+    Map<String, dynamic> runBody({
+      String runId = 'run-1',
+      required String status,
+      int step = 0,
+      Map<String, String> steps = const {},
+      String? reason,
+      Map<String, dynamic>? result,
+    }) => {
+      'data': {
+        'run_id': runId,
+        'status': status,
+        'step': step,
+        'steps': steps,
+        'probe': {
+          'region': 'eu-central',
+          'status_code': 200,
+          'response_ms': 180,
+        },
+        'reason': reason,
+        'result': result,
+      },
+    };
+
+    /// The completed run's `result`: the old synchronous body verbatim under
+    /// `data`, plus the `meta` that now carries the metered allowance (the 202
+    /// cannot, because the worker spends the trial long after it returned).
+    Map<String, dynamic> resultBody() => {
+      'data': {
+        'url': url,
+        'name': 'api.example.com',
+        'recommended_interval_seconds': 60,
+        'recommended_warn_threshold_ms': 300,
+        'recommended_critical_threshold_ms': 1000,
+        'recommended_regions': ['us-east', 'eu-west'],
+        'rationale': 'Stable JSON API, 60s checks are sufficient.',
+      },
+      'meta': {'ai_analysis_trials_remaining': 2},
+    };
+
+    /// How many run reads went over the wire.
+    int reads(FakeNetworkDriver fake) => fake.recorded
+        .where(
+          (entry) =>
+              entry.$1.method == 'GET' &&
+              entry.$1.url.contains('monitors/analyze/'),
+        )
+        .length;
+
+    test('accepts the 202 and publishes a queued run without answering', () async {
+      final FakeNetworkDriver fake = Http.fake({
+        '*monitors/analyze': Http.response(acceptedBody(), 202),
+      });
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+
+      MonitorAnalysis? resolved;
+      bool settled = false;
+      controller.analyze(url).then((MonitorAnalysis? value) {
+        resolved = value;
+        settled = true;
+      });
+      await pumpEventQueue();
+
+      // Contract point 1: the 202 is an ACCEPT, not an answer. The future the
+      // caller holds must still be pending, or the create view would flip to
+      // its review step with nothing to review.
+      expect(settled, isFalse);
+      expect(resolved, isNull);
+      expect(controller.analyzeResult, isNull);
+      // Contract point 2: the run is published the moment it is accepted, so a
+      // view has something to render for the four minutes that follow.
+      expect(controller.analyzeProgress, isNotNull);
+      expect(controller.analyzeProgress!.runId, equals('run-1'));
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.queued));
+      expect(controller.analyzeProgress!.stepStates, isEmpty);
+      // Terminal-only ticks: nothing has reported, so step 1 is in flight.
+      expect(controller.analyzeProgress!.inFlightStep, equals(1));
+      fake.assertSent(
+        (request) =>
+            request.method == 'POST' &&
+            request.url.contains('monitors/analyze') &&
+            (request.data as Map)['url'] == url,
+      );
+    });
+
+    test('drives a run through queued -> analyzing -> completed', () async {
+      // Resolve the entitlement first so its own one-shot load cannot land on
+      // top of the allowance the completion payload republishes below.
+      EntitlementController.instance;
+      await pumpEventQueue();
+
+      int reads = 0;
+      Http.fake((request) {
+        if (request.method == 'POST') {
+          return Http.response(acceptedBody(), 202);
+        }
+        if (!request.url.contains('monitors/analyze/')) {
+          return Http.response(<String, dynamic>{});
+        }
+
+        reads++;
+        return switch (reads) {
+          1 => Http.response(
+            runBody(status: 'analyzing', step: 1, steps: {'1': 'done'}),
+          ),
+          2 => Http.response(
+            runBody(
+              status: 'analyzing',
+              step: 2,
+              steps: {'1': 'done', '2': 'skipped'},
+            ),
+          ),
+          _ => Http.response(
+            runBody(
+              status: 'completed',
+              step: 5,
+              steps: {
+                '1': 'done',
+                '2': 'skipped',
+                '3': 'done',
+                '4': 'done',
+                '5': 'done',
+              },
+              result: resultBody(),
+            ),
+          ),
+        };
+      });
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+
+      MonitorAnalysis? resolved;
+      bool settled = false;
+      controller.analyze(url).then((MonitorAnalysis? value) {
+        resolved = value;
+        settled = true;
+      });
+      await pumpEventQueue();
+
+      final AnalyzeRunProgress? first = await controller.fetchAnalyzeRun('run-1');
+      expect(first, isNotNull);
+      expect(first!.status, equals(AnalyzeRunStatus.analyzing));
+      expect(first.stateOf(1), equals(AnalyzeStepState.done));
+      expect(first.inFlightStep, equals(2));
+      expect(controller.analyzeProgress, same(first));
+      expect(settled, isFalse);
+
+      // A SKIPPED step is terminal too, so the row after it is the one working:
+      // this is the state a naive client leaves spinning on work that was never
+      // going to run.
+      final AnalyzeRunProgress? second = await controller.fetchAnalyzeRun(
+        'run-1',
+      );
+      expect(second!.stateOf(2), equals(AnalyzeStepState.skipped));
+      expect(second.inFlightStep, equals(3));
+      expect(settled, isFalse);
+
+      final AnalyzeRunProgress? third = await controller.fetchAnalyzeRun('run-1');
+      expect(third!.status, equals(AnalyzeRunStatus.completed));
+      expect(third.failure, isNull);
+      expect(
+        third.inFlightStep,
+        isNull,
+        reason: 'a finished run has no row in flight',
+      );
+
+      await pumpEventQueue();
+      expect(settled, isTrue);
+      expect(resolved, isNotNull);
+      expect(resolved, same(controller.analyzeResult));
+      expect(controller.analyzeResult!.name, equals('api.example.com'));
+      expect(controller.analyzeResult!.recommendedIntervalSeconds, equals(60));
+      expect(
+        controller.analyzeResult!.recommendedRegions,
+        equals(['us-east', 'eu-west']),
+      );
+      // Re-homed from the old synchronous `meta`: the worker spends the trial,
+      // so the number can only ride the completion payload.
+      expect(
+        EntitlementController.instance.aiAnalysisTrialsRemaining,
+        equals(2),
+      );
+    });
+
+    testWidgets('the poll advances the run with no broadcast at all', (
+      tester,
+    ) async {
+      // The poll is the SOURCE OF TRUTH, not a backstop: the progress event is
+      // `ShouldRescue` (a push failure is swallowed by design), Reverb has no
+      // replay, and a backgrounded tab hears nothing. So the whole lifecycle
+      // has to complete without a single tick arriving.
+      int reads = 0;
+      Http.fake((request) {
+        if (request.method == 'POST') {
+          return Http.response(acceptedBody(), 202);
+        }
+        if (!request.url.contains('monitors/analyze/')) {
+          return Http.response(<String, dynamic>{});
+        }
+
+        reads++;
+        return Http.response(
+          reads == 1
+              ? runBody(status: 'analyzing', step: 1, steps: {'1': 'done'})
+              : runBody(
+                  status: 'completed',
+                  step: 5,
+                  steps: {'5': 'done'},
+                  result: resultBody(),
+                ),
+        );
+      });
+      await tester.pumpWidget(const SizedBox());
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+
+      MonitorAnalysis? resolved;
+      controller.analyze(url).then((MonitorAnalysis? value) => resolved = value);
+      await tester.pump();
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.queued));
+      expect(reads, equals(0), reason: 'the accept does not read the run');
+
+      await tester.pump(const Duration(milliseconds: 2600));
+      await tester.pump();
+      expect(reads, equals(1));
+      expect(controller.analyzeProgress!.stateOf(1), equals(AnalyzeStepState.done));
+
+      await tester.pump(const Duration(milliseconds: 2600));
+      await tester.pump();
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.completed));
+      expect(resolved, isNotNull);
+
+      // And it stops on its own: a finished run is not read again.
+      await tester.pump(const Duration(milliseconds: 5200));
+      await tester.pump();
+      expect(reads, equals(2));
+    });
+
+    testWidgets('a run that is gone fails rather than spinning forever', (
+      tester,
+    ) async {
+      // THE ASSERTION THAT SEPARATES A FAILURE FROM AN ETERNAL SPINNER. The run
+      // lives in a cache entry with a 900s TTL inside a Redis on `volatile-lru`
+      // at a 512 MB ceiling, so a 404 means the entry was evicted or expired and
+      // is never coming back. Reading it as "still running" leaves the operator
+      // watching a spinner for a run nothing will ever report on again.
+      int reads = 0;
+      Http.fake((request) {
+        if (request.method == 'POST') {
+          return Http.response(acceptedBody(), 202);
+        }
+        if (!request.url.contains('monitors/analyze/')) {
+          return Http.response(<String, dynamic>{});
+        }
+
+        reads++;
+        return Http.response({'message': 'Not found.'}, 404);
+      });
+      await tester.pumpWidget(const SizedBox());
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+
+      MonitorAnalysis? resolved;
+      bool settled = false;
+      controller.analyze(url).then((MonitorAnalysis? value) {
+        resolved = value;
+        settled = true;
+      });
+      await tester.pump();
+
+      await tester.pump(const Duration(milliseconds: 2600));
+      await tester.pump();
+
+      expect(reads, equals(1));
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.failed));
+      expect(controller.analyzeProgress!.failure, equals(AnalyzeFailure.lost));
+      expect(
+        controller.analyzeProgress!.inFlightStep,
+        isNull,
+        reason: 'nothing is in flight on a run that no longer exists',
+      );
+      expect(settled, isTrue, reason: 'the caller must stop waiting');
+      expect(resolved, isNull);
+
+      // And the poll stops: a dead run is not re-read for four more minutes.
+      await tester.pump(const Duration(milliseconds: 7800));
+      await tester.pump();
+      expect(reads, equals(1));
+    });
+
+    testWidgets('a run that never reaches a terminal state is not polled forever', (
+      tester,
+    ) async {
+      // The other half of the same guarantee: a worker killed without its
+      // `failed()` hook running (or a job that never reached a worker) leaves a
+      // run that answers `analyzing` for as long as its TTL lasts.
+      Http.fake((request) {
+        if (request.method == 'POST') {
+          return Http.response(acceptedBody(), 202);
+        }
+        if (!request.url.contains('monitors/analyze/')) {
+          return Http.response(<String, dynamic>{});
+        }
+
+        return Http.response(
+          runBody(status: 'analyzing', step: 1, steps: {'1': 'done'}),
+        );
+      });
+      await tester.pumpWidget(const SizedBox());
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+
+      bool settled = false;
+      controller.analyze(url).then((MonitorAnalysis? value) => settled = true);
+      await tester.pump();
+
+      // 97 reads: the budget is 96, and the read past it is the one that gives
+      // up. Driven on the fake clock, so this costs no wall time.
+      for (int i = 0; i < 97; i++) {
+        await tester.pump(const Duration(milliseconds: 2600));
+        await tester.pump();
+      }
+
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.failed));
+      expect(
+        controller.analyzeProgress!.failure,
+        equals(AnalyzeFailure.timedOut),
+      );
+      expect(settled, isTrue);
+    });
+
+    test('a broadcast tick advances the state early, without a read', () async {
+      final FakeNetworkDriver fake = Http.fake({
+        '*monitors/analyze': Http.response(acceptedBody(), 202),
+      });
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+      controller.analyze(url);
+      await pumpEventQueue();
+
+      controller.noteAnalyzeProgress(const <String, dynamic>{
+        'run_id': 'run-1',
+        'sequence': 1,
+        'step': 1,
+        'state': 'done',
+        'status': 'analyzing',
+      });
+
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.analyzing));
+      expect(controller.analyzeProgress!.stateOf(1), equals(AnalyzeStepState.done));
+      expect(controller.analyzeProgress!.inFlightStep, equals(2));
+      expect(
+        reads(fake),
+        equals(0),
+        reason: 'a non-terminal tick carries everything the rows need',
+      );
+    });
+
+    test('a tick for another run on the team channel is ignored', () async {
+      // `private-teams.{id}` is team-wide, so a teammate's analyze reports to
+      // this client too. Applying one would show this operator another
+      // operator's progress on their own form.
+      Http.fake({'*monitors/analyze': Http.response(acceptedBody(), 202)});
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+      controller.analyze(url);
+      await pumpEventQueue();
+
+      controller.noteAnalyzeProgress(const <String, dynamic>{
+        'run_id': 'someone-elses-run',
+        'sequence': 7,
+        'step': 4,
+        'state': 'done',
+        'status': 'analyzing',
+      });
+
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.queued));
+      expect(controller.analyzeProgress!.step, equals(0));
+      expect(controller.analyzeProgress!.stateOf(4), isNull);
+      expect(controller.analyzeProgress!.inFlightStep, equals(1));
+    });
+
+    test('an out-of-order tick does not wind the rows backwards', () async {
+      // Ten Horizon processes drain the queue the broadcast jobs land on and
+      // Laravel guarantees ordering only for SQS FIFO, which is why the payload
+      // carries a monotonic sequence at all.
+      Http.fake({'*monitors/analyze': Http.response(acceptedBody(), 202)});
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+      controller.analyze(url);
+      await pumpEventQueue();
+
+      controller.noteAnalyzeProgress(const <String, dynamic>{
+        'run_id': 'run-1',
+        'sequence': 3,
+        'step': 3,
+        'state': 'done',
+        'status': 'analyzing',
+      });
+      controller.noteAnalyzeProgress(const <String, dynamic>{
+        'run_id': 'run-1',
+        'sequence': 2,
+        'step': 2,
+        'state': 'done',
+        'status': 'analyzing',
+      });
+
+      expect(controller.analyzeProgress!.step, equals(3));
+      expect(controller.analyzeProgress!.stateOf(2), isNull);
+    });
+
+    test('a terminal tick reads the result immediately', () async {
+      // The result never travels in a broadcast (Reverb caps an inbound request
+      // at 10,000 bytes), so a completed tick is a prompt to read, not an
+      // answer: without the immediate read the operator waits out the poll
+      // interval for a result that already exists.
+      final FakeNetworkDriver fake = Http.fake((request) {
+        if (request.method == 'POST') {
+          return Http.response(acceptedBody(), 202);
+        }
+        if (!request.url.contains('monitors/analyze/')) {
+          return Http.response(<String, dynamic>{});
+        }
+
+        return Http.response(
+          runBody(
+            status: 'completed',
+            step: 5,
+            steps: {'5': 'done'},
+            result: resultBody(),
+          ),
+        );
+      });
+      final MonitorController controller = MonitorController.instance;
+      addTearDown(controller.abandonAnalyzeRun);
+      MonitorAnalysis? resolved;
+      controller.analyze(url).then((MonitorAnalysis? value) => resolved = value);
+      await pumpEventQueue();
+
+      controller.noteAnalyzeProgress(const <String, dynamic>{
+        'run_id': 'run-1',
+        'sequence': 6,
+        'step': 5,
+        'state': 'done',
+        'status': 'completed',
+      });
+      await pumpEventQueue();
+
+      expect(reads(fake), equals(1));
+      expect(controller.analyzeProgress!.status, equals(AnalyzeRunStatus.completed));
+      expect(controller.analyzeResult, isNotNull);
+      expect(resolved, same(controller.analyzeResult));
+    });
+
+    test('abandoning a run stops waiting for it', () async {
+      Http.fake({'*monitors/analyze': Http.response(acceptedBody(), 202)});
+      final MonitorController controller = MonitorController.instance;
+
+      MonitorAnalysis? resolved;
+      bool settled = false;
+      controller.analyze(url).then((MonitorAnalysis? value) {
+        resolved = value;
+        settled = true;
+      });
+      await pumpEventQueue();
+      expect(settled, isFalse);
+
+      controller.abandonAnalyzeRun();
+      await pumpEventQueue();
+
+      expect(settled, isTrue, reason: 'an abandoned run must not hang a caller');
+      expect(resolved, isNull);
+      expect(controller.analyzeProgress, isNull);
+      expect(controller.analyzeResult, isNull);
+    });
+
+    test('an identity change drops the previous team\'s run', () async {
+      // A run is authorised on the team that started it, so the incoming
+      // identity's poll could only ever read the masked 404 that means "gone",
+      // and the view would show the new team a failure for work it never asked
+      // for.
+      Http.fake({'*monitors/analyze': Http.response(acceptedBody(), 202)});
+      final MonitorController controller = MonitorController.instance;
+      controller.analyze(url);
+      await pumpEventQueue();
+      expect(controller.analyzeProgress, isNotNull);
+
+      await controller.resetForSession();
+
+      expect(controller.analyzeProgress, isNull);
+      expect(controller.analyzeResult, isNull);
+    });
+
+    test('a 409 refusal answers immediately and tracks no run', () async {
+      // The team already has an analysis running. Nothing to watch, and the
+      // backend's own message is what the form renders.
+      Http.fake({
+        '*monitors/analyze': Http.response({
+          'message':
+              'An analysis is already running for this team. Wait for it to '
+              'finish before starting another.',
+        }, 409),
+      });
+      final MonitorController controller = MonitorController.instance;
+
+      final MonitorAnalysis? result = await controller.analyze(url);
+
+      expect(result, isNull);
+      expect(controller.analyzeProgress, isNull);
+      expect(controller.lastAnalyzeWasGated, isFalse);
+    });
 
     test('returns null and does not throw on a non-2xx response', () async {
       Http.fake({

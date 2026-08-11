@@ -35,6 +35,73 @@ return [
         'daily_per_team' => env('AI_BUDGET_DAILY_PER_TEAM', 100),
     ],
 
+    /*
+     * How many seconds of WALL TIME one analyze's MODEL CALLS may spend
+     * together, not per call.
+     *
+     * Per-call timeouts are not enough here and the difference is what produced
+     * a production 500: an analyze makes up to THREE model calls (the
+     * suggestion, the research turn, and metric discovery), so three
+     * comfortable per-call limits still add up past any single wall. This is
+     * the shared budget {@see App\Services\Ai\AiDeadline} hands out, and a call
+     * that would start with too little left is not made at all: the caller
+     * degrades to its deterministic answer, which every one of them already
+     * knows how to do.
+     *
+     * It was 45, which is EXACTLY the suggestion turn's own ceiling, so a slow
+     * suggestion left zero for the metric-discovery call behind it and the
+     * metrics half of the setup came back empty with only a log line to say why.
+     * The value has to stay at least `minimum_call_seconds` above that ceiling,
+     * or a degraded analysis takes discovery down with it. That bound is
+     * asserted in {@see Tests\Unit\Services\Ai\AiDeadlineTest}.
+     *
+     * It was then briefly 75, and 75 is too big for a request that shares this
+     * number with the target probe. MEASURED in production on 2026-08-07: a
+     * request that spent 36 seconds on the suggestion and 39 on discovery
+     * (`cURL error 28: Operation timed out after 39001 milliseconds`) answered
+     * the operator with a 504, twice. Something cut at 60 seconds and it was NOT
+     * any wall written down at the time, so this number was set to 50 to
+     * guarantee the degrade instead of the 504, back when it shared one clock
+     * with `POST /monitors/analyze`'s own HTTP request.
+     *
+     * That 60 IS identified now, and it was ours: the api vhost's `location /`
+     * proxies to Octane and declared no `proxy_read_timeout`, so it inherited
+     * nginx's DEFAULT of 60. The 3600 the hunt kept finding belongs to the Reverb
+     * WebSocket block above it. Fixed to 125 in `deploy/vhost-uptizm.com.conf`
+     * and on the box; `config/octane.php`'s wall list carries the full account,
+     * including why a grep for timeout directives could not see it.
+     *
+     * It is 150 now because that constraint is gone. The model calls no longer
+     * run inside the HTTP request at all: they run inside
+     * `App\Jobs\AnalyzeMonitorJob` on its own `analyze` Horizon queue
+     * (`config/horizon.php`), so the wall this number has to clear is not a
+     * proxy or `octane.max_execution_time` any more, it is the JOB's own
+     * `$timeout` (160), which sits under the `analyze` supervisor's `timeout`
+     * (170), which sits under the `redis-analyze` connection's `retry_after`
+     * (200). `AnalyzeQueueConfigTest` pins that whole chain, and
+     * `AiDeadlineTest` pins this value against the supervisor half of it. 150
+     * gives metric discovery real room instead of the sliver 50 left it, and it
+     * can afford to because it now only has to clear its own worker's ceiling
+     * rather than a wall shared with every other request on the box.
+     *
+     * The clock no longer covers the probe either. It used to: the clock started
+     * at the top of `MonitorController::analyze()`, before the probe, so the
+     * probe's own 30 second timeout spent from this same number instead of
+     * sitting outside it and clearing every wall above. The probe stays in the
+     * request now; `AiDeadline::restart()` is called from
+     * `AnalyzeMonitorJob::handle()` on entry instead, so this number funds the
+     * model calls alone. Do not re-anchor it to cover the probe again without
+     * re-deriving the sum against the job's own 160 second ceiling.
+     */
+    'request_budget_seconds' => (int) env('AI_REQUEST_BUDGET_SECONDS', 150),
+
+    /*
+     * The least time worth starting a model call with. Below this the provider
+     * cannot realistically answer, and burning the remainder only delays the
+     * degrade the caller is going to perform anyway.
+     */
+    'minimum_call_seconds' => (int) env('AI_MINIMUM_CALL_SECONDS', 8),
+
     'triage' => [
         'model' => env('AI_TRIAGE_MODEL', 'claude-haiku-4-5-20251001'),
     ],

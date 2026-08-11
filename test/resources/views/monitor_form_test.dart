@@ -46,6 +46,27 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.form_method_label': 'HTTP method',
       'uptizm.monitors.form_headers_label': 'Request headers',
       'uptizm.monitors.form_headers_hint': 'Key / value pairs.',
+      // MonitorForm: the credential block.
+      'uptizm.monitors.form_auth_label': 'Authentication',
+      'uptizm.monitors.form_auth_hint': 'Sent with every check.',
+      'uptizm.monitors.form_auth_type_none': 'None',
+      'uptizm.monitors.form_auth_type_basic': 'Basic',
+      'uptizm.monitors.form_auth_type_bearer': 'Bearer',
+      'uptizm.monitors.form_auth_type_api_key': 'API key',
+      'uptizm.monitors.form_auth_username_label': 'Username',
+      'uptizm.monitors.form_auth_username_placeholder': 'svc-user',
+      'uptizm.monitors.form_auth_password_label': 'Password',
+      'uptizm.monitors.form_auth_token_label': 'Token',
+      'uptizm.monitors.form_auth_key_label': 'API key',
+      'uptizm.monitors.form_auth_header_label': 'Header name',
+      'uptizm.monitors.form_auth_header_placeholder': 'X-Api-Key',
+      'uptizm.monitors.form_auth_secret_stored_placeholder': 'Blank keeps it',
+      'uptizm.monitors.form_auth_error_username_required': 'Enter a username.',
+      'uptizm.monitors.form_auth_error_password_required': 'Enter a password.',
+      'uptizm.monitors.form_auth_error_token_required': 'Enter a token.',
+      'uptizm.monitors.form_auth_error_key_required': 'Enter a key.',
+      'uptizm.monitors.form_auth_error_header_required': 'Enter a header.',
+      'uptizm.monitors.form_auth_error_too_long': 'Max :max characters.',
       'uptizm.monitors.form_body_label': 'Request body',
       'uptizm.monitors.form_body_placeholder': 'JSON payload',
       'uptizm.monitors.form_timeout_label': 'Timeout (seconds)',
@@ -71,10 +92,21 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.create_ai_url_placeholder':
           'https://api.example.com/health',
       'uptizm.monitors.create_ai_analyze_button': 'Analyze with AI',
+      'uptizm.monitors.create_ai_analyze_failed': 'Check the URL is reachable.',
+      'uptizm.monitors.create_ai_analyze_lost': 'That run expired, run it again.',
       'uptizm.monitors.create_ai_analyzing_title': 'Analyzing endpoint…',
+      // The five step rows and the note a skipped one carries. Short strings on
+      // purpose: without them each row lays out its ~34-character raw key and
+      // the card overflows for a reason that has nothing to do with the state
+      // machine under test.
+      'uptizm.monitors.create_ai_step_1': 'Probing',
+      'uptizm.monitors.create_ai_step_2': 'Digesting',
+      'uptizm.monitors.create_ai_step_3': 'Measuring',
+      'uptizm.monitors.create_ai_step_4': 'Suggesting',
+      'uptizm.monitors.create_ai_step_5': 'Discovering',
+      'uptizm.monitors.create_ai_analyze_skipped_note': 'not needed',
       'uptizm.monitors.create_ai_review_banner_title':
           'AI configured this monitor',
-      'uptizm.monitors.create_ai_review_summary': 'Ready: :name.',
       'uptizm.monitors.create_ai_suggested_metrics': 'Suggested metrics',
       'uptizm.monitors.create_ai_suggested_metrics_help':
           'These will be tracked after creation.',
@@ -521,8 +553,579 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // MonitorForm credentials (the auth_config block)
+  //
+  // The edit half is the one that can destroy data: `MonitorResource` reduces a
+  // stored credential to `type` / `username` / `header`, so the form never
+  // receives the secret and must omit `auth_config` from the request rather
+  // than round-trip a partial map (which 422s) or a masked placeholder (which
+  // would be submitted as the literal new password).
+  // ---------------------------------------------------------------------------
+
+  group('MonitorForm credentials', () {
+    /// The obscured secret input, whichever scheme is selected. Found by its
+    /// [InputType] rather than a placeholder, because on a create it has none.
+    Finder secretInput() {
+      return find.byWidgetPredicate(
+        (widget) => widget is MSInput && widget.type == InputType.password,
+      );
+    }
+
+    /// Pumps a form with the advanced section open, runs [interact], taps
+    /// Submit, and returns the posted field map (null when the client-side
+    /// checks blocked the submit).
+    Future<Map<String, dynamic>?> submitWith(
+      WidgetTester tester, {
+      required String submitLabelKey,
+      bool isEdit = false,
+      Map<String, dynamic>? initialAuthConfig,
+      Map<String, dynamic>? initialPendingAuthConfig,
+      required Future<void> Function(WidgetTester tester) interact,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Map<String, dynamic>? captured;
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            isEdit: isEdit,
+            startAdvanced: true,
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            initialAuthConfig: initialAuthConfig,
+            initialPendingAuthConfig: initialPendingAuthConfig,
+            submitLabel: trans(submitLabelKey),
+            onSubmit: (fields) async {
+              captured = fields;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      await interact(tester);
+
+      final Finder submit = find.widgetWithText(
+        MSButton,
+        trans(submitLabelKey),
+      );
+      await tester.ensureVisible(submit);
+      await tester.pump();
+      await tester.tap(submit);
+      await tester.pump();
+
+      return captured;
+    }
+
+    testWidgets('a create with basic auth posts a complete credential map', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {
+          await tester.tap(find.text(trans('uptizm.monitors.form_auth_type_basic')));
+          await tester.pump();
+          await tester.enterText(
+            find.widgetWithText(
+              MSInput,
+              trans('uptizm.monitors.form_auth_username_placeholder'),
+            ),
+            'svc',
+          );
+          await tester.pump();
+          await tester.enterText(secretInput(), 's3cret');
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull, reason: 'a complete credential must submit');
+      expect(
+        fields!['auth_config'],
+        equals({'type': 'basic', 'username': 'svc', 'password': 's3cret'}),
+        reason: 'the create request carries the whole credential the worker '
+            'needs, and only the keys the selected scheme uses',
+      );
+    });
+
+    testWidgets('a create with no credential still posts an explicit null', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {},
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!.containsKey('auth_config'),
+        isTrue,
+        reason: 'a create sends the full request shape',
+      );
+      expect(fields['auth_config'], isNull);
+    });
+
+    testWidgets(
+      'an edit that changes only the name omits auth_config from the request',
+      (tester) async {
+        // The destructive case. The form holds no secret to resend, so a
+        // request carrying `{type: basic, username: svc}` would be refused by
+        // `required_if:auth_config.type,basic` and one carrying an explicit
+        // null would blank a credential nobody asked to change. Omitting the
+        // key is the only shape that leaves the stored credential alone.
+        final Map<String, dynamic>? fields = await submitWith(
+          tester,
+          submitLabelKey: 'uptizm.monitors.form_submit_save',
+          isEdit: true,
+          initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+          interact: (tester) async {
+            await tester.enterText(
+              find.widgetWithText(MSInput, 'API gateway'),
+              'API gateway (renamed)',
+            );
+            await tester.pump();
+          },
+        );
+
+        expect(fields, isNotNull, reason: 'a rename must not be blocked');
+        expect(fields!['name'], equals('API gateway (renamed)'));
+        expect(
+          fields.containsKey('auth_config'),
+          isFalse,
+          reason: 'an untouched credential must not travel at all: neither a '
+              'partial map (422) nor an explicit null (blanks the secret)',
+        );
+      },
+    );
+
+    testWidgets(
+      'a credential carried in from the AI setup step posts its secret',
+      (tester) async {
+        // The other half of the seed contract, and the opposite of the edit
+        // case above. This credential was typed on the AI input step and
+        // nothing has stored it, so a form that dropped its secret the way a
+        // redacted seed drops one would create a monitor with no credential and
+        // its first check would 401 on an endpoint the analysis just read.
+        final Map<String, dynamic>? fields = await submitWith(
+          tester,
+          submitLabelKey: 'uptizm.monitors.form_submit_create',
+          initialPendingAuthConfig: const {
+            'type': 'basic',
+            'username': 'svc',
+            'password': 's3cret',
+          },
+          interact: (tester) async {},
+        );
+
+        expect(fields, isNotNull, reason: 'a complete credential must submit');
+        expect(
+          fields!['auth_config'],
+          equals({'type': 'basic', 'username': 'svc', 'password': 's3cret'}),
+          reason: 'the secret has to reach the create request: it exists '
+              'nowhere else',
+        );
+      },
+    );
+
+    testWidgets(
+      'a pending credential fills the secret input, a stored one does not',
+      (tester) async {
+        // What the operator sees is the same distinction: a secret that will be
+        // sent is present in the field, a secret the backend holds and withheld
+        // is announced by the placeholder and never faked into the value.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrap(
+            MonitorForm(
+              startAdvanced: true,
+              initialName: 'API gateway',
+              initialUrl: 'https://api.example.com/health',
+              initialPendingAuthConfig: const {
+                'type': 'basic',
+                'username': 'svc',
+                'password': 's3cret',
+              },
+              submitLabel: trans('uptizm.monitors.form_submit_create'),
+              onSubmit: (_) async => <String, String>{},
+              onCancel: () {},
+            ),
+            size: const Size(1200, 5000),
+          ),
+        );
+        await tester.pump();
+
+        final MSInput secret = tester.widget<MSInput>(secretInput());
+        expect(secret.value, equals('s3cret'));
+        expect(
+          secret.placeholder,
+          isNull,
+          reason: 'nothing is stored, so nothing can be kept by leaving it '
+              'blank; claiming otherwise would be the wrong affordance',
+        );
+      },
+    );
+
+    testWidgets('the stored secret is never rendered, only announced', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            isEdit: true,
+            startAdvanced: true,
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+            submitLabel: trans('uptizm.monitors.form_submit_save'),
+            onSubmit: (_) async => <String, String>{},
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      final MSInput secret = tester.widget<MSInput>(secretInput());
+      expect(
+        secret.value ?? '',
+        isEmpty,
+        reason: 'a masked placeholder would be posted as the literal password',
+      );
+      expect(
+        secret.placeholder,
+        equals(trans('uptizm.monitors.form_auth_secret_stored_placeholder')),
+        reason: 'the operator has to be told blank means unchanged',
+      );
+      expect(
+        find.widgetWithText(MSInput, 'svc'),
+        findsOneWidget,
+        reason: 'the non-secret username the backend does return is seeded',
+      );
+    });
+
+    testWidgets('typing a new password on an edit replaces the credential', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_save',
+        isEdit: true,
+        initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+        interact: (tester) async {
+          await tester.enterText(secretInput(), 'rotated');
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!['auth_config'],
+        equals({'type': 'basic', 'username': 'svc', 'password': 'rotated'}),
+        reason: 'the seeded username rides along with the retyped secret',
+      );
+    });
+
+    testWidgets('switching an edit to None clears the stored credential', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_save',
+        isEdit: true,
+        initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_none')),
+          );
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!.containsKey('auth_config'),
+        isTrue,
+        reason: 'clearing is a deliberate act and has to reach the backend',
+      );
+      expect(fields['auth_config'], isNull);
+    });
+
+    testWidgets('switching scheme without retyping the secret blocks submit', (
+      tester,
+    ) async {
+      // The stored basic password says nothing about a bearer token, so the
+      // scheme change makes the secret required again rather than posting
+      // `{type: bearer}` and collecting a 422.
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_save',
+        isEdit: true,
+        initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_bearer')),
+          );
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNull, reason: 'an incomplete credential must not post');
+      expect(
+        find.text(trans('uptizm.monitors.form_auth_error_token_required')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an api_key create posts the header name beside the key', (
+      tester,
+    ) async {
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_api_key')),
+          );
+          await tester.pump();
+          await tester.enterText(
+            find.widgetWithText(
+              MSInput,
+              trans('uptizm.monitors.form_auth_header_placeholder'),
+            ),
+            'X-Api-Key',
+          );
+          await tester.pump();
+          await tester.enterText(secretInput(), 'k-123');
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNotNull);
+      expect(
+        fields!['auth_config'],
+        equals({'type': 'api_key', 'key': 'k-123', 'header': 'X-Api-Key'}),
+      );
+    });
+
+    testWidgets('an oversized token is refused here, not by a 422', (
+      tester,
+    ) async {
+      // `max:2048` on the backend, and these values travel inside the
+      // HMAC-signed relay spec, so the bound is worth stating locally.
+      final Map<String, dynamic>? fields = await submitWith(
+        tester,
+        submitLabelKey: 'uptizm.monitors.form_submit_create',
+        interact: (tester) async {
+          await tester.tap(
+            find.text(trans('uptizm.monitors.form_auth_type_bearer')),
+          );
+          await tester.pump();
+          await tester.enterText(secretInput(), 'x' * 2049);
+          await tester.pump();
+        },
+      );
+
+      expect(fields, isNull, reason: 'an over-long token must not post');
+      expect(
+        find.text(
+          trans('uptizm.monitors.form_auth_error_too_long', {'max': '2048'}),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a server 422 on auth_config lands under the named field', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            startAdvanced: true,
+            initialName: 'API gateway',
+            initialUrl: 'https://api.example.com/health',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            // Laravel reports the map's inner shape with dotted keys; anything
+            // the form owns no slot for becomes a generic toast instead.
+            onSubmit: (_) async => {
+              'auth_config.password': 'That password was rejected.',
+            },
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text(trans('uptizm.monitors.form_auth_type_basic')));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(
+          MSInput,
+          trans('uptizm.monitors.form_auth_username_placeholder'),
+        ),
+        'svc',
+      );
+      await tester.pump();
+      await tester.enterText(secretInput(), 'wrong');
+      await tester.pump();
+
+      final Finder submit = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      expect(find.text('That password was rejected.'), findsOneWidget);
+    });
+
+    testWidgets('a TCP monitor renders no credential block', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            startAdvanced: true,
+            initialType: 'tcp',
+            initialUrl: 'db.example.com:5432',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (_) async => <String, String>{},
+            onCancel: () {},
+          ),
+          size: const Size(1200, 5000),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.monitors.form_auth_label')),
+        findsNothing,
+        reason: 'a socket connect has nothing to authenticate with',
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // MonitorCreateView
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // The analyze run, as this screen has to drive it since the 202 split.
+  //
+  // `POST /monitors/analyze` ACCEPTS a run and answers a run id; a worker does
+  // the model calls and the analysis arrives on `GET /monitors/analyze/{run}`.
+  // So a test that wants the review step has to stub both endpoints and advance
+  // the clock past one poll interval, and neither is optional: with only the
+  // POST stubbed the view sits on the analyzing step forever, which is exactly
+  // what the old single-response fixtures did when this landed.
+  // ---------------------------------------------------------------------------
+
+  /// The 202 accept body: the run's first snapshot, the same shape the poll
+  /// answers in. `steps` is a json ARRAY because PHP encodes an empty array as
+  /// one; it only becomes an object once an ordinal has reported.
+  Map<String, dynamic> acceptedRun({String runId = 'run-1'}) => {
+    'data': {
+      'run_id': runId,
+      'status': 'queued',
+      'step': 0,
+      'steps': <dynamic>[],
+      'probe': {'region': 'us-east', 'status_code': 200, 'response_ms': 120},
+      'reason': null,
+      'result': null,
+    },
+  };
+
+  /// One `GET /monitors/analyze/{run}` body. [result] is the old synchronous
+  /// analyze body verbatim under `data`, which is where it lives now.
+  Map<String, dynamic> runRead({
+    String runId = 'run-1',
+    required String status,
+    int step = 0,
+    Map<String, String> steps = const {},
+    String? reason,
+    Map<String, dynamic>? result,
+  }) => {
+    'data': {
+      'run_id': runId,
+      'status': status,
+      'step': step,
+      'steps': steps,
+      'probe': {'region': 'us-east', 'status_code': 200, 'response_ms': 120},
+      'reason': reason,
+      'result': result == null ? null : {'data': result, 'meta': null},
+    },
+  };
+
+  /// Fakes a run that is accepted and then completes with [analysis] on its
+  /// first poll read, plus any [extra] stubs the test needs (a create, say).
+  FakeNetworkDriver fakeCompletedRun(
+    Map<String, dynamic> analysis, {
+    Map<String, MagicResponse> extra = const {},
+  }) {
+    return Http.fake(<String, MagicResponse>{
+      'monitors/analyze': Http.response(acceptedRun(), 202),
+      'monitors/analyze/run-1': Http.response(
+        runRead(
+          status: 'completed',
+          step: 5,
+          steps: const {
+            '1': 'done',
+            '2': 'done',
+            '3': 'done',
+            '4': 'done',
+            '5': 'done',
+          },
+          result: analysis,
+        ),
+      ),
+      ...extra,
+    });
+  }
+
+  /// Advances fake time past one poll interval so the accepted run is read.
+  ///
+  /// The controller polls on a [Timer] every 2500ms and fake time does not move
+  /// on its own, so without this the review step is never reached and every
+  /// assertion past the accept reads an absent widget.
+  Future<void> settleAnalyzeRun(WidgetTester tester) async {
+    await tester.pump(const Duration(milliseconds: 2600));
+    await tester.pumpAndSettle();
+  }
+
+  /// Types [url] into the AI input step and taps Analyze, settling the accept
+  /// but NOT the run: a caller that wants the review step calls
+  /// [settleAnalyzeRun] after this, and one asserting on the analyzing card does
+  /// not.
+  Future<void> startAnalyze(WidgetTester tester, String url) async {
+    final Finder urlInput = find.widgetWithText(
+      MSInput,
+      trans('uptizm.monitors.create_ai_url_placeholder'),
+    );
+    await tester.enterText(urlInput, url);
+    await tester.pump();
+    await tester.tap(
+      find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.create_ai_analyze_button'),
+      ),
+    );
+    await tester.pump();
+  }
 
   group('MonitorCreateView', () {
     testWidgets('AI input step renders the URL Input and Analyze button', (
@@ -616,23 +1219,14 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1200, 5000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final fake = Http.fake({
-        'monitors/analyze': Http.response({
-          'data': {
-            'url': 'https://api.example.com/health',
-            'name': 'api.example.com',
-            'recommended_interval_seconds': 60,
-            'recommended_warn_threshold_ms': 300,
-            'recommended_critical_threshold_ms': 1000,
-            'recommended_regions': ['us-east', 'eu-west'],
-            'rationale': 'Stable JSON API, 60s checks are sufficient.',
-            'probe': {
-              'region': 'us-east',
-              'status_code': 200,
-              'response_ms': 120,
-            },
-          },
-        }),
+      final fake = fakeCompletedRun({
+        'url': 'https://api.example.com/health',
+        'name': 'api.example.com',
+        'recommended_interval_seconds': 60,
+        'recommended_warn_threshold_ms': 300,
+        'recommended_critical_threshold_ms': 1000,
+        'recommended_regions': ['us-east', 'eu-west'],
+        'rationale': 'Stable JSON API, 60s checks are sufficient.',
       });
 
       await tester.pumpWidget(
@@ -663,14 +1257,16 @@ void main() {
         reason: 'Analyze button must be enabled once a URL is entered',
       );
 
-      // Tap Analyze to fire the live POST /monitors/analyze request.
+      // Tap Analyze to fire the live POST /monitors/analyze request, then let
+      // the run's first poll read land: the 202 accepts, the read answers.
       await tester.tap(
         find.widgetWithText(
           MSButton,
           trans('uptizm.monitors.create_ai_analyze_button'),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await settleAnalyzeRun(tester);
 
       // The request actually fired the analyze endpoint with the pasted URL.
       fake.assertSent(
@@ -678,6 +1274,13 @@ void main() {
             request.method == 'POST' &&
             request.url.contains('monitors/analyze') &&
             (request.data as Map)['url'] == 'https://api.example.com/health',
+      );
+      // And the analysis was fetched over the run's own authorised GET rather
+      // than read out of the accept, which carries no result at all.
+      fake.assertSent(
+        (request) =>
+            request.method == 'GET' &&
+            request.url.contains('monitors/analyze/run-1'),
       );
 
       // After the response resolves the view flips to the review step: a
@@ -712,47 +1315,38 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1200, 5000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        Http.fake({
-          'monitors/analyze': Http.response({
-            'data': {
-              'url': 'https://api.example.com/health',
-              'name': 'api.example.com',
-              'recommended_interval_seconds': 60,
-              'recommended_warn_threshold_ms': 300,
-              'recommended_critical_threshold_ms': 1000,
-              'recommended_regions': ['us-east', 'eu-west'],
-              'rationale': 'Stable JSON API, 60s checks are sufficient.',
-              'suggested_metrics': [
-                {
-                  'key': 'p95_ms',
-                  'label': 'p95 latency',
-                  'type': 'numeric',
-                  'source': 'json',
-                  'path': r'$.latency.p95',
-                  'unit': 'ms',
-                  'warn': 300,
-                  'critical': 1000,
-                  'sample_value': '120',
-                },
-                {
-                  'key': 'error_rate',
-                  'label': 'Error rate',
-                  'type': 'numeric',
-                  'source': 'json',
-                  'path': r'$.errors.rate',
-                  'unit': '%',
-                  'warn': 1,
-                  'critical': 5,
-                  'sample_value': '0.2',
-                },
-              ],
-              'probe': {
-                'region': 'us-east',
-                'status_code': 200,
-                'response_ms': 120,
-              },
+        fakeCompletedRun({
+          'url': 'https://api.example.com/health',
+          'name': 'api.example.com',
+          'recommended_interval_seconds': 60,
+          'recommended_warn_threshold_ms': 300,
+          'recommended_critical_threshold_ms': 1000,
+          'recommended_regions': ['us-east', 'eu-west'],
+          'rationale': 'Stable JSON API, 60s checks are sufficient.',
+          'suggested_metrics': [
+            {
+              'key': 'p95_ms',
+              'label': 'p95 latency',
+              'type': 'numeric',
+              'source': 'json',
+              'path': r'$.latency.p95',
+              'unit': 'ms',
+              'warn': 300,
+              'critical': 1000,
+              'sample_value': '120',
             },
-          }),
+            {
+              'key': 'error_rate',
+              'label': 'Error rate',
+              'type': 'numeric',
+              'source': 'json',
+              'path': r'$.errors.rate',
+              'unit': '%',
+              'warn': 1,
+              'critical': 5,
+              'sample_value': '0.2',
+            },
+          ],
         });
 
         await tester.pumpWidget(
@@ -760,22 +1354,8 @@ void main() {
         );
         await tester.pump();
 
-        final Finder urlInput = find.widgetWithText(
-          MSInput,
-          trans('uptizm.monitors.create_ai_url_placeholder'),
-        );
-        await tester.tap(urlInput);
-        await tester.pump();
-        await tester.enterText(urlInput, 'https://api.example.com/health');
-        await tester.pump();
-
-        await tester.tap(
-          find.widgetWithText(
-            MSButton,
-            trans('uptizm.monitors.create_ai_analyze_button'),
-          ),
-        );
-        await tester.pumpAndSettle();
+        await startAnalyze(tester, 'https://api.example.com/health');
+        await settleAnalyzeRun(tester);
 
         // The section header appears (the response carries real suggestions)
         // and exactly one pill renders per suggested_metrics entry, using the
@@ -855,6 +1435,230 @@ void main() {
           tester.widget<MSButton>(analyzeButtonAgain).disabled,
           isFalse,
           reason: 'The retry Analyze button must be enabled (URL is retained)',
+        );
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // The analyze-step rows, driven by the run rather than decorated.
+    //
+    // Before this they were five identical spinners on a timer of their own, so
+    // the card said the same thing whatever the worker was doing (and kept
+    // saying it after the worker had stopped). Every assertion below counts
+    // GLYPHS rather than reading a className, because a className is not what an
+    // operator sees and an inert Wind token would let a wrong one pass.
+    // -------------------------------------------------------------------------
+
+    /// The number of rows rendering each state, by the glyph that identifies it.
+    int rows(WidgetTester tester, IconData icon) =>
+        tester.widgetList(find.byIcon(icon)).length;
+
+    testWidgets('the analyze rows advance with the run, and a skipped step '
+        'renders as skipped rather than spinning on work that never ran', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 5000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      addTearDown(MonitorController.instance.abandonAnalyzeRun);
+
+      int reads = 0;
+      Http.fake((MagicRequest request) {
+        if (request.method == 'POST') {
+          return Http.response(acceptedRun(), 202);
+        }
+        if (!request.url.contains('monitors/analyze/')) {
+          return Http.response(<String, dynamic>{});
+        }
+
+        reads++;
+        // Read 1 is the state this test exists for: step 2 SKIPPED (the digest
+        // had no body to read), which is terminal, so the row after it is the
+        // one in flight and nothing is left claiming to work on step 2.
+        return Http.response(
+          reads == 1
+              ? runRead(
+                  status: 'analyzing',
+                  step: 2,
+                  steps: const {'1': 'done', '2': 'skipped'},
+                )
+              : runRead(
+                  status: 'completed',
+                  step: 5,
+                  steps: const {
+                    '1': 'done',
+                    '2': 'skipped',
+                    '3': 'done',
+                    '4': 'done',
+                    '5': 'done',
+                  },
+                  result: const {
+                    'url': 'https://api.example.com/health',
+                    'name': 'api.example.com',
+                    'recommended_interval_seconds': 60,
+                    'recommended_regions': ['us-east'],
+                    'rationale': 'Stable JSON API.',
+                  },
+                ),
+        );
+      });
+
+      await tester.pumpWidget(
+        wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+      );
+      await tester.pump();
+      await startAnalyze(tester, 'https://api.example.com/health');
+
+      // 1. Accepted, nothing reported yet. The probe runs INSIDE the accepting
+      //    request, so ordinal 1 is the one genuinely working and the other four
+      //    are pending, not spinning.
+      expect(
+        find.text(trans('uptizm.monitors.create_ai_step_1')),
+        findsOneWidget,
+        reason: 'the analyzing card must be on screen',
+      );
+      expect(rows(tester, Icons.autorenew), 1, reason: 'exactly one row is in flight');
+      expect(rows(tester, Icons.radio_button_unchecked), 4);
+      expect(rows(tester, Icons.check_circle_outline), 0);
+
+      // 2. One poll read later the rows are the run's own state.
+      await tester.pump(const Duration(milliseconds: 2600));
+      await tester.pump();
+
+      // THE assertion of this step, and it goes FIRST so a run of it names the
+      // state that broke rather than a side effect of it: collapsing `skipped`
+      // into `done` (the measured mutation, `evidence/step-10-skipped-step-
+      // red.md`) leaves this at 0 and the check count at 2.
+      expect(
+        rows(tester, Icons.remove_circle_outline),
+        1,
+        reason: 'ordinal 2 reported skipped and must render as skipped, not as '
+            'done and not as still running',
+      );
+      expect(
+        find.text(trans('uptizm.monitors.create_ai_analyze_skipped_note')),
+        findsOneWidget,
+        reason: 'a skipped step says so in words; a muted glyph is not a claim '
+            'anybody reads',
+      );
+      expect(
+        rows(tester, Icons.check_circle_outline),
+        1,
+        reason: 'ordinal 1 reported done, and it is the ONLY done row: a client '
+            'that folded skipped into done would report two findings where the '
+            'worker made one',
+      );
+      expect(
+        rows(tester, Icons.autorenew),
+        1,
+        reason: 'a skipped tick is terminal, so the row AFTER it is the one in '
+            'flight: no row is left spinning on the skipped step',
+      );
+      expect(
+        rows(tester, Icons.radio_button_unchecked),
+        2,
+        reason: 'ordinals 4 and 5 are pending, not spinning',
+      );
+
+      // 3. And the run still finishes into the review step, so the skipped
+      //    state is a passing-through state rather than a dead end.
+      await settleAnalyzeRun(tester);
+      expect(find.byType(MonitorForm), findsOneWidget);
+    });
+
+    testWidgets(
+      'a lost run tells the operator to run it again, not to check the URL',
+      (tester) async {
+        // The run's cache entry is gone (Redis runs `volatile-lru` at a 512 MB
+        // ceiling, and the entry expires at 900s anyway). The target was never
+        // the problem, so the reachability hint would be a wrong diagnosis of a
+        // URL that answered fine minutes earlier.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        addTearDown(MonitorController.instance.abandonAnalyzeRun);
+
+        Http.fake((MagicRequest request) {
+          if (request.method == 'POST') {
+            return Http.response(acceptedRun(), 202);
+          }
+
+          return Http.response(<String, dynamic>{'message': 'Not found.'}, 404);
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+        await startAnalyze(tester, 'https://api.example.com/health');
+        await settleAnalyzeRun(tester);
+
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_analyze_lost')),
+          findsOneWidget,
+          reason: 'an expired run has its own copy',
+        );
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_analyze_failed')),
+          findsNothing,
+          reason: 'and it is NOT the reachability hint, which blames a target '
+              'that was fine',
+        );
+      },
+    );
+
+    testWidgets(
+      'switching to Manual mid-run abandons the run and blames nobody for it',
+      (tester) async {
+        // Abandoning settles the pending analyze with null, exactly as a failure
+        // does. Without the attempt guard the operator would land on the manual
+        // form and then be told the URL could not be analyzed, for a run they
+        // cancelled themselves; and the poll would keep reading for four
+        // minutes with nothing left to render it.
+        await tester.binding.setSurfaceSize(const Size(1200, 5000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        int reads = 0;
+        Http.fake((MagicRequest request) {
+          if (request.method == 'POST') {
+            return Http.response(acceptedRun(), 202);
+          }
+          if (request.url.contains('monitors/analyze/')) reads++;
+
+          return Http.response(<String, dynamic>{});
+        });
+
+        await tester.pumpWidget(
+          wrap(const MonitorCreateView(), size: const Size(1200, 5000)),
+        );
+        await tester.pump();
+        await startAnalyze(tester, 'https://api.example.com/health');
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_step_1')),
+          findsOneWidget,
+          reason: 'the run is in flight before the mode switch',
+        );
+
+        await tester.tap(
+          find.text(trans('uptizm.monitors.create_mode_manual')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_analyze_failed')),
+          findsNothing,
+          reason: 'a cancelled run is not a failed one',
+        );
+        expect(
+          find.text(trans('uptizm.monitors.create_ai_analyze_lost')),
+          findsNothing,
+        );
+
+        // The poll is gone with the run: no read ever happens, and no pending
+        // timer is left behind (which is itself asserted by the test framework).
+        await tester.pump(const Duration(milliseconds: 5200));
+        expect(
+          reads,
+          0,
+          reason: 'an abandoned run must stop costing a read every 2500ms',
         );
       },
     );
