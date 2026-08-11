@@ -136,6 +136,30 @@ class StatusPageLocaleTest extends TestCase
 
         $this->assertEnglishCopyMovedOver(self::POPULATED_ENGLISH_COPY, $englishHtml, $turkishHtml);
 
+        // The dates, which are the only copy on this page composed by Carbon rather
+        // than resolved from a catalogue, so no key-based assertion reaches them.
+        // Both the incident stamp and the maintenance window's two bounds shipped an
+        // English month abbreviation inside a Turkish sentence, and only one of the
+        // two was caught first: asserting the English month is ABSENT from the
+        // Turkish page is what makes the pair a pair.
+        //
+        // The month comes from the fixture's own clock rather than a literal, since
+        // both fixtures are built relative to `now()`.
+        $englishMonth = CarbonImmutable::now()->format('M');
+        $turkishMonth = CarbonImmutable::now()->locale('tr')->translatedFormat('M');
+
+        $this->assertStringContainsString($englishMonth, $englishHtml);
+
+        if ($turkishMonth !== $englishMonth) {
+            $this->assertStringNotContainsString(
+                $englishMonth,
+                $turkishHtml,
+                "[{$englishMonth}] reached the Turkish page: a date is still formatted "
+                .'without the page locale, so its month stays English.',
+            );
+            $this->assertStringContainsString($turkishMonth, $turkishHtml);
+        }
+
         // The Turkish the customer actually reads, key by key.
         foreach ([
             'Performans düşük',

@@ -55,14 +55,18 @@
 
                     {{-- Both bounds as `<time datetime>`, which the layout rewrites to the
                          viewer's own zone. The server-rendered text is the no-JS fallback
-                         and carries its zone, so it is never read as local by mistake. --}}
+                         and carries its zone, so it is never read as local by mistake.
+                         `translatedFormat` under the page's locale for the same reason the
+                         incident stamp uses it: a bare `format('M ...')` puts an English
+                         month abbreviation between two Turkish words, and the reader who
+                         sees this text is precisely the one with no script to fix it. --}}
                     <p class="mt-1 text-xs text-fg-muted tabular-nums">
                         <time datetime="{{ $window['startsAt'] }}">
-                            {{ \Illuminate\Support\Carbon::parse($window['startsAt'])->format('M j, Y H:i T') }}
+                            {{ \Illuminate\Support\Carbon::parse($window['startsAt'])->locale(app()->getLocale())->translatedFormat('M j, Y H:i T') }}
                         </time>
                         {{ __('status.maintenances.range_separator') }}
                         <time datetime="{{ $window['endsAt'] }}">
-                            {{ \Illuminate\Support\Carbon::parse($window['endsAt'])->format('M j, Y H:i T') }}
+                            {{ \Illuminate\Support\Carbon::parse($window['endsAt'])->locale(app()->getLocale())->translatedFormat('M j, Y H:i T') }}
                         </time>
                     </p>
 

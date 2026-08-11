@@ -139,7 +139,12 @@
                                                      update is something they are owed. --}}
                                                 <p class="text-xs text-fg-muted">
                                                     <time datetime="{{ $update['displayAt'] }}">
-                                                        {{ \Illuminate\Support\Carbon::parse($update['displayAt'])->utc()->format('M j, H:i') }} UTC
+                                                        {{-- The third date on this page, and the one a
+                                                             review pass and a twin-site fix both walked
+                                                             past: same `translatedFormat` under the page
+                                                             locale as the started-at stamp above and the
+                                                             maintenance bounds. --}}
+                                                        {{ \Illuminate\Support\Carbon::parse($update['displayAt'])->utc()->locale(app()->getLocale())->translatedFormat('M j, H:i') }} UTC
                                                     </time>
 
                                                     @if ($update['actor'] !== 'human')
