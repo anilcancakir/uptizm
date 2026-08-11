@@ -456,7 +456,24 @@ class IncidentController extends MagicController
       final Object? data = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (data is! Map<String, dynamic>) return;
+      if (data is! Map<String, dynamic>) {
+        // A 200 whose body is not the shape we asked for. Silent on the mount
+        // path like every other failure there, but the retry has to speak: this
+        // was the one exit that reported nothing, so an operator-initiated
+        // re-ask against a malformed payload looked exactly like a button that
+        // did nothing, which is what this method's own contract rules out.
+        Log.error(
+          '[IncidentController._fetchAnalysis] $id: malformed payload',
+        );
+        if (reportFailure) {
+          Magic.error(
+            trans('common.error_occurred'),
+            trans('common.error_occurred'),
+          );
+        }
+
+        return;
+      }
 
       final IncidentAi analysis = IncidentAi(
         trigger: '',

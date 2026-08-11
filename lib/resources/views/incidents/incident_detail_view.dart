@@ -623,10 +623,18 @@ class _IncidentDetailViewState
   Widget _buildDegradedAnalysis(Incident incident, AiDegradeReason reason) {
     // One exhaustive switch with no default, carrying BOTH the sentence and
     // whether a retry can help. Retryability used to be a separate
-    // `reason != budgetExhausted` test, which is not the same guarantee: an
-    // unknown wire value decodes to `serviceUnreachable`
-    // (`aiDegradeReasonFromWire`), so a fourth backend reason would have
-    // inherited a budget-spending button by default. Here it fails the build.
+    // `reason != budgetExhausted` test, and the difference is what happens when a
+    // FOURTH ENUM CASE is added: the negative test would have defaulted it to
+    // retryable and shipped a budget-spending button nobody chose, while this
+    // fails to compile until someone answers the question.
+    //
+    // What it does NOT cover, because nothing client-side can: a reason the
+    // BACKEND adds and this client has never heard of. `aiDegradeReasonFromWire`
+    // coerces an unrecognised string to `serviceUnreachable` before it ever
+    // reaches here, so an older client offers a retry for it. Accepted for now:
+    // the alternative is an `unknown` case with a cause-free sentence, which is
+    // its own copy decision, and a stale client one release behind is a narrower
+    // window than a new case landing with no sentence at all.
     final (String notice, bool retryable) = switch (reason) {
       AiDegradeReason.budgetExhausted => (
         trans('uptizm.incidents.analysis_degraded_budget'),

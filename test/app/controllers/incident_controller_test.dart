@@ -869,6 +869,29 @@ void main() {
       );
     });
 
+    test('a retry against a malformed payload reports rather than going quiet', () async {
+      // The last silent exit. A 200 whose body is not the shape we asked for used
+      // to return with no log and no toast, so an operator-initiated re-ask looked
+      // identical to a dead button, which is the defect class this whole change
+      // is about.
+      Http.fake({
+        'incidents/malformed/analysis': Http.response({'unexpected': 'shape'}),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.retryAnalysis('malformed');
+
+      expect(controller.analysisPending('malformed'), isFalse);
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'malformed'})),
+        isNull,
+        reason: 'a shape we cannot read must not become a rendered analysis',
+      );
+    });
+
     test('a null or absent degrade_reason means nothing degraded', () async {
       // Both shapes, because the two are different states everywhere else in
       // this app: the endpoint always SENDS the key (null on the model path),
