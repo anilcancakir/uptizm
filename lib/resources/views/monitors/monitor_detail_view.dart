@@ -737,13 +737,11 @@ class _MonitorDetailViewState
   /// Shown only for active monitors with a configured [sloTarget] (the caller
   /// gates on `!paused && sloTarget != null`).
   ///
-  /// Falls back to the neutral no-data [MSEmptyState] rather than a number on
-  /// any of three conditions. The first is a payload that does not carry the
-  /// measurement at all (a list row, or a detail page never opened). The second
-  /// is coverage under [_reliabilityCoverageFloorMinutes]. The third is nothing
-  /// measured, and it is the one arithmetic cannot catch: a 30-day-old monitor
-  /// that recorded no check has a full window of observed time and zero
-  /// downtime, so every gauge reads as a perfect score.
+  /// Each window is gated on its own by [_windowSpeaks], so the section renders
+  /// a card for every window that has evidence and the neutral no-data
+  /// [MSEmptyState] only when NEITHER does. A payload carrying no measurement at
+  /// all (a list row, or a detail page never opened) is the third way to reach
+  /// the empty state, through [_reliabilityWindow] returning null.
   Widget _buildReliabilitySection(Monitor monitor, double sloTarget) {
     final _ReliabilityWindow? w7 = _reliabilityWindow(
       down: monitor.sloDownMinutes7d,
@@ -757,15 +755,14 @@ class _MonitorDetailViewState
       gap: monitor.sloGapMinutes30d,
       measured: monitor.sloMeasuredMinutes30d,
     );
-    // The 7-day coverage is the shorter of the two windows, so it is the one
-    // the floor reads: past the floor it pins to the full 10080 minutes and
-    // only a monitor younger than a day can fail it.
-    final bool renderable =
-        w7 != null &&
-        w30 != null &&
-        w7.observed.round() >= _reliabilityCoverageFloorMinutes &&
-        w7.measured > 0 &&
-        w30.measured > 0;
+    // Each window answers for itself. A single global gate looked simpler and
+    // was wrong: a monitor whose checks stopped eight days ago has an empty
+    // 7-day window and a full, possibly breached 30-day one, and gating on the
+    // 7-day window hid that behind "Uptizm has not been checking this monitor
+    // for long", a sentence that is false for a monitor watched for a month.
+    final _ReliabilityWindow? s7 = _windowSpeaks(w7) ? w7 : null;
+    final _ReliabilityWindow? s30 = _windowSpeaks(w30) ? w30 : null;
+    final bool renderable = s7 != null || s30 != null;
 
     // Uniform 12px (gap-3) between the heading and the content below it.
     return WDiv(
@@ -786,7 +783,7 @@ class _MonitorDetailViewState
             ),
           )
         else
-          ..._buildReliabilityBudgets(monitor, sloTarget, w7, w30),
+          ..._buildReliabilityBudgets(monitor, sloTarget, s7, s30),
       ],
     );
   }
@@ -812,49 +809,65 @@ class _MonitorDetailViewState
     return (down: down, observed: observed, gap: gap, measured: measured);
   }
 
-  /// Builds the populated reliability content from the measured minutes: the
-  /// 7-day and 30-day error-budget gauges, plus the budget-burn [AiInsight]
-  /// shown only when the 30-day budget is at risk or breached (tone != up).
+  /// Whether one window has enough evidence to print a number.
+  ///
+  /// Two conditions, and the second is the one arithmetic cannot catch. Coverage
+  /// under [_reliabilityCoverageFloorMinutes] says the window has barely begun.
+  /// Zero measured minutes says nobody watched it, which a full window of
+  /// elapsed time and zero downtime would otherwise render as a perfect score.
+  bool _windowSpeaks(_ReliabilityWindow? window) =>
+      window != null &&
+      window.observed.round() >= _reliabilityCoverageFloorMinutes &&
+      window.measured > 0;
+
+  /// Builds the populated reliability content from the measured minutes: an
+  /// error-budget gauge per window that can speak for itself, plus the
+  /// budget-burn [AiInsight] when the 30-day budget is at risk or breached.
+  ///
+  /// Either window may be absent, and the grid then holds one card. The burn
+  /// copy needs BOTH: every variant of it compares the 7-day tone against the
+  /// 30-day one ("back inside SLO" versus "still burning"), and with no 7-day
+  /// evidence there is no honest way to pick between them.
   List<Widget> _buildReliabilityBudgets(
     Monitor monitor,
     double sloTarget,
-    _ReliabilityWindow w7,
-    _ReliabilityWindow w30,
+    _ReliabilityWindow? w7,
+    _ReliabilityWindow? w30,
   ) {
-    final SloErrorBudget budget7 = computeErrorBudget(
-      sloTarget,
-      downMinutes: w7.down,
-      windowDays: 7,
-    );
-    final SloErrorBudget budget30 = computeErrorBudget(
-      sloTarget,
-      downMinutes: w30.down,
-      windowDays: 30,
-    );
+    final SloErrorBudget? budget7 = w7 == null
+        ? null
+        : computeErrorBudget(sloTarget, downMinutes: w7.down, windowDays: 7);
+    final SloErrorBudget? budget30 = w30 == null
+        ? null
+        : computeErrorBudget(sloTarget, downMinutes: w30.down, windowDays: 30);
 
     return [
       WDiv(
         className: 'grid grid-cols-1 sm:grid-cols-2 gap-4',
         children: [
-          SloBudgetCard(
-            target: sloTarget,
-            downMinutes: w7.down,
-            observedMinutes: w7.observed,
-            gapMinutes: w7.gap,
-            windowDays: 7,
-            windowLabel: trans('uptizm.slo.window_7day'),
-          ),
-          SloBudgetCard(
-            target: sloTarget,
-            downMinutes: w30.down,
-            observedMinutes: w30.observed,
-            gapMinutes: w30.gap,
-            windowDays: 30,
-            windowLabel: trans('uptizm.slo.window_30day'),
-          ),
+          if (w7 != null)
+            SloBudgetCard(
+              target: sloTarget,
+              downMinutes: w7.down,
+              observedMinutes: w7.observed,
+              gapMinutes: w7.gap,
+              windowDays: 7,
+              windowLabel: trans('uptizm.slo.window_7day'),
+            ),
+          if (w30 != null)
+            SloBudgetCard(
+              target: sloTarget,
+              downMinutes: w30.down,
+              observedMinutes: w30.observed,
+              gapMinutes: w30.gap,
+              windowDays: 30,
+              windowLabel: trans('uptizm.slo.window_30day'),
+            ),
         ],
       ),
-      if (budget30.tone != SloBudgetTone.up)
+      if (budget7 != null &&
+          budget30 != null &&
+          budget30.tone != SloBudgetTone.up)
         AiInsight(
           child: WText(_budgetBurnCopy(monitor, sloTarget, budget7, budget30)),
         ),

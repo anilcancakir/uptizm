@@ -1442,12 +1442,15 @@
       "status_at_risk": "At risk",
       "status_breached": "Budget breached",
       "budget_left": ":pct% budget left",
-      "budget_of": ":used of :allowed",
+      "budget_of": ":remaining of :allowed",
       "over_budget": "Over budget by :amount this window.",
       "coverage_partial": "Observed :hours hours of the :window window.",
+      "coverage_partial_days": "Observed :days days of the :window window.",
       "gap_unmeasured": "Not measured this window: :amount.",
       "window_7day": "7-day",
-      "window_30day": "30-day"
+      "window_30day": "30-day",
+      "unit_minutes": "m",
+      "unit_hours": "h"
     },
     "ranges": {
       "custom": "Custom range",

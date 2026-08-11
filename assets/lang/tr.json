@@ -1442,12 +1442,15 @@
       "status_at_risk": "Risk altında",
       "status_breached": "Bütçe aşıldı",
       "budget_left": "%:pct bütçe kaldı",
-      "budget_of": ":used / :allowed",
+      "budget_of": ":remaining / :allowed",
       "over_budget": "Bu pencerede bütçe :amount aşıldı.",
       "coverage_partial": ":window pencerenin :hours saati gözlendi.",
+      "coverage_partial_days": ":window pencerenin :days günü gözlendi.",
       "gap_unmeasured": "Bu pencerede :amount ölçülemedi.",
       "window_7day": "7 günlük",
-      "window_30day": "30 günlük"
+      "window_30day": "30 günlük",
+      "unit_minutes": "dk",
+      "unit_hours": "sa"
     },
     "ranges": {
       "custom": "Özel aralık",

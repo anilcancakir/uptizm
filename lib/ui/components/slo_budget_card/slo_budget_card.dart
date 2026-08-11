@@ -45,16 +45,25 @@ class SloErrorBudget {
   });
 }
 
-/// Renders a minute count as "Xm", "Xh", or "Xh Ym".
+/// Renders a minute count as a localized duration: "45m" / "45dk",
+/// "2h" / "2sa", "1h 30m" / "1sa 30dk".
 ///
-/// Public because the monitor-detail budget-burn copy narrates the same
-/// minutes this card prints, and two formatters would drift apart.
+/// Public because the monitor-detail budget-burn copy narrates the same minutes
+/// this card prints, and two formatters would drift apart.
+///
+/// The units go through [trans] because every string that interpolates this
+/// reaches an operator in their own language, and four of them are Turkish
+/// sentences: "Bu pencerede 1h 30m ölçülemedi." is the same defect class as an
+/// English clause used as a Turkish subject. One formatter owns the convention,
+/// so there is no mixed state to reconcile.
 String formatBudgetMinutes(double minutes) {
   final int total = minutes.round();
-  if (total < 60) return '${total}m';
+  final String m = trans('uptizm.slo.unit_minutes');
+  final String h = trans('uptizm.slo.unit_hours');
+  if (total < 60) return '$total$m';
   final int hours = total ~/ 60;
   final int rem = total % 60;
-  return rem == 0 ? '${hours}h' : '${hours}h ${rem}m';
+  return rem == 0 ? '$hours$h' : '$hours$h $rem$m';
 }
 
 /// Turns an SLO [target] plus the REAL [downMinutes] that happened into the
@@ -86,7 +95,14 @@ SloErrorBudget computeErrorBudget(
   final double allowed = (1 - target / 100) * windowMin;
   final double used = math.max(0.0, downMinutes);
   final double remaining = allowed - used;
-  final double remainingPct = allowed > 0 ? (remaining / allowed) * 100 : 100.0;
+  // A 100% target is a valid `slo_target` (`StoreMonitorRequest` allows max:100)
+  // and it makes the allowance exactly zero. Reporting 100% left there while the
+  // tone below reads `down` put "100% budget left" beside "Budget breached" on
+  // the same card, with a full-width bar. With no allowance, any downtime at all
+  // has spent all of it.
+  final double remainingPct = allowed > 0
+      ? (remaining / allowed) * 100
+      : (used > 0 ? 0.0 : 100.0);
   final SloBudgetTone tone = used > allowed
       ? SloBudgetTone.down
       : (remainingPct < 25 ? SloBudgetTone.degraded : SloBudgetTone.up);
@@ -149,6 +165,11 @@ class SloBudgetCard extends StatelessWidget {
 
   /// Optional extra classNames appended to the root slot.
   final String? className;
+
+  /// Observed coverage, in minutes, from which the coverage note counts days
+  /// instead of hours. Two days: below that a young monitor's hours are the
+  /// informative unit, above it they stop being readable.
+  static const int _coverageDaysThresholdMinutes = 2 * 24 * 60;
 
   /// Creates a [SloBudgetCard].
   const SloBudgetCard({
@@ -253,8 +274,12 @@ class SloBudgetCard extends StatelessWidget {
               className: 'font-mono text-xs tabular-nums font-medium text-fg',
             ),
             WText(
+              // `remaining`, not `used`: this readout has always shown what is
+              // LEFT of the allowance. It was called `used` while the burn copy
+              // beside it also had a `:used`, meaning the opposite, which is a
+              // trap for whoever edits the copy next.
               trans('uptizm.slo.budget_of', {
-                'used': formatBudgetMinutes(math.max(0, budget.remaining)),
+                'remaining': formatBudgetMinutes(math.max(0, budget.remaining)),
                 'allowed': formatBudgetMinutes(budget.allowed),
               }),
               className: 'font-mono text-xs tabular-nums text-fg-muted',
@@ -263,14 +288,21 @@ class SloBudgetCard extends StatelessWidget {
         ),
 
         // Coverage note: what was actually watched, shown only while the window
-        // is still filling up. Hours (floored) rather than days, so it never
-        // claims more coverage than there is.
+        // is still filling up. Floored, never rounded, so it cannot claim more
+        // coverage than there is; and stated in days past two of them, because
+        // every monitor younger than a month hits this line on its 30-day card
+        // and "Observed 600 hours of the 30-day window" is not a sentence.
         if (partlyObserved)
           WText(
-            trans('uptizm.slo.coverage_partial', {
-              'hours': '${observed ~/ 60}',
-              'window': window,
-            }),
+            observed >= _coverageDaysThresholdMinutes
+                ? trans('uptizm.slo.coverage_partial_days', {
+                    'days': '${observed ~/ 1440}',
+                    'window': window,
+                  })
+                : trans('uptizm.slo.coverage_partial', {
+                    'hours': '${observed ~/ 60}',
+                    'window': window,
+                  }),
             className: 'text-xs text-fg-muted',
           ),
 

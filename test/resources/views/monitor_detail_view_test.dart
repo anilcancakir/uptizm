@@ -83,13 +83,17 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.slo.status_at_risk': 'At risk',
       'uptizm.slo.status_breached': 'Budget breached',
       'uptizm.slo.budget_left': ':pct% budget left',
-      'uptizm.slo.budget_of': ':used of :allowed',
+      'uptizm.slo.budget_of': ':remaining of :allowed',
       'uptizm.slo.over_budget': 'Over budget by :amount this window.',
       'uptizm.slo.coverage_partial':
           'Observed :hours hours of the :window window.',
+      'uptizm.slo.coverage_partial_days':
+          'Observed :days days of the :window window.',
       'uptizm.slo.gap_unmeasured': 'Not measured this window: :amount.',
       'uptizm.slo.window_7day': '7-day',
       'uptizm.slo.window_30day': '30-day',
+      'uptizm.slo.unit_minutes': 'm',
+      'uptizm.slo.unit_hours': 'h',
       // DateRangePicker (response-time section), now trans()-driven.
       'uptizm.ranges.custom': 'Custom range',
       'uptizm.ranges.last_24h': 'Last 24 hours',
@@ -494,12 +498,19 @@ void main() {
 
   /// Seeds one monitor with an SLO target and the eight reliability minutes, so
   /// each coverage case below differs only in the numbers it is judged on.
+  /// Seeds one monitor's eight reliability keys. The `*30` overrides exist
+  /// because the two windows can legitimately disagree: a monitor silent for
+  /// eight days has an empty 7-day window and a full 30-day one.
   void seedReliability({
     required String id,
     required double observed,
     required double measured,
     required double down,
     double gap = 0,
+    double? observed30,
+    double? measured30,
+    double? down30,
+    double? gap30,
   }) {
     MonitorController.instance.seedForTest([
       Monitor.fromMap({
@@ -517,10 +528,10 @@ void main() {
         'slo_observed_minutes_7d': observed,
         'slo_gap_minutes_7d': gap,
         'slo_measured_minutes_7d': measured,
-        'slo_down_minutes_30d': down,
-        'slo_observed_minutes_30d': observed,
-        'slo_gap_minutes_30d': gap,
-        'slo_measured_minutes_30d': measured,
+        'slo_down_minutes_30d': down30 ?? down,
+        'slo_observed_minutes_30d': observed30 ?? observed,
+        'slo_gap_minutes_30d': gap30 ?? gap,
+        'slo_measured_minutes_30d': measured30 ?? measured,
       }),
     ]);
   }
@@ -573,6 +584,53 @@ void main() {
     // and both cards say what they actually watched: 25 hours of each window.
     expect(find.text('Healthy'), findsNWidgets(2));
     expect(find.textContaining('Observed 25 hours'), findsNWidgets(2));
+  });
+
+  testWidgets('a window with no evidence does not silence the one that has it', (
+    tester,
+  ) async {
+    // A monitor checked for a month whose checks stopped eight days ago: the
+    // 7-day window measured nothing, the 30-day window measured plenty and is
+    // breached. A single global gate rendered "Uptizm has not been checking
+    // this monitor for long" here and hid a real breach behind it.
+    seedReliability(
+      id: 'stalled',
+      observed: 10080,
+      measured: 0,
+      down: 0,
+      gap: 10080,
+      observed30: 43200,
+      measured30: 33000,
+      down30: 75,
+      gap30: 10200,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(1280, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      wrap(
+        const MonitorDetailView(id: 'stalled'),
+        size: const Size(1280, 4000),
+      ),
+    );
+    await settleSkeleton(tester);
+
+    // Exactly one card: the 30-day one, which has the evidence.
+    expect(find.byType(SloBudgetCard), findsOneWidget);
+    expect(
+      find.text(trans('uptizm.monitors.reliability_no_data_title')),
+      findsNothing,
+    );
+    // 75 down minutes against a 43-minute allowance, said out loud.
+    expect(find.text('Budget breached'), findsOneWidget);
+    expect(find.textContaining('Over budget by'), findsOneWidget);
+    // The burn copy compares the two windows, so with only one it stays away.
+    // Asserted on its own text rather than on AiInsight, which this screen also
+    // uses for the unrelated response-time insight.
+    expect(find.text('Budget burning.'), findsNothing);
+    expect(find.text('Budget spent.'), findsNothing);
+    expect(find.text('Budget at risk.'), findsNothing);
   });
 
   testWidgets('a fully elapsed window with nothing measured is not healthy', (
