@@ -80,6 +80,16 @@ class IncidentController extends MagicController
   /// no model field for it to belong to. [analysisFor] reads this cache first.
   final Map<String, IncidentAi> _analysisById = {};
 
+  /// The incident id whose analysis fetch is in flight, or null when none is.
+  ///
+  /// One id rather than a set: the detail screen resolves one incident at a
+  /// time, and the reason this exists at all is the RETRY on a degraded
+  /// analysis. That request re-asks the model and can take a minute, so without
+  /// an in-flight signal the operator taps a button and watches nothing happen
+  /// long enough to tap it again, spending a second AI budget unit on the same
+  /// answer.
+  String? _analysisPendingId;
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -375,7 +385,15 @@ class IncidentController extends MagicController
   /// host): [analysisFor] keeps returning the un-enriched [Incident.ai] first
   /// paint instead of the screen crashing or flashing an error state for a
   /// surface that already has a working fallback.
+  ///
+  /// Also the RETRY entry point for a degraded analysis: the endpoint recomputes
+  /// per call, so calling this again is the retry, and [analysisPending] reports
+  /// it while it runs. The `finally` clears that flag on every exit, including
+  /// the three early returns above and a thrown error, because a flag left set
+  /// would disable the retry button for the rest of the screen's life.
   Future<void> loadAnalysis(String id) async {
+    _analysisPendingId = id;
+    refreshUI();
     try {
       final response = await Http.get('/incidents/$id/analysis');
       if (!response.successful) {
@@ -402,11 +420,17 @@ class IncidentController extends MagicController
           data['degrade_reason'] as String?,
         ),
       );
-      refreshUI();
     } catch (error) {
       Log.error('[IncidentController.loadAnalysis] $id failed: $error');
+    } finally {
+      _analysisPendingId = null;
+      refreshUI();
     }
   }
+
+  /// Whether the analysis fetch for incident [id] is in flight, so the degraded
+  /// section can show its retry as running rather than idle.
+  bool analysisPending(String id) => _analysisPendingId == id;
 
   /// Decodes an `evidence_for`/`evidence_against` wire list into
   /// [AiEvidence]s, tolerating a non-list or absent value as empty (the

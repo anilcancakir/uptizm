@@ -38,11 +38,14 @@ import 'incident_form_support.dart';
 ///    `statusAtStart -> statusCurrent` transition badges.
 /// 4. **AI analysis**: the signature surface, billing-gated: an
 ///    [AiAnalysisCard] when the current tier unlocks [AiLevel.analysis],
-///    otherwise an [MSUpgradeNudge] naming the cheapest plan that does.
+///    otherwise an [MSUpgradeNudge] naming the cheapest plan that does. When the
+///    backend answered from its deterministic baseline instead of the model, the
+///    card gives way to one line plus a retry, because there is no analysis to
+///    put in a card.
 /// 5. **Postmortem** (resolved incidents only): the STORED postmortem when one
 ///    exists (with its published-or-draft state), otherwise the generated
-///    [postmortemDraft] in an [AiInsight] banner, plus an editable composer
-///    that saves or publishes it.
+///    [postmortemDraft] in the same plain card, plus an editable composer that
+///    saves or publishes it.
 /// 6. **Timeline**: a Public / All [SegmentedControl] filtering the entries,
 ///    mapped through [toComponentTimeline] into the [IncidentTimeline], each
 ///    entry carrying its persisted `author`.
@@ -295,7 +298,10 @@ class _IncidentDetailViewState
               if (!resolved) _buildResponderStrip(incident),
               _buildAffectedMonitors(incident),
               if (controller.analysisFor(incident) case final ai?)
-                _buildAiAnalysis(_localizedIfDegraded(incident, ai)),
+                if (ai.degradeReason case final reason?)
+                  _buildDegradedAnalysis(incident, reason)
+                else
+                  _buildAiAnalysis(ai),
               if (resolved) _buildPostmortem(incident),
               _buildTimeline(incident),
               _buildComposer(incident),
@@ -590,22 +596,31 @@ class _IncidentDetailViewState
   // AI analysis
   // ---------------------------------------------------------------------------
 
-  /// Returns [ai] with its summary replaced by a localized sentence when the
-  /// backend answered from its deterministic baseline, and unchanged otherwise.
+  /// Builds the degraded-analysis section: one line saying no analysis was
+  /// produced and why, plus a retry when retrying can work.
   ///
-  /// The backend `summary` on a degraded path is a machine-readable English
-  /// baseline and NOT display copy (see `IncidentAnalysisService`'s
-  /// `deterministicSummary()`), so rendering it put developer English in front of
-  /// a Turkish operator: "Deterministic baseline from the incident record (the AI
-  /// service was temporarily unavailable): critical severity incident, currently
-  /// resolved." Only the reason CODE crosses the wire now, and the sentence is
-  /// composed here from that code plus [incident]'s own already-localized
-  /// severity and lifecycle labels, so nothing English reaches the screen and the
-  /// backend string is never displayed.
-  IncidentAi _localizedIfDegraded(Incident incident, IncidentAi ai) {
-    final AiDegradeReason? reason = ai.degradeReason;
-    if (reason == null) return ai;
-
+  /// It replaces the full [AiAnalysisCard], which is the whole point. On this
+  /// path no model ran, so the card's chrome was a set of claims about an
+  /// analysis that does not exist: an AI-glyph header, a confidence badge
+  /// reading "Low" (a confidence in what?), a feedback footer asking the
+  /// operator to rate it, and a body that was only ever the fallback sentence.
+  /// Live, an operator read that as a broken analysis rather than as an absent
+  /// one. One line and a retry is the honest shape.
+  ///
+  /// The sentence is composed here rather than taken from the wire. The
+  /// backend's `summary` on this path is a machine-readable English baseline and
+  /// NOT display copy (see `IncidentAnalysisService::deterministicSummary()`),
+  /// so displaying it put developer English in front of a Turkish operator.
+  /// Only the reason CODE crosses the wire; the copy is this locale's, and the
+  /// incident's severity and lifecycle labels are already localized.
+  ///
+  /// The retry is hidden for [AiDegradeReason.budgetExhausted] alone, which
+  /// leaves that state without an action, against the registry's usual guidance.
+  /// It is deliberate: the retry re-asks the model and spends another budget
+  /// unit, so offering it when the budget is the problem would spend nothing on
+  /// a request that fails by definition. The copy names the budget, and a budget
+  /// is a thing that comes back on its own.
+  Widget _buildDegradedAnalysis(Incident incident, AiDegradeReason reason) {
     // Exhaustive with no default on purpose: a fourth reason case must fail the
     // build here rather than silently borrow one of these three sentences.
     final String notice = switch (reason) {
@@ -624,7 +639,57 @@ class _IncidentDetailViewState
       'lifecycle': incident.lifecycle.label,
     });
 
-    return ai.copyWith(tldr: '$notice $core');
+    return MSCard(
+      variant: CardVariant.surface,
+      child: WDiv(
+        // A Row, not `wrap`: the sentence is long and the retry is small, so the
+        // text takes the remaining width and wraps INSIDE it. `wrap` would put
+        // the two children on separate lines on a phone, and `flex-1` resolves to
+        // an `Expanded`, which is invalid inside a `Wrap` and throws.
+        className: 'flex flex-row items-start justify-between gap-3',
+        children: [
+          // `min-w-0` so a long sentence wraps instead of forcing the row wider
+          // than the card.
+          WDiv(
+            className: 'min-w-0 flex-1 flex flex-col gap-1',
+            children: [
+              WText(
+                trans('uptizm.incidents.analysis_degraded_heading'),
+                className: 'text-sm font-semibold text-fg',
+              ),
+              WText(
+                '$notice $core',
+                className: 'text-sm leading-relaxed text-fg-muted',
+              ),
+            ],
+          ),
+          if (reason != AiDegradeReason.budgetExhausted)
+            _buildAnalysisRetryButton(incident),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the retry action for a degraded analysis, disabled while the request
+  /// it fires is already in flight.
+  ///
+  /// Disabled rather than hidden: the request re-asks the model and can take the
+  /// better part of a minute, and a button that vanishes mid-request reads as a
+  /// finished one. A second tap would spend a second budget unit on the same
+  /// answer.
+  Widget _buildAnalysisRetryButton(Incident incident) {
+    final bool pending = controller.analysisPending(incident.id);
+
+    return MSButton(
+      intent: ButtonIntent.secondary,
+      size: ButtonSize.sm,
+      onPressed: pending ? null : () => controller.loadAnalysis(incident.id),
+      child: WText(
+        pending
+            ? trans('uptizm.incidents.analysis_retry_pending')
+            : trans('uptizm.incidents.analysis_retry'),
+      ),
+    );
   }
 
   /// Builds the AI analysis section, billing-gated.
@@ -636,6 +701,13 @@ class _IncidentDetailViewState
   /// wrapping). Wrapped in a [ListenableBuilder] on [EntitlementController] so
   /// it re-gates when the real plan lands, mirroring the backend's own 403 on
   /// `GET /incidents/{id}/analysis` below the analysis tier.
+  ///
+  /// No `onActionTap` is passed, and that omission is the feature: the card wraps
+  /// each suggested action in a [WButton] when the callback is present, so a
+  /// no-op handler dressed advisory rows as buttons that did nothing when
+  /// tapped. Null is the card's documented non-interactive mode, and the rows
+  /// are advice, not commands. Giving them a real destination needs the backend
+  /// to emit a structured target and is its own piece of work.
   Widget _buildAiAnalysis(IncidentAi ai) {
     return ListenableBuilder(
       listenable: EntitlementController.instance,
@@ -644,7 +716,6 @@ class _IncidentDetailViewState
         if (entitlement.aiLevelAllows(AiLevel.analysis)) {
           return AiAnalysisCard(
             ai: ai,
-            onActionTap: (_) {},
             onFeedback: (_) {},
           );
         }
@@ -676,8 +747,17 @@ class _IncidentDetailViewState
   /// 2. **Stored** ([Incident.postmortemBody] present): the persisted body in a
   ///    plain card, with an honest published-or-draft-only state line. A human
   ///    owns this text, so it carries no AI framing.
-  /// 3. **Nothing stored**: the generated [postmortemDraft] in an [AiInsight]
-  ///    banner, labelled a draft, as the starting point for a human.
+  /// 3. **Nothing stored**: the generated [postmortemDraft] in the SAME plain
+  ///    card, labelled a draft, as the starting point for a human.
+  ///
+  /// State 3 used to render inside an [AiInsight] banner, whose whole job is to
+  /// mark content as model-authored with a sparkle glyph. Nothing about that was
+  /// true: [postmortemDraft] is a `trans()` template filled from the incident's
+  /// own duration, affected count and signal source, with no model anywhere near
+  /// it. So the badge claimed an AI provenance the text does not have, and it
+  /// framed an EDITOR INPUT (a starting point a human is expected to rewrite) as
+  /// a finished analysis. Both states now use the same plain card, which is also
+  /// what makes them read as one thing at two stages rather than two features.
   Widget _buildPostmortem(Incident incident) {
     if (_editingPostmortem) {
       return _buildPostmortemEditor(incident);
@@ -688,11 +768,27 @@ class _IncidentDetailViewState
       return _buildStoredPostmortem(incident, stored);
     }
 
-    return AiInsight(
-      tone: 'banner',
-      label: trans('uptizm.incidents.detail_postmortem_heading'),
-      action: _buildPostmortemEditButton(incident),
-      child: WText(postmortemDraft(incident)),
+    return MSCard(
+      variant: CardVariant.surface,
+      child: WDiv(
+        className: 'flex flex-col gap-3',
+        children: [
+          WDiv(
+            className: 'wrap items-center justify-between gap-3',
+            children: [
+              WText(
+                trans('uptizm.incidents.detail_postmortem_heading'),
+                className: 'text-sm font-semibold text-fg',
+              ),
+              _buildPostmortemEditButton(incident),
+            ],
+          ),
+          WText(
+            postmortemDraft(incident),
+            className: 'text-sm leading-relaxed text-fg-muted',
+          ),
+        ],
+      ),
     );
   }
 
@@ -775,11 +871,15 @@ class _IncidentDetailViewState
           ),
           // The seeded text is Uptizm's outside-in observation, not a finished
           // analysis; say so for as long as it is still the generated draft.
+          //
+          // A plain line, not an `AiInsight`: the draft is a `trans()` template
+          // built from the incident's own fields, so the sparkle glyph credited a
+          // model that never ran, and the sentence is guidance to the person
+          // typing rather than a machine's contribution to review.
           if (_postmortemFromDraft)
-            AiInsight(
-              child: WText(
-                trans('uptizm.incidents.detail_postmortem_ai_seeded'),
-              ),
+            WText(
+              trans('uptizm.incidents.detail_postmortem_ai_seeded'),
+              className: 'text-xs leading-relaxed text-fg-muted',
             ),
           WDiv(
             className: 'wrap items-center justify-end gap-3',

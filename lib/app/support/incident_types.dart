@@ -220,30 +220,6 @@ class IncidentAi {
     this.degradeReason,
   });
 
-  /// Returns a copy of this analysis with [tldr] replaced.
-  ///
-  /// Exists for exactly one caller, `IncidentDetailView`, which swaps the
-  /// backend's machine-readable English baseline for a sentence composed in the
-  /// operator's language when [degradeReason] is set. The alternative there was
-  /// an inline `IncidentAi(...)` naming all seven required fields, which would
-  /// have been a FOURTH construction site to keep in sync, and a construction
-  /// site that silently dropped a field is the exact defect this file's merge
-  /// path already produced once.
-  ///
-  /// Only [tldr] is overridable because only [tldr] has a caller; give the next
-  /// field a parameter when something actually needs to replace it.
-  IncidentAi copyWith({String? tldr}) {
-    return IncidentAi(
-      trigger: trigger,
-      confidence: confidence,
-      tldr: tldr ?? this.tldr,
-      evidenceFor: evidenceFor,
-      evidenceAgainst: evidenceAgainst,
-      suggestedActions: suggestedActions,
-      similarIncidents: similarIncidents,
-      degradeReason: degradeReason,
-    );
-  }
 }
 
 /// Acknowledgement record: a human confirmed they are on the incident.

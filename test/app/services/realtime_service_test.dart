@@ -48,6 +48,33 @@ class _SpyMonitorController extends MonitorController {
   }
 }
 
+/// Counts `connect()` calls, which the shipped fake driver does not.
+///
+/// `FakeBroadcastDriver.connect()` just sets a bool, so calling it twice is
+/// invisible there, while on the REAL Reverb driver a second call opens a second
+/// WebSocket and leaks the first. Counting is the only way to pin the guard.
+class _CountingBroadcastDriver extends FakeBroadcastDriver {
+  int connectCount = 0;
+
+  @override
+  Future<void> connect() {
+    connectCount++;
+    return super.connect();
+  }
+}
+
+/// A [FakeBroadcastManager] handing out [_CountingBroadcastDriver].
+///
+/// Overriding `connection()` rather than replacing the parent's driver, which is
+/// private and final. The inherited `assertConnected()` therefore speaks for the
+/// parent's unused driver; assert on [spy] instead.
+class _CountingBroadcastManager extends FakeBroadcastManager {
+  final _CountingBroadcastDriver spy = _CountingBroadcastDriver();
+
+  @override
+  BroadcastDriver connection([String? name]) => spy;
+}
+
 void main() {
   late FakeBroadcastManager echo;
 
@@ -107,6 +134,48 @@ void main() {
     echo.assertConnected();
     echo.assertSubscribed('private-teams.t1');
     expect(service.isListeningToReconnect, isTrue);
+  });
+
+  test('a team switch re-subscribes without opening a second connection', () async {
+    // THE LIVE DEFECT. Production devtools showed TWO 101 responses for one
+    // Reverb URL, because magic's `BroadcastServiceProvider` connects at boot and
+    // this service connected again once auth resolved, and the Reverb driver's
+    // `connect()` assigns a fresh channel unconditionally: no already-connected
+    // check, no close of the previous one. Every team switch reaches the same
+    // line, so the leak was per switch as well as per boot.
+    final _CountingBroadcastManager counting = _CountingBroadcastManager();
+    Magic.app.setInstance('broadcasting', counting);
+
+    Auth.fake(user: userWithTeam('t1'));
+    final RealtimeService service = RealtimeService(debounce: Duration.zero);
+    await service.syncWithAuthState();
+    expect(counting.spy.connectCount, 1, reason: 'the first sync must connect');
+
+    // A different team: the channel has to change, the socket must not.
+    Auth.fake(user: userWithTeam('t2'));
+    await service.syncWithAuthState();
+
+    expect(counting.spy.connectCount, 1);
+    expect(counting.spy.subscribedChannels, contains('private-teams.t2'));
+  });
+
+  test('a dropped connection is re-established on the next sync', () async {
+    // The other half of the guard: skipping `connect()` is only correct while a
+    // connection exists. A driver that reports disconnected must be reconnected,
+    // or the guard would trade two sockets for none.
+    final _CountingBroadcastManager counting = _CountingBroadcastManager();
+    Magic.app.setInstance('broadcasting', counting);
+
+    Auth.fake(user: userWithTeam('t1'));
+    final RealtimeService service = RealtimeService(debounce: Duration.zero);
+    await service.syncWithAuthState();
+
+    await counting.spy.disconnect();
+    Auth.fake(user: userWithTeam('t2'));
+    await service.syncWithAuthState();
+
+    expect(counting.spy.connectCount, 2);
+    expect(counting.spy.isConnected, isTrue);
   });
 
   test('every event this service depends on is actually registered', () async {

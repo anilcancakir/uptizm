@@ -169,7 +169,23 @@ class RealtimeService {
     //    pointing at a team the app is not actually subscribed to.
     _leaveCurrentChannel();
     _subscribedTeamId = null;
-    await Echo.connect();
+    // Connect only when there is no live connection. `connect()` is NOT
+    // idempotent in magic's Reverb driver: it assigns `_channel =
+    // _channelFactory(uri)` unconditionally, without checking for an existing
+    // channel and without closing the previous one
+    // (`reverb_broadcast_driver.dart:210`), so a second call opens a second
+    // WebSocket to the same URL and leaks the first. Production devtools showed
+    // exactly that, two 101 responses for one Reverb URL, because magic's own
+    // `broadcast_service_provider.dart:54` already connects at boot and this
+    // method connected again after auth resolved. A team switch reaches here too
+    // and only needs the new channel, never a new socket.
+    //
+    // This is the consumer half of the fix. The driver should also refuse a
+    // redundant connect, which is a PR in `../magic` under its own rules; that
+    // sibling is never edited from here.
+    if (!Echo.connection.isConnected) {
+      await Echo.connect();
+    }
     // Each event name is listened to exactly ONCE here: `listen()` twice for
     // the same event REPLACES the previous subscription rather than adding a
     // second one (`ReverbBroadcastChannel.listen`, magic's

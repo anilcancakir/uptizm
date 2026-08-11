@@ -705,6 +705,60 @@ void main() {
       );
     });
 
+    test('reports the fetch as pending while it runs, and clears it after', () async {
+      // What this protects: the degraded section's retry disables itself on
+      // `analysisPending`, and the request behind it re-asks the model, which can
+      // take the better part of a minute. A flag that never clears would leave the
+      // retry dead for the rest of the screen's life; one that never sets would
+      // let a second tap spend a second AI budget unit on the same answer.
+      Http.fake({
+        'incidents/pending-1/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(controller.analysisPending('pending-1'), isFalse);
+
+      // Deliberately NOT awaited: the flag only exists during the gap between
+      // the call and its answer, so awaiting first would test nothing.
+      final Future<void> inFlight = controller.loadAnalysis('pending-1');
+      expect(controller.analysisPending('pending-1'), isTrue);
+      expect(
+        controller.analysisPending('another-incident'),
+        isFalse,
+        reason: 'the flag is per incident, not global',
+      );
+
+      await inFlight;
+
+      expect(controller.analysisPending('pending-1'), isFalse);
+    });
+
+    test('clears the pending flag when the request fails', () async {
+      // The `finally` path. A 500 (or a stray-request throw, or a malformed
+      // body) must still release the retry, otherwise the one state where an
+      // operator most wants to retry is the one where the button stays dead.
+      Http.fake({
+        'incidents/pending-2/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+      });
+      // The failure path logs, so the `log` service has to resolve; without it
+      // the throw inside the catch would mask what this test is about.
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('pending-2');
+
+      expect(controller.analysisPending('pending-2'), isFalse);
+      expect(controller.analysisFor(Incident.fromMap({'id': 'pending-2'})), isNull);
+    });
+
     test('a null or absent degrade_reason means nothing degraded', () async {
       // Both shapes, because the two are different states everywhere else in
       // this app: the endpoint always SENDS the key (null on the model path),
