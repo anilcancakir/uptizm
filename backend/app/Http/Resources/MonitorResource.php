@@ -53,12 +53,23 @@ class MonitorResource extends JsonResource
             'escalation_policy_id' => $this->resource->escalation_policy_id === null
                 ? null
                 : (string) $this->resource->escalation_policy_id,
-            // Measured uptime over the trailing 24h / 7d / 30d, attached by the
-            // show action only (null in list/edit responses and while a monitor
-            // has no checks yet, which the client renders as "no data").
+            // Measured uptime over the trailing 24h, attached by the show
+            // action only (null in list/edit responses and while a monitor
+            // has no checks yet, which the client renders as "no data"). The
+            // 7d/30d fields below are a different measurement (real minutes,
+            // not a ratio) and are 0.0 rather than missing when nothing has
+            // been measured, so the client can tell "nothing measured" from
+            // "measured and fine". `window_minutes` is deliberately absent:
+            // it is the constant 10080 / 43200 the client already owns.
             'uptime_24h' => $this->resource->uptime_24h,
-            'slo_uptime_7d' => $this->resource->slo_uptime_7d,
-            'slo_uptime_30d' => $this->resource->slo_uptime_30d,
+            'slo_down_minutes_7d' => $this->resource->slo_down_minutes_7d,
+            'slo_observed_minutes_7d' => $this->resource->slo_observed_minutes_7d,
+            'slo_gap_minutes_7d' => $this->resource->slo_gap_minutes_7d,
+            'slo_measured_minutes_7d' => $this->resource->slo_measured_minutes_7d,
+            'slo_down_minutes_30d' => $this->resource->slo_down_minutes_30d,
+            'slo_observed_minutes_30d' => $this->resource->slo_observed_minutes_30d,
+            'slo_gap_minutes_30d' => $this->resource->slo_gap_minutes_30d,
+            'slo_measured_minutes_30d' => $this->resource->slo_measured_minutes_30d,
             'tags' => $this->resource->tags ?? [],
             'show_on_status_page' => (bool) $this->resource->show_on_status_page,
             'only_show_if_degraded' => (bool) $this->resource->only_show_if_degraded,

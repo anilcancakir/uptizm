@@ -153,21 +153,25 @@ class MonitorController extends Controller
     /**
      * Show a single monitor owned by the current team.
      *
-     * Attaches the measured 24h / 7-day / 30-day uptime (from the raw check
-     * stream) as transient attributes so the detail screen's KPI row and
-     * reliability section render real figures. Each is null when its window
-     * has no checks yet, so a brand-new monitor shows "no data" instead of a
-     * fabricated 0% (which read as a total breach). Only computed here
-     * (single-monitor show), never in the list/collection path, to avoid an
-     * N+1 of aggregate queries.
+     * Attaches the measured 24h uptime percentage plus the 7-day / 30-day
+     * reliability minutes (from the raw check stream) as transient attributes
+     * so the detail screen's KPI row and error-budget cards render real
+     * figures. `uptime_24h` is null when its window has no checks yet, so a
+     * brand-new monitor shows "no data" instead of a fabricated 0% (which
+     * read as a total breach). The reliability minutes are never null:
+     * `slo_measured_minutes_*` is 0.0 rather than missing when nothing has
+     * been measured, because that field is the only one that lets the client
+     * tell "nothing measured" from "measured and fine" apart from a real
+     * uptime win. Only computed here (single-monitor show), never in the
+     * list/collection path, to avoid an N+1 of aggregate queries.
      */
     public function show(Request $request, Monitor $monitor, CheckAggregateService $checks): MonitorResource
     {
         $this->authorizeTeam($request, $monitor);
 
         $monitor->setAttribute('uptime_24h', $this->measuredUptimePercent($checks, $monitor, '24h'));
-        $monitor->setAttribute('slo_uptime_7d', $this->measuredUptimePercent($checks, $monitor, '7d'));
-        $monitor->setAttribute('slo_uptime_30d', $this->measuredUptimePercent($checks, $monitor, '30d'));
+        $this->attachReliabilityMinutes($monitor, $checks, '7d');
+        $this->attachReliabilityMinutes($monitor, $checks, '30d');
 
         return MonitorResource::make($monitor);
     }
@@ -182,6 +186,24 @@ class MonitorController extends Controller
         $summary = $checks->uptimeSummary($monitor, $range);
 
         return $summary->total > 0 ? round($summary->uptime_ratio * 100, 2) : null;
+    }
+
+    /**
+     * Attach the four flat reliability-minute attributes for [$range]:
+     * down, observed, gap, and measured minutes from
+     * {@see CheckAggregateService::reliabilitySummary()}. `window_minutes`
+     * is deliberately not attached: it is the constant 10080 or 43200, and
+     * the client already owns it at the call site, so shipping it would be a
+     * second source of one fact.
+     */
+    protected function attachReliabilityMinutes(Monitor $monitor, CheckAggregateService $checks, string $range): void
+    {
+        $summary = $checks->reliabilitySummary($monitor, $range);
+
+        $monitor->setAttribute("slo_down_minutes_{$range}", $summary->down_minutes);
+        $monitor->setAttribute("slo_observed_minutes_{$range}", $summary->observed_minutes);
+        $monitor->setAttribute("slo_gap_minutes_{$range}", $summary->gap_minutes);
+        $monitor->setAttribute("slo_measured_minutes_{$range}", $summary->measured_minutes);
     }
 
     /**
