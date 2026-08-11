@@ -38,11 +38,14 @@ import 'incident_form_support.dart';
 ///    `statusAtStart -> statusCurrent` transition badges.
 /// 4. **AI analysis**: the signature surface, billing-gated: an
 ///    [AiAnalysisCard] when the current tier unlocks [AiLevel.analysis],
-///    otherwise an [MSUpgradeNudge] naming the cheapest plan that does.
+///    otherwise an [MSUpgradeNudge] naming the cheapest plan that does. When the
+///    backend answered from its deterministic baseline instead of the model, the
+///    card gives way to one line plus a retry, because there is no analysis to
+///    put in a card.
 /// 5. **Postmortem** (resolved incidents only): the STORED postmortem when one
 ///    exists (with its published-or-draft state), otherwise the generated
-///    [postmortemDraft] in an [AiInsight] banner, plus an editable composer
-///    that saves or publishes it.
+///    [postmortemDraft] in the same plain card, plus an editable composer that
+///    saves or publishes it.
 /// 6. **Timeline**: a Public / All [SegmentedControl] filtering the entries,
 ///    mapped through [toComponentTimeline] into the [IncidentTimeline], each
 ///    entry carrying its persisted `author`.
@@ -295,7 +298,10 @@ class _IncidentDetailViewState
               if (!resolved) _buildResponderStrip(incident),
               _buildAffectedMonitors(incident),
               if (controller.analysisFor(incident) case final ai?)
-                _buildAiAnalysis(_localizedIfDegraded(incident, ai)),
+                if (ai.degradeReason case final reason?)
+                  _buildDegradedAnalysis(incident, reason)
+                else
+                  _buildAiAnalysis(ai),
               if (resolved) _buildPostmortem(incident),
               _buildTimeline(incident),
               _buildComposer(incident),
@@ -590,33 +596,57 @@ class _IncidentDetailViewState
   // AI analysis
   // ---------------------------------------------------------------------------
 
-  /// Returns [ai] with its summary replaced by a localized sentence when the
-  /// backend answered from its deterministic baseline, and unchanged otherwise.
+  /// Builds the degraded-analysis section: one line saying no analysis was
+  /// produced and why, plus a retry when retrying can work.
   ///
-  /// The backend `summary` on a degraded path is a machine-readable English
-  /// baseline and NOT display copy (see `IncidentAnalysisService`'s
-  /// `deterministicSummary()`), so rendering it put developer English in front of
-  /// a Turkish operator: "Deterministic baseline from the incident record (the AI
-  /// service was temporarily unavailable): critical severity incident, currently
-  /// resolved." Only the reason CODE crosses the wire now, and the sentence is
-  /// composed here from that code plus [incident]'s own already-localized
-  /// severity and lifecycle labels, so nothing English reaches the screen and the
-  /// backend string is never displayed.
-  IncidentAi _localizedIfDegraded(Incident incident, IncidentAi ai) {
-    final AiDegradeReason? reason = ai.degradeReason;
-    if (reason == null) return ai;
-
-    // Exhaustive with no default on purpose: a fourth reason case must fail the
-    // build here rather than silently borrow one of these three sentences.
-    final String notice = switch (reason) {
-      AiDegradeReason.budgetExhausted => trans(
-        'uptizm.incidents.analysis_degraded_budget',
+  /// It replaces the full [AiAnalysisCard], which is the whole point. On this
+  /// path no model ran, so the card's chrome was a set of claims about an
+  /// analysis that does not exist: an AI-glyph header, a confidence badge
+  /// reading "Low" (a confidence in what?), a feedback footer asking the
+  /// operator to rate it, and a body that was only ever the fallback sentence.
+  /// Live, an operator read that as a broken analysis rather than as an absent
+  /// one. One line and a retry is the honest shape.
+  ///
+  /// The sentence is composed here rather than taken from the wire. The
+  /// backend's `summary` on this path is a machine-readable English baseline and
+  /// NOT display copy (see `IncidentAnalysisService::deterministicSummary()`),
+  /// so displaying it put developer English in front of a Turkish operator.
+  /// Only the reason CODE crosses the wire; the copy is this locale's, and the
+  /// incident's severity and lifecycle labels are already localized.
+  ///
+  /// The retry is hidden for [AiDegradeReason.budgetExhausted] alone, which
+  /// leaves that state without an action, against the registry's usual guidance.
+  /// It is deliberate: the retry re-asks the model and spends another budget
+  /// unit, so offering it when the budget is the problem would spend nothing on
+  /// a request that fails by definition. The copy names the budget, and a budget
+  /// is a thing that comes back on its own.
+  Widget _buildDegradedAnalysis(Incident incident, AiDegradeReason reason) {
+    // One exhaustive switch with no default, carrying BOTH the sentence and
+    // whether a retry can help. Retryability used to be a separate
+    // `reason != budgetExhausted` test, and the difference is what happens when a
+    // FOURTH ENUM CASE is added: the negative test would have defaulted it to
+    // retryable and shipped a budget-spending button nobody chose, while this
+    // fails to compile until someone answers the question.
+    //
+    // What it does NOT cover, because nothing client-side can: a reason the
+    // BACKEND adds and this client has never heard of. `aiDegradeReasonFromWire`
+    // coerces an unrecognised string to `serviceUnreachable` before it ever
+    // reaches here, so an older client offers a retry for it. Accepted for now:
+    // the alternative is an `unknown` case with a cause-free sentence, which is
+    // its own copy decision, and a stale client one release behind is a narrower
+    // window than a new case landing with no sentence at all.
+    final (String notice, bool retryable) = switch (reason) {
+      AiDegradeReason.budgetExhausted => (
+        trans('uptizm.incidents.analysis_degraded_budget'),
+        false,
       ),
-      AiDegradeReason.outputUntrusted => trans(
-        'uptizm.incidents.analysis_degraded_untrusted',
+      AiDegradeReason.outputUntrusted => (
+        trans('uptizm.incidents.analysis_degraded_untrusted'),
+        true,
       ),
-      AiDegradeReason.serviceUnreachable => trans(
-        'uptizm.incidents.analysis_degraded_unreachable',
+      AiDegradeReason.serviceUnreachable => (
+        trans('uptizm.incidents.analysis_degraded_unreachable'),
+        true,
       ),
     };
     final String core = trans('uptizm.incidents.analysis_degraded_core', {
@@ -624,7 +654,71 @@ class _IncidentDetailViewState
       'lifecycle': incident.lifecycle.label,
     });
 
-    return ai.copyWith(tldr: '$notice $core');
+    return MSCard(
+      variant: CardVariant.surface,
+      child: WDiv(
+        // Stacked on a phone, one row from `sm` up, which is the pattern
+        // `_buildResponderStrip` already uses for long content plus a trailing
+        // action. At 390px the notice is ~135 characters and the button ~110px
+        // wide, so a single row leaves the text about 140px and ten lines tall.
+        //
+        // `flex-1` stays behind the `sm:` prefix deliberately: it resolves to an
+        // `Expanded`, which needs a bounded main axis. Under `flex-col` inside
+        // the page scroll it would throw, the same family as the `Wrap` crash
+        // this row hit on its first draft.
+        className:
+            'flex flex-col gap-3 sm:flex-row sm:items-start '
+            'sm:justify-between',
+        children: [
+          // `min-w-0` so a long sentence wraps instead of forcing the row wider
+          // than the card.
+          WDiv(
+            className: 'min-w-0 sm:flex-1 flex flex-col gap-1',
+            children: [
+              WText(
+                trans('uptizm.incidents.analysis_degraded_heading'),
+                className: 'text-sm font-semibold text-fg',
+              ),
+              WText(
+                '$notice $core',
+                className: 'text-sm leading-relaxed text-fg-muted',
+              ),
+            ],
+          ),
+          if (retryable) _buildAnalysisRetryButton(incident),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the retry action for a degraded analysis, disabled while the request
+  /// it fires is already in flight.
+  ///
+  /// Disabled rather than hidden: the request re-asks the model and can take the
+  /// better part of a minute, and a button that vanishes mid-request reads as a
+  /// finished one. A second tap would spend a second budget unit on the same
+  /// answer.
+  ///
+  /// `disabled` AND a null `onPressed`, because the two do different jobs: the
+  /// null callback makes the tap inert, while `disabled` is what wind reads to
+  /// render the state (`disabled:opacity-50 disabled:cursor-not-allowed`, plus
+  /// the `AbsorbPointer` and the default cursor). With only the null callback the
+  /// button kept a pointer cursor and its full-opacity hover response for the
+  /// whole minute, which is the same lie this screen was just cleaned of.
+  Widget _buildAnalysisRetryButton(Incident incident) {
+    final bool pending = controller.analysisPending(incident.id);
+
+    return MSButton(
+      intent: ButtonIntent.secondary,
+      size: ButtonSize.sm,
+      disabled: pending,
+      onPressed: pending ? null : () => controller.retryAnalysis(incident.id),
+      child: WText(
+        pending
+            ? trans('uptizm.incidents.analysis_retry_pending')
+            : trans('uptizm.common.retry'),
+      ),
+    );
   }
 
   /// Builds the AI analysis section, billing-gated.
@@ -636,6 +730,13 @@ class _IncidentDetailViewState
   /// wrapping). Wrapped in a [ListenableBuilder] on [EntitlementController] so
   /// it re-gates when the real plan lands, mirroring the backend's own 403 on
   /// `GET /incidents/{id}/analysis` below the analysis tier.
+  ///
+  /// No `onActionTap` is passed, and that omission is the feature: the card wraps
+  /// each suggested action in a [WButton] when the callback is present, so a
+  /// no-op handler dressed advisory rows as buttons that did nothing when
+  /// tapped. Null is the card's documented non-interactive mode, and the rows
+  /// are advice, not commands. Giving them a real destination needs the backend
+  /// to emit a structured target and is its own piece of work.
   Widget _buildAiAnalysis(IncidentAi ai) {
     return ListenableBuilder(
       listenable: EntitlementController.instance,
@@ -644,7 +745,6 @@ class _IncidentDetailViewState
         if (entitlement.aiLevelAllows(AiLevel.analysis)) {
           return AiAnalysisCard(
             ai: ai,
-            onActionTap: (_) {},
             onFeedback: (_) {},
           );
         }
@@ -676,8 +776,17 @@ class _IncidentDetailViewState
   /// 2. **Stored** ([Incident.postmortemBody] present): the persisted body in a
   ///    plain card, with an honest published-or-draft-only state line. A human
   ///    owns this text, so it carries no AI framing.
-  /// 3. **Nothing stored**: the generated [postmortemDraft] in an [AiInsight]
-  ///    banner, labelled a draft, as the starting point for a human.
+  /// 3. **Nothing stored**: the generated [postmortemDraft] in the SAME plain
+  ///    card, labelled a draft, as the starting point for a human.
+  ///
+  /// State 3 used to render inside an [AiInsight] banner, whose whole job is to
+  /// mark content as model-authored with a sparkle glyph. Nothing about that was
+  /// true: [postmortemDraft] is a `trans()` template filled from the incident's
+  /// own duration, affected count and signal source, with no model anywhere near
+  /// it. So the badge claimed an AI provenance the text does not have, and it
+  /// framed an EDITOR INPUT (a starting point a human is expected to rewrite) as
+  /// a finished analysis. Both states now use the same plain card, which is also
+  /// what makes them read as one thing at two stages rather than two features.
   Widget _buildPostmortem(Incident incident) {
     if (_editingPostmortem) {
       return _buildPostmortemEditor(incident);
@@ -688,17 +797,38 @@ class _IncidentDetailViewState
       return _buildStoredPostmortem(incident, stored);
     }
 
-    return AiInsight(
-      tone: 'banner',
-      label: trans('uptizm.incidents.detail_postmortem_heading'),
-      action: _buildPostmortemEditButton(incident),
-      child: WText(postmortemDraft(incident)),
+    return _buildPostmortemCard(
+      incident,
+      heading: trans('uptizm.incidents.detail_postmortem_heading'),
+      body: postmortemDraft(incident),
     );
   }
 
   /// Builds the stored-postmortem card: the persisted body, its publication
   /// state, and the edit action.
   Widget _buildStoredPostmortem(Incident incident, String body) {
+    return _buildPostmortemCard(
+      incident,
+      heading: trans('uptizm.incidents.detail_postmortem_heading_saved'),
+      body: body,
+      footer: _buildPostmortemState(incident),
+    );
+  }
+
+  /// The card both postmortem states render through: [heading] plus the edit
+  /// action on one row, [body] below, and [footer] when the state has one.
+  ///
+  /// One method because the two states are one thing at two stages, which is the
+  /// point of the draft losing its AI framing. They were separate subtrees
+  /// differing only in these three values, and a shape written twice is a shape
+  /// that drifts: keeping them identical would have meant remembering to edit
+  /// both, which is how the draft ended up looking like a different feature.
+  Widget _buildPostmortemCard(
+    Incident incident, {
+    required String heading,
+    required String body,
+    Widget? footer,
+  }) {
     return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
@@ -707,15 +837,12 @@ class _IncidentDetailViewState
           WDiv(
             className: 'wrap items-center justify-between gap-3',
             children: [
-              WText(
-                trans('uptizm.incidents.detail_postmortem_heading_saved'),
-                className: 'text-sm font-semibold text-fg',
-              ),
+              WText(heading, className: 'text-sm font-semibold text-fg'),
               _buildPostmortemEditButton(incident),
             ],
           ),
           WText(body, className: 'text-sm leading-relaxed text-fg-muted'),
-          _buildPostmortemState(incident),
+          ?footer,
         ],
       ),
     );
@@ -775,11 +902,15 @@ class _IncidentDetailViewState
           ),
           // The seeded text is Uptizm's outside-in observation, not a finished
           // analysis; say so for as long as it is still the generated draft.
+          //
+          // A plain line, not an `AiInsight`: the draft is a `trans()` template
+          // built from the incident's own fields, so the sparkle glyph credited a
+          // model that never ran, and the sentence is guidance to the person
+          // typing rather than a machine's contribution to review.
           if (_postmortemFromDraft)
-            AiInsight(
-              child: WText(
-                trans('uptizm.incidents.detail_postmortem_ai_seeded'),
-              ),
+            WText(
+              trans('uptizm.incidents.detail_postmortem_ai_seeded'),
+              className: 'text-xs leading-relaxed text-fg-muted',
             ),
           WDiv(
             className: 'wrap items-center justify-end gap-3',
@@ -956,6 +1087,16 @@ class _IncidentDetailViewState
           ),
 
           // 4. AI-drafted hint (only right after an AI draft).
+          //
+          // The one `AiInsight` left on this screen, and it is over a `trans()`
+          // template too ([draftUpdate]), so the framing is no truer here than it
+          // was on the postmortem draft. It stays for one reason the postmortem
+          // did not have: this text appears only after the operator pressed a
+          // button labelled "AI draft", so the badge repeats a promise the app
+          // already made out loud rather than inventing one. Wiring this path to a
+          // real gateway is the fix, and it is a product decision rather than a
+          // cleanup; until it lands, treat this widget as the promise's receipt
+          // and not as a pattern to copy.
           if (_aiDrafted)
             AiInsight(
               child: WText(

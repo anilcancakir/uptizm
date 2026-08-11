@@ -80,6 +80,19 @@ class IncidentController extends MagicController
   /// no model field for it to belong to. [analysisFor] reads this cache first.
   final Map<String, IncidentAi> _analysisById = {};
 
+  /// The incident ids whose analysis fetch is in flight.
+  ///
+  /// A set rather than one id, even though the detail screen shows one incident
+  /// at a time: this controller is a Type-keyed singleton that outlives every
+  /// screen, and a request takes long enough that opening A, going back, and
+  /// opening B leaves two of them running. With one slot, whichever answered
+  /// first cleared the other's flag.
+  ///
+  /// It exists because the retry re-asks the model and spends an AI budget unit,
+  /// so without an in-flight signal the operator taps, watches nothing happen for
+  /// the better part of a minute, and taps again.
+  final Set<String> _analysisPendingIds = {};
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -375,22 +388,94 @@ class IncidentController extends MagicController
   /// host): [analysisFor] keeps returning the un-enriched [Incident.ai] first
   /// paint instead of the screen crashing or flashing an error state for a
   /// surface that already has a working fallback.
+  ///
+  /// Skips the request entirely when the cache already holds a MODEL-authored
+  /// analysis for [id]. The endpoint recomputes per call and spends one AI budget
+  /// unit each time (`IncidentAnalysisService::analyzeFor()` consumes the budget
+  /// before it calls the gateway), so a mount that re-asks for an answer we
+  /// already have is money for nothing: three responders opening one incident a
+  /// few times each is a double-digit share of a 100-per-day team cap. A cached
+  /// DEGRADE is not skipped, because that one is worth re-asking, which is what
+  /// [retryAnalysis] is for.
   Future<void> loadAnalysis(String id) async {
+    final IncidentAi? cached = _analysisById[id];
+    if (cached != null && cached.degradeReason == null) return;
+
+    await _fetchAnalysis(id, announceStart: false, reportFailure: false);
+  }
+
+  /// Re-asks for the analysis of incident [id] because the operator pressed the
+  /// retry on a degraded one.
+  ///
+  /// Differs from [loadAnalysis] in the two ways an explicit action differs from
+  /// a background one: it repaints on START so the button can disable itself
+  /// while the request runs, and it REPORTS the outcome. A silent retry is the
+  /// same defect class this screen was just cleaned of, because a failed re-ask
+  /// and a re-ask that degraded again both repaint byte-identically, leaving the
+  /// operator unable to tell either from a button that does nothing.
+  Future<void> retryAnalysis(String id) =>
+      _fetchAnalysis(id, announceStart: true, reportFailure: true);
+
+  /// The shared fetch behind [loadAnalysis] and [retryAnalysis].
+  ///
+  /// Degrades silently on any failure (network error, non-2xx, or a malformed
+  /// payload, including an unregistered `network` service in a bare test host):
+  /// [analysisFor] keeps returning whatever it had instead of the screen crashing
+  /// or flashing an error state for a surface that already has a working
+  /// fallback. [reportFailure] adds a toast on top of that, for the retry only.
+  Future<void> _fetchAnalysis(
+    String id, {
+    required bool announceStart,
+    required bool reportFailure,
+  }) async {
+    // Re-entrancy guard. The disabled retry button is a UI courtesy, not a
+    // mechanism: a remount inside the request window would otherwise fire a
+    // second one, and every extra request spends another budget unit.
+    if (_analysisPendingIds.contains(id)) return;
+
+    _analysisPendingIds.add(id);
+    // Only the retry announces itself. `loadAnalysis` runs from `initState`, and
+    // `refreshUI` is a bare `notifyListeners()`, so notifying there would mark
+    // listening elements dirty during a build that is still running.
+    if (announceStart) refreshUI();
     try {
       final response = await Http.get('/incidents/$id/analysis');
       if (!response.successful) {
         Log.error(
-          '[IncidentController.loadAnalysis] $id: ${response.errorMessage}',
+          '[IncidentController._fetchAnalysis] $id: ${response.errorMessage}',
         );
+        if (reportFailure) {
+          Magic.error(
+            trans('common.error_occurred'),
+            response.errorMessage ?? trans('common.error_occurred'),
+          );
+        }
         return;
       }
 
       final Object? data = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (data is! Map<String, dynamic>) return;
+      if (data is! Map<String, dynamic>) {
+        // A 200 whose body is not the shape we asked for. Silent on the mount
+        // path like every other failure there, but the retry has to speak: this
+        // was the one exit that reported nothing, so an operator-initiated
+        // re-ask against a malformed payload looked exactly like a button that
+        // did nothing, which is what this method's own contract rules out.
+        Log.error(
+          '[IncidentController._fetchAnalysis] $id: malformed payload',
+        );
+        if (reportFailure) {
+          Magic.error(
+            trans('common.error_occurred'),
+            trans('common.error_occurred'),
+          );
+        }
 
-      _analysisById[id] = IncidentAi(
+        return;
+      }
+
+      final IncidentAi analysis = IncidentAi(
         trigger: '',
         confidence: aiConfidenceFromWire(data['confidence'] as String?),
         tldr: (data['summary'] as String?) ?? '',
@@ -402,11 +487,41 @@ class IncidentController extends MagicController
           data['degrade_reason'] as String?,
         ),
       );
-      refreshUI();
+      _analysisById[id] = analysis;
+
+      // Say what came back, so "asked again, same answer" is distinguishable
+      // from "the button did nothing". A second degrade renders the identical
+      // sentence, which is exactly the case a repaint cannot report.
+      if (reportFailure && analysis.degradeReason != null) {
+        // `snackbar` with the info type, not `Magic.success`: the request
+        // succeeded and the answer did not, and the two read differently.
+        Magic.snackbar(
+          trans('uptizm.incidents.analysis_degraded_heading'),
+          trans('uptizm.incidents.analysis_retry_unchanged'),
+        );
+      }
     } catch (error) {
-      Log.error('[IncidentController.loadAnalysis] $id failed: $error');
+      Log.error('[IncidentController._fetchAnalysis] $id failed: $error');
+      if (reportFailure) {
+        Magic.error(
+          trans('common.error_occurred'),
+          trans('common.error_occurred'),
+        );
+      }
+    } finally {
+      // Keyed to THIS request. An unconditional clear released the retry of
+      // whichever incident was pending when any other one finished: open A, go
+      // back, open B, and A's answer re-enabled B's button while B's request was
+      // still running, so the next tap spent a second budget unit on a request
+      // already in flight.
+      _analysisPendingIds.remove(id);
+      refreshUI();
     }
   }
+
+  /// Whether the analysis fetch for incident [id] is in flight, so the degraded
+  /// section can show its retry as running rather than idle.
+  bool analysisPending(String id) => _analysisPendingIds.contains(id);
 
   /// Decodes an `evidence_for`/`evidence_against` wire list into
   /// [AiEvidence]s, tolerating a non-list or absent value as empty (the

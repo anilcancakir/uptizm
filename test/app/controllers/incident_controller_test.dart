@@ -705,6 +705,193 @@ void main() {
       );
     });
 
+    test('reports the fetch as pending while it runs, and clears it after', () async {
+      // What this protects: the degraded section's retry disables itself on
+      // `analysisPending`, and the request behind it re-asks the model, which can
+      // take the better part of a minute. A flag that never clears would leave the
+      // retry dead for the rest of the screen's life; one that never sets would
+      // let a second tap spend a second AI budget unit on the same answer.
+      Http.fake({
+        'incidents/pending-1/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(controller.analysisPending('pending-1'), isFalse);
+
+      // Deliberately NOT awaited: the flag only exists during the gap between
+      // the call and its answer, so awaiting first would test nothing.
+      final Future<void> inFlight = controller.loadAnalysis('pending-1');
+      expect(controller.analysisPending('pending-1'), isTrue);
+      expect(
+        controller.analysisPending('another-incident'),
+        isFalse,
+        reason: 'the flag is per incident, not global',
+      );
+
+      await inFlight;
+
+      expect(controller.analysisPending('pending-1'), isFalse);
+    });
+
+    test('clears the pending flag when the request fails', () async {
+      // The `finally` path. A 500 (or a stray-request throw, or a malformed
+      // body) must still release the retry, otherwise the one state where an
+      // operator most wants to retry is the one where the button stays dead.
+      Http.fake({
+        'incidents/pending-2/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+      });
+      // The failure path logs, so the `log` service has to resolve; without it
+      // the throw inside the catch would mask what this test is about.
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.retryAnalysis('pending-2');
+
+      expect(controller.analysisPending('pending-2'), isFalse);
+      expect(controller.analysisFor(Incident.fromMap({'id': 'pending-2'})), isNull);
+    });
+
+    test('one incident finishing does not release another one still running', () async {
+      // THE DEFECT THIS PINS. The flag used to be a single slot cleared
+      // unconditionally, so: open A (a minute-long request), go back, open B, and
+      // A's answer released B's retry while B's request was still in flight. The
+      // next tap spent a second AI budget unit on a request already running.
+      Http.fake({
+        'incidents/slow-a/analysis': Http.response({
+          'data': {'summary': 'a', 'confidence': 'low'},
+        }),
+        'incidents/slow-b/analysis': Http.response({
+          'data': {'summary': 'b', 'confidence': 'low'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<void> a = controller.loadAnalysis('slow-a');
+      final Future<void> b = controller.loadAnalysis('slow-b');
+      expect(controller.analysisPending('slow-a'), isTrue);
+      expect(controller.analysisPending('slow-b'), isTrue);
+
+      await a;
+
+      expect(
+        controller.analysisPending('slow-b'),
+        isTrue,
+        reason: "A finishing must not speak for B's request",
+      );
+
+      await b;
+
+      expect(controller.analysisPending('slow-b'), isFalse);
+    });
+
+    test('a second call for an id already in flight is dropped', () async {
+      // The disabled button is a courtesy, not the mechanism: a remount inside
+      // the request window would fire again, and every request spends a unit.
+      final fake = Http.fake({
+        'incidents/once/analysis': Http.response({
+          'data': {'summary': 'once', 'confidence': 'low'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<void> first = controller.loadAnalysis('once');
+      await controller.retryAnalysis('once');
+      await first;
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url == '/incidents/once/analysis')
+            .length,
+        1,
+      );
+    });
+
+    test('a cached model-authored analysis is not re-fetched on a remount', () async {
+      // The endpoint recomputes and spends an AI budget unit per call, and the
+      // detail view fetches from `initState`, so a screen reopened three times
+      // used to pay three times for the same answer.
+      final fake = Http.fake({
+        'incidents/cached/analysis': Http.response({
+          'data': {'summary': 'The origin returned 503s.', 'confidence': 'high'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('cached');
+      await controller.loadAnalysis('cached');
+
+      int calls() => fake.recorded
+          .where((entry) => entry.$1.url == '/incidents/cached/analysis')
+          .length;
+      expect(calls(), 1);
+
+      // The retry is the explicit exception: it always asks again.
+      await controller.retryAnalysis('cached');
+      expect(calls(), 2);
+    });
+
+    test('a cached DEGRADE is re-fetched, because that answer is worth re-asking', () async {
+      final fake = Http.fake({
+        'incidents/degraded-cache/analysis': Http.response({
+          'data': {
+            'summary': 'critical severity incident, currently investigating.',
+            'confidence': 'low',
+            'degrade_reason': 'service_unreachable',
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('degraded-cache');
+      await controller.loadAnalysis('degraded-cache');
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url == '/incidents/degraded-cache/analysis')
+            .length,
+        2,
+      );
+    });
+
+    test('a retry against a malformed payload reports rather than going quiet', () async {
+      // The last silent exit. A 200 whose body is not the shape we asked for used
+      // to return with no log and no toast, so an operator-initiated re-ask looked
+      // identical to a dead button, which is the defect class this whole change
+      // is about.
+      Http.fake({
+        'incidents/malformed/analysis': Http.response({'unexpected': 'shape'}),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.retryAnalysis('malformed');
+
+      expect(controller.analysisPending('malformed'), isFalse);
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'malformed'})),
+        isNull,
+        reason: 'a shape we cannot read must not become a rendered analysis',
+      );
+    });
+
     test('a null or absent degrade_reason means nothing degraded', () async {
       // Both shapes, because the two are different states everywhere else in
       // this app: the endpoint always SENDS the key (null on the model path),
