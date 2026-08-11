@@ -6,6 +6,7 @@ use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\SignalSource;
+use App\Services\Monitoring\IncidentTitle;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -29,6 +30,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * `postmortem_published_at`: the body alone is an internal draft, and only a
  * non-null publication stamp makes it customer-visible on the public status
  * page.
+ *
+ * The title exists in two forms. `title` holds the English sentence, which is
+ * what search, the LLM prompts and any reader with no locale need; `title_key`
+ * plus `title_params` hold the structure a localized surface renders from
+ * through {@see IncidentTitle::render()}. A null `title_key` means a human
+ * authored the title, and it is also what every row written before that seam
+ * existed looks like.
  *
  * Relationships:
  * - belongs to {@see Team} (tenant boundary)
@@ -56,6 +64,10 @@ class Incident extends Model
         'signal_source' => SignalSource::class,
         'lifecycle' => IncidentStatus::class,
         'ai_owned' => 'boolean',
+        // Without this cast a persisted title_params arrives as a JSON string,
+        // and IncidentTitle::render() would hand it to __() as one replacement
+        // rather than as a set, rendering a key with unreplaced placeholders.
+        'title_params' => 'array',
         'started_at' => 'immutable_datetime',
         'resolved_at' => 'immutable_datetime',
         'postmortem_published_at' => 'immutable_datetime',
