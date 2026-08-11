@@ -394,10 +394,19 @@ class MonitorControllerTest extends TestCase
             // assertEqualsWithDelta rather than assertSame: a whole-number
             // float round-trips through JSON as a PHP int (2.0 -> "2" -> 2),
             // which is a JSON artefact, not a wire defect.
-            $this->assertEqualsWithDelta(2.0, $response->json("data.slo_down_minutes_{$range}"), 0.01, "down minutes for {$range}");
-            $this->assertEqualsWithDelta(900.0, $response->json("data.slo_observed_minutes_{$range}"), 0.01, "observed minutes for {$range}");
-            $this->assertEqualsWithDelta(767.0, $response->json("data.slo_measured_minutes_{$range}"), 0.01, "measured minutes for {$range}");
-            $this->assertEqualsWithDelta(134.0, $response->json("data.slo_gap_minutes_{$range}"), 0.01, "gap minutes for {$range}");
+            foreach ([
+                'down' => 2.0,
+                'observed' => 900.0,
+                'measured' => 767.0,
+                'gap' => 133.0,
+            ] as $field => $expected) {
+                $this->assertEqualsWithDelta(
+                    $expected,
+                    $response->json("data.slo_{$field}_minutes_{$range}"),
+                    0.01,
+                    "{$field} minutes for {$range}",
+                );
+            }
         }
 
         $response->assertJsonMissingPath('data.slo_uptime_7d');

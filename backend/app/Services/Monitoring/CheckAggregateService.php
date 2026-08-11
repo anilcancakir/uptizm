@@ -116,13 +116,45 @@ class CheckAggregateService
      *   its own rather than folded into either column. Counting them down
      *   invents downtime; counting them up forgives our own blind spot.
      *
-     * Two quantisation notes, both deliberate. The four measured fields are
-     * floats because a paid plan probes every 30 seconds, so one bucket is
-     * half a minute and an int field would round real downtime to zero. And
-     * the grid includes the slot holding the coverage start and the slot
-     * holding `now`, so `measured_minutes + gap_minutes` can exceed
-     * `observed_minutes` by up to one bucket per edge; they are a coverage
-     * signal at cadence resolution, not a clock.
+     * Every field is a BUCKET COUNT expressed in minutes, not a clock reading.
+     * The four measured fields are floats because a paid plan probes every 30
+     * seconds, so one bucket is half a minute and an int would round real
+     * downtime to zero; and `measured_minutes` can legitimately exceed
+     * `observed_minutes` when the cadence is coarser than the window (a daily
+     * check inside a 24-hour window measures one 1440-minute bucket). It is not
+     * capped for that reason: capping would delete information rather than
+     * correct it. Only `gap_minutes` is bounded, because it is the field an
+     * operator reads as a duration.
+     *
+     * DST is a non-issue and should stay one: the grid is epoch-anchored and
+     * `checked_at` is `timestamptz`, so `EXTRACT(EPOCH ...)` is absolute
+     * whatever the session zone. The only exposure is the SQLite test path,
+     * where `strftime('%s', ...)` reads the stored string as UTC and agrees with
+     * PHP only because `config/app.php` pins the app timezone to UTC.
+     *
+     * Three KNOWN LIMITATIONS. Each produces a number that is wrong in the same
+     * class this method exists to fix, so do not read the output as
+     * cadence-independent:
+     *
+     * 1. The bucket is the monitor's CURRENT `check_interval_sec`, applied
+     *    retroactively to every historical row, and the column is editable
+     *    (`UpdateMonitorRequest`). Moving a monitor from 60s to 300s turns ten
+     *    scattered historical down minutes into ten distinct five-minute buckets
+     *    and reports 50; the reverse edit under-reports, and a faster cadence
+     *    inflates `gap_minutes` across the whole pre-edit window. The cheapest
+     *    real fix is recording the cadence on the check row, which is additive
+     *    and unblocks the others; capping a bucket's contribution at the
+     *    observed spacing, or bounding the window at the last cadence change,
+     *    are the alternatives.
+     * 2. A coarse cadence spends a whole bucket per failed check.
+     *    `check_interval_sec` validates up to 86400, so at hourly one `down`
+     *    check reports 60 down minutes, which alone breaches a 99.9% 30-day
+     *    allowance of 43.2 minutes. Arithmetically consistent with the bucket
+     *    definition, not defensible as "minutes of downtime"; a monitor whose
+     *    bucket exceeds its own allowance cannot resolve its budget at all.
+     * 3. Checks recorded BEFORE `created_at` are discarded, because coverage
+     *    starts at the later of the range boundary and creation. Backfilled or
+     *    re-parented rows therefore vanish from both `measured` and `down`.
      */
     public function reliabilitySummary(Monitor $monitor, string $range): object
     {
@@ -137,9 +169,16 @@ class CheckAggregateService
         // 2. Count distinct buckets, not rows. The conditional inside the
         //    `distinct` is what folds a disagreeing bucket to down: any
         //    bucket with one `down` row contributes exactly once.
+        //    Bounded at BOTH ends against the same `$now` the expected-slot
+        //    count uses. `checked_at` comes from the edge worker's clock
+        //    verbatim, so a relay running fast writes rows past our `now`; with
+        //    no ceiling those buckets pushed `measured` above `expected` and the
+        //    clamp below then silenced `gap_minutes` entirely, which turns a real
+        //    blind spot into "fully measured". It also closes the read race
+        //    between reading the clock and running the query.
         $counts = MonitorCheck::query()
             ->where('monitor_id', $monitor->id)
-            ->where('checked_at', '>=', $coverageStart)
+            ->whereBetween('checked_at', [$coverageStart, $now])
             ->selectRaw("count(distinct {$bucketExpr}) as measured_buckets")
             ->selectRaw(
                 "count(distinct case when status = ? then {$bucketExpr} end) as down_buckets",
@@ -159,13 +198,11 @@ class CheckAggregateService
 
         $observedMinutes = round(max(0, $now->getTimestamp() - $coverageStart->getTimestamp()) / 60, 2);
 
-        // 4. The gap is capped at the coverage it is a gap in. Both edge slots
-        //    of the grid are expected (see gridSlots()), so an unmeasured
-        //    window can otherwise report one bucket MORE than it observed: a
-        //    30-day monitor with no checks read 43201 unmeasured minutes out of
-        //    43200 observed. That surfaces to the operator, and a gap larger
-        //    than its own window is read as a broken number rather than as a
-        //    cadence-resolution artefact.
+        // 4. The gap is additionally capped at the coverage it is a gap in. With
+        //    the in-progress slot excluded this should never bind, which is the
+        //    point: it is a belt, and a raw value that exceeds `observed` means
+        //    the grid and the clock have drifted apart rather than that the
+        //    monitor has a blind spot bigger than its own window.
         $gapMinutes = round(max(0, $expectedBuckets - $measuredBuckets) * $minutesPerBucket, 2);
 
         return (object) [
@@ -258,20 +295,31 @@ class CheckAggregateService
     }
 
     /**
-     * Number of grid slots the `[$start, $end]` window touches on the same
+     * Number of COMPLETED grid slots in `[$start, $end]`, on the same
      * epoch-anchored grid {@see self::bucketExpression()} floors onto.
      *
-     * Both edge slots count, because a check anywhere inside a slot marks
-     * that slot measured; counting whole elapsed intervals instead would
-     * report fewer slots than the measurement can fill and drive the gap
-     * negative.
+     * The slot holding `$start` counts, because a check anywhere inside a slot
+     * marks that slot measured. The slot holding `$end` does NOT, and that is
+     * the load-bearing half. The grid is anchored at the Unix epoch, not at the
+     * monitor's schedule: `next_check_at` is the last check plus the cadence, so
+     * a slot boundary is not a due time and the check belonging to the current
+     * slot may legitimately be due at its end. Counting it as expected made
+     * every healthy monitor carry a standing one-bucket "not measured" note,
+     * which teaches an operator to skip exactly the line a real eight-day blind
+     * spot lands in, and made any zero-gap assertion non-deterministic.
+     * Excluding it cannot hide a gap larger than one interval, and every gap
+     * worth acting on is larger than that.
+     *
+     * Counting whole elapsed intervals instead of grid slots is the other wrong
+     * answer: the two disagree whenever coverage starts mid-slot, and the gap
+     * goes negative.
      */
     protected function gridSlots(DateTimeInterface $start, DateTimeInterface $end, int $bucketSeconds): int
     {
         $firstSlot = intdiv($start->getTimestamp(), $bucketSeconds);
         $lastSlot = intdiv($end->getTimestamp(), $bucketSeconds);
 
-        return max(0, $lastSlot - $firstSlot + 1);
+        return max(0, $lastSlot - $firstSlot);
     }
 
     /**

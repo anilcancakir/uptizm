@@ -121,9 +121,9 @@ class CheckAggregateServiceTest extends TestCase
         $this->assertSame(900.0, $thirtyDay->observed_minutes);
         $this->assertSame(767.0, $sevenDay->measured_minutes);
 
-        // 901 one-minute grid slots between creation and now (both edge slots
-        // included), 767 of them measured.
-        $this->assertSame(134.0, $sevenDay->gap_minutes);
+        // 900 COMPLETED one-minute grid slots between creation and now (the slot
+        // holding `now` is in progress and is not expected yet), 767 measured.
+        $this->assertSame(133.0, $sevenDay->gap_minutes);
     }
 
     public function test_reliability_summary_folds_five_regions_in_one_bucket_into_one_down_minute(): void
@@ -293,14 +293,15 @@ class CheckAggregateServiceTest extends TestCase
         $now = $this->freezeClock();
 
         // Coverage starts 137 seconds INTO a five-minute grid slot, so elapsed
-        // seconds (763) divided by the cadence yields two buckets while the grid
-        // itself holds four. Deriving expected buckets from elapsed seconds
-        // therefore undercounts and the gap turns negative.
+        // seconds (763) divided by the cadence yields two completed buckets
+        // while the grid itself holds three. The MIDDLE check is deliberately
+        // missing, so the one absent bucket is a real blind spot rather than the
+        // in-progress slot: deriving expected buckets from elapsed seconds
+        // undercounts, finds no gap, and the assertion below catches it.
         $monitor = $this->makeMonitor(intervalSec: 300, createdAt: $now->subMinutes(15)->addSeconds(137));
 
         foreach ([
             $now->subMinutes(15)->addSeconds(137),
-            $now->subMinutes(10),
             $now->subMinutes(5),
         ] as $checkedAt) {
             $this->makeChecks($monitor, [
@@ -314,9 +315,9 @@ class CheckAggregateServiceTest extends TestCase
         $summary = (new CheckAggregateService)->reliabilitySummary($monitor, '7d');
 
         $this->assertGreaterThanOrEqual(0.0, $summary->gap_minutes);
-        // Four grid slots touched, three measured: exactly one missing bucket.
+        // Three completed grid slots, two measured: exactly one missing bucket.
         $this->assertSame(5.0, $summary->gap_minutes);
-        $this->assertSame(15.0, $summary->measured_minutes);
+        $this->assertSame(10.0, $summary->measured_minutes);
     }
 
     public function test_reliability_summary_separates_never_measured_from_measured_and_fine(): void
