@@ -129,6 +129,15 @@ class MetricDiscoveryService
      *                               {@see PromptLanguage::nameFor()}. It is the operator's
      *                               stored preference and never the target's, because a page
      *                               must not choose what language our dashboard reads in.
+     * @param  string|null  $runId  The analyze run this call belongs to, closing the same
+     *                              gap `$teamId` closes: the analyze path's monitor is
+     *                              transient, so `monitor_id` is empty on every degrade line
+     *                              it produces, and this app has no correlation-id
+     *                              infrastructure (no `Log::withContext`, no `Context::`
+     *                              facade) to hook instead. `MonitorMetricController::discover()`
+     *                              operates on a PERSISTED monitor whose `monitor_id` is
+     *                              already meaningful and has no run to name, so it passes
+     *                              nothing and its log lines are unchanged.
      * @return list<array<string, mixed>>
      */
     public function discover(
@@ -137,6 +146,7 @@ class MetricDiscoveryService
         string $teamId,
         array $headers = [],
         ?string $locale = null,
+        ?string $runId = null,
     ): array {
         // 1. Generate the candidates first. No candidates means there is nothing
         //    for a model to select among, so this costs neither a budget unit nor
@@ -157,7 +167,7 @@ class MetricDiscoveryService
             return [];
         }
 
-        $result = $this->select($monitor, $candidates, $locale);
+        $result = $this->select($monitor, $candidates, $locale, $runId);
         if ($result === null) {
             return [];
         }
@@ -171,8 +181,12 @@ class MetricDiscoveryService
      *
      * @param  list<MetricCandidate>  $candidates
      */
-    protected function select(Monitor $monitor, array $candidates, ?string $locale = null): ?MetricDiscoveryResult
-    {
+    protected function select(
+        Monitor $monitor,
+        array $candidates,
+        ?string $locale = null,
+        ?string $runId = null,
+    ): ?MetricDiscoveryResult {
         $payload = $this->payload($monitor, $candidates, $locale);
 
         // Non-conforming output past the gateway's own retry, and an unreachable
@@ -190,6 +204,7 @@ class MetricDiscoveryService
             // the model, and production spent a day reading it as the latter.
             Log::warning("Metric discovery degraded: the request's AI budget was already spent.", [
                 'monitor_id' => (string) ($monitor->getKey() ?? ''),
+                'run_id' => $runId,
                 'exception' => $exception->getMessage(),
             ]);
 
@@ -197,6 +212,7 @@ class MetricDiscoveryService
         } catch (RuntimeException $exception) {
             Log::warning('Metric discovery degraded: the model output could not be trusted.', [
                 'monitor_id' => (string) ($monitor->getKey() ?? ''),
+                'run_id' => $runId,
                 'exception' => $exception->getMessage(),
             ]);
 
@@ -204,6 +220,7 @@ class MetricDiscoveryService
         } catch (ConnectionException|RequestException $exception) {
             Log::warning('Metric discovery degraded: the AI service was unreachable.', [
                 'monitor_id' => (string) ($monitor->getKey() ?? ''),
+                'run_id' => $runId,
                 'exception' => $exception->getMessage(),
             ]);
 
@@ -224,6 +241,7 @@ class MetricDiscoveryService
             // chose is not something to copy into our logs.
             Log::warning('Metric discovery degraded: the AI provider could not complete the request.', [
                 'monitor_id' => (string) ($monitor->getKey() ?? ''),
+                'run_id' => $runId,
             ]);
 
             return null;
