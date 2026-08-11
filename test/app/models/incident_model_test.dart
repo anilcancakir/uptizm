@@ -10,25 +10,32 @@ import 'package:uptizm/app/enums/timeline_actor.dart' show TimelineActor, timeli
 import 'package:uptizm/app/support/formatters.dart'
     show formatDuration, formatHourMinute, formatRelativeMeta;
 import 'package:uptizm/app/enums/status_key.dart';
+import 'package:uptizm/app/enums/incident_title_key.dart'
+    show IncidentTitleKey, incidentTitleKeyFromWire;
 import 'package:uptizm/app/models/incident.dart';
 
-/// Feeds the two duration units [formatDuration] now reads from the catalogue.
+import '../../support/bundled_lang.dart';
+
+/// Serves the SHIPPED Turkish catalogue, which is where both localized things
+/// this file asserts come from: the two duration units [formatDuration] reads,
+/// and the six `uptizm.incidents.title_*` sentences [Incident.displayTitle]
+/// renders.
 ///
-/// Turkish values rather than `m`/`h` on purpose: with the English units the
-/// duration assertions below would pass just as well against a formatter that
-/// hardcoded them, and a hardcoded `1m` inside a Turkish sentence is the defect
-/// this localization removes.
-class _UnitLangLoader implements TranslationLoader {
+/// Turkish rather than English on purpose. With the English units the duration
+/// assertions would pass just as well against a formatter that hardcoded them, and
+/// with an inline map the headline assertions would agree with the test author
+/// instead of the product: `lang_parity_test.dart` compares key SETS and never
+/// values, so a Turkish entry left in English is invisible to every gate except an
+/// assertion that reads the shipped file.
+class _BundledTurkishLangLoader implements TranslationLoader {
   @override
-  Future<Map<String, dynamic>> load(Locale locale) async => {
-    'uptizm.units.minutes': 'dk',
-    'uptizm.units.hours': 'sa',
-  };
+  Future<Map<String, dynamic>> load(Locale locale) async =>
+      readBundledLang('tr');
 }
 
 void main() {
   setUp(() async {
-    Translator.instance.setLoader(_UnitLangLoader());
+    Translator.instance.setLoader(_BundledTurkishLangLoader());
     await Translator.instance.setLocale(const Locale('tr'));
   });
 
@@ -112,6 +119,13 @@ void main() {
         incident.title,
         'Checkout service returning 503s across all regions',
       );
+      // This payload carries no `title_key`, which is the backend saying a human
+      // wrote the headline: there is nothing to render from, so the display
+      // headline IS the stored column. The structured cases live in their own
+      // group below.
+      expect(incident.titleKey, isNull);
+      expect(incident.titleParams, isEmpty);
+      expect(incident.displayTitle, incident.title);
       expect(incident.lifecycle, IncidentLifecycle.investigating);
       expect(incident.severity, IncidentSeverity.warning);
       expect(incident.impact, IncidentImpact.down);
@@ -229,6 +243,102 @@ void main() {
       });
 
       expect(incident.ai, isNull);
+    });
+  });
+
+  group('Incident.displayTitle', () {
+    /// An incident carrying the wire shape `IncidentResource` emits for a
+    /// composed title.
+    Incident composed(String? key, Object? params) => Incident.fromMap({
+      'id': 'composed',
+      'title': 'the stored English',
+      'title_key': ?key,
+      'title_params': ?params,
+      'started_at': '2026-07-09T14:20:00.000Z',
+    });
+
+    test('renders the composed sentence from the shipped Turkish catalogue', () {
+      final Incident incident = composed('incidents.monitor_down', {
+        'monitor': 'checkout',
+      });
+
+      expect(incident.titleKey, IncidentTitleKey.monitorDown);
+      expect(incident.titleParams, {'monitor': 'checkout'});
+      // Spelled out rather than read back through `trans()`: the loader above
+      // serves the shipped file, so this line is what fails when a Turkish value
+      // is edited into English.
+      expect(incident.displayTitle, 'checkout kesintide');
+      expect(incident.displayTitle, isNot(incident.title));
+    });
+
+    test('a null title_key renders the stored title, whatever it says', () {
+      final Incident incident = composed(null, null);
+
+      expect(incident.titleKey, isNull);
+      expect(incident.displayTitle, 'the stored English');
+    });
+
+    test('an unrecognised title_key renders the stored title, never a raw key', () {
+      // The state a client older than the backend lands in. Falling back to the
+      // column beats guessing a member: the column holds a real sentence the
+      // backend composed, and a guessed member would render a DIFFERENT sentence
+      // out of parameters that may not belong to it.
+      final Incident incident = composed('incidents.some_seventh_kind', {
+        'monitor': 'checkout',
+      });
+
+      expect(incidentTitleKeyFromWire('incidents.some_seventh_kind'), isNull);
+      expect(incident.displayTitle, 'the stored English');
+      expect(incident.displayTitle, isNot(contains('incidents.')));
+    });
+
+    test('the SSL day count picks the catalogue entry, not the wire value', () {
+      // `days` arrives as a jsonb NUMBER here, which is how PostgreSQL round-trips
+      // it, and the model coerces it to a string before the count is read.
+      final Incident incident = composed('incidents.ssl_expiring', {
+        'monitor': 'api',
+        'days': 1,
+      });
+
+      expect(incident.titleKey, IncidentTitleKey.sslExpiring);
+      expect(incident.titleParams, {'monitor': 'api', 'days': '1'});
+      expect(incident.displayTitle, 'api sertifikası 1 gün içinde doluyor');
+
+      // The suffix is chosen client-side from the same `days` value the backend
+      // resolver reads, and it never crosses the wire: the enum has a member for
+      // the BARE key only. Turkish keeps the noun singular after a cardinal, so
+      // the two entries hold one sentence and only the KEY choice is observable.
+      expect(
+        IncidentTitleKey.sslExpiring.catalogueKey({'days': '1'}),
+        'uptizm.incidents.title_ssl_expiring_one',
+      );
+      expect(
+        IncidentTitleKey.sslExpiring.catalogueKey({'days': '14'}),
+        'uptizm.incidents.title_ssl_expiring_other',
+      );
+    });
+
+    test('every one of the six keys renders a real sentence, not its own key', () {
+      const Map<String, Map<String, Object>> everyKey = {
+        'incidents.monitor_down': {'monitor': 'checkout'},
+        'incidents.metric_warn_bound': {'metric': 'CPU'},
+        'incidents.metric_critical_bound': {'metric': 'CPU'},
+        'incidents.metric_string_value': {'metric': 'Redis state', 'value': 'DOWN'},
+        'incidents.ssl_expiring': {'monitor': 'api', 'days': 14},
+        'incidents.ai_anomaly': {'monitor': 'checkout'},
+      };
+
+      everyKey.forEach((String key, Map<String, Object> params) {
+        final String rendered = composed(key, params).displayTitle;
+
+        // A catalogue entry missing from `tr.json` renders its own dotted key
+        // (magic's `trans()` answers the key for an unknown one), and an
+        // unreplaced placeholder keeps its colon. Both are what a key added on
+        // one half only looks like on screen.
+        expect(rendered, isNot(contains('uptizm.')), reason: '$key rendered a raw key');
+        expect(rendered, isNot(contains(':')), reason: '$key left a placeholder');
+        expect(rendered, isNot('the stored English'), reason: '$key fell back');
+      });
     });
   });
 

@@ -26,9 +26,24 @@ import '../../support/skeleton_matchers.dart';
 /// `monitor_detail_view_test.dart` / `monitor_form_test.dart`. Short,
 /// wrappable strings avoid RenderFlex overflow at the test viewport.
 class _IncidentViewsLangLoader implements TranslationLoader {
+  /// The catalogue prefix whose entries come from the SHIPPED files rather than
+  /// from the harness map below.
+  ///
+  /// An incident headline is no longer a column read: a composed one renders from
+  /// `uptizm.incidents.title_*` through `Incident.displayTitle`, and a harness map
+  /// missing those keys would put a raw dotted key in the detail header, which is a
+  /// gap in this file rather than a defect in the view. There are seven entries and
+  /// no reason to keep a second copy of them here, so they are read from the
+  /// product.
+  static const String titleKeyPrefix = 'uptizm.incidents.title_';
+
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
+    final Map<String, dynamic> shipped = readBundledLang(locale.languageCode);
+
     return {
+      for (final MapEntry<String, dynamic> entry in shipped.entries)
+        if (entry.key.startsWith(titleKeyPrefix)) entry.key: entry.value,
       // Shared relative-time + count copy.
       'uptizm.common.time_just_now': 'just now',
       'uptizm.monitors.kpi_delta_ongoing': 'ongoing',
@@ -817,7 +832,17 @@ void main() {
       tester.takeException();
 
       expect(find.byType(MSPageHeader), findsOneWidget);
-      expect(find.text(incident.title), findsOneWidget);
+      // The header renders the HEADLINE, which for this fixture is a composed
+      // sentence resolved from the shipped `en` catalogue. Under `en` it reads the
+      // same as the stored column by construction (the backend composes that column
+      // from the same entry), so the locale-sensitive half of this contract is
+      // pinned by the Turkish test further down.
+      expect(find.text(incident.displayTitle), findsOneWidget);
+      expect(
+        incident.displayTitle,
+        'Anomaly detected on Checkout service',
+        reason: 'a raw dotted key here means the harness lost the title catalogue',
+      );
 
       // The public timeline entry's message is on the page (default view is
       // "public"); this incident has at least one public entry.
@@ -825,6 +850,41 @@ void main() {
           .firstWhere((e) => e.isPublic)
           .message;
       expect(find.text(publicMessage), findsOneWidget);
+    });
+
+    testWidgets('a composed headline reads Turkish in the header, and the '
+        'stored English never appears', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // The whole point of the structured title, on the surface an operator looks
+      // at most: the backend stored one English sentence and the header renders the
+      // Turkish one from its key. This is the only assertion in this file that can
+      // tell a header reading `displayTitle` from one reading `title`, because they
+      // are the same string in English.
+      await Translator.instance.setLocale(const Locale('tr'));
+
+      final Incident incident = findIncidentFixture('checkout-503')!;
+
+      await tester.pumpWidget(
+        wrap(
+          const IncidentDetailView(id: 'checkout-503'),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await tester.pump();
+      tester.takeException(); // see the header chip-row overflow note above
+
+      expect(
+        find.text('Checkout service üzerinde anomali saptandı'),
+        findsOneWidget,
+        reason: 'the header must render the headline in the app language',
+      );
+      expect(
+        find.text(incident.title),
+        findsNothing,
+        reason: 'the stored English column must not reach a Turkish operator',
+      );
     });
 
     testWidgets('an unknown id renders the graceful not-found state', (

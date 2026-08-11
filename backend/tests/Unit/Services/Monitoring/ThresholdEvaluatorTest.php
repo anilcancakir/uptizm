@@ -18,6 +18,7 @@ use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Monitoring\IncidentTitle;
 use App\Services\Monitoring\ThresholdEvaluator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -172,6 +173,12 @@ class ThresholdEvaluatorTest extends TestCase
      * grafted onto the same loop: its title keeps saying "bound", which is the
      * correct vocabulary for a numeric threshold and the wrong one for a value
      * match.
+     *
+     * The stored English is unchanged by this PR and stays asserted verbatim: it
+     * is what search, the LLM prompts and every unlocalized reader see. Beside it
+     * the STRUCTURED half is now asserted too, because a writer that composed the
+     * right sentence and dropped the key would leave the operator app with
+     * nothing to localize from and pass every assertion above.
      */
     public function test_a_numeric_metric_breach_opens_a_bound_titled_incident(): void
     {
@@ -185,6 +192,12 @@ class ThresholdEvaluatorTest extends TestCase
         $this->assertSame(IncidentSeverity::Critical, $incident->severity);
         $this->assertSame('cpu', $incident->trigger_metric_key);
         $this->assertSame('CPU breached critical bound', $incident->title);
+
+        // The critical band takes its OWN key rather than the warn key plus a
+        // severity parameter: the band name is part of the sentence, and a
+        // parameter would carry the English word into the Turkish render.
+        $this->assertSame(IncidentTitle::METRIC_CRITICAL_BOUND, $incident->title_key);
+        $this->assertSame(['metric' => 'CPU'], $incident->title_params);
     }
 
     /**
@@ -217,7 +230,22 @@ class ThresholdEvaluatorTest extends TestCase
         $this->assertStringContainsString('DOWN', $incident->title);
         $this->assertStringNotContainsStringIgnoringCase('bound', $incident->title);
 
-        // 2. The next check reports the same value: the existing metric-scoped
+        // 2. And the structured half carries the same two facts as parameters,
+        //    display-ready: the metric LABEL rather than its key, and the value
+        //    as the target actually served it (the band comparison normalizes
+        //    case, the title does not, so a responder reads what was reported).
+        $this->assertSame(IncidentTitle::METRIC_STRING_VALUE, $incident->title_key);
+        // `assertEqualsCanonicalizing`, not `assertSame`: PostgreSQL's `jsonb` does
+        // not preserve object key order (it sorts them), while SQLite stores the
+        // JSON text verbatim. An identical-array assertion therefore passes on the
+        // test engine and fails on the production one, which is what the
+        // per-engine CI job exists to catch and did.
+        $this->assertEqualsCanonicalizing(
+            ['metric' => 'Redis state', 'value' => 'DOWN'],
+            $incident->title_params,
+        );
+
+        // 3. The next check reports the same value: the existing metric-scoped
         //    dedupe is what keeps this from paging once per interval.
         $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'DOWN']);
 
@@ -264,11 +292,59 @@ class ThresholdEvaluatorTest extends TestCase
         $incident = Incident::query()->sole();
         $this->assertSame(IncidentSeverity::Critical, $incident->severity);
 
-        // 3. And the escalation is REPORTED, so the dispatcher has something to
+        // 3. The title moved to the louder value, and so did the PARAMETERS a
+        //    localized surface renders from. An escalation that updated only the
+        //    English column would keep telling every Turkish reader about
+        //    "degraded", the state this incident has already left.
+        $this->assertSame('Redis state reported "down"', $incident->title);
+        $this->assertSame(IncidentTitle::METRIC_STRING_VALUE, $incident->title_key);
+        // Canonicalizing for the reason the string-breach test above states:
+        // `jsonb` reorders keys, so only the SET of parameters is stable.
+        $this->assertEqualsCanonicalizing(
+            ['metric' => 'Redis state', 'value' => 'down'],
+            $incident->title_params,
+        );
+
+        // 4. And the escalation is REPORTED, so the dispatcher has something to
         //    notify on. A severity raised silently in the database would page
         //    nobody, which is the defect wearing a different hat.
         $this->assertNotNull($outcome['escalated'] ?? null);
         $this->assertSame($incident->getKey(), $outcome['escalated']->getKey());
+    }
+
+    /**
+     * The numeric lane is where an escalation changes the KEY rather than a
+     * parameter, and it is the case the string lane above cannot cover: warn and
+     * critical bounds are two separate catalogue entries, so an escalation that
+     * carried the title across and left the key behind would leave every
+     * localized surface announcing a bound the incident has already passed.
+     */
+    public function test_a_numeric_escalation_moves_the_title_key_to_the_critical_bound(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        // 1. The warn band opens the incident on the warn key.
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 85.0], []);
+
+        $warned = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Warn, $warned->severity);
+        $this->assertSame('CPU breached warn bound', $warned->title);
+        $this->assertSame(IncidentTitle::METRIC_WARN_BOUND, $warned->title_key);
+
+        // 2. The critical band escalates the same incident, and all three title
+        //    columns move together.
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(1, Incident::query()->count());
+        $this->assertNotNull($outcome['escalated'] ?? null);
+
+        $escalated = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Critical, $escalated->severity);
+        $this->assertSame('CPU breached critical bound', $escalated->title);
+        $this->assertSame(IncidentTitle::METRIC_CRITICAL_BOUND, $escalated->title_key);
+        $this->assertSame(['metric' => 'CPU'], $escalated->title_params);
     }
 
     public function test_a_warn_value_does_not_de_escalate_a_critical_incident(): void
@@ -327,11 +403,21 @@ class ThresholdEvaluatorTest extends TestCase
             ['redis' => str_repeat('überlang ', 200)],
         );
 
-        $title = Incident::query()->sole()->title;
+        $incident = Incident::query()->sole();
+        $title = $incident->title;
 
         $this->assertLessThanOrEqual(200, mb_strlen($title));
         $this->assertStringContainsString('Redis state', $title);
         $this->assertStringContainsString('…', $title);
+
+        // The structured sibling, and the reason the cut lives in the composer
+        // rather than at this call site: the PERSISTED parameter is already cut,
+        // so the operator app, the push and the public status page all render the
+        // bounded value without re-deriving the rule. 80 characters plus the
+        // one-character mark.
+        $this->assertSame(IncidentTitle::METRIC_STRING_VALUE, $incident->title_key);
+        $this->assertSame(81, mb_strlen($incident->title_params['value']));
+        $this->assertStringEndsWith('…', $incident->title_params['value']);
     }
 
     public function test_an_ok_string_value_opens_nothing(): void
@@ -430,7 +516,13 @@ class ThresholdEvaluatorTest extends TestCase
             triggerMetricKey: null,
         );
 
-        // 2. The incident carries the manual provenance and is not AI-owned.
+        // 2. The incident carries the manual provenance and is not AI-owned. Its
+        //    `title_key` is NULL, and that null is load-bearing: it is how every
+        //    reader knows a human chose these words in the language they chose
+        //    them in, so no surface tries to render an operator's sentence from a
+        //    catalogue.
+        $this->assertSame('Manual outage report', $incident->title);
+        $this->assertNull($incident->title_key);
         $this->assertSame('manual', $incident->signal_source->value);
         $this->assertFalse($incident->ai_owned);
         $this->assertSame('detected', $incident->lifecycle->value);

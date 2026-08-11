@@ -10,6 +10,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Monitoring\IncidentTitle;
 use App\Support\Monitoring\HostGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -44,11 +45,53 @@ class PerformSslCheckTest extends TestCase
         $this->assertSame(SignalSource::UserThreshold, $incidents->first()->signal_source);
         $this->assertStringContainsString('SSL cert expires', $incidents->first()->title);
 
-        // 2. The expiry is persisted and no error is recorded.
+        // 2. The structured half, and the one rule this creator is most likely to
+        //    break: it bypasses the shared creation seam and builds its own
+        //    `Incident::create`, so all three title columns have to be spread in
+        //    by hand. The persisted key is BARE: the `_one` / `_other` pair is a
+        //    catalogue detail the composer resolves from `days`, and a suffixed
+        //    key here would be a wire value the Flutter enum has no member for,
+        //    which falls the operator app back to English forever.
+        $incident = $incidents->first();
+        $this->assertSame('API Uptime SSL cert expires in 5 days', $incident->title);
+        $this->assertSame(IncidentTitle::SSL_EXPIRING, $incident->title_key);
+        // Canonicalizing, not identical: PostgreSQL's `jsonb` sorts object keys
+        // while SQLite keeps the written order, so only the parameter SET is
+        // portable. The per-engine CI job is what surfaced the difference.
+        $this->assertEqualsCanonicalizing(
+            ['monitor' => 'API Uptime', 'days' => 5],
+            $incident->title_params,
+        );
+
+        // 3. The expiry is persisted and no error is recorded.
         $fresh = $monitor->fresh();
         $this->assertNotNull($fresh->ssl_expires_at);
         $this->assertNotNull($fresh->ssl_last_checked_at);
         $this->assertNull($fresh->ssl_last_error);
+    }
+
+    /**
+     * The single-day case, which is the one English sentence this PR deliberately
+     * changes: the writer this replaced said "expires in 1 days". The count picks
+     * the `_one` catalogue entry while the PERSISTED key stays bare, so the same
+     * stored value covers both counts and the client mirrors the choice from the
+     * same `days` parameter.
+     */
+    public function test_a_one_day_cert_composes_the_singular_sentence_from_the_same_bare_key(): void
+    {
+        $monitor = $this->makeMonitor(url: 'https://example.com/', thresholdDays: 14);
+
+        $this->jobReturning($monitor->id, $this->fabricateCertificate(daysUntilExpiration: 1))
+            ->handle(new HostGuard);
+
+        $incident = Incident::query()->where('primary_monitor_id', $monitor->id)->sole();
+
+        $this->assertSame('API Uptime SSL cert expires in 1 day', $incident->title);
+        $this->assertSame(IncidentTitle::SSL_EXPIRING, $incident->title_key);
+        $this->assertEqualsCanonicalizing(
+            ['monitor' => 'API Uptime', 'days' => 1],
+            $incident->title_params,
+        );
     }
 
     public function test_blocked_host_is_refused_without_connecting(): void

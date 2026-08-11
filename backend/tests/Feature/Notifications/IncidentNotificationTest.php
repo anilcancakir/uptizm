@@ -7,6 +7,7 @@ use App\Models\Monitor;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use App\Services\Monitoring\IncidentTitle;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\Team;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -84,7 +85,20 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame(['mail', 'database'], $notification->via($user));
     }
 
-    public function test_toonesignal_builds_a_localized_push_payload(): void
+    /**
+     * One push payload carries both languages and the device picks, so the BODY
+     * has to differ between them exactly as the heading does.
+     *
+     * This assertion used to say the two entries were EQUAL to `incident->title`,
+     * which encoded the defect as the expectation: an automatically composed title
+     * is a key plus parameters, and sending its English render to a Turkish device
+     * under a Turkish heading is the bug this PR exists to remove. Both halves of
+     * the rewrite matter. Asserting a difference is worthless while the fixture
+     * carries no `title_key` (both entries then correctly fall back to the stored
+     * text), and seeding the key without inverting the assertion would go red on
+     * the very fix. {@see self::makeIncident()} now seeds the composed triple.
+     */
+    public function test_toonesignal_renders_the_body_per_language_not_the_stored_english(): void
     {
         $this->enableOnesignal();
         config(['magic-starter.onesignal.app_id' => 'test-app-id']);
@@ -96,11 +110,23 @@ class IncidentNotificationTest extends TestCase
         $this->assertInstanceOf(Notification::class, $payload);
         $this->assertSame('API Health is down', $payload->getHeadings()['en']);
         $this->assertSame('API Health kesintide', $payload->getHeadings()['tr']);
+
+        // The English entry is the stored render, which is also what the column
+        // holds; the Turkish one is the catalogue's sentence, and the two are
+        // different strings.
         $this->assertSame($incident->title, $payload->getContents()['en']);
-        $this->assertSame($incident->title, $payload->getContents()['tr']);
+        $this->assertSame(
+            $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
+            $payload->getContents()['tr'],
+        );
+        $this->assertNotSame(
+            $payload->getContents()['en'],
+            $payload->getContents()['tr'],
+            'A composed title must not cross to a Turkish device in English',
+        );
     }
 
-    public function test_incident_resolved_toonesignal_builds_a_localized_push_payload(): void
+    public function test_incident_resolved_toonesignal_renders_the_body_per_language(): void
     {
         $this->enableOnesignal();
         config(['magic-starter.onesignal.app_id' => 'test-app-id']);
@@ -114,8 +140,44 @@ class IncidentNotificationTest extends TestCase
         $this->assertInstanceOf(Notification::class, $payload);
         $this->assertSame('API Health is resolved', $payload->getHeadings()['en']);
         $this->assertSame('API Health sorunu giderildi', $payload->getHeadings()['tr']);
+
+        // The heading says "resolved" while the body keeps naming the incident:
+        // the title is what opened, and resolving does not rewrite it. So the
+        // body renders the same composed sentence, per language.
         $this->assertSame($incident->title, $payload->getContents()['en']);
-        $this->assertSame($incident->title, $payload->getContents()['tr']);
+        $this->assertSame(
+            $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
+            $payload->getContents()['tr'],
+        );
+        $this->assertNotSame(
+            $payload->getContents()['en'],
+            $payload->getContents()['tr'],
+        );
+    }
+
+    /**
+     * The other half of the contract, and the guard against "fixing" the
+     * assertion above by always rendering from a catalogue: an OPERATOR-authored
+     * title has no key, so a human chose both its words and its language and it
+     * crosses to every device unchanged. Two identical entries are the CORRECT
+     * answer here, and this is also what every row written before the structured
+     * seam looks like.
+     */
+    public function test_an_authored_title_crosses_both_push_languages_unchanged(): void
+    {
+        $this->enableOnesignal();
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+        $incident = $this->makeIncident([
+            'title' => 'Ödeme akışı EU kenarında yavaş',
+            'title_key' => null,
+            'title_params' => null,
+        ]);
+        $user = User::factory()->create();
+
+        $payload = (new IncidentOpened($incident))->toOneSignal($user);
+
+        $this->assertSame('Ödeme akışı EU kenarında yavaş', $payload->getContents()['en']);
+        $this->assertSame('Ödeme akışı EU kenarında yavaş', $payload->getContents()['tr']);
     }
 
     public function test_incident_opened_mail_and_database_render_in_the_notifiables_preferred_locale(): void
@@ -132,6 +194,15 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('Olay açıldı', $trMail->greeting);
         $this->assertSame('API Health kesintide', $trPayload['title']);
 
+        // `title` is the feed HEADING (notification copy); `body` is the incident
+        // title itself, rendered with no explicit locale so the ambient
+        // `withLocale(preferredLocale(...))` wrap decides. A render captured in
+        // the constructor would hand this recipient the dispatcher's language.
+        $this->assertSame(
+            $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
+            $trPayload['body'],
+        );
+
         $enUser = User::factory()->create(['locale' => 'en']);
         App::setLocale($enUser->preferredLocale());
         $enMail = $notification->toMail($enUser);
@@ -140,6 +211,10 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('[Uptizm] API Health is down', $enMail->subject);
         $this->assertSame('Incident opened', $enMail->greeting);
         $this->assertSame('API Health is down', $enPayload['title']);
+
+        // ONE dispatch, two recipients, two languages in the stored feed entry.
+        $this->assertSame('API Health is down', $enPayload['body']);
+        $this->assertNotSame($trPayload['body'], $enPayload['body']);
     }
 
     public function test_incident_resolved_mail_and_database_render_in_the_notifiables_preferred_locale(): void
@@ -157,6 +232,10 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('[Uptizm] API Health sorunu giderildi', $trMail->subject);
         $this->assertSame('Olay çözüldü', $trMail->greeting);
         $this->assertSame('API Health sorunu giderildi', $trPayload['title']);
+        $this->assertSame(
+            $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
+            $trPayload['body'],
+        );
 
         $enUser = User::factory()->create(['locale' => 'en']);
         App::setLocale($enUser->preferredLocale());
@@ -166,6 +245,8 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('[Uptizm] API Health is resolved', $enMail->subject);
         $this->assertSame('Incident resolved', $enMail->greeting);
         $this->assertSame('API Health is resolved', $enPayload['title']);
+        $this->assertSame('API Health is down', $enPayload['body']);
+        $this->assertNotSame($trPayload['body'], $enPayload['body']);
     }
 
     public function test_both_incident_types_are_registered_with_mail_database_and_push_defaults(): void
@@ -199,7 +280,44 @@ class IncidentNotificationTest extends TestCase
     }
 
     /**
+     * The sentence `lang/<locale>/incidents.php` spells for [$key], with its
+     * `:placeholder` tokens filled from [$params].
+     *
+     * Read off the catalogue FILE rather than through `__()`, on purpose. The
+     * Must-NOT is a hardcoded Turkish sentence: a copy edit would leave a
+     * duplicate here asserting a wording the product no longer ships. But `__()`
+     * is the call the notification itself makes, so an expectation built from it
+     * would mirror the code under test and could not tell a per-locale render from
+     * a locale that silently resolved to the fallback. The file sits one layer
+     * away from both.
+     *
+     * @param  array<string, string|int>  $params
+     */
+    private function catalogueSentence(string $locale, string $key, array $params): string
+    {
+        $catalogue = require base_path("lang/{$locale}/incidents.php");
+
+        $sentence = $catalogue[$key];
+
+        foreach ($params as $name => $value) {
+            $sentence = str_replace(":{$name}", (string) $value, $sentence);
+        }
+
+        return $sentence;
+    }
+
+    /**
      * Build a persisted incident with a primary monitor for a fresh team.
+     *
+     * The incident is an AUTOMATICALLY opened one: it carries the composed triple
+     * (`title` holding the English render, plus `title_key` and `title_params`),
+     * because that is the shape five of the six writers persist and the only shape
+     * under which a localized channel can render anything at all. A fixture with
+     * no key made every push assertion in this file vacuous: `IncidentTitle`
+     * correctly fell back to the stored text, so `en` and `tr` were equal and an
+     * assertion that they were equal passed for the wrong reason. A test wanting
+     * the operator-authored path overrides `title_key` and `title_params` with
+     * null.
      *
      * @param  array<string, mixed>  $overrides
      */
@@ -230,7 +348,14 @@ class IncidentNotificationTest extends TestCase
         return Incident::create([
             'team_id' => $team->id,
             'primary_monitor_id' => $monitor->id,
+            // Spelled out rather than built through `IncidentTitle::compose()`:
+            // the composer resolves the English from the same catalogue the render
+            // reads, so a fixture built from it would agree with any wording and
+            // the `en` push entry could never catch a drift between the stored
+            // column and the sentence.
             'title' => 'API Health is down',
+            'title_key' => IncidentTitle::MONITOR_DOWN,
+            'title_params' => ['monitor' => 'API Health'],
             'impact' => 'critical',
             'severity' => 'critical',
             'signal_source' => 'user_threshold',

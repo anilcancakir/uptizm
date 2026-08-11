@@ -51,6 +51,15 @@ Incident asIncident(IncidentSummary summary) {
   return Incident.fromMap(<String, dynamic>{
     'id': summary.id,
     'title': summary.title,
+    // The structured half of the headline, projected exactly as
+    // `IncidentResource` emits it: a null key for an authored title, and an empty
+    // JSON LIST rather than a null or an empty object for "no parameters", because
+    // PHP's `[]` encodes as a list. That shape is why `Incident.titleParams`
+    // absorbs a non-map, and projecting the real one is what exercises it.
+    'title_key': summary.titleKey,
+    'title_params': summary.titleParams.isEmpty
+        ? const <Object?>[]
+        : summary.titleParams,
     'impact': _impactToWire(summary.impact),
     'severity': _severityToWire(summary.severity),
     'signal_source': _signalSourceToWire(summary.signalSource),

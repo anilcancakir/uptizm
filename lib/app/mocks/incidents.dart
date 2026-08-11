@@ -21,11 +21,25 @@ import '../support/incident_types.dart'
 
 /// Design-lab incident fixtures. Five incidents covering all lifecycle stages,
 /// signal sources, severities, and AI/manual ownership states.
+///
+/// The first one carries a structured title (a `title_key` plus its parameters)
+/// and the other four carry none, because both are real states and each has to be
+/// rendered somewhere: an automatically opened incident is a catalogue key the
+/// client renders in the app's language, and an operator-authored one is text a
+/// human already chose the language of. A fixture set that was all one or all the
+/// other would leave half the headline path untested.
 const List<IncidentSummary> incidents = [
-  // 1. Active AI-owned outage.
+  // 1. Active AI-owned outage. The one structured title in this set: the anomaly
+  //    detector opened it, so its headline is `incidents.ai_anomaly` plus the
+  //    monitor name, and the English below is exactly what the backend's own `en`
+  //    catalogue composes for that pair. Keeping the two in step is the point: a
+  //    stored sentence that no key could produce would be a state the backend
+  //    cannot write.
   IncidentSummary(
     id: 'checkout-503',
-    title: 'Checkout service returning 503s across all regions',
+    title: 'Anomaly detected on Checkout service',
+    titleKey: 'incidents.ai_anomaly',
+    titleParams: {'monitor': 'Checkout service'},
     impact: IncidentImpact.down,
     severity: IncidentSeverity.critical,
     signalSource: SignalSource.anomaly,

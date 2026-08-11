@@ -132,6 +132,10 @@ void main() {
   testWidgets('renders similar-incident titles', (tester) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    // `incident` here is an `AiSimilarIncident`, NOT the `Incident` model: a
+    // two-field value object whose `title` is a plain string by design, with no
+    // key, no parameters and no wire source for either. It stays `.title`; there
+    // is no `displayTitle` to reach for and nothing to render from.
     for (final incident in sampleAi.similarIncidents) {
       expect(texts.any((w) => w.data == incident.title), isTrue);
     }
@@ -190,6 +194,7 @@ void main() {
         .ai!;
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: minimalAi)));
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    // Same `AiSimilarIncident` value object as above, not the model.
     for (final incident in minimalAi.similarIncidents) {
       expect(texts.any((w) => w.data == incident.title), isFalse);
     }
