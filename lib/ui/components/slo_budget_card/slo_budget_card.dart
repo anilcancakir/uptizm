@@ -208,12 +208,16 @@ class SloBudgetCard extends StatelessWidget {
     final double fillPct = budget.remainingPct.clamp(0.0, 100.0);
     final String window = windowLabel ?? trans('uptizm.slo.window_30day');
 
-    // Round to whole minutes BEFORE the coverage decision reads them: a
-    // rounding pass placed after it can flip a fully-elapsed window into a
-    // partial one on a sub-second difference between the two clock reads the
-    // backend took.
+    // FLOORED to whole minutes, and before the coverage decision reads them.
+    // Floored because every sentence built from this number is a claim about how
+    // much was watched, and rounding up claims coverage that does not exist: at
+    // 2879.6 minutes it would print two days where 47 hours is the truth, and at
+    // 43199.6 it would call a 30-day window fully observed and drop the coverage
+    // line entirely. Before the decision because a rounding pass placed after it
+    // can flip a fully-elapsed window into a partial one on the sub-second
+    // difference between the two clock reads the backend took.
     final int windowMinutes = windowDays * 24 * 60;
-    final int observed = observedMinutes.round();
+    final int observed = observedMinutes.floor();
     final bool partlyObserved = observed < windowMinutes;
 
     return WDiv(

@@ -815,9 +815,13 @@ class _MonitorDetailViewState
   /// under [_reliabilityCoverageFloorMinutes] says the window has barely begun.
   /// Zero measured minutes says nobody watched it, which a full window of
   /// elapsed time and zero downtime would otherwise render as a perfect score.
+  ///
+  /// Compared as a double rather than rounded, so the floor means what it says: a
+  /// rounded 1439.6 passes as 1440 and prints a budget almost half a minute
+  /// before the monitor has earned one.
   bool _windowSpeaks(_ReliabilityWindow? window) =>
       window != null &&
-      window.observed.round() >= _reliabilityCoverageFloorMinutes &&
+      window.observed >= _reliabilityCoverageFloorMinutes &&
       window.measured > 0;
 
   /// Builds the populated reliability content from the measured minutes: an

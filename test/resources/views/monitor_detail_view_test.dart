@@ -586,6 +586,28 @@ void main() {
     expect(find.textContaining('Observed 25 hours'), findsNWidgets(2));
   });
 
+  testWidgets('the coverage floor is not reached a fraction of a minute early', (
+    tester,
+  ) async {
+    // 1439.6 rounds to 1440 and passes a floor the monitor has not earned yet.
+    // Compared as a double it stays under, and the empty state holds.
+    seedReliability(id: 'nearly', observed: 1439.6, measured: 1400, down: 0);
+
+    await tester.binding.setSurfaceSize(const Size(1280, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      wrap(const MonitorDetailView(id: 'nearly'), size: const Size(1280, 4000)),
+    );
+    await settleSkeleton(tester);
+
+    expect(find.byType(SloBudgetCard), findsNothing);
+    expect(
+      find.text(trans('uptizm.monitors.reliability_no_data_title')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a window with no evidence does not silence the one that has it', (
     tester,
   ) async {

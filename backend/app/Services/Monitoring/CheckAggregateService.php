@@ -5,6 +5,7 @@ namespace App\Services\Monitoring;
 use App\Enums\MonitorStatus;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
@@ -159,7 +160,7 @@ class CheckAggregateService
     public function reliabilitySummary(Monitor $monitor, string $range): object
     {
         $now = now();
-        $coverageStart = $this->coverageStart($monitor, $range);
+        $coverageStart = $this->coverageStart($monitor, $range, $now);
 
         // 1. The bucket is the monitor's OWN cadence, so every region
         //    reporting one interval collapses into a single slot.
@@ -326,10 +327,16 @@ class CheckAggregateService
      * Instant from which the monitor could actually have been measured: the
      * later of the range boundary and its creation. Time before the monitor
      * existed is not an unmeasured gap, it is time that was never ours.
+     *
+     * `$now` is passed in rather than read here, and that is the whole point:
+     * {@see self::reliabilitySummary()} bounds its query, its elapsed coverage
+     * and its expected-slot count against ONE clock read, and a second read in
+     * here would put the window's start a few seconds after its end was fixed,
+     * which is an off-by-one bucket at any boundary.
      */
-    protected function coverageStart(Monitor $monitor, string $range): DateTimeInterface
+    protected function coverageStart(Monitor $monitor, string $range, DateTimeInterface $now): DateTimeInterface
     {
-        $boundary = $this->rangeBoundary($range);
+        $boundary = $this->rangeBoundary($range, $now);
         $createdAt = $monitor->created_at;
 
         if ($createdAt === null || $createdAt->getTimestamp() <= $boundary->getTimestamp()) {
@@ -340,14 +347,16 @@ class CheckAggregateService
     }
 
     /**
-     * Resolve a range key to its `now()`-relative boundary. Unknown
-     * ranges raise so the controller can coerce to a sane default
-     * before calling in; the service itself does not silently accept
-     * garbage input.
+     * Resolve a range key to its boundary, relative to `$now` when the caller
+     * has already fixed one and to a fresh `now()` otherwise. Unknown ranges
+     * raise so the controller can coerce to a sane default before calling in;
+     * the service itself does not silently accept garbage input.
      */
-    protected function rangeBoundary(string $range): DateTimeInterface
+    protected function rangeBoundary(string $range, ?DateTimeInterface $now = null): DateTimeInterface
     {
-        return now()->modify("-{$this->rangeHours($range)} hours");
+        $from = $now === null ? now() : CarbonImmutable::instance($now);
+
+        return $from->modify("-{$this->rangeHours($range)} hours");
     }
 
     /**

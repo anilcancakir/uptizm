@@ -214,6 +214,40 @@ void main() {
       ),
     );
     expect(find.text('Observed 47 hours of the 30-day window.'), findsOneWidget);
+
+    // A hair under the threshold is still under it. Rounding to whole minutes
+    // instead of flooring turns 2879.6 into 2880 and prints two days, claiming
+    // coverage that does not exist.
+    await tester.pumpWidget(
+      wrap(
+        const SloBudgetCard(
+          target: 99.9,
+          downMinutes: 2,
+          observedMinutes: 2879.6,
+          gapMinutes: 0,
+        ),
+      ),
+    );
+    expect(find.text('Observed 47 hours of the 30-day window.'), findsOneWidget);
+    expect(find.textContaining('days'), findsNothing);
+  });
+
+  testWidgets('a window a hair short of full still states its coverage', (
+    tester,
+  ) async {
+    // Rounding 43199.6 up to the full 43200 drops the coverage line entirely and
+    // presents a not-quite-complete window as a fully observed one.
+    await tester.pumpWidget(
+      wrap(
+        const SloBudgetCard(
+          target: 99.9,
+          downMinutes: 2,
+          observedMinutes: 43199.6,
+          gapMinutes: 0,
+        ),
+      ),
+    );
+    expect(find.textContaining('Observed'), findsOneWidget);
   });
 
   testWidgets('a fully observed window states no coverage line', (
