@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../enums/ai_confidence.dart' show AiConfidence;
+import '../enums/ai_degrade_reason.dart' show AiDegradeReason;
 import '../enums/incident_impact.dart' show IncidentImpact;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../enums/incident_severity.dart' show IncidentSeverity;
@@ -196,6 +197,18 @@ class IncidentAi {
   /// Past incidents the AI considers similar.
   final List<AiSimilarIncident> similarIncidents;
 
+  /// Why the backend answered from a deterministic baseline instead of the
+  /// model, or `null` when the analysis is the model's own.
+  ///
+  /// The one field here that is NOT `required`, against the convention of its
+  /// seven siblings, and for two reasons. `null` is a real state ("nothing
+  /// degraded"), not a missing value, so optional is the honest type. And the
+  /// three fixture construction sites in `lib/app/mocks/incidents.dart` plus the
+  /// one in `ai_analysis_card_test.dart` name all seven arguments and know
+  /// nothing about degradation; a required eighth would break them at compile
+  /// time for no gain.
+  final AiDegradeReason? degradeReason;
+
   const IncidentAi({
     required this.trigger,
     required this.confidence,
@@ -204,7 +217,33 @@ class IncidentAi {
     required this.evidenceAgainst,
     required this.suggestedActions,
     required this.similarIncidents,
+    this.degradeReason,
   });
+
+  /// Returns a copy of this analysis with [tldr] replaced.
+  ///
+  /// Exists for exactly one caller, `IncidentDetailView`, which swaps the
+  /// backend's machine-readable English baseline for a sentence composed in the
+  /// operator's language when [degradeReason] is set. The alternative there was
+  /// an inline `IncidentAi(...)` naming all seven required fields, which would
+  /// have been a FOURTH construction site to keep in sync, and a construction
+  /// site that silently dropped a field is the exact defect this file's merge
+  /// path already produced once.
+  ///
+  /// Only [tldr] is overridable because only [tldr] has a caller; give the next
+  /// field a parameter when something actually needs to replace it.
+  IncidentAi copyWith({String? tldr}) {
+    return IncidentAi(
+      trigger: trigger,
+      confidence: confidence,
+      tldr: tldr ?? this.tldr,
+      evidenceFor: evidenceFor,
+      evidenceAgainst: evidenceAgainst,
+      suggestedActions: suggestedActions,
+      similarIncidents: similarIncidents,
+      degradeReason: degradeReason,
+    );
+  }
 }
 
 /// Acknowledgement record: a human confirmed they are on the incident.

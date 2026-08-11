@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../models/incident.dart';
 import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
+import '../enums/ai_degrade_reason.dart' show aiDegradeReasonFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../support/incident_types.dart'
     show AiEvidence, AiSuggestedAction, IncidentAi;
@@ -368,6 +369,12 @@ class IncidentController extends MagicController
       evidenceAgainst: enriched.evidenceAgainst,
       suggestedActions: enriched.suggestedActions,
       similarIncidents: const [],
+      // Deliberately the REVERSE order of the three fields above: they put
+      // `base` first so the first paint wins and the card does not flicker when
+      // the fetch lands, while only the analysis endpoint ever learns that a
+      // degrade happened. The fresher value has to win here, or a stale first
+      // paint would suppress the notice.
+      degradeReason: enriched.degradeReason ?? base?.degradeReason,
     );
   }
 
@@ -405,6 +412,9 @@ class IncidentController extends MagicController
         evidenceAgainst: _decodeEvidence(data['evidence_against']),
         suggestedActions: _decodeActions(data['suggested_actions']),
         similarIncidents: const [],
+        degradeReason: aiDegradeReasonFromWire(
+          data['degrade_reason'] as String?,
+        ),
       );
       refreshUI();
     } catch (error) {

@@ -4,6 +4,8 @@ import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/models/incident.dart';
+import 'package:uptizm/app/enums/ai_degrade_reason.dart'
+    show AiDegradeReason, aiDegradeReasonFromWire;
 import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 
 void main() {
@@ -587,6 +589,36 @@ void main() {
     });
   });
 
+  group('aiDegradeReasonFromWire', () {
+    test('null is nothing degraded, not a reason', () {
+      expect(aiDegradeReasonFromWire(null), isNull);
+    });
+
+    test('each backend snake_case value decodes to its case', () {
+      expect(
+        aiDegradeReasonFromWire('budget_exhausted'),
+        equals(AiDegradeReason.budgetExhausted),
+      );
+      expect(
+        aiDegradeReasonFromWire('output_untrusted'),
+        equals(AiDegradeReason.outputUntrusted),
+      );
+      expect(
+        aiDegradeReasonFromWire('service_unreachable'),
+        equals(AiDegradeReason.serviceUnreachable),
+      );
+    });
+
+    test('an unknown value reads as the most conservative reason', () {
+      // A value the client does not know still means the backend degraded, so it
+      // must not vanish into "nothing happened".
+      expect(
+        aiDegradeReasonFromWire('something_new'),
+        equals(AiDegradeReason.serviceUnreachable),
+      );
+    });
+  });
+
   group('loadAnalysis', () {
     test(
       'GETs /incidents/{id}/analysis and decodes evidence_for/against + '
@@ -644,6 +676,108 @@ void main() {
         expect(ai.evidenceAgainst.single.label, equals('No DNS change'));
         expect(ai.suggestedActions, hasLength(1));
         expect(ai.suggestedActions.single.title, equals('Check your origin'));
+      },
+    );
+
+    test('decodes the degrade_reason the backend answered with', () async {
+      // The reason is what lets the client say WHY the summary is a baseline in
+      // the operator's own language; dropped here, the screen can only render
+      // the backend's English prose.
+      Http.fake({
+        'incidents/deg-1/analysis': Http.response({
+          'data': {
+            'summary': 'critical severity incident, currently investigating.',
+            'confidence': 'low',
+            'degrade_reason': 'budget_exhausted',
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+      final Incident incident = Incident.fromMap({'id': 'deg-1'});
+
+      await controller.loadAnalysis(incident.id);
+
+      expect(
+        controller.analysisFor(incident)!.degradeReason,
+        equals(AiDegradeReason.budgetExhausted),
+      );
+    });
+
+    test('a null or absent degrade_reason means nothing degraded', () async {
+      // Both shapes, because the two are different states everywhere else in
+      // this app: the endpoint always SENDS the key (null on the model path),
+      // while any other analysis payload omits it entirely.
+      Http.fake({
+        'incidents/deg-2/analysis': Http.response({
+          'data': {
+            'summary': 'The origin returned 503s under load.',
+            'confidence': 'high',
+            'degrade_reason': null,
+          },
+        }),
+        'incidents/deg-2b/analysis': Http.response({
+          'data': {
+            'summary': 'The origin returned 503s under load.',
+            'confidence': 'high',
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+      final Incident explicitNull = Incident.fromMap({'id': 'deg-2'});
+      final Incident absent = Incident.fromMap({'id': 'deg-2b'});
+
+      await controller.loadAnalysis(explicitNull.id);
+      await controller.loadAnalysis(absent.id);
+
+      expect(controller.analysisFor(explicitNull)!.degradeReason, isNull);
+      expect(controller.analysisFor(absent)!.degradeReason, isNull);
+    });
+
+    test(
+      'the merge lets the FRESHER degrade reason win over the first paint',
+      () async {
+        // The inversion this pins: every other merged field puts `base` first so
+        // the first paint does not flicker, and a degrade reason is the opposite
+        // case, because only the analysis endpoint learns that a degrade
+        // happened. Both values are non-null on purpose: with a null base both
+        // merge orders answer the same and the test could not tell them apart.
+        Http.fake({
+          'incidents/deg-3/analysis': Http.response({
+            'data': {
+              'summary': 'critical severity incident, currently resolved.',
+              'confidence': 'low',
+              'degrade_reason': 'service_unreachable',
+            },
+          }),
+        });
+        final IncidentController controller = Magic.findOrPut(
+          IncidentController.new,
+        );
+        final Incident incident = Incident.fromMap({
+          'id': 'deg-3',
+          'ai': {
+            'trigger': 'AI anomaly',
+            'confidence': 'low',
+            'tldr': 'A baseline from the incident record.',
+            'degrade_reason': 'budget_exhausted',
+          },
+        });
+        expect(
+          incident.ai!.degradeReason,
+          equals(AiDegradeReason.budgetExhausted),
+          reason: 'the first-paint decode is the only route to a non-null base',
+        );
+
+        await controller.loadAnalysis(incident.id);
+
+        expect(
+          controller.analysisFor(incident)!.degradeReason,
+          equals(AiDegradeReason.serviceUnreachable),
+        );
       },
     );
 

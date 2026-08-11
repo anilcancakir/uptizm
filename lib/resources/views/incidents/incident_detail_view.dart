@@ -7,6 +7,7 @@ import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/controllers/incident_controller.dart';
+import '../../../app/enums/ai_degrade_reason.dart' show AiDegradeReason;
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/incident_lifecycle.dart'
     show IncidentLifecycle, lifecycleFromWire;
@@ -294,7 +295,7 @@ class _IncidentDetailViewState
               if (!resolved) _buildResponderStrip(incident),
               _buildAffectedMonitors(incident),
               if (controller.analysisFor(incident) case final ai?)
-                _buildAiAnalysis(ai),
+                _buildAiAnalysis(_localizedIfDegraded(incident, ai)),
               if (resolved) _buildPostmortem(incident),
               _buildTimeline(incident),
               _buildComposer(incident),
@@ -588,6 +589,43 @@ class _IncidentDetailViewState
   // ---------------------------------------------------------------------------
   // AI analysis
   // ---------------------------------------------------------------------------
+
+  /// Returns [ai] with its summary replaced by a localized sentence when the
+  /// backend answered from its deterministic baseline, and unchanged otherwise.
+  ///
+  /// The backend `summary` on a degraded path is a machine-readable English
+  /// baseline and NOT display copy (see `IncidentAnalysisService`'s
+  /// `deterministicSummary()`), so rendering it put developer English in front of
+  /// a Turkish operator: "Deterministic baseline from the incident record (the AI
+  /// service was temporarily unavailable): critical severity incident, currently
+  /// resolved." Only the reason CODE crosses the wire now, and the sentence is
+  /// composed here from that code plus [incident]'s own already-localized
+  /// severity and lifecycle labels, so nothing English reaches the screen and the
+  /// backend string is never displayed.
+  IncidentAi _localizedIfDegraded(Incident incident, IncidentAi ai) {
+    final AiDegradeReason? reason = ai.degradeReason;
+    if (reason == null) return ai;
+
+    // Exhaustive with no default on purpose: a fourth reason case must fail the
+    // build here rather than silently borrow one of these three sentences.
+    final String notice = switch (reason) {
+      AiDegradeReason.budgetExhausted => trans(
+        'uptizm.incidents.analysis_degraded_budget',
+      ),
+      AiDegradeReason.outputUntrusted => trans(
+        'uptizm.incidents.analysis_degraded_untrusted',
+      ),
+      AiDegradeReason.serviceUnreachable => trans(
+        'uptizm.incidents.analysis_degraded_unreachable',
+      ),
+    };
+    final String core = trans('uptizm.incidents.analysis_degraded_core', {
+      'severity': incident.severity.label,
+      'lifecycle': incident.lifecycle.label,
+    });
+
+    return ai.copyWith(tldr: '$notice $core');
+  }
 
   /// Builds the AI analysis section, billing-gated.
   ///
