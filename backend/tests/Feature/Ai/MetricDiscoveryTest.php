@@ -1042,6 +1042,37 @@ class MetricDiscoveryTest extends TestCase
         $this->assertSame($string->extractionPath, $suggestions[0]['path']);
     }
 
+    public function test_a_derived_bound_is_quantised_like_a_model_supplied_one(): void
+    {
+        Queue::fake();
+        // The number that started the whole thing. A live run rendered "warn
+        // 6.096666666666667" for free disk space, which is 18.29 / 3, and the
+        // DERIVATION produces exactly the same float from the same reading. So
+        // quantising only the model's own arithmetic would have left this path
+        // printing it.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['free_disk_gb' => 18.29]);
+        $this->archiveVersion($monitor, $body);
+        $disk = $this->candidateIn($body, '18.29');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $disk->ref,
+                'label' => 'Free disk space',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::LowBad->value,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        // 18.29 / 3 and 18.29 / 6, both to three significant figures.
+        $this->assertSame(6.1, (float) $suggestion['warn']);
+        $this->assertSame(3.05, (float) $suggestion['critical']);
+    }
+
     public function test_a_bound_the_model_omitted_is_derived_from_the_observed_value(): void
     {
         Queue::fake();

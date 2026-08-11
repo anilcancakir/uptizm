@@ -13,6 +13,7 @@ use App\Services\Monitoring\MetricCandidateExtractor;
 use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\ThresholdEvaluator;
 use App\Support\Monitoring\MetricCandidate;
+use App\Support\Monitoring\ThresholdQuantiser;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Contracts\Agent;
@@ -161,16 +162,6 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasProvi
         'warn_values',
         'critical_values',
     ];
-
-    /**
-     * The number of significant figures a numeric bound is quantised to.
-     *
-     * A fixed decimal count cannot serve both a gigabyte bound and a
-     * millisecond one, so the rule is significant figures: a live run
-     * rendered "warn 6.096666666666667" for a bound the model computed as
-     * 18.29 / 3.
-     */
-    protected const int QUANTISE_SIGNIFICANT_FIGURES = 3;
 
     /**
      * The absolute pair substituted when a `count`/`high_bad` metric is
@@ -716,7 +707,7 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasProvi
      * {@see ZERO_OBSERVED_COUNT_WARN}/{@see ZERO_OBSERVED_COUNT_CRITICAL}
      * absolute pair instead of whatever the model computed (a multiplier of zero
      * is always zero), and both bounds are quantised to
-     * {@see QUANTISE_SIGNIFICANT_FIGURES} so the model's own arithmetic never
+     * {@see ThresholdQuantiser::SIGNIFICANT_FIGURES} so the model's own arithmetic never
      * reaches the UI raw. Quantisation runs before the direction check, so a
      * pair the rounding collapses onto one value is nulled like any other
      * direction violation rather than shipped.
@@ -764,8 +755,8 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasProvi
         // pass the pre-rounded pair and then emit the equal one, routing around
         // the very guard below, which exists to stop a band that reads every
         // sample above warn as critical.
-        $warn = $warn !== null ? $this->quantise($warn) : null;
-        $critical = $critical !== null ? $this->quantise($critical) : null;
+        $warn = $warn !== null ? ThresholdQuantiser::quantise($warn) : null;
+        $critical = $critical !== null ? ThresholdQuantiser::quantise($critical) : null;
 
         if ($warn !== null && $critical !== null
             && $direction !== null && ! $direction->validateBounds($warn, $critical)) {
@@ -814,21 +805,6 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasProvi
         }
 
         return null;
-    }
-
-    /**
-     * Round `$value` to {@see QUANTISE_SIGNIFICANT_FIGURES} significant figures.
-     */
-    protected function quantise(float $value): float
-    {
-        if ($value === 0.0) {
-            return 0.0;
-        }
-
-        $magnitude = floor(log10(abs($value)));
-        $scale = 10 ** (self::QUANTISE_SIGNIFICANT_FIGURES - 1 - $magnitude);
-
-        return round($value * $scale) / $scale;
     }
 
     /**
