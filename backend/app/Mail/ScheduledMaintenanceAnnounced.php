@@ -52,7 +52,7 @@ class ScheduledMaintenanceAnnounced extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "Scheduled maintenance for {$this->page->name}",
+            subject: __('status.emails.maintenance.subject', ['page' => $this->page->name]),
         );
     }
 

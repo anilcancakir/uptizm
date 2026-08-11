@@ -143,11 +143,19 @@ final class IncidentTitle
             return (string) $incident->title;
         }
 
-        return self::resolve(
-            $incident->title_key,
-            (array) ($incident->title_params ?? []),
-            $locale,
-        );
+        // `is_array` rather than a cast: `(array) '{"monitor":"x"}'` would wrap a JSON
+        // STRING into a one-element list, `__()` would find no replacement to make,
+        // and the surface would publish `:monitor is down` with the placeholder
+        // showing. That is the shape any read path which bypasses the model's `array`
+        // cast produces, and it is worth answering with the stored English instead of
+        // a broken sentence.
+        $params = $incident->title_params;
+
+        if (! is_array($params)) {
+            return (string) $incident->title;
+        }
+
+        return self::resolve($incident->title_key, $params, $locale);
     }
 
     /**

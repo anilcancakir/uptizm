@@ -130,15 +130,16 @@ return [
     ],
 
     /*
-     * The two subscriber emails. Their SUBJECTS are composed in
-     * `App\Mail\StatusPageSubscribeConfirmation` and
-     * `App\Mail\ScheduledMaintenanceAnnounced` and are still English; nothing
-     * sets a locale on the send path either, so today these bodies resolve in
-     * the deployment default. The keys exist so the copy has one home when a
-     * later step gives the send path a language.
+     * The two subscriber emails, subjects included. Both `envelope()` methods read
+     * `subject` from here, and both send paths carry the page's locale
+     * (`SubscribeController` on the confirm mail, `AnnounceScheduledMaintenance` on
+     * the maintenance one), so a subscriber to a Turkish page gets a Turkish subject
+     * over a Turkish body. A subject composed in PHP was the last thing on this
+     * surface that could not follow the page's language.
      */
     'emails' => [
         'confirm' => [
+            'subject' => 'Confirm your subscription to :page',
             'heading' => 'Confirm your subscription',
             'intro_before_page' => 'You asked to receive incident updates for',
             'instruction' => 'Confirm your email address to start receiving them:',
@@ -146,6 +147,7 @@ return [
             'ignore' => 'If you did not request this, you can ignore this email and nothing will happen.',
         ],
         'maintenance' => [
+            'subject' => 'Scheduled maintenance for :page',
             'heading' => 'Scheduled maintenance',
             'intro_after_page' => 'has planned maintenance coming up.',
             'components' => 'Affected components:',

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Controllers\StatusPage\SubscribeController;
 use App\Http\Requests\StoreStatusPageRequest;
 use App\Http\Requests\UpdateStatusPageRequest;
@@ -20,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -105,6 +107,17 @@ class StatusPageController extends Controller
         $this->authorizeTeam($request, $statusPage);
 
         $statusPage->update($request->validated());
+
+        // Forget this page's own key as well as the ones its monitors appear on.
+        // `invalidateForMonitors()` resolves slugs THROUGH the pivot and returns
+        // early on an empty set, so a page with no components attached would keep
+        // serving its cached read model for up to 60 more seconds. That was
+        // harmless while every cached field came from a monitor; it stopped being
+        // harmless when `locale` became writable here, because the cached array
+        // holds two strings rendered in the OLD language (the banner label and
+        // every incident title), so a locale change would show old-language copy
+        // under new-language chrome.
+        Cache::forget(ShowStatusPageController::CACHE_KEY_PREFIX.$statusPage->slug);
 
         $this->statusPageCache->invalidateForMonitors($this->monitorIds($statusPage));
 

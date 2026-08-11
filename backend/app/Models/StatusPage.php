@@ -85,12 +85,12 @@ class StatusPage extends Model
          * keeps every existing page rendering exactly what it rendered before the
          * column existed.
          *
-         * Fillable, but no API write path reaches it yet: neither
-         * `StoreStatusPageRequest` nor `UpdateStatusPageRequest` carries a rule
-         * for `locale`, and the controller assigns only validated input, so today
-         * the value is set by a seeder, a console command or a migration. A write
-         * path needs an `in:` rule over `config('magic-starter.supported_locales')`
-         * there, since an unsupported code would silently fall back per string.
+         * Reachable from the API: both `StoreStatusPageRequest` and
+         * `UpdateStatusPageRequest` carry an `in:` rule over
+         * `config('magic-starter.supported_locales')`, because the controller
+         * assigns only validated input and an unsupported code would render dotted
+         * keys on a page a customer publishes. `StatusPageResource` emits it, so
+         * the operator UI can show what a page publishes in.
          */
         'locale',
     ];

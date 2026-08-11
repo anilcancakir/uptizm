@@ -63,9 +63,17 @@ class IncidentBroadcast implements ShouldBroadcast, ShouldDispatchAfterCommit
     }
 
     /**
-     * The redacted, team-owned payload the client receives. Mirrors the
-     * {@see IncidentResource} allowlist and deliberately
-     * omits every monitor connection secret (url, auth_config, headers).
+     * The redacted, team-owned payload the client receives, deliberately omitting
+     * every monitor connection secret (url, auth_config, headers).
+     *
+     * A subset of the {@see IncidentResource} allowlist rather than a mirror of it,
+     * and the difference is deliberate: the resource also carries `title_key` and
+     * `title_params`, which the client renders a localized title from, while this
+     * payload is a TRIGGER. `RealtimeService.onIncidentEvent` reads no field off it
+     * and only arms a refetch, so `title` here is never displayed and the localized
+     * one arrives through the resource on the refetch. Do not add fields to close a
+     * gap nothing reads; if a future client renders a card straight off the socket,
+     * that is when the two title columns belong here.
      *
      * @return array<string, mixed>
      */

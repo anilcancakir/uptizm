@@ -88,7 +88,13 @@ class SubscribeController
             'subscribed_at' => now(),
         ]);
 
-        Mail::to($email)->send(new StatusPageSubscribeConfirmation($page, $subscriber));
+        // The page's language, not the deployment default: this mail is the
+        // continuation of a page a visitor just read. `->locale()` scopes the render
+        // through Laravel's own `withLocale`, which covers the SUBJECT as well as
+        // the body, since `envelope()` runs inside `Mailable::send()`.
+        Mail::to($email)
+            ->locale($page->locale ?? (string) config('app.default_locale'))
+            ->send(new StatusPageSubscribeConfirmation($page, $subscriber));
 
         return $this->checkInboxView($page);
     }
@@ -126,6 +132,13 @@ class SubscribeController
             'confirmed_token' => null,
         ]);
 
+        // The language the page publishes in, applied before the view renders. Every
+        // string in `status.confirmed` resolves from the catalogue, so without this
+        // a Turkish page's visitor confirms in English: the copy exists and is
+        // simply never reached. Set unconditionally, including for the default, for
+        // the reason `ShowStatusPageController` documents.
+        app()->setLocale($page->locale ?? (string) config('app.default_locale'));
+
         return view('status.confirmed', [
             'page' => $page,
         ]);
@@ -149,7 +162,15 @@ class SubscribeController
             abort(404);
         }
 
+        // The page reached through the subscriber, because this route carries only
+        // a token: an unsubscribe link is followed days later, out of any page
+        // context, and it should still speak the language the page publishes in.
+        // Read BEFORE the delete, since the relation is gone afterwards.
+        $locale = $subscriber->statusPage?->locale ?? (string) config('app.default_locale');
+
         $subscriber->delete();
+
+        app()->setLocale($locale);
 
         return view('status.unsubscribed');
     }
@@ -177,6 +198,8 @@ class SubscribeController
      */
     protected function checkInboxView(StatusPage $page): View
     {
+        app()->setLocale($page->locale ?? (string) config('app.default_locale'));
+
         return view('status.subscribe-check-inbox', [
             'page' => $page,
         ]);

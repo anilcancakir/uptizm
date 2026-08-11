@@ -31,11 +31,17 @@ class StatusPageSubscribeConfirmation extends Mailable
 
     /**
      * The message envelope.
+     *
+     * The subject resolves from the catalogue like the body does, and it has to:
+     * the send path sets the page's locale, so a PHP-composed literal here would
+     * put an English subject over a Turkish body. `envelope()` runs inside
+     * `Mailable::send()`, which wraps the render in `withLocale($this->locale)`, so
+     * an ambient `__()` here is already the right language.
      */
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "Confirm your subscription to {$this->page->name}",
+            subject: __('status.emails.confirm.subject', ['page' => $this->page->name]),
         );
     }
 

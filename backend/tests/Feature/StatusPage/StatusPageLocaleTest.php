@@ -9,6 +9,7 @@ use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
+use App\Mail\StatusPageSubscribeConfirmation;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
@@ -24,6 +25,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -289,12 +291,13 @@ class StatusPageLocaleTest extends TestCase
     public function test_the_three_subscribe_result_pages_resolve_their_copy_from_the_catalogue(): void
     {
         /*
-         * These three render OUTSIDE the status page's own path (SubscribeController
-         * returns them directly), and nothing sets a locale on those routes, so in
-         * production they answer in the deployment default today. What is asserted
-         * here is that their copy comes from the catalogue rather than from the
-         * template, which is what a later step needs in order to give that flow a
-         * language at all.
+         * These three render OUTSIDE the status page's own path
+         * (`SubscribeController` returns them directly), so they get the page's
+         * locale from that controller rather than from `ShowStatusPageController`.
+         * This test asserts only that their copy resolves from the catalogue, by
+         * rendering each view under a forced locale; the sibling test below drives
+         * the real ROUTES, which is the only thing that can prove the controller
+         * applies the page's language rather than the deployment default.
          */
         $page = $this->makePage($this->makeTeam(), 'locale-subscribe-results', null);
 
@@ -334,13 +337,76 @@ class StatusPageLocaleTest extends TestCase
         }
     }
 
+    public function test_the_subscribe_routes_answer_in_the_pages_language(): void
+    {
+        /*
+         * The gap two independent reviews found: every string in the subscribe flow
+         * resolved from the catalogue and NONE of it could reach a Turkish reader,
+         * because `SubscribeController` renders its three views and sends its mail
+         * outside `ShowStatusPageController` and nothing applied the page's locale
+         * there. Seventeen Turkish entries were dead copy.
+         *
+         * Rendering a view under a forced locale cannot catch that, which is why the
+         * test above did not: this one drives the real ROUTES and asserts on the
+         * response body, so it fails if the controller stops applying the language.
+         */
+        Mail::fake();
+
+        $page = $this->makePage($this->makeTeam(), 'locale-subscribe-routes', 'tr');
+
+        // 1. The subscribe POST answers with the check-inbox page.
+        $this->post(route('status.subscribe', ['slug' => $page->slug]), [
+            'email' => 'abone@ornek.com',
+        ])
+            ->assertOk()
+            ->assertSee('E-postanızı kontrol edin')
+            ->assertDontSee('Check your inbox')
+            ->assertSee('<html lang="tr">', false);
+
+        // 2. The confirmation mail carries the page's language, subject included.
+        //    Asserted through the rendered envelope rather than the locale property,
+        //    because a `->locale()` that never reaches the render would still pass a
+        //    property check.
+        Mail::assertSent(StatusPageSubscribeConfirmation::class, function ($mail) use ($page) {
+            $mail->locale($page->locale);
+
+            return $mail->envelope()->subject === __(
+                'status.emails.confirm.subject',
+                ['page' => $page->name],
+                'tr',
+            );
+        });
+
+        // 3. The confirm link, followed from that mail.
+        $subscriber = $page->subscribers()->firstOrFail();
+
+        $this->get(route('status.subscribe.confirm', [
+            'slug' => $page->slug,
+            'token' => $subscriber->confirmed_token,
+        ]))
+            ->assertOk()
+            ->assertSee('Abonelik onaylandı')
+            ->assertDontSee('Subscription confirmed');
+
+        // 4. The unsubscribe link, which carries a token and NO page: the language
+        //    has to come through the subscriber's own page, and it is read before the
+        //    row is deleted.
+        $this->get(route('status.unsubscribe', [
+            'token' => $subscriber->refresh()->unsubscribe_token,
+        ]))
+            ->assertOk()
+            ->assertSee('Abonelikten çıkıldı')
+            ->assertDontSee('Unsubscribed');
+    }
+
     public function test_the_two_subscriber_emails_resolve_their_copy_from_the_catalogue(): void
     {
-        // Same standing as the result pages above: the SUBJECTS are still composed
-        // in the two Mailables and nothing sets a locale on the send path, so these
-        // bodies answer in the deployment default today. The bold page name stays
-        // wrapped in both languages, which is why each sentence is a prefix or a
-        // suffix rather than one string with a `:page` parameter.
+        // Bodies only, rendered under a forced locale. Both SUBJECTS now resolve
+        // from `status.emails.*.subject` and both send paths carry the page's
+        // locale, which the route-level test below proves for the confirm mail. The
+        // bold page name stays wrapped in both languages, which is why each
+        // sentence is a prefix or a suffix rather than one string with a `:page`
+        // parameter.
         $emails = [
             'status.emails.confirm' => [
                 'pageName' => 'Acme Status',

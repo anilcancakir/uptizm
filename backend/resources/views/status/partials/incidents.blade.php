@@ -105,7 +105,14 @@
                                          beside a translated word, because Turkish puts the
                                          verb after the time and English before it. --}}
                                     <time datetime="{{ $entry['startedAt'] }}" class="text-xs text-fg-muted">
-                                        {{ __('status.incidents.started', ['at' => \Illuminate\Support\Carbon::parse($entry['startedAt'])->utc()->format('M j, H:i').' UTC']) }}
+                                        {{-- `translatedFormat` with the page's locale, like the day
+                                             heading above: a bare `format()` puts an English month
+                                             abbreviation inside a Turkish sentence. Only a reader
+                                             without JavaScript ever sees this text, because the
+                                             layout's script replaces the whole `<time>` content with
+                                             the viewer's own localized stamp, but that reader (and a
+                                             crawler) should not be handed half a language. --}}
+                                        {{ __('status.incidents.started', ['at' => \Illuminate\Support\Carbon::parse($entry['startedAt'])->utc()->locale(app()->getLocale())->translatedFormat('M j, H:i').' UTC']) }}
                                     </time>
                                 </div>
 

@@ -96,6 +96,7 @@ return [
 
     'emails' => [
         'confirm' => [
+            'subject' => ':page aboneliğinizi onaylayın',
             'heading' => 'Aboneliğinizi onaylayın',
 
             // The page name follows this sentence in `<strong>`, so the Turkish
@@ -107,6 +108,7 @@ return [
             'ignore' => 'Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz; hiçbir şey olmaz.',
         ],
         'maintenance' => [
+            'subject' => ':page için planlı bakım',
             'heading' => 'Planlı bakım',
 
             // Follows the page name, which both languages put at the head of

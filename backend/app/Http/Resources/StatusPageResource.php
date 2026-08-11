@@ -66,9 +66,12 @@ class StatusPageResource extends JsonResource
             'logo_text' => $this->resource->logo_text,
             'description' => $this->resource->description,
             // The language the public page publishes in, null for the deployment
-            // default. Emitted so the operator UI can show and change it; without
-            // it the column would be writable through the API and invisible in the
-            // app, which is a setting nobody can find.
+            // default. Emitted so the operator UI CAN show and change it; it does
+            // not yet, because `lib/app/models/status_page.dart` carries no `locale`
+            // and the status-page form has no field for it. So today the value is
+            // set through the API or a console command, and this key is the half of
+            // the contract that has to exist first. Say so rather than implying the
+            // product surfaces it.
             'locale' => $this->resource->locale,
             // The URL the page is actually served at, resolved from the route
             // itself. The client used to compose this string ("uptizm.com/
