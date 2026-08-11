@@ -102,6 +102,31 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
     ];
 
     /**
+     * The number of significant figures a numeric bound is quantised to.
+     *
+     * A fixed decimal count cannot serve both a gigabyte bound and a
+     * millisecond one, so the rule is significant figures: a live run
+     * rendered "warn 6.096666666666667" for a bound the model computed as
+     * 18.29 / 3.
+     */
+    protected const int QUANTISE_SIGNIFICANT_FIGURES = 3;
+
+    /**
+     * The absolute pair substituted when a `count`/`high_bad` metric is
+     * observed at zero, because a multiplier-derived bound is meaningless there
+     * (0 x anything is 0).
+     *
+     * Not derived from anything: it encodes a judgment about the two metrics a
+     * live run produced this way (a pending migration is always wrong; a
+     * single queued job is not yet critical). The alternative, asking the
+     * model for an absolute threshold, reintroduces the unaudited-model-
+     * arithmetic problem this class exists to fix.
+     */
+    protected const float ZERO_OBSERVED_COUNT_WARN = 1.0;
+
+    protected const float ZERO_OBSERVED_COUNT_CRITICAL = 5.0;
+
+    /**
      * Ask the model which candidates are worth recording as metrics.
      *
      * @throws RuntimeException When the model returns non-conforming output twice.
@@ -357,7 +382,7 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
             return null;
         }
 
-        $bounds = $this->resolveBounds($row, $type, $direction);
+        $bounds = $this->resolveBounds($row, $type, $direction, $unit, $payload, $ref);
         if ($bounds === false) {
             return null;
         }
@@ -415,11 +440,27 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
      * declared direction (which would band every sample as critical the moment it
      * crossed warn).
      *
+     * Two more rules apply once a bound reaches an operator, both fired only for
+     * a numeric metric: a `count`/`high_bad` metric observed at zero gets the
+     * {@see ZERO_OBSERVED_COUNT_WARN}/{@see ZERO_OBSERVED_COUNT_CRITICAL}
+     * absolute pair instead of whatever the model computed (a multiplier of zero
+     * is always zero), and both bounds are quantised to
+     * {@see QUANTISE_SIGNIFICANT_FIGURES} so the model's own arithmetic never
+     * reaches the UI raw. Quantisation runs before the direction check, so a
+     * pair the rounding collapses onto one value is nulled like any other
+     * direction violation rather than shipped.
+     *
      * @param  array<array-key, mixed>  $row
      * @return array{warn: float|null, critical: float|null}|false
      */
-    protected function resolveBounds(array $row, MetricType $type, ?ThresholdDirection $direction): array|false
-    {
+    protected function resolveBounds(
+        array $row,
+        MetricType $type,
+        ?ThresholdDirection $direction,
+        ?MetricUnit $unit,
+        MetricDiscoveryPayload $payload,
+        string $ref,
+    ): array|false {
         $warn = $this->resolveBound($row, 'warn');
         $critical = $this->resolveBound($row, 'critical');
 
@@ -434,6 +475,22 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
             ];
         }
 
+        if ($unit === MetricUnit::Count && $direction === ThresholdDirection::HighBad
+            && $this->isObservedZero($payload, $ref)) {
+            $warn = self::ZERO_OBSERVED_COUNT_WARN;
+            $critical = self::ZERO_OBSERVED_COUNT_CRITICAL;
+        }
+
+        // Quantise BEFORE validating, not after. Rounding is monotonic but not
+        // injective, so two bounds inside one quantisation bucket collapse to a
+        // single value: warn 1236 and critical 1237 both land on 1240, and
+        // `HighBad` requires a strict `warn < critical`. Validating first would
+        // pass the pre-rounded pair and then emit the equal one, routing around
+        // the very guard below, which exists to stop a band that reads every
+        // sample above warn as critical.
+        $warn = $warn !== null ? $this->quantise($warn) : null;
+        $critical = $critical !== null ? $this->quantise($critical) : null;
+
         if ($warn !== null && $critical !== null
             && $direction !== null && ! $direction->validateBounds($warn, $critical)) {
             return [
@@ -446,6 +503,56 @@ class LaravelAiMetricDiscoveryGateway implements Agent, Conversational, HasStruc
             'warn' => $warn,
             'critical' => $critical,
         ];
+    }
+
+    /**
+     * Whether `$ref`'s digest sample on `$payload` is present, numeric, and
+     * exactly zero.
+     *
+     * Strict on purpose: the sample is a STRING and may be truncated with
+     * {@see MetricCandidate::DIGEST_TRUNCATION_MARK} appended, so a loose `== 0`
+     * would treat a non-numeric or truncated string as zero. A ref the model
+     * answered with but that carries no digest row here (a mismatch the payload
+     * cannot rule out on its own) reads as "not observed to be zero" rather than
+     * as zero, because the rule must not fire on a value nobody actually read.
+     */
+    protected function isObservedZero(MetricDiscoveryPayload $payload, string $ref): bool
+    {
+        $sample = $this->observedSample($payload, $ref);
+
+        return $sample !== null && is_numeric($sample) && (float) $sample === 0.0;
+    }
+
+    /**
+     * The digest sample value for `$ref`, or null when no digest row on the
+     * payload carries that ref.
+     */
+    protected function observedSample(MetricDiscoveryPayload $payload, string $ref): ?string
+    {
+        foreach ($payload->digestRows as $digestRow) {
+            if (($digestRow['ref'] ?? null) === $ref) {
+                $value = $digestRow['value'] ?? null;
+
+                return is_string($value) ? $value : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Round `$value` to {@see QUANTISE_SIGNIFICANT_FIGURES} significant figures.
+     */
+    protected function quantise(float $value): float
+    {
+        if ($value === 0.0) {
+            return 0.0;
+        }
+
+        $magnitude = floor(log10(abs($value)));
+        $scale = 10 ** (self::QUANTISE_SIGNIFICANT_FIGURES - 1 - $magnitude);
+
+        return round($value * $scale) / $scale;
     }
 
     /**
