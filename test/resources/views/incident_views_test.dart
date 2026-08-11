@@ -117,6 +117,13 @@ class _IncidentViewsLangLoader implements TranslationLoader {
           'Publish to status page',
       'uptizm.incidents.detail_composer_ai_draft': 'Draft with AI',
       'uptizm.incidents.detail_composer_ai_insight': 'Drafted by AI.',
+      // The degraded-analysis section. `uptizm.common.retry` is the app's own
+      // shared retry label, reused rather than given a local twin, and it is
+      // spelled in full: `common.retry` resolves to NOTHING and would have put
+      // the raw dotted key on the button.
+      'uptizm.common.retry': 'Try again',
+      'uptizm.incidents.analysis_degraded_heading': 'AI analysis',
+      'uptizm.incidents.analysis_retry_pending': 'Retrying',
       'uptizm.incidents.detail_composer_post': 'Post update',
       'uptizm.incidents.detail_postmortem_heading': 'Postmortem draft',
       'uptizm.incidents.detail_postmortem_edit': 'Edit & publish',
@@ -1348,13 +1355,15 @@ void main() {
         await tester.pump();
         tester.takeException();
 
-        // 1. Nothing stored yet: the generated draft renders with its AI framing.
+        // 1. Nothing stored yet: the generated draft renders, in the same plain
+        //    card a stored postmortem uses and with no AI framing on either.
         expect(
           find.textContaining(
             trans('uptizm.incidents.detail_postmortem_heading'),
           ),
           findsOneWidget,
         );
+        expect(find.byType(AiInsight), findsNothing);
 
         final Finder editButton = find.widgetWithText(
           MSButton,
@@ -1366,10 +1375,17 @@ void main() {
         tester.takeException();
 
         // 2. The composer opens seeded with the generated draft plus the
-        //    AI-provenance hint (never presented as a finished analysis).
+        //    provenance line (never presented as a finished analysis). That line
+        //    is plain text now: the draft is a `trans()` template, so an
+        //    `AiInsight` credited a model that never ran.
         expect(
           find.text(trans('uptizm.incidents.detail_postmortem_ai_seeded')),
           findsOneWidget,
+        );
+        expect(
+          find.byType(AiInsight),
+          findsNothing,
+          reason: 'the editor hint keeps its text and drops the AI badge',
         );
         // The postmortem editor's Textarea precedes the update composer's in
         // the section column, so it is the first of the two.
@@ -1729,7 +1745,7 @@ void main() {
         // Budget exhaustion is the one reason with no retry: retrying spends
         // another budget unit on a request that fails by definition.
         expect(
-          find.text(trans('uptizm.incidents.analysis_retry')),
+          find.text(trans('uptizm.common.retry')),
           findsNothing,
           reason: 'a retry cannot help when the budget is what ran out',
         );
@@ -1757,7 +1773,7 @@ void main() {
         await tester.pumpAndSettle();
         tester.takeException(); // see the header chip-row overflow note above
 
-        final Finder retry = find.text(trans('uptizm.incidents.analysis_retry'));
+        final Finder retry = find.text(trans('uptizm.common.retry'));
         expect(retry, findsOneWidget);
 
         // One GET so far, from `initState`. The tap has to produce a SECOND one:
@@ -1778,6 +1794,34 @@ void main() {
         expect(analysisRequests(), 2);
       },
     );
+
+    testWidgets('the degraded section fits a 360px phone', (tester) async {
+      // Every other case on this screen runs at 1280 wide, and the sibling
+      // detail views test narrow explicitly. The degraded row is long text plus a
+      // button, which is exactly the pair that overflows at phone width, and the
+      // first draft of this widget threw at any width by putting an `Expanded`
+      // inside a `Wrap`.
+      await tester.binding.setSurfaceSize(const Size(360, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      seedAnalysisOnlyIncident({
+        'summary': 'critical severity incident, currently investigating.',
+        'confidence': 'low',
+        'degrade_reason': 'service_unreachable',
+      });
+
+      await tester.pumpWidget(
+        wrap(const IncidentDetailView(id: 'deg-1'), size: const Size(360, 2400)),
+      );
+      await tester.pumpAndSettle();
+      tester.takeException(); // see the header chip-row overflow note above
+
+      expect(find.text(trans('uptizm.common.retry')), findsOneWidget);
+      expect(
+        find.text(trans('uptizm.incidents.analysis_degraded_heading')),
+        findsOneWidget,
+      );
+    });
 
     testWidgets(
       'a healthy analysis renders the model summary and no degrade notice',

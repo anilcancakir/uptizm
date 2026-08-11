@@ -621,17 +621,24 @@ class _IncidentDetailViewState
   /// a request that fails by definition. The copy names the budget, and a budget
   /// is a thing that comes back on its own.
   Widget _buildDegradedAnalysis(Incident incident, AiDegradeReason reason) {
-    // Exhaustive with no default on purpose: a fourth reason case must fail the
-    // build here rather than silently borrow one of these three sentences.
-    final String notice = switch (reason) {
-      AiDegradeReason.budgetExhausted => trans(
-        'uptizm.incidents.analysis_degraded_budget',
+    // One exhaustive switch with no default, carrying BOTH the sentence and
+    // whether a retry can help. Retryability used to be a separate
+    // `reason != budgetExhausted` test, which is not the same guarantee: an
+    // unknown wire value decodes to `serviceUnreachable`
+    // (`aiDegradeReasonFromWire`), so a fourth backend reason would have
+    // inherited a budget-spending button by default. Here it fails the build.
+    final (String notice, bool retryable) = switch (reason) {
+      AiDegradeReason.budgetExhausted => (
+        trans('uptizm.incidents.analysis_degraded_budget'),
+        false,
       ),
-      AiDegradeReason.outputUntrusted => trans(
-        'uptizm.incidents.analysis_degraded_untrusted',
+      AiDegradeReason.outputUntrusted => (
+        trans('uptizm.incidents.analysis_degraded_untrusted'),
+        true,
       ),
-      AiDegradeReason.serviceUnreachable => trans(
-        'uptizm.incidents.analysis_degraded_unreachable',
+      AiDegradeReason.serviceUnreachable => (
+        trans('uptizm.incidents.analysis_degraded_unreachable'),
+        true,
       ),
     };
     final String core = trans('uptizm.incidents.analysis_degraded_core', {
@@ -642,16 +649,23 @@ class _IncidentDetailViewState
     return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
-        // A Row, not `wrap`: the sentence is long and the retry is small, so the
-        // text takes the remaining width and wraps INSIDE it. `wrap` would put
-        // the two children on separate lines on a phone, and `flex-1` resolves to
-        // an `Expanded`, which is invalid inside a `Wrap` and throws.
-        className: 'flex flex-row items-start justify-between gap-3',
+        // Stacked on a phone, one row from `sm` up, which is the pattern
+        // `_buildResponderStrip` already uses for long content plus a trailing
+        // action. At 390px the notice is ~135 characters and the button ~110px
+        // wide, so a single row leaves the text about 140px and ten lines tall.
+        //
+        // `flex-1` stays behind the `sm:` prefix deliberately: it resolves to an
+        // `Expanded`, which needs a bounded main axis. Under `flex-col` inside
+        // the page scroll it would throw, the same family as the `Wrap` crash
+        // this row hit on its first draft.
+        className:
+            'flex flex-col gap-3 sm:flex-row sm:items-start '
+            'sm:justify-between',
         children: [
           // `min-w-0` so a long sentence wraps instead of forcing the row wider
           // than the card.
           WDiv(
-            className: 'min-w-0 flex-1 flex flex-col gap-1',
+            className: 'min-w-0 sm:flex-1 flex flex-col gap-1',
             children: [
               WText(
                 trans('uptizm.incidents.analysis_degraded_heading'),
@@ -663,8 +677,7 @@ class _IncidentDetailViewState
               ),
             ],
           ),
-          if (reason != AiDegradeReason.budgetExhausted)
-            _buildAnalysisRetryButton(incident),
+          if (retryable) _buildAnalysisRetryButton(incident),
         ],
       ),
     );
@@ -677,17 +690,25 @@ class _IncidentDetailViewState
   /// better part of a minute, and a button that vanishes mid-request reads as a
   /// finished one. A second tap would spend a second budget unit on the same
   /// answer.
+  ///
+  /// `disabled` AND a null `onPressed`, because the two do different jobs: the
+  /// null callback makes the tap inert, while `disabled` is what wind reads to
+  /// render the state (`disabled:opacity-50 disabled:cursor-not-allowed`, plus
+  /// the `AbsorbPointer` and the default cursor). With only the null callback the
+  /// button kept a pointer cursor and its full-opacity hover response for the
+  /// whole minute, which is the same lie this screen was just cleaned of.
   Widget _buildAnalysisRetryButton(Incident incident) {
     final bool pending = controller.analysisPending(incident.id);
 
     return MSButton(
       intent: ButtonIntent.secondary,
       size: ButtonSize.sm,
-      onPressed: pending ? null : () => controller.loadAnalysis(incident.id),
+      disabled: pending,
+      onPressed: pending ? null : () => controller.retryAnalysis(incident.id),
       child: WText(
         pending
             ? trans('uptizm.incidents.analysis_retry_pending')
-            : trans('uptizm.incidents.analysis_retry'),
+            : trans('uptizm.common.retry'),
       ),
     );
   }
@@ -768,33 +789,38 @@ class _IncidentDetailViewState
       return _buildStoredPostmortem(incident, stored);
     }
 
-    return MSCard(
-      variant: CardVariant.surface,
-      child: WDiv(
-        className: 'flex flex-col gap-3',
-        children: [
-          WDiv(
-            className: 'wrap items-center justify-between gap-3',
-            children: [
-              WText(
-                trans('uptizm.incidents.detail_postmortem_heading'),
-                className: 'text-sm font-semibold text-fg',
-              ),
-              _buildPostmortemEditButton(incident),
-            ],
-          ),
-          WText(
-            postmortemDraft(incident),
-            className: 'text-sm leading-relaxed text-fg-muted',
-          ),
-        ],
-      ),
+    return _buildPostmortemCard(
+      incident,
+      heading: trans('uptizm.incidents.detail_postmortem_heading'),
+      body: postmortemDraft(incident),
     );
   }
 
   /// Builds the stored-postmortem card: the persisted body, its publication
   /// state, and the edit action.
   Widget _buildStoredPostmortem(Incident incident, String body) {
+    return _buildPostmortemCard(
+      incident,
+      heading: trans('uptizm.incidents.detail_postmortem_heading_saved'),
+      body: body,
+      footer: _buildPostmortemState(incident),
+    );
+  }
+
+  /// The card both postmortem states render through: [heading] plus the edit
+  /// action on one row, [body] below, and [footer] when the state has one.
+  ///
+  /// One method because the two states are one thing at two stages, which is the
+  /// point of the draft losing its AI framing. They were separate subtrees
+  /// differing only in these three values, and a shape written twice is a shape
+  /// that drifts: keeping them identical would have meant remembering to edit
+  /// both, which is how the draft ended up looking like a different feature.
+  Widget _buildPostmortemCard(
+    Incident incident, {
+    required String heading,
+    required String body,
+    Widget? footer,
+  }) {
     return MSCard(
       variant: CardVariant.surface,
       child: WDiv(
@@ -803,15 +829,12 @@ class _IncidentDetailViewState
           WDiv(
             className: 'wrap items-center justify-between gap-3',
             children: [
-              WText(
-                trans('uptizm.incidents.detail_postmortem_heading_saved'),
-                className: 'text-sm font-semibold text-fg',
-              ),
+              WText(heading, className: 'text-sm font-semibold text-fg'),
               _buildPostmortemEditButton(incident),
             ],
           ),
           WText(body, className: 'text-sm leading-relaxed text-fg-muted'),
-          _buildPostmortemState(incident),
+          ?footer,
         ],
       ),
     );
@@ -1056,6 +1079,16 @@ class _IncidentDetailViewState
           ),
 
           // 4. AI-drafted hint (only right after an AI draft).
+          //
+          // The one `AiInsight` left on this screen, and it is over a `trans()`
+          // template too ([draftUpdate]), so the framing is no truer here than it
+          // was on the postmortem draft. It stays for one reason the postmortem
+          // did not have: this text appears only after the operator pressed a
+          // button labelled "AI draft", so the badge repeats a promise the app
+          // already made out loud rather than inventing one. Wiring this path to a
+          // real gateway is the fix, and it is a product decision rather than a
+          // cleanup; until it lands, treat this widget as the promise's receipt
+          // and not as a pattern to copy.
           if (_aiDrafted)
             AiInsight(
               child: WText(

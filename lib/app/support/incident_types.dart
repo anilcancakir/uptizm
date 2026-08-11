@@ -219,7 +219,6 @@ class IncidentAi {
     required this.similarIncidents,
     this.degradeReason,
   });
-
 }
 
 /// Acknowledgement record: a human confirmed they are on the incident.

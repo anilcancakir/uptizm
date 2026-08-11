@@ -753,10 +753,120 @@ void main() {
         IncidentController.new,
       );
 
-      await controller.loadAnalysis('pending-2');
+      await controller.retryAnalysis('pending-2');
 
       expect(controller.analysisPending('pending-2'), isFalse);
       expect(controller.analysisFor(Incident.fromMap({'id': 'pending-2'})), isNull);
+    });
+
+    test('one incident finishing does not release another one still running', () async {
+      // THE DEFECT THIS PINS. The flag used to be a single slot cleared
+      // unconditionally, so: open A (a minute-long request), go back, open B, and
+      // A's answer released B's retry while B's request was still in flight. The
+      // next tap spent a second AI budget unit on a request already running.
+      Http.fake({
+        'incidents/slow-a/analysis': Http.response({
+          'data': {'summary': 'a', 'confidence': 'low'},
+        }),
+        'incidents/slow-b/analysis': Http.response({
+          'data': {'summary': 'b', 'confidence': 'low'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<void> a = controller.loadAnalysis('slow-a');
+      final Future<void> b = controller.loadAnalysis('slow-b');
+      expect(controller.analysisPending('slow-a'), isTrue);
+      expect(controller.analysisPending('slow-b'), isTrue);
+
+      await a;
+
+      expect(
+        controller.analysisPending('slow-b'),
+        isTrue,
+        reason: "A finishing must not speak for B's request",
+      );
+
+      await b;
+
+      expect(controller.analysisPending('slow-b'), isFalse);
+    });
+
+    test('a second call for an id already in flight is dropped', () async {
+      // The disabled button is a courtesy, not the mechanism: a remount inside
+      // the request window would fire again, and every request spends a unit.
+      final fake = Http.fake({
+        'incidents/once/analysis': Http.response({
+          'data': {'summary': 'once', 'confidence': 'low'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<void> first = controller.loadAnalysis('once');
+      await controller.retryAnalysis('once');
+      await first;
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url == '/incidents/once/analysis')
+            .length,
+        1,
+      );
+    });
+
+    test('a cached model-authored analysis is not re-fetched on a remount', () async {
+      // The endpoint recomputes and spends an AI budget unit per call, and the
+      // detail view fetches from `initState`, so a screen reopened three times
+      // used to pay three times for the same answer.
+      final fake = Http.fake({
+        'incidents/cached/analysis': Http.response({
+          'data': {'summary': 'The origin returned 503s.', 'confidence': 'high'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('cached');
+      await controller.loadAnalysis('cached');
+
+      int calls() => fake.recorded
+          .where((entry) => entry.$1.url == '/incidents/cached/analysis')
+          .length;
+      expect(calls(), 1);
+
+      // The retry is the explicit exception: it always asks again.
+      await controller.retryAnalysis('cached');
+      expect(calls(), 2);
+    });
+
+    test('a cached DEGRADE is re-fetched, because that answer is worth re-asking', () async {
+      final fake = Http.fake({
+        'incidents/degraded-cache/analysis': Http.response({
+          'data': {
+            'summary': 'critical severity incident, currently investigating.',
+            'confidence': 'low',
+            'degrade_reason': 'service_unreachable',
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('degraded-cache');
+      await controller.loadAnalysis('degraded-cache');
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url == '/incidents/degraded-cache/analysis')
+            .length,
+        2,
+      );
     });
 
     test('a null or absent degrade_reason means nothing degraded', () async {
