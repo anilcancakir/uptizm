@@ -14,6 +14,7 @@ import 'package:uptizm/resources/views/incidents/incident_detail_view.dart';
 import 'package:uptizm/resources/views/incidents/incidents_list_view.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 
+import '../../support/bundled_lang.dart';
 import '../../support/incident_fixtures.dart';
 import '../../support/monitor_fixtures.dart';
 import '../../support/skeleton_matchers.dart';
@@ -175,9 +176,17 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.draft_signal_errors': 'errors across regions',
       'uptizm.incidents.draft_signal_latency': 'elevated response times',
       'uptizm.incidents.postmortem':
-          ':title lasted :duration and affected :count :monitorWord.',
+          'The incident lasted :duration and affected :count :monitorWord. '
+          'Uptizm first detected it via :signal, then saw checks recover '
+          'before it was resolved. This draft covers only what Uptizm '
+          'observed from the outside; add the internal root cause before '
+          'publishing.',
       'uptizm.incidents.postmortem_monitor_one': 'monitor',
       'uptizm.incidents.postmortem_monitor_other': 'monitors',
+      // `formatDuration` reads its units from the catalogue, so without these
+      // the duration inside the rendered postmortem is a raw key.
+      'uptizm.units.minutes': 'm',
+      'uptizm.units.hours': 'h',
 
       // Shared status labels (StatusBadge / chip row).
       'uptizm.status.up': 'Operational',
@@ -186,6 +195,44 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.status.paused': 'Paused',
       'uptizm.status.info': 'Maintenance',
       'uptizm.status.ai': 'AI',
+    };
+  }
+}
+
+/// The same harness map, but with every key the degraded AI notice reads taken
+/// from the SHIPPED `assets/lang/tr.json`.
+///
+/// Two reasons for the mix. The Turkish assertions are about the sentence an
+/// operator reads, so an inline Turkish map would only agree with itself:
+/// `lang_parity_test.dart` compares key SETS and never values, and an
+/// English-only loader is exactly what let ungrammatical Turkish ship past a
+/// green suite before. The rest of the screen keeps the short harness strings,
+/// because the real page chrome overflows this viewport and that has nothing to
+/// do with what is being pinned here.
+///
+/// The suite runs with the repo root as its cwd (`lang_parity_test.dart` reads
+/// the same file off disk), so the bundled asset is readable from here.
+class _TurkishDegradeLangLoader implements TranslationLoader {
+  const _TurkishDegradeLangLoader();
+
+  /// Key prefixes the degraded notice composes its sentence from: the four
+  /// reason/core templates plus the localized severity and lifecycle labels the
+  /// client interpolates into the core.
+  static const List<String> _shippedPrefixes = [
+    'uptizm.incidents.analysis_degraded_',
+    'uptizm.enums.incident_severity.',
+    'uptizm.enums.incident_lifecycle.',
+  ];
+
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async {
+    final Map<String, dynamic> shipped = readBundledLang('tr');
+
+    return {
+      ...await _IncidentViewsLangLoader().load(locale),
+      for (final MapEntry<String, dynamic> entry in shipped.entries)
+        if (_shippedPrefixes.any((String p) => entry.key.startsWith(p)))
+          entry.key: entry.value,
     };
   }
 }
@@ -1559,6 +1606,131 @@ void main() {
           find.text(trans('uptizm.ai.similar_incidents')),
           findsNothing,
           reason: 'similar_incidents stays empty (deferred)',
+        );
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Degraded analysis: the reason is said in the operator's language, and the
+    // backend's machine-readable summary never reaches the screen.
+    // -------------------------------------------------------------------------
+
+    /// Seeds an incident with NO inline `ai` payload (so the analysis fetch owns
+    /// the rendered summary, exactly as it does for an incident the AI has not
+    /// summarized inline) and stubs its analysis endpoint with [analysis].
+    void seedAnalysisOnlyIncident(Map<String, dynamic> analysis) {
+      Http.fake({
+        'incidents/deg-1/analysis': Http.response({'data': analysis}),
+      });
+      Magic.singleton('log', () => LogManager());
+      IncidentController.instance.setSuccess([
+        Incident.fromMap(<String, dynamic>{
+          'id': 'deg-1',
+          'title': 'Checkout returning 503s',
+          'lifecycle': 'investigating',
+          'severity': 'critical',
+          'impact': 'critical',
+          'started_at': '2026-07-11T14:00:00Z',
+          'monitors': [
+            {'monitor_id': 'm1', 'name': 'Checkout'},
+          ],
+          'updates': <dynamic>[],
+        }),
+      ]);
+    }
+
+    testWidgets(
+      'a degraded analysis reads as Turkish composed from the incident, never '
+      'as the backend summary',
+      (tester) async {
+        // The live defect: a Turkish operator read "Deterministic baseline from
+        // the incident record (the AI service was temporarily unavailable):
+        // critical severity incident, currently resolved." The backend summary is
+        // a machine-readable baseline, not display copy.
+        await tester.binding.setSurfaceSize(const Size(1280, 5200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        const String backendSummary =
+            'critical severity incident, currently investigating.';
+
+        Translator.instance.setLoader(const _TurkishDegradeLangLoader());
+        await Translator.instance.setLocale(const Locale('tr'));
+
+        seedAnalysisOnlyIncident({
+          'summary': backendSummary,
+          'confidence': 'low',
+          'degrade_reason': 'budget_exhausted',
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'deg-1'),
+            size: const Size(1280, 5200),
+          ),
+        );
+        await tester.pumpAndSettle();
+        tester.takeException(); // see the header chip-row overflow note above
+
+        // The reason clause, from the shipped `tr.json`.
+        expect(
+          find.textContaining('Bugünün yapay zeka bütçesi doldu'),
+          findsOneWidget,
+          reason: 'the operator is told WHY the summary is a baseline, in TR',
+        );
+        // The objective core, composed client-side from the incident's own
+        // localized severity + lifecycle labels. The colon is deliberate: the
+        // lifecycle is a chip LABEL and keeps its capital, so it needs a
+        // position where a capital reads as a label rather than a typo, and
+        // Turkish `İ` cannot be lowercased by Dart's locale-blind
+        // `toLowerCase()` anyway.
+        expect(
+          find.textContaining(
+            'Kritik önem derecesinde bir olay, durumu: İnceleniyor.',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining(backendSummary),
+          findsNothing,
+          reason: 'the English baseline must never reach the operator',
+        );
+      },
+    );
+
+    testWidgets(
+      'a healthy analysis renders the model summary and no degrade notice',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 5200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        const String summary = 'Origin 503 döndürüyor.';
+
+        // The same Turkish loader, so the notice sentences ARE resolvable here:
+        // their absence is then a statement about the render path rather than
+        // about a missing key.
+        Translator.instance.setLoader(const _TurkishDegradeLangLoader());
+        await Translator.instance.setLocale(const Locale('tr'));
+
+        seedAnalysisOnlyIncident({
+          'summary': summary,
+          'confidence': 'high',
+          'degrade_reason': null,
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'deg-1'),
+            size: const Size(1280, 5200),
+          ),
+        );
+        await tester.pumpAndSettle();
+        tester.takeException(); // see the header chip-row overflow note above
+
+        expect(find.textContaining(summary), findsOneWidget);
+        expect(
+          find.textContaining('aşağıdaki özet olayın kendi kaydından üretildi'),
+          findsNothing,
+          reason: 'nothing degraded, so no reason is claimed',
         );
       },
     );

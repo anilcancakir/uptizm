@@ -92,8 +92,10 @@ class _MonitorDetailLangLoader implements TranslationLoader {
       'uptizm.slo.gap_unmeasured': 'Not measured this window: :amount.',
       'uptizm.slo.window_7day': '7-day',
       'uptizm.slo.window_30day': '30-day',
-      'uptizm.slo.unit_minutes': 'm',
-      'uptizm.slo.unit_hours': 'h',
+      // The duration units live under `uptizm.units.*`: one vocabulary serves
+      // both this card and the incident postmortem's `formatDuration`.
+      'uptizm.units.minutes': 'm',
+      'uptizm.units.hours': 'h',
       // DateRangePicker (response-time section), now trans()-driven.
       'uptizm.ranges.custom': 'Custom range',
       'uptizm.ranges.last_24h': 'Last 24 hours',

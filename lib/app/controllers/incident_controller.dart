@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../models/incident.dart';
 import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
+import '../enums/ai_degrade_reason.dart' show aiDegradeReasonFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../support/incident_types.dart'
     show AiEvidence, AiSuggestedAction, IncidentAi;
@@ -73,10 +74,10 @@ class IncidentController extends MagicController
 
   /// Enriched AI analysis per incident id, populated by [loadAnalysis].
   ///
-  /// Kept as a separate cache rather than merged into [Incident.ai] so the
-  /// fast first-paint `trigger`/`confidence`/`tldr` from `GET /incidents/{id}`
-  /// keeps rendering unchanged while the richer analysis fetch is in flight;
-  /// [analysisFor] combines the two views for the detail screen.
+  /// Kept as a separate cache rather than written onto [Incident.ai] because the
+  /// analysis is transient and endpoint-only: `GET /incidents/{id}/analysis`
+  /// recomputes it per call and `IncidentResource` never carries it, so there is
+  /// no model field for it to belong to. [analysisFor] reads this cache first.
   final Map<String, IncidentAi> _analysisById = {};
 
   // ---------------------------------------------------------------------------
@@ -345,31 +346,23 @@ class IncidentController extends MagicController
     refreshUI();
   }
 
-  /// The enriched AI analysis for [incident], or `null` when neither the
-  /// `GET /incidents/{id}` payload nor [loadAnalysis] has attached one.
+  /// The AI analysis to render for [incident]: the one [loadAnalysis] fetched
+  /// when it has landed, otherwise whatever the incident itself carried.
   ///
-  /// Combines the fast first-paint `trigger`/`confidence`/`tldr` from
-  /// [Incident.ai] with the `evidenceFor`/`evidenceAgainst`/`suggestedActions`
-  /// fetched by [loadAnalysis], once resolved. Before [loadAnalysis] resolves
-  /// this returns the un-enriched [Incident.ai] unchanged, so the detail
-  /// screen's AI analysis card shows the inline summary immediately and
-  /// re-renders with evidence/actions once they arrive. `similarIncidents`
-  /// stays empty (deferred, see the plan's Deferred Ideas).
-  IncidentAi? analysisFor(Incident incident) {
-    final IncidentAi? enriched = _analysisById[incident.id];
-    if (enriched == null) return incident.ai;
-
-    final IncidentAi? base = incident.ai;
-    return IncidentAi(
-      trigger: base?.trigger ?? '',
-      confidence: base?.confidence ?? enriched.confidence,
-      tldr: base?.tldr ?? enriched.tldr,
-      evidenceFor: enriched.evidenceFor,
-      evidenceAgainst: enriched.evidenceAgainst,
-      suggestedActions: enriched.suggestedActions,
-      similarIncidents: const [],
-    );
-  }
+  /// The enriched object is taken WHOLE rather than merged field by field. It
+  /// used to be rebuilt argument by argument from both sources, and that shape
+  /// dropped a field twice: `degradeReason` was simply forgotten when it was
+  /// added, and `confidence` was written so the fetched value could never win.
+  /// A whole-object pick cannot drop a field a future addition introduces,
+  /// because it enumerates none.
+  ///
+  /// Nothing is lost by the switch, because the two sources never coexist on
+  /// this screen: [Incident.ai] is only ever populated by the dashboard's
+  /// AI-suggestion shape, and `IncidentResource` (the roster and the detail
+  /// endpoint both) emits no `ai` key at all, so an incident resolved here
+  /// carries none. The `??` therefore reads as "the fetch, or nothing yet".
+  IncidentAi? analysisFor(Incident incident) =>
+      _analysisById[incident.id] ?? incident.ai;
 
   /// Fetches the enriched AI analysis for incident [id] via `GET
   /// /incidents/{id}/analysis`, decodes it into an [IncidentAi], and caches it
@@ -405,6 +398,9 @@ class IncidentController extends MagicController
         evidenceAgainst: _decodeEvidence(data['evidence_against']),
         suggestedActions: _decodeActions(data['suggested_actions']),
         similarIncidents: const [],
+        degradeReason: aiDegradeReasonFromWire(
+          data['degrade_reason'] as String?,
+        ),
       );
       refreshUI();
     } catch (error) {

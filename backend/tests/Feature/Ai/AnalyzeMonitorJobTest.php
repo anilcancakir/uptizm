@@ -916,6 +916,7 @@ class AnalyzeMonitorJobTest extends TestCase
                 string $teamId,
                 array $headers = [],
                 ?string $locale = null,
+                ?string $runId = null,
             ): array {
                 return [];
             }

@@ -21,8 +21,8 @@ class _SloLangLoader implements TranslationLoader {
     'uptizm.slo.gap_unmeasured': 'Not measured this window: :amount.',
     'uptizm.slo.window_7day': '7-day',
     'uptizm.slo.window_30day': '30-day',
-    'uptizm.slo.unit_minutes': 'm',
-    'uptizm.slo.unit_hours': 'h',
+    'uptizm.units.minutes': 'm',
+    'uptizm.units.hours': 'h',
   };
 }
 
@@ -33,8 +33,8 @@ class _TurkishUnitLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async => {
     'uptizm.slo.gap_unmeasured': 'Bu pencerede :amount ölçülemedi.',
-    'uptizm.slo.unit_minutes': 'dk',
-    'uptizm.slo.unit_hours': 'sa',
+    'uptizm.units.minutes': 'dk',
+    'uptizm.units.hours': 'sa',
   };
 }
 

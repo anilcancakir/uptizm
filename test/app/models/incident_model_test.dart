@@ -1,4 +1,6 @@
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:magic/magic.dart' show TranslationLoader, Translator;
 import 'package:uptizm/app/enums/ai_confidence.dart' show AiConfidence, aiConfidenceFromWire;
 import 'package:uptizm/app/enums/incident_impact.dart' show IncidentImpact, impactFromWire;
 import 'package:uptizm/app/enums/incident_lifecycle.dart' show IncidentLifecycle, lifecycleFromWire;
@@ -10,7 +12,26 @@ import 'package:uptizm/app/support/formatters.dart'
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/app/models/incident.dart';
 
+/// Feeds the two duration units [formatDuration] now reads from the catalogue.
+///
+/// Turkish values rather than `m`/`h` on purpose: with the English units the
+/// duration assertions below would pass just as well against a formatter that
+/// hardcoded them, and a hardcoded `1m` inside a Turkish sentence is the defect
+/// this localization removes.
+class _UnitLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async => {
+    'uptizm.units.minutes': 'dk',
+    'uptizm.units.hours': 'sa',
+  };
+}
+
 void main() {
+  setUp(() async {
+    Translator.instance.setLoader(_UnitLangLoader());
+    await Translator.instance.setLocale(const Locale('tr'));
+  });
+
   group('Incident model metadata', () {
     test('targets the incidents table and resource with a non-incrementing key', () {
       final Incident incident = Incident();
@@ -244,7 +265,7 @@ void main() {
         'resolved_at': '2026-07-09T14:34:00.000Z',
       });
 
-      expect(incident.duration, '14m');
+      expect(incident.duration, '14dk');
     });
   });
 
@@ -438,7 +459,7 @@ void main() {
       final DateTime started = DateTime.utc(2026, 7, 9, 14, 20);
       final DateTime resolved = DateTime.utc(2026, 7, 9, 14, 34);
 
-      expect(formatDuration(started, resolved), '14m');
+      expect(formatDuration(started, resolved), '14dk');
       expect(formatRelativeMeta(started, null), startsWith('started '));
       expect(
         RegExp(r'^\d{2}:\d{2}$').hasMatch(formatHourMinute(

@@ -34,6 +34,7 @@ use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -1474,6 +1475,67 @@ class MetricDiscoveryTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertSame([], $response->json('data.suggested_metrics'));
+    }
+
+    /**
+     * The controller path's monitor is PERSISTED, so `monitor_id` is the only
+     * identity a degrade line needs, and there is no run to name: the caller
+     * passes no `$runId` at all, so the log context carries `run_id: null`
+     * rather than the job's own value.
+     */
+    public function test_a_degraded_controller_discovery_logs_the_monitor_id_with_no_run_id(): void
+    {
+        Log::spy();
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+        // Non-conforming past the gateway's own retry, which is the RuntimeException
+        // branch: "the model output could not be trusted."
+        $this->fakeGateway(null);
+
+        $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
+
+        $response->assertStatus(200);
+        $this->assertSame([], $response->json('data.suggested_metrics'));
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'could not be trusted')
+                && $context['monitor_id'] === (string) $monitor->id
+                && $context['monitor_id'] !== ''
+                && ($context['run_id'] ?? null) === null)
+            ->once();
+    }
+
+    /**
+     * The analyze path's monitor is the TRANSIENT one the relay probed with, so
+     * `monitor_id` is empty by construction ({@see Monitor::getKey()} on an
+     * unsaved model). What makes THAT degrade traceable to a run is the run id
+     * {@see AnalyzeMonitorJob} carries and hands down explicitly.
+     */
+    public function test_a_degraded_analyze_discovery_logs_the_jobs_run_id(): void
+    {
+        Log::spy();
+        Queue::fake();
+        $this->fakeRelay($this->htmlFixture());
+        $this->app->bind(AnalysisGateway::class, FakeAnalysisGateway::class);
+        $this->stubHostGuard();
+        $this->actingAsTeamMember();
+        $this->fakeGateway(null);
+
+        $response = $this->postJson('/api/v1/monitors/analyze', [
+            'url' => 'https://example.com/health',
+        ]);
+
+        $response->assertStatus(202);
+        $runId = (string) $response->json('data.run_id');
+
+        $this->runAnalyzeJob($runId);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'could not be trusted')
+                && $context['monitor_id'] === ''
+                && $context['run_id'] === $runId)
+            ->once();
     }
 
     public function test_a_monitor_with_nothing_archived_yields_an_empty_array(): void

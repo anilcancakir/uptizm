@@ -1,10 +1,16 @@
 /// Timestamp and duration formatting shared by the incident and monitor
 /// value-objects and their views.
 ///
-/// These pure functions were extracted from the mock layer so the type layer
+/// These functions were extracted from the mock layer so the type layer
 /// (`lib/app/support/`) and the ORM models can format wall-clock and elapsed
 /// strings without importing fixture data.
+///
+/// All are pure except [formatDuration], which reads its unit words from the
+/// locale catalogue: a caller with no [TranslationLoader] registered gets the
+/// raw key back, so a test asserting a duration needs one.
 library;
+
+import 'package:magic/magic.dart';
 
 /// Formats an ISO-8601 timestamp string as a local `HH:mm` wall-clock
 /// string. Returns `'—'` when [raw] is `null` or fails to parse.
@@ -48,14 +54,24 @@ String formatMonthDayTime(DateTime? value) {
 
 /// Formats the elapsed time between [startedAt] and [until] (`resolvedAt` or
 /// now) as `"Xm"` when under an hour, or `"Xh YYm"` otherwise. Matches the
-/// fixture duration convention (e.g. `'14m'`, `'1h 06m'`).
+/// fixture duration convention (e.g. `'14m'`, `'1h 06m'`), rendering as
+/// `'14dk'` / `'1sa 06dk'` in Turkish.
+///
+/// The units come from the catalogue for the same reason
+/// `formatBudgetMinutes()`'s do: this string is interpolated into the Turkish
+/// postmortem sentence, so a hardcoded `m` there is the same defect class as an
+/// English clause used as a Turkish grammatical subject. The zero-padded minute
+/// is the convention this reproduces and is deliberately NOT unified with
+/// `formatBudgetMinutes()`'s unpadded one.
 String formatDuration(DateTime startedAt, DateTime until) {
   final Duration elapsed = until.difference(startedAt);
   final int totalMinutes = elapsed.inMinutes.abs();
-  if (totalMinutes < 60) return '${totalMinutes}m';
+  final String m = trans('uptizm.units.minutes');
+  final String h = trans('uptizm.units.hours');
+  if (totalMinutes < 60) return '$totalMinutes$m';
   final int hours = totalMinutes ~/ 60;
   final int minutes = totalMinutes % 60;
-  return '${hours}h ${minutes.toString().padLeft(2, '0')}m';
+  return '$hours$h ${minutes.toString().padLeft(2, '0')}$m';
 }
 
 /// Formats how long ago [checkedAt] was, at the granularity a monitor's check

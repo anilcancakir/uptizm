@@ -987,6 +987,10 @@
       "detail_postmortem_publish_toast_title": "Olay sonrası inceleme yayınlandı",
       "detail_postmortem_publish_toast_description": "Artık herkese açık durum sayfasından okunabilir.",
       "ai_analysis_gated": "Yapay zeka olay analizi, kanıt, güven ve sonraki adımlarla birlikte olası nedeni belirler.",
+      "analysis_degraded_budget": "Bugünün yapay zeka bütçesi doldu, bu yüzden aşağıdaki özet olayın kendi kaydından üretildi.",
+      "analysis_degraded_untrusted": "Model güvenilir bir yanıt üretemedi, bu yüzden aşağıdaki özet olayın kendi kaydından üretildi.",
+      "analysis_degraded_unreachable": "Yapay zeka servisine şu an ulaşılamıyor, bu yüzden aşağıdaki özet olayın kendi kaydından üretildi.",
+      "analysis_degraded_core": ":severity önem derecesinde bir olay, durumu: :lifecycle.",
       "form_kind_incident": "Olay",
       "form_kind_maintenance": "Planlı bakım",
       "form_severity_critical": "Kritik",
@@ -1003,7 +1007,7 @@
       "draft_what_info": "bir servis sorunu",
       "draft_signal_errors": "bölgeler genelinde hatalar",
       "draft_signal_latency": "yükselen yanıt süreleri",
-      "postmortem": ":title :duration sürdü ve :count :monitorWord etkiledi. Uptizm bunu ilk olarak :signal üzerinden tespit etti, ardından çözülmeden önce kontrollerin toparlandığını gördü. Bu taslak yalnızca Uptizm'in dışarıdan gözlemlediklerini kapsar; yayınlamadan önce dahili kök nedeni ekleyin.",
+      "postmortem": "Olay :duration sürdü ve :count izleyici etkilendi. Uptizm bunu ilk olarak :signal üzerinden tespit etti, ardından çözülmeden önce kontrollerin toparlandığını gördü. Bu taslak yalnızca Uptizm'in dışarıdan gözlemlediklerini kapsar; yayınlamadan önce dahili kök nedeni ekleyin.",
       "postmortem_monitor_one": "izleyici",
       "postmortem_monitor_other": "izleyici",
       "timeline_tag_public": "Herkese açık",
@@ -1474,9 +1478,11 @@
       "coverage_partial_days": ":window pencerenin :days günü gözlendi.",
       "gap_unmeasured": "Bu pencerede :amount ölçülemedi.",
       "window_7day": "7 günlük",
-      "window_30day": "30 günlük",
-      "unit_minutes": "dk",
-      "unit_hours": "sa"
+      "window_30day": "30 günlük"
+    },
+    "units": {
+      "minutes": "dk",
+      "hours": "sa"
     },
     "ranges": {
       "custom": "Özel aralık",

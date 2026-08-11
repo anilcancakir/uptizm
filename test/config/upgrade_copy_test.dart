@@ -1,10 +1,9 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
+
+import '../support/bundled_lang.dart';
 
 /// Boot-level regression test for the upgrade-wall copy contract.
 ///
@@ -15,31 +14,6 @@ import 'package:magic_starter/magic_starter.dart';
 /// raw dotted key, which ships a 20-plus-character token where a button label
 /// belongs. So the seam is asserted here rather than trusted to review.
 void main() {
-  /// Flattens a nested lang map into the dotted keys [Translator] caches.
-  ///
-  /// Mirrors `JsonAssetLoader`: flattening is the loader's job, the translator
-  /// stores whatever the loader returns verbatim.
-  Map<String, dynamic> flatten(Map<String, dynamic> source, [String prefix = '']) {
-    final Map<String, dynamic> flat = {};
-    source.forEach((String key, Object? value) {
-      final String path = prefix.isEmpty ? key : '$prefix.$key';
-      if (value is Map<String, dynamic>) {
-        flat.addAll(flatten(value, path));
-      } else {
-        flat[path] = value;
-      }
-    });
-
-    return flat;
-  }
-
-  /// Reads the app's real bundled lang file for [locale], pre-flattened.
-  Map<String, dynamic> readBundledLang(String locale) {
-    final File file = File('assets/lang/$locale.json');
-
-    return flatten(json.decode(file.readAsStringSync()) as Map<String, dynamic>);
-  }
-
   /// Serves a pre-flattened lang map, standing in for the bundled asset loader.
   Future<Map<String, dynamic>> useLang(Map<String, dynamic> keys) async {
     Translator.instance.setLoader(_MapLangLoader(keys));

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:magic/magic.dart';
 
 import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
+import '../enums/ai_degrade_reason.dart' show aiDegradeReasonFromWire;
 import '../enums/incident_impact.dart' show IncidentImpact, impactFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle, lifecycleFromWire;
 import '../enums/incident_severity.dart' show IncidentSeverity, severityFromWire;
@@ -327,6 +328,12 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
       evidenceAgainst: const [],
       suggestedActions: const [],
       similarIncidents: const [],
+      // Decoded rather than hardcoded null: this payload carries no reason
+      // today, and the helper answers null for an absent key anyway, but this
+      // getter is the only route to a non-null base value in
+      // `IncidentController.analysisFor`'s merge, and a hardcoded null there
+      // would make that merge untestable.
+      degradeReason: aiDegradeReasonFromWire(raw['degrade_reason'] as String?),
     );
   }
 

@@ -465,6 +465,7 @@ class AnalyzeMonitorJob implements ShouldBeEncrypted, ShouldQueue
                 $this->teamId,
                 $this->headers,
                 $this->locale,
+                $this->runId,
             );
             $this->tick($runs, self::STEP_DISCOVERY, ran: $this->probe->content !== null);
 
