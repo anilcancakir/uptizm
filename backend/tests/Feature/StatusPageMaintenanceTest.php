@@ -237,7 +237,11 @@ class StatusPageMaintenanceTest extends TestCase
         $this->assertSame(
             [
                 'title',
+                'title_original',
+                'title_provenance',
                 'description',
+                'description_original',
+                'description_provenance',
                 'startsAt',
                 'endsAt',
                 'state',

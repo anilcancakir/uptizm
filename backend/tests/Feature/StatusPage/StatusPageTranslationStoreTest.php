@@ -40,7 +40,15 @@ class StatusPageTranslationStoreTest extends TestCase
         $this->assertTrue(Schema::hasColumn('status_page_translations', 'rejected_at'));
         $this->assertTrue(Schema::hasColumn('status_page_translations', 'rejection_reason'));
 
-        $this->artisan('migrate:rollback', ['--step' => 1])->assertSuccessful();
+        // Rolled back BY PATH rather than by `--step 1`. A step count says "the
+        // last migration", which was this one on the day it was written and
+        // stopped being true the moment a later migration landed in the same
+        // release; the test then rolled back somebody else's table and asserted
+        // this one had vanished. The path names the migration this test is
+        // actually about, so no future migration can move it.
+        $this->artisan('migrate:rollback', [
+            '--path' => 'database/migrations/2026_08_13_000100_create_status_page_translations_table.php',
+        ])->assertSuccessful();
         $this->assertFalse(Schema::hasTable('status_page_translations'));
 
         $this->artisan('migrate')->assertSuccessful();

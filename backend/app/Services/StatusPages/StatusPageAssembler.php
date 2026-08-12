@@ -6,15 +6,19 @@ use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Http\ViewModels\StatusPageViewModel;
 use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
+use App\Jobs\TranslateStatusPageText;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
 use App\Models\ScheduledMaintenance;
 use App\Models\StatusPage;
+use App\Models\StatusPageTranslation;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\StatusPages\StatusPageLocale;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 /**
@@ -35,14 +39,18 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  * The result is a {@see StatusPageViewModel}: a field-allowlisted object that
  * carries no monitor url / auth_config / internal id / team_id.
  *
- * Two of its strings are LANGUAGE-DEPENDENT and read the ambient locale: the
- * banner label ({@see self::overallLabel()}) and each incident title
- * ({@see self::buildIncidentEntry()}). `ShowStatusPageController` applies the
- * page's own `locale` before calling this, so the payload it builds (and the one
- * cached under `status-page:{slug}` for 60 seconds) is in the single language
- * that page serves. Anything else that assembles a page outside a request must
- * set the locale itself, or it will bake the deployment default into a Turkish
- * page's cache entry.
+ * The payload is LANGUAGE-DEPENDENT throughout and reads the ambient locale.
+ * Three kinds of string answer to it: the banner label
+ * ({@see self::overallLabel()}), an auto-generated incident title
+ * ({@see IncidentTitle::render()}), and the six operator-authored free-text
+ * fields, each resolved through the translation store by
+ * {@see self::translatedField()} and carrying its original and its provenance in
+ * two SIBLING keys beside it. `ShowStatusPageController` applies the render
+ * locale before calling this and caches the result under
+ * `status-page:{slug}:{locale}`, one entry per language: a page now serves every
+ * supported language rather than the single one its owner picked. Anything else
+ * that assembles a page outside a request must set the locale itself, or it will
+ * bake the deployment default into a Turkish page's cache entry.
  */
 class StatusPageAssembler
 {
@@ -78,6 +86,27 @@ class StatusPageAssembler
      */
     public const string STATUS_UNKNOWN = 'unknown';
 
+    /**
+     * Where a rendered free-text value came from, carried beside it as
+     * `<field>_provenance` so the page can label a machine translation and offer
+     * the original.
+     *
+     * Four states rather than a translated/untranslated boolean, because the
+     * three ways a field can lack a translation are different promises to the
+     * reader: this IS the operator's own language, the translation is still
+     * queued, or the output contract refused it and nothing will re-queue it.
+     * Constants rather than a backed enum: the values travel inside the cached
+     * plain-array payload and are read as strings by the Blade, and an enum
+     * would have to be unwrapped on both sides of the cache boundary.
+     */
+    public const string PROVENANCE_AUTHORED = 'authored';
+
+    public const string PROVENANCE_TRANSLATED = 'translated';
+
+    public const string PROVENANCE_PENDING = 'pending';
+
+    public const string PROVENANCE_UNAVAILABLE = 'unavailable';
+
     public function __construct(
         protected ComponentDailyUptimeService $uptime = new ComponentDailyUptimeService,
     ) {}
@@ -112,23 +141,34 @@ class StatusPageAssembler
             ? self::STATUS_UNKNOWN
             : $this->uptime->worstOf(array_column($components, 'status'));
 
+        // 4. Load the rows carrying operator-authored free text BEFORE shaping
+        //    any of them, because their translations are fetched in one query
+        //    keyed by the ids those rows hand over. Resolving a translation at
+        //    each of the six call sites instead would cost a query per field per
+        //    row (dozens on a page with three incidents and their updates),
+        //    inside a cache fill that runs on a visitor's request.
+        $now = CarbonImmutable::now();
+        $windows = $this->maintenanceWindows($page, $monitorIds, $now);
+        // Scope incidents to the VISIBLE monitors only: an incident title
+        // embeds the monitor name ("{name} is down"), so pulling incidents for a
+        // hidden/paused component would leak its name even though its row is
+        // hidden from the page.
+        $incidents = $this->recentIncidents($monitorIds);
+        $translations = $this->loadTranslations($page, $windows, $incidents);
+
         return new StatusPageViewModel(
-            page: $this->buildPage($page),
+            page: $this->buildPage($page, $translations),
             overallStatus: $overallStatus,
             overallLabel: $this->overallLabel($overallStatus),
             // Planned work first in the read model as well as on the page: a
             // visitor arriving during a window should read "this was announced"
             // before reading the red it explains.
-            maintenances: $this->buildMaintenances($page, $monitorIds),
+            maintenances: $this->buildMaintenances($windows, $now, $translations),
             components: $components,
-            // Scope incidents to the VISIBLE monitors only: an incident title
-            // embeds the monitor name ("{name} is down"), so pulling incidents
-            // for a hidden/paused component would leak its name even though its
-            // row is hidden from the page.
-            incidents: $this->buildIncidents($monitorIds),
+            incidents: $this->groupIncidentsByDay($incidents, $translations),
             // Assembly time travels in the cached array, so "updated Xm ago"
             // reflects the age of the cached snapshot, not the render time.
-            generatedAt: CarbonImmutable::now()->toIso8601String(),
+            generatedAt: $now->toIso8601String(),
         );
     }
 
@@ -245,21 +285,13 @@ class StatusPageAssembler
      * clock would disagree with the snapshot it was rendered from.
      *
      * @param  array<int, int|string>  $monitorIds  The page's visible monitor ids.
-     * @return array<int, array{
-     *     title: string,
-     *     description: string|null,
-     *     startsAt: string,
-     *     endsAt: string,
-     *     state: 'in_progress'|'scheduled',
-     * }>
+     * @return Collection<int, ScheduledMaintenance>
      */
-    protected function buildMaintenances(StatusPage $page, array $monitorIds): array
+    protected function maintenanceWindows(StatusPage $page, array $monitorIds, CarbonImmutable $now): Collection
     {
         if ($monitorIds === []) {
-            return [];
+            return new Collection;
         }
-
-        $now = CarbonImmutable::now();
 
         return ScheduledMaintenance::query()
             ->where('status_page_id', $page->getKey())
@@ -270,10 +302,35 @@ class StatusPageAssembler
             ->where('starts_at', '<=', $now->addDays(self::UPCOMING_MAINTENANCE_DAYS))
             ->whereHas('monitors', fn (Builder $monitors) => $monitors->whereIn('monitors.id', $monitorIds))
             ->orderBy('starts_at')
-            ->get()
+            ->get();
+    }
+
+    /**
+     * Shape the windows {@see self::maintenanceWindows()} scoped, each free-text
+     * field resolved through the translation store.
+     *
+     * @param  Collection<int, ScheduledMaintenance>  $windows
+     * @param  array<string, array<string, array<string, StatusPageTranslation>>>  $translations
+     * @return array<int, array{
+     *     title: string,
+     *     title_original: string,
+     *     title_provenance: string,
+     *     description: string|null,
+     *     description_original: string|null,
+     *     description_provenance: string,
+     *     startsAt: string,
+     *     endsAt: string,
+     *     state: 'in_progress'|'scheduled',
+     * }>
+     */
+    protected function buildMaintenances(Collection $windows, CarbonImmutable $now, array $translations): array
+    {
+        $source = $this->teamSourceLocale();
+
+        return $windows
             ->map(fn (ScheduledMaintenance $window): array => [
-                'title' => $window->title,
-                'description' => $window->description,
+                ...$this->translatedField($translations, $window, 'title', $window->title, $source),
+                ...$this->translatedField($translations, $window, 'description', $window->description, $source),
                 'startsAt' => $window->starts_at->toIso8601String(),
                 'endsAt' => $window->ends_at->toIso8601String(),
                 'state' => $window->starts_at->lessThanOrEqualTo($now) ? 'in_progress' : 'scheduled',
@@ -283,22 +340,19 @@ class StatusPageAssembler
 
     /**
      * Recent public incidents affecting the page's monitors, each carrying only
-     * its `is_public` updates, grouped by the day the incident started.
+     * its `is_public` updates.
      *
-     * @return array<int, array{
-     *     day: string,
-     *     entries: array<int, array<string, mixed>>,
-     * }>
+     * @return Collection<int, Incident>
      */
-    protected function buildIncidents(array $monitorIds): array
+    protected function recentIncidents(array $monitorIds): Collection
     {
         if ($monitorIds === []) {
-            return [];
+            return new Collection;
         }
 
         $since = CarbonImmutable::now()->subDays(self::RECENT_INCIDENT_DAYS);
 
-        $incidents = Incident::query()
+        return Incident::query()
             ->whereHas('monitors', fn (Builder $query) => $query->whereIn('monitors.id', $monitorIds))
             ->where('started_at', '>=', $since)
             ->where(function (Builder $query): void {
@@ -313,23 +367,22 @@ class StatusPageAssembler
             ->with(['updates' => fn (Relation $updates) => $updates->where('is_public', true)])
             ->orderByDesc('started_at')
             ->get();
-
-        return $this->groupIncidentsByDay($incidents);
     }
 
     /**
      * Group incidents by their `started_at` calendar day into the public shape.
      *
      * @param  Collection<int, Incident>  $incidents
+     * @param  array<string, array<string, array<string, StatusPageTranslation>>>  $translations
      * @return array<int, array{day: string, entries: array<int, array<string, mixed>>}>
      */
-    protected function groupIncidentsByDay(Collection $incidents): array
+    protected function groupIncidentsByDay(Collection $incidents, array $translations): array
     {
         $groups = [];
 
         foreach ($incidents as $incident) {
             $day = $incident->started_at->format('Y-m-d');
-            $groups[$day][] = $this->buildIncidentEntry($incident);
+            $groups[$day][] = $this->buildIncidentEntry($incident, $translations);
         }
 
         return array_map(
@@ -352,24 +405,50 @@ class StatusPageAssembler
      *
      * The title goes through {@see IncidentTitle::render()} rather than off the
      * column, with NO explicit locale: the controller has already applied the
-     * page's own language, so a composed title resolves into it and an
+     * render language, so a composed title resolves into it and an
      * operator-authored one (null `title_key`) comes back as the text a human
      * wrote. The output is byte-identical English on an English page, and reading
      * the raw column here is how the next person concludes the column is the
      * contract.
      *
+     * @param  array<string, array<string, array<string, StatusPageTranslation>>>  $translations
      * @return array<string, mixed>
      */
-    protected function buildIncidentEntry(Incident $incident): array
+    protected function buildIncidentEntry(Incident $incident, array $translations): array
     {
+        $source = $this->teamSourceLocale();
+
+        // An auto-generated title is composed from a catalogue key and rendered
+        // into the ambient locale by IncidentTitle above, so it is already in the
+        // language this page is answering in: it is AUTHORED in every language,
+        // and TranslateStatusPageText deliberately queues it nothing (its stored
+        // English also carries the monitored response value interpolated into
+        // it). Saying its source locale is the one being rendered is what makes
+        // the resolver answer `authored` instead of waiting forever for a row
+        // nothing writes.
+        $titleSource = $incident->title_key === null ? $source : app()->getLocale();
+
         return [
-            'title' => IncidentTitle::render($incident),
+            ...$this->translatedField(
+                $translations,
+                $incident,
+                'title',
+                IncidentTitle::render($incident),
+                $titleSource,
+            ),
             'lifecycle' => $incident->lifecycle->value,
             'impact' => $incident->impact->value,
             'startedAt' => $incident->started_at->toIso8601String(),
             'postmortem' => $incident->postmortemIsPublished()
                 ? [
-                    'body' => $incident->postmortem_body,
+                    ...$this->translatedField(
+                        $translations,
+                        $incident,
+                        'postmortem_body',
+                        $incident->postmortem_body,
+                        $source,
+                        key: 'body',
+                    ),
                     'publishedAt' => $incident->postmortem_published_at->toIso8601String(),
                 ]
                 : null,
@@ -381,8 +460,8 @@ class StatusPageAssembler
             // so the in-app timeline keeps its chronological order.
             'updates' => $incident->updates
                 ->reverse()
-                ->map(static fn (IncidentUpdate $update): array => [
-                    'message' => $update->message,
+                ->map(fn (IncidentUpdate $update): array => [
+                    ...$this->translatedField($translations, $update, 'message', $update->message, $source),
                     'actor' => $update->actor,
                     'displayAt' => $update->display_at->toIso8601String(),
                     'status' => $update->status->value,
@@ -395,25 +474,216 @@ class StatusPageAssembler
     /**
      * Allowlisted page branding + addressing fields.
      *
+     * `name` and `logo_text` are IDENTITY and stay as authored: a translated
+     * brand is a wrong brand, which is why {@see TranslateStatusPageText}
+     * does not name them either. `description` is the one free-text field here.
+     *
+     * @param  array<string, array<string, array<string, StatusPageTranslation>>>  $translations
      * @return array{
      *     name: string,
      *     brand_color: string|null,
      *     logo_text: string|null,
      *     description: string|null,
+     *     description_original: string|null,
+     *     description_provenance: string,
      *     subscriptions_enabled: bool,
      *     slug: string,
      * }
      */
-    protected function buildPage(StatusPage $page): array
+    protected function buildPage(StatusPage $page, array $translations): array
     {
         return [
             'name' => $page->name,
             'brand_color' => $this->safeBrandColor($page->brand_color),
             'logo_text' => $page->logo_text,
-            'description' => $page->description,
+            ...$this->translatedField(
+                $translations,
+                $page,
+                'description',
+                $page->description,
+                $this->pageSourceLocale($page),
+            ),
             'subscriptions_enabled' => (bool) $page->subscriptions_enabled,
             'slug' => $page->slug,
         ];
+    }
+
+    /**
+     * Every stored translation this page needs for the language being rendered,
+     * in ONE query, indexed by (morph type, key, field).
+     *
+     * Loaded up front rather than resolved at each call site: the six sites sit
+     * inside three nested loops (windows, incidents, each incident's updates), so
+     * a lookup per field per row is dozens of queries on a busy page, spent
+     * inside a 60-second cache fill that runs on a visitor's request.
+     *
+     * `team_id` is on the query because it is on the row for exactly this: the
+     * store carries the tenant denormalised so a public read can scope by it
+     * without joining back through four morph targets.
+     *
+     * @param  Collection<int, ScheduledMaintenance>  $windows
+     * @param  Collection<int, Incident>  $incidents
+     * @return array<string, array<string, array<string, StatusPageTranslation>>>
+     */
+    protected function loadTranslations(StatusPage $page, Collection $windows, Collection $incidents): array
+    {
+        $locale = app()->getLocale();
+
+        // The render IS the source language of every field on the page, so all
+        // of them are `authored` and no stored row could apply. That is the
+        // default-language render, which is most of this surface's traffic, and
+        // it therefore costs no translation query at all.
+        if ($locale === $this->teamSourceLocale() && $locale === $this->pageSourceLocale($page)) {
+            return [];
+        }
+
+        // Types come off the models rather than from `::class` so a morph map,
+        // if this application ever registers one, is honoured on the read side
+        // exactly as `TranslateStatusPageText` honours it on the write side.
+        $keys = [];
+
+        foreach ($this->translatableRows($page, $windows, $incidents) as $row) {
+            $keys[$row->getMorphClass()][] = $row->getKey();
+        }
+
+        $rows = StatusPageTranslation::query()
+            ->where('team_id', $page->team_id)
+            ->where('locale', $locale)
+            ->where(function (Builder $query) use ($keys): void {
+                foreach ($keys as $type => $ids) {
+                    $query->orWhere(fn (Builder $group) => $group
+                        ->where('translatable_type', $type)
+                        ->whereIn('translatable_id', $ids));
+                }
+            })
+            ->get();
+
+        $indexed = [];
+
+        foreach ($rows as $row) {
+            $indexed[(string) $row->translatable_type][(string) $row->translatable_id][(string) $row->field] = $row;
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * Every row on this page that carries one of the six translated fields.
+     *
+     * @param  Collection<int, ScheduledMaintenance>  $windows
+     * @param  Collection<int, Incident>  $incidents
+     * @return list<Model>
+     */
+    protected function translatableRows(StatusPage $page, Collection $windows, Collection $incidents): array
+    {
+        $updates = $incidents
+            ->flatMap(static fn (Incident $incident): array => $incident->updates->all())
+            ->all();
+
+        return [
+            $page,
+            ...$windows->all(),
+            ...$incidents->all(),
+            ...$updates,
+        ];
+    }
+
+    /**
+     * One free-text field as the three keys the page reads: the value to SHOW
+     * under the field's existing key, the operator's original beside it, and
+     * where the shown value came from.
+     *
+     * Siblings rather than a nested triple under the existing key, because those
+     * keys have readers outside this file: the layout puts
+     * `page['description']` straight into `og:description` and
+     * `<meta name="description">`, and an array arriving there is a fatal on
+     * every render of a page whose whole job is to be up when nothing else is.
+     * With siblings every existing reader keeps working untouched.
+     *
+     * @param  array<string, array<string, array<string, StatusPageTranslation>>>  $translations
+     * @param  string  $field  The COLUMN, which is what the store is keyed on.
+     * @param  string|null  $original  The value as its operator authored it.
+     * @param  string  $sourceLocale  The language that original is in.
+     * @param  string|null  $key  The read model's key, when it differs from the
+     *                            column (the postmortem's `postmortem_body` renders as `body`).
+     * @return array<string, string|null>
+     */
+    protected function translatedField(
+        array $translations,
+        Model $row,
+        string $field,
+        ?string $original,
+        string $sourceLocale,
+        ?string $key = null,
+    ): array {
+        $key ??= $field;
+
+        // Authored, on two counts. The render is already in the language this
+        // text was written in, and `TranslateStatusPageText` writes no row for a
+        // field's own source locale, so the absence of one here is correct rather
+        // than pending. An empty source is authored too: the job's
+        // `shouldTranslate()` refuses a blank field, so anything else would leave
+        // it reading "translation in progress" forever.
+        if ($sourceLocale === app()->getLocale() || ! is_string($original) || trim($original) === '') {
+            return [
+                $key => $original,
+                $key.'_original' => $original,
+                $key.'_provenance' => self::PROVENANCE_AUTHORED,
+            ];
+        }
+
+        $translation = $translations[$row->getMorphClass()][(string) $row->getKey()][$field] ?? null;
+        $value = $original;
+        $provenance = self::PROVENANCE_PENDING;
+
+        if ($translation !== null && $translation->rejected_at !== null) {
+            // A rejection is a recorded verdict, not work still queued: the
+            // output contract refused the model's answer and nothing re-queues
+            // it, so `pending` would promise an arrival that never comes.
+            $provenance = self::PROVENANCE_UNAVAILABLE;
+        } elseif ($translation !== null && is_string($translation->value) && trim($translation->value) !== '') {
+            $provenance = self::PROVENANCE_TRANSLATED;
+            $value = $translation->value;
+        }
+
+        return [
+            $key => $value,
+            $key.'_original' => $original,
+            $key.'_provenance' => $provenance,
+        ];
+    }
+
+    /**
+     * The language a TEAM-SCOPED row's free text was authored in.
+     *
+     * THE SOURCE-LOCALE RULE, and both ends of this surface have to apply the
+     * same one. No incident, update or maintenance row carries a language column
+     * (the only one on this surface is `status_pages.locale`), so every write
+     * path hands {@see TranslateStatusPageText} `app.default_locale` for all
+     * three, and it writes no row for a field's own source language. Reading
+     * them under any other rule would render a field `pending` against a row
+     * nothing ever queues.
+     *
+     * The method name is spelled out in prose rather than as a `{@see}` with
+     * parentheses on purpose: `TranslateStatusPageText`'s own suite enumerates
+     * the files that mention its dispatch call, so that a fifth caller in a
+     * public controller or a view fails a test, and this file is a READER.
+     */
+    protected function teamSourceLocale(): string
+    {
+        return (string) config('app.default_locale');
+    }
+
+    /**
+     * The language the PAGE's own description was authored in.
+     *
+     * The one field with a language column of its own, and the same expression
+     * {@see StatusPageLocale::render()} falls back to and the write path fans
+     * out from: a null `locale` means the deployment default.
+     */
+    protected function pageSourceLocale(StatusPage $page): string
+    {
+        return $page->locale ?? $this->teamSourceLocale();
     }
 
     /**
@@ -507,9 +777,10 @@ class StatusPageAssembler
      * (the shape a view-model builder would prefer) would leave
      * {@see StatusPageViewModel::$overallLabel} populated and cached with nothing
      * reading it, and that field cannot be removed from this step. The locale is
-     * ambient: the controller applies the page's own before the assembler runs,
-     * so the label lands in the 60-second `status-page:{slug}` payload already in
-     * the one language that page serves.
+     * ambient: the controller applies the render language before the assembler
+     * runs, so the label lands in the 60-second `status-page:{slug}:{locale}`
+     * payload already in the language that entry answers in, and each of the
+     * page's languages caches its own.
      *
      * `default` keeps its old reach on purpose: a status this ladder does not
      * know still gets a label rather than a raw key.
