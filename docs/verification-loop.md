@@ -171,8 +171,8 @@ rather than from the product, so rule the harness out before filing a defect.
   `response_ms`) read as "no latency is being stored", and `status.subscribe.blurb`
   (the key is `subscribe.body`) read as "dead copy". Tinker prints null for a field
   that does not exist and `__()` prints the key back, neither of which is
-  distinguishable from missing data. `Schema::getColumnListing()` and the catalogue
-  file each settle it in one line.
+  distinguishable from missing data. `Schema::getColumnListing()` and the `lang/`
+  file itself each settle it in one line.
 - **Take a before/after boundary from the artifact, not from your estimate of when
   you acted.** Counting crashes "in the 26 minutes since the change" put eleven of
   them AFTER a fix that had already stopped them; `stat -c %Y` on the file that IS
