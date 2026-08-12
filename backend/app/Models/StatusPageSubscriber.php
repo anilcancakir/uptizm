@@ -21,6 +21,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * before it existed carry `confirmed_at` with no way to tell a proven opt-in
  * from a pasted address.
  *
+ * `locale` is the language this subscriber was reading the page in at
+ * subscribe time (falling back to the page's own canonical language when the
+ * form submitted none), captured once and read by every subsequent
+ * subscriber-facing render instead of the page's current language, which may
+ * have changed since.
+ *
  * Relationships:
  * - belongs to {@see StatusPage} (the page this subscriber follows)
  */
@@ -40,6 +46,7 @@ class StatusPageSubscriber extends Model
         'confirmed_at',
         'opt_in_confirmed_at',
         'newsletter_opt_in',
+        'locale',
     ];
 
     /**

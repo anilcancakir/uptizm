@@ -29,6 +29,13 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *     oracle) and cannot use the endpoint to spray mail.
  *   - Single-use confirm: confirming burns the token, so a link-prefetch or a
  *     scanner replay of the confirm URL is a no-op 404, not a re-confirmation.
+ *
+ * Every subscriber-facing render answers in `StatusPageSubscriber::$locale`
+ * rather than the page's current language, captured once at {@see self::store()}.
+ * The subscribe route carries no locale segment (it is a write, not an
+ * indexable document), so the only honest source is a value the subscribe
+ * form itself submits; today nothing does, so every capture falls through to
+ * the page's own canonical language until the form is wired to forward it.
  */
 class SubscribeController
 {
@@ -58,15 +65,22 @@ class SubscribeController
         ]);
         $email = $validated['email'];
 
+        // The language to capture for this subscriber, resolved once so every
+        // branch below (dedupe, cap, fresh create) answers with the same value.
+        $locale = $this->resolveSubscriberLocale($request, $page);
+
         // 3. Dedupe without an oracle: if this address already has a row for the
         //    page (pending OR confirmed), return the uniform response and send no
         //    second mail. Guarding on ANY existing row (not just pending) also
         //    dodges the `(status_page_id, email)` unique-constraint 500 that a
         //    resubscribe of a confirmed address would otherwise leak as a signal.
+        //    The existing row keeps ITS OWN captured locale rather than the one
+        //    just resolved: a repeat submission from a different language must
+        //    not silently move a confirmed subscriber's mail language.
         $existing = $page->subscribers()->where('email', $email)->first();
 
         if ($existing !== null) {
-            return $this->checkInboxView($page);
+            return $this->checkInboxView($page, $existing->locale ?? $locale);
         }
 
         // At the plan's per-page subscriber cap, decline silently: the uniform
@@ -76,7 +90,7 @@ class SubscribeController
         $team = Team::find($page->team_id);
         $limit = $team !== null ? (new PlanGate)->subscriberLimit($team) : null;
         if ($limit !== null && $page->subscribers()->count() >= $limit) {
-            return $this->checkInboxView($page);
+            return $this->checkInboxView($page, $locale);
         }
 
         // 4. Create an unconfirmed subscriber and mail the confirm link ONLY to
@@ -86,17 +100,45 @@ class SubscribeController
             'confirmed_token' => Str::random(48),
             'unsubscribe_token' => Str::random(48),
             'subscribed_at' => now(),
+            'locale' => $locale,
         ]);
 
-        // The page's language, not the deployment default: this mail is the
-        // continuation of a page a visitor just read. `->locale()` scopes the render
-        // through Laravel's own `withLocale`, which covers the SUBJECT as well as
-        // the body, since `envelope()` runs inside `Mailable::send()`.
+        // The subscriber's captured language, not the page's current one: this
+        // mail is the continuation of a page a visitor just read, and the two can
+        // already diverge (the page's language changes; the subscriber's does
+        // not). `->locale()` scopes the render through Laravel's own
+        // `withLocale`, which covers the SUBJECT as well as the body, since
+        // `envelope()` runs inside `Mailable::send()`.
         Mail::to($email)
-            ->locale($page->locale ?? (string) config('app.default_locale'))
+            ->locale($subscriber->locale ?? (string) config('app.default_locale'))
             ->send(new StatusPageSubscribeConfirmation($page, $subscriber));
 
-        return $this->checkInboxView($page);
+        return $this->checkInboxView($page, $subscriber->locale);
+    }
+
+    /**
+     * Resolve the language to capture for a new (or re-submitted) subscriber.
+     *
+     * The subscribe route carries no locale segment, so the only honest source
+     * of "the language the visitor was reading" is a value their page's own
+     * form submits. An unsupported submitted value is stored as null rather
+     * than rejected, per this endpoint's Must NOT: a subscriber must never fail
+     * to subscribe over a language code. With no submitted value at all, the
+     * capture falls back to the page's own canonical language, read here ONCE
+     * at write time; every subsequent RENDER reads the subscriber's stored
+     * value instead, never the page's.
+     */
+    protected function resolveSubscriberLocale(Request $request, StatusPage $page): ?string
+    {
+        $submitted = $request->input('locale');
+
+        if (is_string($submitted) && $submitted !== '') {
+            $supported = array_values((array) config('magic-starter.supported_locales', []));
+
+            return in_array($submitted, $supported, true) ? $submitted : null;
+        }
+
+        return $page->locale ?? (string) config('app.default_locale');
     }
 
     /**
@@ -132,12 +174,14 @@ class SubscribeController
             'confirmed_token' => null,
         ]);
 
-        // The language the page publishes in, applied before the view renders. Every
-        // string in `status.confirmed` resolves from the catalogue, so without this
-        // a Turkish page's visitor confirms in English: the copy exists and is
-        // simply never reached. Set unconditionally, including for the default, for
-        // the reason `ShowStatusPageController` documents.
-        app()->setLocale($page->locale ?? (string) config('app.default_locale'));
+        // The subscriber's own captured language, applied before the view renders.
+        // Every string in `status.confirmed` resolves from the catalogue, so
+        // without this a Turkish-reading subscriber confirms in English: the copy
+        // exists and is simply never reached. Read off the subscriber rather than
+        // the page, since the page's language can change after this row was
+        // written. Set unconditionally, including for the default, for the reason
+        // `ShowStatusPageController` documents.
+        app()->setLocale($subscriber->locale ?? (string) config('app.default_locale'));
 
         return view('status.confirmed', [
             'page' => $page,
@@ -162,11 +206,12 @@ class SubscribeController
             abort(404);
         }
 
-        // The page reached through the subscriber, because this route carries only
-        // a token: an unsubscribe link is followed days later, out of any page
-        // context, and it should still speak the language the page publishes in.
-        // Read BEFORE the delete, since the relation is gone afterwards.
-        $locale = $subscriber->statusPage?->locale ?? (string) config('app.default_locale');
+        // The subscriber's own captured language: an unsubscribe link is followed
+        // days later, out of any page context, and it should still speak the
+        // language THIS subscriber was reading, not the page's current one (which
+        // may have changed since). Read BEFORE the delete, since the row is gone
+        // afterwards.
+        $locale = $subscriber->locale ?? (string) config('app.default_locale');
 
         $subscriber->delete();
 
@@ -195,10 +240,15 @@ class SubscribeController
     /**
      * The uniform "check your inbox" response. Identical for a fresh subscribe
      * and a deduped repeat so neither reveals subscription state.
+     *
+     * @param  string|null  $locale  The subscriber's captured language (the
+     *                               existing row's for a dedupe, the just-resolved
+     *                               one otherwise), never re-derived from the
+     *                               page here.
      */
-    protected function checkInboxView(StatusPage $page): View
+    protected function checkInboxView(StatusPage $page, ?string $locale): View
     {
-        app()->setLocale($page->locale ?? (string) config('app.default_locale'));
+        app()->setLocale($locale ?? (string) config('app.default_locale'));
 
         return view('status.subscribe-check-inbox', [
             'page' => $page,
