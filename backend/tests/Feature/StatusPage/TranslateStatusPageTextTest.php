@@ -8,6 +8,7 @@ use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
+use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Jobs\TranslateStatusPageText;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
@@ -22,6 +23,7 @@ use App\Services\Monitoring\IncidentWriteService;
 use App\Services\Monitoring\ThresholdEvaluator;
 use App\Support\StatusPages\TranslationOutputContract;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
@@ -407,6 +409,143 @@ class TranslateStatusPageTextTest extends TestCase
 
         $this->assertSame(0, StatusPageTranslation::query()->count());
         Ai::assertAgentNeverPrompted(AnonymousAgent::class);
+    }
+
+    public function test_a_landed_translation_forgets_the_containing_pages_in_every_language(): void
+    {
+        // The loading state a visitor sees is a promise that it clears by itself.
+        // The cached read model is what breaks that promise: without a bust the
+        // field keeps rendering "translation in progress" for the rest of the
+        // 60-second TTL although the verdict has already landed. Caught on a live
+        // walk, where a translation stored in 800ms stayed invisible for a minute.
+        Ai::fakeAgent(AnonymousAgent::class, ['Ödeme uçnoktalarını inceliyoruz.']);
+
+        [$page, $update] = $this->makePublishedIncidentUpdate('translation-bust');
+        $this->primeEveryLocale($page->slug);
+
+        $this->jobFor($update, 'message')->handle();
+
+        $this->assertEveryLocaleForgotten($page->slug);
+    }
+
+    public function test_a_rejected_translation_also_forgets_the_containing_pages(): void
+    {
+        // A rejection changes the render too: "translation unavailable" is not
+        // "translation in progress". A bust gated on acceptance would leave the
+        // page promising a translation that is never coming.
+        Ai::fakeAgent(AnonymousAgent::class, ['Detay: https://evil.example/x']);
+
+        [$page, $update] = $this->makePublishedIncidentUpdate('rejection-bust');
+        $this->primeEveryLocale($page->slug);
+
+        $this->jobFor($update, 'message')->handle();
+
+        // Guard against a vacuous pass: the verdict really was a rejection, so
+        // this is the rejection path and not a quietly accepted translation.
+        $this->assertNotNull(
+            StatusPageTranslation::query()
+                ->where('translatable_id', $update->getKey())
+                ->where('field', 'message')
+                ->whereNotNull('rejected_at')
+                ->first(),
+            'The fixture must be rejected by the output contract for this test to mean anything.',
+        );
+        $this->assertEveryLocaleForgotten($page->slug);
+    }
+
+    public function test_a_translated_page_field_forgets_that_page(): void
+    {
+        // The page's own fields reach their page directly rather than through the
+        // monitor pivot, so that arm needs its own case: a page with no monitor
+        // attached resolves an empty monitor set and would bust nothing.
+        Ai::fakeAgent(AnonymousAgent::class, ['Acme servisleri için canlı durum.']);
+
+        $team = $this->actingAsTeamMember();
+        $page = StatusPage::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Acme Status',
+            'slug' => 'page-field-bust',
+            'description' => 'Live status for Acme services.',
+            'is_public' => true,
+        ]);
+
+        $this->primeEveryLocale($page->slug);
+
+        $this->jobFor($page, 'description')->handle();
+
+        $this->assertEveryLocaleForgotten($page->slug);
+    }
+
+    /**
+     * A public page showing one monitor, carrying an active incident with a
+     * public timeline update.
+     *
+     * The monitor is attached to BOTH the page and the incident: the page pivot
+     * is what makes the page contain the monitor, and the incident pivot is what
+     * {@see TranslateStatusPageText::invalidateContainingPages()} resolves
+     * through. An incident with no monitor attached reaches no page at all, so a
+     * fixture missing that attach would pass this file's bust tests vacuously.
+     *
+     * @return array{0: StatusPage, 1: IncidentUpdate}
+     */
+    protected function makePublishedIncidentUpdate(string $slug): array
+    {
+        [$monitor, $team] = $this->makeMonitor();
+
+        $page = StatusPage::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Acme Status',
+            'slug' => $slug,
+            'is_public' => true,
+        ]);
+        $page->monitors()->attach([$monitor->id => ['display_order' => 0]]);
+
+        $incident = $this->makeIncident($monitor, titleKey: 'incidents.titles.monitor_down');
+        $incident->monitors()->attach([
+            $monitor->id => [
+                'component_status_at_start' => 'degraded',
+                'component_status_current' => 'degraded',
+            ],
+        ]);
+
+        $update = $incident->updates()->create([
+            'actor' => 'human',
+            'author' => 'Operator',
+            'status' => IncidentStatus::Investigating,
+            'message' => 'We are investigating elevated errors on the payment endpoints.',
+            'is_public' => true,
+            'autonomous' => false,
+            'display_at' => now(),
+        ]);
+
+        return [$page, $update];
+    }
+
+    /**
+     * Fill the page's cached read model in every language it publishes in.
+     */
+    protected function primeEveryLocale(string $slug): void
+    {
+        foreach (ShowStatusPageController::cacheKeys($slug) as $key) {
+            Cache::put($key, ['stale' => true], 60);
+        }
+    }
+
+    /**
+     * Assert every language entry of the page is gone.
+     *
+     * Every language, not just the default one: clearing one is worse than
+     * clearing none, since the surface then looks current to exactly the
+     * visitors who are not reading it in the default language.
+     */
+    protected function assertEveryLocaleForgotten(string $slug): void
+    {
+        foreach (ShowStatusPageController::cacheKeys($slug) as $key) {
+            $this->assertNull(
+                Cache::get($key),
+                "The cached read model under {$key} must be forgotten when a translation lands.",
+            );
+        }
     }
 
     /**

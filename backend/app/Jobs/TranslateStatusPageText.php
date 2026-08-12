@@ -11,6 +11,7 @@ use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use App\Services\Ai\LaravelAiAnalysisGateway;
 use App\Services\Ai\TranslationPayload;
 use App\Services\Monitoring\IncidentTitle;
+use App\Services\StatusPages\StatusPageCache;
 use App\Support\StatusPages\TranslationOutputContract;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -260,7 +261,7 @@ class TranslateStatusPageText implements ShouldQueue
     /**
      * Resolve, guard, prompt, verify, and record exactly one translation.
      */
-    public function handle(): void
+    public function handle(StatusPageCache $statusPageCache = new StatusPageCache): void
     {
         // 0. A deployment with no credential for its default AI provider cannot
         //    translate anything, and asking anyway costs a worker, a failed job
@@ -349,6 +350,59 @@ class TranslateStatusPageText implements ShouldQueue
                 'rejection_reason' => $verdict['reason'],
             ],
         );
+
+        // 5. Drop the cached read model of every page this row reaches, in every
+        //    language. Without it the field keeps rendering its loading state for
+        //    the rest of the 60-second TTL after the verdict has already landed,
+        //    which is the one thing a background translation must not do: the
+        //    loading state is a promise that it clears by itself. A REJECTION
+        //    busts too, since "translation unavailable" is a different render
+        //    from "translation in progress".
+        $this->invalidateContainingPages($translatable, $statusPageCache);
+    }
+
+    /**
+     * Forget the cached read model of every public page this row reaches.
+     *
+     * The four arms are exhaustive BY CONSTRUCTION, which is why there is no
+     * `default`: {@see resolveTranslatable()} returns null for anything outside
+     * {@see TRANSLATABLE_FIELDS}, so a fifth translatable type cannot reach this
+     * method without an edit to that constant, and the missing arm then fails
+     * loudly in the tests covering that edit instead of quietly serving a stale
+     * page for a minute.
+     *
+     * An incident and its updates reach their pages THROUGH the monitors (a page
+     * publishes monitors, not incidents), which is the same resolution
+     * {@see IncidentWriteService::updatePostmortem()} uses for its own bust. A
+     * maintenance window names its page directly and needs no join.
+     */
+    protected function invalidateContainingPages(Model $translatable, StatusPageCache $statusPageCache): void
+    {
+        match (true) {
+            $translatable instanceof StatusPage => $statusPageCache->forgetPage($translatable->slug),
+            $translatable instanceof ScheduledMaintenance => $this->forgetAnnouncedPage($translatable, $statusPageCache),
+            $translatable instanceof Incident => $statusPageCache->invalidateForMonitors(
+                $translatable->monitors()->pluck('monitors.id')->all(),
+            ),
+            $translatable instanceof IncidentUpdate => $statusPageCache->invalidateForMonitors(
+                $translatable->incident?->monitors()->pluck('monitors.id')->all() ?? [],
+            ),
+        };
+    }
+
+    /**
+     * Forget the page a maintenance window is announced on, when it still exists.
+     *
+     * A window whose page was deleted has nothing to bust, and asking the cache
+     * to forget an empty slug would build keys belonging to no page at all.
+     */
+    protected function forgetAnnouncedPage(ScheduledMaintenance $window, StatusPageCache $statusPageCache): void
+    {
+        $slug = $window->statusPage?->slug;
+
+        if (is_string($slug) && $slug !== '') {
+            $statusPageCache->forgetPage($slug);
+        }
     }
 
     /**
