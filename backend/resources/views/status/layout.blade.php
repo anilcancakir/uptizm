@@ -39,7 +39,42 @@
 
         <title>{{ $vm->page['name'] }}</title>
 
+        {{--
+            One canonical URL per language, and every language declared as an
+            alternate of every other, in the same tag set
+            `marketing/partials/seo-head.blade.php` emits. That partial is NOT
+            included here: it also writes the title, the description and two
+            theme-color metas, and this shell's are status-aware.
+
+            `$canonicalUrl` is THIS language on THIS page's one canonical
+            hostname, so a page reached on a losing host (the path form of a
+            Subdomain-mode page, say) points at the winner and a page reached in
+            Turkish is canonical to itself rather than to English. It carries no
+            `hreflang` attribute: Google ignores a canonical that has one, which
+            would leave the document with no canonical at all.
+
+            The alternate set is SELF-REFERENCING (the language being rendered
+            declares itself) and closes with `x-default`. Reciprocity is
+            enforced: a set that omits its own page, or one that named a hostname
+            other than the canonical one for that language, is treated as broken
+            and the whole cluster is dropped.
+
+            `$alternates` rather than a loop over `$localeLinks` plus a hand-added
+            `x-default`, even though the emitted tags are identical: this is the
+            same array `SitemapBuilder::statusPages()` puts in the XML, so the
+            sitemap and the page cannot drift apart by construction rather than
+            by both being edited. `StatusPageSeoTest` compares the two sets.
+
+            All of it comes from `StatusPageChrome`, which composes from
+            configuration and the row, never from the request: `url()` and
+            `route()` resolve against the host the request arrived on, which is
+            exactly what a canonical must not do here.
+        --}}
         <link rel="canonical" href="{{ $canonicalUrl }}">
+
+        @foreach ($alternates as $alternate)
+            <link rel="alternate" hreflang="{{ $alternate['hreflang'] }}" href="{{ $alternate['href'] }}">
+        @endforeach
 
         {{--
             The favicon carries the page's CURRENT status, so a pinned tab is a
@@ -67,6 +102,85 @@
             <meta property="og:description" content="{{ $vm->page['description'] }}">
             <meta name="description" content="{{ $vm->page['description'] }}">
         @endif
+
+        {{--
+            Pre-paint theme override. Auto light/dark already works through the
+            `prefers-color-scheme` media query in app.css; this reads a stored
+            EXPLICIT choice and sets `data-theme` on `<html>` before the
+            stylesheet below resolves, so a returning visitor who chose light on
+            a dark-preferring browser never sees a dark flash first. It has to
+            run BEFORE `@vite`: app.css keys its override off `[data-theme]`, so
+            setting the attribute after the stylesheet link would still paint
+            once with the wrong theme.
+
+            Storage shape and the try/catch copy
+            resources/views/marketing/analytics.blade.php:73: `localStorage` can
+            be unreachable rather than empty (Safari private mode, a
+            block-all-storage setting), and a truncated record throws on parse,
+            so the catch is a decision, not a swallow. No proven choice falls
+            through to the media query rather than guessing.
+
+            No cookie: `write()` below only ever touches `localStorage`, which
+            never leaves the device and never appears in a `Set-Cookie` header.
+
+            Exposed on `window` so the footer control
+            (partials/footer.blade.php) reads and writes the same record
+            through one function set instead of a second copy of the storage
+            key and version literals that could drift from this one.
+        --}}
+        <script>
+            window.__uptizmTheme = (function () {
+                var STORAGE_KEY = 'uptizm-status-theme';
+                var VERSION = 1;
+                var CHOICES = ['light', 'dark'];
+
+                function read() {
+                    try {
+                        var stored = window.localStorage.getItem(STORAGE_KEY);
+
+                        if (stored === null) {
+                            return null;
+                        }
+
+                        var record = JSON.parse(stored);
+
+                        if (record && record.version === VERSION && CHOICES.indexOf(record.choice) !== -1) {
+                            return record.choice;
+                        }
+
+                        return null;
+                    } catch (error) {
+                        return null;
+                    }
+                }
+
+                function write(choice) {
+                    try {
+                        if (choice === null) {
+                            window.localStorage.removeItem(STORAGE_KEY);
+                        } else {
+                            window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, choice: choice }));
+                        }
+                    } catch (error) {
+                        // Same unreachable-storage case as read(): the attribute
+                        // apply() already set still holds for this page view, it
+                        // just will not survive a reload.
+                    }
+                }
+
+                function apply(choice) {
+                    if (CHOICES.indexOf(choice) !== -1) {
+                        document.documentElement.setAttribute('data-theme', choice);
+                    } else {
+                        document.documentElement.removeAttribute('data-theme');
+                    }
+                }
+
+                apply(read());
+
+                return { read: read, write: write, apply: apply };
+            })();
+        </script>
 
         @vite(['resources/css/app.css'])
     </head>
