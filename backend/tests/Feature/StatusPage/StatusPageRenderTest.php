@@ -620,6 +620,18 @@ class StatusPageRenderTest extends TestCase
         $this->assertSame(1, substr_count($html, '<details'));
         $this->assertStringContainsString('Orijinalini göster', $html);
         $this->assertStringContainsString('We are investigating elevated latency.', $html);
+
+        // ONE line, not two: the provenance sentence IS the disclosure's label.
+        // As two elements it cost two lines of furniture under every translated
+        // field, which on an incident with four updates was half the height of the
+        // timeline it annotates. Asserted as a structure rather than as copy,
+        // because the two strings being present says nothing about whether they
+        // are one control or two stacked lines.
+        $this->assertMatchesRegularExpression(
+            '#<summary[^>]*>\s*İngilizce dilinden otomatik çevrildi\.\s*Orijinalini göster\s*</summary>#u',
+            $html,
+            'The provenance note must be the summary of its own disclosure, on one line.',
+        );
     }
 
     public function test_a_field_with_no_translation_yet_reads_as_in_progress_over_the_original(): void

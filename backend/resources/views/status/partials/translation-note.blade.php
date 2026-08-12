@@ -1,8 +1,13 @@
 {{--
     The provenance footnote under ONE machine-translated free-text field: a quiet
-    line saying where the text above it came from, and, when a translation is
-    what is showing, a native `<details>` holding the operator's own words one
-    click away.
+    line saying where the text above it came from which is ALSO the control that
+    opens the operator's own words, in a native `<details>`, one click away.
+
+    One line rather than two. A separate sentence plus a separate "show original"
+    put two lines of furniture under every translated field, and an incident with
+    four updates then spent half its vertical space annotating itself. Merging
+    them keeps both promises (the reader is told it is a translation, and the
+    original is one click down) at half the cost.
 
     `authored` renders NOTHING AT ALL. It is the majority state and the whole of
     the default-language page, so a stray line, wrapper or disclosure here would
@@ -37,16 +42,22 @@
             : \Illuminate\Support\Str::ucfirst(\Locale::getDisplayLanguage($sourceLocale, app()->getLocale()));
     @endphp
 
-    <p class="mt-1 text-xs text-fg-muted">
-        @if ($sourceLanguage === null)
-            {{ __('status.translation.translated') }}
-        @else
-            {{ __('status.translation.translated_from', ['language' => $sourceLanguage]) }}
-        @endif
-    </p>
-
+    {{-- The provenance sentence IS the disclosure's label, so one line carries
+         both halves of what the reader is owed: that this text was translated,
+         and the way to the operator's own words. As two separate lines it cost
+         two lines under every field, which on an incident with four updates was
+         half the vertical space of the timeline it annotates. The sentence stays
+         visible with the disclosure closed and with no JavaScript, because
+         `<summary>` content always renders. --}}
     <details class="mt-1 text-xs">
-        <summary class="cursor-pointer text-fg-muted hover:text-fg">{{ __('status.translation.show_original') }}</summary>
+        <summary class="cursor-pointer text-fg-muted hover:text-fg">
+            @if ($sourceLanguage === null)
+                {{ __('status.translation.translated') }}
+            @else
+                {{ __('status.translation.translated_from', ['language' => $sourceLanguage]) }}
+            @endif
+            {{ __('status.translation.show_original') }}
+        </summary>
 
         {{-- `whitespace-pre-line` on every original, not just the postmortem's:
              the shown value renders the operator's line breaks at three of the
