@@ -164,14 +164,17 @@ class AnnounceScheduledMaintenance implements ShouldQueue
         array $componentNames,
     ): bool {
         try {
-            // The page's language, carried explicitly. A queue worker has no request
-            // to inherit a locale from and a subscriber is not a `User`, so
-            // `HasLocalePreference` never fires here: without this the body and the
-            // subject would both resolve in the deployment default while the page a
-            // subscriber signed up on reads Turkish. `->locale()` survives the
-            // serialization, so the worker renders in the right language.
+            // The subscriber's captured language, carried explicitly, not the
+            // page's current one: the two can diverge (the page's language
+            // changes, the subscriber's does not) and this row is what the
+            // reader actually agreed to be mailed in. A queue worker has no
+            // request to inherit a locale from and a subscriber is not a
+            // `User`, so `HasLocalePreference` never fires here: without this
+            // the body and the subject would both resolve in the deployment
+            // default. `->locale()` survives the serialization, so the worker
+            // renders in the right language.
             Mail::to($subscriber->email)
-                ->locale($page->locale ?? (string) config('app.default_locale'))
+                ->locale($subscriber->locale ?? (string) config('app.default_locale'))
                 ->queue(
                     new ScheduledMaintenanceAnnounced($page, $this->maintenance, $subscriber, $componentNames),
                 );

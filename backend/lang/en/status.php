@@ -3,10 +3,13 @@
 // Every visitor-facing string on the PUBLIC status-page surface: the page
 // itself, the three subscribe result pages, and the two subscriber emails.
 //
-// The page renders in ONE language, the one its owner set in
-// `status_pages.locale`; `ShowStatusPageController` applies it per request and
-// nothing here negotiates. So a value edited in this file changes the English
-// page, and the same key in `lang/tr/status.php` changes the Turkish one.
+// The page renders in the language its URL names: the unprefixed address is the
+// default language and `/{code}/s/{slug}` is every other one, resolved by
+// `StatusPageLocale::render()` and applied per request. So a value edited in
+// this file changes the English page, and the same key in `lang/tr/status.php`
+// changes the Turkish one. Nothing here is negotiated: the visitor's
+// `Accept-Language` produces an OFFER (the `language.offer` banner), never a
+// redirect and never a different catalogue.
 //
 // `Powered by Uptizm` is deliberately absent: it is a brand line, not copy, and
 // `resources/views/status/partials/footer.blade.php` carries it untranslated on
@@ -25,6 +28,56 @@
 //     element for the same reason, and one of the pair is empty in each locale
 //     because the two languages put the verb on opposite sides of the stamp.
 return [
+    /*
+     * The page's chrome: the language switcher and the offer banner above the
+     * body, the provenance footnotes under a machine-translated field, and the
+     * footer's light/dark control. Grouped at the top because they wrap the page
+     * rather than belonging to any one section of it.
+     */
+    'language' => [
+        // The switcher's accessible name. A noun rather than "Change language":
+        // a screen reader already announces the element as navigation.
+        'switcher' => 'Language',
+
+        /*
+         * The offer banner, rendered in the OFFERED language rather than the
+         * page's. `:language` is the endonym ("Türkçe", not "Turkish"), because
+         * the sentence around it is in that same language.
+         */
+        'offer' => 'This page is also available in :language.',
+        'offer_action' => 'Switch to :language',
+    ],
+
+    /*
+     * The provenance footnote under one machine-translated field.
+     *
+     * `translated_from` names the source language and `translated` does not,
+     * and the split is not stylistic: the read model carries no per-field source
+     * locale, so the five team-scoped fields resolve theirs from the rule the
+     * assembler and the translate job share (`app.default_locale`), while the
+     * page description's own source is `status_pages.locale`, which the view
+     * cannot see. Naming a language there would be a guess printed as a fact.
+     */
+    'translation' => [
+        'translated_from' => 'Automatically translated from :language.',
+        'translated' => 'Automatically translated.',
+        'show_original' => 'Show original',
+        'pending' => 'Translation in progress.',
+
+        // A REJECTION, not a queue: the output contract refused the model's
+        // answer and nothing re-queues it, so this must not promise an arrival.
+        'unavailable' => 'Translation unavailable.',
+    ],
+
+    // The footer's three-state light/dark control. Written here rather than by
+    // the step that renders it, because this catalogue has exactly one writer.
+    'theme' => [
+        'label' => 'Theme',
+        'system' => 'System',
+        'light' => 'Light',
+        'dark' => 'Dark',
+    ],
+
     /*
      * The five banner labels, one per rung of the severity ladder plus the
      * no-verdict state. Composed in `StatusPageAssembler::overallLabel()`, which

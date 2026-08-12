@@ -122,6 +122,95 @@
     }
 }
 
+/*
+ * Manual override: a visitor's explicit light/dark choice, read from
+ * `localStorage` and applied to `<html>` as `[data-theme]` before paint (see the
+ * script in status/layout.blade.php). "System" is the third state and is
+ * deliberately NOT declared here: it stores no attribute at all and falls
+ * through to the `:root` / `prefers-color-scheme` pair above, so this file never
+ * has to repeat the light palette a third time.
+ *
+ * `:root[data-theme="..."]` rather than a bare `[data-theme="..."]`: a pseudo-
+ * class plus an attribute selector (specificity 0-2-0) outranks the plain
+ * `:root` above (0-1-0), so an explicit choice wins the cascade regardless of
+ * source order. These two blocks are still placed after the media query, for a
+ * reader scanning top to bottom, but correctness does not depend on that
+ * placement.
+ */
+:root[data-theme='light'] {
+    --app-surface: #f9fafb;
+    --app-surface-container: #ffffff;
+    --app-surface-container-high: #f1f3f6;
+
+    --app-fg: #040608;
+    --app-fg-muted: #555d65;
+    --app-fg-disabled: #d1d5da;
+
+    --app-primary: #008560;
+    --app-on-primary: #ffffff;
+    --app-primary-container: #e0f9ee;
+    --app-accent: #007a54;
+
+    --app-border: #dee2e5;
+    --app-border-subtle: #eceff1;
+
+    --app-up: #30a556;
+    --app-up-soft: #dcf9e1;
+    --app-up-soft-foreground: #197037;
+    --app-down: #df202e;
+    --app-down-soft: #ffe3df;
+    --app-down-soft-foreground: #b71824;
+    --app-degraded: #e69825;
+    --app-degraded-soft: #ffeccc;
+    --app-degraded-soft-foreground: #834100;
+    --app-paused: #79828a;
+    --app-paused-soft: #f1f3f6;
+    --app-paused-soft-foreground: #555d65;
+    --app-info-soft: #dbefff;
+    --app-info-soft-foreground: #005dd1;
+    --app-ai: #6e59e2;
+    --app-ai-soft: #ece8ff;
+    --app-ai-soft-foreground: #5f40d5;
+    --app-ai-wash: #f2f1fd;
+}
+
+:root[data-theme='dark'] {
+    --app-surface: #07090c;
+    --app-surface-container: #121518;
+    --app-surface-container-high: #202529;
+
+    --app-fg: #f1f3f6;
+    --app-fg-muted: #aab1b7;
+    --app-fg-disabled: #3a4147;
+
+    --app-primary: #00c292;
+    --app-on-primary: #07090c;
+    --app-primary-container: #003223;
+    --app-accent: #98e8c9;
+
+    --app-border: #2a2e33;
+    --app-border-subtle: #1c2023;
+
+    --app-up: #45c06a;
+    --app-up-soft: #0c2e16;
+    --app-up-soft-foreground: #8ce6a0;
+    --app-down: #ff645f;
+    --app-down-soft: #4c1010;
+    --app-down-soft-foreground: #ffaea6;
+    --app-degraded: #f5ae39;
+    --app-degraded-soft: #412400;
+    --app-degraded-soft-foreground: #fac871;
+    --app-paused: #999fa6;
+    --app-paused-soft: #23272b;
+    --app-paused-soft-foreground: #aab1b7;
+    --app-info-soft: #00265d;
+    --app-info-soft-foreground: #b0d4ff;
+    --app-ai: #9e8afa;
+    --app-ai-soft: #2b195a;
+    --app-ai-soft-foreground: #d6d0ff;
+    --app-ai-wash: #191133;
+}
+
 /* Alpine has not booted yet: hide anything it will position, or every act flashes
    on screen at once for one frame. */
 [x-cloak] {

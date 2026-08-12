@@ -6,11 +6,11 @@ use App\Services\Services\SitemapBuilder;
 use Illuminate\Http\Response;
 
 /**
- * Serves the sitemap index and its two segments.
+ * Serves the sitemap index and its three segments.
  *
- * Three actions on one controller rather than three single-action classes: they
- * are three renderings of one document set, they share the content type, and
- * splitting them would put the same `->header()` in three files.
+ * Four actions on one controller rather than four single-action classes: they
+ * are four renderings of one document set, they share the content type, and
+ * splitting them would put the same `->header()` in four files.
  *
  * ## No ping, no Indexing API, deliberately
  *
@@ -27,7 +27,7 @@ use Illuminate\Http\Response;
 class ShowSitemapController
 {
     /**
-     * The one content type all three documents are served under.
+     * The one content type all four documents are served under.
      */
     public const string CONTENT_TYPE = 'application/xml';
 
@@ -36,7 +36,7 @@ class ShowSitemapController
     ) {}
 
     /**
-     * The index: two segments, and no `<url>` element of its own.
+     * The index: three segments, and no `<url>` element of its own.
      */
     public function index(): Response
     {
@@ -57,6 +57,19 @@ class ShowSitemapController
     public function services(): Response
     {
         return $this->xml($this->builder->services());
+    }
+
+    /**
+     * Every public customer status page, in every language it is published in.
+     *
+     * It lives on this controller and under this route prefix even though the
+     * pages themselves are served from `routes/status.php`, because a sitemap is
+     * discovered from ONE `robots.txt` on the app host and this is the only file
+     * that index points at.
+     */
+    public function statusPages(): Response
+    {
+        return $this->xml($this->builder->statusPages());
     }
 
     protected function xml(string $document): Response

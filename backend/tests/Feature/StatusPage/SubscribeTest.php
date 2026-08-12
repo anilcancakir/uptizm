@@ -148,6 +148,92 @@ class SubscribeTest extends TestCase
         Mail::assertNothingSent();
     }
 
+    public function test_a_locale_submitted_with_the_subscribe_post_is_captured_on_the_row(): void
+    {
+        // The subscribe route carries no locale segment (Step 1's Must NOT), so
+        // the only honest capture source is a value the page's own form submits.
+        // The production form is not yet wired to send one (that view sits
+        // outside this step's scope), so this simulates the payload it will send
+        // once it is: a Turkish-URL visitor's form posting `locale=tr` alongside
+        // the email.
+        Mail::fake();
+        $page = $this->makePage('acme-tr', isPublic: true, subscriptionsEnabled: true);
+
+        $this->post('/s/acme-tr/subscribe', [
+            'email' => 'demo@example.com',
+            'locale' => 'tr',
+        ])->assertOk();
+
+        $subscriber = StatusPageSubscriber::query()->where('email', 'demo@example.com')->first();
+        $this->assertNotNull($subscriber);
+        $this->assertSame('tr', $subscriber->locale);
+
+        // The confirmation mail's subject resolves in the subscriber's language,
+        // not the page's (the page here has no `locale` set at all).
+        Mail::assertSent(StatusPageSubscribeConfirmation::class, function ($mail) use ($page) {
+            $mail->locale('tr');
+
+            return $mail->envelope()->subject === __(
+                'status.emails.confirm.subject',
+                ['page' => $page->name],
+                'tr',
+            );
+        });
+
+        // The unsubscribe page answers in the subscriber's language, and still
+        // does so after the row is deleted in the same request.
+        $this->get(route('status.unsubscribe', ['token' => $subscriber->unsubscribe_token]))
+            ->assertOk()
+            ->assertSee('Abonelikten çıkıldı')
+            ->assertDontSee('Unsubscribed');
+
+        $this->assertSame(0, StatusPageSubscriber::query()->where('email', 'demo@example.com')->count());
+    }
+
+    public function test_an_unsupported_submitted_locale_takes_the_same_fallback_as_no_locale(): void
+    {
+        // Two things at once. An unsupported value must NOT reject the
+        // subscription: a language we do not publish in is not a reason to refuse
+        // somebody updates. And it must land on the SAME fallback as an absent
+        // field, which it did not: answering null there sent the subscriber
+        // `app.default_locale` (both read sites coalesce a null column that way)
+        // while an absent field sent them the page's own language, so one
+        // hand-built POST field silently decided between two different languages.
+        //
+        // The page's locale is deliberately NOT the app default here. With them
+        // equal this assertion cannot tell the page's language from the
+        // deployment's and would pass whichever fallback ran.
+        Mail::fake();
+        $page = $this->makePage('acme-xx', isPublic: true, subscriptionsEnabled: true);
+        $page->update(['locale' => 'tr']);
+
+        $this->post('/s/acme-xx/subscribe', [
+            'email' => 'demo@example.com',
+            'locale' => 'de',
+        ])->assertOk();
+
+        $subscriber = StatusPageSubscriber::query()->where('email', 'demo@example.com')->first();
+        $this->assertNotNull($subscriber);
+        $this->assertSame('tr', $subscriber->locale);
+        $this->assertNotSame((string) config('app.default_locale'), $subscriber->locale);
+    }
+
+    public function test_with_no_submitted_locale_the_pages_own_canonical_language_is_captured(): void
+    {
+        // The fallback case, from the unprefixed URL: nothing in the POST body
+        // names a language, so the capture falls through to the page's own
+        // `locale` column exactly as the description requires.
+        Mail::fake();
+        $page = $this->makePage('acme-fallback', isPublic: true, subscriptionsEnabled: true);
+        $page->update(['locale' => 'tr']);
+
+        $this->post('/s/acme-fallback/subscribe', ['email' => 'demo@example.com'])->assertOk();
+
+        $subscriber = StatusPageSubscriber::query()->where('email', 'demo@example.com')->first();
+        $this->assertNotNull($subscriber);
+        $this->assertSame('tr', $subscriber->locale);
+    }
+
     /**
      * Creates a persisted status page for a fresh team, with the given
      * visibility and subscription toggle. No monitors are attached: the

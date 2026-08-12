@@ -19,9 +19,11 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\IncidentTitle;
 use App\Services\StatusPages\StatusPageAssembler;
+use App\Support\StatusPages\StatusPageLocale;
 use Carbon\CarbonImmutable;
 use FlutterSdk\MagicStarter\Support\MigrationHelper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -251,6 +253,326 @@ class StatusPageLocaleTest extends TestCase
         $this->assertStringContainsString('Performans düşük', $third);
     }
 
+    public function test_the_render_language_falls_from_the_url_to_the_page_to_the_default(): void
+    {
+        $default = new StatusPage(['locale' => null]);
+        $turkish = new StatusPage(['locale' => 'tr']);
+
+        // The URL wins: a page published in English is readable in Turkish, which
+        // is the whole point of the prefixed route.
+        $this->assertSame('tr', StatusPageLocale::render('tr', $default));
+
+        // No URL segment, so the owner's column decides.
+        $this->assertSame('tr', StatusPageLocale::render(null, $turkish));
+
+        // Neither, so the deployment default. This is every page that existed
+        // before the column did.
+        $this->assertSame('en', StatusPageLocale::render(null, $default));
+
+        // A language we do not publish in is not a language: the routes already
+        // refuse it with `whereIn`, and this is the second lock, because a page
+        // rendered under an unsupported code shows a customer dotted catalogue
+        // keys.
+        $this->assertSame('en', StatusPageLocale::render('de', $default));
+        $this->assertSame('tr', StatusPageLocale::render('de', $turkish));
+    }
+
+    public function test_the_page_decides_which_language_needs_no_prefix(): void
+    {
+        /*
+         * The one fact four layers have to agree on: the routes accept every
+         * language, the controller 404s the prefix that duplicates this one, the
+         * chrome leaves this one unprefixed, and the sitemap publishes its URL. It
+         * lives in a single accessor because when each layer answered it for itself,
+         * three of them answered `app.default_locale` and the page published an
+         * `hreflang="en"` naming a Turkish document.
+         */
+        $this->assertSame('tr', StatusPageLocale::canonical(new StatusPage(['locale' => 'tr'])));
+
+        // Null is the common shape, and every page that existed before the column
+        // did: the deployment default keeps the bare URL.
+        $this->assertSame('en', StatusPageLocale::canonical(new StatusPage(['locale' => null])));
+
+        // Read from `app.default_locale`, never from `app.locale`: a request that
+        // has already rendered a Turkish page rewrites the latter for the rest of
+        // its life, which under Octane is longer than one request.
+        App::setLocale('tr');
+
+        $this->assertSame('en', StatusPageLocale::canonical(new StatusPage(['locale' => null])));
+    }
+
+    public function test_the_supported_list_leads_with_the_deployment_default(): void
+    {
+        /*
+         * Public so the routes, the chrome's switcher links and the offer
+         * negotiation cannot enumerate three different lists, and ORDERED so the
+         * default comes first: `getPreferredLanguage()` answers `$locales[0]` on a
+         * total mismatch, and {@see StatusPageLocale::offer()} reads that answer as
+         * "no offer". A raw config read here loses both properties at once.
+         */
+        config([
+            'app.default_locale' => 'de',
+            'magic-starter.supported_locales' => ['en', 'tr'],
+        ]);
+
+        $this->assertSame(['de', 'en', 'tr'], StatusPageLocale::supported());
+
+        // The default already inside the config array is not duplicated: it would
+        // put two identical links in the switcher and two identical alternates in
+        // the head.
+        config(['app.default_locale' => 'tr']);
+
+        $this->assertSame(['tr', 'en'], StatusPageLocale::supported());
+    }
+
+    public function test_the_url_language_wins_over_the_pages_own(): void
+    {
+        // ONE request, on a page whose own locale is the deployment default: what
+        // makes it Turkish is the URL and nothing else.
+        $this->makePopulatedPage('locale-url-wins', null);
+
+        $html = $this->get('/tr/s/locale-url-wins')->assertOk()->getContent();
+
+        $this->assertStringContainsString('<html lang="tr">', $html);
+        $this->assertStringContainsString('Bileşenler', $html);
+        $this->assertStringNotContainsString('Degraded Performance', $html);
+    }
+
+    public function test_the_client_side_date_rewrite_formats_in_the_page_language(): void
+    {
+        /*
+         * The layout rewrites every `<time datetime>` into the reader's own zone
+         * client-side. Passing no locale took the FORMAT from the browser too,
+         * which put "8/12/2026, 6:06:45 PM" under the Turkish heading
+         * "12 Ağustos 2026" on the same page for any visitor whose browser is
+         * en-US. The zone is a fact about where the reader is; the language is
+         * the one they asked this page for.
+         *
+         * This asserts the template, because the behaviour itself is the
+         * browser's and PHPUnit never runs it. The live proof is the CDP walk in
+         * this plan's evidence: same instant, same zone, `/s/acme` renders
+         * "8/12/2026, 6:58:08 PM" and `/tr/s/acme` renders "12.08.2026 18:58:08"
+         * in one headless Chrome running as en-US. The third assertion is the one
+         * with teeth: a bare `toLocaleString()` anywhere is the regression.
+         */
+        $this->makePopulatedPage('date-locale', null);
+
+        $html = $this->get('/tr/s/date-locale')->assertOk()->getContent();
+
+        $this->assertStringContainsString('document.documentElement.lang || undefined', $html);
+        $this->assertStringContainsString('toLocaleString(pageLocale)', $html);
+        $this->assertStringNotContainsString('toLocaleString()', $html);
+    }
+
+    public function test_the_language_offer_is_null_unless_the_visitor_named_another_supported_language(): void
+    {
+        /*
+         * Asserted on `offer()` directly rather than through a rendered page: the
+         * banner that would show it does not exist yet, and the case that matters
+         * most here is the one that produces NOTHING, which a page cannot
+         * distinguish from a banner nobody wrote.
+         */
+        $turkishBrowser = $this->requestPreferring('tr-TR,tr;q=0.9,en;q=0.8');
+
+        // A Turkish-preferring visitor on the English page: the one case that is
+        // an offer.
+        $this->assertSame('tr', StatusPageLocale::offer($turkishBrowser, 'en'));
+
+        // The same visitor already reading Turkish. Nothing to offer.
+        $this->assertNull(StatusPageLocale::offer($turkishBrowser, 'tr'));
+
+        /*
+         * A visitor who speaks neither. `getPreferredLanguage()` answers
+         * `$locales[0]` on a TOTAL mismatch rather than null, so without the
+         * check that the visitor actually named the answer, this German reader
+         * would be offered English on a Turkish page: a banner in a language they
+         * did not ask for, pointing at a page they did not want.
+         */
+        $germanBrowser = $this->requestPreferring('de-DE,de;q=0.9');
+
+        $this->assertNull(StatusPageLocale::offer($germanBrowser, 'en'));
+        $this->assertNull(StatusPageLocale::offer($germanBrowser, 'tr'));
+
+        // A crawler sends no `Accept-Language` at all, and the same fallback
+        // would answer with the default locale.
+        $crawler = $this->requestAnnouncingNoLanguage();
+
+        $this->assertNull(StatusPageLocale::offer($crawler, 'en'));
+        $this->assertNull(StatusPageLocale::offer($crawler, 'tr'));
+
+        // The mirror image of the first case, so the German null above is not
+        // passing for the wrong reason: an English-preferring visitor on the
+        // Turkish page IS offered English.
+        $this->assertSame('en', StatusPageLocale::offer($this->requestPreferring('en-US,en;q=0.9'), 'tr'));
+
+        // A region we do not publish in still prefers its language, because the
+        // negotiator widens `tr-TR` to `tr` and this check widens with it.
+        $this->assertSame('tr', StatusPageLocale::offer($this->requestPreferring('tr-CY'), 'en'));
+    }
+
+    public function test_the_rendered_view_data_carries_the_pages_language_chrome(): void
+    {
+        /*
+         * Every one of these four is dereferenced UNGUARDED by a partial, so a
+         * render that omits one throws rather than degrading. They are asserted
+         * on the view data rather than on the HTML because the partials that
+         * consume them land in a later step, and a test that waited for the
+         * markup would leave the controller's half unproven until then.
+         *
+         * Two pages rather than one URL twice: the cached read model is keyed by
+         * slug alone, so a second request for the same page in another language
+         * would read the first one's payload.
+         */
+        config(['app.url' => 'https://uptizm.test']);
+
+        $this->makeEmptyPage('locale-chrome-en', null);
+        $this->makeEmptyPage('locale-chrome-tr', null);
+
+        $english = $this->get('/s/locale-chrome-en')->assertOk();
+
+        $this->assertSame('https://uptizm.test/s/locale-chrome-en', $english->viewData('canonicalUrl'));
+        $this->assertSame('https://uptizm.test/s/locale-chrome-en', $english->viewData('canonicalLocaleUrl'));
+        $this->assertSame(['en', 'tr'], array_column($english->viewData('localeLinks'), 'code'));
+        $this->assertSame([true, false], array_column($english->viewData('localeLinks'), 'current'));
+        $this->assertNull($english->viewData('languageOffer'));
+
+        // The prefixed URL is canonical for ITSELF, which is what stops the two
+        // languages of one page from competing as duplicates.
+        $turkish = $this->get('/tr/s/locale-chrome-tr', [
+            'Accept-Language' => 'tr-TR,tr;q=0.9,en;q=0.8',
+        ])->assertOk();
+
+        $this->assertSame('https://uptizm.test/tr/s/locale-chrome-tr', $turkish->viewData('canonicalUrl'));
+        $this->assertSame('https://uptizm.test/s/locale-chrome-tr', $turkish->viewData('canonicalLocaleUrl'));
+        $this->assertSame([false, true], array_column($turkish->viewData('localeLinks'), 'current'));
+
+        // The visitor is already reading what they asked for, so the controller
+        // offers nothing even though it negotiated.
+        $this->assertNull($turkish->viewData('languageOffer'));
+
+        // And the wiring itself: the same browser on the English URL is offered
+        // the language it prefers.
+        $offered = $this->get('/s/locale-chrome-en', [
+            'Accept-Language' => 'tr-TR,tr;q=0.9,en;q=0.8',
+        ])->assertOk();
+
+        $this->assertSame('tr', $offered->viewData('languageOffer'));
+    }
+
+    public function test_an_offer_the_switcher_cannot_link_never_reaches_the_banner(): void
+    {
+        /*
+         * A PUBLIC page 500s if these two lists disagree, and they did:
+         * `StatusPageLocale::supported()` PREPENDS `app.default_locale` before
+         * negotiating, while the chrome's switcher links came from
+         * `magic-starter.supported_locales` raw. On a deployment whose default is
+         * absent from that array a visitor is offered a language the switcher has
+         * no link for, and the banner dereferences that link unguarded on purpose
+         * (a missing link is a broken contract, not a visitor-facing state).
+         *
+         * The page is published in Turkish so the German offer is not suppressed
+         * as "already reading it", and the assertions are on the RENDERED banner
+         * because the missing-link failure only exists once something dereferences
+         * the lookup.
+         *
+         * The offered link is composed rather than resolved through the router:
+         * routes are registered at boot from the real config, so on this fixture
+         * `/de/...` is not registered even though a genuine `APP_LOCALE=de`
+         * deployment would register it from the same list.
+         */
+        config([
+            'app.default_locale' => 'de',
+            'magic-starter.supported_locales' => ['en', 'tr'],
+        ]);
+
+        $this->makeEmptyPage('locale-offer-de', 'tr');
+
+        $html = (string) $this->get('/s/locale-offer-de', [
+            'Accept-Language' => 'de-DE,de;q=0.9',
+        ])->assertOk()->getContent();
+
+        // The banner, in the offered language, naming it in its own words.
+        $this->assertStringContainsString('lang="de"', $html);
+        $this->assertStringContainsString('Deutsch', $html);
+
+        // And the switcher carries the link that banner points at, so the two
+        // lists cannot drift apart again without this failing.
+        $this->assertStringContainsString('href="/de/s/locale-offer-de"', $html);
+    }
+
+    public function test_the_switcher_links_each_language_to_the_url_that_serves_it(): void
+    {
+        /*
+         * The user-visible half of the canonical-locale defect: on a page
+         * published in Turkish the switcher rendered `href="/s/{slug}"` labelled
+         * "English" while that URL serves Turkish, and the English link the page
+         * needed (`/en/s/{slug}`) existed nowhere.
+         *
+         * Asserted over the rendered anchors rather than over the chrome array,
+         * because the label and the href are only a promise to each other once
+         * they are in one element.
+         */
+        $this->makeEmptyPage('locale-switcher-tr', 'tr');
+
+        $html = (string) $this->get('/s/locale-switcher-tr')->assertOk()->getContent();
+
+        $this->assertSame(
+            [
+                'en' => ['/en/s/locale-switcher-tr', 'English'],
+                'tr' => ['/s/locale-switcher-tr', 'Türkçe'],
+            ],
+            $this->switcherLinks($html),
+        );
+
+        // The page's own language is the one marked current, and it is the one on
+        // the unprefixed URL.
+        $this->assertMatchesRegularExpression(
+            '/href="\/s\/locale-switcher-tr"\s+hreflang="tr"\s+lang="tr"\s+aria-current="true"/',
+            $html,
+        );
+
+        // The common shape has not moved: a page with no locale of its own still
+        // serves the deployment default on the bare URL.
+        $this->makeEmptyPage('locale-switcher-null', null);
+
+        $this->assertSame(
+            [
+                'en' => ['/s/locale-switcher-null', 'English'],
+                'tr' => ['/tr/s/locale-switcher-null', 'Türkçe'],
+            ],
+            $this->switcherLinks((string) $this->get('/s/locale-switcher-null')->assertOk()->getContent()),
+        );
+    }
+
+    /**
+     * The switcher's anchors as `code => [href, label]`.
+     *
+     * Matched on the `href`-then-`hreflang`-then-`lang` attribute order the
+     * partial writes, which is what keeps the head's `<link rel="alternate">`
+     * tags (they carry `hreflang` before `href`) out of the result.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    protected function switcherLinks(string $html): array
+    {
+        preg_match_all(
+            '/href="([^"]+)"\s+hreflang="([^"]+)"\s+lang="[^"]+"[^>]*>([^<]+)<\/a>/s',
+            $html,
+            $matches,
+            PREG_SET_ORDER,
+        );
+
+        $links = [];
+
+        foreach ($matches as $match) {
+            $links[$match[2]] = [$match[1], trim($match[3])];
+        }
+
+        ksort($links);
+
+        return $links;
+    }
+
     public function test_every_rung_of_the_banner_ladder_has_copy_in_both_locales(): void
     {
         // A test that only opens a green page sees one of the five labels. All
@@ -295,20 +617,55 @@ class StatusPageLocaleTest extends TestCase
         $this->assertSame('No Components Published', $assembler->labelFor(StatusPageAssembler::STATUS_UNKNOWN));
     }
 
-    public function test_the_cached_read_model_keeps_its_locale_free_key(): void
+    public function test_the_cached_read_model_is_keyed_per_locale(): void
     {
-        // One page serves one language, so the slug already identifies the
-        // language and a locale segment would be dead cardinality. A key that
-        // grew one would leave this exact key empty.
-        $this->makePopulatedPage('locale-cache-key', 'tr');
+        /*
+         * This key carried no locale segment for as long as one page served
+         * exactly one language. It cannot now: the same page answers on
+         * `/s/{slug}` and on `/{locale}/s/{slug}`, and the cached payload is
+         * per-language BY CONSTRUCTION rather than by content, because the
+         * assembler composes the banner label and every incident title under the
+         * render locale before `toArray()` runs. A single key would hand whichever
+         * language warmed it to every visitor behind it for the next 60 seconds.
+         *
+         * Each URL is requested TWICE and the second pass is the one that proves
+         * it: that response comes out of the entry the first pass wrote, so a
+         * shared key surfaces here as one language answering with the other's
+         * body. One request per URL renders fresh and can never see it.
+         */
+        $this->makePopulatedPage('locale-cache-key', null);
 
-        Cache::forget(ShowStatusPageController::CACHE_KEY_PREFIX.'locale-cache-key');
+        $english = $this->get('/s/locale-cache-key')->assertOk()->getContent();
+        $turkish = $this->get('/tr/s/locale-cache-key')->assertOk()->getContent();
 
-        $this->get('/s/locale-cache-key')->assertOk();
+        $cachedEnglish = $this->get('/s/locale-cache-key')->assertOk()->getContent();
+        $cachedTurkish = $this->get('/tr/s/locale-cache-key')->assertOk()->getContent();
 
-        $this->assertTrue(
+        foreach (['fresh' => $english, 'cached' => $cachedEnglish] as $pass => $html) {
+            $this->assertStringContainsString('Degraded Performance', (string) $html);
+            $this->assertStringNotContainsString(
+                self::BANNER_LADDER['degraded'],
+                (string) $html,
+                "The {$pass} English response carries the Turkish banner: the two URLs share one cache entry.",
+            );
+        }
+
+        foreach (['fresh' => $turkish, 'cached' => $cachedTurkish] as $pass => $html) {
+            $this->assertStringContainsString(self::BANNER_LADDER['degraded'], (string) $html);
+            $this->assertStringNotContainsString(
+                'Degraded Performance',
+                (string) $html,
+                "The {$pass} Turkish response carries the English banner: the two URLs share one cache entry.",
+            );
+        }
+
+        // Two URLs, two entries, and nothing under the old locale-free key: an
+        // entry no reader can reach is one no bust has any reason to clear.
+        $this->assertTrue(Cache::has(ShowStatusPageController::CACHE_KEY_PREFIX.'locale-cache-key:en'));
+        $this->assertTrue(Cache::has(ShowStatusPageController::CACHE_KEY_PREFIX.'locale-cache-key:tr'));
+        $this->assertFalse(
             Cache::has(ShowStatusPageController::CACHE_KEY_PREFIX.'locale-cache-key'),
-            'The public read model must stay cached under `status-page:{slug}`, with no locale segment.',
+            'The locale-free key is still written, so a bust that fans out over the languages would miss it.',
         );
     }
 
@@ -509,6 +866,13 @@ class StatusPageLocaleTest extends TestCase
          * does not, so the guard is that the second form appears nowhere in the
          * directory. Asserted over the SOURCE rather than over one rendered page:
          * a rendered page only exercises the branches its fixture reaches.
+         *
+         * A second check covers the context the first one is blind to: inside a
+         * `<script>` block, `{{ }}` is HTML escaping applied in a JavaScript
+         * context, which is the wrong escaping (it does not stop a `"` or a `<`
+         * from breaking out of a string literal). A switcher or a theme control is
+         * exactly where someone later interpolates a locale map into a script, so
+         * this guard fails that the moment it appears, not after it ships.
          */
         $paths = $this->statusViewPaths();
         $this->assertNotEmpty($paths, 'No status views were found to check.');
@@ -516,12 +880,48 @@ class StatusPageLocaleTest extends TestCase
         $offenders = [];
 
         foreach ($paths as $path) {
-            if (str_contains((string) file_get_contents($path), '{!!')) {
+            $source = (string) file_get_contents($path);
+
+            if (str_contains($source, '{!!')) {
                 $offenders[] = Str::afterLast($path, 'views/');
+            }
+
+            if ($this->hasEchoInsideScript($source)) {
+                $offenders[] = Str::afterLast($path, 'views/').' (echo inside <script>)';
             }
         }
 
-        $this->assertSame([], $offenders, 'A status view uses `{!! !!}`; every echo on this surface must escape.');
+        $this->assertSame(
+            [],
+            $offenders,
+            'A status view uses `{!! !!}`, or a `{{ }}` echo inside a <script> block; '
+            .'HTML escaping is never correct there.',
+        );
+    }
+
+    /**
+     * Detects a Blade echo `{{ ... }}` placed inside a `<script>` block.
+     *
+     * Two forms are deliberately NOT offences: `@{{ ... }}` is Blade's own
+     * escaped literal (a front-end framework's braces passed through verbatim),
+     * matched by excluding a `{{` immediately preceded by `@`; and
+     * `{{-- ... --}}` is a Blade comment, matched by excluding a `{{`
+     * immediately followed by `--`. Without both exclusions this would flag the
+     * `@{{ }}` or `{{-- --}}` that a later contributor adds legitimately.
+     */
+    protected function hasEchoInsideScript(string $source): bool
+    {
+        if (! preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $source, $matches)) {
+            return false;
+        }
+
+        foreach ($matches[1] as $scriptBody) {
+            if (preg_match('/(?<!@)\{\{(?!--).*?\}\}/s', $scriptBody)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function test_both_status_catalogues_carry_the_same_keys(): void
@@ -562,6 +962,34 @@ class StatusPageLocaleTest extends TestCase
                 "[{$original}] reached a Turkish page: that string still resolves in English.",
             );
         }
+    }
+
+    /**
+     * A request from a browser announcing these languages.
+     *
+     * The header is the whole input the offer is negotiated from, so it is built
+     * literally rather than through a helper that might normalise it: quality
+     * values and region subtags are exactly what the negotiation reads.
+     */
+    protected function requestPreferring(string $acceptLanguage): Request
+    {
+        return Request::create('/s/acme', 'GET', [], [], [], ['HTTP_ACCEPT_LANGUAGE' => $acceptLanguage]);
+    }
+
+    /**
+     * A request announcing no language at all, which is what Googlebot sends.
+     *
+     * The header is REMOVED rather than left unset: `Request::create()` seeds a
+     * default `Accept-Language: en-us,en;q=0.5`, so a fixture built without one
+     * is a visitor asking for English rather than a client asking for nothing,
+     * and it would certify the opposite of what this case is about.
+     */
+    protected function requestAnnouncingNoLanguage(): Request
+    {
+        $request = Request::create('/s/acme');
+        $request->headers->remove('Accept-Language');
+
+        return $request;
     }
 
     /**

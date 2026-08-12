@@ -3,13 +3,13 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Controllers\StatusPage\SubscribeController;
 use App\Http\Requests\StoreStatusPageRequest;
 use App\Http\Requests\UpdateStatusPageRequest;
 use App\Http\Resources\StatusPageResource;
 use App\Http\Resources\StatusPageSubscriberResource;
 use App\Jobs\RenderStatusPagePreview;
+use App\Jobs\TranslateStatusPageText;
 use App\Mail\StatusPageSubscribeConfirmation;
 use App\Models\Monitor;
 use App\Models\StatusPage;
@@ -21,7 +21,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -83,6 +82,8 @@ class StatusPageController extends Controller
             'team_id' => $request->user()->current_team_id,
         ]);
 
+        $this->queueDescriptionTranslations($page);
+
         return StatusPageResource::make($page)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
@@ -117,11 +118,17 @@ class StatusPageController extends Controller
         // holds two strings rendered in the OLD language (the banner label and
         // every incident title), so a locale change would show old-language copy
         // under new-language chrome.
-        Cache::forget(ShowStatusPageController::CACHE_KEY_PREFIX.$statusPage->slug);
+        //
+        // `forgetPage()` drops EVERY language of the page, which is what this
+        // write needs twice over: the edited fields reach all of them, and the
+        // one being edited may be the language itself.
+        $this->statusPageCache->forgetPage($statusPage->slug);
 
         $this->statusPageCache->invalidateForMonitors($this->monitorIds($statusPage));
 
         $this->queuePreviewRender($statusPage);
+
+        $this->queueDescriptionTranslations($statusPage->refresh());
 
         return StatusPageResource::make($statusPage->refresh()->load('monitors'));
     }
@@ -416,6 +423,33 @@ class StatusPageController extends Controller
     protected function queuePreviewRender(StatusPage $statusPage): void
     {
         RenderStatusPagePreview::dispatch($statusPage)->afterCommit();
+    }
+
+    /**
+     * Queue a translation of the page's description into every supported
+     * language other than the page's own.
+     *
+     * This is the sixth translated field and the one that does not look like
+     * incident work, so it is easy to leave unwired; the cost of leaving it is
+     * silent, because Step 6's read model would resolve a field nothing ever
+     * enqueues and every non-default language would render `pending` forever.
+     *
+     * The source language is the page's own `locale`, falling back to the
+     * deployment default exactly as a null column already means everywhere else
+     * on this surface. An edit that CHANGES `locale` therefore re-fans from the
+     * new source, which is correct: the stored description is now declared to be
+     * in that language.
+     *
+     * {@see TranslateStatusPageText::fanOut()} is a no-op on a page with no
+     * description, so an unconditional call here needs no guard of its own.
+     */
+    protected function queueDescriptionTranslations(StatusPage $statusPage): void
+    {
+        TranslateStatusPageText::fanOut(
+            $statusPage,
+            'description',
+            $statusPage->locale ?? (string) config('app.default_locale'),
+        );
     }
 
     /**

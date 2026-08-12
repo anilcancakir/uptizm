@@ -17,6 +17,11 @@
     with the snapshot it was rendered from.
 --}}
 @php
+    // The language every announced window was authored in. `scheduled_maintenances`
+    // carries no language column, so the write and the read side both resolve it
+    // from `app.default_locale`; see the same expression in partials/incidents.blade.php.
+    $sourceLocale = (string) config('app.default_locale');
+
     /*
      * The state badge, on the status vocabulary's soft tones, same pairing the
      * incident lifecycle badge uses.
@@ -53,6 +58,14 @@
                         </span>
                     </div>
 
+                    {{-- Under the title row, not inside it: the row is a flex line
+                         carrying the title and the state badge. --}}
+                    @include('status.partials.translation-note', [
+                        'provenance' => $window['title_provenance'],
+                        'original' => $window['title_original'],
+                        'sourceLocale' => $sourceLocale,
+                    ])
+
                     {{-- Both bounds as `<time datetime>`, which the layout rewrites to the
                          viewer's own zone. The server-rendered text is the no-JS fallback
                          and carries its zone, so it is never read as local by mistake.
@@ -72,6 +85,12 @@
 
                     @if (($window['description'] ?? '') !== '')
                         <p class="mt-2 text-sm whitespace-pre-line text-fg">{{ $window['description'] }}</p>
+
+                        @include('status.partials.translation-note', [
+                            'provenance' => $window['description_provenance'],
+                            'original' => $window['description_original'],
+                            'sourceLocale' => $sourceLocale,
+                        ])
                     @endif
                 </li>
             @endforeach

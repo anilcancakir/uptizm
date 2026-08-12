@@ -233,16 +233,22 @@ if ($prefixedLocales !== []) {
 }
 
 /*
- * The sitemap index and its two segments.
+ * The sitemap index and its three segments.
  *
  * ONE URL each, with no locale prefix and no locale variants, because a sitemap is
  * not a page a visitor reads in a language: every entry inside it carries every
  * language as an `xhtml:link` alternate instead, composed from the same
- * `ChromeData` the pages build their own hreflang from.
+ * `ChromeData` (or, for the status pages, the same `StatusPageChrome`) the pages
+ * build their own hreflang from.
  *
- * `sitemap.xml` is the INDEX and contains no `<url>` element; the two segments are
- * the url sets. Segmenting by template is what makes an indexing problem
+ * `sitemap.xml` is the INDEX and contains no `<url>` element; the three segments
+ * are the url sets. Segmenting by template is what makes an indexing problem
  * diagnosable per template in Search Console rather than as one flat list.
+ *
+ * The status-page segment is registered HERE, beside the other two, rather than in
+ * `routes/status.php`: it is a document about customer pages, not one of them, and
+ * it has to answer on the app host that `public/robots.txt` and the index name. It
+ * is also why it takes no locale prefix and no subdomain form of its own.
  *
  * `robots.txt` is NOT here: it is a static file under `public/`, served by the web
  * server without touching PHP, which is also why the Laravel test client cannot
@@ -251,6 +257,7 @@ if ($prefixedLocales !== []) {
 Route::get('/'.SitemapBuilder::INDEX_PATH, [ShowSitemapController::class, 'index'])->name('sitemap.index');
 Route::get('/'.SitemapBuilder::MARKETING_PATH, [ShowSitemapController::class, 'marketing'])->name('sitemap.marketing');
 Route::get('/'.SitemapBuilder::SERVICES_PATH, [ShowSitemapController::class, 'services'])->name('sitemap.services');
+Route::get('/'.SitemapBuilder::STATUS_PAGES_PATH, [ShowSitemapController::class, 'statusPages'])->name('sitemap.status-pages');
 
 /*
  * The contact form's write path: the only unauthenticated write on this surface.

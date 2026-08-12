@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Models\ScheduledMaintenance;
 use App\Services\StatusPages\StatusPageCache;
 use Carbon\CarbonImmutable;
@@ -12,7 +11,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable as FoundationQueueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * Forgets the cached public read model of every status page whose maintenance
@@ -54,7 +52,7 @@ class BustStatusPageCacheForMaintenanceBoundaries implements ShouldQueue
         $this->onQueue('scheduling');
     }
 
-    public function handle(): void
+    public function handle(StatusPageCache $statusPageCache): void
     {
         // 1. Resolve the slugs of the pages whose window crossed a boundary in
         //    the lookback. The join is required because the cache key is built
@@ -71,10 +69,13 @@ class BustStatusPageCacheForMaintenanceBoundaries implements ShouldQueue
             ->distinct()
             ->pluck('status_pages.slug');
 
-        // 2. Plain-key forget per page, mirroring StatusPageCache: cache tags are
-        //    unsupported on the drivers this app runs.
+        // 2. Forget each page through StatusPageCache rather than composing the
+        //    key here: a page holds one entry per language, and the language list
+        //    lives in exactly one place so a new language reaches this sweep
+        //    without an edit. A window opening is not a per-language event, so
+        //    every language of the page has to drop together.
         foreach ($slugs as $slug) {
-            Cache::forget(ShowStatusPageController::CACHE_KEY_PREFIX.$slug);
+            $statusPageCache->forgetPage((string) $slug);
         }
     }
 }

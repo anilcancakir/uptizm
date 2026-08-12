@@ -426,7 +426,7 @@ class StatusPagePreviewControllerTest extends TestCase
     {
         $team = $this->actingAsTeamMember();
         $page = $this->pageWithOneComponent($team->id);
-        Cache::put('status-page:mine', ['stale' => true], 60);
+        Cache::put('status-page:mine:en', ['stale' => true], 60);
 
         // `phpunit.xml` sets QUEUE_CONNECTION=sync, so the render runs INLINE at
         // the moment of dispatch and the capture seam observes exactly the view a
@@ -434,7 +434,7 @@ class StatusPagePreviewControllerTest extends TestCase
         // the stale entry still there, and the stored PNG would then be a
         // pre-write page carrying a post-write timestamp.
         $observed = new ArrayObject;
-        $this->bindObservingRenderer($observed, 'status-page:mine');
+        $this->bindObservingRenderer($observed, 'status-page:mine:en');
 
         $this->putJson("/api/v1/status-pages/{$page->id}", ['name' => 'Renamed Status'])
             ->assertStatus(200);

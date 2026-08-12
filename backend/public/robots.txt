@@ -8,8 +8,10 @@
 #
 # The Sitemap line has to be an absolute URL (the robots.txt format requires it) and
 # this is a static file the web server hands over without touching PHP, so the host
-# cannot be read from APP_URL here. It names the sitemap INDEX; the index names its
-# two segments, so a new segment needs no change to this file.
+# cannot be read from APP_URL here. It names the sitemap INDEX, and the index names
+# every segment, so adding one needs no change to this file. That is the whole reason
+# it points at the index rather than listing the segments: a third arrived (status
+# pages) and this line did not move.
 #
 # There is deliberately nothing that notifies a search engine of a change. Google
 # retired the sitemap ping endpoint and says calling it does nothing useful, and the

@@ -73,7 +73,7 @@ class StatusFaviconTest extends TestCase
         // green dot in the tab would make the claim the banner refuses to make.
         $page = $this->makePage('neutral', MonitorStatus::Up);
         $page->monitors()->first()->forceFill(['show_on_status_page' => false])->save();
-        Cache::forget("status-page:{$page->slug}");
+        Cache::forget("status-page:{$page->slug}:en");
 
         $response = $this->get('/s/neutral');
 

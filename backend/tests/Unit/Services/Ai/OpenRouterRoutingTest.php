@@ -118,10 +118,15 @@ class OpenRouterRoutingTest extends TestCase
     /**
      * The anti-trap guard: the gateway list comes from the directory.
      *
-     * A new gateway that prompts a model is a `laravel/ai` Agent living beside
-     * the others, so it is discoverable. Without this, adding the seventh
-     * gateway and forgetting the trait is invisible until a production latency
+     * A new GATEWAY that prompts a model is a `laravel/ai` Agent living beside
+     * the others, so it is discoverable. Without this, adding the seventh gateway
+     * and forgetting the trait is invisible until a production latency
      * measurement disagrees with the code.
+     *
+     * What this guard cannot see, and why the next one exists: a model call that
+     * is not a gateway class at all. `new AnonymousAgent(...)` prompts a model
+     * from anywhere in `app/`, implements no interface of ours and lives in no
+     * directory this loop reads.
      */
     public function test_every_laravel_ai_agent_in_the_ai_directory_carries_the_routing_preference(): void
     {
@@ -153,5 +158,48 @@ class OpenRouterRoutingTest extends TestCase
                 $class.' prompts a model but declares no provider options.',
             );
         }
+    }
+
+    /**
+     * Every model call that is NOT a gateway is named here, with its reason.
+     *
+     * The guard above enumerates `app/Services/Ai` for `Agent` implementations,
+     * which is exactly the set that CANNOT include an anonymous agent: a
+     * `new AnonymousAgent(...)` prompts a model from any file, implements nothing
+     * of ours and carries no trait unless somebody remembers. So the seventh
+     * model-calling path in this application was invisible to a test whose
+     * docblock promised that forgetting was impossible.
+     *
+     * This is a named-exemption list rather than a rule: the one site is a
+     * deliberate exemption with a recorded follow-up (extract a
+     * `LaravelAiTranslationGateway` so the translation call becomes a gateway like
+     * the other six and inherits the routing preference). Until then the cost is
+     * bounded and known: the translation call does not pick the fastest
+     * OpenRouter route, so it is slower than it could be, and a slow translation
+     * leaves a field reading "translation in progress" rather than producing a
+     * wrong one. What must not happen is a NEW site joining it silently, which is
+     * what this assertion prevents.
+     */
+    public function test_every_anonymous_agent_model_call_is_a_named_exemption(): void
+    {
+        $found = [];
+
+        foreach (File::allFiles(app_path()) as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            if (str_contains((string) file_get_contents($file->getPathname()), 'new AnonymousAgent(')) {
+                $found[] = 'app/'.$file->getRelativePathname();
+            }
+        }
+
+        sort($found);
+
+        $this->assertSame(
+            ['app/Jobs/TranslateStatusPageText.php'],
+            $found,
+            'A model call outside the gateway layer was added or moved. Either give it the routing preference, or add it here with the reason it does not need one.',
+        );
     }
 }

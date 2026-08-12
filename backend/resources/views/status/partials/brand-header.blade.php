@@ -34,6 +34,17 @@
         <h1 class="text-xl font-semibold">{{ $vm->page['name'] }}</h1>
         @if ($vm->page['description'])
             <p class="text-sm text-fg-muted">{{ $vm->page['description'] }}</p>
+
+            {{-- `sourceLocale` is null here, and it is the ONE call site where it
+                 is. The other five fields are team-scoped rows with no language
+                 column, so their source is `app.default_locale` by rule; this one
+                 is `status_pages.locale`, which the read model does not carry.
+                 The footnote drops the language name rather than guessing it. --}}
+            @include('status.partials.translation-note', [
+                'provenance' => $vm->page['description_provenance'],
+                'original' => $vm->page['description_original'],
+                'sourceLocale' => null,
+            ])
         @endif
     </div>
 </header>
