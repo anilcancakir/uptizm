@@ -354,7 +354,7 @@ class MaintenanceSuppressionTest extends TestCase
         $page = $this->makePage($team, 'ops', $monitor);
         $this->makeWindow($team, $page, [$monitor], now()->subMinutes(10), now()->addMinutes(50));
 
-        Cache::put('status-page:ops', ['stale'], 60);
+        Cache::put('status-page:ops:en', ['stale'], 60);
 
         $this->drivePersist($monitor, MonitorStatus::Down);
 
@@ -362,7 +362,7 @@ class MaintenanceSuppressionTest extends TestCase
             IncidentBroadcast::class,
             fn (IncidentBroadcast $event): bool => $event->kind === 'opened',
         );
-        $this->assertFalse(Cache::has('status-page:ops'));
+        $this->assertFalse(Cache::has('status-page:ops:en'));
     }
 
     public function test_the_boundary_sweep_busts_the_cache_of_a_page_whose_window_just_opened(): void
@@ -372,11 +372,11 @@ class MaintenanceSuppressionTest extends TestCase
         $page = $this->makePage($team, 'ops', $monitor);
         $this->makeWindow($team, $page, [$monitor], now()->subSeconds(30), now()->addHour());
 
-        Cache::put('status-page:ops', ['stale'], 60);
+        Cache::put('status-page:ops:en', ['stale'], 60);
 
         BustStatusPageCacheForMaintenanceBoundaries::dispatchSync();
 
-        $this->assertFalse(Cache::has('status-page:ops'));
+        $this->assertFalse(Cache::has('status-page:ops:en'));
     }
 
     public function test_the_boundary_sweep_busts_the_cache_of_a_page_whose_window_just_closed(): void
@@ -386,11 +386,11 @@ class MaintenanceSuppressionTest extends TestCase
         $page = $this->makePage($team, 'ops', $monitor);
         $this->makeWindow($team, $page, [$monitor], now()->subHour(), now()->subSeconds(30));
 
-        Cache::put('status-page:ops', ['stale'], 60);
+        Cache::put('status-page:ops:en', ['stale'], 60);
 
         BustStatusPageCacheForMaintenanceBoundaries::dispatchSync();
 
-        $this->assertFalse(Cache::has('status-page:ops'));
+        $this->assertFalse(Cache::has('status-page:ops:en'));
     }
 
     public function test_the_boundary_sweep_leaves_pages_away_from_a_boundary_cached(): void
@@ -403,13 +403,13 @@ class MaintenanceSuppressionTest extends TestCase
         $other = $this->makeMonitor($team, 'Checkout');
         $noWindow = $this->makePage($team, 'no-window', $other);
 
-        Cache::put('status-page:mid-window', ['fresh'], 60);
-        Cache::put('status-page:no-window', ['fresh'], 60);
+        Cache::put('status-page:mid-window:en', ['fresh'], 60);
+        Cache::put('status-page:no-window:en', ['fresh'], 60);
 
         BustStatusPageCacheForMaintenanceBoundaries::dispatchSync();
 
-        $this->assertTrue(Cache::has('status-page:mid-window'));
-        $this->assertTrue(Cache::has('status-page:no-window'));
+        $this->assertTrue(Cache::has('status-page:mid-window:en'));
+        $this->assertTrue(Cache::has('status-page:no-window:en'));
         $this->assertSame('no-window', $noWindow->slug);
     }
 

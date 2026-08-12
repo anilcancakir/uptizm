@@ -72,7 +72,7 @@ class PublicStatusPageTest extends TestCase
 
         // The preview path builds the DTO fresh; the public cache key must stay
         // untouched so a private page can never be seeded into the shared cache.
-        $this->assertFalse(Cache::has('status-page:priv'));
+        $this->assertFalse(Cache::has('status-page:priv:en'));
     }
 
     public function test_valid_preview_token_in_a_header_opens_a_private_page_and_never_writes_the_cache(): void
@@ -83,7 +83,7 @@ class PublicStatusPageTest extends TestCase
         // log; the gate must accept that transport exactly like the query one.
         $this->get('/s/priv', [ShowStatusPageController::PREVIEW_TOKEN_HEADER => 'RIGHT'])->assertOk();
 
-        $this->assertFalse(Cache::has('status-page:priv'));
+        $this->assertFalse(Cache::has('status-page:priv:en'));
     }
 
     public function test_private_slug_with_a_wrong_header_preview_token_is_a_four_oh_four(): void
@@ -132,8 +132,8 @@ class PublicStatusPageTest extends TestCase
 
         // The cache holds the toArray() form, never the StatusPageViewModel
         // object (a cached object fatals under serializable_classes => false).
-        $this->assertTrue(Cache::has('status-page:pub'));
-        $this->assertIsArray(Cache::get('status-page:pub'));
+        $this->assertTrue(Cache::has('status-page:pub:en'));
+        $this->assertIsArray(Cache::get('status-page:pub:en'));
     }
 
     public function test_a_valid_token_renders_a_public_page_fresh_instead_of_the_cached_body(): void
@@ -158,7 +158,7 @@ class PublicStatusPageTest extends TestCase
 
         // 4. The bypass runs in both directions: the token path must not write
         //    the shared cache either, so the visitor's entry is left untouched.
-        $this->assertSame('Uptizm Status', Cache::get('status-page:pub')['page']['name']);
+        $this->assertSame('Uptizm Status', Cache::get('status-page:pub:en')['page']['name']);
     }
 
     public function test_the_token_path_is_never_stored_by_a_shared_cache(): void

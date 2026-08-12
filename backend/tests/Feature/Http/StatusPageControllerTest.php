@@ -222,13 +222,13 @@ class StatusPageControllerTest extends TestCase
         $page = $this->makeStatusPage($team->id, 'mine');
         $monitor = $this->makeMonitor($team->id);
         $page->monitors()->attach([$monitor->id => ['display_order' => 0]]);
-        Cache::put('status-page:mine', ['stale' => true], 60);
+        Cache::put('status-page:mine:en', ['stale' => true], 60);
 
         $response = $this->putJson("/api/v1/status-pages/{$page->id}", ['name' => 'Renamed Status']);
 
         $response->assertStatus(200);
         $response->assertJsonPath('data.name', 'Renamed Status');
-        $this->assertFalse(Cache::has('status-page:mine'));
+        $this->assertFalse(Cache::has('status-page:mine:en'));
     }
 
     public function test_destroy_deletes_the_page_and_busts_its_own_cache_entry(): void
@@ -237,13 +237,13 @@ class StatusPageControllerTest extends TestCase
         $page = $this->makeStatusPage($team->id, 'mine');
         $monitor = $this->makeMonitor($team->id);
         $page->monitors()->attach([$monitor->id => ['display_order' => 0]]);
-        Cache::put('status-page:mine', ['stale' => true], 60);
+        Cache::put('status-page:mine:en', ['stale' => true], 60);
 
         $response = $this->deleteJson("/api/v1/status-pages/{$page->id}");
 
         $response->assertStatus(204);
         $this->assertDatabaseMissing('status_pages', ['id' => $page->id]);
-        $this->assertFalse(Cache::has('status-page:mine'));
+        $this->assertFalse(Cache::has('status-page:mine:en'));
     }
 
     public function test_destroy_masks_cross_team_page_as_404(): void

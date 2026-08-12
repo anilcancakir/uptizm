@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Controllers\StatusPage\SubscribeController;
 use App\Http\Requests\StoreStatusPageRequest;
 use App\Http\Requests\UpdateStatusPageRequest;
@@ -21,7 +20,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -117,7 +115,11 @@ class StatusPageController extends Controller
         // holds two strings rendered in the OLD language (the banner label and
         // every incident title), so a locale change would show old-language copy
         // under new-language chrome.
-        Cache::forget(ShowStatusPageController::CACHE_KEY_PREFIX.$statusPage->slug);
+        //
+        // `forgetPage()` drops EVERY language of the page, which is what this
+        // write needs twice over: the edited fields reach all of them, and the
+        // one being edited may be the language itself.
+        $this->statusPageCache->forgetPage($statusPage->slug);
 
         $this->statusPageCache->invalidateForMonitors($this->monitorIds($statusPage));
 

@@ -75,7 +75,7 @@ class StatusPageRenderTest extends TestCase
 
         // Unpublish the only component, leaving the page attached but empty.
         $page->monitors()->first()->forceFill(['show_on_status_page' => false])->save();
-        Cache::forget("status-page:{$page->slug}");
+        Cache::forget("status-page:{$page->slug}:en");
 
         $response = $this->get('/s/empty-page');
 

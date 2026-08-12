@@ -8,16 +8,26 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Forgets the cached public-status-page read models kept under the plain
- * `status-page:{slug}` key by {@see ShowStatusPageController}.
+ * `status-page:{slug}:{locale}` keys by {@see ShowStatusPageController}.
  *
  * The cache is a 60-second read-through: without an explicit forget, an outage
  * that opens (or a recovery that resolves) an incident stays invisible on the
  * public page until the TTL lapses. This service is called at the incident
  * pivot-attach boundary so the page turns red the moment the incident lands.
  *
- * Forget is plain-key and driver-agnostic on purpose: cache tags are
- * unsupported on the database/file drivers this app runs, so invalidation
- * resolves the affected slugs and forgets each key individually.
+ * A page holds ONE ENTRY PER LANGUAGE, so every forget here fans out over the
+ * languages {@see ShowStatusPageController::cacheKeys()} lists. Clearing only
+ * one of them is worse than clearing none: the default-language URL goes red on
+ * time while the other keeps publishing the pre-incident page, so the surface
+ * looks healthy to exactly the visitors who are not reading it in English.
+ *
+ * Forget is plain-key and never tagged. The driver is `array` in the suite,
+ * `database` by config default (so that is what an untouched developer checkout
+ * runs), and `redis` in production; tags work on the first and the third and
+ * throw on the second. A tags design would therefore pass CI, work in
+ * production, and break for whoever did not set `CACHE_STORE` locally, which is
+ * the worst place for that failure to surface. Resolving the affected slugs and
+ * forgetting each key individually costs one round trip per (page, language).
  */
 class StatusPageCache
 {
@@ -48,9 +58,28 @@ class StatusPageCache
             ->distinct()
             ->pluck('status_pages.slug');
 
-        // 3. Plain-key forget per containing page (driver-agnostic; no tags).
+        // 3. Plain-key forget per containing page, in every language it publishes
+        //    in (driver-agnostic; no tags).
         foreach ($slugs as $slug) {
-            Cache::forget("status-page:{$slug}");
+            $this->forgetPage((string) $slug);
+        }
+    }
+
+    /**
+     * Forget one page's cached read model in every language it is published in.
+     *
+     * The ONE fan-out in the application: the maintenance-boundary sweep and the
+     * page-update endpoint call it too, so a language added to
+     * `magic-starter.supported_locales` reaches every bust without a second edit
+     * anywhere. A caller that looped the languages itself is a caller that would
+     * be forgotten the next time that list changes.
+     *
+     * @param  string  $slug  The page whose entries to drop.
+     */
+    public function forgetPage(string $slug): void
+    {
+        foreach (ShowStatusPageController::cacheKeys($slug) as $key) {
+            Cache::forget($key);
         }
     }
 }
