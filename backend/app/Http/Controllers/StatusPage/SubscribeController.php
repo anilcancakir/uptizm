@@ -33,9 +33,14 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * Every subscriber-facing render answers in `StatusPageSubscriber::$locale`
  * rather than the page's current language, captured once at {@see self::store()}.
  * The subscribe route carries no locale segment (it is a write, not an
- * indexable document), so the only honest source is a value the subscribe
- * form itself submits; today nothing does, so every capture falls through to
- * the page's own canonical language until the form is wired to forward it.
+ * indexable document), so the only honest source is a value the subscribe form
+ * itself submits: the hidden `locale` field at
+ * `resources/views/status/partials/subscribe-box.blade.php:32`, carrying the
+ * language the visitor was reading when they subscribed. That field IS the
+ * channel, so deleting it silently sends every future subscriber the page's
+ * canonical language instead of their own; {@see self::resolveSubscriberLocale()}
+ * falls back to it for a request that arrives without the field, which is the
+ * only shape a hand-built POST can take.
  */
 class SubscribeController
 {
@@ -128,16 +133,22 @@ class SubscribeController
      * at write time; every subsequent RENDER reads the subscriber's stored
      * value instead, never the page's.
      */
-    protected function resolveSubscriberLocale(Request $request, StatusPage $page): ?string
+    protected function resolveSubscriberLocale(Request $request, StatusPage $page): string
     {
         $submitted = $request->input('locale');
+        $supported = array_values((array) config('magic-starter.supported_locales', []));
 
-        if (is_string($submitted) && $submitted !== '') {
-            $supported = array_values((array) config('magic-starter.supported_locales', []));
-
-            return in_array($submitted, $supported, true) ? $submitted : null;
+        if (is_string($submitted) && in_array($submitted, $supported, true)) {
+            return $submitted;
         }
 
+        // An unsupported submitted value takes the SAME fallback as no value at
+        // all. Answering null there instead sent the subscriber
+        // `app.default_locale` (the read sites coalesce a null column that way)
+        // while an absent field sent them the page's own language, so one
+        // hand-built POST field decided between two different languages for
+        // reasons no reader could see. Both are supported languages, so this is a
+        // consistency fix rather than a hole.
         return $page->locale ?? (string) config('app.default_locale');
     }
 

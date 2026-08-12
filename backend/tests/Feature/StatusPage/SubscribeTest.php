@@ -190,10 +190,22 @@ class SubscribeTest extends TestCase
         $this->assertSame(0, StatusPageSubscriber::query()->where('email', 'demo@example.com')->count());
     }
 
-    public function test_an_unsupported_submitted_locale_is_stored_as_null_not_rejected(): void
+    public function test_an_unsupported_submitted_locale_takes_the_same_fallback_as_no_locale(): void
     {
+        // Two things at once. An unsupported value must NOT reject the
+        // subscription: a language we do not publish in is not a reason to refuse
+        // somebody updates. And it must land on the SAME fallback as an absent
+        // field, which it did not: answering null there sent the subscriber
+        // `app.default_locale` (both read sites coalesce a null column that way)
+        // while an absent field sent them the page's own language, so one
+        // hand-built POST field silently decided between two different languages.
+        //
+        // The page's locale is deliberately NOT the app default here. With them
+        // equal this assertion cannot tell the page's language from the
+        // deployment's and would pass whichever fallback ran.
         Mail::fake();
-        $this->makePage('acme-xx', isPublic: true, subscriptionsEnabled: true);
+        $page = $this->makePage('acme-xx', isPublic: true, subscriptionsEnabled: true);
+        $page->update(['locale' => 'tr']);
 
         $this->post('/s/acme-xx/subscribe', [
             'email' => 'demo@example.com',
@@ -202,7 +214,8 @@ class SubscribeTest extends TestCase
 
         $subscriber = StatusPageSubscriber::query()->where('email', 'demo@example.com')->first();
         $this->assertNotNull($subscriber);
-        $this->assertNull($subscriber->locale);
+        $this->assertSame('tr', $subscriber->locale);
+        $this->assertNotSame((string) config('app.default_locale'), $subscriber->locale);
     }
 
     public function test_with_no_submitted_locale_the_pages_own_canonical_language_is_captured(): void
