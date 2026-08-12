@@ -453,6 +453,54 @@ class TranslateStatusPageTextTest extends TestCase
         $this->assertEveryLocaleForgotten($page->slug);
     }
 
+    public function test_a_translated_incident_title_forgets_the_containing_pages(): void
+    {
+        // The Incident arm resolves through the same monitor pivot as the update
+        // arm but from a different row, and an incident is the field a reader is
+        // most likely to be staring at while the translation lands.
+        Ai::fakeAgent(AnonymousAgent::class, ['Ödeme uçnoktalarında hata oranları yükseldi.']);
+
+        [$page, $update] = $this->makePublishedIncidentUpdate('incident-title-bust');
+        $incident = $update->incident;
+        // An operator-authored title: a catalogue-keyed one is language-independent
+        // already and `shouldTranslate()` refuses it, which would make this pass
+        // while translating nothing.
+        $incident->update(['title' => 'Error rates are elevated on the payment endpoints', 'title_key' => null]);
+
+        $this->primeEveryLocale($page->slug);
+
+        $this->jobFor($incident->refresh(), 'title')->handle();
+
+        $this->assertEveryLocaleForgotten($page->slug);
+    }
+
+    public function test_a_translated_maintenance_window_forgets_the_page_it_is_announced_on(): void
+    {
+        // The window arm names its page directly instead of joining the monitor
+        // pivot, so it is the one arm a pivot-based fixture cannot exercise.
+        Ai::fakeAgent(AnonymousAgent::class, ['Veritabanı yükseltmesi planlandı.']);
+
+        $team = $this->actingAsTeamMember();
+        $page = StatusPage::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Acme Status',
+            'slug' => 'maintenance-bust',
+            'is_public' => true,
+        ]);
+
+        $window = ScheduledMaintenance::factory()->create([
+            'team_id' => $team->id,
+            'status_page_id' => $page->id,
+            'title' => 'Database upgrade is scheduled for tonight',
+        ]);
+
+        $this->primeEveryLocale($page->slug);
+
+        $this->jobFor($window, 'title')->handle();
+
+        $this->assertEveryLocaleForgotten($page->slug);
+    }
+
     public function test_a_translated_page_field_forgets_that_page(): void
     {
         // The page's own fields reach their page directly rather than through the
@@ -551,7 +599,7 @@ class TranslateStatusPageTextTest extends TestCase
     /**
      * The job for one row and field, into Turkish from the deployment default.
      */
-    protected function jobFor(Incident|IncidentUpdate|StatusPage $row, string $field): TranslateStatusPageText
+    protected function jobFor(Incident|IncidentUpdate|ScheduledMaintenance|StatusPage $row, string $field): TranslateStatusPageText
     {
         return new TranslateStatusPageText(
             $row->getMorphClass(),

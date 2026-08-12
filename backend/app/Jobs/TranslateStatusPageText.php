@@ -391,10 +391,16 @@ class TranslateStatusPageText implements ShouldQueue
     }
 
     /**
-     * Forget the page a maintenance window is announced on, when it still exists.
+     * Forget the page a maintenance window is announced on.
      *
-     * A window whose page was deleted has nothing to bust, and asking the cache
-     * to forget an empty slug would build keys belonging to no page at all.
+     * The null branch is UNREACHABLE rather than a legitimate skip:
+     * `scheduled_maintenances.status_page_id` is a non-nullable foreign key with
+     * `cascadeOnDelete()`, so a window outlives its page in no state the database
+     * permits. It is written null-safe because the relation is nullable to PHP and
+     * not because a window can be orphaned, and the empty-string arm keeps a
+     * hypothetical torn row from composing cache keys that belong to no page.
+     * A silent skip here would be the same defect commit 542a11e fixed, so it is
+     * worth knowing which of the two this is.
      */
     protected function forgetAnnouncedPage(ScheduledMaintenance $window, StatusPageCache $statusPageCache): void
     {
