@@ -22,10 +22,16 @@
 @extends('status.layout')
 
 @section('content')
-    @include('status.partials.language-banner')
     @include('status.partials.language-switcher')
     @include('status.partials.brand-header')
     @include('status.partials.status-banner')
+    {{-- The offer sits BELOW the verdict, not above it. A reader arriving from an
+         alert link is here for one fact, and the banner's colour and dot carry it
+         before any language does; a two-line notice plus the switcher above them
+         pushed the verdict a third of the way down a phone screen. The offer is
+         still inside the first screen at both widths, which is all an offer needs
+         to be. --}}
+    @include('status.partials.language-banner')
     @include('status.partials.maintenances')
     @include('status.partials.components')
     @include('status.partials.incidents')

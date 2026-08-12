@@ -755,6 +755,30 @@ class StatusPageRenderTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/<div lang="(en|tr)"/u', $turkish);
     }
 
+    public function test_the_offer_banner_renders_below_the_status_verdict(): void
+    {
+        // Deliberate order, and the only thing that pins it. A reader arriving
+        // from an alert link is here for one fact, and the verdict's colour and
+        // dot carry it before any language does; with a two-line notice and the
+        // switcher above them, the verdict sat a third of the way down a phone
+        // screen. The offer still lands inside the first screen, which is all an
+        // offer needs.
+        $this->makePageWithMonitor('offer-order', isPublic: true);
+
+        $html = (string) $this->get('/s/offer-order', ['Accept-Language' => 'tr-TR,tr;q=0.9'])->assertOk()->getContent();
+
+        $verdictAt = strpos($html, 'All Systems Operational');
+        $bannerAt = strpos($html, 'olarak da mevcut');
+
+        $this->assertIsInt($verdictAt, 'The status verdict must render.');
+        $this->assertIsInt($bannerAt, 'The offer banner must render for a Turkish-preferring visitor.');
+        $this->assertLessThan(
+            $bannerAt,
+            $verdictAt,
+            'The status verdict must come before the language offer, not after it.',
+        );
+    }
+
     public function test_the_subscribe_form_submits_the_language_the_visitor_is_reading(): void
     {
         /*
