@@ -1043,7 +1043,13 @@ class MonitorController extends MagicController
       // must not arm a poll for a run nothing will ever report on again.
       if (!accepted.status.isTerminal) _scheduleAnalyzePoll();
 
-      return completer.future;
+      // Awaited rather than returned bare, so the try block actually covers the
+      // value it hands back (`unawaited_return_in_try_block`). Behaviour is
+      // unchanged: [_settleAnalyze] is the only settler and it always calls
+      // `complete()`, never `completeError()`, so this await can never throw and
+      // the catch below cannot start swallowing a completion path it did not
+      // handle before.
+      return await completer.future;
     } catch (error) {
       Log.error('[MonitorController.analyze] $url failed: $error');
       Magic.error(
