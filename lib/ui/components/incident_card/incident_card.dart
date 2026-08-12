@@ -11,9 +11,9 @@ import 'incident_card.recipe.dart';
 ///
 /// A tappable card that surfaces the essential information for a single
 /// incident in a list: the customer-facing [IncidentImpact] encoded as a
-/// left accent stripe and a [StatusBadge], the lifecycle stage, the headline
-/// [title], the affected monitor name, the operator severity, and the
-/// relative started-at timestamp rendered in tabular-nums Geist Mono.
+/// left accent stripe and a [StatusBadge], the lifecycle stage, the headline in
+/// the app's language, the affected monitor name, the operator severity, and
+/// the relative started-at timestamp rendered in tabular-nums Geist Mono.
 ///
 /// The card shell is the reused magic_starter [Card] (`CardVariant.surface`),
 /// giving consistent background, border, and corner radius without
@@ -79,7 +79,10 @@ class IncidentCard extends StatelessWidget {
               _buildHeader(),
 
               // 5. Incident headline title.
-              WText(incident.title, className: 'text-sm font-semibold text-fg'),
+              WText(
+                incident.displayTitle,
+                className: 'text-sm font-semibold text-fg',
+              ),
 
               // 6. Meta row: monitor name, severity, and started-at timestamp.
               _buildMeta(),

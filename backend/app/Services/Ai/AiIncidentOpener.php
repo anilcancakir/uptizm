@@ -12,6 +12,7 @@ use App\Jobs\SweepAiSuggestions;
 use App\Models\AiSuggestion;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Services\Monitoring\IncidentTitle;
 use App\Services\Monitoring\ThresholdEvaluator;
 
 /**
@@ -63,13 +64,23 @@ class AiIncidentOpener
 
         $severity = IncidentSeverity::from($suggestion->severity);
 
-        // 2. Persist the incident with the denormalized primary-monitor hint and
+        // 2. Compose the title through the shared seam rather than spelling the
+        //    sentence here, so an operator reading this incident in Turkish gets
+        //    Turkish while the stored English keeps serving search and the
+        //    prompts.
+        $composed = IncidentTitle::compose(IncidentTitle::AI_ANOMALY, [
+            'monitor' => $monitor->name,
+        ]);
+
+        // 3. Persist the incident with the denormalized primary-monitor hint and
         //    the anomaly signal marker. Impact rolls up from the operator-facing
-        //    severity the detector assigned to the suggestion.
+        //    severity the detector assigned to the suggestion. This creator
+        //    bypasses ThresholdEvaluator::createIncident(), so the three title
+        //    columns are spread in here; compose() returns exactly those three.
         $incident = Incident::query()->create([
             'team_id' => $suggestion->team_id,
             'primary_monitor_id' => $monitor->id,
-            'title' => "Anomaly detected on {$monitor->name}",
+            ...$composed,
             'impact' => $severity->toImpact(),
             'severity' => $severity,
             'signal_source' => SignalSource::AiAnomaly,
@@ -79,7 +90,7 @@ class AiIncidentOpener
             'started_at' => now(),
         ]);
 
-        // 3. Attach the monitor to the affected-component pivot, freezing its
+        // 4. Attach the monitor to the affected-component pivot, freezing its
         //    current health at open time and mirroring it as the live status.
         $componentStatus = $monitor->last_status?->value ?? MonitorStatus::Down->value;
         $incident->monitors()->attach($monitor->id, [

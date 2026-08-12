@@ -575,7 +575,10 @@ class IncidentController extends MagicController
       }
 
       await reload();
-      Magic.success(trans('uptizm.incidents.detail_resolve'), incident.title);
+      Magic.success(
+        trans('uptizm.incidents.detail_resolve'),
+        incident.displayTitle,
+      );
     } catch (error) {
       Log.error('[IncidentController.resolve] ${incident.id} failed: $error');
       Magic.error(
@@ -603,7 +606,10 @@ class IncidentController extends MagicController
       }
 
       await reload();
-      Magic.success(trans('uptizm.incidents.detail_reopen'), incident.title);
+      Magic.success(
+        trans('uptizm.incidents.detail_reopen'),
+        incident.displayTitle,
+      );
     } catch (error) {
       Log.error('[IncidentController.reopen] ${incident.id} failed: $error');
       Magic.error(
@@ -691,7 +697,7 @@ class IncidentController extends MagicController
         assigneeId == null
             ? trans('uptizm.incidents.detail_unassigned_toast_title')
             : trans('uptizm.incidents.detail_assigned_toast_title'),
-        incident.title,
+        incident.displayTitle,
       );
     } catch (error) {
       Log.error('[IncidentController.assign] ${incident.id} failed: $error');
@@ -718,7 +724,7 @@ class IncidentController extends MagicController
     if (message == null || message.trim().isEmpty) {
       Magic.success(
         trans('uptizm.incidents.detail_composer_post'),
-        incident.title,
+        incident.displayTitle,
       );
       return;
     }
@@ -750,7 +756,7 @@ class IncidentController extends MagicController
       await reload();
       Magic.success(
         trans('uptizm.incidents.detail_composer_post'),
-        incident.title,
+        incident.displayTitle,
       );
     } catch (error) {
       Log.error(

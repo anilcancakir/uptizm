@@ -11,6 +11,7 @@ use App\Models\IncidentUpdate;
 use App\Models\Monitor;
 use App\Models\ScheduledMaintenance;
 use App\Models\StatusPage;
+use App\Services\Monitoring\IncidentTitle;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -33,6 +34,15 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *
  * The result is a {@see StatusPageViewModel}: a field-allowlisted object that
  * carries no monitor url / auth_config / internal id / team_id.
+ *
+ * Two of its strings are LANGUAGE-DEPENDENT and read the ambient locale: the
+ * banner label ({@see self::overallLabel()}) and each incident title
+ * ({@see self::buildIncidentEntry()}). `ShowStatusPageController` applies the
+ * page's own `locale` before calling this, so the payload it builds (and the one
+ * cached under `status-page:{slug}` for 60 seconds) is in the single language
+ * that page serves. Anything else that assembles a page outside a request must
+ * set the locale itself, or it will bake the deployment default into a Turkish
+ * page's cache entry.
  */
 class StatusPageAssembler
 {
@@ -340,12 +350,20 @@ class StatusPageAssembler
      * omitted entirely, so "publish" is the single switch that makes it
      * customer-visible and an unpublished draft can never reach the page.
      *
+     * The title goes through {@see IncidentTitle::render()} rather than off the
+     * column, with NO explicit locale: the controller has already applied the
+     * page's own language, so a composed title resolves into it and an
+     * operator-authored one (null `title_key`) comes back as the text a human
+     * wrote. The output is byte-identical English on an English page, and reading
+     * the raw column here is how the next person concludes the column is the
+     * contract.
+     *
      * @return array<string, mixed>
      */
     protected function buildIncidentEntry(Incident $incident): array
     {
         return [
-            'title' => $incident->title,
+            'title' => IncidentTitle::render($incident),
             'lifecycle' => $incident->lifecycle->value,
             'impact' => $incident->impact->value,
             'startedAt' => $incident->started_at->toIso8601String(),
@@ -476,16 +494,34 @@ class StatusPageAssembler
     }
 
     /**
-     * Human banner label for an overall status on the severity ladder.
+     * Human banner label for an overall status on the severity ladder, in the
+     * language the page renders in.
+     *
+     * This is the largest copy on the page and the only piece composed in PHP
+     * rather than in a template, which is why a Blade grep for untranslated
+     * strings never found it: a `tr` page can otherwise read "All Systems
+     * Operational" above Turkish incident titles.
+     *
+     * Resolved HERE rather than in the banner partial, and the reason is the
+     * file boundary rather than the design: keying the Blade off `overallStatus`
+     * (the shape a view-model builder would prefer) would leave
+     * {@see StatusPageViewModel::$overallLabel} populated and cached with nothing
+     * reading it, and that field cannot be removed from this step. The locale is
+     * ambient: the controller applies the page's own before the assembler runs,
+     * so the label lands in the 60-second `status-page:{slug}` payload already in
+     * the one language that page serves.
+     *
+     * `default` keeps its old reach on purpose: a status this ladder does not
+     * know still gets a label rather than a raw key.
      */
     protected function overallLabel(string $status): string
     {
-        return match ($status) {
-            'major_outage' => 'Major System Outage',
-            'partial_outage' => 'Partial System Outage',
-            'degraded' => 'Degraded Performance',
-            self::STATUS_UNKNOWN => 'No Components Published',
-            default => 'All Systems Operational',
-        };
+        return (string) __(match ($status) {
+            'major_outage' => 'status.banner.major_outage',
+            'partial_outage' => 'status.banner.partial_outage',
+            'degraded' => 'status.banner.degraded',
+            self::STATUS_UNKNOWN => 'status.banner.unknown',
+            default => 'status.banner.operational',
+        });
     }
 }

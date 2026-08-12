@@ -1032,7 +1032,14 @@
       "maintenance_empty_title": "Planlanmış bakım yok",
       "maintenance_empty_description": "Bir pencere planlayın; Uptizm bunu durum sayfasında duyurur ve pencere sürerken etkilenen bileşenlerin uyarılarını tutar.",
       "maintenance_empty_action": "Pencere planla",
-      "maintenance_alerts_held": "Uyarılar tutuluyor"
+      "maintenance_alerts_held": "Uyarılar tutuluyor",
+      "title_monitor_down": ":monitor kesintide",
+      "title_metric_warn_bound": ":metric uyarı sınırını aştı",
+      "title_metric_critical_bound": ":metric kritik sınırını aştı",
+      "title_metric_string_value": ":metric \":value\" bildirdi",
+      "title_ssl_expiring_one": ":monitor sertifikası :days gün içinde doluyor",
+      "title_ssl_expiring_other": ":monitor sertifikası :days gün içinde doluyor",
+      "title_ai_anomaly": ":monitor üzerinde anomali saptandı"
     },
     "settings": {
       "hub_title": "Ayarlar",

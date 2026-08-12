@@ -10,6 +10,7 @@ use App\Notifications\Channels\PagerDutyChannel;
 use App\Notifications\Channels\SlackChannel;
 use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
+use App\Services\Monitoring\IncidentTitle;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\NotificationSetting;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -231,9 +232,19 @@ class IncidentOpened extends Notification implements ShouldQueue
             'tr' => __($this->copyKey('push_heading'), ['monitor' => $this->monitorName('tr')], 'tr'),
         ]));
         $payload->setContents(new LanguageStringMap([
-            // The incident title is user-generated data, not translatable copy.
-            'en' => $this->incident->title,
-            'tr' => $this->incident->title,
+            // A title is one of two things, and this map has to be right for
+            // both. An operator-authored one is user-generated text: a human
+            // chose its language, so it crosses unchanged and both entries carry
+            // the same string. An automatically composed one is a key plus its
+            // parameters, so it renders per locale out of `lang/*/incidents.php`
+            // and the two entries differ. {@see IncidentTitle::render()} decides
+            // which from `title_key`.
+            //
+            // The locale is passed explicitly rather than left ambient because
+            // one push payload carries both languages and OneSignal picks per
+            // device, exactly like the headings two lines above.
+            'en' => IncidentTitle::render($this->incident, 'en'),
+            'tr' => IncidentTitle::render($this->incident, 'tr'),
         ]));
 
         return $payload;
@@ -317,6 +328,11 @@ class IncidentOpened extends Notification implements ShouldQueue
             'monitor_name' => $this->monitorName(),
             'state' => $this->incident->lifecycle->value,
             'severity' => $this->incident->severity->value,
+            // The stored English, deliberately NOT IncidentTitle::render(): a
+            // webhook is machine-to-machine, and a title whose language varied
+            // with whichever operator happened to be notified would be a field an
+            // integrator cannot parse. A stable language beats a localized one on
+            // this side of the wire.
             'title' => $this->incident->title,
             'incident_url' => $this->incidentUrl(),
         ];
@@ -348,6 +364,11 @@ class IncidentOpened extends Notification implements ShouldQueue
                     'monitor_name' => $monitorName,
                     'state' => $this->incident->lifecycle->value,
                     'severity' => $this->incident->severity->value,
+                    // The stored English, for the reason {@see toWebhook()}
+                    // gives plus a stronger one: PagerDuty keys its own
+                    // deduplication and its search off this text, so a title
+                    // that changed language between two sends about one
+                    // incident would split an alert in half.
                     'title' => $this->incident->title,
                     'incident_url' => $this->incidentUrl(),
                 ],
@@ -476,7 +497,13 @@ class IncidentOpened extends Notification implements ShouldQueue
         return [
             'type' => $this->eventType(),
             'title' => __($this->copyKey('title'), ['monitor' => $monitorName]),
-            'body' => $this->incident->title,
+            // No explicit locale, and that is the whole point: Laravel wraps each
+            // recipient's channel build in `withLocale(preferredLocale(...))`, so
+            // an ambient render inside this method resolves to THIS recipient's
+            // language. Rendering earlier (a constructor argument, a property)
+            // would bake the dispatcher's language into the queued payload and
+            // hand every recipient the same one.
+            'body' => IncidentTitle::render($this->incident),
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
             'monitor_name' => $monitorName,

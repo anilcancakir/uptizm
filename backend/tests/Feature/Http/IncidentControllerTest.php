@@ -32,6 +32,48 @@ class IncidentControllerTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_index_and_show_expose_the_structured_title_alongside_title(): void
+    {
+        [$monitor, $user] = $this->makeMonitor();
+        $authored = $this->makeIncident($monitor);
+        $composed = $this->makeIncident(
+            $monitor,
+            titleKey: 'incidents.monitor_down',
+            titleParams: ['monitor' => $monitor->name],
+        );
+
+        $request = Request::create('/incidents', 'GET');
+        $request->setUserResolver(fn () => $user);
+
+        $controller = $this->app->make(IncidentController::class);
+        $indexPayload = $controller->index($request)->response($request)->getData(true);
+
+        foreach ($indexPayload['data'] as $row) {
+            $this->assertArrayHasKey('title', $row);
+            $this->assertArrayHasKey('title_key', $row);
+            $this->assertArrayHasKey('title_params', $row);
+        }
+
+        $showRequest = Request::create('/incidents/'.$composed->id, 'GET');
+        $showRequest->setUserResolver(fn () => $user);
+        $showPayload = $controller->show($showRequest, $composed)->response($showRequest)->getData(true)['data'];
+
+        $this->assertArrayHasKey('title', $showPayload);
+        $this->assertArrayHasKey('title_key', $showPayload);
+        $this->assertArrayHasKey('title_params', $showPayload);
+        $this->assertSame('incidents.monitor_down', $showPayload['title_key']);
+        $this->assertSame(['monitor' => $monitor->name], $showPayload['title_params']);
+
+        $authoredShowRequest = Request::create('/incidents/'.$authored->id, 'GET');
+        $authoredShowRequest->setUserResolver(fn () => $user);
+        $authoredShowPayload = $controller->show($authoredShowRequest, $authored)
+            ->response($authoredShowRequest)
+            ->getData(true)['data'];
+
+        $this->assertNull($authoredShowPayload['title_key']);
+        $this->assertSame([], $authoredShowPayload['title_params']);
+    }
+
     public function test_index_lists_only_the_current_teams_incidents(): void
     {
         [$monitor, $user] = $this->makeMonitor();
@@ -194,12 +236,21 @@ class IncidentControllerTest extends TestCase
         return [$monitor, $user];
     }
 
-    protected function makeIncident(Monitor $monitor, IncidentStatus $lifecycle = IncidentStatus::Detected): Incident
-    {
+    /**
+     * @param  array<string, mixed>  $titleParams
+     */
+    protected function makeIncident(
+        Monitor $monitor,
+        IncidentStatus $lifecycle = IncidentStatus::Detected,
+        ?string $titleKey = null,
+        array $titleParams = [],
+    ): Incident {
         return Incident::query()->create([
             'team_id' => $monitor->team_id,
             'primary_monitor_id' => $monitor->id,
             'title' => 'API Uptime is down',
+            'title_key' => $titleKey,
+            'title_params' => $titleParams,
             'impact' => IncidentImpact::Critical,
             'severity' => IncidentSeverity::Critical,
             'signal_source' => SignalSource::UserThreshold,

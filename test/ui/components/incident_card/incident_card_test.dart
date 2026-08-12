@@ -6,15 +6,34 @@ import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/components/incident_card/incident_card.preview.dart';
 import 'package:uptizm/ui/components/status_badge/index.dart';
 
+import '../../../support/bundled_lang.dart';
 import '../../../support/incident_fixtures.dart';
 
+/// Serves the SHIPPED Turkish catalogue, because this card's headline is now a
+/// rendered sentence rather than a column read.
+///
+/// With no loader registered `trans()` hands back the raw dotted key, so a card
+/// carrying a structured title would lay out `uptizm.incidents.title_ai_anomaly`
+/// and the headline assertion would be about a harness gap rather than the widget.
+/// Turkish specifically: it is the only locale in which a card reading the stored
+/// English column and a card reading the rendered headline produce different text,
+/// so it is the only one where the assertion below can fail for the right reason.
+class _BundledTurkishLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async =>
+      readBundledLang('tr');
+}
+
 void main() {
-  setUp(() {
+  setUp(() async {
     MagicApp.reset();
     Magic.flush();
     // Bind the MagicStarter manager so Card can resolve its recipe via
     // MagicStarter.cardTheme without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+
+    Translator.instance.setLoader(_BundledTurkishLangLoader());
+    await Translator.instance.setLocale(const Locale('tr'));
   });
 
   tearDown(() {
@@ -88,15 +107,45 @@ void main() {
   // Widget tests
   // ---------------------------------------------------------------------------
 
-  testWidgets('IncidentCard renders incident title as WText', (tester) async {
-    final incident = incidentFixtures[0]; // checkout-503 outage
+  testWidgets('IncidentCard renders the headline in the app language, not the '
+      'stored English', (tester) async {
+    final incident = incidentFixtures[0]; // checkout-503, a composed title
     await tester.pumpWidget(wrap(IncidentCard(incident: incident)));
 
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+
+    // 1. The rendered sentence is on the card. Spelled out rather than compared
+    //    to `displayTitle`, so this line fails if the catalogue's Turkish is ever
+    //    edited into English as well as if the card stops rendering it.
+    expect(
+      texts.any((w) => w.data == 'Checkout service üzerinde anomali saptandı'),
+      isTrue,
+      reason: 'the localized headline WText not found',
+    );
+    expect(incident.displayTitle, 'Checkout service üzerinde anomali saptandı');
+
+    // 2. And the stored English is NOT: this is the assertion that goes red the
+    //    moment the card reads `incident.title` again.
+    expect(
+      texts.any((w) => w.data == incident.title),
+      isFalse,
+      reason: 'the card must render the headline, not the stored English column',
+    );
+  });
+
+  testWidgets('IncidentCard renders an authored title verbatim', (tester) async {
+    // The other half of the same contract: a human wrote this headline in the
+    // language they chose, so there is no key and nothing to render. A card that
+    // tried to localize every title would have to invent one.
+    final incident = incidentFixtures[2]; // eu-packet-loss, no title_key
+    await tester.pumpWidget(wrap(IncidentCard(incident: incident)));
+
+    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
+    expect(incident.titleKey, isNull);
     expect(
       texts.any((w) => w.data == incident.title),
       isTrue,
-      reason: 'title WText not found',
+      reason: 'an authored title WText not found',
     );
   });
 

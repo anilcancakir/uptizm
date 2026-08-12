@@ -24,26 +24,16 @@ use App\Services\Ai\AiIncidentOpener;
  * {@see self::bandString()} for text) keeps threshold math out of Eloquent so
  * callers can freeze the band at insert time without spinning up a full domain
  * graph.
+ *
+ * No sentence is spelled here. Every title this class writes comes out of
+ * {@see IncidentTitle::compose()} as a triple (the English render, the catalogue
+ * key, the parameters) and all three are persisted, so the row an operator reads
+ * in Turkish and the English sentence search reads resolve from one catalogue
+ * entry and cannot drift. The truncation rule that used to live on this class
+ * moved there with it.
  */
 class ThresholdEvaluator
 {
-    /**
-     * The `incidents.title` column width. A title is composed here and inserted
-     * one call later, so the cut has to happen on this side.
-     */
-    protected const int TITLE_MAX_LENGTH = 200;
-
-    /**
-     * Characters of an extracted value a title may spend.
-     *
-     * Kept well under {@see self::TITLE_MAX_LENGTH} so the metric label stays
-     * visible: a title that is nothing but a truncated blob names no metric.
-     */
-    protected const int TITLE_VALUE_MAX_LENGTH = 80;
-
-    /** Appended to a title value that was cut, matching MetricCandidate's digest mark. */
-    protected const string TITLE_TRUNCATION_MARK = '…';
-
     /**
      * Evaluate a completed check against the monitor's thresholds and metric
      * bounds; open an incident on a new breach and auto-resolve the monitor's
@@ -79,6 +69,8 @@ class ThresholdEvaluator
                     severity: $metricBreach['severity'],
                     title: $metricBreach['title'],
                     metricKey: $metricBreach['metric']->key,
+                    titleKey: $metricBreach['title_key'],
+                    titleParams: $metricBreach['title_params'],
                 );
 
                 return [
@@ -109,12 +101,18 @@ class ThresholdEvaluator
         $opened = null;
         if ($this->shouldOpenForConsecutiveFails($monitor)
             && ! $this->hasActiveIncidentForMonitor($monitor)) {
+            $composed = IncidentTitle::compose(IncidentTitle::MONITOR_DOWN, [
+                'monitor' => $monitor->name,
+            ]);
+
             $opened = $this->openIncident(
                 monitor: $monitor,
                 check: $check,
                 severity: IncidentSeverity::Critical,
-                title: "{$monitor->name} is down",
+                title: $composed['title'],
                 metricKey: null,
+                titleKey: $composed['title_key'],
+                titleParams: $composed['title_params'],
             );
         }
 
@@ -143,7 +141,7 @@ class ThresholdEvaluator
      * mid-incident, leaving whoever is working it without the notifications
      * they were paged on.
      *
-     * @param  array{metric: MonitorMetric, severity: IncidentSeverity, title: string}  $breach
+     * @param  array{metric: MonitorMetric, severity: IncidentSeverity, title: string, title_key: string, title_params: array<string, string|int>}  $breach
      */
     protected function escalateIfLouder(Incident $incident, array $breach): ?Incident
     {
@@ -155,8 +153,13 @@ class ThresholdEvaluator
             'severity' => $breach['severity'],
             // The title carries the offending value, so an escalated incident
             // that still read "reported degraded" would name a state it has
-            // moved on from.
+            // moved on from. The key and the parameters travel with it for the
+            // same reason: a localized surface renders from those, so leaving
+            // `metric_warn_bound` on a critical incident would keep telling
+            // every Turkish reader about the bound it has already passed.
             'title' => $breach['title'],
+            'title_key' => $breach['title_key'],
+            'title_params' => $breach['title_params'],
         ]);
 
         return $incident->refresh();
@@ -224,11 +227,14 @@ class ThresholdEvaluator
      * caller, because the two lanes name their breach differently: a numeric
      * metric breached a BOUND, while a string metric simply reported a value
      * somebody listed as bad. Reusing the numeric phrasing for a value match
-     * would describe arithmetic that never happened.
+     * would describe arithmetic that never happened. Each lane therefore picks
+     * its own {@see IncidentTitle} key and carries the whole composed triple
+     * out, so both the escalation path and the open path persist the same three
+     * columns without re-deciding anything.
      *
      * @param  array<string, float|int|null>  $samples
      * @param  array<string, string>  $stringSamples
-     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string}|null
+     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string, title_key: string, title_params: array<string, string|int>}|null
      */
     protected function firstMetricBreach(Monitor $monitor, array $samples, array $stringSamples): ?array
     {
@@ -251,7 +257,7 @@ class ThresholdEvaluator
      * bounds to breach and is skipped.
      *
      * @param  array<string, float|int|null>  $samples
-     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string}|null
+     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string, title_key: string, title_params: array<string, string|int>}|null
      */
     protected function numericBreach(MonitorMetric $metric, array $samples): ?array
     {
@@ -264,21 +270,36 @@ class ThresholdEvaluator
             return null;
         }
 
-        $severity = $this->severityFor(self::band(
+        $band = self::band(
             direction: $metric->threshold_direction,
             value: (float) $sample,
             warnBound: $metric->warn_bound !== null ? (float) $metric->warn_bound : null,
             criticalBound: $metric->critical_bound !== null ? (float) $metric->critical_bound : null,
-        ));
+        );
+
+        $severity = $this->severityFor($band);
 
         if ($severity === null) {
             return null;
         }
 
+        // The band picks between two keys rather than parameterizing one with a
+        // band name: a `:severity` placeholder would carry the English word
+        // "critical" into the Turkish sentence and leave it half translated.
+        // Only warn and critical reach this line, since any other band already
+        // returned above.
+        $titleKey = $band === MetricBand::Critical
+            ? IncidentTitle::METRIC_CRITICAL_BOUND
+            : IncidentTitle::METRIC_WARN_BOUND;
+
         return [
             'metric' => $metric,
             'severity' => $severity,
-            'title' => "{$metric->label} breached {$severity->value} bound",
+            // compose() returns exactly the three columns a writer persists, so
+            // spreading it keeps this array and the incident row in one shape.
+            ...IncidentTitle::compose($titleKey, [
+                'metric' => $metric->label,
+            ]),
         ];
     }
 
@@ -292,7 +313,7 @@ class ThresholdEvaluator
      * page on the first sample of every string metric ever created.
      *
      * @param  array<string, string>  $stringSamples
-     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string}|null
+     * @return array{metric: MonitorMetric, severity: IncidentSeverity, title: string, title_key: string, title_params: array<string, string|int>}|null
      */
     protected function stringBreach(MonitorMetric $metric, array $stringSamples): ?array
     {
@@ -320,7 +341,14 @@ class ThresholdEvaluator
         return [
             'metric' => $metric,
             'severity' => $severity,
-            'title' => $this->stringBreachTitle($metric, $sample),
+            // The value names what the target actually said, so a responder
+            // reading only the title knows it. It is attacker-influenced and
+            // unbounded, and compose() is what cuts it before it becomes a
+            // parameter; nothing on this side re-applies that rule.
+            ...IncidentTitle::compose(IncidentTitle::METRIC_STRING_VALUE, [
+                'metric' => $metric->label,
+                'value' => $sample,
+            ]),
         ];
     }
 
@@ -336,27 +364,6 @@ class ThresholdEvaluator
             MetricBand::Warn => IncidentSeverity::Warn,
             MetricBand::Ok, null => null,
         };
-    }
-
-    /**
-     * Title for a string breach: the metric and the value that caused it, so a
-     * responder reading only the title knows what the target actually said.
-     *
-     * The value is attacker-influenced (it came out of the monitored response)
-     * and unbounded (`monitor_metric_values.string_value` is `text`, and a
-     * `json_path` pointed at an object yields a whole JSON blob), while
-     * `incidents.title` is `varchar(200)`. PostgreSQL throws on an over-long
-     * value rather than trimming it, and this runs after the check row has
-     * committed, so an untruncated title would fail the processing job on every
-     * retry while the telemetry it was signaling about sits there fine.
-     */
-    protected function stringBreachTitle(MonitorMetric $metric, string $value): string
-    {
-        $shown = mb_strlen($value) > self::TITLE_VALUE_MAX_LENGTH
-            ? mb_substr($value, 0, self::TITLE_VALUE_MAX_LENGTH).self::TITLE_TRUNCATION_MARK
-            : $value;
-
-        return mb_substr("{$metric->label} reported \"{$shown}\"", 0, self::TITLE_MAX_LENGTH);
     }
 
     /**
@@ -535,6 +542,10 @@ class ThresholdEvaluator
      * always has a {@see MonitorCheck} to source `started_at` from, so the
      * generalized creator's nullable-check and provenance parameters are
      * pinned to the values this evaluator has always used.
+     *
+     * @param  string  $title  The English render from {@see IncidentTitle::compose()}.
+     * @param  string|null  $titleKey  Its catalogue key, so a localized surface can re-render it.
+     * @param  array<string, string|int>  $titleParams  Its display-ready parameters.
      */
     protected function openIncident(
         Monitor $monitor,
@@ -542,6 +553,8 @@ class ThresholdEvaluator
         IncidentSeverity $severity,
         string $title,
         ?string $metricKey,
+        ?string $titleKey = null,
+        array $titleParams = [],
     ): Incident {
         return $this->createIncident(
             monitor: $monitor,
@@ -551,6 +564,8 @@ class ThresholdEvaluator
             title: $title,
             triggerMetricKey: $metricKey,
             aiOwned: false,
+            titleKey: $titleKey,
+            titleParams: $titleParams,
         );
     }
 
@@ -568,9 +583,15 @@ class ThresholdEvaluator
      * @param  SignalSource  $source  Who noticed first (threshold, AI, or human).
      * @param  MonitorCheck|null  $check  The triggering check, or null for a manual open.
      * @param  IncidentSeverity  $severity  Severity, projected to the public impact tier.
-     * @param  string  $title  Human-facing incident title.
+     * @param  string  $title  Human-facing incident title, English on a composed path.
      * @param  string|null  $triggerMetricKey  Metric key when a bound breach triggered it.
      * @param  bool  $aiOwned  True when an AI detector owns the incident lifecycle.
+     * @param  string|null  $titleKey  The {@see IncidentTitle} key `$title` was composed from,
+     *                                 or null when a human authored the title. That null is what
+     *                                 makes `title_key IS NULL` readable as "authored", so the
+     *                                 operator path leaves it alone rather than inventing a key.
+     * @param  array<string, string|int>  $titleParams  The display-ready parameters that key
+     *                                                  renders with; empty on an authored title.
      */
     public function createIncident(
         Monitor $monitor,
@@ -580,6 +601,8 @@ class ThresholdEvaluator
         string $title,
         ?string $triggerMetricKey = null,
         bool $aiOwned = false,
+        ?string $titleKey = null,
+        array $titleParams = [],
     ): Incident {
         // 1. Persist the incident with the denormalized primary-monitor hint.
         //    A manual open has no check, so start-time falls back to now.
@@ -587,6 +610,10 @@ class ThresholdEvaluator
             'team_id' => $monitor->team_id,
             'primary_monitor_id' => $monitor->id,
             'title' => $title,
+            'title_key' => $titleKey,
+            // An authored title has nothing to render from, so the parameters
+            // stay null rather than an empty array pretending to be a set.
+            'title_params' => $titleKey === null ? null : $titleParams,
             'impact' => $severity->toImpact(),
             'severity' => $severity,
             'signal_source' => $source,

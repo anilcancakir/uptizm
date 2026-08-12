@@ -28,6 +28,13 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *     shared, CDN-frontable cache, and a preview or a render of a PUBLIC page
  *     reports the page as it is now rather than up to 60 seconds of stale
  *     state stamped with the current time.
+ *
+ * It is also where the page's LANGUAGE is applied, from `status_pages.locale`.
+ * The whole render reads that locale implicitly (the assembler's banner label and
+ * incident titles, the layout's `<html lang>`, every `__()` in the partials), so
+ * this is the only place it is decided. See the numbered comments in
+ * {@see self::__invoke()} for why it is set twice and why the page's own comes
+ * after the privacy gate.
  */
 class ShowStatusPageController
 {
@@ -64,7 +71,18 @@ class ShowStatusPageController
      */
     public function __invoke(Request $request, string $slug): Response
     {
-        // 1. Resolve by slug explicitly (no implicit binding, so a miss is a
+        // 1. Start every request through this route in the deployment default
+        //    language, BEFORE anything can render. Under Octane the translator
+        //    is a singleton that survives between requests, so a worker that
+        //    just served a Turkish page is still in Turkish here; without this
+        //    reset the 404 below would answer in whichever language the previous
+        //    visitor's page happened to use. That matters more than tidiness on
+        //    this route: the two 404s have to stay indistinguishable, and a
+        //    Turkish "not found" beside an English one is a difference an
+        //    enumerator can read.
+        app()->setLocale((string) config('app.default_locale'));
+
+        // 2. Resolve by slug explicitly (no implicit binding, so a miss is a
         //    controlled 404 rather than a framework-shaped one).
         $page = StatusPage::query()->where('slug', $slug)->first();
 
@@ -74,13 +92,32 @@ class ShowStatusPageController
 
         $hasPreviewToken = $this->hasValidPreviewToken($page, $request);
 
-        // 2. Fail-closed gate: a missing page, or a private page without a valid
+        // 3. Fail-closed gate: a missing page, or a private page without a valid
         //    preview token, is indistinguishable from a non-existent one.
         if (! $page->is_public && ! $hasPreviewToken) {
             abort(404);
         }
 
-        // 3. A token holder is a preview or a headless render, never a visitor,
+        // 4. The language this page publishes in, which its owner set and a
+        //    visitor cannot choose (no path segment, no switcher, no
+        //    Accept-Language: one page serves one language). Set on EVERY
+        //    request that gets this far, INCLUDING when the value already equals
+        //    the default, for the reason SetMarketingLocale documents at its own
+        //    class docblock: the Octane translator singleton survives between
+        //    requests, so a conditional "only when it is `tr`" would leave the
+        //    worker in Turkish for whoever arrives next. `FlushLocaleState` in
+        //    config/octane.php closes the same hole from the other side.
+        //
+        //    It sits AFTER the gate rather than beside the resolve above: a page
+        //    whose existence this route refuses to confirm must not answer its
+        //    404 in the language that page chose.
+        //
+        //    Everything downstream reads it implicitly. The assembler renders the
+        //    banner label and each incident title under it, and the layout puts it
+        //    in `<html lang>`.
+        app()->setLocale($page->locale ?? (string) config('app.default_locale'));
+
+        // 5. A token holder is a preview or a headless render, never a visitor,
         //    on a private page AND on a public one. It renders fresh, never
         //    touches the shared cache in either direction, and is marked
         //    no-store so an intermediary keying on neither the header nor the
@@ -90,8 +127,12 @@ class ShowStatusPageController
                 ->header('Cache-Control', 'no-store, private');
         }
 
-        // 4. Public path: cache the plain-array read model (never the object)
+        // 6. Public path: cache the plain-array read model (never the object)
         //    and rehydrate it for the view.
+        //
+        //    The key carries NO locale segment, deliberately. One page serves one
+        //    language, so the slug already identifies the language too and a
+        //    locale segment would be dead cardinality.
         $data = Cache::remember(
             self::CACHE_KEY_PREFIX.$page->slug,
             60,

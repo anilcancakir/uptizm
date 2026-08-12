@@ -6,21 +6,23 @@
     page; see confirmed.blade.php.
 --}}
 <!doctype html>
-<html lang="en">
+<html lang="{{ app()->getLocale() }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light dark">
-        <title>Check your inbox</title>
+        <title>{{ __('status.check_inbox.title') }}</title>
 
         @vite(['resources/css/app.css'])
     </head>
     <body class="min-h-screen bg-surface text-fg antialiased">
         <div class="mx-auto max-w-lg px-4 py-16 text-center">
-            <h1 class="text-xl font-semibold">Check your inbox</h1>
+            {{-- The same catalogue key as the `<title>` above: it is one sentence,
+                 and a second key is how the tab and the heading end up
+                 disagreeing. --}}
+            <h1 class="text-xl font-semibold">{{ __('status.check_inbox.title') }}</h1>
             <p class="mt-2 text-fg-muted">
-                If the address you entered can subscribe to {{ $page->name }}, a confirmation
-                email is on its way. Click the link inside to finish subscribing.
+                {{ __('status.check_inbox.body', ['page' => $page->name]) }}
             </p>
         </div>
     </body>

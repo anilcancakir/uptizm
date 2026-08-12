@@ -9,6 +9,7 @@ use App\Notifications\Channels\PagerDutyChannel;
 use App\Notifications\Channels\SlackChannel;
 use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
+use App\Services\Monitoring\IncidentTitle;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\NotificationSetting;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -209,9 +210,13 @@ class IncidentResolved extends Notification implements ShouldQueue
             'tr' => __('notifications.incident_resolved_push_heading', ['monitor' => $this->monitorName('tr')], 'tr'),
         ]));
         $payload->setContents(new LanguageStringMap([
-            // The incident title is user-generated data, not translatable copy.
-            'en' => $this->incident->title,
-            'tr' => $this->incident->title,
+            // Two kinds of title, one map: an operator-authored one is
+            // user-generated text and crosses unchanged in both entries, an
+            // automatically composed one renders per locale from its key. See
+            // {@see IncidentOpened::toOneSignal()} for the full reasoning; the
+            // locale is explicit because this payload carries both languages.
+            'en' => IncidentTitle::render($this->incident, 'en'),
+            'tr' => IncidentTitle::render($this->incident, 'tr'),
         ]));
 
         return $payload;
@@ -291,6 +296,11 @@ class IncidentResolved extends Notification implements ShouldQueue
             'monitor_name' => $this->monitorName(),
             'state' => $this->incident->lifecycle->value,
             'severity' => $this->incident->severity->value,
+            // The stored English, deliberately NOT IncidentTitle::render(): a
+            // webhook is machine-to-machine, and a title whose language varied
+            // with whichever operator happened to be notified would be a field an
+            // integrator cannot parse. It also has to match the title the opening
+            // webhook posted for the same incident.
             'title' => $this->incident->title,
             'incident_url' => $this->incidentUrl(),
         ];
@@ -418,7 +428,12 @@ class IncidentResolved extends Notification implements ShouldQueue
         return [
             'type' => 'incident_resolved',
             'title' => __('notifications.incident_resolved_title', ['monitor' => $monitorName]),
-            'body' => $this->incident->title,
+            // Ambient locale on purpose: the database channel builds inside
+            // Laravel's `withLocale(preferredLocale(...))` wrap, so this resolves
+            // per recipient. Rendering it before the send (a constructor
+            // argument, a property) would serialize one language into the queued
+            // payload for everybody.
+            'body' => IncidentTitle::render($this->incident),
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
             'monitor_name' => $monitorName,

@@ -164,7 +164,13 @@ class AiSuggestedAction {
 /// A historically similar incident surfaced by the AI.
 @immutable
 class AiSimilarIncident {
-  /// Title of the past incident.
+  /// Title of the past incident, a plain string BY DESIGN.
+  ///
+  /// Unlike the `Incident` model's headline, this one carries no structural key
+  /// and no parameters: the AI surface hands over a bare sentence, so there is
+  /// nothing to render from a catalogue and nothing to localize. The parameter
+  /// that holds one of these is named `incident` at its render site, which has
+  /// misled a reader into converting it once; the type is the thing to check.
   final String title;
 
   /// Cosine similarity score in the range [0, 1].
@@ -255,8 +261,28 @@ class IncidentSummary {
   /// Stable identifier used for routing, e.g. `'checkout-503'`.
   final String id;
 
-  /// Incident headline.
+  /// Incident headline, in English, exactly as the backend stores it.
   final String title;
+
+  /// The backend `title_key` wire value this fixture's [title] was composed
+  /// from (`'incidents.ai_anomaly'`, ...), or `null` for an operator-authored
+  /// one.
+  ///
+  /// Present for FIXTURE PARITY and nothing else: the live render path is the
+  /// `Incident` model, which decodes both fields off the wire itself. A design-lab
+  /// fixture that could not carry them would project onto a model with no key, so
+  /// every widget test would exercise the fallback and the localized headline
+  /// would have no coverage at all. Kept as the raw wire string rather than an
+  /// `IncidentTitleKey` so the projection stays a plain map write and the enum's
+  /// own decode is what the test exercises.
+  final String? titleKey;
+
+  /// The display-ready values [titleKey]'s sentence interpolates, keyed by the
+  /// `:placeholder` name (`monitor`, `metric`, `value`, `days`).
+  ///
+  /// Empty when [titleKey] is `null`, which is the same "no parameters" shape the
+  /// resource emits.
+  final Map<String, String> titleParams;
 
   /// Customer-facing impact classification.
   final IncidentImpact impact;
@@ -299,6 +325,8 @@ class IncidentSummary {
   const IncidentSummary({
     required this.id,
     required this.title,
+    this.titleKey,
+    this.titleParams = const {},
     required this.impact,
     required this.severity,
     required this.signalSource,

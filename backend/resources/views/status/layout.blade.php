@@ -9,8 +9,14 @@
     `$canonicalUrl`, which the controller derives from configuration rather than
     from the request. Functional URLs (the subscribe POST) stay request-relative
     via `route()` so they post back to the host the visitor is actually on.
+
+    The `lang` attribute is the one string here that is not copy, and it is the
+    one that matters most to a screen reader (which picks its voice from it) and
+    to a crawler. It reads the locale the controller applied from
+    `status_pages.locale`, so it can never disagree with the language of the copy
+    below it.
 --}}
-<html lang="en">
+<html lang="{{ app()->getLocale() }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -77,6 +77,22 @@ class StatusPage extends Model
         'description',
         'is_public',
         'subscriptions_enabled',
+
+        /*
+         * The ONE language this page publishes in, applied per request by
+         * {@see \App\Http\Controllers\StatusPage\ShowStatusPageController}. NULL
+         * means the deployment default (`app.default_locale`), which is what
+         * keeps every existing page rendering exactly what it rendered before the
+         * column existed.
+         *
+         * Reachable from the API: both `StoreStatusPageRequest` and
+         * `UpdateStatusPageRequest` carry an `in:` rule over
+         * `config('magic-starter.supported_locales')`, because the controller
+         * assigns only validated input and an unsupported code would render dotted
+         * keys on a page a customer publishes. `StatusPageResource` emits it, so
+         * the operator UI can show what a page publishes in.
+         */
+        'locale',
     ];
 
     /**

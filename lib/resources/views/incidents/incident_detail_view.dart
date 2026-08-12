@@ -279,7 +279,7 @@ class _IncidentDetailViewState
             className: 'flex flex-col gap-4',
             children: [
               MSPageHeader(
-                title: incident.title,
+                title: incident.displayTitle,
                 subtitle: '${incident.monitorName} · ${incident.startedAt}',
                 backLabel: trans('uptizm.incidents.detail_back'),
                 backFallback: '/incidents',
