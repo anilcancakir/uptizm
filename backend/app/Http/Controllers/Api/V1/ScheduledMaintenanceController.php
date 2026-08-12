@@ -7,6 +7,7 @@ use App\Http\Requests\StoreScheduledMaintenanceRequest;
 use App\Http\Requests\UpdateScheduledMaintenanceRequest;
 use App\Http\Resources\ScheduledMaintenanceResource;
 use App\Jobs\AnnounceScheduledMaintenance;
+use App\Jobs\TranslateStatusPageText;
 use App\Models\ScheduledMaintenance;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -86,6 +87,8 @@ class ScheduledMaintenanceController extends Controller
 
         AnnounceScheduledMaintenance::dispatch($window);
 
+        $this->queueTranslations($window);
+
         return ScheduledMaintenanceResource::make($window->load(self::DETAIL_RELATIONS))
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
@@ -125,6 +128,8 @@ class ScheduledMaintenanceController extends Controller
             }
         });
 
+        $this->queueTranslations($maintenance->refresh());
+
         return ScheduledMaintenanceResource::make($maintenance->refresh()->load(self::DETAIL_RELATIONS));
     }
 
@@ -138,6 +143,32 @@ class ScheduledMaintenanceController extends Controller
         $maintenance->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Queue a translation of the window's title and description into every
+     * supported language other than the one it was authored in.
+     *
+     * Called from `store` and `update` both, unlike the announcement above,
+     * because a retitled window has to reach the non-default languages the same
+     * way it reaches the default one; the announcement is once-only because a
+     * subscriber must not be re-mailed, which is a different question.
+     *
+     * The source language is the deployment default. A maintenance window
+     * carries no locale of its own, and the only language column on this surface
+     * is `status_pages.locale`, whose null means exactly this default; the read
+     * model treats the page's language as the authored one, so anchoring here
+     * keeps the two ends agreeing. The residual case is a page whose canonical
+     * language is NOT the deployment default: its own language is translated
+     * (the row is written) while the deployment language is not, which the page
+     * shows as `pending` rather than as anything wrong.
+     */
+    protected function queueTranslations(ScheduledMaintenance $maintenance): void
+    {
+        $sourceLocale = (string) config('app.default_locale');
+
+        TranslateStatusPageText::fanOut($maintenance, 'title', $sourceLocale);
+        TranslateStatusPageText::fanOut($maintenance, 'description', $sourceLocale);
     }
 
     /**

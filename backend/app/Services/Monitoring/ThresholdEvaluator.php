@@ -9,6 +9,7 @@ use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
 use App\Enums\SignalSource;
 use App\Enums\ThresholdDirection;
+use App\Jobs\TranslateStatusPageText;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
@@ -206,7 +207,7 @@ class ThresholdEvaluator
             'resolved_at' => now(),
         ]);
 
-        $incident->updates()->create([
+        $note = $incident->updates()->create([
             'actor' => 'system',
             'author' => 'System',
             'status' => IncidentStatus::Resolved,
@@ -215,6 +216,24 @@ class ThresholdEvaluator
             'autonomous' => false,
             'display_at' => now(),
         ]);
+
+        // 4. The note is PUBLIC, so the status page renders it like any other
+        //    update and it needs the same translations. This is the write path
+        //    that does not look like incident authoring and is therefore the one
+        //    a wiring pass skips: without it every auto-resolved incident sits at
+        //    `pending` forever in every non-default language, which is precisely
+        //    the moment a reader most needs the sentence.
+        //
+        //    The source language is the deployment default because this sentence
+        //    is composed here, in English, from the monitor's own name.
+        //
+        //    It enqueues INSIDE the per-monitor lock, and that is a known
+        //    exception to this path's "dispatch off-lock" rule rather than an
+        //    oversight: the rule protects the lock from queued notification
+        //    SENDS, the alternative is threading this note out through
+        //    `CheckPersistenceService` and `IncidentDispatcher`, and what happens
+        //    here is one Redis push inside a ten-second lock.
+        TranslateStatusPageText::fanOut($note, 'message', (string) config('app.default_locale'));
 
         return $incident;
     }

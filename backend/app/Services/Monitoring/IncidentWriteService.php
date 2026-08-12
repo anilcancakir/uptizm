@@ -5,6 +5,7 @@ namespace App\Services\Monitoring;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\SignalSource;
+use App\Jobs\TranslateStatusPageText;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
@@ -105,6 +106,7 @@ class IncidentWriteService
         ?string $message = null,
     ): Incident {
         $opened = false;
+        $posted = null;
 
         // 1. Serialize against a concurrent automated open on the same monitor,
         //    then dedupe and create atomically inside the lock.
@@ -115,6 +117,7 @@ class IncidentWriteService
             $author,
             $message,
             &$opened,
+            &$posted,
         ): Incident {
             return DB::transaction(function () use (
                 $monitor,
@@ -123,6 +126,7 @@ class IncidentWriteService
                 $author,
                 $message,
                 &$opened,
+                &$posted,
             ): Incident {
                 // 1a. A monitor with an already-active incident is not re-opened;
                 //     the existing incident is returned untouched.
@@ -148,7 +152,7 @@ class IncidentWriteService
                 );
 
                 if ($message !== null) {
-                    $this->appendUpdate($incident, IncidentStatus::Detected, $message, $author);
+                    $posted = $this->appendUpdate($incident, IncidentStatus::Detected, $message, $author);
                 }
 
                 $opened = true;
@@ -160,7 +164,16 @@ class IncidentWriteService
         // 2. Only a genuine open dispatches the off-lock side effects.
         if ($opened) {
             $this->dispatchOpened($monitor, $incident);
+
+            // The TITLE is translated here and only here: a manual open is the
+            // one path that writes an incident title a human authored, which is
+            // what `title_key IS NULL` says about the row the creator just
+            // returned. An automated open composes its title from a catalogue key
+            // and is re-rendered per language already.
+            $this->fanOutTranslations($incident, 'title');
         }
+
+        $this->fanOutTranslations($posted, 'message');
 
         return $incident;
     }
@@ -179,6 +192,7 @@ class IncidentWriteService
     {
         $monitor = $this->monitorFor($incident);
         $resolved = false;
+        $posted = null;
 
         // 1. Row-lock and gate the transition inside the per-monitor lock so a
         //    concurrent resolve or an automated recovery cannot double-resolve.
@@ -187,8 +201,9 @@ class IncidentWriteService
             $author,
             $message,
             &$resolved,
+            &$posted,
         ): Incident {
-            return DB::transaction(function () use ($incident, $author, $message, &$resolved): Incident {
+            return DB::transaction(function () use ($incident, $author, $message, &$resolved, &$posted): Incident {
                 $fresh = Incident::query()->lockForUpdate()->findOrFail($incident->getKey());
 
                 // 1a. Idempotency gate: a terminal incident is returned unchanged.
@@ -201,7 +216,7 @@ class IncidentWriteService
                     'lifecycle' => IncidentStatus::Resolved,
                     'resolved_at' => now(),
                 ]);
-                $this->appendUpdate(
+                $posted = $this->appendUpdate(
                     $fresh,
                     IncidentStatus::Resolved,
                     $message ?? self::DEFAULT_RESOLVE_MESSAGE,
@@ -222,6 +237,8 @@ class IncidentWriteService
             ]);
         }
 
+        $this->fanOutTranslations($posted, 'message');
+
         return $current;
     }
 
@@ -239,9 +256,10 @@ class IncidentWriteService
     public function acknowledge(Incident $incident, string $author, ?string $message = null): Incident
     {
         $monitor = $this->monitorFor($incident);
+        $posted = null;
 
-        return $this->withMonitorLock($monitor, function () use ($incident, $author, $message): Incident {
-            return DB::transaction(function () use ($incident, $author, $message): Incident {
+        $current = $this->withMonitorLock($monitor, function () use ($incident, $author, $message, &$posted): Incident {
+            return DB::transaction(function () use ($incident, $author, $message, &$posted): Incident {
                 $fresh = Incident::query()->lockForUpdate()->findOrFail($incident->getKey());
 
                 // Only a still-detected incident acknowledges; anything further
@@ -251,7 +269,7 @@ class IncidentWriteService
                 }
 
                 $fresh->update(['lifecycle' => IncidentStatus::Investigating]);
-                $this->appendUpdate(
+                $posted = $this->appendUpdate(
                     $fresh,
                     IncidentStatus::Investigating,
                     $message ?? self::DEFAULT_ACKNOWLEDGE_MESSAGE,
@@ -261,6 +279,10 @@ class IncidentWriteService
                 return $fresh;
             });
         });
+
+        $this->fanOutTranslations($posted, 'message');
+
+        return $current;
     }
 
     /**
@@ -279,14 +301,16 @@ class IncidentWriteService
     {
         $monitor = $this->monitorFor($incident);
         $reopened = false;
+        $posted = null;
 
         $current = $this->withMonitorLock($monitor, function () use (
             $incident,
             $author,
             $message,
             &$reopened,
+            &$posted,
         ): Incident {
-            return DB::transaction(function () use ($incident, $author, $message, &$reopened): Incident {
+            return DB::transaction(function () use ($incident, $author, $message, &$reopened, &$posted): Incident {
                 $fresh = Incident::query()->lockForUpdate()->findOrFail($incident->getKey());
 
                 // Only a terminal incident reopens; an active one is a no-op.
@@ -298,7 +322,7 @@ class IncidentWriteService
                     'lifecycle' => IncidentStatus::Investigating,
                     'resolved_at' => null,
                 ]);
-                $this->appendUpdate(
+                $posted = $this->appendUpdate(
                     $fresh,
                     IncidentStatus::Investigating,
                     $message ?? self::DEFAULT_REOPEN_MESSAGE,
@@ -313,6 +337,8 @@ class IncidentWriteService
         if ($reopened) {
             $this->dispatchOpened($monitor, $current);
         }
+
+        $this->fanOutTranslations($posted, 'message');
 
         return $current;
     }
@@ -338,13 +364,17 @@ class IncidentWriteService
     ): IncidentUpdate {
         $fresh = $incident->fresh() ?? $incident;
 
-        return $this->appendUpdate(
+        $posted = $this->appendUpdate(
             $fresh,
             $status ?? $fresh->lifecycle,
             $message,
             $author,
             $isPublic,
         );
+
+        $this->fanOutTranslations($posted, 'message');
+
+        return $posted;
     }
 
     /**
@@ -440,6 +470,13 @@ class IncidentWriteService
             );
         }
 
+        // A DRAFT is translated too, deliberately. The translation is keyed to
+        // the row, so it inherits the row's visibility and nothing becomes
+        // readable that was not already; and translating only on publish would
+        // mean the non-default languages read `pending` at exactly the moment the
+        // postmortem goes live, which is when it is read.
+        $this->fanOutTranslations($current, 'postmortem_body');
+
         return $current;
     }
 
@@ -454,6 +491,41 @@ class IncidentWriteService
             'resolved' => null,
             'status_change' => null,
         ]);
+    }
+
+    /**
+     * Queue a machine translation of one just-written field into every supported
+     * language other than the one it was authored in.
+     *
+     * OFF-LOCK AND OFF-TRANSACTION, which is why every caller here threads the
+     * written row out of its critical section by reference instead of calling
+     * this from inside {@see self::appendUpdate()}: this class's standing rule is
+     * that nothing enqueues while the per-monitor lock is held, and a fan-out
+     * inside the lock would be the exception that erodes it. The job itself is
+     * dispatched `afterCommit()` on top of that, so a later caller who does wrap
+     * one of these in a transaction cannot feed a worker a row a rollback is
+     * about to discard.
+     *
+     * Null is a first-class argument: three of the callers post a note only when
+     * their idempotency gate opened, and answering "nothing was written" here
+     * keeps that decision at the one place that made it.
+     *
+     * The source language is the deployment default. Nothing in the incident
+     * domain carries a language of its own; the only language column on this
+     * surface is `status_pages.locale`, whose null means exactly this default,
+     * and the public read model treats the page's language as the authored one.
+     *
+     * {@see TranslateStatusPageText::fanOut()} owns every other guard (the closed
+     * field set, a keyed title, an internal note, an empty value), so this is a
+     * seam and not a second place to remember them.
+     */
+    protected function fanOutTranslations(Incident|IncidentUpdate|null $translatable, string $field): void
+    {
+        if ($translatable === null) {
+            return;
+        }
+
+        TranslateStatusPageText::fanOut($translatable, $field, (string) config('app.default_locale'));
     }
 
     /**

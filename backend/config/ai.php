@@ -142,6 +142,24 @@ return [
     ],
 
     /*
+     * Status-page translation reads its own model key for the same reason the
+     * two above do: it is the only task here whose output is PUBLISHED rather
+     * than shown to the operator who asked for it, so the day it needs a
+     * different model is the day retuning it must not retune incident triage.
+     *
+     * It falls back through `AI_TRIAGE_MODEL` rather than straight to the
+     * literal, for the reason spelled out at `analysis`: a deployment that moved
+     * the AI surface to another provider sets `AI_DEFAULT` and `AI_TRIAGE_MODEL`
+     * and nothing else, and a literal default here would ask that provider for an
+     * Anthropic-native id it does not serve. Every call would then fail, every
+     * public page would render `pending` in every non-default language, and the
+     * only evidence would be a log line.
+     */
+    'translation' => [
+        'model' => env('AI_TRANSLATION_MODEL', env('AI_TRIAGE_MODEL', 'claude-haiku-4-5-20251001')),
+    ],
+
+    /*
      * The hard character budget one response digest may spend in the setup
      * prompt. The worker returns up to 1 MiB of body, which is two orders of
      * magnitude more context than a monitor suggestion needs and all of it
