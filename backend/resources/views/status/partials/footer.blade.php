@@ -58,7 +58,13 @@
 
                     button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
                     button.classList.toggle('bg-surface-container-high', isActive);
+                    // Both halves of the swap. Adding `text-fg` while the markup's
+                    // own `text-fg-muted` stays on leaves two colour utilities on
+                    // one element, and which one paints is then decided by the
+                    // order they happen to appear in the generated stylesheet
+                    // rather than by which state the button is in.
                     button.classList.toggle('text-fg', isActive);
+                    button.classList.toggle('text-fg-muted', !isActive);
                 });
             }
 
