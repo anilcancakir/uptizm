@@ -51,7 +51,7 @@ class SitemapTest extends TestCase
 
     private const string SLUG = 'example-provider';
 
-    public function test_the_index_is_an_index_and_names_exactly_two_segments(): void
+    public function test_the_index_is_an_index_and_names_exactly_three_segments(): void
     {
         $response = $this->get('/'.SitemapBuilder::INDEX_PATH)->assertOk();
 
@@ -74,6 +74,7 @@ class SitemapTest extends TestCase
             [
                 url(SitemapBuilder::MARKETING_PATH),
                 url(SitemapBuilder::SERVICES_PATH),
+                url(SitemapBuilder::STATUS_PAGES_PATH),
             ],
             $children,
         );

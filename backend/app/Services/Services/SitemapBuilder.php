@@ -4,35 +4,46 @@ namespace App\Services\Services;
 
 use App\Http\Controllers\Marketing\ShowServiceStatusController;
 use App\Models\Service;
+use App\Models\StatusPage;
 use App\Support\Marketing\ChromeData;
+use App\Support\StatusPages\StatusPageChrome;
 use Carbon\CarbonInterface;
 use DOMDocument;
 use DOMElement;
 
 /**
- * Builds the three sitemap documents this site publishes.
+ * Builds the four sitemap documents this site publishes.
  *
- * An INDEX at `/sitemap.xml` naming exactly two segments, and one `<urlset>` per
- * segment:
+ * An INDEX at `/sitemap.xml` naming exactly three segments, and one `<urlset>`
+ * per segment:
  *
  *   - `sitemap-marketing.xml`, the landing page and the long-form documents;
- *   - `sitemap-services.xml`, the catalog hub plus every published service.
+ *   - `sitemap-services.xml`, the catalog hub plus every published service;
+ *   - `sitemap-status-pages.xml`, every public customer status page.
  *
  * They are separate documents because an index and a url set are different
  * schemas and mixing them produces invalid XML, and separate SEGMENTS because
  * that is what makes an indexing problem diagnosable per template in Search
  * Console instead of as one undifferentiated list.
  *
- * ## Every URL is composed through ChromeData, and that is the point
+ * The customer pages are their own segment rather than rows in the services one:
+ * that document is the service CATALOG, pages this site authors about third
+ * parties, and a customer's status page is neither. Mixing them would make the
+ * one Search Console figure that matters (how much of the catalog is indexed)
+ * unreadable the moment a customer publishes a page.
+ *
+ * ## Every URL is composed through the same object the page's head is, and that is the point
  *
  * A sitemap that disagreed with the pages' own hreflang would be worse than no
  * sitemap: it would declare alternates the documents do not claim. So the `loc`
  * and every `xhtml:link` alternate come out of the same
- * {@see ChromeData::toArray()} the page's `<head>` is rendered from, including
- * its `x-default`. `tests/Feature/Marketing/SitemapTest.php` asserts the
- * agreement by EXTRACTING the alternates from the rendered page and from the
- * sitemap entry and comparing the two sets, rather than checking each against a
- * hardcoded list, which would pass while both were wrong.
+ * {@see ChromeData::toArray()} the page's `<head>` is rendered from (and, for
+ * the customer pages, the same {@see StatusPageChrome::toArray()}), including
+ * its `x-default`. `tests/Feature/Marketing/SitemapTest.php` and
+ * `tests/Feature/StatusPage/StatusPageSeoTest.php` assert the agreement by
+ * EXTRACTING the alternates from the rendered page and from the sitemap entry
+ * and comparing the two sets, rather than checking each against a hardcoded
+ * list, which would pass while both were wrong.
  *
  * ## `lastmod` is emitted only where a trustworthy stamp exists
  *
@@ -54,7 +65,7 @@ use DOMElement;
 class SitemapBuilder
 {
     /**
-     * The index, and the two segments it names. Public because
+     * The index, and the three segments it names. Public because
      * `routes/marketing.php` registers a route per document and
      * `public/robots.txt` points at the index by absolute URL; one literal each,
      * in one place.
@@ -64,6 +75,8 @@ class SitemapBuilder
     public const string MARKETING_PATH = 'sitemap-marketing.xml';
 
     public const string SERVICES_PATH = 'sitemap-services.xml';
+
+    public const string STATUS_PAGES_PATH = 'sitemap-status-pages.xml';
 
     /**
      * The XML namespaces both schemas require. `xhtml` is what carries the
@@ -97,7 +110,14 @@ class SitemapBuilder
     ];
 
     /**
-     * The index document: two children, and no `<url>` element anywhere in it.
+     * The index document: three children, and no `<url>` element anywhere in it.
+     *
+     * The status-page segment is named unconditionally, including on a
+     * deployment where no customer has published one yet. An empty `<urlset>` is
+     * a valid document that Search Console reports as zero URLs discovered,
+     * while making the index depend on a table would put a query on a route that
+     * is otherwise pure and would drop the segment (and its Search Console
+     * history) the moment the last public page was unpublished.
      */
     public function index(): string
     {
@@ -106,7 +126,7 @@ class SitemapBuilder
         $index = $document->createElementNS(self::SITEMAP_NS, 'sitemapindex');
         $document->appendChild($index);
 
-        foreach ([self::MARKETING_PATH, self::SERVICES_PATH] as $segment) {
+        foreach ([self::MARKETING_PATH, self::SERVICES_PATH, self::STATUS_PAGES_PATH] as $segment) {
             $child = $document->createElementNS(self::SITEMAP_NS, 'sitemap');
             $child->appendChild($document->createElementNS(self::SITEMAP_NS, 'loc', url($segment)));
             $index->appendChild($child);
@@ -167,9 +187,60 @@ class SitemapBuilder
     }
 
     /**
-     * One entry: the default language's URL as the `loc`, and every language plus
-     * `x-default` as an `xhtml:link` alternate, exactly as the page's own `<head>`
-     * declares them.
+     * The status-page segment: every PUBLIC customer status page, each on the one
+     * hostname it is canonical on, with every language as an alternate.
+     *
+     * The predicate is `is_public` ALONE, deliberately, because
+     * {@see StatusPage::scopePublic()} is this codebase's indexability contract
+     * and the controller's own 404 gate reads the same column: a page in here is
+     * exactly a page that answers 200 to an anonymous visitor.
+     * `subscriptions_enabled` is NOT consulted, even though it looks adjacent: it
+     * governs whether one form renders, and excluding on it would drop a
+     * legitimately public page whose own head declares a canonical and a full
+     * alternate set, which is the reciprocity break this whole file exists to
+     * avoid.
+     *
+     * No `lastmod` for the same reason the marketing documents carry none, only
+     * harder: a status page's content is redrawn by every check, so its
+     * substantive-change stamp is minutes old at all times and `updated_at` on
+     * the row tracks the operator's edits rather than the document a crawler
+     * fetches. Either would be the untrustworthy `lastmod` Google discounts
+     * sitewide.
+     *
+     * Only the three columns the chrome addresses a page by are selected: the
+     * segment is otherwise a full table read on a public route.
+     */
+    public function statusPages(): string
+    {
+        $pages = StatusPage::query()
+            ->public()
+            // Deterministic, so two fetches of the same document are byte-identical
+            // and a diff between them means something changed.
+            ->orderBy('slug')
+            ->get([
+                'slug',
+                'domain_mode',
+                'custom_domain',
+            ]);
+
+        $entries = [];
+
+        foreach ($pages as $page) {
+            // Constructed in the DEFAULT language: `alternates()` is the same set
+            // whichever language is rendering (that is what reciprocity means),
+            // and this is the language whose URL becomes the `loc`.
+            $chrome = (new StatusPageChrome($page, (string) config('app.default_locale')))->toArray();
+
+            $entries[] = $this->absoluteEntry($chrome['defaultLocaleUrl'], $chrome['alternates'], null);
+        }
+
+        return $this->urlset($entries);
+    }
+
+    /**
+     * One entry for a page addressed by a locale-free PATH on the app host: the
+     * default language's URL as the `loc`, and every language plus `x-default` as
+     * an `xhtml:link` alternate, exactly as the page's own `<head>` declares them.
      *
      * @return array{loc: string, alternates: list<array{hreflang: string, href: string}>, lastmod: string|null}
      */
@@ -192,10 +263,35 @@ class SitemapBuilder
             'href' => $chrome['defaultLocaleUrl'],
         ];
 
+        return $this->absoluteEntry($chrome['defaultLocaleUrl'], $alternates, $lastmod);
+    }
+
+    /**
+     * One entry from a set of ABSOLUTE URLs somebody else composed.
+     *
+     * It exists because {@see entry()} above cannot express a customer status
+     * page at all: it composes every URL through `new ChromeData(path: ...)`,
+     * whose `urlFor()` is `url($path)` on the app host, while a status page in
+     * Subdomain or Custom mode is canonical on a hostname of its own. Forcing it
+     * through the path form would put a `loc` in this document that the page's
+     * own canonical contradicts, which is precisely the disagreement the class
+     * docblock says is worse than publishing no sitemap.
+     *
+     * So the split is by WHO KNOWS THE URLS, not by page type: the marketing and
+     * services callers hand over a path and let `ChromeData` compose, the status
+     * pages hand over what `StatusPageChrome` already composed. Both arrive here,
+     * so there is still exactly one place that decides what an entry looks like.
+     *
+     * @param  string  $loc  The default language's absolute URL, which is the one
+     *                       the page in that language names as its own canonical.
+     * @param  list<array{hreflang: string, href: string}>  $alternates  Every language plus `x-default`,
+     *                                                                   in the shape the page's head emits.
+     * @return array{loc: string, alternates: list<array{hreflang: string, href: string}>, lastmod: string|null}
+     */
+    protected function absoluteEntry(string $loc, array $alternates, ?CarbonInterface $lastmod): array
+    {
         return [
-            // The default language's URL, which is the one the page in that
-            // language names as its own canonical.
-            'loc' => $chrome['defaultLocaleUrl'],
+            'loc' => $loc,
             'alternates' => $alternates,
             'lastmod' => $lastmod?->toAtomString(),
         ];
