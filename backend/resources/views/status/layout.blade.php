@@ -12,9 +12,9 @@
 
     The `lang` attribute is the one string here that is not copy, and it is the
     one that matters most to a screen reader (which picks its voice from it) and
-    to a crawler. It reads the locale the controller applied from
-    `status_pages.locale`, so it can never disagree with the language of the copy
-    below it.
+    to a crawler. It reads the locale the CONTROLLER applied, which is the URL's
+    language prefix when there is one and the page's own canonical language
+    otherwise, so it can never disagree with the language of the copy below it.
 --}}
 <html lang="{{ app()->getLocale() }}">
     <head>
@@ -99,8 +99,14 @@
         <meta property="og:type" content="website">
         <meta property="og:url" content="{{ $canonicalUrl }}">
         @if ($vm->page['description'])
-            <meta property="og:description" content="{{ $vm->page['description'] }}">
-            <meta name="description" content="{{ $vm->page['description'] }}">
+            {{-- Squished, unlike the description rendered in the body. A meta
+                 attribute is one line by construction, and this value can now be
+                 MODEL OUTPUT: the output contract trims and rejects control
+                 characters but never collapses a newline the source did not have,
+                 so a model that answered in two lines would put a raw break
+                 inside `content="..."`. --}}
+            <meta property="og:description" content="{{ \Illuminate\Support\Str::squish($vm->page['description']) }}">
+            <meta name="description" content="{{ \Illuminate\Support\Str::squish($vm->page['description']) }}">
         @endif
 
         {{--
@@ -171,8 +177,19 @@
                 function apply(choice) {
                     if (CHOICES.indexOf(choice) !== -1) {
                         document.documentElement.setAttribute('data-theme', choice);
+                        // The UA-painted furniture too, not just our own surfaces.
+                        // `<meta name="color-scheme" content="light dark">` above
+                        // tells the browser to paint the scrollbar, the caret and
+                        // the autofill dropdown from the OS preference, so an
+                        // explicit Dark choice on a light OS left a white
+                        // scrollbar track down the side of a near-black page. The
+                        // inline style overrides the meta for this document only.
+                        document.documentElement.style.colorScheme = choice;
                     } else {
                         document.documentElement.removeAttribute('data-theme');
+                        // Back to the meta's `light dark`, which is what following
+                        // the OS means for the furniture as well.
+                        document.documentElement.style.removeProperty('color-scheme');
                     }
                 }
 

@@ -102,6 +102,29 @@ class StatusPageThemeTest extends TestCase
         );
     }
 
+    public function test_an_explicit_choice_also_sets_the_ua_painted_color_scheme(): void
+    {
+        // `<meta name="color-scheme" content="light dark">` tells the browser to
+        // paint the scrollbar, the caret and the autofill dropdown from the OS
+        // preference. Setting only `data-theme` therefore themed our own surfaces
+        // and left the UA's: Dark chosen on a light OS painted a white scrollbar
+        // track down the side of a near-black page. The inline style overrides the
+        // meta for this document, and clearing it on `system` hands the furniture
+        // back to the OS.
+        //
+        // Asserted on the template because this is a browser behaviour PHPUnit
+        // never runs; the live proof is the CDP walk in this plan's evidence.
+        $this->makePageWithMonitor('theme-color-scheme');
+
+        $script = $this->scriptContaining(
+            (string) $this->get('/s/theme-color-scheme')->assertOk()->getContent(),
+            'window.__uptizmTheme',
+        );
+
+        $this->assertStringContainsString('style.colorScheme = choice', $script);
+        $this->assertStringContainsString("style.removeProperty('color-scheme')", $script);
+    }
+
     public function test_the_default_render_carries_no_server_side_theme_attribute(): void
     {
         // "No stored preference follows the media query exactly as today" means
@@ -144,11 +167,12 @@ class StatusPageThemeTest extends TestCase
     {
         $css = (string) file_get_contents(resource_path('css/app.css'));
 
-        // Each override block must exist, must be keyed off `:root[data-theme=...]`
-        // (a pseudo-class plus an attribute selector, which outranks the plain
-        // `:root` above on specificity regardless of source order), and must
-        // carry the exact same custom properties as the block it overrides, so
-        // a value edited in one place cannot silently drift from the other.
+        // Each override block must exist and must be keyed off
+        // `:root[data-theme=...]` (a pseudo-class plus an attribute selector,
+        // which outranks the plain `:root` above on specificity regardless of
+        // source order). That the blocks carry the SAME property set as the ones
+        // they override is the next test's job: asserting one property here would
+        // read like a drift guard while guarding one value out of the palette.
         $this->assertMatchesRegularExpression(
             "/:root\[data-theme=['\"]light['\"]\]\s*\{[^}]*--app-surface:\s*#f9fafb;/s",
             $css,
@@ -172,6 +196,99 @@ class StatusPageThemeTest extends TestCase
         $this->assertIsInt($darkOverrideAt);
         $this->assertGreaterThan($mediaAt, $lightOverrideAt);
         $this->assertGreaterThan($mediaAt, $darkOverrideAt);
+    }
+
+    public function test_each_override_block_declares_the_same_palette_as_the_block_it_overrides(): void
+    {
+        // The actual drift guard, and the reason the plan accepted FOUR
+        // duplicated palettes: an explicit choice is only equivalent to following
+        // the OS if the two blocks say the same thing. Comparing whole property
+        // SETS is what makes that true, because a single-property assertion stays
+        // green while `--app-primary` is edited in `:root` and not in
+        // `:root[data-theme='light']`, and a reader who chose Light then keeps the
+        // previous brand green with nothing failing anywhere.
+        $css = (string) file_get_contents(resource_path('css/app.css'));
+
+        $baselineLight = $this->customProperties($css, ':root {');
+        $overrideLight = $this->customProperties($css, ":root[data-theme='light'] {");
+        $baselineDark = $this->customProperties($css, '@media (prefers-color-scheme: dark) {', nested: ':root {');
+        $overrideDark = $this->customProperties($css, ":root[data-theme='dark'] {");
+
+        // Guard against the whole test passing on four empty arrays, which is what
+        // a renamed selector or a changed formatting convention would produce.
+        $this->assertGreaterThan(10, count($baselineLight), 'The light baseline palette was not parsed.');
+        $this->assertGreaterThan(10, count($baselineDark), 'The dark baseline palette was not parsed.');
+
+        $this->assertSame(
+            $baselineLight,
+            $overrideLight,
+            'The light override block drifted from `:root`. Every `--app-*` declaration has to appear in both, with the same value.',
+        );
+        $this->assertSame(
+            $baselineDark,
+            $overrideDark,
+            'The dark override block drifted from the prefers-color-scheme block. Every `--app-*` declaration has to appear in both, with the same value.',
+        );
+    }
+
+    /**
+     * Every `--app-*` declaration inside one CSS block, keyed by property name
+     * and sorted, so two blocks compare as sets rather than as source text.
+     *
+     * The block is delimited by brace COUNTING from the selector rather than by
+     * `[^}]*`, because the dark baseline lives inside a media query and a
+     * non-greedy character class would stop at the nested block's own closing
+     * brace.
+     *
+     * @param  string  $selector  The opening selector plus its brace.
+     * @param  string|null  $nested  A selector to descend into first, for a block inside a media query.
+     * @return array<string, string>
+     */
+    protected function customProperties(string $css, string $selector, ?string $nested = null): array
+    {
+        $start = strpos($css, $selector);
+        $this->assertIsInt($start, "Could not find the block `{$selector}` in app.css.");
+
+        $open = $start + strlen($selector) - 1;
+
+        if ($nested !== null) {
+            $nestedAt = strpos($css, $nested, $open);
+            $this->assertIsInt($nestedAt, "Could not find `{$nested}` inside `{$selector}`.");
+            $open = $nestedAt + strlen($nested) - 1;
+        }
+
+        $depth = 0;
+        $end = $open;
+
+        for ($at = $open; $at < strlen($css); $at++) {
+            if ($css[$at] === '{') {
+                $depth++;
+            } elseif ($css[$at] === '}') {
+                $depth--;
+
+                if ($depth === 0) {
+                    $end = $at;
+                    break;
+                }
+            }
+        }
+
+        preg_match_all(
+            '/(--app-[a-z0-9-]+)\s*:\s*([^;]+);/i',
+            substr($css, $open, $end - $open),
+            $matches,
+            PREG_SET_ORDER,
+        );
+
+        $properties = [];
+
+        foreach ($matches as $match) {
+            $properties[$match[1]] = trim($match[2]);
+        }
+
+        ksort($properties);
+
+        return $properties;
     }
 
     /**
