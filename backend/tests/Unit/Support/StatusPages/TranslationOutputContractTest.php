@@ -173,6 +173,48 @@ class TranslationOutputContractTest extends TestCase
      * comparison is exact set membership, never a suffix match, so an attacker
      * cannot ride the customer's own domain with `acme.com.evil.example`.
      */
+    public function test_the_source_handed_back_unchanged_is_rejected(): void
+    {
+        // The failure mode every other rule accepts: no foreign token, and a
+        // ratio of exactly 1.0. Accepting it publishes English on the Turkish
+        // page under "automatically translated from English", which the reader
+        // has no way to see through.
+        $source = 'We are investigating elevated error rates on the payment endpoints.';
+
+        $verdict = TranslationOutputContract::verify($source, $source);
+
+        $this->assertFalse($verdict['accepted']);
+        $this->assertSame(TranslationOutputContract::REASON_SOURCE_ECHOED, $verdict['reason']);
+    }
+
+    public function test_the_echo_rule_ignores_case_and_surrounding_whitespace(): void
+    {
+        // A model that echoes the source with a different case or a trailing
+        // newline has still not translated anything, and comparing raw strings
+        // would let both through.
+        $source = 'We are investigating elevated error rates on the payment endpoints.';
+
+        $verdict = TranslationOutputContract::verify($source, "  \n".mb_strtoupper($source).'  ');
+
+        $this->assertFalse($verdict['accepted']);
+        $this->assertSame(TranslationOutputContract::REASON_SOURCE_ECHOED, $verdict['reason']);
+    }
+
+    public function test_a_short_field_whose_translation_is_the_source_is_accepted(): void
+    {
+        // Below the 40-character floor an identical output is the CORRECT answer:
+        // a component label or a product name keeps its spelling in Turkish, and
+        // rejecting it would mark honest work "translation unavailable". This is
+        // the case that makes the floor load-bearing rather than decorative.
+        $source = 'Checkout API';
+
+        $verdict = TranslationOutputContract::verify($source, $source);
+
+        $this->assertTrue($verdict['accepted']);
+        $this->assertSame('Checkout API', $verdict['value']);
+        $this->assertNull($verdict['reason']);
+    }
+
     public function test_a_lookalike_subdomain_of_an_allowed_host_is_still_foreign(): void
     {
         $verdict = TranslationOutputContract::verify(

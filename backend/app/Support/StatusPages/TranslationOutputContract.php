@@ -56,6 +56,38 @@ use App\Services\Ai\MetricDiscoveryPayload;
  *  5. EMPTY. An output that is nothing but whitespace is not a translation. The
  *     ratio floor above means a short source cannot catch this, so it is its own
  *     rule rather than a side effect of one.
+ *  6. SOURCE ECHOED. The source handed back unchanged, case-insensitively, above
+ *     the same 40-character floor. It carries no foreign token and scores a ratio
+ *     of exactly 1.0, so every rule above accepts it, and accepting it publishes
+ *     English under "automatically translated from English": a labelled lie the
+ *     reader cannot see through, which is worse than the honest
+ *     "translation unavailable" a rejection produces. The floor is what keeps a
+ *     component label whose correct Turkish IS the English ("Checkout API") from
+ *     being marked unavailable.
+ *
+ * WHAT IT STILL LETS THROUGH, measured against this class rather than reasoned
+ * about. Rule 3 keeps URL HOSTS, bare hostnames with an alphabetic TLD, email
+ * addresses and digit runs joined across spaces, hyphens and parentheses, so
+ * these three reach a page:
+ *
+ *   - a bare IP address, `45.33.32.156` or an IPv6 literal: no alphabetic TLD, and
+ *     the digit-run join does not cross a full stop;
+ *   - a phone number written with full stops, `555.010.0123`, for the same two
+ *     reasons. Do NOT close this by adding `.` to the digit-run join class:
+ *     Turkish writes thousands separators with full stops, so `1.234.567` would
+ *     fuse into a seven-digit token the English source never carried and the
+ *     contract would start rejecting honest translations of exactly the numbers a
+ *     status page quotes;
+ *   - a DIFFERENT PATH on a host the source already names, since only the host is
+ *     compared. Reachable only through an open redirect or an attacker-writable
+ *     path on that host.
+ *
+ * Three things a reader might expect to be open are closed, and each was checked:
+ * an IDN homograph is a different token and is rejected; `https://acme.com@evil.example`
+ * is rejected because `parse_url` reads the host as `evil.example`; and markup is
+ * inert for a reason that lives outside this class, namely that nothing under
+ * `resources/views/status/` uses `{!! !!}` (a test fails on it). This class strips
+ * CONTROL, bidi and zero-width characters, never tags.
  *
  * THE FALSE POSITIVE IT ACCEPTS. Rule 3's bare-hostname pattern matches
  * `label.tld` anywhere, so a translation that drops the space after a full stop
@@ -95,6 +127,12 @@ class TranslationOutputContract
      * The output held nothing but whitespace.
      */
     public const string REASON_EMPTY = 'empty';
+
+    /**
+     * The output is the source handed back unchanged, which every other rule
+     * accepts and which publishes the source language under a translated label.
+     */
+    public const string REASON_SOURCE_ECHOED = 'source_echoed';
 
     /**
      * Source length below which the length ratio is not evaluated.
@@ -175,6 +213,22 @@ class TranslationOutputContract
             if ($ratio < self::MINIMUM_LENGTH_RATIO || $ratio > self::MAXIMUM_LENGTH_RATIO) {
                 return self::reject(self::REASON_LENGTH_RATIO);
             }
+        }
+
+        // 5. The source handed back. A model that echoes the English carries no
+        //    foreign token and scores a ratio of exactly 1.0, so it passes every
+        //    rule above and publishes English under "automatically translated
+        //    from English": worse than no translation, because it is a labelled
+        //    lie the reader has no way to see through. Recorded as a rejection so
+        //    the field reads "translation unavailable" instead.
+        //
+        //    Bounded by the same floor as the ratio, and for the same reason: a
+        //    short field is often a product name or a component label
+        //    ("Checkout API") whose correct Turkish IS the English, and rejecting
+        //    those would mark honest work unavailable.
+        if ($sourceLength >= self::RATIO_FLOOR_CHARACTERS
+            && mb_strtolower($value) === mb_strtolower(trim($source))) {
+            return self::reject(self::REASON_SOURCE_ECHOED);
         }
 
         return [
