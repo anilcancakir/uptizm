@@ -17,8 +17,10 @@ use Tests\TestCase;
  * silent and surfaces weeks later in a search console, which is why it is pinned
  * here rather than left to the rendered page.
  *
- * No database: the chrome reads three columns and two config values, and every
- * URL it emits is composed from configuration rather than from a request.
+ * No database: the chrome reads four columns and two config values, and every
+ * URL it emits is composed from configuration rather than from a request. The
+ * fourth column is `locale`, which decides which language gets no prefix, so a
+ * fixture that omitted it would only ever exercise the app-default case.
  */
 class StatusPageChromeTest extends TestCase
 {
@@ -142,9 +144,9 @@ class StatusPageChromeTest extends TestCase
                 // reciprocity and is ignored wholesale.
                 $this->assertSame($chrome['canonicalUrl'], $byHreflang[$rendering]);
 
-                // `x-default` points at THIS page in the default language, never
-                // at a site root.
-                $this->assertSame($chrome['defaultLocaleUrl'], $byHreflang['x-default']);
+                // `x-default` points at THIS page in the language its
+                // unprefixed URL serves, never at a site root.
+                $this->assertSame($chrome['canonicalLocaleUrl'], $byHreflang['x-default']);
                 $this->assertSame($byHreflang['en'], $byHreflang['x-default']);
 
                 // Exactly one canonical per language: the two languages do not
@@ -152,6 +154,99 @@ class StatusPageChromeTest extends TestCase
                 $this->assertNotSame($byHreflang['en'], $byHreflang['tr']);
             }
         }
+    }
+
+    public function test_the_pages_own_language_owns_the_unprefixed_url_and_the_app_default_takes_a_prefix(): void
+    {
+        /*
+         * `status_pages.locale` means "the language the unprefixed URL serves",
+         * so WHICH language is unprefixed is a per-PAGE fact and never the
+         * deployment default. On a page published in Turkish, `/s/acme` IS the
+         * Turkish canonical and English needs `/en/s/acme`.
+         *
+         * Reading `app.default_locale` here published `hreflang="en"` pointing
+         * at a URL that serves Turkish and a canonical (`/tr/s/acme`) that no
+         * route answered, which is the shape Google drops the whole cluster for.
+         */
+        $page = $this->page(DomainMode::Path, locale: 'tr');
+
+        $turkish = (new StatusPageChrome($page, 'tr'))->toArray();
+        $english = (new StatusPageChrome($page, 'en'))->toArray();
+
+        $this->assertSame('https://uptizm.test/s/acme', $turkish['canonicalUrl']);
+        $this->assertSame('https://uptizm.test/en/s/acme', $english['canonicalUrl']);
+
+        foreach (['tr' => $turkish, 'en' => $english] as $rendering => $chrome) {
+            $byHreflang = array_column($chrome['alternates'], 'href', 'hreflang');
+
+            // The unprefixed URL, which is the `loc` the sitemap publishes and
+            // the fallback a crawler follows for a language we do not speak.
+            $this->assertSame('https://uptizm.test/s/acme', $chrome['canonicalLocaleUrl']);
+            $this->assertSame($chrome['canonicalLocaleUrl'], $byHreflang['x-default']);
+
+            // Still self-referencing, and still exactly one URL per language.
+            $this->assertSame($chrome['canonicalUrl'], $byHreflang[$rendering]);
+            $this->assertSame('https://uptizm.test/s/acme', $byHreflang['tr']);
+            $this->assertSame('https://uptizm.test/en/s/acme', $byHreflang['en']);
+        }
+
+        // Every switcher link points at the URL that actually serves its own
+        // language, which is what the label beside it promises.
+        $this->assertSame(
+            [
+                'en' => '/en/s/acme',
+                'tr' => '/s/acme',
+            ],
+            array_column($turkish['localeLinks'], 'path', 'code'),
+        );
+    }
+
+    public function test_a_subdomain_page_published_in_another_language_puts_that_language_at_its_root(): void
+    {
+        // The prefix goes in front of whichever hostname the page is canonical
+        // on, so the per-page rule has to hold on the subdomain form too: the
+        // root serves the page's own language and the app default is a segment.
+        $chrome = (new StatusPageChrome($this->page(DomainMode::Subdomain, locale: 'tr'), 'tr'))->toArray();
+
+        $this->assertSame('https://acme.status.uptizm.test/', $chrome['canonicalUrl']);
+        $this->assertSame(
+            [
+                'en' => '/en',
+                'tr' => '/',
+            ],
+            array_column($chrome['localeLinks'], 'path', 'code'),
+        );
+    }
+
+    public function test_the_switcher_enumerates_the_same_languages_the_offer_negotiates_against(): void
+    {
+        /*
+         * One accessor on both sides, and this is why: `StatusPageLocale`
+         * PREPENDS `app.default_locale` to the supported list, so a deployment
+         * whose default is absent from `magic-starter.supported_locales` could
+         * offer a visitor a language the switcher had no link for. The banner
+         * dereferences that link unguarded, so the divergence is a 500 on a
+         * PUBLIC page rather than a missing anchor.
+         */
+        config([
+            'app.default_locale' => 'de',
+            'magic-starter.supported_locales' => ['en', 'tr'],
+        ]);
+
+        $links = (new StatusPageChrome($this->page(DomainMode::Path), 'de'))->toArray()['localeLinks'];
+
+        $this->assertSame(['de', 'en', 'tr'], array_column($links, 'code'));
+
+        // And a null-locale page still falls back to the deployment default, so
+        // German is the language on the unprefixed URL here.
+        $this->assertSame(
+            [
+                'de' => '/s/acme',
+                'en' => '/en/s/acme',
+                'tr' => '/tr/s/acme',
+            ],
+            array_column($links, 'path', 'code'),
+        );
     }
 
     public function test_the_switcher_links_name_every_language_in_its_own_words(): void
@@ -193,14 +288,19 @@ class StatusPageChromeTest extends TestCase
     /**
      * An unsaved page: the chrome reads columns and configuration only, so a row
      * would add a database round trip and prove nothing extra.
+     *
+     * `locale` defaults to null, the shape every page had before the column
+     * existed and still the common one: the deployment default then owns the
+     * unprefixed URL.
      */
-    protected function page(DomainMode $mode, ?string $customDomain = null): StatusPage
+    protected function page(DomainMode $mode, ?string $customDomain = null, ?string $locale = null): StatusPage
     {
         return new StatusPage([
             'name' => 'Acme Status',
             'slug' => 'acme',
             'domain_mode' => $mode,
             'custom_domain' => $customDomain,
+            'locale' => $locale,
         ]);
     }
 }

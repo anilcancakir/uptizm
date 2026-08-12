@@ -24,7 +24,9 @@ use Tests\TestCase;
  *     canonicalisation has to be settled BEFORE hreflang means anything. Every
  *     host serves the SAME canonical, the one `StatusPage::publicUrl()`'s
  *     precedence picks, and each language is canonical for itself rather than
- *     for the owner's language.
+ *     for the owner's language. WHICH language gets the unprefixed URL is the
+ *     owner's (`status_pages.locale`), so a fixture pinned to the deployment
+ *     default cannot see that half at all.
  *  2. RECIPROCITY. Google enforces it: an alternate set that omits its own page,
  *     or that names a host which does not point back, is dropped WHOLESALE, and
  *     the failure is only visible in a search console weeks later. So every
@@ -79,6 +81,73 @@ class StatusPageSeoTest extends TestCase
         // Google discards the cluster for.
         $this->assertSame($expected, $this->alternatesOf($english));
         $this->assertSame($expected, $this->alternatesOf($turkish));
+    }
+
+    public function test_a_page_published_in_another_language_owns_the_unprefixed_url_for_it(): void
+    {
+        /*
+         * `status_pages.locale` is the language the UNPREFIXED URL serves, so on
+         * this page `/s/{slug}` is the Turkish canonical and English lives at
+         * `/en/s/{slug}`. Three of the four layers used to read
+         * `app.default_locale` instead, which published an `hreflang="en"`
+         * naming a URL that serves Turkish, a canonical (`/tr/s/{slug}`) no
+         * route answered, and no reachable English document at all.
+         *
+         * Both documents are asserted through `<html lang>` as well as through
+         * their canonical, so this cannot pass on two copies of one language.
+         */
+        $this->makePage('turkce', locale: 'tr');
+
+        $turkish = $this->get('/s/turkce')->assertOk()->getContent();
+        $english = $this->get('/en/s/turkce')->assertOk()->getContent();
+
+        $this->assertStringContainsString('<html lang="tr">', $turkish);
+        $this->assertStringContainsString('<html lang="en">', $english);
+
+        $this->assertSame(url('/s/turkce'), $this->canonicalOf($turkish));
+        $this->assertSame(url('/en/s/turkce'), $this->canonicalOf($english));
+
+        $expected = [
+            'en' => url('/en/s/turkce'),
+            'tr' => url('/s/turkce'),
+            // The fallback names this page in the language its bare URL serves,
+            // which is the owner's and not the deployment's.
+            'x-default' => url('/s/turkce'),
+        ];
+
+        $this->assertSame($expected, $this->alternatesOf($turkish));
+        $this->assertSame($expected, $this->alternatesOf($english));
+    }
+
+    public function test_a_pages_own_language_has_no_prefixed_url(): void
+    {
+        /*
+         * The other half of "exactly one URL per language per page". The prefix
+         * accepts every supported language, because a route cannot know which
+         * page it is about, so the page itself has to refuse the one prefix that
+         * duplicates its own bare URL: without this a Turkish page answered
+         * Turkish on both `/s/{slug}` and `/tr/s/{slug}` and the duplicate
+         * competed with the canonical it declares.
+         *
+         * A 404 and never a redirect, matching this route's other refusals: on
+         * this surface nothing redirects between two languages of one document.
+         */
+        $this->makePage('turkce', locale: 'tr');
+        $this->makePage('ingilizce');
+
+        $this->get('/tr/s/turkce')->assertNotFound();
+        $this->get('/en/s/ingilizce')->assertNotFound();
+
+        // The mirror image, so the two 404s above are not passing for the wrong
+        // reason: each page's OTHER language does answer at its prefixed URL.
+        $this->get('/en/s/turkce')->assertOk();
+        $this->get('/tr/s/ingilizce')->assertOk();
+
+        // A language this deployment does not publish in is still not a page, in
+        // either direction. That one is refused by the route's `whereIn` rather
+        // than by the controller.
+        $this->get('/de/s/turkce')->assertNotFound();
+        $this->get('/de/s/ingilizce')->assertNotFound();
     }
 
     public function test_the_canonical_link_carries_no_hreflang(): void
@@ -140,21 +209,34 @@ class StatusPageSeoTest extends TestCase
          * one `SitemapBuilder::entry()` could ever have expressed: a subdomain
          * page compared this way is what proves the absolute-URL entry point
          * carries the page's own host into the XML.
+         *
+         * The third fixture is a page published in a NON-default language, and it
+         * is the one the `loc` assertion below exists for. The builder selected
+         * only the addressing columns, so the chrome could not see `locale` at
+         * all and composed the whole entry in the deployment default: the
+         * alternate SETS still agreed (they are language-independent by
+         * construction) while the `loc` named a URL whose own document
+         * canonicalises somewhere else, which is a self-contradicting entry the
+         * set comparison alone cannot see.
          */
         $this->makePage('path-mode');
         $this->makePage('subdomain-mode', mode: DomainMode::Subdomain);
+        $this->makePage('turkce', locale: 'tr');
 
         $urls = $this->urls($this->get('/'.SitemapBuilder::STATUS_PAGES_PATH)->assertOk()->getContent());
 
         $pages = [
             url('/s/path-mode') => '/s/path-mode',
             'http://subdomain-mode.uptizm.test/' => 'http://subdomain-mode.uptizm.test/',
+            url('/s/turkce') => '/s/turkce',
         ];
 
         foreach ($pages as $loc => $request) {
             $this->assertArrayHasKey($loc, $urls, "The status-page segment does not list {$loc}.");
 
-            $fromPage = $this->alternatesOf($this->get($request)->assertOk()->getContent());
+            $html = (string) $this->get($request)->assertOk()->getContent();
+
+            $fromPage = $this->alternatesOf($html);
             $fromSitemap = $urls[$loc]['alternates'];
 
             $this->assertNotSame([], $fromPage, "GET {$request} emitted no hreflang at all, so this comparison checks nothing.");
@@ -163,6 +245,17 @@ class StatusPageSeoTest extends TestCase
             ksort($fromSitemap);
 
             $this->assertSame($fromPage, $fromSitemap, "The sitemap and {$request} disagree about this page's alternates.");
+
+            // The `loc` is the document's OWN canonical. A sitemap that lists a
+            // URL the page canonicalises away from asks Google to index one URL
+            // and follow another, and no comparison of the alternate sets can
+            // catch it, because those sets are the same set whichever language
+            // composed them.
+            $this->assertSame(
+                $this->canonicalOf($html),
+                $loc,
+                "The sitemap lists {$loc}, which is not the canonical that document declares.",
+            );
         }
     }
 
@@ -171,7 +264,12 @@ class StatusPageSeoTest extends TestCase
         // A sitemap entry with no page behind it is a crawl error handed to
         // Google on purpose. Every `loc` AND every alternate is requested,
         // because the alternates are the URLs a crawler actually follows.
+        //
+        // The second page is published in a non-default language, which is where
+        // this used to break: its English alternate was `/s/{slug}` (a Turkish
+        // document) and no route answered `/en/s/{slug}` at all.
         $this->makePage(self::SLUG);
+        $this->makePage('turkce', locale: 'tr');
 
         $urls = $this->urls($this->get('/'.SitemapBuilder::STATUS_PAGES_PATH)->assertOk()->getContent());
 
@@ -320,16 +418,19 @@ class StatusPageSeoTest extends TestCase
     /**
      * A published page with no content on it, on its own team.
      *
-     * `locale` is left null (the deployment default) on purpose: a page pinned to
-     * a language would still render every language at its prefixed URL, and
-     * pinning it here would hide a canonical built from the OWNER's language
-     * instead of the rendered one.
+     * `locale` defaults to null, the deployment default and still the common
+     * shape, so most cases here read the same URL space every page had before the
+     * column existed. It is a PARAMETER because null was once hardcoded, and that
+     * is why three layers shipped reading `app.default_locale` as the unprefixed
+     * language: with the owner's choice always equal to the deployment's, no
+     * assertion in this file could tell the two apart.
      */
     private function makePage(
         string $slug,
         bool $isPublic = true,
         bool $subscriptions = true,
         DomainMode $mode = DomainMode::Path,
+        ?string $locale = null,
     ): StatusPage {
         $user = User::query()->create([
             'name' => 'Seo Tester',
@@ -349,7 +450,7 @@ class StatusPageSeoTest extends TestCase
             'domain_mode' => $mode,
             'is_public' => $isPublic,
             'subscriptions_enabled' => $subscriptions,
-            'locale' => null,
+            'locale' => $locale,
         ]);
     }
 }

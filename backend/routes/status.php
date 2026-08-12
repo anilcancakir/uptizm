@@ -3,6 +3,7 @@
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Controllers\StatusPage\SubscribeController;
 use App\Http\Middleware\RejectReservedStatusPageSlug;
+use App\Support\StatusPages\StatusPageLocale;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -37,18 +38,28 @@ Route::get('/unsubscribe/{token}', [SubscribeController::class, 'unsubscribe'])
 /*
  * The same page, one URL per language.
  *
- * The default language keeps the unprefixed URL above and gets NO prefixed form
- * of its own (and no redirect between the two), so every language has exactly
- * ONE address and hreflang has a single canonical to name for each. The list
- * comes from `magic-starter.supported_locales`, the same array the API
- * negotiates Accept-Language against and `routes/marketing.php` builds its own
- * prefixes from, so a language cannot exist on one surface and be missing from
- * the other.
+ * The language a page publishes in keeps the unprefixed URL above and gets NO
+ * prefixed form (and no redirect between the two), so every language has exactly
+ * ONE address and hreflang has a single canonical to name for each. WHICH
+ * language that is comes from `status_pages.locale`, a fact about the page, and a
+ * route cannot know which page it is about: the segment therefore accepts EVERY
+ * supported language, `app.default_locale` included, and the controller refuses
+ * the one prefix that would duplicate the page's own bare URL. Subtracting the
+ * deployment default here instead left English with no address at all on a page
+ * published in Turkish, while that page's head advertised one.
  *
- * Registered only when there IS another language, because `whereIn([])` compiles
- * to an empty alternation that matches ANYTHING: on a single-language deployment
- * the constraint would stop constraining and `/xx/s/{slug}` would answer the
- * page in the default language at unbounded addresses.
+ * The list is {@see StatusPageLocale::supported()}, which is
+ * `magic-starter.supported_locales` with `app.default_locale` in front of it: the
+ * same array the API negotiates Accept-Language against and
+ * `routes/marketing.php` builds its own prefixes from, read through the one
+ * accessor the chrome's alternates and the language offer also read, so a
+ * language cannot be advertised on the page and missing from the URL space.
+ *
+ * Registered only when there IS more than one language, because `whereIn([])`
+ * compiles to an empty alternation that matches ANYTHING: on a single-language
+ * deployment the constraint would stop constraining and `/xx/s/{slug}` would
+ * answer the page at unbounded addresses. That deployment has nothing to prefix
+ * either way, since its one language is the one on the bare URL of every page.
  *
  * The constraint is `whereIn` on the route and deliberately never
  * `Route::pattern()`, which binds `{locale}` for every route in the application
@@ -64,13 +75,11 @@ Route::get('/unsubscribe/{token}', [SubscribeController::class, 'unsubscribe'])
  * writes and token redemptions rather than indexable documents, so a second
  * address would buy them nothing.
  */
-$supportedLocales = array_values((array) config('magic-starter.supported_locales', []));
-$defaultLocale = (string) config('app.default_locale');
-$prefixedLocales = array_values(array_diff($supportedLocales, [$defaultLocale]));
+$supportedLocales = StatusPageLocale::supported();
 
-if ($prefixedLocales !== []) {
+if (count($supportedLocales) > 1) {
     Route::get('/{locale}/s/{slug}', ShowStatusPageController::class)
-        ->whereIn('locale', $prefixedLocales)
+        ->whereIn('locale', $supportedLocales)
         ->middleware('throttle:resource-not-found')
         ->name('status.show.localized');
 }
@@ -97,7 +106,7 @@ $subdomainHost = config('status_pages.subdomain_host');
 if (is_string($subdomainHost) && $subdomainHost !== '') {
     Route::domain('{slug}.'.$subdomainHost)
         ->middleware([RejectReservedStatusPageSlug::class, 'throttle:resource-not-found'])
-        ->group(function () use ($prefixedLocales): void {
+        ->group(function () use ($supportedLocales): void {
             Route::get('/', ShowStatusPageController::class)
                 ->name('status.show.subdomain');
 
@@ -111,12 +120,21 @@ if (is_string($subdomainHost) && $subdomainHost !== '') {
              * bare one-segment pattern: unconstrained, `{slug}.<host>/up` would be
              * read as a language and answered by the status controller, shadowing
              * the health check nginx and the deploy script poll on every status
-             * subdomain. Registered only when there is another language, for the
-             * empty-alternation reason the path form documents.
+             * subdomain. Registered only when there is more than one language, for
+             * the empty-alternation reason the path form documents.
+             *
+             * That same bucket precedence is why the list here must include
+             * `app.default_locale`: `routes/marketing.php` registers
+             * `Route::redirect('/en', '/', 301)` with no domain constraint, so
+             * while this route excluded the default the redirect was what `/en`
+             * resolved to on a status subdomain, sending a visitor asking for
+             * English to the page's own language. Included, this claims it and
+             * answers the English document (or 404s when English IS the page's own
+             * language, which is the URL that must not exist twice).
              */
-            if ($prefixedLocales !== []) {
+            if (count($supportedLocales) > 1) {
                 Route::get('/{locale}', ShowStatusPageController::class)
-                    ->whereIn('locale', $prefixedLocales)
+                    ->whereIn('locale', $supportedLocales)
                     ->name('status.show.subdomain.localized');
             }
         });

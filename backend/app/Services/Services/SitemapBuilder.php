@@ -7,6 +7,7 @@ use App\Models\Service;
 use App\Models\StatusPage;
 use App\Support\Marketing\ChromeData;
 use App\Support\StatusPages\StatusPageChrome;
+use App\Support\StatusPages\StatusPageLocale;
 use Carbon\CarbonInterface;
 use DOMDocument;
 use DOMElement;
@@ -207,8 +208,13 @@ class SitemapBuilder
      * fetches. Either would be the untrustworthy `lastmod` Google discounts
      * sitewide.
      *
-     * Only the three columns the chrome addresses a page by are selected: the
-     * segment is otherwise a full table read on a public route.
+     * Only the four columns the chrome addresses a page by are selected: the
+     * segment is otherwise a full table read on a public route. `locale` is one of
+     * them, and not an afterthought: it decides which language gets the unprefixed
+     * URL, so a select without it left the chrome reading a null column and every
+     * `loc` here was composed in the deployment default. On a page published in
+     * Turkish that published a `loc` the document's own canonical contradicts,
+     * which is the disagreement the class docblock calls worse than no sitemap.
      */
     public function statusPages(): string
     {
@@ -221,17 +227,20 @@ class SitemapBuilder
                 'slug',
                 'domain_mode',
                 'custom_domain',
+                'locale',
             ]);
 
         $entries = [];
 
         foreach ($pages as $page) {
-            // Constructed in the DEFAULT language: `alternates()` is the same set
-            // whichever language is rendering (that is what reciprocity means),
-            // and this is the language whose URL becomes the `loc`.
-            $chrome = (new StatusPageChrome($page, (string) config('app.default_locale')))->toArray();
+            // Constructed in the language the page PUBLISHES in, which is the one
+            // its unprefixed URL serves and therefore the one whose URL becomes
+            // the `loc`. `alternates()` is the same set whichever language is
+            // rendering (that is what reciprocity means), so only the `loc` turns
+            // on this choice.
+            $chrome = (new StatusPageChrome($page, StatusPageLocale::canonical($page)))->toArray();
 
-            $entries[] = $this->absoluteEntry($chrome['defaultLocaleUrl'], $chrome['alternates'], null);
+            $entries[] = $this->absoluteEntry($chrome['canonicalLocaleUrl'], $chrome['alternates'], null);
         }
 
         return $this->urlset($entries);
@@ -282,8 +291,9 @@ class SitemapBuilder
      * pages hand over what `StatusPageChrome` already composed. Both arrive here,
      * so there is still exactly one place that decides what an entry looks like.
      *
-     * @param  string  $loc  The default language's absolute URL, which is the one
-     *                       the page in that language names as its own canonical.
+     * @param  string  $loc  The absolute URL of the document that names itself
+     *                       canonical, which is always the unprefixed one: the deployment default's
+     *                       for a marketing page, and the page's OWN language for a status page.
      * @param  list<array{hreflang: string, href: string}>  $alternates  Every language plus `x-default`,
      *                                                                   in the shape the page's head emits.
      * @return array{loc: string, alternates: list<array{hreflang: string, href: string}>, lastmod: string|null}

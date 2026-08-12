@@ -21,6 +21,11 @@ use Illuminate\Support\Str;
  * and a trap is only closed once somebody can assert it in isolation instead of
  * through a rendered page.
  *
+ * It also answers the question the whole URL space of a page hangs off, which is
+ * a fact about the PAGE rather than about this request: which language the
+ * unprefixed URL serves ({@see self::canonical()}). That answer lives here so the
+ * routes, the controller, the chrome and the sitemap cannot each derive their own.
+ *
  * The supported list is `magic-starter.supported_locales`, the same array the
  * API negotiates against, the marketing routes build their prefixes from and the
  * status routes register their locale segment from. Its entries are plain
@@ -46,6 +51,25 @@ class StatusPageLocale
             return $routeLocale;
         }
 
+        return self::canonical($page);
+    }
+
+    /**
+     * The language this page's UNPREFIXED URL serves, which is the one language of
+     * this page that gets no prefixed form at all.
+     *
+     * The owner's column decides it, so it is a per-PAGE fact and not a
+     * deployment-wide one: on a page published in Turkish, `/s/acme` IS Turkish
+     * and English lives at `/en/s/acme`. Four layers depend on the same answer
+     * (the routes accept every language because they cannot know the page, the
+     * controller 404s the prefix that would duplicate this one, the chrome leaves
+     * this one unprefixed, the sitemap publishes its URL as the `loc`), and they
+     * read it HERE rather than each deriving it, because when three of them read
+     * `app.default_locale` instead the page published an `hreflang="en"` naming a
+     * URL that serves Turkish and a canonical no route answered.
+     */
+    public static function canonical(StatusPage $page): string
+    {
         return $page->locale ?? self::defaultLocale();
     }
 
@@ -109,9 +133,18 @@ class StatusPageLocale
      * `getPreferredLanguage()` falls back to when it matches nothing, and
      * {@see self::offer()} reads that fallback as "no offer".
      *
+     * Public because THREE surfaces have to enumerate the same list and cannot be
+     * allowed to compose their own: the status routes register a segment per
+     * entry, {@see StatusPageChrome::localeLinks()} emits a switcher link and an
+     * hreflang alternate per entry, and the negotiation above offers one. Reading
+     * `magic-starter.supported_locales` raw is what made them differ, because this
+     * list PREPENDS `app.default_locale`: with a default absent from that array a
+     * visitor was offered a language the switcher had no link for, and the banner
+     * dereferences that link unguarded, so a PUBLIC page answered 500.
+     *
      * @return list<string>
      */
-    private static function supported(): array
+    public static function supported(): array
     {
         return array_values(array_unique([
             self::defaultLocale(),
@@ -120,7 +153,7 @@ class StatusPageLocale
     }
 
     /**
-     * The language served without a URL prefix.
+     * The language a page with no `locale` of its own publishes in.
      *
      * `app.default_locale` and never `app.locale`: the latter is rewritten by
      * `App::setLocale()` for the rest of the request, so reading it here would

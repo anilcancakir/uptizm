@@ -17,12 +17,17 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 /**
  * Renders the public status page for `GET /s/{slug}`.
  *
- * This is the security spine of the public surface. Two invariants are
+ * This is the security spine of the public surface. Three invariants are
  * enforced here and nowhere else:
  *
  *   - Fail-closed privacy: an unknown slug and a private page are BOTH answered
  *     with a 404 (never a 403, never a distinguishable body), so a visitor can
  *     neither confirm a private page exists nor enumerate slugs by status.
+ *   - One URL per language per page: the language a page publishes in is served
+ *     on the UNPREFIXED URL, so this refuses that language's prefixed form with a
+ *     404. The route cannot enforce it, because which language is unprefixed is a
+ *     fact about the page ({@see StatusPageLocale::canonical()}) and the route
+ *     segment therefore accepts every supported language.
  *   - Cache isolation: only a genuinely public page is cached, and only its
  *     `toArray()` form (never the object, which fatals under the cache store's
  *     `serializable_classes => false`). ANY request carrying a valid preview
@@ -115,7 +120,22 @@ class ShowStatusPageController
             abort(404);
         }
 
-        // 4. The language this render answers in: the URL's when it carries one,
+        // 4. Exactly one URL per language per page. The route segment accepts
+        //    every supported language because a route cannot know which page it
+        //    is about, so the page itself refuses the ONE prefix that duplicates
+        //    its own unprefixed URL: without this a page published in Turkish
+        //    would answer Turkish on both `/s/acme` and `/tr/s/acme`, and the
+        //    duplicate would compete with the canonical it declares.
+        //
+        //    A 404 and never a redirect. This surface does not redirect between
+        //    two languages of one document: Google's multi-regional guidance
+        //    rules it out, and the language-offer banner exists precisely so the
+        //    visitor makes that move themselves.
+        if ($routeLocale === StatusPageLocale::canonical($page)) {
+            abort(404);
+        }
+
+        // 5. The language this render answers in: the URL's when it carries one,
         //    the owner's `status_pages.locale` otherwise. Set on EVERY request
         //    that gets this far, INCLUDING when the value already equals the
         //    default, for the reason SetMarketingLocale documents at its own
@@ -135,7 +155,7 @@ class ShowStatusPageController
 
         app()->setLocale($locale);
 
-        // 5. Where each language of this page lives, and the language this
+        // 6. Where each language of this page lives, and the language this
         //    visitor's browser would rather read. Both are computed here rather
         //    than inside the cached payload below: the chrome is per (page,
         //    language) and the offer is per VISITOR, so caching either would
@@ -143,7 +163,7 @@ class ShowStatusPageController
         $chrome = new StatusPageChrome($page, $locale);
         $languageOffer = StatusPageLocale::offer($request, $locale);
 
-        // 6. A token holder is a preview or a headless render, never a visitor,
+        // 7. A token holder is a preview or a headless render, never a visitor,
         //    on a private page AND on a public one. It renders fresh, never
         //    touches the shared cache in either direction, and is marked
         //    no-store so an intermediary keying on neither the header nor the
@@ -153,7 +173,7 @@ class ShowStatusPageController
                 ->header('Cache-Control', 'no-store, private');
         }
 
-        // 7. Public path: cache the plain-array read model (never the object)
+        // 8. Public path: cache the plain-array read model (never the object)
         //    and rehydrate it for the view.
         //
         //    One entry per (page, LANGUAGE), because the payload is per-language
@@ -303,7 +323,7 @@ class ShowStatusPageController
      *
      * The chrome is SPREAD rather than handed over as one object, because the
      * partials that read it (`$canonicalUrl`, `$localeLinks`,
-     * `$defaultLocaleUrl`) dereference their variables unguarded, exactly as
+     * `$canonicalLocaleUrl`) dereference their variables unguarded, exactly as
      * `marketing/partials/seo-head.blade.php` documents: a render that forgets
      * one throws here rather than emitting a head with a hole in it, which is
      * the failure mode worth having on a page whose whole job is to be up when

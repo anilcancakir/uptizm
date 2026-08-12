@@ -19,9 +19,16 @@
         /*
          * Dereferenced unguarded on purpose: `StatusPageLocale::offer()` and
          * `StatusPageChrome::localeLinks()` both enumerate
-         * `magic-starter.supported_locales`, so an offer with no link is a
-         * broken contract rather than a visitor-facing state, and it should
-         * surface as a failure instead of a silently missing banner.
+         * `StatusPageLocale::supported()`, ONE accessor, so an offer with no
+         * link is a broken contract rather than a visitor-facing state, and it
+         * should surface as a failure instead of a silently missing banner.
+         *
+         * The accessor is what makes that true. While the links came from
+         * `magic-starter.supported_locales` read raw and the offer negotiated
+         * against that array with `app.default_locale` PREPENDED, the two lists
+         * differed by exactly the deployment default: with `APP_LOCALE=de` and
+         * `['en', 'tr']` published, a German visitor was offered `de`, the
+         * lookup below answered null and this public page 500'd.
          */
         $offered = collect($localeLinks)->firstWhere('code', $languageOffer);
     @endphp

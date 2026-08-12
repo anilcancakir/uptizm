@@ -15,7 +15,7 @@ use Tests\TestCase;
  *
  * A status page answers on two addressing forms (`<host>/s/{slug}` and
  * `{slug}.<subdomain_host>`), and each of them now carries one URL per language:
- * the default language on the unprefixed URL, every other supported language
+ * the page's own language on the unprefixed URL, every other supported language
  * behind its own prefix. Four properties are pinned here, and every one of them
  * fails SILENTLY rather than loudly:
  *
@@ -27,8 +27,13 @@ use Tests\TestCase;
  *   - `whereIn([])` compiles to an empty alternation that matches anything, so a
  *     single-language deployment must register no prefixed route at all rather
  *     than one that answers every two-letter segment.
- *   - One URL per language per page: the default language has no prefixed form
- *     and no redirect to one, or hreflang has two canonicals to choose between.
+ *   - EVERY supported language has a prefixed form, `app.default_locale`
+ *     included. Which language owns the unprefixed URL is a per-PAGE fact
+ *     (`status_pages.locale`), and a route cannot know the page, so subtracting
+ *     the deployment default here left English unreachable on a page published in
+ *     Turkish. The other half of the invariant, that a page refuses the prefix
+ *     duplicating its OWN bare URL, is the controller's and is asserted against
+ *     real rows in `StatusPageSeoTest`.
  *   - The route names, which Step-2-and-later code and the sitemap resolve by
  *     name. Asserted with `Route::has()` rather than by reading `route:list`
  *     output, which is formatting rather than routing.
@@ -37,6 +42,10 @@ use Tests\TestCase;
  * (`uptizm.test`): routes are registered at boot, before a test body could set
  * config(), which is also why the single-language case below re-registers the
  * file into a router of its own instead of setting config and hoping.
+ *
+ * Nothing here requests a page through the HTTP kernel except `/up` and the
+ * unmatched prefixes: this file carries no `RefreshDatabase`, so a URL that now
+ * REACHES the controller would query a database with no tables in it.
  */
 class StatusPageRouteTopologyTest extends TestCase
 {
@@ -56,9 +65,9 @@ class StatusPageRouteTopologyTest extends TestCase
             'Subdomain addressing is switched off in this environment, so these assertions would prove nothing.',
         );
 
-        $this->assertNotSame(
-            [],
-            $this->prefixedLocales(),
+        $this->assertGreaterThan(
+            1,
+            count($this->supportedLocales()),
             'This deployment speaks one language, so the prefixed routes are absent by design.',
         );
     }
@@ -77,7 +86,12 @@ class StatusPageRouteTopologyTest extends TestCase
 
     public function test_a_supported_language_has_a_url_on_both_addressing_forms(): void
     {
-        foreach ($this->prefixedLocales() as $locale) {
+        // EVERY supported language, `app.default_locale` included. The prefix
+        // cannot subtract the deployment default: a page whose owner published it
+        // in Turkish serves Turkish on the bare URL, so `/en/s/{slug}` is
+        // English's ONLY address and subtracting it 404'd the language the page's
+        // own head advertises as an alternate.
+        foreach ($this->supportedLocales() as $locale) {
             $this->assertSame(
                 'status.show.localized',
                 $this->matchGet('http://'.self::HOST.'/'.$locale.'/s/acme')->getName(),
@@ -101,33 +115,42 @@ class StatusPageRouteTopologyTest extends TestCase
          * `/{locale}/status/{slug}`; this assertion is what names the constraint
          * the controller has to satisfy.
          */
-        $route = $this->matchGet('http://'.self::HOST.'/'.$this->prefixedLocales()[0].'/s/acme');
+        $route = $this->matchGet('http://'.self::HOST.'/'.$this->supportedLocales()[0].'/s/acme');
 
         $this->assertSame(['locale', 'slug'], $route->parameterNames());
     }
 
-    public function test_the_default_language_has_exactly_one_url(): void
+    public function test_the_status_subdomain_claims_the_app_defaults_prefix_rather_than_the_marketing_redirect(): void
     {
-        // Not a redirect from one to the other either: `/en/s/acme` must not exist
-        // at all, or the page competes with itself for the same query and hreflang
-        // has two canonicals to name for one language.
+        /*
+         * `routes/marketing.php` registers `Route::redirect('/en', '/', 301)` with
+         * no domain constraint, so it answers on EVERY host, and while the status
+         * prefix subtracted the app default that redirect was what `/en` resolved
+         * to on a status subdomain. It cannot be any more: on a page published in
+         * Turkish, `/en` is the English document and a 301 to `/` would land the
+         * visitor back on the Turkish one, which is a redirect between two
+         * languages of one document and the thing this surface never does.
+         *
+         * It holds because `RouteCollection::get()` returns the host-constrained
+         * bucket BEFORE the unconstrained one (and `toSymfonyRouteCollection()`
+         * merges them in the same order, so a cached collection matches
+         * identically), not because of the order the two files are registered in.
+         *
+         * Asserted at the router rather than by status code: what has to hold is
+         * which route CLAIMS the URL, and the answer for the page behind it
+         * depends on that page's own locale, which `StatusPageSeoTest` covers.
+         */
         $default = (string) config('app.default_locale');
 
-        $this->get('http://'.self::HOST.'/'.$default.'/s/acme')->assertNotFound();
+        $this->assertSame(
+            'status.show.subdomain.localized',
+            $this->matchGet('http://acme.'.self::HOST.'/'.$default)->getName(),
+        );
 
-        /*
-         * The subdomain form is asserted at the router rather than by status code,
-         * because something else already answers there: `routes/marketing.php`
-         * registers `Route::redirect('/en', '/', 301)` with no domain constraint,
-         * so it answers on EVERY host and on a status subdomain it lands the
-         * visitor on that subdomain's own default-language page. Harmless, and not
-         * this file's to change. What has to hold here is that no STATUS route
-         * claims the default language's prefix.
-         */
-        $onTheSubdomain = $this->matchGet('http://acme.'.self::HOST.'/'.$default);
-
-        $this->assertNotSame('status.show.subdomain', $onTheSubdomain->getName());
-        $this->assertNotSame('status.show.subdomain.localized', $onTheSubdomain->getName());
+        $this->assertSame(
+            'status.show.localized',
+            $this->matchGet('http://'.self::HOST.'/'.$default.'/s/acme')->getName(),
+        );
     }
 
     public function test_a_language_we_do_not_speak_is_not_a_page(): void
@@ -163,9 +186,14 @@ class StatusPageRouteTopologyTest extends TestCase
         /*
          * `whereIn([])` compiles to an empty alternation, which matches every
          * segment rather than none, so the prefixed routes must not be registered
-         * at all when there is no other language. Asserted by loading the route
-         * file into a router of its own, because the real collection was built at
-         * boot and cannot see a config() written in a test body.
+         * at all when there is no other language. The list they constrain is now
+         * the whole supported set rather than that set minus the app default, so
+         * what the guard counts is the SET SIZE: one language means nothing to
+         * prefix, and the constraint would otherwise be a single-entry alternation
+         * over a URL that duplicates the bare one on every page. Asserted by
+         * loading the route file into a router of its own, because the real
+         * collection was built at boot and cannot see a config() written in a test
+         * body.
          *
          * The two-language case is asserted through the SAME helper, so a helper
          * that silently returned nothing would fail here rather than certify the
@@ -185,20 +213,25 @@ class StatusPageRouteTopologyTest extends TestCase
     }
 
     /**
-     * The languages that get a prefix: everything the product speaks except the
-     * one served on the unprefixed URL.
+     * Every language the product speaks, which is also every language that gets a
+     * prefixed URL: the unprefixed one is claimed per PAGE, not per deployment.
+     *
+     * Composed here rather than read from `StatusPageLocale::supported()` on
+     * purpose. That accessor is what the route file itself reads, and a test whose
+     * expectation comes out of the code under test certifies whatever that code
+     * currently does.
      *
      * Reads `app.default_locale` and never `app.locale`, which a rendered request
      * rewrites inside this same process.
      *
      * @return list<string>
      */
-    protected function prefixedLocales(): array
+    protected function supportedLocales(): array
     {
-        return array_values(array_diff(
-            (array) config('magic-starter.supported_locales', []),
-            [(string) config('app.default_locale')],
-        ));
+        return array_values(array_unique([
+            (string) config('app.default_locale'),
+            ...(array) config('magic-starter.supported_locales', []),
+        ]));
     }
 
     /**

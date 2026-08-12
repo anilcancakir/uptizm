@@ -30,9 +30,15 @@ use Locale;
  * the canonical they emit and never appear as alternates of their own, which is
  * the only way one document on three hosts can have one canonical per language.
  *
- * Within the winning hostname the default language keeps the unprefixed address
- * and every other takes a `/{code}` prefix, matching the routes registered in
- * `routes/status.php`, so there is exactly ONE address per language.
+ * Within the winning hostname the language THIS PAGE publishes in keeps the
+ * unprefixed address and every other takes a `/{code}` prefix, so there is
+ * exactly ONE address per language. Which language that is comes from
+ * {@see StatusPageLocale::canonical()} and never from `app.default_locale`: on a
+ * page whose owner chose Turkish, the bare URL serves Turkish, so emitting
+ * `hreflang="en"` for it advertises a Turkish document as English and points
+ * `x-default` at the same wrong place. `routes/status.php` registers the prefixed
+ * form for every supported language for the same reason, since it cannot know the
+ * page, and the controller 404s the one prefix that duplicates the bare URL.
  *
  * Every URL is composed from CONFIGURATION and never from the incoming request.
  * `route()` and `url()` resolve against the request root, which would make the
@@ -61,9 +67,21 @@ readonly class StatusPageChrome
      * that read it dereference their variables UNGUARDED: a render that forgets
      * one throws rather than emitting a head with a hole in it.
      *
+     * `canonicalUrl` is THIS render's canonical (the language on screen), while
+     * `canonicalLocaleUrl` is the page's own: the unprefixed URL, which is what
+     * `x-default` names and what the sitemap publishes as its `loc`. The two are
+     * the same string exactly when the page is being rendered in the language it
+     * publishes in.
+     *
+     * The marketing chrome (`App\Support\Marketing\ChromeData`) calls its
+     * equivalent key `defaultLocaleUrl`, and is right to: a marketing page has no
+     * owner and no `locale` column, so its unprefixed language IS the deployment
+     * default. On a customer's page it is not, and the two keys are named apart
+     * because `SitemapBuilder` reads both.
+     *
      * @return array{
      *     canonicalUrl: string,
-     *     defaultLocaleUrl: string,
+     *     canonicalLocaleUrl: string,
      *     localeLinks: list<array{code: string, label: string, path: string, url: string, current: bool}>,
      *     alternates: list<array{hreflang: string, href: string}>,
      * }
@@ -72,7 +90,7 @@ readonly class StatusPageChrome
     {
         return [
             'canonicalUrl' => $this->urlFor($this->rendering),
-            'defaultLocaleUrl' => $this->urlFor($this->defaultLocale()),
+            'canonicalLocaleUrl' => $this->urlFor($this->canonicalLocale()),
             'localeLinks' => $this->localeLinks(),
             'alternates' => $this->alternates(),
         ];
@@ -86,8 +104,8 @@ readonly class StatusPageChrome
      * treated as broken reciprocity and ignored wholesale.
      *
      * `x-default` is the fallback for a visitor whose language we do not speak,
-     * and it points at THIS page in the default language rather than at any site
-     * root.
+     * and it points at THIS page in the language the page's own unprefixed URL
+     * serves, rather than at any site root.
      *
      * @return list<array{hreflang: string, href: string}>
      */
@@ -103,7 +121,7 @@ readonly class StatusPageChrome
 
         $alternates[] = [
             'hreflang' => 'x-default',
-            'href' => $this->urlFor($this->defaultLocale()),
+            'href' => $this->urlFor($this->canonicalLocale()),
         ];
 
         return $alternates;
@@ -117,6 +135,13 @@ readonly class StatusPageChrome
      * the sitemap need the absolute address. Both name the same document,
      * because every language of a page lives on that page's ONE canonical host.
      *
+     * The list is {@see StatusPageLocale::supported()} rather than
+     * `magic-starter.supported_locales` read raw, because that accessor is also
+     * what the language OFFER negotiates against and it prepends
+     * `app.default_locale`. Two lists meant one language could be offered to a
+     * visitor with no link here for it, and `status/partials/language-banner`
+     * dereferences that link unguarded: a public page answered 500.
+     *
      * @return list<array{code: string, label: string, path: string, url: string, current: bool}>
      */
     public function localeLinks(): array
@@ -129,7 +154,7 @@ readonly class StatusPageChrome
                 'url' => $this->urlFor($code),
                 'current' => $code === $this->rendering,
             ],
-            array_values((array) config('magic-starter.supported_locales', [])),
+            StatusPageLocale::supported(),
         );
     }
 
@@ -151,11 +176,11 @@ readonly class StatusPageChrome
      * The two hostname forms carry the page's identity differently: a subdomain
      * or a custom domain IS the page, so its path is the root, while on the app
      * host the slug is a path segment. The language prefix goes in front of
-     * either, and the default language takes none.
+     * either, and the language the page publishes in takes none.
      */
     public function pathFor(string $locale): string
     {
-        $prefix = $locale === $this->defaultLocale() ? '' : '/'.$locale;
+        $prefix = $locale === $this->canonicalLocale() ? '' : '/'.$locale;
 
         if ($this->canonicalHost() === null) {
             return $prefix.'/s/'.$this->page->slug;
@@ -220,11 +245,16 @@ readonly class StatusPageChrome
     }
 
     /**
-     * The language served without a URL prefix. `app.default_locale`, never
-     * `app.locale`, for the reason {@see StatusPageLocale} documents.
+     * The language THIS PAGE serves without a URL prefix.
+     *
+     * Delegated rather than read from the column here, because the controller
+     * decides the render language, the routes decide the URL space and the
+     * sitemap decides the `loc` from the same answer, and four copies of
+     * `$page->locale ?? config(...)` is how three of them came to read the
+     * deployment default instead.
      */
-    private function defaultLocale(): string
+    private function canonicalLocale(): string
     {
-        return (string) config('app.default_locale');
+        return StatusPageLocale::canonical($this->page);
     }
 }
