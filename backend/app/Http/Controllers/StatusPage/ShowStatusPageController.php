@@ -6,6 +6,9 @@ use App\Http\ViewModels\StatusPageViewModel;
 use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
 use App\Models\StatusPage;
 use App\Services\StatusPages\StatusPageAssembler;
+use App\Services\StatusPages\StatusPageCache;
+use App\Support\StatusPages\StatusPageChrome;
+use App\Support\StatusPages\StatusPageLocale;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
@@ -29,8 +32,9 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *     reports the page as it is now rather than up to 60 seconds of stale
  *     state stamped with the current time.
  *
- * It is also where the page's LANGUAGE is applied, from `status_pages.locale`.
- * The whole render reads that locale implicitly (the assembler's banner label and
+ * It is also where the page's LANGUAGE is applied, from the URL when it carries
+ * one and from `status_pages.locale` otherwise ({@see StatusPageLocale}). The
+ * whole render reads that locale implicitly (the assembler's banner label and
  * incident titles, the layout's `<html lang>`, every `__()` in the partials), so
  * this is the only place it is decided. See the numbered comments in
  * {@see self::__invoke()} for why it is set twice and why the page's own comes
@@ -52,10 +56,13 @@ class ShowStatusPageController
     /**
      * Cache-key prefix of a public page's cached read model.
      *
-     * Public because the key is forgotten from OUTSIDE this controller: the
-     * maintenance-boundary sweep ({@see BustStatusPageCacheForMaintenanceBoundaries})
-     * busts it when a window opens or closes, and a second literal over there
-     * would drift from this one the day the key changes.
+     * Public because the key is composed and forgotten from OUTSIDE this
+     * controller: the maintenance-boundary sweep
+     * ({@see BustStatusPageCacheForMaintenanceBoundaries}) busts it when a window
+     * opens or closes, and a second literal over there would drift from this one
+     * the day the key changes. Nothing concatenates it by hand any more;
+     * {@see self::cacheKey()} and {@see self::cacheKeys()} below are how it is
+     * reached.
      */
     public const string CACHE_KEY_PREFIX = 'status-page:';
 
@@ -69,8 +76,18 @@ class ShowStatusPageController
      *
      * @throws NotFoundHttpException
      */
-    public function __invoke(Request $request, string $slug): Response
+    public function __invoke(Request $request): Response
     {
+        // 0. Both parameters are read off the route BY NAME rather than taken
+        //    positionally. Route parameters reach the action in URI ORDER, and
+        //    the localized forms carry the language first (`/tr/s/acme`,
+        //    `acme.<host>/tr`), so a positional `string $slug` receives the
+        //    LANGUAGE there and every prefixed URL 404s.
+        //    `Marketing\ShowServiceStatusController::__invoke()` carries the same
+        //    note for the same reason on `/{locale}/status/{slug}`.
+        $slug = (string) $request->route('slug');
+        $routeLocale = $request->route('locale');
+
         // 1. Start every request through this route in the deployment default
         //    language, BEFORE anything can render. Under Octane the translator
         //    is a singleton that survives between requests, so a worker that
@@ -98,11 +115,10 @@ class ShowStatusPageController
             abort(404);
         }
 
-        // 4. The language this page publishes in, which its owner set and a
-        //    visitor cannot choose (no path segment, no switcher, no
-        //    Accept-Language: one page serves one language). Set on EVERY
-        //    request that gets this far, INCLUDING when the value already equals
-        //    the default, for the reason SetMarketingLocale documents at its own
+        // 4. The language this render answers in: the URL's when it carries one,
+        //    the owner's `status_pages.locale` otherwise. Set on EVERY request
+        //    that gets this far, INCLUDING when the value already equals the
+        //    default, for the reason SetMarketingLocale documents at its own
         //    class docblock: the Octane translator singleton survives between
         //    requests, so a conditional "only when it is `tr`" would leave the
         //    worker in Turkish for whoever arrives next. `FlushLocaleState` in
@@ -115,31 +131,86 @@ class ShowStatusPageController
         //    Everything downstream reads it implicitly. The assembler renders the
         //    banner label and each incident title under it, and the layout puts it
         //    in `<html lang>`.
-        app()->setLocale($page->locale ?? (string) config('app.default_locale'));
+        $locale = StatusPageLocale::render(is_string($routeLocale) ? $routeLocale : null, $page);
 
-        // 5. A token holder is a preview or a headless render, never a visitor,
+        app()->setLocale($locale);
+
+        // 5. Where each language of this page lives, and the language this
+        //    visitor's browser would rather read. Both are computed here rather
+        //    than inside the cached payload below: the chrome is per (page,
+        //    language) and the offer is per VISITOR, so caching either would
+        //    serve one visitor's browser preference to everyone behind them.
+        $chrome = new StatusPageChrome($page, $locale);
+        $languageOffer = StatusPageLocale::offer($request, $locale);
+
+        // 6. A token holder is a preview or a headless render, never a visitor,
         //    on a private page AND on a public one. It renders fresh, never
         //    touches the shared cache in either direction, and is marked
         //    no-store so an intermediary keying on neither the header nor the
         //    query cannot store this body under the public URL.
         if ($hasPreviewToken) {
-            return $this->render($this->assembler->build($page), $page)
+            return $this->render($this->assembler->build($page), $chrome, $languageOffer)
                 ->header('Cache-Control', 'no-store, private');
         }
 
-        // 6. Public path: cache the plain-array read model (never the object)
+        // 7. Public path: cache the plain-array read model (never the object)
         //    and rehydrate it for the view.
         //
-        //    The key carries NO locale segment, deliberately. One page serves one
-        //    language, so the slug already identifies the language too and a
-        //    locale segment would be dead cardinality.
+        //    One entry per (page, LANGUAGE), because the payload is per-language
+        //    by construction rather than by content: the assembler composes the
+        //    banner label and every incident title under the locale set above,
+        //    before `toArray()` runs. On one shared key the first URL to warm the
+        //    cache decided the language of the next 60 seconds of traffic, which
+        //    is a Turkish page publishing an English outage banner.
+        //
+        //    Every buster therefore fans out over the same language list; they
+        //    all go through {@see StatusPageCache::forgetPage()}, which reads it
+        //    from {@see self::cacheKeys()}.
         $data = Cache::remember(
-            self::CACHE_KEY_PREFIX.$page->slug,
+            self::cacheKey($page->slug, $locale),
             60,
             fn (): array => $this->assembler->build($page)->toArray(),
         );
 
-        return $this->render(StatusPageViewModel::fromArray($data), $page);
+        return $this->render(StatusPageViewModel::fromArray($data), $chrome, $languageOffer);
+    }
+
+    /**
+     * The cache key one page's read model occupies in one language.
+     *
+     * The only composer of this key in the application. Every buster reaches it
+     * through {@see StatusPageCache::forgetPage()} rather than concatenating the
+     * prefix again, so the shape can change here alone.
+     */
+    public static function cacheKey(string $slug, string $locale): string
+    {
+        return self::CACHE_KEY_PREFIX.$slug.':'.$locale;
+    }
+
+    /**
+     * Every cache key one page's read model can occupy, one per language.
+     *
+     * The list is the union of the deployment default and the published
+     * languages, in that order, which is exactly the set
+     * {@see StatusPageLocale::render()} can answer with: the URL contributes a
+     * published language, the page's own column is validated against the same
+     * list by both the store and the update request, and the fallback is the
+     * default. Reading it from config here rather than at each buster is what
+     * makes adding a language a one-file change instead of a hunt.
+     *
+     * @return list<string>
+     */
+    public static function cacheKeys(string $slug): array
+    {
+        $locales = array_unique([
+            (string) config('app.default_locale'),
+            ...array_values((array) config('magic-starter.supported_locales', [])),
+        ]);
+
+        return array_values(array_map(
+            static fn (string $locale): string => self::cacheKey($slug, $locale),
+            $locales,
+        ));
     }
 
     /**
@@ -227,33 +298,29 @@ class ShowStatusPageController
     }
 
     /**
-     * Render the status view from the read model, the slug, and the page's own
-     * canonical URL.
+     * Render the status view from the read model, the slug, the page's language
+     * chrome and this visitor's language offer.
+     *
+     * The chrome is SPREAD rather than handed over as one object, because the
+     * partials that read it (`$canonicalUrl`, `$localeLinks`,
+     * `$defaultLocaleUrl`) dereference their variables unguarded, exactly as
+     * `marketing/partials/seo-head.blade.php` documents: a render that forgets
+     * one throws here rather than emitting a head with a hole in it, which is
+     * the failure mode worth having on a page whose whole job is to be up when
+     * nothing else is.
+     *
+     * @param  string|null  $languageOffer  The language this visitor's browser
+     *                                      prefers, when it is not the one being rendered. Per visitor, so it
+     *                                      travels beside the read model rather than inside it: the payload is
+     *                                      cached and shared, and this value is neither.
      */
-    protected function render(StatusPageViewModel $vm, StatusPage $page): Response
+    protected function render(StatusPageViewModel $vm, StatusPageChrome $chrome, ?string $languageOffer): Response
     {
         return response()->view('status.show', [
             'vm' => $vm,
-            'slug' => $page->slug,
-            'canonicalUrl' => $this->canonicalUrl($page),
+            'slug' => $chrome->page->slug,
+            'languageOffer' => $languageOffer,
+            ...$chrome->toArray(),
         ]);
-    }
-
-    /**
-     * The one URL this page should be indexed and shared under.
-     *
-     * The same page answers on up to three hosts (`<app>/s/{slug}`,
-     * `{slug}.<subdomain_host>`, and a `custom_domain`), so without a canonical
-     * they compete as duplicates and a customer's page ranks against itself.
-     *
-     * Built from configuration, NEVER from the incoming request: `route()`
-     * resolves an absolute URL against the request root, which would make the
-     * canonical (and the OG url a crawler reads) differ per host and defeat the
-     * point. `domain_mode` picks the form; a mode whose prerequisite is missing
-     * falls back to the path form, which always resolves.
-     */
-    protected function canonicalUrl(StatusPage $page): string
-    {
-        return $page->publicUrl();
     }
 }
