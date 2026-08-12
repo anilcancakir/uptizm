@@ -42,6 +42,28 @@ would cost roughly 300 MB on an 8 GB box shared with two other products.
 - Supervisor group `uptizm`: Octane on **9502**, Horizon, Reverb on **6002**, and
   the scheduler as `schedule:work`. All four run as `user=uptizm` from their own
   path with `autostart=true`.
+- **PHP's tracing JIT is off**, box-wide, in `conf.d/zz-nojit.ini`
+  (`opcache.jit=disable`) for four ini sets: 8.5 and 8.4, cli and fpm. Every site
+  here is a Laravel application, so the JIT buys effectively nothing (the time goes
+  to PostgreSQL, Redis and HTTP, and compiling to machine code only speeds up PHP's
+  own arithmetic), while `php/php-src#15145` is OPEN and makes it emit WRONG machine
+  code, which does not fail the way slow code fails. Measured on 2026-08-12: ~1,400
+  silent php8.5 segfaults a day, every one a kodizm scheduled command, with nothing
+  in any PHP log because the process dies below PHP; plus 11 `Undefined variable
+  $result` aborts of a whole `schedule:run` minute on 2026-08-10
+  (`laravel/framework#58065` carries the same trace, closed with no code change).
+  Splitting the kernel log on the ini file's own mtime gives 27 before and 0 after,
+  and a reaper that had been dying now exits 0. OPcache itself stays ON, which is
+  the optimisation that actually matters. Three things before touching this:
+  `opcache.jit=tracing` is written in THREE places per version
+  (`mods-available/opcache.ini`, `cli/php.ini`, `fpm/php.ini`), so what wins is a
+  scan-dir file named to load LAST rather than an edit to any of them; **all three
+  products on this box run Octane through the php8.5 CLI binary**
+  (`octane:start --server=frankenphp`), so anything done to the CLI SAPI reaches
+  three web tiers and not just a scheduler; and a long-lived process reads its ini
+  only at start, so short-lived work (cron, `schedule:run`, queue, artisan) picks a
+  change up immediately while an Octane instance carries the old value until it is
+  restarted.
 - The Cloudflare worker `uptizm-regional-checker` is redeployed from this repo
   with the correct `env.RegionalProbe` binding, and its `RELAY_SECRET` matches the
   backend. A signed probe was verified end to end (us-east, HTTP 200).
@@ -279,17 +301,25 @@ ssh personal 'chown -R uptizm-app:uptizm-app /home/uptizm-app/htdocs/app.uptizm.
 ```bash
 ssh personal
 sudo -u uptizm -H bash
-cd ~/htdocs/uptizm.com && git pull
-cd backend
+cd ~/htdocs/uptizm.com && git pull && cd backend && php8.5 artisan migrate --force
 php8.5 /usr/local/bin/composer install --no-dev --optimize-autoloader
-php8.5 artisan migrate --force
 npm ci && npm run build
 php8.5 artisan optimize
 exit
 supervisorctl restart uptizm:*
 ```
 
-Two things about that order, both learned the hard way on the first deploy.
+Three things about that order, all learned the hard way on a deploy.
+
+**`migrate --force` is chained to the `git pull` and runs BEFORE `composer install`.**
+An additive nullable column is safe ahead of the code and unsafe behind it, and the
+gap between the pull and the migration is where that bites: the new classes are on
+disk, this box writes a check every few seconds, and a queue worker that loads a new
+class and inserts a column the database does not have yet is rejected by PostgreSQL
+*after* its check row has already committed. The job lands in `failed_jobs`, so an
+outage inside that window opens no incident and nothing says why. Chaining the two
+shortens the window to one migration's runtime. A migration is loaded from its own
+file and needs no regenerated autoloader, which is what makes running it first safe.
 
 **Run `npm run build` on any deploy that touched Blade**, not just CSS or JS.
 Tailwind generates its output from the class strings it finds in the templates, so
