@@ -27,8 +27,9 @@
              subscription falls back to the page's canonical language and a
              Turkish reader who subscribed from `/tr/s/{slug}` gets English mail.
              `SubscribeController` validates it against the supported list and
-             stores null for anything else, so a hand-edited value costs the
-             subscriber nothing. --}}
+             falls back to the page's canonical language for anything else, so a
+             hand-edited value costs the subscriber nothing and never refuses the
+             subscription. --}}
         <input type="hidden" name="locale" value="{{ app()->getLocale() }}">
 
         {{-- `rounded-base` (8px), not `md`: DESIGN.md puts inputs and small controls

@@ -9,12 +9,14 @@ use Illuminate\Support\Facades\Schema;
  * moment they subscribed, so every subsequent mail and result page can answer
  * in it instead of re-deriving it from the page's current language.
  *
- * Nullable, deliberately: an unsupported or absent submitted value is stored
- * as null rather than rejected (a subscriber must never fail to subscribe
- * over a language code), and a null renders through the deployment default at
- * every subscriber-facing surface. Additive and NULL for every existing row;
- * no backfill, since no row written before this column existed carries an
- * honest answer to "what language was this visitor reading".
+ * Nullable for the ROWS THAT PREDATE IT, not for new ones. A subscribe request
+ * never fails over a language code (a subscriber must never be refused for one),
+ * so an unsupported or absent submitted value takes the page's own canonical
+ * language and the column receives a concrete string; null is what every row
+ * written before this column existed carries, and it renders through the
+ * deployment default at every subscriber-facing surface. Additive, no backfill,
+ * since none of those rows holds an honest answer to "what language was this
+ * visitor reading".
  *
  * No key is added here, so `MigrationHelper` is not involved.
  */

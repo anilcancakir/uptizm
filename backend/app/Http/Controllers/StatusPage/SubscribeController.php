@@ -126,12 +126,13 @@ class SubscribeController
      *
      * The subscribe route carries no locale segment, so the only honest source
      * of "the language the visitor was reading" is a value their page's own
-     * form submits. An unsupported submitted value is stored as null rather
-     * than rejected, per this endpoint's Must NOT: a subscriber must never fail
-     * to subscribe over a language code. With no submitted value at all, the
-     * capture falls back to the page's own canonical language, read here ONCE
-     * at write time; every subsequent RENDER reads the subscriber's stored
-     * value instead, never the page's.
+     * form submits. An unsupported submitted value is never REJECTED, per this
+     * endpoint's Must NOT: a subscriber must never fail to subscribe over a
+     * language code. It takes the same fallback as no value at all, the page's
+     * own canonical language, read here ONCE at write time; every subsequent
+     * RENDER reads the subscriber's stored value instead, never the page's.
+     * The two used to differ, which meant one hand-built form field silently
+     * chose between two languages.
      */
     protected function resolveSubscriberLocale(Request $request, StatusPage $page): string
     {
