@@ -290,6 +290,32 @@ class StatusPageLocaleTest extends TestCase
         $this->assertStringNotContainsString('Degraded Performance', $html);
     }
 
+    public function test_the_client_side_date_rewrite_formats_in_the_page_language(): void
+    {
+        /*
+         * The layout rewrites every `<time datetime>` into the reader's own zone
+         * client-side. Passing no locale took the FORMAT from the browser too,
+         * which put "8/12/2026, 6:06:45 PM" under the Turkish heading
+         * "12 Ağustos 2026" on the same page for any visitor whose browser is
+         * en-US. The zone is a fact about where the reader is; the language is
+         * the one they asked this page for.
+         *
+         * This asserts the template, because the behaviour itself is the
+         * browser's and PHPUnit never runs it. The live proof is the CDP walk in
+         * this plan's evidence: same instant, same zone, `/s/acme` renders
+         * "8/12/2026, 6:58:08 PM" and `/tr/s/acme` renders "12.08.2026 18:58:08"
+         * in one headless Chrome running as en-US. The third assertion is the one
+         * with teeth: a bare `toLocaleString()` anywhere is the regression.
+         */
+        $this->makePopulatedPage('date-locale', null);
+
+        $html = $this->get('/tr/s/date-locale')->assertOk()->getContent();
+
+        $this->assertStringContainsString('document.documentElement.lang || undefined', $html);
+        $this->assertStringContainsString('toLocaleString(pageLocale)', $html);
+        $this->assertStringNotContainsString('toLocaleString()', $html);
+    }
+
     public function test_the_language_offer_is_null_unless_the_visitor_named_another_supported_language(): void
     {
         /*
@@ -678,6 +704,13 @@ class StatusPageLocaleTest extends TestCase
          * does not, so the guard is that the second form appears nowhere in the
          * directory. Asserted over the SOURCE rather than over one rendered page:
          * a rendered page only exercises the branches its fixture reaches.
+         *
+         * A second check covers the context the first one is blind to: inside a
+         * `<script>` block, `{{ }}` is HTML escaping applied in a JavaScript
+         * context, which is the wrong escaping (it does not stop a `"` or a `<`
+         * from breaking out of a string literal). A switcher or a theme control is
+         * exactly where someone later interpolates a locale map into a script, so
+         * this guard fails that the moment it appears, not after it ships.
          */
         $paths = $this->statusViewPaths();
         $this->assertNotEmpty($paths, 'No status views were found to check.');
@@ -685,12 +718,48 @@ class StatusPageLocaleTest extends TestCase
         $offenders = [];
 
         foreach ($paths as $path) {
-            if (str_contains((string) file_get_contents($path), '{!!')) {
+            $source = (string) file_get_contents($path);
+
+            if (str_contains($source, '{!!')) {
                 $offenders[] = Str::afterLast($path, 'views/');
+            }
+
+            if ($this->hasEchoInsideScript($source)) {
+                $offenders[] = Str::afterLast($path, 'views/').' (echo inside <script>)';
             }
         }
 
-        $this->assertSame([], $offenders, 'A status view uses `{!! !!}`; every echo on this surface must escape.');
+        $this->assertSame(
+            [],
+            $offenders,
+            'A status view uses `{!! !!}`, or a `{{ }}` echo inside a <script> block; '
+            .'HTML escaping is never correct there.',
+        );
+    }
+
+    /**
+     * Detects a Blade echo `{{ ... }}` placed inside a `<script>` block.
+     *
+     * Two forms are deliberately NOT offences: `@{{ ... }}` is Blade's own
+     * escaped literal (a front-end framework's braces passed through verbatim),
+     * matched by excluding a `{{` immediately preceded by `@`; and
+     * `{{-- ... --}}` is a Blade comment, matched by excluding a `{{`
+     * immediately followed by `--`. Without both exclusions this would flag the
+     * `@{{ }}` or `{{-- --}}` that a later contributor adds legitimately.
+     */
+    protected function hasEchoInsideScript(string $source): bool
+    {
+        if (! preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $source, $matches)) {
+            return false;
+        }
+
+        foreach ($matches[1] as $scriptBody) {
+            if (preg_match('/(?<!@)\{\{(?!--).*?\}\}/s', $scriptBody)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function test_both_status_catalogues_carry_the_same_keys(): void

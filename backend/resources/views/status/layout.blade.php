@@ -191,10 +191,26 @@
 
         {{-- Converts every `<time datetime>` on the page to the viewer's local
              time zone client-side; the server-rendered text stays as the
-             no-JS fallback. Then flags the document as render-ready. --}}
+             no-JS fallback. Then flags the document as render-ready.
+
+             The FORMAT comes from the page's language and the ZONE from the
+             browser, which is the only split that reads correctly: where the
+             reader is standing is a fact about them, and the language is the one
+             they asked this page for. Passing no locale at all took both from the
+             browser, which put "8/12/2026, 6:06:45 PM" directly under the
+             Turkish heading "12 Ağustos 2026" on the same page. Caught on the
+             live walk, in a headless Chrome running as en-US.
+
+             `document.documentElement.lang` is written by this layout from
+             `app()->getLocale()`, so it is always a tag Intl accepts; the
+             `|| undefined` is for a browser reading a document that somehow
+             carries no lang at all, where the browser default is the only
+             remaining answer. --}}
         <script>
+            var pageLocale = document.documentElement.lang || undefined;
+
             document.querySelectorAll('time[datetime]').forEach(function (el) {
-                el.textContent = new Date(el.dateTime).toLocaleString();
+                el.textContent = new Date(el.dateTime).toLocaleString(pageLocale);
             });
 
             // Render-ready marker. The headless preview renderer waits for
