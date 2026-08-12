@@ -8,6 +8,10 @@ layers, in order of cost. A change is not done because the first one passed.
 3. **End to end** (dusk driving a real Chrome): for anything a person clicks,
    at desktop and at mobile width both.
 
+Section 4 is not a fourth layer of proving a change. It is how to read a system that
+is already running without producing a confident wrong answer, which is a separate
+skill with its own failure modes.
+
 ## 1. The static gate
 
 ```sh
@@ -155,9 +159,53 @@ keeps laying out at the old width, and everything renders doubled and clipped.
   whole page, so an overlap check reads true on every page including unchanged
   ones. Look at the screenshot.
 
+## 4. Reading a system that is already running (measured 2026-08-12)
+
+The three layers above run locally against code you just wrote, and they fail loudly.
+Answering a question about a system that is ALREADY running, in production or in a
+live local stack, fails quietly instead: nothing goes red, you get a number, and the
+number is wrong. In one production audit every false finding came from this list
+rather than from the product, so rule the harness out before filing a defect.
+
+- **Read the identifier, never guess it.** `response_time_ms` (the column is
+  `response_ms`) read as "no latency is being stored", and `status.subscribe.blurb`
+  (the key is `subscribe.body`) read as "dead copy". Tinker prints null for a field
+  that does not exist and `__()` prints the key back, neither of which is
+  distinguishable from missing data. `Schema::getColumnListing()` and the `lang/`
+  file itself each settle it in one line.
+- **Take a before/after boundary from the artifact, not from your estimate of when
+  you acted.** Counting crashes "in the 26 minutes since the change" put eleven of
+  them AFTER a fix that had already stopped them; `stat -c %Y` on the file that IS
+  the change gave 27 before and 0 after.
+- **The box runs `Europe/Istanbul` and the apps run UTC.** A Laravel log line at
+  `09:31` beside a shell `date` reading `12:32` is one minute of lag, not three hours
+  of a dead scheduler. Print both clocks in the same command.
+- **`grep -c` exits 1 when the count is zero**, so a `|| echo "?"` fallback fires on
+  a perfectly good measurement and looks like a broken connection. The non-zero exit
+  is a second piece of evidence that the count really is zero.
+- **A string composed outside the template does not follow a later locale switch.**
+  The status banner is built in `StatusPageAssembler`, so rendering ONE view model
+  under `en` and then under `tr` leaves the page's largest string in English and
+  reads as "the headline was never localized". Build the view model fresh per locale.
+  The 60-second `status-page:{slug}` cache carries one language on purpose.
+- **Requesting Octane directly on `127.0.0.1:9502` makes every request-derived URL
+  `http://`,** because nginx is what sets `X-Forwarded-Proto`. Ask the edge before
+  filing a canonical-URL defect.
+- **A 404 is not a regression until `route:list` says the route exists.** Two
+  "regressions" in one pass were URLs that had never existed.
+- **An AI timeout is usually routing, and a second call's shorter wall is the request
+  budget already spent.** One call timed out at 149s, the identical payload returned
+  in 62.4s, and the next got 87s because `ai.request_budget_seconds` (150) was down
+  to its remainder. One timeout proves nothing; repeat it.
+
 ## What counts as evidence
 
 A claim needs the artifact behind it: the `bin/check` summary, the screenshot
 pair, the snapshot or the response body. "Should work" and "green locally" are not
 evidence, and neither is a passing test that could not have failed. Screenshots and
 snapshots go under `.ac/evidence/`.
+
+A claim about a running system needs one thing more: the reading has to survive
+section 4. A count is only evidence once its boundary comes from the artifact, an
+identifier only once it was read rather than guessed, and a single timeout is never
+evidence of a wall.
