@@ -11,6 +11,26 @@
 --}}
 @php
     /*
+     * The language every incident, update and postmortem on this page was
+     * authored in.
+     *
+     * None of those three tables carries a language column, so the write-time
+     * translation job fans them out from `app.default_locale` and
+     * `StatusPageAssembler::teamSourceLocale()` reads them back under the same
+     * rule. This expression is that rule's third reader, and it exists here
+     * rather than in the read model because the provenance triple carries the
+     * VALUE, the ORIGINAL and WHERE IT CAME FROM, not the language the original
+     * is in.
+     *
+     * The job is named in prose rather than spelled out, exactly as the
+     * assembler names it: its own suite enumerates every file that mentions it,
+     * so that a fifth dispatch site in a public controller or a VIEW fails a
+     * test, and a status view that carried the name would fail that scan for a
+     * comment.
+     */
+    $sourceLocale = (string) config('app.default_locale');
+
+    /*
      * The lifecycle badge, on the status vocabulary's soft tones: `-soft` for the
      * background and `-soft-foreground` for the text, which is the pair those two
      * tones exist for.
@@ -116,6 +136,16 @@
                                     </time>
                                 </div>
 
+                                {{-- Under the title ROW rather than inside it: that row is a
+                                     flex line holding the title, the badge and the stamp, and a
+                                     footnote placed in it would become a fourth item beside
+                                     them instead of a line under the text it qualifies. --}}
+                                @include('status.partials.translation-note', [
+                                    'provenance' => $entry['title_provenance'],
+                                    'original' => $entry['title_original'],
+                                    'sourceLocale' => $sourceLocale,
+                                ])
+
                                 @if ($entry['updates'] !== [])
                                     <ul class="mt-2 space-y-2 border-l border-border pl-4">
                                         @foreach ($entry['updates'] as $update)
@@ -125,6 +155,12 @@
                                                     <span class="text-fg-muted">&ndash;</span>
                                                     {{ $update['message'] }}
                                                 </p>
+
+                                                @include('status.partials.translation-note', [
+                                                    'provenance' => $update['message_provenance'],
+                                                    'original' => $update['message_original'],
+                                                    'sourceLocale' => $sourceLocale,
+                                                ])
 
                                                 {{-- ABSOLUTE, and in UTC. "15 minutes ago" is
                                                      useless in a history: it is unreadable a day
@@ -163,6 +199,12 @@
                                     <div class="mt-3 rounded-md bg-surface-container-high px-4 py-3">
                                         <h4 class="text-xs font-semibold text-fg-muted uppercase">{{ __('status.incidents.postmortem') }}</h4>
                                         <p class="mt-1 text-sm whitespace-pre-line text-fg">{{ $entry['postmortem']['body'] }}</p>
+
+                                        @include('status.partials.translation-note', [
+                                            'provenance' => $entry['postmortem']['body_provenance'],
+                                            'original' => $entry['postmortem']['body_original'],
+                                            'sourceLocale' => $sourceLocale,
+                                        ])
                                         {{-- A prefix / suffix pair around the `<time>`, not one
                                              sentence with a placeholder: the element has to stay
                                              (the layout's script rewrites it to the viewer's own

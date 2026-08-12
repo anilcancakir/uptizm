@@ -11,7 +11,9 @@ use App\Enums\SignalSource;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
+use App\Models\ScheduledMaintenance;
 use App\Models\StatusPage;
+use App\Models\StatusPageTranslation;
 use App\Models\Team;
 use App\Models\User;
 use FlutterSdk\MagicStarter\Support\MigrationHelper;
@@ -592,6 +594,233 @@ class StatusPageRenderTest extends TestCase
         $this->assertStringContainsString('ai', $html);
         $this->assertStringNotContainsString('&middot; human', $html);
         $this->assertStringNotContainsString('· human', $html);
+    }
+
+    public function test_a_translated_field_shows_the_translation_with_its_source_and_the_original(): void
+    {
+        $page = $this->makePageWithMonitor('translated', isPublic: true);
+        $incident = $this->seedPublicIncident($page->team, $page->monitors()->first(), 'Checkout is slow');
+
+        $this->storeTranslation($page, $incident->updates()->first(), 'message', 'tr', 'Yüksek gecikmeyi inceliyoruz.');
+
+        $html = $this->get('/tr/s/translated')->assertOk()->getContent();
+
+        // The translation is what a reader sees...
+        $this->assertStringContainsString('Yüksek gecikmeyi inceliyoruz.', $html);
+
+        // ...labelled with the language it came from, named IN the page's own
+        // language ("İngilizce", not "English"), and resolved from the catalogue
+        // rather than printed as a dotted key.
+        $this->assertStringContainsString('İngilizce dilinden otomatik çevrildi.', $html);
+        $this->assertStringNotContainsString('status.translation.', $html);
+
+        // ...with the operator's own words one click away, behind the one
+        // disclosure that opens with no JavaScript. Exactly one, on the one field
+        // that has a translation: the footnote belongs to a field, not a page.
+        $this->assertSame(1, substr_count($html, '<details'));
+        $this->assertStringContainsString('Orijinalini göster', $html);
+        $this->assertStringContainsString('We are investigating elevated latency.', $html);
+    }
+
+    public function test_a_field_with_no_translation_yet_reads_as_in_progress_over_the_original(): void
+    {
+        $page = $this->makePageWithMonitor('pending', isPublic: true);
+        $monitor = $page->monitors()->first();
+
+        $incident = $this->seedPublicIncident($page->team, $monitor, 'Checkout is slow');
+        $incident->forceFill([
+            'lifecycle' => IncidentStatus::Resolved,
+            'resolved_at' => now(),
+            'postmortem_body' => 'The origin pool ran out of workers under release traffic.',
+            'postmortem_published_at' => now(),
+        ])->save();
+
+        $window = ScheduledMaintenance::factory()->create([
+            'team_id' => $page->team_id,
+            'status_page_id' => $page->id,
+            'title' => 'Database failover drill',
+            'description' => 'Read replicas rotate one at a time.',
+            'starts_at' => now()->subMinutes(30),
+            'ends_at' => now()->addMinutes(30),
+        ]);
+        $window->monitors()->attach([$monitor->id]);
+
+        $html = $this->get('/tr/s/pending')->assertOk()->getContent();
+
+        // Nothing is translated yet, so every field shows the English original
+        // under a line that promises an arrival, and nothing offers a
+        // `<details>`: there is no second version of the text to open.
+        $this->assertStringContainsString('We are investigating elevated latency.', $html);
+        $this->assertStringNotContainsString('<details', $html);
+
+        /*
+         * SIX, one per translated field, and the count is the point: it is what
+         * proves each of the six render sites actually reached the footnote with
+         * the keys the assembler emits. A site wired to a key that never existed
+         * would render nothing at all (an undefined index is a warning, and the
+         * comparison against it is simply false), so a page-level "contains" would
+         * certify five sites and one silent hole.
+         */
+        $this->assertSame(6, substr_count($html, 'Çeviri sürüyor.'), 'every translated field says where it stands');
+    }
+
+    public function test_a_rejected_translation_reads_as_unavailable_and_promises_nothing(): void
+    {
+        $page = $this->makePageWithMonitor('rejected', isPublic: true);
+        $incident = $this->seedPublicIncident($page->team, $page->monitors()->first(), 'Checkout is slow');
+
+        $this->storeRejection($page, $incident->updates()->first(), 'message', 'tr', 'foreign_token');
+
+        $html = $this->get('/tr/s/rejected')->assertOk()->getContent();
+
+        // The output contract refused the model's answer and nothing re-queues
+        // it, so this field must not read "in progress" like the ones around it.
+        // One occurrence, directly under the message it belongs to.
+        $this->assertSame(1, substr_count($html, 'Çeviri yapılamadı.'));
+        $this->assertLessThan(
+            mb_strpos($html, 'Çeviri yapılamadı.'),
+            mb_strpos($html, 'We are investigating elevated latency.'),
+            'the unavailable note sits under the original it qualifies',
+        );
+    }
+
+    public function test_the_default_language_page_carries_no_provenance_note_at_all(): void
+    {
+        /*
+         * `authored` is the majority state and the whole of the default-language
+         * page. Every field there is already in the language it was written in,
+         * so a footnote, a disclosure or even a label would change every page
+         * that exists today for no reason at all.
+         */
+        $page = $this->makePageWithMonitor('authored', isPublic: true);
+        $this->seedPublicIncident($page->team, $page->monitors()->first(), 'Checkout is slow');
+
+        $html = $this->get('/s/authored')->assertOk()->getContent();
+
+        $this->assertStringContainsString('We are investigating elevated latency.', $html);
+
+        foreach (['Automatically translated', 'Translation in progress', 'Translation unavailable', 'Show original', '<details'] as $absent) {
+            $this->assertStringNotContainsString($absent, $html, 'an authored page renders no translation chrome');
+        }
+    }
+
+    public function test_every_language_is_reachable_from_the_switcher_with_no_javascript(): void
+    {
+        $page = $this->makePageWithMonitor('switcher', isPublic: true);
+        $html = $this->get('/s/switcher')->assertOk()->getContent();
+
+        // Read off the config the routes and the chrome are built from, so a
+        // third language fails here rather than quietly going unlinked.
+        foreach ((array) config('magic-starter.supported_locales') as $code) {
+            $path = $code === config('app.default_locale') ? '/s/switcher' : '/'.$code.'/s/switcher';
+
+            $this->assertStringContainsString('href="'.$path.'"', $html);
+            $this->assertStringContainsString('hreflang="'.$code.'"', $html);
+        }
+
+        // The language already showing is a real link too, marked rather than
+        // disabled: a disabled control is a dead end for a screen reader, and a
+        // missing self-link breaks the hreflang set that points at the same URL.
+        $this->assertStringContainsString('aria-current="true"', $html);
+
+        // And none of it needs a script. This layout ships no bundle, so a
+        // disclosure like the marketing header's would hide every language
+        // behind a button that does nothing.
+        $this->assertStringNotContainsString('x-data', $html);
+    }
+
+    public function test_the_offer_banner_names_the_visitors_language_without_moving_them(): void
+    {
+        $this->makePageWithMonitor('offer', isPublic: true);
+
+        $html = $this->get('/s/offer', ['Accept-Language' => 'tr-TR,tr;q=0.9,en;q=0.8'])->assertOk()->getContent();
+
+        // A strip in the OFFERED language, declaring that language to a screen
+        // reader and a crawler, carrying a real link to the Turkish URL.
+        $this->assertMatchesRegularExpression(
+            '/<div lang="tr"[^>]*>\s*Bu sayfa Türkçe olarak da mevcut\.\s*<a\s+href="\/tr\/s\/offer"/u',
+            $html,
+        );
+
+        // An OFFER, never a destination: the English URL still answered in
+        // English. Google's guidance rules the Accept-Language redirect out, and
+        // Googlebot sends no Accept-Language for it to act on anyway.
+        $this->assertStringContainsString('All Systems Operational', $html);
+
+        // The same visitor on the Turkish URL is already where they wanted to
+        // be, so there is nothing to offer and no strip at all.
+        $turkish = $this->get('/tr/s/offer', ['Accept-Language' => 'tr-TR,tr;q=0.9,en;q=0.8'])->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('olarak da mevcut', $turkish);
+        $this->assertDoesNotMatchRegularExpression('/<div lang="(en|tr)"/u', $turkish);
+    }
+
+    public function test_the_subscribe_form_submits_the_language_the_visitor_is_reading(): void
+    {
+        /*
+         * The subscribe POST carries no locale segment (one target per page, not
+         * one per language) and this surface holds no cookie and no session, so
+         * this field is the only channel the reading language survives on. Without
+         * it every subscriber falls back to the page's canonical language and a
+         * Turkish reader gets English mail.
+         */
+        $this->makePageWithMonitor('subscribe-locale', isPublic: true);
+
+        $this->assertStringContainsString(
+            '<input type="hidden" name="locale" value="tr">',
+            $this->get('/tr/s/subscribe-locale')->assertOk()->getContent(),
+        );
+
+        $this->assertStringContainsString(
+            '<input type="hidden" name="locale" value="en">',
+            $this->get('/s/subscribe-locale')->assertOk()->getContent(),
+        );
+    }
+
+    /**
+     * An accepted translation for one field of one row, written the way
+     * `TranslateStatusPageText` writes one.
+     */
+    protected function storeTranslation(
+        StatusPage $page,
+        IncidentUpdate $row,
+        string $field,
+        string $locale,
+        string $value,
+    ): void {
+        StatusPageTranslation::query()->create([
+            'team_id' => $page->team_id,
+            'translatable_type' => $row->getMorphClass(),
+            'translatable_id' => $row->getKey(),
+            'field' => $field,
+            'locale' => $locale,
+            'value' => $value,
+            'source_hash' => hash('sha256', (string) $row->getAttribute($field)),
+        ]);
+    }
+
+    /**
+     * A REJECTED translation: the suspect text is never stored, only the fact of
+     * the rejection and its machine reason.
+     */
+    protected function storeRejection(
+        StatusPage $page,
+        IncidentUpdate $row,
+        string $field,
+        string $locale,
+        string $reason,
+    ): void {
+        StatusPageTranslation::query()->create([
+            'team_id' => $page->team_id,
+            'translatable_type' => $row->getMorphClass(),
+            'translatable_id' => $row->getKey(),
+            'field' => $field,
+            'locale' => $locale,
+            'value' => null,
+            'source_hash' => hash('sha256', (string) $row->getAttribute($field)),
+            'rejected_at' => now(),
+            'rejection_reason' => $reason,
+        ]);
     }
 
     protected function seedPublicIncident(Team $team, Monitor $monitor, string $title): Incident

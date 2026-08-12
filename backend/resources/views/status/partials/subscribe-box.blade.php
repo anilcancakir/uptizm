@@ -17,6 +17,20 @@
     <p class="mb-3 text-sm text-fg-muted">{{ __('status.subscribe.body', ['page' => $vm->page['name']]) }}</p>
 
     <form method="POST" action="{{ route('status.subscribe', $vm->page['slug']) }}" class="flex flex-col gap-2 sm:flex-row">
+        {{-- The language this visitor was reading when they subscribed, so their
+             confirmation mail and every announcement after it answer in it.
+
+             A form field is the ONLY honest channel for it: the subscribe route
+             deliberately carries no locale segment (one POST target per page,
+             not one per language), and this surface sends no cookie and holds no
+             session, so nothing else survives the hop. Without it every
+             subscription falls back to the page's canonical language and a
+             Turkish reader who subscribed from `/tr/s/{slug}` gets English mail.
+             `SubscribeController` validates it against the supported list and
+             stores null for anything else, so a hand-edited value costs the
+             subscriber nothing. --}}
+        <input type="hidden" name="locale" value="{{ app()->getLocale() }}">
+
         {{-- `rounded-base` (8px), not `md`: DESIGN.md puts inputs and small controls
              on 8px and buttons on 12px, and this field was the one element on the page
              using a radius its own design system assigns to something else. --}}

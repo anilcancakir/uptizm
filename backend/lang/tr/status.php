@@ -13,6 +13,33 @@
 // `Powered by Uptizm` has no key here either: the footer keeps the brand line in
 // English on every locale.
 return [
+    'language' => [
+        'switcher' => 'Dil',
+        'offer' => 'Bu sayfa :language olarak da mevcut.',
+        'offer_action' => ':language sayfasına geç',
+    ],
+
+    'translation' => [
+        // "dilinden", not the ablative on the language name itself: Turkish
+        // vowel harmony makes that suffix differ per name (İngilizce -> -den,
+        // Almanca -> -dan), and `:language` arrives from ICU, so the sentence
+        // has to stay correct for a language nobody wrote copy for.
+        'translated_from' => ':language dilinden otomatik çevrildi.',
+        'translated' => 'Otomatik çevrildi.',
+        'show_original' => 'Orijinalini göster',
+        'pending' => 'Çeviri sürüyor.',
+
+        // "yapılamadı", not "bekleniyor": the attempt happened and was refused.
+        'unavailable' => 'Çeviri yapılamadı.',
+    ],
+
+    'theme' => [
+        'label' => 'Tema',
+        'system' => 'Sistem',
+        'light' => 'Açık',
+        'dark' => 'Koyu',
+    ],
+
     'banner' => [
         'operational' => 'Tüm sistemler çalışıyor',
         'degraded' => 'Performans düşük',
