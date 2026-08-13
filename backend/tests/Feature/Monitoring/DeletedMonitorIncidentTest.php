@@ -111,6 +111,34 @@ class DeletedMonitorIncidentTest extends TestCase
         $this->assertNull($incident->resolved_at);
     }
 
+    public function test_an_incident_attached_without_being_primary_is_closed_too(): void
+    {
+        // Raised in review, and it is the sharper half of the query. The lookup
+        // read `primary_monitor_id` OR the `monitors()` relation, but this runs
+        // on `deleted`, and that relation applies the soft-delete scope: by the
+        // time it is asked, the monitor being deleted is already invisible to
+        // it. So the relation arm matched nothing and only the denormalised
+        // primary hint did any work, leaving every incident this monitor joined
+        // as a secondary component open forever.
+        Notification::fake();
+        [$primary, $team] = $this->makeMonitor();
+        $secondary = $this->makeMonitor($team)[0];
+
+        // Primary elsewhere, attached here. The pivot is the only link.
+        $incident = $this->makeIncident($primary);
+        $incident->monitors()->attach($secondary->id, $this->pivot());
+        $primary->delete();
+
+        // The primary is gone; the incident is still live through $secondary.
+        $incident->refresh();
+        $this->assertSame(IncidentStatus::Detected, $incident->lifecycle);
+
+        $secondary->delete();
+
+        $incident->refresh();
+        $this->assertSame(IncidentStatus::Resolved, $incident->lifecycle);
+    }
+
     public function test_an_already_resolved_incident_is_left_alone(): void
     {
         // Idempotency, and a history guard: re-stamping `resolved_at` would move

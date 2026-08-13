@@ -6,7 +6,6 @@ use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
-use App\Http\Controllers\Api\V1\MonitorController;
 use App\Services\Monitoring\IncidentWriteService;
 use DateTimeInterface;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
@@ -50,8 +49,15 @@ class Monitor extends Model
      * relation applies this model's own soft-delete scope, and it therefore only
      * answers correctly once the row being deleted is already excluded.
      *
-     * A hook rather than a call in {@see MonitorController::destroy()}
-     * because the controller is not the only way a monitor dies: a console
+     * A hook rather than a call in the `DELETE api/v1/monitors/{id}` controller,
+     * and named by its route for the reason {@see self::MANUAL_CHECK_COOLDOWN_SECONDS}
+     * already records: a `{@see}` on a controller costs a real
+     * `use App\Http\Controllers\...` in a domain model, because Pint's
+     * `fully_qualified_strict_types` fixer rewrites an inline FQCN back to a
+     * short name and restores the import. Measured again here by deleting the
+     * import and running Pint, which put it straight back.
+     *
+     * The hook exists because the controller is not the only way a monitor dies: a console
      * command, a future bulk action or a cascade all reach `delete()` directly,
      * and an orphaned incident is silent when it happens and expensive when it
      * is found (it cannot close by any route, and it keeps paging). The work

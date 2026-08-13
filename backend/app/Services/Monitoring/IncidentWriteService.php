@@ -573,10 +573,17 @@ class IncidentWriteService
     }
 
     /**
-     * Load the primary monitor an incident locks and dispatches against.
+     * Load the primary monitor an incident locks and dispatches against, or null
+     * when it has none.
      *
-     * @throws RuntimeException When the incident has no primary monitor (its
-     *                          monitor was deleted), leaving nothing to lock on.
+     * It used to throw here, and the docblock outlived the change: an incident
+     * whose monitor was deleted has no primary monitor, and that is a REACHABLE
+     * state rather than a broken invariant, since `Monitor` soft-deletes and the
+     * relation applies that scope. Throwing made such an incident unwritable
+     * through every path at once, so it could not be resolved, acknowledged or
+     * updated by hand either. Callers take the lock on the incident instead
+     * ({@see self::withMonitorLock()}) and skip the dispatch, because there is
+     * no component left to page about.
      */
     protected function monitorFor(Incident $incident): ?Monitor
     {
@@ -624,9 +631,24 @@ class IncidentWriteService
      */
     public function closeOrphanedBy(Monitor $monitor): void
     {
+        // The PIVOT directly, not the `monitors()` relation. This runs on
+        // `deleted`, and that relation applies the soft-delete scope, so by the
+        // time it is asked the monitor being deleted is already invisible to it:
+        // the relation arm matched nothing and only the denormalised primary
+        // hint did any work, leaving every incident this monitor joined as a
+        // SECONDARY component open forever. The pivot carries no such scope.
+        //
+        // Grouped, because the two arms are alternatives to each other rather
+        // than to anything a caller might add later.
+        $attachedIds = DB::table('incident_monitors')
+            ->where('monitor_id', $monitor->getKey())
+            ->pluck('incident_id');
+
         $incidents = Incident::query()
-            ->where('primary_monitor_id', $monitor->getKey())
-            ->orWhereHas('monitors', fn ($query) => $query->where('monitors.id', $monitor->getKey()))
+            ->where(function ($query) use ($monitor, $attachedIds): void {
+                $query->where('primary_monitor_id', $monitor->getKey())
+                    ->orWhereIn('id', $attachedIds);
+            })
             ->get();
 
         foreach ($incidents as $incident) {
