@@ -626,6 +626,20 @@ class AiMetricSeed {
   /// Observed string values that read as failing.
   final List<String> criticalValues;
 
+  /// Who proposed this seed: `'model'` when an AI selected it, `'rule'` when
+  /// the backend derived it deterministically with no model involved.
+  ///
+  /// Load-bearing rather than metadata. The backend proposes the service's own
+  /// health verdict itself, because across live runs the model reliably
+  /// declined to, and a surface that badged that row as AI work would be
+  /// claiming something the product did not do. Empty on a backend older than
+  /// the field, which the UI treats the same as `'model'` since every row was
+  /// the model's before the rule existed.
+  final String origin;
+
+  /// Whether this seed came from a rule rather than from a model.
+  bool get isRule => origin == 'rule';
+
   /// Creates an [AiMetricSeed].
   const AiMetricSeed({
     required this.label,
@@ -641,6 +655,7 @@ class AiMetricSeed {
     this.okValues = const [],
     this.warnValues = const [],
     this.criticalValues = const [],
+    this.origin = '',
   });
 
   /// This seed as one row of `POST /monitors`'s `metrics[]`.
@@ -709,6 +724,7 @@ class AiMetricSeed {
       okValues: _wireValueList(map['ok_values']),
       warnValues: _wireValueList(map['warn_values']),
       criticalValues: _wireValueList(map['critical_values']),
+      origin: map['origin'] as String? ?? '',
     );
   }
 }

@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/monitor_metrics_controller.dart';
+import 'package:uptizm/resources/views/monitors/monitor_form_support.dart'
+    show AiMetricSeed;
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 
 void main() {
@@ -710,4 +712,64 @@ void main() {
       expect(record.latestRecordedAt, isNull);
     });
   });
+
+  group('metricFormFromSeed', () {
+    test('translates the wire vocabulary into the form vocabulary', () {
+      // The two dialects are the whole reason this function exists. A seed
+      // speaks the WIRE names (`json_path`, `low_bad`) and the form speaks its
+      // own (`json`, `low`); handing a seed straight to the form would show the
+      // operator a source select with nothing selected and a direction that
+      // silently read "higher is worse" on a free-disk metric.
+      final MetricForm form = metricFormFromSeed(
+        const AiMetricSeed(
+          label: 'Free disk',
+          key: 'free_disk',
+          type: 'numeric',
+          unit: 'gigabyte',
+          source: 'json_path',
+          path: 'storage.free_gb',
+          warn: '5.94',
+          critical: '2.97',
+          sampleValue: '17.83',
+          thresholdDirection: 'low_bad',
+        ),
+      );
+
+      expect(form.source, 'json');
+      expect(form.direction, 'low');
+      expect(form.path, 'storage.free_gb');
+      expect(form.warn, '5.94');
+      expect(form.critical, '2.97');
+    });
+
+    test('carries the string bands and leaves the unmatched band unset', () {
+      // The bands travel under their column names on both sides, so they pass
+      // through untouched. `unmatchedBand` deliberately does not: the server
+      // pins it when the row is written, and pre-filling it here would show the
+      // operator a decision they did not make.
+      final MetricForm form = metricFormFromSeed(
+        const AiMetricSeed(
+          label: 'Service status',
+          key: 'service_status',
+          type: 'string',
+          unit: '',
+          source: 'json_path',
+          path: 'status',
+          warn: '',
+          critical: '',
+          sampleValue: 'degraded',
+          okValues: ['ok'],
+          warnValues: ['degraded'],
+          origin: 'rule',
+        ),
+      );
+
+      expect(form.type, 'string');
+      expect(form.okValues, ['ok']);
+      expect(form.warnValues, ['degraded']);
+      expect(form.criticalValues, isEmpty);
+      expect(form.unmatchedBand, '');
+    });
+  });
+
 }

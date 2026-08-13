@@ -238,6 +238,32 @@ void main() {
     });
   });
 
+  group('AiMetricSeed.origin', () {
+    test('decodes the author of a suggestion', () {
+      // The backend proposes the service's own health verdict itself, because
+      // across live runs the model declined to. A surface that could not tell
+      // the two apart would badge a deterministic row as AI work.
+      expect(
+        AiMetricSeed.fromMap(const {'origin': 'rule'}).isRule,
+        isTrue,
+      );
+      expect(
+        AiMetricSeed.fromMap(const {'origin': 'model'}).isRule,
+        isFalse,
+      );
+    });
+
+    test('an absent origin is not a rule', () {
+      // A backend older than the field sent no origin and every row on it was
+      // the model's, so the absent case has to read as `model` rather than
+      // marking every legacy suggestion as rule-authored.
+      final AiMetricSeed seed = AiMetricSeed.fromMap(const {});
+
+      expect(seed.origin, '');
+      expect(seed.isRule, isFalse);
+    });
+  });
+
   group('MonitorAnalysis.fromMap', () {
     test('an empty map yields an empty suggestedMetrics list and does not throw', () {
       final MonitorAnalysis analysis = MonitorAnalysis.fromMap(const {});
