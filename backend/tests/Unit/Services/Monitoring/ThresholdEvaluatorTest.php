@@ -16,6 +16,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
+use App\Models\MonitorMetricValue;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\IncidentTitle;
@@ -218,6 +219,62 @@ class ThresholdEvaluatorTest extends TestCase
      * right sentence and dropped the key would leave the operator app with
      * nothing to localize from and pass every assertion above.
      */
+    public function test_a_resolved_metric_incident_reopens_instead_of_opening_a_second(): void
+    {
+        // The same loop as the down path, on the branch the reopen fix first
+        // missed: a manual resolve leaves the metric still breaching, the
+        // active-incident gate clears, and the very next check opened another
+        // one. This is the branch a metric-driven monitor actually uses, so it
+        // is the branch an operator hits.
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $first = Incident::query()->sole();
+
+        // Resolved by hand while the metric is still over its bound.
+        $first->update(['lifecycle' => IncidentStatus::Resolved, 'resolved_at' => now()]);
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(1, Incident::query()->count(), 'one metric still over its bound is one incident');
+        $this->assertTrue(Incident::query()->sole()->lifecycle->isActive());
+    }
+
+    public function test_a_metric_that_came_back_to_ok_opens_a_new_incident(): void
+    {
+        // The other half on this branch: a reading in the ok band between the
+        // resolve and the next breach makes the second breach its own episode.
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $first = Incident::query()->sole();
+        $first->update(['lifecycle' => IncidentStatus::Resolved, 'resolved_at' => now()]);
+
+        // Back under the bound. The reading is written explicitly because
+        // `evaluate()` does not persist metric values: `CheckPersistenceService`
+        // does, one layer up, and it is the stored reading that says the metric
+        // was seen healthy. Writing it here keeps that dependency visible rather
+        // than letting this test pass for a reason production does not share.
+        MonitorMetricValue::query()->create([
+            'team_id' => $monitor->team_id,
+            'monitor_id' => $monitor->id,
+            'check_id' => $this->makeCheck($monitor, MonitorStatus::Up)->id,
+            'metric_key' => 'cpu',
+            'numeric_value' => 12.0,
+            'band' => MetricBand::Ok,
+            'recorded_at' => now(),
+        ]);
+
+        // And over it again.
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(2, Incident::query()->count());
+    }
+
     public function test_a_numeric_metric_breach_opens_a_bound_titled_incident(): void
     {
         $monitor = $this->makeMonitor(incidentThreshold: 99);

@@ -14,6 +14,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
+use App\Models\MonitorMetricValue;
 use App\Services\Ai\AiIncidentOpener;
 
 /**
@@ -87,6 +88,24 @@ class ThresholdEvaluator
             $active = $this->activeIncidentForMetric($monitor, $metricBreach['metric']->key);
 
             if ($active === null) {
+                // The same outage, resolved by hand and still breaching, is
+                // reopened rather than opened again. This branch is the one a
+                // metric-driven monitor actually uses, so it is the one an
+                // operator hits; the fix landed on the down path first and this
+                // was still open behind it.
+                $reopenable = $this->sameOutageJustResolved(
+                    $monitor,
+                    $metricBreach['metric']->key,
+                );
+
+                if ($reopenable !== null) {
+                    return [
+                        'opened' => $this->reopenInline($monitor, $reopenable),
+                        'resolved' => null,
+                        'escalated' => null,
+                    ];
+                }
+
                 $opened = $this->openIncident(
                     monitor: $monitor,
                     check: $check,
@@ -615,7 +634,7 @@ class ThresholdEvaluator
      * investigating" to customers a second time about a moment it already
      * announced.
      */
-    protected function sameOutageJustResolved(Monitor $monitor): ?Incident
+    protected function sameOutageJustResolved(Monitor $monitor, ?string $metricKey = null): ?Incident
     {
         $cadence = $monitor->check_interval_sec ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC;
         $window = now()->subSeconds(self::REOPEN_WINDOW_CHECKS * (int) $cadence);
@@ -623,7 +642,11 @@ class ThresholdEvaluator
         $candidate = Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->where('ai_owned', false)
-            ->whereNull('trigger_metric_key')
+            ->when(
+                $metricKey === null,
+                fn ($query) => $query->whereNull('trigger_metric_key'),
+                fn ($query) => $query->where('trigger_metric_key', $metricKey),
+            )
             ->whereNotNull('resolved_at')
             ->where('resolved_at', '>=', $window)
             ->latest('resolved_at')
@@ -633,13 +656,36 @@ class ThresholdEvaluator
             return null;
         }
 
-        $recovered = MonitorCheck::query()
-            ->where('monitor_id', $monitor->id)
-            ->where('checked_at', '>=', $candidate->resolved_at)
-            ->where('status', MonitorStatus::Up)
-            ->exists();
+        return $this->recoveredSince($monitor, $candidate, $metricKey) ? null : $candidate;
+    }
 
-        return $recovered ? null : $candidate;
+    /**
+     * Whether the thing that broke was seen working again since [$candidate]
+     * was resolved.
+     *
+     * The two branches ask different questions of different tables, and neither
+     * substitutes for the other. A down incident recovers when a check comes
+     * back `up`. A metric incident recovers when a READING lands in the ok band,
+     * which a check's own status cannot answer: the monitor stays `up` through
+     * the whole thing, because a service reporting `degraded` in a healthy 200
+     * is exactly the case metric incidents exist for.
+     */
+    protected function recoveredSince(Monitor $monitor, Incident $candidate, ?string $metricKey): bool
+    {
+        if ($metricKey === null) {
+            return MonitorCheck::query()
+                ->where('monitor_id', $monitor->id)
+                ->where('checked_at', '>=', $candidate->resolved_at)
+                ->where('status', MonitorStatus::Up)
+                ->exists();
+        }
+
+        return MonitorMetricValue::query()
+            ->where('monitor_id', $monitor->id)
+            ->where('metric_key', $metricKey)
+            ->where('recorded_at', '>=', $candidate->resolved_at)
+            ->where('band', MetricBand::Ok)
+            ->exists();
     }
 
     /**
