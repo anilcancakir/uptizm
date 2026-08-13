@@ -84,6 +84,13 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_field_name_label': 'Name',
       'uptizm.monitors.form_field_name_placeholder': 'e.g. API gateway',
       'uptizm.monitors.form_type_label': 'Type',
+      // The AI-assist ladder; absent, `trans()` answers the raw dotted keys and
+      // three of them in one segmented control overflow the row by 164px.
+      'uptizm.monitors.form_ai_mode_label': 'AI assist',
+      'uptizm.monitors.form_ai_mode_hint': 'What Uptizm may do on its own.',
+      'uptizm.monitors.ai_mode_off': 'Off',
+      'uptizm.monitors.ai_mode_suggest': 'Suggest',
+      'uptizm.monitors.ai_mode_auto': 'Auto',
       'uptizm.monitors.form_url_label': 'URL or host',
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',

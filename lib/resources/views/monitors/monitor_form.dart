@@ -813,10 +813,16 @@ class _MonitorFormState extends State<MonitorForm>
 
   /// Builds the AI-assist mode segmented control.
   ///
-  /// `Off` keeps the monitor fully manual; `Suggest` lets Uptizm AI post
-  /// suggested incidents to the dashboard inbox for an operator to approve or
-  /// dismiss (graduated trust: nothing is ever auto-created). Fully
-  /// autonomous `Auto` mode is deliberately not offered here.
+  /// A ladder of consent. `Off` keeps the monitor fully manual. `Suggest` posts
+  /// detected anomalies to the dashboard inbox for an operator to accept or
+  /// dismiss, and creates nothing on its own. `Auto` opens the incident itself
+  /// and publishes its opening and closing status updates without asking, which
+  /// is the only place in the product where model output reaches a customer
+  /// with no human in between.
+  ///
+  /// The hint says that in the operator's own words rather than leaving the
+  /// third rung to be discovered: the difference between the second and the
+  /// third is not "more AI", it is who is allowed to write on the public page.
   Widget _buildAiModeField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_ai_mode_label'),

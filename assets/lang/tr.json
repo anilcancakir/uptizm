@@ -451,7 +451,7 @@
       "form_slo_label": "Çalışma süresi SLO hedefi",
       "form_slo_hint": "Uptizm'in izleyicinin detay sayfasında takip ettiği hata bütçesini belirler.",
       "form_ai_mode_label": "Yapay zeka desteği",
-      "form_ai_mode_hint": "Öneri modu, tespit edilen anormallikleri onaylamanız veya reddetmeniz için panel gelen kutusuna gönderir; hiçbir şey otomatik olarak oluşturulmaz.",
+      "form_ai_mode_hint": "Öneri modu, tespit edilen anormallikleri panodaki gelen kutusuna düşürür; kabul ya da reddetmek sende kalır ve kendiliğinden hiçbir şey oluşturulmaz. Otomatik modu bir adım öteye geçer: olayı kendisi açar ve açılış ile kapanış güncellemelerini kendi cümleleriyle, sana sormadan durum sayfanda yayımlar.",
       "form_notifications_title": "Bildirimler",
       "form_notifications_hint": "Bu izleyici hakkında kimlerin uyarılacağı.",
       "form_alert_down": "Bu izleyici çöktüğünde uyar",
@@ -739,7 +739,8 @@
       "metrics_unit_hour": "Saat",
       "metrics_unit_ratio": "Oran",
       "metrics_unit_count_short": "Sayı (kısa)",
-      "metrics_reading_stale": "Yeni veri yok"
+      "metrics_reading_stale": "Yeni veri yok",
+      "ai_mode_auto": "Otomatik"
     },
     "status": {
       "up": "Çalışıyor",

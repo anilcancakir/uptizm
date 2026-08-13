@@ -451,7 +451,7 @@
       "form_slo_label": "Uptime SLO target",
       "form_slo_hint": "Sets the error budget Uptizm tracks on the monitor's detail page.",
       "form_ai_mode_label": "AI assist",
-      "form_ai_mode_hint": "Suggest mode posts detected anomalies to the dashboard inbox for you to approve or dismiss; nothing is ever created automatically.",
+      "form_ai_mode_hint": "Suggest posts detected anomalies to the dashboard inbox for you to accept or dismiss, and creates nothing on its own. Auto goes further: it opens the incident itself and publishes its opening and closing updates to your status page, in its own words, without asking you first.",
       "form_notifications_title": "Notifications",
       "form_notifications_hint": "Who gets alerted about this monitor.",
       "form_alert_down": "Alert when this monitor goes down",
@@ -739,7 +739,8 @@
       "metrics_unit_hour": "Hours",
       "metrics_unit_ratio": "Ratio",
       "metrics_unit_count_short": "Count (compact)",
-      "metrics_reading_stale": "No recent data"
+      "metrics_reading_stale": "No recent data",
+      "ai_mode_auto": "Auto"
     },
     "status": {
       "up": "Operational",
