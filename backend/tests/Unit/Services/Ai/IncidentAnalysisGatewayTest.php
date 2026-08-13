@@ -148,6 +148,37 @@ class IncidentAnalysisGatewayTest extends TestCase
         ]));
     }
 
+    public function test_an_evidence_label_written_as_an_identifier_becomes_words(): void
+    {
+        // Three labels from one live answer, where the previous run on the same
+        // incident had written "HTTP checks all up".
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $result = $gateway->sanitizeEvidence([
+            ['label' => 'monitor_up_checks', 'detail' => 'Every probe returned 200.', 'source' => 'check'],
+            ['label' => 'overall_status_degraded', 'detail' => 'The metric read degraded.', 'source' => 'monitor'],
+        ], $this->payload());
+
+        $this->assertSame('Monitor up checks', $result['evidence'][0]['label']);
+        $this->assertSame('Overall status degraded', $result['evidence'][1]['label']);
+    }
+
+    public function test_a_real_heading_is_left_exactly_as_written(): void
+    {
+        // The narrow-on-purpose half: a heading that merely CONTAINS an
+        // underscore is prose, and rewriting it would edit the model rather
+        // than repair its formatting.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $result = $gateway->sanitizeEvidence([
+            ['label' => 'HTTP checks all up', 'detail' => 'Every probe returned 200.', 'source' => 'check'],
+            ['label' => 'Metric queue_depth breached', 'detail' => 'It crossed the bound.', 'source' => 'monitor'],
+        ], $this->payload());
+
+        $this->assertSame('HTTP checks all up', $result['evidence'][0]['label']);
+        $this->assertSame('Metric queue_depth breached', $result['evidence'][1]['label']);
+    }
+
     public function test_the_fence_header_never_reaches_the_operator(): void
     {
         // Both sentences are verbatim from a live answer. The fence is ours, and

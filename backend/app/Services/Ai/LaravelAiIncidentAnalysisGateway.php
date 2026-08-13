@@ -245,7 +245,11 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
     {
         return $schema->object([
             'label' => $schema->string()
-                ->description('A short heading for the evidence row.')
+                ->description(
+                    'A short heading for the evidence row, written as words a person '
+                    .'reads: "HTTP checks all up", not "monitor_up_checks". Never an '
+                    .'identifier, never snake_case.',
+                )
                 ->required(),
             'detail' => $schema->string()
                 ->description('The expanded explanation shown under the heading.')
@@ -312,6 +316,29 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
             'summary' => $cleaned,
             'stripped' => $stripped,
         ];
+    }
+
+    /**
+     * Turn an evidence label the model wrote as an identifier back into words.
+     *
+     * Read off a live answer: `monitor_up_checks`, `overall_status_degraded`,
+     * `internal_health_checks`, three rows in a row, where the previous run on
+     * the same incident had produced "HTTP checks all up". The model drifts into
+     * naming things the way the evidence names them, and the schema description
+     * now says not to, but a description is a request like every other one here.
+     *
+     * Only a PURE identifier is touched: all lowercase, underscore-separated,
+     * no spaces. That is narrow on purpose. A real heading can contain an
+     * underscore (a metric key quoted inside a sentence), and rewriting one of
+     * those would edit the model's prose rather than repair its formatting.
+     */
+    protected function humanizeLabel(string $label): string
+    {
+        if (preg_match('/^[a-z0-9]+(_[a-z0-9]+)+$/', $label) !== 1) {
+            return $label;
+        }
+
+        return ucfirst(str_replace('_', ' ', $label));
     }
 
     /**
@@ -417,7 +444,7 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
             $stripped = [...$stripped, ...$label['stripped'], ...$detail['stripped']];
 
             $evidence[] = [
-                'label' => $label['summary'],
+                'label' => $this->humanizeLabel($label['summary']),
                 'detail' => $detail['summary'],
                 'source' => $source->value,
             ];
