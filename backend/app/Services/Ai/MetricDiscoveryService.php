@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai;
 
+use App\Enums\MetricBand;
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
 use App\Enums\ThresholdDirection;
@@ -14,6 +15,7 @@ use App\Services\Monitoring\MetricExtractor;
 use App\Services\Monitoring\ThresholdEvaluator;
 use App\Support\Ai\PromptLanguage;
 use App\Support\Monitoring\CredentialRedactor;
+use App\Support\Monitoring\HealthVocabulary;
 use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 use App\Support\Monitoring\ThresholdQuantiser;
@@ -90,6 +92,47 @@ class MetricDiscoveryService
 
     protected const int CRITICAL_MULTIPLIER = 6;
 
+    /** A suggestion a model selected. */
+    public const string ORIGIN_MODEL = 'model';
+
+    /** A suggestion this backend derived on its own, with no model involved. */
+    public const string ORIGIN_RULE = 'rule';
+
+    /**
+     * How many distinct words one rule-proposed band list may carry.
+     *
+     * Bounded because the words come from every verdict field in one response
+     * and a payload is free to have many. Far below the write endpoint's own
+     * {@see LaravelAiMetricDiscoveryGateway::VALUE_LIST_MAX_ITEMS}, because a
+     * health vocabulary that needs more than this many spellings for one
+     * severity is not a vocabulary this class should be guessing at.
+     */
+    protected const int RULE_VALUES_PER_BAND = 8;
+
+    /**
+     * The upper end of the units that HAVE one, keyed by
+     * {@see MetricUnit} value.
+     *
+     * A reading on one of these cannot exceed its ceiling, so multiplying past
+     * it produces a bound nothing can ever reach. Every other unit is left out
+     * deliberately rather than given a large ceiling: milliseconds, bytes and
+     * counts are genuinely unbounded, and inventing a maximum for them would put
+     * a wrong number where there is currently an honest one.
+     *
+     * `percent` is the case that produced this: a gauge reading 27.05% derived a
+     * critical bound of 162. Note this is the unit's own ceiling and not a claim
+     * about the SERVICE: a CPU percentage across cores legitimately passes 100,
+     * which is why an operator can still type a higher bound by hand and why a
+     * bound the MODEL supplies is never clamped here. This governs only what
+     * this class derives on its own.
+     *
+     * @var array<string, float>
+     */
+    protected const array SCALE_CEILINGS = [
+        'percent' => 100.0,
+        'ratio' => 1.0,
+    ];
+
     public function __construct(
         protected MetricCandidateExtractor $extractor,
         protected LaravelAiMetricDiscoveryGateway $gateway,
@@ -160,19 +203,38 @@ class MetricDiscoveryService
             return [];
         }
 
-        // 2. Spend one unit of the team's daily AI budget atomically. Over budget
-        //    is not a failure: it degrades to no suggestions, and never calls the
-        //    provider.
+        // 2. The verdict metric this backend proposes on its own, computed
+        //    BEFORE the budget is touched and independently of whether a model
+        //    ever answers. It needs no provider, so it is the one suggestion
+        //    that still arrives on a day the AI cannot run at all.
+        $ruleRows = $this->verdictRows($monitor, $candidates);
+
+        // 3. Spend one unit of the team's daily AI budget atomically. Over budget
+        //    is not a failure: it degrades to the rule rows alone, and never
+        //    calls the provider.
         if (! $this->budget->tryConsume($teamId)) {
-            return [];
+            return $ruleRows;
         }
 
         $result = $this->select($monitor, $candidates, $locale, $runId);
         if ($result === null) {
-            return [];
+            return $ruleRows;
         }
 
-        return $this->toWireRows($monitor, $candidates, $result);
+        // 4. The model's own selections lead, and a rule row stands down for any
+        //    path the model already took: its label is one a model wrote for a
+        //    human to read, and two rows on one path is noise the operator has
+        //    to resolve by hand.
+        $modelRows = $this->toWireRows($monitor, $candidates, $result);
+        $taken = array_column($modelRows, 'path');
+
+        return [
+            ...$modelRows,
+            ...array_values(array_filter(
+                $ruleRows,
+                static fn (array $row): bool => ! in_array($row['path'], $taken, true),
+            )),
+        ];
     }
 
     /**
@@ -371,10 +433,156 @@ class MetricDiscoveryService
                 // The digest representation, so the pill shows exactly the sample
                 // the model was shown rather than an unbounded page fragment.
                 'sample_value' => $candidate->toDigestRow()['value'],
+                // Who proposed this row. The surface must be able to tell the
+                // operator which suggestions a model wrote and which a rule did,
+                // because badging a deterministic row as AI work is a claim this
+                // product does not get to make.
+                'origin' => self::ORIGIN_MODEL,
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * The verdict metric this backend proposes without asking a model, or an
+     * empty list when the response gives it nothing it can stand behind.
+     *
+     * WHY A RULE AND NOT A BETTER PROMPT. Three earlier fixes made the correct
+     * configuration reachable: the verdict fields now lead the candidate table,
+     * a string metric can no longer ship without bands, and the observed value
+     * may sit in a paging band when the vocabulary agrees. Across live runs on a
+     * real health endpoint the model still selected only numbers, every time. A
+     * field publishing a service's own health is the most valuable thing on that
+     * payload and it is the one the model reliably declines, so it stops being
+     * asked for.
+     *
+     * WHAT THIS COSTS, stated plainly because it reverses something written one
+     * step earlier: {@see HealthVocabulary} was introduced as a class that only
+     * validates a model's placement and never authors a band. Here it authors
+     * one. The reversal is deliberate and it is bounded by the same conservatism
+     * that made the validator safe: only a word the vocabulary knows is ever
+     * placed, and a response whose verdict reads something unrecognised gets no
+     * proposal at all rather than a guessed one.
+     *
+     * THE LISTS COME FROM THE RESPONSE, NOT FROM THE VOCABULARY. Every verdict
+     * field in this one body contributes the word it is actually reading, so a
+     * payload whose subsystems say `ok` while the top level says `degraded`
+     * yields `ok_values: [ok]` and `warn_values: [degraded]`. Seeding the lists
+     * from the vocabulary's own table instead would write words the service may
+     * never use, and a band value that never matches is worse than an absent one
+     * because `unmatched_band` then reports it as healthy.
+     *
+     * ONE ROW, on the SHALLOWEST verdict path. A health payload carries a
+     * verdict per subsystem and the top-level one is already their rollup, so
+     * proposing all of them would bury the model's own suggestions under nine
+     * near-identical rows. The operator adds the per-subsystem ones by hand when
+     * they want to know WHICH rather than WHETHER.
+     *
+     * @param  list<MetricCandidate>  $candidates
+     * @return list<array<string, mixed>>
+     */
+    protected function verdictRows(Monitor $monitor, array $candidates): array
+    {
+        // 1. Every verdict field this response carries, in candidate order.
+        $verdicts = array_values(array_filter(
+            $candidates,
+            static fn (MetricCandidate $candidate): bool => MetricCandidateExtractor::namesAVerdict(
+                $candidate->extractionPath,
+            ),
+        ));
+
+        if ($verdicts === []) {
+            return [];
+        }
+
+        // 2. The shallowest one carries the proposal. `usort` is not stable
+        //    across equal depths in the way this needs, so the minimum is taken
+        //    by comparison and the FIRST candidate at that depth wins, which is
+        //    document order and therefore reproducible.
+        $subject = $verdicts[0];
+        foreach ($verdicts as $candidate) {
+            if (substr_count($candidate->extractionPath, '.') < substr_count($subject->extractionPath, '.')) {
+                $subject = $candidate;
+            }
+        }
+
+        // 3. The proposal is only as good as the reading it is anchored to: a
+        //    subject whose own current word is unrecognised would ship a metric
+        //    that reports today's reading through `unmatched_band`, which the
+        //    create path pins to `ok`. That is the false-Ok this whole path
+        //    exists to prevent, so it is not proposed at all.
+        if (HealthVocabulary::bandFor($subject->sampleValue) === null) {
+            return [];
+        }
+
+        $lists = $this->verdictLists($verdicts);
+
+        return [[
+            'key' => $this->uniqueKey(
+                (string) trans('monitors.verdict_metric_label'),
+                $this->existingKeys($monitor),
+            ),
+            'label' => (string) trans('monitors.verdict_metric_label'),
+            'type' => MetricType::String->value,
+            'source' => $subject->source->value,
+            'path' => $subject->extractionPath,
+            'unit' => null,
+            'threshold_direction' => null,
+            'warn' => null,
+            'critical' => null,
+            ...$lists,
+            'sample_value' => $subject->toDigestRow()['value'],
+            'origin' => self::ORIGIN_RULE,
+        ]];
+    }
+
+    /**
+     * The three band lists, built from the words the verdict fields of this one
+     * response are actually reading.
+     *
+     * A word is transcribed in the spelling it first appeared in and matched
+     * case-insensitively afterwards, so `OK` beside `ok` contributes one entry
+     * rather than two that {@see StoreMonitorMetricRequest} would then refuse as
+     * an overlap.
+     *
+     * @param  list<MetricCandidate>  $verdicts
+     * @return array{ok_values: list<string>, warn_values: list<string>, critical_values: list<string>}
+     */
+    protected function verdictLists(array $verdicts): array
+    {
+        $lists = [
+            'ok_values' => [],
+            'warn_values' => [],
+            'critical_values' => [],
+        ];
+        $seen = [];
+
+        foreach ($verdicts as $candidate) {
+            $band = HealthVocabulary::bandFor($candidate->sampleValue);
+            if ($band === null) {
+                continue;
+            }
+
+            $normalized = ThresholdEvaluator::normalizeMatchValue($candidate->sampleValue);
+            if (isset($seen[$normalized])) {
+                continue;
+            }
+
+            $seen[$normalized] = true;
+            $field = match ($band) {
+                MetricBand::Ok => 'ok_values',
+                MetricBand::Warn => 'warn_values',
+                MetricBand::Critical => 'critical_values',
+            };
+            $lists[$field][] = trim($candidate->sampleValue);
+        }
+
+        foreach ($lists as $field => $values) {
+            $lists[$field] = array_slice($values, 0, self::RULE_VALUES_PER_BAND);
+        }
+
+        return $lists;
     }
 
     /**
@@ -436,8 +644,25 @@ class MetricDiscoveryService
                 // whole row is refused instead. When it IS also in `ok_values`
                 // the `$claimed` dedupe below has already resolved it downward,
                 // because `ok_values` is walked first.
+                //
+                // Unless the word itself settles it. A health endpoint reading
+                // `degraded` has exactly one correct configuration, `degraded`
+                // in `warn_values`, so a blanket refusal here cost the operator
+                // the single field they most wanted watched.
+                // {@see HealthVocabulary} answers only the narrow question of
+                // whether the word is unambiguous enough to check rather than
+                // trust, and it agrees with nothing it does not know, so an
+                // unfamiliar vocabulary takes the refusal it always took. It
+                // never authors a band: this still admits only what the model
+                // itself proposed.
+                //
+                // Banding on the first check is the INTENDED outcome when the
+                // vocabulary agrees. The service is saying it is unwell right
+                // now, and a monitoring product that waits for it to say so
+                // twice is the false-Ok this method exists to prevent.
                 if ($field !== 'ok_values' && $normalized === $observed
-                    && ! isset($claimed[$normalized])) {
+                    && ! isset($claimed[$normalized])
+                    && ! HealthVocabulary::agrees($normalized, $this->bandOfField($field))) {
                     return null;
                 }
 
@@ -453,6 +678,23 @@ class MetricDiscoveryService
         }
 
         return $bands;
+    }
+
+    /**
+     * The band a value list confers on the values inside it.
+     *
+     * Exhaustive with no `default`, unlike {@see HealthVocabulary::bandFor()}:
+     * this set is closed by {@see LaravelAiMetricDiscoveryGateway::VALUE_LIST_KEYS}
+     * and a fourth list arriving here should be a failure rather than a silent
+     * band nobody chose.
+     */
+    protected function bandOfField(string $field): MetricBand
+    {
+        return match ($field) {
+            'ok_values' => MetricBand::Ok,
+            'warn_values' => MetricBand::Warn,
+            'critical_values' => MetricBand::Critical,
+        };
     }
 
     /**
@@ -525,11 +767,17 @@ class MetricDiscoveryService
         // Quantising BEFORE the ordering check below is load-bearing: rounding
         // can collapse two bounds onto one value, and a collapsed pair has to be
         // given up like any other pair the direction refuses.
+        $unit = $this->effectiveUnit($candidate, $selection);
+
         $derived = [
             'warn' => $submitted['warn']
-                ?? ThresholdQuantiser::quantise($this->derivedBound($observed, $direction, self::WARN_MULTIPLIER)),
+                ?? ThresholdQuantiser::quantise(
+                    $this->derivedBound($observed, $direction, self::WARN_MULTIPLIER, $unit),
+                ),
             'critical' => $submitted['critical']
-                ?? ThresholdQuantiser::quantise($this->derivedBound($observed, $direction, self::CRITICAL_MULTIPLIER)),
+                ?? ThresholdQuantiser::quantise(
+                    $this->derivedBound($observed, $direction, self::CRITICAL_MULTIPLIER, $unit),
+                ),
         ];
 
         // 3. A pair the direction's own ordering refuses is not a suggestion: it
@@ -542,12 +790,55 @@ class MetricDiscoveryService
      * One bound `$multiplier` steps away from the observed reading, on the side
      * the direction calls bad.
      */
-    protected function derivedBound(float $observed, ThresholdDirection $direction, int $multiplier): float
-    {
+    protected function derivedBound(
+        float $observed,
+        ThresholdDirection $direction,
+        int $multiplier,
+        ?MetricUnit $unit,
+    ): float {
+        // Guarded rather than `[$unit?->value]`: a null array offset is
+        // deprecated in PHP 8 and reads as the empty-string key.
+        $ceiling = $unit === null ? null : (self::SCALE_CEILINGS[$unit->value] ?? null);
+
+        // A bounded scale has nowhere to multiply into, so it derives toward its
+        // own ceiling instead: thirds of the headroom that is actually left.
+        // Multiplying put a live Redis memory gauge reading 27.05% at
+        // `warn 81.2, critical 162`, and no reading reaches 162 percent, so the
+        // critical band was unreachable by construction and the metric shipped
+        // with one usable band instead of two. On a storage gauge already at 81%
+        // the same arithmetic puts warn at 244 and the metric is inert outright.
+        //
+        // Only `high_bad` needs it. `low_bad` DIVIDES, which walks toward zero,
+        // and zero is the floor of every scale here.
+        if ($direction === ThresholdDirection::HighBad && $ceiling !== null) {
+            $headroom = max(0.0, $ceiling - $observed);
+            $share = $multiplier === self::WARN_MULTIPLIER ? 1 / 3 : 2 / 3;
+
+            return $observed + ($headroom * $share);
+        }
+
         return match ($direction) {
             ThresholdDirection::HighBad => $observed * $multiplier,
             ThresholdDirection::LowBad => $observed / $multiplier,
         };
+    }
+
+    /**
+     * The unit an accepted selection is actually expressed in.
+     *
+     * One resolution shared by {@see self::unitFor()} (which puts it on the
+     * wire) and {@see self::boundsFor()} (which derives against it), so the
+     * number and the scale it is derived on can never disagree.
+     *
+     * @param  array{type: MetricType, unit: MetricUnit|null}  $selection
+     */
+    protected function effectiveUnit(MetricCandidate $candidate, array $selection): ?MetricUnit
+    {
+        if ($selection['type'] !== MetricType::Numeric) {
+            return null;
+        }
+
+        return $candidate->unit ?? $selection['unit'];
     }
 
     /**
@@ -583,14 +874,13 @@ class MetricDiscoveryService
         // not. Without this a `120ms` candidate selected as `string` keeps its
         // suffix in the value AND ships `millisecond` beside it, and the pill
         // renders "120ms ms".
-        if ($selection['type'] !== MetricType::Numeric) {
-            return null;
-        }
-
-        // The candidate's own unit outranks the model's: it was derived from
-        // the very suffix the check path strips, so it is the one unit the
-        // recorded number is actually expressed in.
-        return $candidate->unit?->value ?? $selection['unit']?->value;
+        // The candidate's own unit outranks the model's: it comes from the very
+        // suffix the check path strips, or failing that from the key the service
+        // itself wrote the scale into, so it is the one unit the recorded number
+        // is actually expressed in. Resolved once in
+        // {@see self::effectiveUnit()} and shared with the bound derivation, so
+        // the printed unit and the scale a bound was derived on cannot differ.
+        return $this->effectiveUnit($candidate, $selection)?->value;
     }
 
     /**

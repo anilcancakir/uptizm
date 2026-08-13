@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../resources/views/monitors/monitor_form_support.dart'
+    show AiMetricSeed;
 import '../../resources/views/monitors/monitor_metrics_support.dart';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,38 @@ String _directionToWireValue(String direction) =>
     direction == 'low' ? 'low_bad' : 'high_bad';
 
 String _directionFromWire(String? wire) => wire == 'low_bad' ? 'low' : 'high';
+
+/// A discovery suggestion as the metric form's own edit model.
+///
+/// Lives here rather than on [AiMetricSeed] because the translation it performs
+/// is exactly what the two private maps above own: a seed speaks the WIRE
+/// vocabulary (`json_path`, `high_bad`) and the form speaks the form one
+/// (`json`, `high`). {@see AiMetricSeed.toCreateRow} converts the other
+/// direction, wire to COLUMN, for the bulk create the monitor wizard posts, and
+/// its own docblock warns against routing a row through this file's translator;
+/// this function is the third edge of that triangle and the one the metric form
+/// needs.
+///
+/// `unmatchedBand` is left empty on purpose. The server pins it when the row is
+/// written (`ok` whenever a band list is non-empty), so pre-filling it here
+/// would show the operator a choice they did not make and cannot see the
+/// reasoning for.
+MetricForm metricFormFromSeed(AiMetricSeed seed) {
+  return MetricForm(
+    label: seed.label,
+    key: seed.key,
+    type: seed.type.isEmpty ? 'numeric' : seed.type,
+    source: _sourceFromWire(seed.source),
+    path: seed.path,
+    unit: seed.unit,
+    direction: _directionFromWire(seed.thresholdDirection),
+    warn: seed.warn,
+    critical: seed.critical,
+    okValues: seed.okValues,
+    warnValues: seed.warnValues,
+    criticalValues: seed.criticalValues,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // MonitorMetricRecord: a persisted custom metric definition.
@@ -559,6 +593,71 @@ class MonitorMetricsController extends MagicController
     } catch (error) {
       Log.error(
         '[MonitorMetricsController.candidates] $monitorId failed: $error',
+      );
+      return null;
+    }
+  }
+
+  /// Asks the backend to propose metrics worth adding, via `POST
+  /// /monitors/:id/metrics/discover`.
+  ///
+  /// Distinct from [candidates], which lists every field the extractor could
+  /// address so the operator can pick one. This asks which of them are worth
+  /// recording, and the answer mixes two authors: a model's selections and the
+  /// backend's own deterministic verdict row, told apart by
+  /// [AiMetricSeed.origin]. Nothing is created; each seed is accepted by
+  /// opening the metric form prefilled from it.
+  ///
+  /// An empty list is an ordinary answer, not a failure: the monitor may have
+  /// nothing archived yet, the team's daily AI budget may be spent, or the
+  /// gateway may have refused output it would not stand behind. The backend
+  /// answers `[]` in all three rather than an error, so the panel says "nothing
+  /// to suggest" instead of "load failed".
+  ///
+  /// Returns null only when the round trip itself failed. The callers gate on
+  /// [EntitlementController.aiLevelAllows] first, so a 403 here means the
+  /// entitlement in memory is stale rather than that the operator clicked
+  /// something they could see was closed; it is logged and degrades to null
+  /// like any other non-2xx, and the next entitlement reload re-gates the
+  /// button.
+  Future<List<AiMetricSeed>?> discover(String monitorId) async {
+    try {
+      final response = await Http.post('/monitors/$monitorId/metrics/discover');
+      if (!response.successful) {
+        Log.error(
+          '[MonitorMetricsController.discover] $monitorId: '
+          '${response.errorMessage}',
+        );
+        return null;
+      }
+
+      final Object? data = response.data;
+      if (data is! Map<String, dynamic>) {
+        Log.error('[MonitorMetricsController.discover] $monitorId: bad shape');
+        return null;
+      }
+
+      // `MagicResponse.data` is the RAW body, not the unwrapped envelope, so
+      // the `data` wrapper is walked here rather than assumed away. A body
+      // shaped differently answers an empty list: discovery legitimately has
+      // nothing to say quite often, and a decode that threw would turn that
+      // into a failure banner.
+      final Object? envelope = data['data'];
+      final Object? rows = envelope is Map<String, dynamic>
+          ? envelope['suggested_metrics']
+          : null;
+
+      if (rows is! List) {
+        return const [];
+      }
+
+      return rows
+          .whereType<Map<String, dynamic>>()
+          .map(AiMetricSeed.fromMap)
+          .toList();
+    } catch (error) {
+      Log.error(
+        '[MonitorMetricsController.discover] $monitorId failed: $error',
       );
       return null;
     }

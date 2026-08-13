@@ -394,7 +394,19 @@ class ThresholdEvaluator
         float $value,
         ?float $warnBound,
         ?float $criticalBound,
-    ): MetricBand {
+    ): ?MetricBand {
+        // A metric with no bound on either side has nothing to be compared
+        // against, and `ok` is a verdict rather than a default: it says a
+        // reading was measured against a threshold and found fine. Falling
+        // through to it here published "healthy" about a number nobody had set
+        // an expectation for, and measured on a live discovery run five of eight
+        // proposed metrics arrived in exactly that state, each rendering a green
+        // dot on every check. Null is the same answer {@see self::bandString()}
+        // already gives an unconfigured string metric.
+        if ($warnBound === null && $criticalBound === null) {
+            return null;
+        }
+
         if ($direction === ThresholdDirection::HighBad) {
             if ($criticalBound !== null && $value >= $criticalBound) {
                 return MetricBand::Critical;

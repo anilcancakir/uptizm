@@ -334,7 +334,11 @@ class MonitorMetricController extends Controller
                     value: (float) $result->value,
                     warnBound: isset($validated['warn_bound']) ? (float) $validated['warn_bound'] : null,
                     criticalBound: isset($validated['critical_bound']) ? (float) $validated['critical_bound'] : null,
-                )->value;
+                    // Null when the draft carries no bound at all, which is the
+                    // same "bands nothing" the string branch below already
+                    // encodes. The preview then shows no band rather than a
+                    // green one the draft has not earned.
+                )?->value;
             } elseif ($type === MetricType::String) {
                 $okValues = $this->draftValues($validated, 'ok_values');
                 $warnValues = $this->draftValues($validated, 'warn_values');

@@ -3,14 +3,18 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/controllers/monitor_metrics_controller.dart';
 import '../../../app/models/monitor.dart';
+import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/metric_direction.dart' show MetricDirection;
+import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/enums/metric_kind.dart' show MetricKind;
 import '../../../app/support/metric_types.dart' show MonitorMetric;
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/status_dot/index.dart';
+import 'monitor_form_support.dart' show AiMetricSeed;
 import 'monitor_metric_detail.dart';
 import 'monitor_metric_form.dart';
 import 'monitor_metrics_support.dart';
@@ -82,6 +86,22 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   /// The singleton controller sourcing this monitor's custom metric catalog
   /// from the live metrics endpoints.
   late final MonitorMetricsController _controller;
+
+  /// Suggestions from the last discovery run, or null before one has been asked
+  /// for.
+  ///
+  /// Deliberately three states rather than an empty list plus a bool: null is
+  /// "not asked", empty is "asked, nothing to suggest", and [_discoverFailed]
+  /// is "asked, the round trip broke". They read identically as a list and mean
+  /// three different things to the operator.
+  List<AiMetricSeed>? _suggestions;
+
+  /// Whether a discovery round trip is in flight.
+  bool _discovering = false;
+
+  /// Whether the last discovery run failed at the transport, as opposed to
+  /// answering with nothing.
+  bool _discoverFailed = false;
 
   @override
   void initState() {
@@ -157,6 +177,47 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     );
   }
 
+  /// Asks the backend which metrics are worth adding and holds the answer.
+  ///
+  /// Re-runnable on purpose: the page changes and the operator changes their
+  /// mind, which is the same reason the endpoint is gated on the team's AI
+  /// level rather than on the create wizard's one-off metered allowance.
+  Future<void> _discover() async {
+    setState(() {
+      _discovering = true;
+      _discoverFailed = false;
+    });
+
+    final List<AiMetricSeed>? seeds = await _controller.discover(
+      widget.monitorId,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _discovering = false;
+      _discoverFailed = seeds == null;
+      _suggestions = seeds ?? const [];
+    });
+  }
+
+  /// Opens the create form prefilled from [seed].
+  ///
+  /// Nothing is written until the operator saves: a suggestion is a filled-in
+  /// form, never a metric that appeared on its own. That is the same contract
+  /// the create wizard's pills hold, and it is what makes an AI proposal
+  /// something the operator approves rather than something they discover
+  /// afterwards.
+  void _acceptSeed(AiMetricSeed seed) {
+    MonitorMetricForm.show(
+      context,
+      initial: metricFormFromSeed(seed),
+      isEdit: false,
+      onSave: (form) => _controller.create(widget.monitorId, form),
+      onPreview: (form) => _controller.preview(widget.monitorId, form),
+      onCandidates: () => _controller.candidates(widget.monitorId),
+    );
+  }
+
   /// Opens the edit form for [record]; Save puts the updated fields.
   void _openEdit(MonitorMetricRecord record) {
     MonitorMetricForm.show(
@@ -210,7 +271,149 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
 
         // 2. Custom metrics section: heading + Add, then empty state or list.
         _buildCustomSection(),
+
+        // 3. Discovery: what the backend thinks is worth adding, behind the
+        //    team's AI level.
+        _buildSuggestSection(),
       ],
+    );
+  }
+
+  /// Builds the discovery panel: the plan gate, the ask, and the answer.
+  ///
+  /// Wrapped in a [ListenableBuilder] on [EntitlementController] for the reason
+  /// every other gated surface here is: the real plan lands after the first
+  /// frame, and gates read permissively until it does, so a panel that did not
+  /// re-gate would show the ask to a Free team for as long as the page stayed
+  /// open.
+  Widget _buildSuggestSection() {
+    return ListenableBuilder(
+      listenable: EntitlementController.instance,
+      builder: (context, _) {
+        final EntitlementController entitlement = EntitlementController.instance;
+
+        if (!entitlement.aiLevelAllows(AiLevel.analysis)) {
+          bool unlocksAnalysis(PlanLimits limits) =>
+              limits.ai.index >= AiLevel.analysis.index;
+          final String requiredPlan = entitlement.planNameUnlocking(
+            unlocksAnalysis,
+          );
+
+          return MSUpgradeNudge(
+            message: trans('uptizm.monitors.metrics_suggest_gated', {
+              'plan': requiredPlan,
+            }),
+            requiredPlan: requiredPlan,
+            onUpgrade: () => UpgradePrompt.startUpgrade(
+              entitlement.planIdUnlocking(unlocksAnalysis),
+            ),
+          );
+        }
+
+        return WDiv(
+          className: 'flex flex-col gap-3',
+          children: [
+            WDiv(
+              className: 'flex flex-row items-center justify-between gap-3',
+              children: [
+                WText(
+                  trans('uptizm.monitors.metrics_suggest_title'),
+                  className: 'text-sm font-medium text-fg',
+                ),
+                MSButton(
+                  intent: ButtonIntent.secondary,
+                  size: ButtonSize.sm,
+                  isLoading: _discovering,
+                  onPressed: _discovering ? null : _discover,
+                  child: WText(
+                    trans(
+                      _suggestions == null
+                          ? 'uptizm.monitors.metrics_suggest_action'
+                          : 'uptizm.monitors.metrics_suggest_again',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            ?_buildSuggestResult(),
+          ],
+        );
+      },
+    );
+  }
+
+  /// The answer half of the discovery panel, or null before anything was asked.
+  ///
+  /// Three outcomes render as three different sentences rather than one empty
+  /// list: a transport failure says so, an empty answer says there is nothing
+  /// to suggest (which a monitor with nothing archived yet, a spent AI budget
+  /// and output the gateway would not trust all legitimately produce), and a
+  /// non-empty answer renders the pills.
+  Widget? _buildSuggestResult() {
+    if (_discoverFailed) {
+      return WText(
+        trans('uptizm.monitors.metrics_suggest_failed'),
+        className: 'text-xs text-fg-muted',
+      );
+    }
+
+    final List<AiMetricSeed>? seeds = _suggestions;
+    if (seeds == null) return null;
+
+    if (seeds.isEmpty) {
+      return WText(
+        trans('uptizm.monitors.metrics_suggest_empty'),
+        className: 'text-xs text-fg-muted',
+      );
+    }
+
+    return WDiv(
+      className: 'flex flex-col gap-2',
+      children: [
+        WDiv(
+          className: 'flex flex-row flex-wrap items-center gap-2',
+          children: [for (final AiMetricSeed seed in seeds) _buildSeedPill(seed)],
+        ),
+        WText(
+          trans('uptizm.monitors.metrics_suggest_help'),
+          className: 'text-xs text-fg-muted',
+        ),
+      ],
+    );
+  }
+
+  /// One suggestion, as a pill that opens the metric form prefilled.
+  ///
+  /// A rule-authored seed carries its own quiet marker. The backend proposes
+  /// the service's own health verdict deterministically, with no model
+  /// involved, and letting that row sit unlabelled among the model's would
+  /// credit an AI with work it did not do.
+  Widget _buildSeedPill(AiMetricSeed seed) {
+    return WAnchor(
+      onTap: () => _acceptSeed(seed),
+      child: WDiv(
+        className:
+            'flex flex-row items-center gap-1 rounded-md border '
+            'border-color-border bg-surface px-2 py-0.5 '
+            'hover:bg-surface-container transition-colors',
+        children: [
+          WText(seed.label, className: 'text-xs text-fg'),
+          if (seed.sampleValue.isNotEmpty)
+            WText(
+              trans('uptizm.monitors.create_ai_metric_observed', {
+                'observed': seed.unit.isEmpty
+                    ? seed.sampleValue
+                    : '${seed.sampleValue} ${seed.unit}',
+              }),
+              className: 'font-mono text-xs text-fg-muted',
+            ),
+          if (seed.isRule)
+            WText(
+              trans('uptizm.monitors.metrics_suggest_rule_badge'),
+              className: 'text-xs text-fg-disabled',
+            ),
+        ],
+      ),
     );
   }
 

@@ -340,6 +340,125 @@ class MetricCandidateExtractorTest extends TestCase
         $this->assertSame('c'.self::MAX_CANDIDATES, $candidates[self::MAX_CANDIDATES - 1]->ref);
     }
 
+    // -----------------------------------------------------------------
+    // Ranking a JSON health payload: the cap decides what the model can
+    // ever propose, so what it drops is a product decision
+    // -----------------------------------------------------------------
+    //
+    // `health-endpoint-wide.json` is a real production response (uptizm's own
+    // monitor of fluttersdk.com), kept at its measured 82 leaves against a cap
+    // of 40. Ranking used to score the VALUE alone, so every short string tied
+    // on zero and the tie broke on document order. `checks` is walked in
+    // declaration order and `storage` is declared last, so the cap fell exactly
+    // between the build identity at the top of the payload and the operational
+    // signal at the bottom: `php_version`, `commit_subject` and `branch` were
+    // offered while `checks.storage.status`, which was reading `degraded` at the
+    // moment of capture, was not. The model then proposed what it had been
+    // shown, and the one field that would have caught the outage was never on
+    // the table.
+
+    public function test_every_subsystem_verdict_survives_the_cap(): void
+    {
+        // Nine verdict leaves against a 40 cap and 82 leaves. The assertion is
+        // per-path rather than a count, because dropping any ONE of them is the
+        // defect: a service publishes its verdict per subsystem precisely so a
+        // reader does not have to infer it from the numbers.
+        $paths = $this->paths($this->extract('health-endpoint-wide.json'));
+
+        foreach ([
+            'status',
+            'checks.application.status',
+            'checks.database.status',
+            'checks.redis.status',
+            'checks.cache.status',
+            'checks.queue.status',
+            'checks.horizon.status',
+            'checks.scheduler.status',
+            'checks.storage.status',
+        ] as $verdict) {
+            $this->assertContains($verdict, $paths, "the verdict [{$verdict}] was ranked out of the digest");
+        }
+    }
+
+    public function test_a_failure_counter_outranks_a_plain_measurement(): void
+    {
+        // The second half of the same problem, and the one that decides what the
+        // operator is offered once the verdicts are in. A count of jobs that
+        // failed in the last day is the most actionable number in this payload;
+        // how long our own health check took to run is the least. Both are plain
+        // integers, so nothing about the VALUE can separate them and only the
+        // key can.
+        $paths = $this->paths($this->extract('health-endpoint-wide.json'));
+
+        foreach ([
+            'checks.queue.details.failed_recent',
+            'checks.redis.details.evicted_keys',
+            'checks.horizon.details.longest_wait_seconds',
+            'checks.storage.details.used_percent',
+            'checks.redis.details.used_memory_percent',
+        ] as $signal) {
+            $this->assertContains($signal, $paths, "the signal [{$signal}] was ranked out of the digest");
+        }
+    }
+
+    public function test_two_object_keys_sharing_a_value_are_not_collapsed(): void
+    {
+        // The enumeration collapse exists so a 500-row array contributes one
+        // representative instead of 500, and it grouped on (masked parent,
+        // masked value). Under an OBJECT that predicate says something it never
+        // meant: two DIFFERENT keys that happen to read the same number are one
+        // row. Every failure counter on a healthy service reads zero, so the
+        // healthier the service the more of them vanished, which is the exact
+        // inverse of what a setup-time reading is for. Measured on the wide
+        // fixture: six of its ten zero-valued leaves were dropped, and all six
+        // were counters (`failed_recent`, `failed_total`, `evicted_keys`,
+        // `paused_masters`, `longest_wait_seconds`, `wait_seconds`).
+        //
+        // Asserted on a minimal body rather than the fixture so it cannot pass
+        // for a ranking reason: four leaves, one cap, nothing to compete over.
+        $body = (string) json_encode([
+            'queue' => [
+                'pending_total' => 0,
+                'failed_recent' => 0,
+                'failed_total' => 0,
+                'oldest_wait_seconds' => 0,
+            ],
+        ]);
+
+        $paths = $this->paths((new MetricCandidateExtractor)->extract($body));
+
+        $this->assertContains('queue.pending_total', $paths);
+        $this->assertContains('queue.failed_recent', $paths);
+        $this->assertContains('queue.failed_total', $paths);
+        $this->assertContains('queue.oldest_wait_seconds', $paths);
+    }
+
+    public function test_build_identity_loses_the_cap_to_operational_signal(): void
+    {
+        // The inverse assertion, and the one that can actually fail if the
+        // weights are set too generously: a payload cannot gain candidates, so
+        // admitting the nine verdicts and the failure counters has to cost
+        // something. These are the leaves that should pay. Every one of them is
+        // constant between checks, so a metric built on it records the same
+        // value forever and can never band.
+        $paths = $this->paths($this->extract('health-endpoint-wide.json'));
+
+        foreach ([
+            'checks.application.details.php_version',
+            'checks.application.details.laravel_version',
+            'checks.application.details.commit',
+            'checks.application.details.commit_subject',
+            'checks.application.details.branch',
+            'checks.application.details.octane_server',
+            'checks.database.details.driver',
+            'checks.database.details.connection',
+            'checks.redis.details.client',
+            'checks.storage.details.path',
+        ] as $identity) {
+            $this->assertNotContains($identity, $paths, "the constant [{$identity}] took a slot from a signal");
+        }
+    }
+
     /**
      * The cap is applied AFTER ranking, so the one worthwhile candidate on a
      * page full of counting survives it and leads the digest.

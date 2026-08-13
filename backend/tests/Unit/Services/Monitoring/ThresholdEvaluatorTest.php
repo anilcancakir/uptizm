@@ -38,7 +38,45 @@ class ThresholdEvaluatorTest extends TestCase
     {
         $band = ThresholdEvaluator::band(ThresholdDirection::HighBad, 70.0, 80.0, 95.0);
 
-        $this->assertSame('ok', $band->value);
+        $this->assertSame('ok', $band?->value);
+    }
+
+    public function test_a_metric_with_no_bound_at_all_bands_nothing(): void
+    {
+        // `ok` is a VERDICT: compared against something and found fine. With no
+        // bound on either side there is nothing to compare against, and the old
+        // fall-through published that as health. Measured on a live discovery
+        // run, five of eight proposed metrics reached the operator with both
+        // bounds null, and every one of them rendered a green `ok` dot on every
+        // check: a queue could fill to five hundred jobs under a metric that
+        // said it was fine.
+        //
+        // Null is the honest answer and it is already this class's own shape for
+        // it: {@see ThresholdEvaluator::bandString()} answers null for a string
+        // metric with no configured list, which is the identical situation on
+        // the other type.
+        foreach ([ThresholdDirection::HighBad, ThresholdDirection::LowBad] as $direction) {
+            $this->assertNull(
+                ThresholdEvaluator::band($direction, 500.0, null, null),
+                "[{$direction->value}] with no bound asserted a band it never measured",
+            );
+        }
+    }
+
+    public function test_one_configured_bound_is_enough_to_earn_an_ok(): void
+    {
+        // The other side of the rule, and the one that keeps it from becoming
+        // "never say ok": a single bound IS a comparison, so a reading that does
+        // not reach it has been measured and found fine. Only the total absence
+        // of a bound is unknowable.
+        $this->assertSame(
+            MetricBand::Ok,
+            ThresholdEvaluator::band(ThresholdDirection::HighBad, 70.0, 80.0, null),
+        );
+        $this->assertSame(
+            MetricBand::Ok,
+            ThresholdEvaluator::band(ThresholdDirection::HighBad, 70.0, null, 95.0),
+        );
     }
 
     public function test_band_high_bad_warn_at_or_above_warn_bound(): void

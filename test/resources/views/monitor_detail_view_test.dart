@@ -119,6 +119,12 @@ void main() {
     // Bind the MagicStarter manager so Card / PageHeader / Tabs resolve their
     // themes via MagicStarter.* without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind LogManager: the Metrics tab's discovery panel reads
+    // `EntitlementController.instance`, whose self-triggered billing reload
+    // degrades through `Log.error` under the stub below. Without the binding
+    // the degrade throws and the Metrics-tab test fails for a reason that has
+    // nothing to do with what it asserts.
+    Magic.singleton('log', () => LogManager());
     // Stub the two live endpoints the detail now fetches: recent checks +
     // bucketed response-times. `GET /monitors[/:id]` (reload / _refreshOne) is
     // left unstubbed and degrades to a no-op in the controller, leaving the

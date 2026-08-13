@@ -4,6 +4,7 @@ namespace App\Services\Monitoring;
 
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
+use App\Enums\MetricUnit;
 use App\Http\Requests\StoreMonitorRequest;
 use App\Support\Monitoring\MetricCandidate;
 use App\Support\Monitoring\ProbeHeaderAllowList;
@@ -139,6 +140,114 @@ class MetricCandidateExtractor
     protected const int WEIGHT_NUMERIC = 25;
 
     protected const int PENALTY_LONG_TEXT = 25;
+
+    /**
+     * What a JSON key is worth, on top of what its value is worth.
+     *
+     * These three exist because scoring the VALUE alone cannot rank a health
+     * payload. `"degraded"` and `"8.5.6"` are both short strings that score
+     * zero, so the sort fell through to document order, and document order is
+     * an authoring accident: a real 82-leaf response (kept as
+     * `tests/fixtures/content/health-endpoint-wide.json`) declares `storage`
+     * last, so the 40-candidate cap offered the model `php_version`,
+     * `commit_subject` and `branch` while dropping `checks.storage.status`,
+     * which was reading `degraded` at that moment. The model can only ever
+     * select among what it is shown, so a cap that drops the verdicts decides
+     * the product's answer long before any prompt does.
+     *
+     * The three weights are ordered against the value weights on purpose:
+     *
+     * - A VERDICT outranks everything, including a unit-bearing measurement
+     *   ({@see self::WEIGHT_UNIT_SUFFIX}), because a service that publishes its
+     *   own health per subsystem has already done the inference we would
+     *   otherwise ask a model to do from numbers. There are only ever a handful
+     *   of these, so they cannot crowd a payload out.
+     * - A SIGNAL sits just above a unit-bearing measurement, so a count of jobs
+     *   that failed today outranks how long a health check took to run. Both are
+     *   bare integers, so nothing about the value can separate them.
+     * - IDENTITY is penalised BELOW a plain number rather than excluded, because
+     *   the words are heuristics and a small payload should still offer them
+     *   rather than nothing. A version, a commit or a driver name is constant
+     *   between checks, so a metric built on one records the same value forever
+     *   and can never band.
+     */
+    protected const int WEIGHT_VERDICT_KEY = 90;
+
+    protected const int WEIGHT_SIGNAL_KEY = 45;
+
+    protected const int PENALTY_IDENTITY_KEY = 35;
+
+    /**
+     * Key tokens naming a service's own verdict about itself.
+     *
+     * Deliberately tiny. Every entry here outranks every measurement, so a word
+     * that is only sometimes a verdict would quietly evict real numbers from the
+     * cap on every payload that happens to use it.
+     */
+    protected const array VERDICT_KEY_TOKENS = [
+        'status',
+        'state',
+        'health',
+        'healthy',
+    ];
+
+    /**
+     * Key tokens naming something that goes wrong, fills up, or falls behind.
+     *
+     * The test for membership is "does a rising or falling reading here mean
+     * the operator has a problem". `latency` and `duration` are deliberately
+     * ABSENT: they are the measurements this list is meant to outrank, and a
+     * sub-millisecond health-check duration is the single least actionable
+     * number a health payload carries.
+     */
+    protected const array SIGNAL_KEY_TOKENS = [
+        'failed',
+        'failures',
+        'error',
+        'errors',
+        'evicted',
+        'rejected',
+        'dropped',
+        'timeout',
+        'timeouts',
+        'pending',
+        'backlog',
+        'queued',
+        'lag',
+        'wait',
+        'age',
+        'percent',
+        'usage',
+        'used',
+        'free',
+        'remaining',
+        'unwritable',
+    ];
+
+    /**
+     * Key tokens naming what a deployment IS rather than how it is doing.
+     *
+     * `name` and `id` are deliberately ABSENT even though they are identity too:
+     * they are also the commonest key in a metrics payload (`{"name": "rps",
+     * "value": 12}`), so penalising them would demote the value beside them on
+     * every payload shaped that way.
+     */
+    protected const array IDENTITY_KEY_TOKENS = [
+        'version',
+        'commit',
+        'branch',
+        'revision',
+        'sha',
+        'driver',
+        'connection',
+        'client',
+        'server',
+        'store',
+        'path',
+        'url',
+        'endpoint',
+        'hostname',
+    ];
 
     /**
      * Elements that are never an anchor: their subtree is the whole document, so
@@ -328,7 +437,16 @@ class MetricCandidateExtractor
                 eligibleTypes: $this->eligibleTypes($row['value']),
                 // The sample stays FULL and unmodified (the round-trip proof
                 // compares against it verbatim); the unit rides alongside it.
-                unit: MetricExtractor::splitUnit($row['value'])[1] ?? null,
+                //
+                // The value's own suffix wins, and the KEY is the fallback. A
+                // suffix is proof (`120ms` records 120 in milliseconds); a key
+                // is evidence, and it is the only evidence there is for the
+                // shape that actually occurs in a JSON payload: `used_percent:
+                // 81.39` writes the scale in the key and nowhere else. Without
+                // it the bound derivation had no ceiling to respect and put the
+                // warn bound for a disk at 81% at 244%.
+                unit: MetricExtractor::splitUnit($row['value'])[1]
+                    ?? $this->unitFromKey($row['source'], $row['path']),
             );
         }
 
@@ -395,10 +513,21 @@ class MetricCandidateExtractor
         $seenGroups = [];
 
         foreach ($leaves as [$path, $value]) {
-            // An array's elements are siblings under the same masked parent, so
+            // An array's elements are siblings under the same masked path, so
             // a 500-row collection contributes one representative per value
             // shape rather than 500 near-identical rows.
-            $group = $this->groupKey($this->maskDigits($this->jsonParentPath($path)), $value);
+            //
+            // The WHOLE path is masked, not just the parent. Under an array
+            // that changes nothing (`items.0.latency` and `items.1.latency`
+            // both reduce to `items.#.latency`), and under an OBJECT it is the
+            // difference between a collapse and a silent loss: grouping on the
+            // parent alone made two different keys that happen to read the same
+            // number one row, and every failure counter on a healthy service
+            // reads zero. Measured on `health-endpoint-wide.json`, six of its
+            // ten zero-valued leaves were dropped and all six were counters, so
+            // the healthier the service the fewer of its warning lights the
+            // model was allowed to see.
+            $group = $this->groupKey($this->maskDigits($path), $value);
             if (isset($seenGroups[$group])) {
                 continue;
             }
@@ -417,7 +546,12 @@ class MetricCandidateExtractor
                 'path' => $path,
                 'value' => $value,
                 'label' => $this->jsonLabelHint($path),
-                'score' => $this->valueScore($value),
+                // JSON is the one source where a key travels with the value, so
+                // it is the one source that can rank on meaning rather than on
+                // shape. HTML and headers keep scoring the value alone: a text
+                // node has no key, and a header name is already its own anchor
+                // weight.
+                'score' => $this->valueScore($value) + $this->pathScore($path),
             ];
         }
 
@@ -1011,6 +1145,115 @@ class MetricCandidateExtractor
         }
 
         return $score;
+    }
+
+    /**
+     * What this leaf's KEY says about how much the reading under it is worth
+     * watching.
+     *
+     * Read off the last path segment only. A parent segment is a grouping
+     * (`checks`, `details`, `queue`) rather than a claim about the leaf, and
+     * letting it contribute would give `checks.status.duration_ms` a verdict's
+     * weight for being filed under one.
+     *
+     * The segment is split on the separators a JSON key actually uses, so
+     * `failed_recent`, `usedPercent` and `longest-wait-seconds` all reduce to
+     * tokens the tables can match. Matching is exact per token and never a
+     * substring: `clients` is not `client`, which is what keeps
+     * `connected_clients` (a real gauge) out of the identity penalty that
+     * `client: "phpredis"` earns.
+     *
+     * The three tables are mutually exclusive by construction, but the order is
+     * still fixed rather than summed. A key matching two tables is a key we do
+     * not understand, and taking the first match keeps the outcome readable
+     * instead of landing on an arithmetic middle nobody chose.
+     */
+    protected function pathScore(string $path): int
+    {
+        $tokens = self::keyTokens($path);
+
+        if (array_intersect($tokens, self::VERDICT_KEY_TOKENS) !== []) {
+            return self::WEIGHT_VERDICT_KEY;
+        }
+
+        if (array_intersect($tokens, self::SIGNAL_KEY_TOKENS) !== []) {
+            return self::WEIGHT_SIGNAL_KEY;
+        }
+
+        if (array_intersect($tokens, self::IDENTITY_KEY_TOKENS) !== []) {
+            return -self::PENALTY_IDENTITY_KEY;
+        }
+
+        return 0;
+    }
+
+    /**
+     * The unit a JSON key names outright, or null when it names none.
+     *
+     * Deliberately only the two BOUNDED scales. They are the ones where the
+     * unit changes an outcome rather than a label: {@see MetricDiscoveryService}
+     * derives a bound toward a ceiling when it knows there is one, and a
+     * multiplied bound on a percentage lands somewhere no reading can go. Byte
+     * and duration keys (`latency_ms`, `used_memory_mb`) are left alone on
+     * purpose: naming them would change how a value is FORMATTED without the
+     * value having been parsed that way, and `81.39` is not `81.39 MB` just
+     * because a key says so.
+     *
+     * Restricted to a JSON path, where a key is a real key. An HTML candidate's
+     * path is an XPath expression and a header's is a header name; neither is a
+     * place a service writes a unit down.
+     */
+    protected function unitFromKey(MetricSource $source, string $path): ?MetricUnit
+    {
+        if ($source !== MetricSource::JsonPath) {
+            return null;
+        }
+
+        $tokens = self::keyTokens($path);
+
+        if (array_intersect($tokens, ['percent', 'pct']) !== []) {
+            return MetricUnit::Percent;
+        }
+
+        if (in_array('ratio', $tokens, true)) {
+            return MetricUnit::Ratio;
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether this JSON key names a service's own verdict about itself.
+     *
+     * Public and static because the ranking is not the only thing that needs the
+     * answer: {@see MetricDiscoveryService::verdictRows()} proposes a metric on
+     * a verdict field directly, and the two have to agree about what a verdict
+     * IS or the field that leads the candidate table is not the field that gets
+     * proposed.
+     */
+    public static function namesAVerdict(string $path): bool
+    {
+        return array_intersect(self::keyTokens($path), self::VERDICT_KEY_TOKENS) !== [];
+    }
+
+    /**
+     * The lowercased word tokens of a dot path's last segment.
+     *
+     * @return list<string>
+     */
+    protected static function keyTokens(string $path): array
+    {
+        $segments = explode('.', $path);
+        $leaf = (string) end($segments);
+
+        // camelCase before the split, so `usedPercent` yields two tokens rather
+        // than one that matches nothing.
+        $spaced = (string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', $leaf);
+
+        return array_values(array_filter(
+            preg_split('/[^a-z0-9]+/', mb_strtolower($spaced)) ?: [],
+            static fn (string $token): bool => $token !== '',
+        ));
     }
 
     /**

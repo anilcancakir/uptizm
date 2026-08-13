@@ -36,6 +36,17 @@ class _MetricsLangLoader implements TranslationLoader {
       // MonitorMetricsTab: custom section.
       'uptizm.monitors.metrics_custom_title': 'Custom metrics',
       'uptizm.monitors.metrics_add': 'Add metric',
+
+      // MonitorMetricsTab: discovery panel.
+      'uptizm.monitors.metrics_suggest_title': 'Suggested',
+      'uptizm.monitors.metrics_suggest_action': 'Suggest',
+      'uptizm.monitors.metrics_suggest_again': 'Again',
+      'uptizm.monitors.metrics_suggest_help': 'Tap one.',
+      'uptizm.monitors.metrics_suggest_empty': 'Nothing to suggest.',
+      'uptizm.monitors.metrics_suggest_failed': 'Could not reach it.',
+      'uptizm.monitors.metrics_suggest_gated': 'Needs :plan.',
+      'uptizm.monitors.metrics_suggest_rule_badge': 'rule',
+      'uptizm.monitors.create_ai_metric_observed': 'now :observed',
       'uptizm.monitors.metrics_empty_title': 'No custom metrics',
       'uptizm.monitors.metrics_empty_description': 'None yet.',
       'uptizm.monitors.metrics_create': 'Create metric',
@@ -164,6 +175,13 @@ void main() {
     // Bind MagicStarter so magic_starter widgets (Button, BottomSheet, etc.)
     // resolve their theme without a full app boot.
     Magic.singleton('magic_starter', () => MagicStarterManager());
+    // Bind LogManager: the tab's discovery panel reads
+    // `EntitlementController.instance`, which self-triggers a billing reload,
+    // and that reload's offline-degradation path calls `Log.error` on the
+    // failure the empty fake below produces. Without the binding the degrade
+    // itself throws, which surfaces as every widget test in this file failing
+    // for a reason none of them are about.
+    Magic.singleton('log', () => LogManager());
     // Bind a fake network driver: the tab's `initState` kicks off
     // `MonitorMetricsController.reload` (and `MonitorController.monitorById`
     // fires a background single-resource refresh), both of which need a
@@ -2110,6 +2128,125 @@ void main() {
 
       // The suite's setUp seeds this monitor, which counts as resolved.
       expect(find.byType(MSSkeleton), findsNothing);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Discovery panel: what the backend thinks is worth adding.
+  // ---------------------------------------------------------------------------
+  //
+  // The plan gate itself is exercised in entitlement_controller_test.dart, per
+  // the convention this suite already follows: under the bare harness the
+  // billing fetch fails and the controller degrades to permissive limits, so
+  // these tests see the UNGATED panel. That is the half worth pinning here
+  // anyway, since the nudge branch is the shared MSUpgradeNudge every other
+  // gated surface renders.
+  group('MonitorMetricsTab discovery', () {
+    testWidgets('offers the ask before anything has been requested', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pump();
+
+      expect(find.text('Suggested'), findsOneWidget);
+      expect(find.text('Suggest'), findsOneWidget);
+      // Not asked yet is not the same as answered with nothing, and the panel
+      // must not claim the second before the first has happened.
+      expect(find.text('Nothing to suggest.'), findsNothing);
+    });
+
+    testWidgets('renders a suggestion and marks the rule-authored one', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Http.fake((request) {
+        if (request.url.contains("metrics/discover")) {
+          return Http.response({
+            'data': {
+              'suggested_metrics': [
+                {
+                  'key': 'queue_depth',
+                  'label': 'Queue depth',
+                  'type': 'numeric',
+                  'source': 'json_path',
+                  'path': 'queue.pending',
+                  'unit': null,
+                  'threshold_direction': 'high_bad',
+                  'warn': 1,
+                  'critical': 5,
+                  'ok_values': <String>[],
+                  'warn_values': <String>[],
+                  'critical_values': <String>[],
+                  'sample_value': '0',
+                  'origin': 'model',
+                },
+                {
+                  'key': 'service_status',
+                  'label': 'Service status',
+                  'type': 'string',
+                  'source': 'json_path',
+                  'path': 'status',
+                  'unit': null,
+                  'threshold_direction': null,
+                  'warn': null,
+                  'critical': null,
+                  'ok_values': ['ok'],
+                  'warn_values': ['degraded'],
+                  'critical_values': <String>[],
+                  'sample_value': 'degraded',
+                  'origin': 'rule',
+                },
+              ],
+            },
+          }, 200);
+        }
+        return Http.response({'data': []}, 200);
+      });
+
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pump();
+
+      await tester.tap(find.text('Suggest'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Queue depth'), findsOneWidget);
+      expect(find.text('Service status'), findsOneWidget);
+      // Exactly one marker: the rule row carries it and the model row does not,
+      // which is the whole point of shipping `origin` on the wire.
+      expect(find.text('rule'), findsOneWidget);
+    });
+
+    testWidgets('says so when the round trip fails, never "nothing to suggest"', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Http.fake((request) {
+        if (request.url.contains("metrics/discover")) {
+          return Http.response({'message': 'boom'}, 500);
+        }
+        return Http.response({'data': []}, 200);
+      });
+
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'api')));
+      await tester.pump();
+
+      await tester.tap(find.text('Suggest'));
+      await tester.pump();
+      await tester.pump();
+
+      // A broken round trip and an empty answer are different facts. Reporting
+      // the second for the first tells the operator their endpoint has nothing
+      // worth measuring when what actually happened is that we could not ask.
+      expect(find.text('Could not reach it.'), findsOneWidget);
+      expect(find.text('Nothing to suggest.'), findsNothing);
     });
   });
 }
