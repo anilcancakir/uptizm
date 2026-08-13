@@ -48,7 +48,7 @@ class AutonomousStatusUpdateTest extends TestCase
 
     public function test_an_auto_monitor_publishes_its_own_update(): void
     {
-        $incident = $this->makeIncident($this->makeMonitor(AiMode::Auto));
+        $incident = $this->makeIncident($this->makeMonitor(true));
 
         (new PublishAiIncidentUpdate((string) $incident->id, 'investigating'))
             ->handle(
@@ -65,27 +65,42 @@ class AutonomousStatusUpdateTest extends TestCase
         $this->assertStringContainsString('investigating', $update->message);
     }
 
-    public function test_a_suggest_monitor_publishes_nothing(): void
+    public function test_a_monitor_that_never_allowed_it_publishes_nothing(): void
     {
-        // `suggest` means the operator stays in the loop. Posting for them would
-        // be the product overriding a setting they chose.
-        $incident = $this->makeIncident($this->makeMonitor(AiMode::Suggest));
+        // The default, and the only safe one for a flag whose true value writes
+        // on a public page.
+        $incident = $this->makeIncident($this->makeMonitor(false));
 
         $this->runJob($incident);
 
         $this->assertSame(0, $incident->updates()->count());
     }
 
-    public function test_switching_the_monitor_off_auto_stops_the_next_post(): void
+    public function test_narration_does_not_require_autonomous_incident_creation(): void
     {
-        // The mode is re-read at FIRE time, not trusted from dispatch time. The
-        // two are minutes apart on a real queue, and the setting is the
-        // operator's consent: turning it off has to stop the next post rather
-        // than the one after it.
-        $monitor = $this->makeMonitor(AiMode::Auto);
+        // The correction this column exists for. Riding on `ai_mode = auto`
+        // forced an operator who only wanted their outages narrated to also
+        // accept autonomous incident creation, and withheld narration from the
+        // most common incident there is: the one a threshold opened on a monitor
+        // with no anomaly detection at all.
+        $monitor = $this->makeMonitor(true);
+        $monitor->forceFill(['ai_mode' => AiMode::Off])->save();
         $incident = $this->makeIncident($monitor);
 
-        $monitor->forceFill(['ai_mode' => AiMode::Off])->save();
+        $this->runJob($incident);
+
+        $this->assertSame(1, $incident->updates()->count());
+    }
+
+    public function test_switching_it_off_stops_the_next_post(): void
+    {
+        // The flag is re-read at FIRE time, not trusted from dispatch time. The
+        // two are minutes apart on a real queue, and this is consent: turning it
+        // off has to stop the next post rather than the one after it.
+        $monitor = $this->makeMonitor(true);
+        $incident = $this->makeIncident($monitor);
+
+        $monitor->forceFill(['ai_auto_updates' => false])->save();
 
         $this->runJob($incident);
 
@@ -106,7 +121,7 @@ class AutonomousStatusUpdateTest extends TestCase
             }
         });
 
-        $incident = $this->makeIncident($this->makeMonitor(AiMode::Auto));
+        $incident = $this->makeIncident($this->makeMonitor(true));
 
         $this->runJob($incident);
 
@@ -118,7 +133,7 @@ class AutonomousStatusUpdateTest extends TestCase
         // A requeue, a reopen, or a second recovery in the same minute would
         // otherwise put two machine-written messages about one moment in front
         // of customers.
-        $incident = $this->makeIncident($this->makeMonitor(AiMode::Auto));
+        $incident = $this->makeIncident($this->makeMonitor(true));
 
         $this->runJob($incident);
         $this->runJob($incident);
@@ -130,7 +145,7 @@ class AutonomousStatusUpdateTest extends TestCase
     {
         // The dedupe is per stage, because one incident legitimately gets an
         // opening update and a closing one.
-        $incident = $this->makeIncident($this->makeMonitor(AiMode::Auto));
+        $incident = $this->makeIncident($this->makeMonitor(true));
 
         $this->runJob($incident, 'investigating');
         $this->runJob($incident, 'resolved');
@@ -143,7 +158,7 @@ class AutonomousStatusUpdateTest extends TestCase
         // The order is the product decision: the cause is settled first and the
         // sentence is drafted from it, so the incident page and the status page
         // cannot disagree about the same outage.
-        $incident = $this->makeIncident($this->makeMonitor(AiMode::Auto));
+        $incident = $this->makeIncident($this->makeMonitor(true));
 
         $this->runJob($incident);
 
@@ -157,7 +172,7 @@ class AutonomousStatusUpdateTest extends TestCase
     {
         // The same tier that gates auto-opening gates auto-speaking. A team that
         // downgraded keeps its incidents and loses the autonomy.
-        $monitor = $this->makeMonitor(AiMode::Auto, plan: 'free');
+        $monitor = $this->makeMonitor(true, plan: 'free');
         $incident = $this->makeIncident($monitor);
 
         $this->runJob($incident);
@@ -173,7 +188,7 @@ class AutonomousStatusUpdateTest extends TestCase
         );
     }
 
-    protected function makeMonitor(AiMode $mode, string $plan = 'business'): Monitor
+    protected function makeMonitor(bool $autoUpdates, string $plan = 'business'): Monitor
     {
         $user = User::query()->create([
             'name' => 'Autonomy Tester',
@@ -196,7 +211,7 @@ class AutonomousStatusUpdateTest extends TestCase
             'check_interval_sec' => 60,
             'incident_threshold' => 2,
             'consecutive_fails' => 0,
-            'ai_mode' => $mode,
+            'ai_auto_updates' => $autoUpdates,
         ]);
     }
 

@@ -740,7 +740,11 @@
       "metrics_unit_ratio": "Oran",
       "metrics_unit_count_short": "Sayı (kısa)",
       "metrics_reading_stale": "Yeni veri yok",
-      "ai_mode_auto": "Otomatik"
+      "ai_mode_auto": "Otomatik",
+      "form_ai_auto_updates_label": "Otomatik durum güncellemeleri",
+      "form_ai_auto_updates_switch": "Güncellemeleri benim için yaz ve yayımla",
+      "form_ai_auto_updates_hint": "Bu monitörde bir olay açıldığında ve kapandığında, Uptizm müşteriye dönük güncellemeyi kendisi yazar ve sana sormadan durum sayfanda yayımlar. Zaten ürettiği analizi okur, iç detayı dışarıda bırakır, ve güvendiği bir metin yazamazsa hiçbir şey yayımlamaz. Eşiklerinin açtığı olaylar dahil, her olay için çalışır.",
+      "form_ai_auto_updates_hint_short": "Yukarıdaki AI assist ayarından bağımsızdır: o, Uptizm olay açabilir mi sorusunu yanıtlar; bu ise müşterilerine bu konuda konuşabilir mi sorusunu."
     },
     "status": {
       "up": "Çalışıyor",

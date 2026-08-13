@@ -740,7 +740,11 @@
       "metrics_unit_ratio": "Ratio",
       "metrics_unit_count_short": "Count (compact)",
       "metrics_reading_stale": "No recent data",
-      "ai_mode_auto": "Auto"
+      "ai_mode_auto": "Auto",
+      "form_ai_auto_updates_label": "Autonomous status updates",
+      "form_ai_auto_updates_switch": "Write and publish updates for me",
+      "form_ai_auto_updates_hint": "When an incident on this monitor opens and when it closes, Uptizm writes the customer-facing update itself and publishes it to your status page, without asking you first. It reads the analysis it already produced, keeps internal detail out, and posts nothing at all if it cannot write something it trusts. Works for any incident, including the ones your thresholds opened.",
+      "form_ai_auto_updates_hint_short": "Independent of AI assist above: that one decides whether Uptizm may open an incident, this one whether it may speak to your customers about one."
     },
     "status": {
       "up": "Operational",

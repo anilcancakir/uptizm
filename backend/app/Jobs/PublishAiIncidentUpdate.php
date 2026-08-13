@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Enums\AiMode;
 use App\Enums\IncidentDraftKind;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
@@ -19,7 +18,7 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Writes and publishes the status update for an incident on a monitor whose
- * operator has handed the wheel to the AI (`ai_mode = auto`).
+ * operator has allowed it (`ai_auto_updates`).
  *
  * This is the one path in the product where model output reaches a customer
  * with no human in between, so every rule below is about the size of that.
@@ -141,17 +140,24 @@ class PublishAiIncidentUpdate implements ShouldQueue
     }
 
     /**
-     * Whether this incident's monitor has actually been handed the wheel.
+     * Whether this incident's monitor is allowed to speak for its operator.
+     *
+     * `ai_auto_updates` and NOT `ai_mode`, which is the correction that split
+     * this out. Riding on `ai_mode = auto` forced an operator who only wanted
+     * their outages narrated to also accept autonomous incident creation, and it
+     * withheld narration from the most common incident there is: the one a
+     * threshold opened, on a monitor with no anomaly detection at all. The two
+     * are different consents and cross freely now.
      *
      * Re-read at FIRE time rather than trusted from dispatch time, because the
-     * two are minutes apart and the setting is the operator's consent: switching
-     * a monitor off auto has to stop the next post, not the one after it.
+     * two are minutes apart and this is consent: switching it off has to stop
+     * the next post, not the one after it.
      */
     protected function isAutonomous(Incident $incident): bool
     {
         $monitor = $incident->primaryMonitor;
 
-        if ($monitor === null || $monitor->ai_mode !== AiMode::Auto) {
+        if ($monitor === null || ! $monitor->ai_auto_updates) {
             return false;
         }
 

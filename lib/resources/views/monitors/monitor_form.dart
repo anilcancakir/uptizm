@@ -137,6 +137,9 @@ class MonitorForm extends StatefulWidget {
   /// Initial AI-assist mode token (`off` / `suggest`).
   final String initialAiMode;
 
+  /// Whether the monitor may publish its own incident status updates.
+  final bool initialAiAutoUpdates;
+
   /// Initial "alert when this monitor goes down" state.
   final bool initialAlertOnDown;
 
@@ -202,6 +205,7 @@ class MonitorForm extends StatefulWidget {
     this.initialTimeoutSec = '30',
     this.initialBody = '',
     this.initialAiMode = 'off',
+    this.initialAiAutoUpdates = false,
     this.initialAlertOnDown = true,
     this.initialAlertOnRecover = true,
     this.isEdit = false,
@@ -317,6 +321,9 @@ class _MonitorFormState extends State<MonitorForm>
   /// React source counterpart, this is a new uptizm-only control.
   String _aiMode = 'off';
 
+  /// Whether Uptizm may publish this monitor's incident updates on its own.
+  bool _aiAutoUpdates = false;
+
   /// The probe regions projected into the [RegionPicker]'s [Region] shape,
   /// computed once from the static [allRegions] fixture.
   late final List<Region> _regionOptions = probeRegionsToRegions(allRegions);
@@ -411,6 +418,7 @@ class _MonitorFormState extends State<MonitorForm>
     _timeoutMs = widget.initialTimeoutSec;
     _body = widget.initialBody;
     _aiMode = widget.initialAiMode;
+    _aiAutoUpdates = widget.initialAiAutoUpdates;
     _notifyDown = widget.initialAlertOnDown;
     _notifyRecover = widget.initialAlertOnRecover;
 
@@ -566,6 +574,7 @@ class _MonitorFormState extends State<MonitorForm>
               _buildRegionsField(),
               _buildSloField(),
               _buildAiModeField(),
+              _buildAiAutoUpdatesField(),
               _buildNotificationsSection(),
               _buildAdvancedToggle(),
               if (_advanced) ..._buildAdvancedSection(),
@@ -831,6 +840,33 @@ class _MonitorFormState extends State<MonitorForm>
         options: kAiModes.map((o) => o.label).toList(),
         selectedIndex: _indexOfValue(kAiModes, _aiMode),
         onChanged: (index) => setState(() => _aiMode = kAiModes[index].value),
+      ),
+    );
+  }
+
+  /// Builds the autonomous-updates switch.
+  ///
+  /// Its own control rather than a fourth rung on the AI-assist ladder, because
+  /// it is a different consent and the useful combinations cross the two. The
+  /// ladder above answers "may you decide there is an incident?"; this answers
+  /// "may you speak to my customers about one?". Folding the second into the
+  /// third rung of the first forced an operator who only wanted their outages
+  /// narrated to also accept autonomous incident creation, and it withheld
+  /// narration from the most common incident there is: the one a threshold
+  /// opened.
+  ///
+  /// Off by default, and the hint says what turning it on gives away, because
+  /// what it gives away is the ability to write on a page the operator's own
+  /// customers read.
+  Widget _buildAiAutoUpdatesField() {
+    return MSFormField(
+      label: trans('uptizm.monitors.form_ai_auto_updates_label'),
+      hint: '${trans('uptizm.monitors.form_ai_auto_updates_hint')} '
+          '${trans('uptizm.monitors.form_ai_auto_updates_hint_short')}',
+      child: _buildSwitchRow(
+        label: trans('uptizm.monitors.form_ai_auto_updates_switch'),
+        value: _aiAutoUpdates,
+        onChanged: (value) => setState(() => _aiAutoUpdates = value),
       ),
     );
   }
@@ -1236,6 +1272,7 @@ class _MonitorFormState extends State<MonitorForm>
       if (!widget.isEdit) 'tags': const <String>[],
       'slo_target': _slo.isEmpty ? null : double.tryParse(_slo),
       'ai_mode': _aiMode,
+      'ai_auto_updates': _aiAutoUpdates,
       if (!widget.isEdit) 'show_on_status_page': true,
       if (!widget.isEdit) 'only_show_if_degraded': false,
       'alert_on_down': _notifyDown,

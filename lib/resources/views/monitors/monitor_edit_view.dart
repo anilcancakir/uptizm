@@ -140,6 +140,7 @@ class _MonitorEditViewState
             initialTimeoutSec: monitor.timeoutSec.toString(),
             initialBody: monitor.requestBody ?? '',
             initialAiMode: monitor.aiMode,
+            initialAiAutoUpdates: monitor.aiAutoUpdates,
             initialAlertOnDown: monitor.alertOnDown,
             initialAlertOnRecover: monitor.alertOnRecover,
             submitLabel: trans('uptizm.monitors.form_submit_save'),

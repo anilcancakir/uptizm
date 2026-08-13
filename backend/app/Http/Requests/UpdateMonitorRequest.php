@@ -78,6 +78,11 @@ class UpdateMonitorRequest extends StoreMonitorRequest
                 'sometimes',
                 Rule::enum(AiMode::class),
             ],
+            // See StoreMonitorRequest: the separate consent to publish updates.
+            'ai_auto_updates' => [
+                'sometimes',
+                'boolean',
+            ],
             // See StoreMonitorRequest: team-scoped because this column selects the
             // paging ladder. `nullable` is what lets an operator UNPIN a policy
             // and fall back to the team default.

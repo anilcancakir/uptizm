@@ -97,6 +97,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'ssl_alert_threshold_days',
     'auth_config',
     'ai_mode',
+    'ai_auto_updates',
     'escalation_policy_id',
 
     // Write-only, and create-only in practice: `metrics` is not a monitor
@@ -464,6 +465,18 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
 
   /// Set the AI-assist mode token.
   set aiMode(String value) => setAttribute('ai_mode', value);
+
+  /// Whether Uptizm may write and publish this monitor's incident status
+  /// updates without being asked.
+  ///
+  /// A separate consent from [aiMode], and the two cross freely: `ai_mode`
+  /// answers "may you decide there is an incident?", this answers "may you speak
+  /// to my customers about one?". A monitor with no anomaly detection at all can
+  /// still have its threshold-opened outages narrated, which is the most common
+  /// incident there is.
+  bool get aiAutoUpdates => getAttribute('ai_auto_updates') as bool? ?? false;
+
+  set aiAutoUpdates(bool value) => setAttribute('ai_auto_updates', value);
 
   // ---------------------------------------------------------------------------
   // Typed Accessors: Runtime State (server-controlled)

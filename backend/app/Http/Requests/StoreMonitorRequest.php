@@ -225,6 +225,16 @@ class StoreMonitorRequest extends FormRequest
                 'sometimes',
                 Rule::enum(AiMode::class),
             ],
+            // A separate consent from `ai_mode`, deliberately: that one answers
+            // "may you decide there is an incident?", this one answers "may you
+            // speak to my customers about one?". A dropped value here leaves the
+            // monitor at the `false` default and PublishAiIncidentUpdate never
+            // posts for it, which is the safe direction for a field whose true
+            // value publishes to a public page.
+            'ai_auto_updates' => [
+                'sometimes',
+                'boolean',
+            ],
             // Scoped to the acting team, never a bare exists: this column is what
             // EscalationDispatcher::resolvePolicy() reads to choose the paging
             // ladder, so a cross-tenant id here would page another team's

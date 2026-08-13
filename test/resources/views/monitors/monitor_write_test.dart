@@ -91,6 +91,10 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.ai_mode_off': 'Off',
       'uptizm.monitors.ai_mode_suggest': 'Suggest',
       'uptizm.monitors.ai_mode_auto': 'Auto',
+      'uptizm.monitors.form_ai_auto_updates_label': 'Autonomous status updates',
+      'uptizm.monitors.form_ai_auto_updates_switch': 'Write and publish for me',
+      'uptizm.monitors.form_ai_auto_updates_hint': 'Uptizm writes and publishes it.',
+      'uptizm.monitors.form_ai_auto_updates_hint_short': 'Independent of AI assist.',
       'uptizm.monitors.form_url_label': 'URL or host',
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',
@@ -476,6 +480,9 @@ void main() {
       expect(fields['timeout_sec'], equals(45));
       expect(fields['slo_target'], equals(99.99));
       expect(fields['ai_mode'], equals('suggest'));
+      // The separate consent rides the same write. False is the default and the
+      // only safe one: its true value publishes to a public status page.
+      expect(fields['ai_auto_updates'], isFalse);
       expect(fields['alert_on_down'], isFalse);
       expect(fields['alert_on_recover'], isFalse);
     });
