@@ -976,15 +976,26 @@ class _IncidentDetailViewState
             trans('uptizm.incidents.detail_postmortem_heading_edit'),
             className: 'text-sm font-semibold text-fg',
           ),
-          MSTextarea(
-            value: _postmortemBody,
-            minLines: 6,
-            maxLines: 14,
-            placeholder: trans('uptizm.incidents.detail_postmortem_placeholder'),
-            onChanged: (value) => setState(() => _postmortemBody = value),
-          ),
+          // Same treatment as the composer: the editor opens immediately so the
+          // wait lands somewhere, and holds a skeleton until the draft arrives.
+          // More lines than the composer's two, because a postmortem is a
+          // document and the placeholder should be the shape of one.
+          if (controller.draftPending(incident.id, 'postmortem'))
+            _buildDraftSkeleton(lines: 5)
+          else
+            MSTextarea(
+              value: _postmortemBody,
+              minLines: 6,
+              maxLines: 14,
+              placeholder: trans('uptizm.incidents.detail_postmortem_placeholder'),
+              onChanged: (value) => setState(() => _postmortemBody = value),
+            ),
           // The seeded text is Uptizm's outside-in observation, not a finished
-          // analysis; say so for as long as it is still the generated draft.
+          // analysis; say so for as long as it is still a draft. True of both
+          // sources now: the model is told to leave the internal root cause to
+          // the operator and to say so, and the local template has always said
+          // it. The sentence is the same either way, which is why it is not
+          // gated on which one produced the text.
           //
           // A plain line, not an `AiInsight`: the draft is a `trans()` template
           // built from the incident's own fields, so the sparkle glyph credited a
@@ -1032,13 +1043,44 @@ class _IncidentDetailViewState
 
   /// Opens the composer, seeded with the stored body when one exists and with
   /// the generated draft otherwise (flagging the AI provenance in that case).
-  void _onEditPostmortem(Incident incident) {
+  Future<void> _onEditPostmortem(Incident incident) async {
     final String? stored = incident.postmortemBody;
+
+    // A stored postmortem is the operator's own writing and is never replaced
+    // by a draft: the editor opens on what they wrote.
+    if (stored != null) {
+      setState(() {
+        _editingPostmortem = true;
+        _postmortemBody = stored;
+        _postmortemFromDraft = false;
+      });
+
+      return;
+    }
+
+    // Nothing stored, so this is the first draft. Open the editor immediately
+    // so the operator sees the wait land somewhere, then fill it.
     setState(() {
       _editingPostmortem = true;
-      _postmortemBody = stored ?? postmortemDraft(incident);
-      _postmortemFromDraft = stored == null;
+      _postmortemBody = '';
+      _postmortemFromDraft = true;
     });
+
+    final String? drafted = await controller.draftText(
+      incident.id,
+      'postmortem',
+    );
+
+    if (!mounted) return;
+
+    setState(() => _postmortemBody = drafted ?? postmortemDraft(incident));
+
+    if (drafted == null) {
+      Magic.snackbar(
+        trans('uptizm.incidents.detail_draft_degraded_heading'),
+        trans('uptizm.incidents.detail_draft_degraded_body'),
+      );
+    }
   }
 
   /// Persists the composer text through [IncidentController.savePostmortem] and
@@ -1146,7 +1188,13 @@ class _IncidentDetailViewState
               MSButton(
                 intent: ButtonIntent.secondary,
                 size: ButtonSize.sm,
-                onPressed: () => _onAiDraft(incident),
+                // Disabled while the draft is being written. The call runs 13 to
+                // 21 seconds against the real provider and each one spends a
+                // budget unit, so a button that stays live is one an operator
+                // presses twice.
+                onPressed: controller.draftPending(incident.id, 'update')
+                    ? null
+                    : () => _onAiDraft(incident),
                 child: WText(
                   trans('uptizm.incidents.detail_composer_ai_draft'),
                 ),
@@ -1158,28 +1206,30 @@ class _IncidentDetailViewState
           _buildStatusSelect(),
 
           // 3. The update body.
-          MSTextarea(
-            value: _message,
-            minLines: 3,
-            maxLines: 6,
-            placeholder: trans('uptizm.incidents.detail_composer_placeholder'),
-            onChanged: (value) => setState(() {
-              _message = value;
-              _aiDrafted = false;
-            }),
-          ),
+          // The textarea gives way to a skeleton while the draft is written,
+          // rather than sitting empty. Two sentences arriving after twenty
+          // silent seconds look like a button that did nothing until they do.
+          if (controller.draftPending(incident.id, 'update'))
+            _buildDraftSkeleton(lines: 2)
+          else
+            MSTextarea(
+              value: _message,
+              minLines: 3,
+              maxLines: 6,
+              placeholder: trans('uptizm.incidents.detail_composer_placeholder'),
+              onChanged: (value) => setState(() {
+                _message = value;
+                _aiDrafted = false;
+              }),
+            ),
 
           // 4. AI-drafted hint (only right after an AI draft).
           //
-          // The one `AiInsight` left on this screen, and it is over a `trans()`
-          // template too ([draftUpdate]), so the framing is no truer here than it
-          // was on the postmortem draft. It stays for one reason the postmortem
-          // did not have: this text appears only after the operator pressed a
-          // button labelled "AI draft", so the badge repeats a promise the app
-          // already made out loud rather than inventing one. Wiring this path to a
-          // real gateway is the fix, and it is a product decision rather than a
-          // cleanup; until it lands, treat this widget as the promise's receipt
-          // and not as a pattern to copy.
+          // The `AiInsight` on this screen, and it now sits over text a model
+          // really wrote: `_onAiDraft` sets `_aiDrafted` only when the backend
+          // answered, and a degrade falls back to the local template with the
+          // flag left false. The badge was a promise the app made out loud and
+          // could not keep; it is a receipt now.
           if (_aiDrafted)
             AiInsight(
               child: WText(
@@ -1249,12 +1299,52 @@ class _IncidentDetailViewState
     );
   }
 
-  /// Fills the composer with an AI-generated draft and flags the drafted hint.
-  void _onAiDraft(Incident incident) {
+  /// A pulsing placeholder standing in for a draft that is being written.
+  ///
+  /// The same treatment the pending analysis uses, and for the same measured
+  /// reason: the model call runs 13 to 21 seconds, and an empty field held that
+  /// long is indistinguishable from a button that did nothing. [lines] shapes it
+  /// to what is coming, two for a status update and more for a postmortem, and
+  /// the last line is short because the last line of a paragraph is.
+  Widget _buildDraftSkeleton({required int lines}) {
+    return WDiv(
+      className: 'flex flex-col gap-2 py-2',
+      children: [
+        for (int index = 0; index < lines; index++)
+          MSSkeleton(
+            shape: SkeletonShape.text,
+            height: 12,
+            width: index == lines - 1 ? 180 : null,
+          ),
+      ],
+    );
+  }
+
+  /// Fills the composer with a drafted status update.
+  ///
+  /// The backend writes it from the incident, what the probes recorded, and the
+  /// analysis already on file. When it cannot, [IncidentController.draftText]
+  /// answers null and the local [draftUpdate] template fills the composer
+  /// instead, which is the same text this button produced before there was a
+  /// model behind it. The operator is told which one they got: the AI hint
+  /// under the field is the promise's receipt and it is only shown when the
+  /// promise was kept.
+  Future<void> _onAiDraft(Incident incident) async {
+    final String? drafted = await controller.draftText(incident.id, 'update');
+
+    if (!mounted) return;
+
     setState(() {
-      _message = draftUpdate(incident);
-      _aiDrafted = true;
+      _message = drafted ?? draftUpdate(incident);
+      _aiDrafted = drafted != null;
     });
+
+    if (drafted == null) {
+      Magic.snackbar(
+        trans('uptizm.incidents.detail_draft_degraded_heading'),
+        trans('uptizm.incidents.detail_draft_degraded_body'),
+      );
+    }
   }
 
   /// Posts the composer text via [IncidentController.postUpdate] (`POST

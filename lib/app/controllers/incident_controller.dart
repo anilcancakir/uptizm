@@ -541,6 +541,68 @@ class IncidentController extends MagicController
   /// section can show its retry as running rather than idle.
   bool analysisPending(String id) => _analysisPendingIds.contains(id);
 
+  /// The incident ids with a draft request in flight, keyed by the draft path
+  /// so a postmortem draft and an update draft do not disable each other.
+  final Set<String> _draftPendingKeys = {};
+
+  /// Whether a draft of [kind] for incident [id] is being written right now.
+  ///
+  /// The composer reads this to show the wait as a skeleton. It is not a
+  /// courtesy: the model call runs 13 to 21 seconds against the real provider,
+  /// and a button that repaints identically for twenty seconds is one an
+  /// operator presses again.
+  bool draftPending(String id, String kind) =>
+      _draftPendingKeys.contains('$kind:$id');
+
+  /// Asks the backend to draft the next public status update, or the
+  /// postmortem, for incident [id].
+  ///
+  /// Returns the drafted text, or null when the backend produced none. Null is
+  /// the ONLY failure signal the caller needs, and it is deliberately not an
+  /// exception: the caller already owns a localized template for both surfaces
+  /// (`draftUpdate` and `postmortemDraft`), those templates were written by a
+  /// person in both locales, and they are a better fallback than anything a
+  /// degraded backend could compose. So a null means "fill your own template",
+  /// and the caller says which one the operator is looking at.
+  ///
+  /// [kind] is `update` or `postmortem`, matching the route segment.
+  Future<String?> draftText(String id, String kind) async {
+    final String key = '$kind:$id';
+    // Re-entrancy guard, same shape as the analysis fetch: every call spends an
+    // AI budget unit, so a second tap inside the request window must not buy a
+    // second draft of the same thing.
+    if (_draftPendingKeys.contains(key)) return null;
+
+    _draftPendingKeys.add(key);
+    refreshUI();
+    try {
+      final response = await Http.post('/incidents/$id/draft-$kind');
+      if (!response.successful) {
+        Log.error('[IncidentController.draftText] $key: ${response.errorMessage}');
+        return null;
+      }
+
+      final Object? data = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (data is! Map<String, dynamic>) {
+        Log.error('[IncidentController.draftText] $key: malformed payload');
+        return null;
+      }
+
+      final Object? draft = data['draft'];
+
+      return draft is String && draft.trim().isNotEmpty ? draft : null;
+    } catch (error) {
+      Log.error('[IncidentController.draftText] $key failed: $error');
+
+      return null;
+    } finally {
+      _draftPendingKeys.remove(key);
+      refreshUI();
+    }
+  }
+
   /// Records this operator's rating of the analysis currently shown for
   /// incident [id], and acts on it.
   ///

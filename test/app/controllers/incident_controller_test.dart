@@ -1004,6 +1004,112 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // draftText: the Draft with AI buttons, which used to fill a template.
+  // ---------------------------------------------------------------------------
+
+  group('draftText', () {
+    test('POSTs the kind-specific route and returns the draft', () async {
+      final fake = Http.fake({
+        'incidents/d-1/draft-update': Http.response({
+          'data': {'draft': 'We are investigating this issue.', 'degrade_reason': null},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final String? draft = await controller.draftText('d-1', 'update');
+
+      expect(draft, equals('We are investigating this issue.'));
+      fake.assertSent(
+        (r) => r.method == 'POST' && r.url == '/incidents/d-1/draft-update',
+      );
+    });
+
+    test('a degraded answer returns null so the caller fills its own template', () async {
+      // Null is the whole failure contract: the client owns a localized
+      // template for both surfaces and it is better than anything a degraded
+      // backend could compose.
+      Http.fake({
+        'incidents/d-2/draft-postmortem': Http.response({
+          'data': {'draft': null, 'degrade_reason': 'budget_exhausted'},
+        }),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(await controller.draftText('d-2', 'postmortem'), isNull);
+    });
+
+    test('reports the draft as pending while it runs, and clears it after', () async {
+      // The composer swaps its field for a skeleton on this flag, and the
+      // button disables on it. A flag that never cleared would leave the
+      // composer as a skeleton for the rest of the screen's life.
+      Http.fake({
+        'incidents/d-3/draft-update': Http.response({
+          'data': {'draft': 'We are investigating this issue.'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<String?> inFlight = controller.draftText('d-3', 'update');
+      expect(controller.draftPending('d-3', 'update'), isTrue);
+      expect(
+        controller.draftPending('d-3', 'postmortem'),
+        isFalse,
+        reason: 'the two drafts must not disable each other',
+      );
+
+      await inFlight;
+      expect(controller.draftPending('d-3', 'update'), isFalse);
+    });
+
+    test('a second tap inside the request window buys nothing', () async {
+      // Every call spends an AI budget unit.
+      final fake = Http.fake({
+        'incidents/d-4/draft-update': Http.response({
+          'data': {'draft': 'We are investigating this issue.'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<String?> first = controller.draftText('d-4', 'update');
+      final String? second = await controller.draftText('d-4', 'update');
+      await first;
+
+      expect(second, isNull);
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url == '/incidents/d-4/draft-update')
+            .length,
+        1,
+      );
+    });
+
+    test('a blank draft counts as no draft', () async {
+      // A backend that answered 200 with an empty string is not a draft, and
+      // filling the composer with it would look like the button worked.
+      Http.fake({
+        'incidents/d-5/draft-update': Http.response({
+          'data': {'draft': '   '},
+        }),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(await controller.draftText('d-5', 'update'), isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // submitAnalysisFeedback: the Helpful / Not helpful buttons. Both record a
   // vote; only Not helpful re-asks the model.
   // ---------------------------------------------------------------------------

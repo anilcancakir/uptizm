@@ -1056,7 +1056,9 @@
       "title_metric_string_value": ":metric reported \":value\"",
       "title_ssl_expiring_one": ":monitor SSL cert expires in :days day",
       "title_ssl_expiring_other": ":monitor SSL cert expires in :days days",
-      "title_ai_anomaly": "Anomaly detected on :monitor"
+      "title_ai_anomaly": "Anomaly detected on :monitor",
+      "detail_draft_degraded_heading": "Drafted from a template",
+      "detail_draft_degraded_body": "The AI could not write this one, so the standard wording was filled in. Edit it before you post."
     },
     "settings": {
       "hub_title": "Settings",

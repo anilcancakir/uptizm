@@ -6,6 +6,7 @@ use App\Services\Ai\LaravelAiAnalysisGateway;
 use App\Services\Ai\LaravelAiAssistantGateway;
 use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
+use App\Services\Ai\LaravelAiIncidentDraftGateway;
 use App\Services\Ai\LaravelAiMetricDiscoveryGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
 use Illuminate\Support\Facades\File;
@@ -50,6 +51,7 @@ class OpenRouterRoutingTest extends TestCase
             LaravelAiAssistantGateway::class,
             LaravelAiDigestGateway::class,
             LaravelAiIncidentAnalysisGateway::class,
+            LaravelAiIncidentDraftGateway::class,
             LaravelAiMetricDiscoveryGateway::class,
             LaravelAiTriageGateway::class,
         ];
