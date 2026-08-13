@@ -298,6 +298,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.incidents.updates.store');
     Route::get('incidents/{incident}/analysis', [IncidentAnalysisController::class, 'show'])
         ->name('api.v1.incidents.analysis');
+    Route::post('incidents/{incident}/analysis/feedback', [IncidentAnalysisController::class, 'feedback'])
+        ->name('api.v1.incidents.analysis.feedback');
 
     Route::get('dashboard/stats', [DashboardController::class, 'stats'])
         ->name('api.v1.dashboard.stats');
