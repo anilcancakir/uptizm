@@ -38,6 +38,8 @@ class _IncidentCreateLangLoader implements TranslationLoader {
       'uptizm.incidents.form_title_error_required': 'Title is required.',
       'uptizm.incidents.form_affected_error_required': 'Select a monitor.',
       'uptizm.incidents.form_affected_label': 'Affected monitors',
+      'uptizm.incidents.form_affected_empty': 'You have no monitors yet.',
+      'uptizm.incidents.form_affected_loading': 'Loading your monitors...',
       'uptizm.incidents.form_affected_hint': 'Drives the status page.',
       'uptizm.incidents.form_severity_label': 'Severity',
       'uptizm.incidents.form_severity_hint': 'Operator-side priority.',
@@ -589,6 +591,32 @@ void main() {
         body['status_page_id'],
         equals('page-2'),
         reason: 'the operator pick reaches the wire, not the seeded default',
+      );
+    });
+  });
+
+  group('IncidentCreateView affected monitors', () {
+    testWidgets('an empty roster says so instead of rendering nothing', (
+      tester,
+    ) async {
+      // Driven for real against the running app: on a cold open of this form
+      // the snapshot read label, hint, then straight on to Severity. The one
+      // REQUIRED choice on the screen had no control under it and the screen
+      // gave no reason, so the form could not be completed and did not say why.
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // No `monitors` stub: the roster answers empty, which is the cold-open
+      // state and also the state of a team that owns no monitors yet.
+      Http.fake();
+
+      await tester.pumpWidget(wrap(const IncidentCreateView()));
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.incidents.form_affected_empty')),
+        findsOneWidget,
+        reason: 'a required field with no options has to say why',
       );
     });
   });

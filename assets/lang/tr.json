@@ -1058,7 +1058,9 @@
       "title_ssl_expiring_other": ":monitor sertifikası :days gün içinde doluyor",
       "title_ai_anomaly": ":monitor üzerinde anomali saptandı",
       "detail_draft_degraded_heading": "Şablondan dolduruldu",
-      "detail_draft_degraded_body": "Bunu yapay zekâ yazamadı, standart metin dolduruldu. Yayımlamadan önce düzenle."
+      "detail_draft_degraded_body": "Bunu yapay zekâ yazamadı, standart metin dolduruldu. Yayımlamadan önce düzenle.",
+      "form_affected_empty": "Henüz monitörünüz yok. Önce bir tane ekleyin, sonra olayı ona bağlayın.",
+      "form_affected_loading": "Monitörleriniz yükleniyor..."
     },
     "settings": {
       "hub_title": "Ayarlar",

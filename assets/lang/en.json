@@ -1058,7 +1058,9 @@
       "title_ssl_expiring_other": ":monitor SSL cert expires in :days days",
       "title_ai_anomaly": "Anomaly detected on :monitor",
       "detail_draft_degraded_heading": "Drafted from a template",
-      "detail_draft_degraded_body": "The AI could not write this one, so the standard wording was filled in. Edit it before you post."
+      "detail_draft_degraded_body": "The AI could not write this one, so the standard wording was filled in. Edit it before you post.",
+      "form_affected_empty": "You have no monitors yet. Add one first, then file the incident against it.",
+      "form_affected_loading": "Loading your monitors..."
     },
     "settings": {
       "hub_title": "Settings",
