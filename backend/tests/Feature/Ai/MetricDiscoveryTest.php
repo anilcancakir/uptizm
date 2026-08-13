@@ -103,6 +103,11 @@ class MetricDiscoveryTest extends TestCase
         'warn_values',
         'critical_values',
         'sample_value',
+        // Added when the backend started proposing a verdict metric of its own.
+        // The client has to be able to tell a model's suggestion from a rule's,
+        // because presenting a deterministic row as AI work is a claim this
+        // product does not make.
+        'origin',
     ];
 
     // -----------------------------------------------------------------
@@ -625,6 +630,10 @@ class MetricDiscoveryTest extends TestCase
                 'threshold_direction' => ThresholdDirection::HighBad->value,
                 'warn' => 50,
                 'critical' => 10,
+                // Carried so the row survives the string band gate and reaches
+                // the bounds assertion below; without it this test would pass on
+                // an empty result and measure nothing about bounds.
+                'ok_values' => ['0'],
             ],
         ]), $payload);
 
@@ -676,7 +685,8 @@ class MetricDiscoveryTest extends TestCase
 
         $accepted = $gateway->acceptSelections(
             $this->selectionsFor([
-                $this->selection('c1') + [
+                [
+                    ...$this->selection('c1'),
                     'ok_values' => ['ok'],
                     'warn_values' => ['degraded'],
                     'critical_values' => ['down'],
@@ -703,7 +713,8 @@ class MetricDiscoveryTest extends TestCase
         $status = $this->candidateIn($this->healthFixture(), 'ok');
 
         $this->fakeGateway($this->selectionsFor([
-            $this->selection($status->ref, label: 'Service status') + [
+            [
+                ...$this->selection($status->ref, label: 'Service status'),
                 'ok_values' => ['ok'],
                 'warn_values' => ['degraded'],
                 'critical_values' => ['down'],
@@ -752,21 +763,124 @@ class MetricDiscoveryTest extends TestCase
         $status = $this->candidateIn($this->healthFixture(), 'ok');
 
         $this->fakeGateway($this->selectionsFor([
-            $this->selection($status->ref) + [
+            [
+                ...$this->selection($status->ref),
                 // Case-shifted, because matching ignores case and a raw string
                 // comparison here would let `OK` through.
                 'critical_values' => ['OK'],
                 'warn_values' => ['ok'],
+                // Explicitly no healthy list: this row's whole point is that the
+                // observed value reaches a PAGING band, and the helper's default
+                // `ok_values` would absorb it into the least-severe list and
+                // retire the very guard under test.
+                'ok_values' => [],
             ],
         ]));
 
-        $suggested = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+        $suggested = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
             ->json('data.suggested_metrics');
 
+        // Filtered on origin rather than asserting an empty list. The backend
+        // proposes its own verdict metric on this same field, and that row is
+        // not what this test is about: the claim is that the MODEL's selection,
+        // which would have reported the observation as healthy, is not among
+        // them.
         $this->assertSame(
             [],
-            $suggested,
+            array_values(array_filter($suggested, fn (array $row): bool => $row['origin'] === 'model')),
             'a selection that would report the observation as healthy is not proposed at all',
+        );
+    }
+
+    public function test_the_observed_value_survives_a_paging_band_the_vocabulary_vouches_for(): void
+    {
+        // The other side of the rule above, and the reason it needed one. A
+        // health endpoint reading `degraded` has exactly one correct
+        // configuration, `warn_values` containing `degraded`, and the blanket
+        // refusal turned that into no metric at all: the field the operator most
+        // wants watched was the one field the discovery path could never
+        // propose. {@see HealthVocabulary} is what tells the two cases apart,
+        // and it only ever VALIDATES a placement the model already made.
+        //
+        // Firing on the first check is the intended outcome here, not a
+        // side effect: the service is saying it is unwell right now.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['status' => 'degraded']);
+        $this->archiveVersion($monitor, $body);
+        $status = $this->candidateIn($body, 'degraded');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                ...$this->selection($status->ref, label: 'Overall status'),
+                'ok_values' => [],
+                'warn_values' => ['degraded'],
+                'critical_values' => ['down'],
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(['degraded'], $suggestion['warn_values']);
+        $this->assertSame(['down'], $suggestion['critical_values']);
+    }
+
+    public function test_an_observed_value_the_vocabulary_does_not_know_is_still_refused(): void
+    {
+        // The conservative half. `amber` is a perfectly plausible warn value and
+        // the model may well be right about it, but the dictionary does not
+        // vouch for it, so the row takes the same refusal it took before the
+        // dictionary existed. An unknown word never lifts the guard; that is
+        // what keeps the exception from becoming the rule.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['status' => 'amber']);
+        $this->archiveVersion($monitor, $body);
+        $status = $this->candidateIn($body, 'amber');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                ...$this->selection($status->ref, label: 'Overall status'),
+                'ok_values' => [],
+                'warn_values' => ['amber'],
+                'critical_values' => [],
+            ],
+        ]));
+
+        $this->assertSame([], $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics'));
+    }
+
+    public function test_a_healthy_word_placed_in_a_paging_band_is_refused_even_though_it_is_known(): void
+    {
+        // The dictionary knowing a word is not enough; it has to AGREE. This is
+        // the case the whole guard was written for: the model copies the sample
+        // it was shown into a paging list, and the sample is the healthy
+        // reading. Known word, wrong band, same refusal.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['status' => 'ok']);
+        $this->archiveVersion($monitor, $body);
+        $status = $this->candidateIn($body, 'ok');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                ...$this->selection($status->ref, label: 'Overall status'),
+                'ok_values' => [],
+                'critical_values' => ['ok'],
+            ],
+        ]));
+
+        $suggested = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        // Origin-filtered for the same reason as the sibling above: the backend
+        // proposes its own verdict row on this field, and the subject here is
+        // the model's.
+        $this->assertSame(
+            [],
+            array_values(array_filter($suggested, fn (array $row): bool => $row['origin'] === 'model')),
         );
     }
 
@@ -783,7 +897,8 @@ class MetricDiscoveryTest extends TestCase
         $status = $this->candidateIn($this->healthFixture(), 'ok');
 
         $this->fakeGateway($this->selectionsFor([
-            $this->selection($status->ref) + [
+            [
+                ...$this->selection($status->ref),
                 'ok_values' => ['maintenance'],
                 'warn_values' => ['MAINTENANCE'],
             ],
@@ -869,7 +984,8 @@ class MetricDiscoveryTest extends TestCase
         $overCap = str_repeat('x', MetricCandidate::DIGEST_VALUE_MAX_LENGTH);
 
         $this->fakeGateway($this->selectionsFor([
-            $this->selection($status->ref) + [
+            [
+                ...$this->selection($status->ref),
                 'ok_values' => [
                     'ok',
                     $overCap,
@@ -897,7 +1013,8 @@ class MetricDiscoveryTest extends TestCase
 
         $accepted = $gateway->acceptSelections(
             $this->selectionsFor([
-                $this->selection('c1') + [
+                [
+                    ...$this->selection('c1'),
                     'ok_values' => [
                         "\u{00A0}",
                         'ok',
@@ -920,7 +1037,7 @@ class MetricDiscoveryTest extends TestCase
 
         $this->assertSame([], $gateway->acceptSelections(
             $this->selectionsFor([
-                $this->selection('c1') + ['ok_values' => [42]],
+                [...$this->selection('c1'), 'ok_values' => [42]],
             ]),
             $this->payload(),
         ));
@@ -1016,6 +1133,13 @@ class MetricDiscoveryTest extends TestCase
         // reads a direction and a banded string metric goes through
         // `bandString()` instead. So this measures the drop rather than a
         // discovery path that happened to yield nothing.
+        //
+        // That sibling carries `ok_values` for a reason worth stating: the
+        // string row has to be acceptable for every reason EXCEPT the one under
+        // test, and since {@see self::test_a_string_selection_with_no_band_list_is_dropped_at_the_gateway}
+        // a string with three empty lists is dropped in its own right. Without
+        // the list this test would pass on an empty result set and stop
+        // measuring the direction gate at all.
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
         $this->archiveVersion($monitor, $this->htmlFixture());
@@ -1032,6 +1156,7 @@ class MetricDiscoveryTest extends TestCase
                 'ref' => $string->ref,
                 'label' => 'Render time',
                 'type' => MetricType::String->value,
+                'ok_values' => ['120ms'],
             ],
         ]));
 
@@ -1041,6 +1166,238 @@ class MetricDiscoveryTest extends TestCase
         $this->assertCount(1, $suggestions);
         $this->assertSame(MetricType::String->value, $suggestions[0]['type']);
         $this->assertSame($string->extractionPath, $suggestions[0]['path']);
+    }
+
+    // -----------------------------------------------------------------
+    // (2d) The threshold contract: a string metric that can alert
+    // -----------------------------------------------------------------
+    //
+    // The string half of the same defect, measured on a production analyze of a
+    // Laravel health endpoint. The model selected the payload's top-level
+    // `status`, which was reading `degraded`, and returned all three band lists
+    // empty. {@see MonitorMetric::alertsOnString()} is true only when at least
+    // one list is non-empty, so the metric recorded the word `degraded` on every
+    // check with a null band while the monitor showed Operational and no
+    // incident. Same failure as the directionless numeric, same answer: a
+    // selection that cannot band is not a suggestion, it is a metric-shaped
+    // blank the operator reads as coverage.
+    //
+    // The numeric guard cannot be widened to cover this. `unmatched_band` is
+    // the only other channel that could make an empty-list string band, and
+    // {@see MonitorController::unmatchedBandFor()} pins it to `ok` precisely
+    // BECAUSE at least one list is non-empty, so it can never rescue this row.
+
+    public function test_a_string_selection_with_no_band_list_is_dropped_at_the_gateway(): void
+    {
+        // Both halves, for the reason the numeric twin states: the identical row
+        // WITH a band list survives, so this measures the list gate rather than
+        // a row that was unacceptable for some other reason.
+        $gateway = $this->fakeGateway(null);
+
+        $bandless = [
+            'ref' => 'c1',
+            'label' => 'Overall status',
+            'type' => MetricType::String->value,
+        ];
+
+        $this->assertSame([], $gateway->acceptSelections(
+            $this->selectionsFor([$bandless]),
+            $this->payload(),
+        ));
+        $this->assertCount(1, (array) $gateway->acceptSelections(
+            $this->selectionsFor([$bandless + ['critical_values' => ['down']]]),
+            $this->payload(),
+        ));
+    }
+
+    public function test_a_string_selection_carrying_only_empty_lists_is_dropped(): void
+    {
+        // Distinct from the case above: here the model ANSWERED all three keys
+        // and answered them with empty arrays. `resolveLists()` cannot tell that
+        // apart from an omission once it has normalised, and it must not: both
+        // produce a metric that records forever and bands nothing.
+        $gateway = $this->fakeGateway(null);
+
+        $this->assertSame([], $gateway->acceptSelections(
+            $this->selectionsFor([
+                [
+                    'ref' => 'c1',
+                    'label' => 'Overall status',
+                    'type' => MetricType::String->value,
+                    'ok_values' => [],
+                    'warn_values' => [],
+                    'critical_values' => [],
+                ],
+            ]),
+            $this->payload(),
+        ));
+    }
+
+    public function test_a_bandless_string_selection_never_reaches_the_wire(): void
+    {
+        // The end-to-end half. The sibling numeric row is what keeps this from
+        // passing on an empty discovery: it has to survive, so an empty result
+        // here would fail for the wrong reason and be visible.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+        $numeric = $this->candidateWithValue('4200');
+        $string = $this->candidateWithValue('120ms');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $string->ref,
+                'label' => 'Overall status',
+                'type' => MetricType::String->value,
+            ],
+            [
+                'ref' => $numeric->ref,
+                'label' => 'Requests served',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+            ],
+        ]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions);
+        $this->assertSame(MetricType::Numeric->value, $suggestions[0]['type']);
+    }
+
+    // -----------------------------------------------------------------
+    // (2e) The verdict metric the backend proposes on its own
+    // -----------------------------------------------------------------
+    //
+    // Three rounds of fixes made the correct configuration reachable and the
+    // model still never proposed one: with all nine verdict leaves leading the
+    // candidate table it selected numbers on every live run. A field publishing
+    // the service's OWN health is the most valuable metric on a health payload
+    // and it is the one the model consistently declines, so the backend proposes
+    // it from {@see HealthVocabulary} instead of asking again.
+    //
+    // This is a deliberate reversal of the "only validates, never authors"
+    // property that class was given a step earlier, and the row says so on the
+    // wire through `origin` rather than passing itself off as the model's work.
+
+    /**
+     * A payload whose verdict field is unwell while its subsystems are not,
+     * which is the shape every health endpoint takes during a partial outage.
+     */
+    protected function verdictBody(string $overall = 'degraded'): string
+    {
+        return (string) json_encode([
+            'status' => $overall,
+            'checks' => [
+                'database' => ['status' => 'ok'],
+                'cache' => ['status' => 'ok'],
+            ],
+        ]);
+    }
+
+    public function test_a_health_verdict_is_proposed_by_rule_when_the_model_ignores_it(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = $this->verdictBody();
+        $this->archiveVersion($monitor, $body);
+
+        // The model answers with nothing at all, which is what it does in
+        // practice for a verdict field.
+        $this->fakeGateway($this->selectionsFor([]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions);
+        $verdict = $suggestions[0];
+
+        $this->assertSame('status', $verdict['path']);
+        $this->assertSame(MetricType::String->value, $verdict['type']);
+        $this->assertSame('rule', $verdict['origin']);
+
+        // The bands are built ONLY from words this response actually showed:
+        // `ok` off the two subsystem verdicts, `degraded` off the top-level one.
+        // Nothing is invented, which is why `down` appears in no list.
+        $this->assertSame(['ok'], $verdict['ok_values']);
+        $this->assertSame(['degraded'], $verdict['warn_values']);
+        $this->assertSame([], $verdict['critical_values']);
+    }
+
+    public function test_the_rule_verdict_survives_an_exhausted_budget(): void
+    {
+        // The reason a rule is worth having beside a model at all: it costs no
+        // budget and no provider call, so the operator still gets the one metric
+        // that matters on the day the AI cannot run.
+        config(['ai.budget.daily_per_team' => 0]);
+
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->verdictBody());
+        $spy = $this->fakeGateway($this->selectionsFor([]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions);
+        $this->assertSame('rule', $suggestions[0]['origin']);
+        $this->assertSame(0, $spy->calls, 'over budget must not reach the model');
+    }
+
+    public function test_the_rule_stands_down_when_the_model_took_that_path_itself(): void
+    {
+        // No duplicate row for one path. The model's own selection wins, because
+        // it carries a label the model wrote and bands it chose.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = $this->verdictBody();
+        $this->archiveVersion($monitor, $body);
+        $status = $this->candidateIn($body, 'degraded');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                ...$this->selection($status->ref, label: 'Service health'),
+                'ok_values' => ['ok'],
+                'warn_values' => ['degraded'],
+            ],
+        ]));
+
+        $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics');
+
+        $this->assertCount(1, $suggestions);
+        $this->assertSame('model', $suggestions[0]['origin']);
+        $this->assertSame('Service health', $suggestions[0]['label']);
+    }
+
+    public function test_a_verdict_word_the_vocabulary_cannot_read_is_not_proposed(): void
+    {
+        // The same conservatism the validation half already holds: an unknown
+        // word buys no rule proposal, because the backend would be guessing at
+        // the severity rather than reading it.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, (string) json_encode(['status' => 'amber']));
+        $this->fakeGateway($this->selectionsFor([]));
+
+        $this->assertSame([], $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics'));
+    }
+
+    public function test_a_model_suggestion_is_marked_as_the_models_own(): void
+    {
+        // The other half of `origin`, and the reason it exists: the operator is
+        // told which suggestions came from a model and which from a rule, so the
+        // surface cannot badge a deterministic row as AI work.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $this->archiveVersion($monitor, $this->htmlFixture());
+        $this->fakeGateway($this->selectionsFor([$this->selection('c1')]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame('model', $suggestion['origin']);
     }
 
     public function test_a_derived_bound_is_quantised_like_a_model_supplied_one(): void
@@ -1199,14 +1556,23 @@ class MetricDiscoveryTest extends TestCase
         $this->assertSame(20.0, (float) $suggestion['critical']);
     }
 
-    public function test_a_zero_observed_value_derives_no_bounds_and_keeps_the_suggestion(): void
+    public function test_a_zero_observed_countable_takes_the_absolute_pair_without_a_declared_unit(): void
     {
-        // Zero multiplies and divides to itself, so the derived pair would be 0
-        // and 0: `ThresholdDirection::validateBounds()` refuses it (warn has to
-        // sit strictly below critical) and the write endpoint would 422 it. The
-        // suggestion still ships, because a direction with no bound is a form the
-        // operator can finish, and this is the guard that keeps the multiply from
-        // inventing a pair it cannot stand behind.
+        // Zero multiplies and divides to itself, so no bound can be DERIVED
+        // here; the absolute pair is what stands in. It used to be gated on the
+        // model declaring `unit: count`, which the model routinely omits, and
+        // the gap is not academic: a live discovery run on a health endpoint
+        // proposed eight metrics and five of them came back with both bounds
+        // null, every one a counter observed at zero (`failed_recent`,
+        // `evicted_keys`, `pending_total`, `pending_migrations`,
+        // `longest_wait_seconds`). Being told "one is a warning, five is
+        // critical" about a failure counter needs no unit; a counter reading
+        // zero is the ordinary state of a healthy service, and it is exactly the
+        // reading whose FIRST departure from zero the operator wants.
+        //
+        // The old expectation here was that the row ships with no bounds
+        // because "a direction with no bound is a form the operator can finish".
+        // Nobody finished it.
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
         $body = (string) json_encode(['error_count' => 0]);
@@ -1225,10 +1591,110 @@ class MetricDiscoveryTest extends TestCase
         $suggestions = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
             ->json('data.suggested_metrics');
 
-        $this->assertCount(1, $suggestions, 'a bound that cannot be derived is not a reason to drop the metric');
-        $this->assertSame(ThresholdDirection::HighBad->value, $suggestions[0]['threshold_direction']);
-        $this->assertNull($suggestions[0]['warn']);
-        $this->assertNull($suggestions[0]['critical']);
+        $this->assertCount(1, $suggestions);
+        $this->assertSame(1.0, (float) $suggestions[0]['warn']);
+        $this->assertSame(5.0, (float) $suggestions[0]['critical']);
+    }
+
+    public function test_a_zero_observed_dimensioned_metric_gets_no_invented_scale(): void
+    {
+        // The bound of the widening. `1` and `5` carry a COUNT meaning ("one
+        // occurrence, then five"), and on a declared scale they would be one
+        // millisecond and five milliseconds: a latency metric that warns on
+        // every check that is not instantaneous. The backend has no way to know
+        // what a millisecond is worth to this service, so it invents nothing and
+        // the row ships bound-less, where {@see ThresholdEvaluator::band()} now
+        // reports no band rather than a green one.
+        $gateway = $this->fakeGateway(null);
+        $payload = $this->payloadWithSample('c1', '0');
+
+        $accepted = $gateway->acceptSelections($this->selectionsFor([
+            [
+                'ref' => 'c1',
+                'label' => 'Render time',
+                'type' => 'numeric',
+                'unit' => 'millisecond',
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+            ],
+        ]), $payload);
+
+        $this->assertCount(1, $accepted);
+        $this->assertNull($accepted[0]['warnBound']);
+        $this->assertNull($accepted[0]['criticalBound']);
+    }
+
+    public function test_a_percentage_derives_bounds_inside_its_own_ceiling(): void
+    {
+        // A percentage has nowhere to multiply into. A live run on a Redis
+        // memory gauge reading 27.05% derived `warn 81.2, critical 162`, and a
+        // reading can never reach 162 percent of anything, so the critical band
+        // was unreachable by construction and the metric had one usable band
+        // instead of two. On a storage gauge already at 81% the same arithmetic
+        // puts warn at 244, which is inert outright.
+        //
+        // A bounded scale derives toward its ceiling instead: thirds of the
+        // headroom that is actually left.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['used_percent' => 27.05]);
+        $this->archiveVersion($monitor, $body);
+        $usage = $this->candidateIn($body, '27.05');
+
+        // No `unit` on the selection, which is the shape that actually occurs.
+        // A first pass keyed the ceiling off the DECLARED unit and passed its
+        // test while changing nothing on the real payload: the model does not
+        // declare one, and `81.39` carries no `%` for
+        // {@see MetricExtractor::splitUnit()} to strip, so the ceiling never
+        // applied. The key is the only place the scale is written down.
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $usage->ref,
+                'label' => 'Memory usage',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $warn = (float) $suggestion['warn'];
+        $critical = (float) $suggestion['critical'];
+
+        $this->assertSame('percent', $suggestion['unit']);
+        $this->assertGreaterThan(27.05, $warn);
+        $this->assertLessThan($critical, $warn);
+        $this->assertLessThanOrEqual(100.0, $critical);
+    }
+
+    public function test_a_gauge_already_high_still_derives_a_reachable_pair(): void
+    {
+        // The case that is inert rather than merely odd. Storage at 81.39%
+        // multiplied to `warn 244, critical 488`, so the metric could not band
+        // even when the disk filled completely, on the one monitor whose whole
+        // reason for existing is to say the disk is filling. Both bounds have to
+        // sit between the reading and the ceiling.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['used_percent' => 81.39]);
+        $this->archiveVersion($monitor, $body);
+        $usage = $this->candidateIn($body, '81.39');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $usage->ref,
+                'label' => 'Disk usage',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertGreaterThan(81.39, (float) $suggestion['warn']);
+        $this->assertLessThan((float) $suggestion['critical'], (float) $suggestion['warn']);
+        $this->assertLessThanOrEqual(100.0, (float) $suggestion['critical']);
     }
 
     public function test_a_negative_observed_value_derives_no_bound_beside_a_model_supplied_one(): void
@@ -1994,6 +2460,17 @@ class MetricDiscoveryTest extends TestCase
 
         if ($type === MetricType::Numeric) {
             $row['threshold_direction'] = ($direction ?? ThresholdDirection::HighBad)->value;
+        }
+
+        // The string mirror of the line above, and it exists for the same
+        // reason: a string selection with three empty band lists is dropped by
+        // the gateway, so a fixture without one would make every test that uses
+        // this helper as a VEHICLE (key generation, label sanitising, ref range,
+        // redaction) pass on an empty result set and stop measuring its subject.
+        // A test that wants the bandless row itself builds it literally rather
+        // than through this helper.
+        if ($type === MetricType::String) {
+            $row['ok_values'] = ['ok'];
         }
 
         return $row;
