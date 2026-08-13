@@ -45,6 +45,11 @@ class MonitorResource extends JsonResource
             // defaults and a plain rename silently rewrote the monitor.
             'request_body' => $this->resource->request_body,
             'ai_mode' => $this->resource->ai_mode,
+            // Read back by the monitor form's own switch. Without it the field
+            // is absent from every response, the client reads absent as false,
+            // and an operator who turned it on found it off the next time they
+            // opened the form: the write landed and the read denied it.
+            'ai_auto_updates' => (bool) $this->resource->ai_auto_updates,
             'auth_config' => $this->redactAuthConfig($this->resource->auth_config),
             'slo_target' => $this->resource->slo_target,
             // The pinned paging ladder, or null to fall back to the team default.
