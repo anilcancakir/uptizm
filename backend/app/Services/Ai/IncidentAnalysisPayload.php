@@ -187,39 +187,60 @@ readonly class IncidentAnalysisPayload
      * order is first-appearance rather than sorted so a recovery (up on top of
      * down) hashes differently from an onset.
      *
-     * Latency is banded rather than exact, and that correction came from the
-     * running system. Unrounded latency was kept here on the reasoning that it
-     * is the evidence for a whole class of incident and that any bucket width
-     * would be a threshold nobody set. Both halves were true and the conclusion
-     * was still wrong: no two checks answer in the same millisecond, so every
-     * tick added a DISTINCT row, the set grew, and one open incident produced
-     * three fingerprints and three paid answers inside ten minutes. A rule that
-     * never holds on a live incident is not a conservative rule.
+     * Latency is not in it at all, and getting there took three corrections a
+     * live incident forced one after another. Exact latency was kept first, on
+     * the reasoning that it is the evidence for a whole class of incident: no
+     * two checks answer in the same millisecond, so every tick added a distinct
+     * row and one open incident produced three fingerprints and three paid
+     * answers inside ten minutes. Banding it onto a ladder was the second
+     * attempt, and this monitor's latency wanders from 436ms to 3389ms on its
+     * own, so it crossed rungs by itself. The metric values and the response
+     * bodies each failed the same way for the same reason.
      *
-     * The ladder in {@see self::latencyBand()} is the threshold, stated in one
-     * place: 436ms and 445ms are the same fact and hash the same, 436ms and
-     * 3389ms are not and do not.
+     * The rule underneath all three is one sentence, and applying it everywhere
+     * is what finally held: a number a service reports is a READING, and a
+     * reading that matters already has a metric band watching it. So the
+     * fingerprint watches VERDICTS, which is what the product itself computes
+     * from those readings: up or down per region, the metric's band, a body
+     * field changing from one word to another. An operator who cares about
+     * latency defines a metric on it, and that metric's band is in here.
      */
     public function evidenceFingerprint(): string
     {
+        // The VERDICT per region, with no timing in it at all.
         $checks = array_values(array_unique(array_map(
             fn (array $check): string => implode('|', [
                 (string) ($check['region'] ?? ''),
                 (string) ($check['status'] ?? ''),
                 (string) ($check['status_code'] ?? ''),
-                self::latencyBand($check['response_ms'] ?? null),
                 (string) ($check['monitor'] ?? ''),
             ]),
             $this->checks,
         )));
 
-        $bodies = array_map(
-            fn (array $body): array => [
-                'baseline' => (bool) ($body['baseline'] ?? false),
-                'fields' => (array) ($body['fields'] ?? []),
-            ],
-            $this->bodies,
-        );
+        // Only the body rows that say something. A monitored service reports
+        // live numbers, so its diff blocks read `used_percent = 82.87 -> 83.14`,
+        // `latency_ms = 59.16 -> 0.18`, and even
+        // `message = The disk is 82.9% full. -> The disk is 83.1% full.`
+        //
+        // Masking the digits was the first attempt and it was not enough,
+        // measured: the values stopped moving and the hash still did, because
+        // WHICH paths appear in a diff varies per check too. So a row that says
+        // nothing once the digits are gone is dropped entirely, and a block left
+        // with no rows goes with it. See {@see self::materialFields()}.
+        //
+        // Only the fingerprint sees this. The prompt is still handed the real
+        // numbers, because the analysis is what those numbers are for.
+        $bodies = array_values(array_filter(
+            array_map(
+                fn (array $body): array => [
+                    'baseline' => (bool) ($body['baseline'] ?? false),
+                    'fields' => self::materialFields((array) ($body['fields'] ?? [])),
+                ],
+                $this->bodies,
+            ),
+            fn (array $body): bool => $body['fields'] !== [],
+        ));
 
         // The metric readings carry `recorded_at` for the same reason the check
         // rows carry `checked_at`, and it is dropped for the same reason: a
@@ -257,29 +278,49 @@ readonly class IncidentAnalysisPayload
     }
 
     /**
-     * A latency band, coarse enough that ordinary jitter does not move it.
+     * The body rows that carry a state change rather than a moving number.
      *
-     * The rungs are where people already break latency when they talk about it
-     * (a tenth of a second, a quarter, a half, a second, two, five, ten), so the
-     * band changes when the sentence about it would change. Null latency is its
-     * own band rather than being folded into the fastest one: a check with no
-     * timing is a different fact from a fast check.
+     * A diff row arrives as `before -> after`. Masking the digits on both sides
+     * and comparing them is the whole test: `82.87 -> 83.14` becomes
+     * `##.## -> ##.##`, the two sides are identical, and the row is saying only
+     * that a number moved, which every check says. `ok -> degraded` masks to
+     * itself, the sides differ, and that is a state change worth a fresh answer.
+     *
+     * A baseline row carries no arrow and is kept, masked: the baseline is the
+     * shape of the body, and the shape is stable.
+     *
+     * @param  array<string, mixed>  $fields
+     * @return array<string, string>
      */
-    private static function latencyBand(mixed $ms): string
+    private static function materialFields(array $fields): array
     {
-        if ($ms === null || $ms === '') {
-            return 'none';
-        }
+        $material = [];
 
-        $ms = (int) $ms;
+        foreach ($fields as $path => $value) {
+            $masked = self::maskDigits((string) $value);
 
-        foreach ([100, 250, 500, 1000, 2000, 5000, 10000] as $rung) {
-            if ($ms < $rung) {
-                return '<'.$rung;
+            if (! str_contains($masked, ' -> ')) {
+                $material[(string) $path] = $masked;
+
+                continue;
+            }
+
+            [$before, $after] = explode(' -> ', $masked, 2);
+
+            if ($before !== $after) {
+                $material[(string) $path] = $masked;
             }
         }
 
-        return '>=10000';
+        return $material;
+    }
+
+    /**
+     * Replace every run of digits with a single `#`.
+     */
+    private static function maskDigits(string $value): string
+    {
+        return preg_replace('/\d+/', '#', $value) ?? $value;
     }
 
     /**

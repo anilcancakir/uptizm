@@ -40,26 +40,27 @@ class EvidenceFingerprintTest extends TestCase
         $this->assertNotSame($gateway->evidenceFingerprint(), $server->evidenceFingerprint());
     }
 
-    public function test_latency_jitter_does_not_change_the_fingerprint(): void
+    public function test_latency_does_not_move_the_fingerprint_at_all(): void
     {
-        // The correction the running system forced. Exact latency in the hash
-        // meant no two ticks ever matched, because no two checks answer in the
-        // same millisecond: one open incident produced three fingerprints and
-        // three paid answers inside ten minutes.
-        $first = $this->payload([$this->check(ms: 436)]);
-        $second = $this->payload([$this->check(ms: 445)]);
+        // Three corrections a live incident forced, ending here. Exact latency
+        // never matched, because no two checks answer in the same millisecond.
+        // Banding it onto a ladder was the second attempt and this monitor's
+        // latency wanders from 436ms to 3389ms on its own, crossing rungs
+        // unaided. Latency is a READING, and a reading that matters has a
+        // metric band watching it, which is in the fingerprint already.
+        $fast = $this->payload([$this->check(ms: 436)]);
+        $slow = $this->payload([$this->check(ms: 3389)]);
 
-        $this->assertSame($first->evidenceFingerprint(), $second->evidenceFingerprint());
+        $this->assertSame($fast->evidenceFingerprint(), $slow->evidenceFingerprint());
     }
 
-    public function test_a_real_latency_move_still_changes_the_fingerprint(): void
+    public function test_a_status_code_change_still_moves_the_fingerprint(): void
     {
-        // The other half, and the one the banding could have quietly lost:
-        // half a second and three seconds are not the same fact.
-        $slow = $this->payload([$this->check(ms: 436)]);
-        $slower = $this->payload([$this->check(ms: 3389)]);
+        // What dropping latency must not take with it: the verdict itself.
+        $gateway = $this->payload([$this->check(code: 503)]);
+        $server = $this->payload([$this->check(code: 500)]);
 
-        $this->assertNotSame($slow->evidenceFingerprint(), $slower->evidenceFingerprint());
+        $this->assertNotSame($gateway->evidenceFingerprint(), $server->evidenceFingerprint());
     }
 
     public function test_a_recovery_reads_differently_from_an_onset(): void
@@ -116,6 +117,44 @@ class EvidenceFingerprintTest extends TestCase
         $resolved = $this->payload([$this->check()], resolvedAt: '2026-08-13T10:00:00+00:00');
 
         $this->assertNotSame($open->evidenceFingerprint(), $resolved->evidenceFingerprint());
+    }
+
+    public function test_a_number_drifting_inside_a_body_does_not_change_the_fingerprint(): void
+    {
+        // The third and last source of a fingerprint that never held, read off a
+        // live diff block: a monitored service reports live numbers, so
+        // `used_percent`, `latency_ms`, `age_seconds` and even the human message
+        // that embeds a percentage all move on every check.
+        $before = $this->payload([$this->check()], bodies: [
+            ['baseline' => false, 'fields' => [
+                'checks.storage.details.used_percent' => '82.87 -> 83.14',
+                'checks.storage.message' => 'The disk is 82.9% full. -> The disk is 83.1% full.',
+                'checks.redis.details.latency_ms' => '59.16 -> 0.18',
+            ]],
+        ]);
+        $later = $this->payload([$this->check()], bodies: [
+            ['baseline' => false, 'fields' => [
+                'checks.storage.details.used_percent' => '82.87 -> 83.45',
+                'checks.storage.message' => 'The disk is 82.9% full. -> The disk is 83.5% full.',
+                'checks.redis.details.latency_ms' => '59.16 -> 0.81',
+            ]],
+        ]);
+
+        $this->assertSame($before->evidenceFingerprint(), $later->evidenceFingerprint());
+    }
+
+    public function test_a_body_field_changing_state_still_changes_the_fingerprint(): void
+    {
+        // What the digit masking must not lose: words are states, and a state
+        // flipping is the whole reason to re-ask.
+        $healthy = $this->payload([$this->check()], bodies: [
+            ['baseline' => false, 'fields' => ['checks.storage.status' => 'ok']],
+        ]);
+        $degraded = $this->payload([$this->check()], bodies: [
+            ['baseline' => false, 'fields' => ['checks.storage.status' => 'ok -> degraded']],
+        ]);
+
+        $this->assertNotSame($healthy->evidenceFingerprint(), $degraded->evidenceFingerprint());
     }
 
     public function test_a_new_response_body_changes_the_fingerprint(): void
