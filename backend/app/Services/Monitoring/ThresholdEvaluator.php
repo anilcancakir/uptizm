@@ -36,6 +36,29 @@ use App\Services\Ai\AiIncidentOpener;
 class ThresholdEvaluator
 {
     /**
+     * How many checks' worth of time a resolve stays "the same outage".
+     *
+     * A count rather than a duration, so the window scales with the monitor's
+     * own cadence: ten minutes at a 60-second interval, fifty at five minutes.
+     * It is the number that answers "is this failure the one we just closed",
+     * and it is the only arbitrary part of {@see self::sameOutageJustResolved()};
+     * ten is a handful of checks, long enough that a resolve-and-still-broken
+     * loop lands inside it and short enough that tomorrow's outage does not.
+     */
+    private const REOPEN_WINDOW_CHECKS = 10;
+
+    /**
+     * The author on a timeline note this evaluator writes itself.
+     *
+     * A constant and an English sentence at the call site rather than a
+     * catalogue key, matching the auto-resolve note two methods down: this file
+     * already writes "<name> recovered; incident auto-resolved." the same way,
+     * and `lang/*\/incidents.php` is scanned by the title-catalogue parity test,
+     * which reads every key there as a title needing a client mirror.
+     */
+    private const SYSTEM_AUTHOR = 'Uptizm';
+
+    /**
      * Evaluate a completed check against the monitor's thresholds and metric
      * bounds; open an incident on a new breach and auto-resolve the monitor's
      * active down incident once it recovers.
@@ -102,19 +125,28 @@ class ThresholdEvaluator
         $opened = null;
         if ($this->shouldOpenForConsecutiveFails($monitor)
             && ! $this->hasActiveIncidentForMonitor($monitor)) {
-            $composed = IncidentTitle::compose(IncidentTitle::MONITOR_DOWN, [
-                'monitor' => $monitor->name,
-            ]);
+            // 2a. The same outage, resolved by hand and never actually over,
+            //     is reopened rather than opened again. See
+            //     {@see self::sameOutageJustResolved()}.
+            $reopenable = $this->sameOutageJustResolved($monitor);
 
-            $opened = $this->openIncident(
-                monitor: $monitor,
-                check: $check,
-                severity: IncidentSeverity::Critical,
-                title: $composed['title'],
-                metricKey: null,
-                titleKey: $composed['title_key'],
-                titleParams: $composed['title_params'],
-            );
+            if ($reopenable !== null) {
+                $opened = $this->reopenInline($monitor, $reopenable);
+            } else {
+                $composed = IncidentTitle::compose(IncidentTitle::MONITOR_DOWN, [
+                    'monitor' => $monitor->name,
+                ]);
+
+                $opened = $this->openIncident(
+                    monitor: $monitor,
+                    check: $check,
+                    severity: IncidentSeverity::Critical,
+                    title: $composed['title'],
+                    metricKey: null,
+                    titleKey: $composed['title_key'],
+                    titleParams: $composed['title_params'],
+                );
+            }
         }
 
         // 3. A healthy check auto-resolves the monitor's active down incident;
@@ -550,6 +582,105 @@ class ThresholdEvaluator
             ->where('ai_owned', false)
             ->get()
             ->contains(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+    }
+
+    /**
+     * The incident this failure belongs to, when it belongs to one already.
+     *
+     * A manual resolve on a monitor that is still failing leaves both open-gates
+     * satisfied: `consecutive_fails` is untouched and there is no longer an
+     * active incident. Measured on the running system, the very next check
+     * therefore opened a brand new incident, so an operator clicking resolve ten
+     * times on something still down produced ten incidents, and with autonomous
+     * updates enabled, twenty model calls and ten customer-facing posts.
+     *
+     * Two conditions, and both matter:
+     *
+     * The resolve is RECENT, inside a window of ten checks' worth of time. The
+     * window is what answers "is this the same outage", and deriving it from the
+     * monitor's own cadence rather than fixing a number of minutes means it
+     * scales with how closely the thing is watched: ten minutes at a 60-second
+     * cadence, fifty at five minutes. Past it, a fresh failure is a fresh
+     * episode and gets its own incident, timeline and postmortem.
+     *
+     * And the monitor was never SEEN HEALTHY in between. A recovery followed by
+     * a new failure is genuinely a second outage even inside the window, and the
+     * auto-resolve that fired on the recovery already closed the first one
+     * properly.
+     *
+     * Reopening rather than staying silent is deliberate. A mistaken resolve
+     * during a real outage must not mute it: the reopen re-dispatches the same
+     * page a fresh open would, so the responders are still called, and the
+     * autonomous-update path's per-stage guard stops it announcing "we are
+     * investigating" to customers a second time about a moment it already
+     * announced.
+     */
+    protected function sameOutageJustResolved(Monitor $monitor): ?Incident
+    {
+        $cadence = $monitor->check_interval_sec ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC;
+        $window = now()->subSeconds(self::REOPEN_WINDOW_CHECKS * (int) $cadence);
+
+        $candidate = Incident::query()
+            ->where('primary_monitor_id', $monitor->id)
+            ->where('ai_owned', false)
+            ->whereNull('trigger_metric_key')
+            ->whereNotNull('resolved_at')
+            ->where('resolved_at', '>=', $window)
+            ->latest('resolved_at')
+            ->first();
+
+        if ($candidate === null) {
+            return null;
+        }
+
+        $recovered = MonitorCheck::query()
+            ->where('monitor_id', $monitor->id)
+            ->where('checked_at', '>=', $candidate->resolved_at)
+            ->where('status', MonitorStatus::Up)
+            ->exists();
+
+        return $recovered ? null : $candidate;
+    }
+
+    /**
+     * Reopen an incident from inside the check pipeline, without the write
+     * service.
+     *
+     * `IncidentWriteService::reopen()` is the obvious call and it deadlocks:
+     * both it and `CheckPersistenceService` key their monitor lock on
+     * `check-persist-monitor:{id}`, this evaluator runs inside the second one,
+     * and asking for the first blocks for the full ten-second wait and then
+     * fails with nothing to say. The first attempt did exactly that, and a
+     * ten-second empty failure is how it announced itself.
+     *
+     * So the transition is written here, the way {@see self::resolveIfRecovered()}
+     * writes its own: directly, because the lock is already held. The two are
+     * mirror images and read as a pair.
+     *
+     * The note is PUBLIC and fanned out for translation for the same reason the
+     * auto-resolve note is: a status page renders it like any other update, and
+     * an untranslated one sits at `pending` in every non-default language.
+     */
+    protected function reopenInline(Monitor $monitor, Incident $incident): Incident
+    {
+        $incident->update([
+            'lifecycle' => IncidentStatus::Investigating,
+            'resolved_at' => null,
+        ]);
+
+        $note = $incident->updates()->create([
+            'actor' => 'system',
+            'author' => self::SYSTEM_AUTHOR,
+            'status' => IncidentStatus::Investigating,
+            'message' => "{$monitor->name} is still failing; the incident was reopened.",
+            'is_public' => true,
+            'autonomous' => false,
+            'display_at' => now(),
+        ]);
+
+        TranslateStatusPageText::fanOut($note, 'message', (string) config('app.default_locale'));
+
+        return $incident->fresh() ?? $incident;
     }
 
     /**
