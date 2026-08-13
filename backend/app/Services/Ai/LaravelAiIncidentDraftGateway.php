@@ -111,7 +111,10 @@ class LaravelAiIncidentDraftGateway implements Agent, Conversational, HasProvide
 
         return new IncidentDraftResult(
             $payload->kind === IncidentDraftKind::Update
-                ? $this->capSentences($this->sanitizeDraft($draft), self::MAX_UPDATE_SENTENCES)
+                ? $this->capSentences(
+                    $this->dropInventedReporters($this->sanitizeDraft($draft)),
+                    self::MAX_UPDATE_SENTENCES,
+                )
                 : $this->sanitizeDraft($draft),
         );
     }
@@ -319,6 +322,54 @@ class LaravelAiIncidentDraftGateway implements Agent, Conversational, HasProvide
         $cleaned = preg_replace('/[ \t]{2,}/', ' ', $cleaned) ?? $cleaned;
 
         return trim($cleaned);
+    }
+
+    /**
+     * Take out the customers the model invented.
+     *
+     * The instructions forbid this in plain terms ("never write that anything was
+     * reported to you"), and the very first autonomous post on the running system
+     * went out reading "We are currently investigating REPORTS OF degraded
+     * service". Nobody reported anything: a probe crossed a threshold the
+     * operator set. It is the same class as inventing a cause, and it costs more,
+     * because it tells a reader that other people are affected.
+     *
+     * A prompt rule is a request, and this is the one path where the answer
+     * reaches a customer with nobody in between, so the rule has an enforcement
+     * behind it like the uuid and fence-header rules do.
+     *
+     * Three phrasings, each rewritten to stay grammatical rather than deleted
+     * into a broken sentence: "investigating reports of X" becomes
+     * "investigating X", and the two that make the claim their subject are
+     * re-attributed to the thing that actually saw it. This is a FLOOR and not a
+     * proof: a model can always invent a reporter in words nobody listed, and
+     * that half stays with the instructions.
+     */
+    public function dropInventedReporters(string $draft): string
+    {
+        $rewrites = [
+            // "we have received reports that X" / "customers have reported X"
+            '/\b(we(?:\s+have)?\s+)?receiv(?:ed|ing)\s+reports?\s+(?:that|of)\s+/i' => 'our monitoring shows ',
+            '/\b(?:customers|users|clients)\s+(?:have\s+)?report(?:ed|ing)\s+/i' => 'our monitoring shows ',
+            // "investigating reports of X" -> "investigating X"
+            '/\breports?\s+of\s+/i' => '',
+        ];
+
+        foreach ($rewrites as $pattern => $replacement) {
+            // The replacement carries the case the model wrote, for the same
+            // reason the fence rewrite does: these phrases usually open a
+            // sentence, and a lowercase substitution leaves one starting in the
+            // middle of itself.
+            $draft = preg_replace_callback(
+                $pattern,
+                fn (array $match): string => ctype_upper(mb_substr($match[0], 0, 1))
+                    ? ucfirst($replacement)
+                    : $replacement,
+                $draft,
+            ) ?? $draft;
+        }
+
+        return trim(preg_replace('/[ \t]{2,}/', ' ', $draft) ?? $draft);
     }
 
     /**

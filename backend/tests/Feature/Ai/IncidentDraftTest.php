@@ -165,6 +165,56 @@ class IncidentDraftTest extends TestCase
         );
     }
 
+    public function test_an_invented_reporter_is_taken_out_of_a_public_update(): void
+    {
+        // The first autonomous post on the running system went out reading "We
+        // are currently investigating REPORTS OF degraded service". Nobody
+        // reported anything: a probe crossed a threshold the operator set. The
+        // instructions forbid it in plain terms and the model wrote it anyway,
+        // which is why this path has enforcement behind the rule.
+        $gateway = new LaravelAiIncidentDraftGateway;
+
+        $this->assertSame(
+            'We are currently investigating degraded service. We will provide an update as soon as possible.',
+            $gateway->dropInventedReporters(
+                'We are currently investigating reports of degraded service. '
+                .'We will provide an update as soon as possible.',
+            ),
+        );
+    }
+
+    public function test_a_claim_that_makes_the_reporter_its_subject_is_re_attributed(): void
+    {
+        // Deleting the phrase here would leave a broken sentence, so these two
+        // are re-attributed to the thing that actually saw it, and the sentence
+        // keeps the capital it started with.
+        $gateway = new LaravelAiIncidentDraftGateway;
+
+        $this->assertSame(
+            'Our monitoring shows checkout is failing.',
+            $gateway->dropInventedReporters('We have received reports that checkout is failing.'),
+        );
+        $this->assertSame(
+            'Our monitoring shows slow responses on the API.',
+            $gateway->dropInventedReporters('Customers have reported slow responses on the API.'),
+        );
+    }
+
+    public function test_an_honest_update_is_left_exactly_as_written(): void
+    {
+        // The half a rewrite can quietly break: prose that never made the claim
+        // must come through untouched.
+        $gateway = new LaravelAiIncidentDraftGateway;
+
+        foreach ([
+            'We are investigating degraded performance on Checkout.',
+            'This incident has been resolved.',
+            'A fix has been implemented and we are monitoring the results.',
+        ] as $honest) {
+            $this->assertSame($honest, $gateway->dropInventedReporters($honest));
+        }
+    }
+
     public function test_a_fabricated_identifier_is_removed_from_a_draft(): void
     {
         // The payload carries no uuid at all, so one in the answer was invented,
