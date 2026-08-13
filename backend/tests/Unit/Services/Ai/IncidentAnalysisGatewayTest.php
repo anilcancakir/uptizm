@@ -115,6 +115,76 @@ class IncidentAnalysisGatewayTest extends TestCase
         $this->assertStringContainsString('monitor_id:monitor-1', $result['summary']);
     }
 
+    public function test_a_bare_monitor_id_in_the_prose_becomes_the_monitor_name(): void
+    {
+        // The exact sentence a live run produced against the pinned model, with
+        // a real monitor uuid, after the roster line already named the monitor.
+        // Every id in it is a VALID catalog entry, so the citation strip is
+        // right to leave it and the operator still reads 36 characters of noise.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            knownMonitorIds: ['a26c03f7-f8ab-49f9-876e-704061929a65'],
+            monitors: [
+                ['name' => 'Checkout', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'The Checkout monitor (a26c03f7-f8ab-49f9-876e-704061929a65) shows a complete outage.',
+            $payload,
+        );
+
+        $this->assertSame(
+            'The Checkout monitor shows a complete outage.',
+            $result['summary'],
+        );
+        $this->assertSame([], $result['stripped'], 'It was a valid citation, not a fabricated one.');
+    }
+
+    public function test_a_monitor_id_the_sentence_did_not_already_name_gains_the_name(): void
+    {
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            knownMonitorIds: ['a26c03f7-f8ab-49f9-876e-704061929a65'],
+            monitors: [
+                ['name' => 'Checkout', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'Failures concentrate on monitor_id:a26c03f7-f8ab-49f9-876e-704061929a65 across every region.',
+            $payload,
+        );
+
+        $this->assertSame(
+            'Failures concentrate on Checkout across every region.',
+            $result['summary'],
+            'the machine token goes whole, prefix included',
+        );
+    }
+
+    public function test_a_monitor_id_outside_the_roster_is_left_alone(): void
+    {
+        // Naming it would mean guessing which monitor it is. Out of catalog is a
+        // different failure, and the citation strip is what speaks for it.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            monitors: [
+                ['name' => 'Checkout', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'Something happened on 11111111-2222-3333-4444-555555555555 too.',
+            $payload,
+        );
+
+        $this->assertStringContainsString(
+            '11111111-2222-3333-4444-555555555555',
+            $result['summary'],
+        );
+    }
+
     // ---------------------------------------------------------------------
     // (3) Deterministic fake, bound in place of the real gateway
     // ---------------------------------------------------------------------
@@ -294,6 +364,7 @@ class IncidentAnalysisGatewayTest extends TestCase
         array $knownCheckIds = ['check-1'],
         array $knownMonitorIds = ['monitor-1'],
         array $bodies = [],
+        array $monitors = [],
     ): IncidentAnalysisPayload {
         return new IncidentAnalysisPayload(
             incidentId: 'incident-1',
@@ -328,6 +399,7 @@ class IncidentAnalysisGatewayTest extends TestCase
             bodies: $bodies,
             knownCheckIds: $knownCheckIds,
             knownMonitorIds: $knownMonitorIds,
+            monitors: $monitors,
         );
     }
 }
