@@ -240,10 +240,11 @@ class AiAnalysisCard extends StatelessWidget {
                       className: 'text-sm font-medium text-fg',
                     ),
                   ),
-                  if (item.source case final source?) ...[
-                    const SizedBox(width: 8),
-                    _buildSourceTag(source),
-                  ],
+                  // The gap is a Wind margin on the tag, not a SizedBox. The
+                  // design rules call a hardcoded pixel in component code a
+                  // blocker, and a component that mixes the two makes its
+                  // spacing impossible to keep on the scale.
+                  if (item.source case final source?) _buildSourceTag(source),
                 ],
               ),
               if (item.detail.isNotEmpty)
@@ -280,7 +281,7 @@ class AiAnalysisCard extends StatelessWidget {
 
     return WDiv(
       className:
-          'rounded-full bg-surface-container-high px-2 py-0.5 '
+          'ml-2 rounded-full bg-surface-container-high px-2 py-0.5 '
           'border border-color-border-subtle',
       child: WText(label, className: 'text-xs text-fg-muted'),
     );

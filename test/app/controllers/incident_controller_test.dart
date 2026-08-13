@@ -742,7 +742,7 @@ void main() {
       // body) must still release the retry, otherwise the one state where an
       // operator most wants to retry is the one where the button stays dead.
       Http.fake({
-        'incidents/pending-2/analysis*': Http.response({
+        'incidents/pending-2/analysis?refresh=1': Http.response({
           'message': 'Server Error',
         }, 500),
       });
@@ -798,7 +798,7 @@ void main() {
       // The disabled button is a courtesy, not the mechanism: a remount inside
       // the request window would fire again, and every request spends a unit.
       final fake = Http.fake({
-        'incidents/once/analysis*': Http.response({
+        'incidents/once/analysis': Http.response({
           'data': {'summary': 'once', 'confidence': 'low'},
         }),
       });
@@ -823,7 +823,10 @@ void main() {
       // detail view fetches from `initState`, so a screen reopened three times
       // used to pay three times for the same answer.
       final fake = Http.fake({
-        'incidents/cached/analysis*': Http.response({
+        'incidents/cached/analysis': Http.response({
+          'data': {'summary': 'The origin returned 503s.', 'confidence': 'high'},
+        }),
+        'incidents/cached/analysis?refresh=1': Http.response({
           'data': {'summary': 'The origin returned 503s.', 'confidence': 'high'},
         }),
       });
@@ -853,7 +856,7 @@ void main() {
 
     test('a cached DEGRADE is re-fetched, because that answer is worth re-asking', () async {
       final fake = Http.fake({
-        'incidents/degraded-cache/analysis*': Http.response({
+        'incidents/degraded-cache/analysis': Http.response({
           'data': {
             'summary': 'critical severity incident, currently investigating.',
             'confidence': 'low',
@@ -1213,6 +1216,40 @@ void main() {
 
       fake.assertSent(
         (r) => r.url == '/incidents/fb-3/analysis?refresh=1',
+      );
+    });
+
+    test('tapping the recorded choice again buys nothing', () async {
+      // Raised in review. On the Not-helpful arm this is a cost bug, not a
+      // tidy-up: that arm re-asks the model, so a second tap on an
+      // already-recorded thumbs-down would spend another budget unit re-asking
+      // the re-ask.
+      final fake = Http.fake({
+        'incidents/fb-6/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high', 'id': 'a-6'},
+        }),
+        'incidents/fb-6/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'ok',
+            'confidence': 'high',
+            'id': 'a-6',
+            'feedback': true,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-6');
+      await controller.submitAnalysisFeedback('fb-6', true);
+      await controller.submitAnalysisFeedback('fb-6', true);
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url.endsWith('/analysis/feedback'))
+            .length,
+        1,
       );
     });
 

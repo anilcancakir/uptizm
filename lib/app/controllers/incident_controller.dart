@@ -633,6 +633,17 @@ class IncidentController extends MagicController
     final String? analysisId = analysis?.id;
     if (analysis == null || analysisId == null) return;
 
+    // Tapping the choice already recorded is a no-op, not a re-vote. Raised in
+    // review, and on the Not-helpful side it is a cost bug rather than a tidy-up:
+    // that arm re-asks the model, so a second tap on an already-recorded
+    // thumbs-down spends another budget unit to buy a re-ask of the re-ask.
+    //
+    // It cannot swallow a legitimate second complaint, because a re-ask that
+    // answered DIFFERENTLY deletes the vote it invalidated: the recorded value
+    // only survives when the model returned the same text, and asking a third
+    // time for a fourth identical answer is the waste this prevents.
+    if (analysis.feedback == helpful) return;
+
     // Paint the choice before the round trip. The vote is not a state the
     // operator has to wait to see, and the server answers with the same value.
     _analysisById[id] = analysis.withFeedback(helpful);

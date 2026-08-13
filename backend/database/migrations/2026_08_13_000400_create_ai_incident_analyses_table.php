@@ -23,9 +23,17 @@ use Illuminate\Support\Facades\Schema;
  * re-serving a stale claim. The unique index over
  * (`incident_id`, `evidence_fingerprint`) is the lookup and the dedupe at once.
  *
- * Rows are append-only in practice: a superseded analysis is kept rather than
- * overwritten, because the feedback pointing at it stays meaningful only while
- * the text it rated still exists.
+ * Retention, stated as it actually behaves rather than as it was first
+ * described. One row per (incident, fingerprint), and a re-ask on the SAME
+ * fingerprint UPDATES that row instead of adding another: the unique index says
+ * so, and `IncidentAnalysisService::storedAnalysisFor()` uses `updateOrCreate()`.
+ * When such an update changes the text, the ratings attached to it are deleted,
+ * because a vote is a statement about words and those words are gone.
+ *
+ * So history accumulates across DIFFERENT evidence and is replaced within the
+ * same evidence. The docblock here originally claimed rows were append-only and
+ * never overwritten, which was the intention and never the code; a reader who
+ * believed it would have expected every refresh to be recoverable.
  *
  * Only a MODEL-authored analysis is ever written here. The deterministic
  * baseline the service falls back to when the budget is spent or the provider
