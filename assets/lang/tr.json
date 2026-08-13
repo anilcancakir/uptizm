@@ -451,7 +451,7 @@
       "form_slo_label": "Çalışma süresi SLO hedefi",
       "form_slo_hint": "Uptizm'in izleyicinin detay sayfasında takip ettiği hata bütçesini belirler.",
       "form_ai_mode_label": "Yapay zeka desteği",
-      "form_ai_mode_hint": "Öneri modu, tespit edilen anormallikleri panodaki gelen kutusuna düşürür; kabul ya da reddetmek sende kalır ve kendiliğinden hiçbir şey oluşturulmaz. Otomatik modu bir adım öteye geçer: olayı kendisi açar ve açılış ile kapanış güncellemelerini kendi cümleleriyle, sana sormadan durum sayfanda yayımlar.",
+      "form_ai_mode_hint": "Uptizm kendi başına neye karar verebilir. Öneri modu, tespit ettiği anormallikleri panodaki gelen kutusuna düşürür; kabul ya da reddetmek sende kalır ve hiçbir şey oluşturulmaz. Otomatik modu, yeterince eminse olayı kendisi açar; emin değilse öneriye düşer.",
       "form_notifications_title": "Bildirimler",
       "form_notifications_hint": "Bu izleyici hakkında kimlerin uyarılacağı.",
       "form_alert_down": "Bu izleyici çöktüğünde uyar",
@@ -743,8 +743,7 @@
       "ai_mode_auto": "Otomatik",
       "form_ai_auto_updates_label": "Otomatik durum güncellemeleri",
       "form_ai_auto_updates_switch": "Güncellemeleri benim için yaz ve yayımla",
-      "form_ai_auto_updates_hint": "Bu monitörde bir olay açıldığında ve kapandığında, Uptizm müşteriye dönük güncellemeyi kendisi yazar ve sana sormadan durum sayfanda yayımlar. Zaten ürettiği analizi okur, iç detayı dışarıda bırakır, ve güvendiği bir metin yazamazsa hiçbir şey yayımlamaz. Eşiklerinin açtığı olaylar dahil, her olay için çalışır.",
-      "form_ai_auto_updates_hint_short": "Yukarıdaki AI assist ayarından bağımsızdır: o, Uptizm olay açabilir mi sorusunu yanıtlar; bu ise müşterilerine bu konuda konuşabilir mi sorusunu."
+      "form_ai_auto_updates_hint": "Uptizm müşterilerine ne söyleyebilir. Bu monitörde bir olay açıldığında ve kapandığında, güncellemeyi kendisi yazar ve sana sormadan durum sayfanda yayımlar. Zaten ürettiği analizi okur, iç detayı dışarıda bırakır, ve güvendiği bir metin yazamazsa hiçbir şey yayımlamaz. Eşiklerinin açtığı olaylar dahil, her olay için çalışır."
     },
     "status": {
       "up": "Çalışıyor",

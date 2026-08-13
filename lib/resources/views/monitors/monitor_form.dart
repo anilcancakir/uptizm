@@ -858,11 +858,16 @@ class _MonitorFormState extends State<MonitorForm>
   /// Off by default, and the hint says what turning it on gives away, because
   /// what it gives away is the ability to write on a page the operator's own
   /// customers read.
+  ///
+  /// The two hints open by drawing the line between them ("what Uptizm may
+  /// decide" / "what Uptizm may say"), which is how the pair stopped
+  /// contradicting each other: while publishing rode on `ai_mode = auto`, the
+  /// ladder's hint claimed it, and after the split that claim outlived the
+  /// behaviour and sat two lines above a switch that said otherwise.
   Widget _buildAiAutoUpdatesField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_ai_auto_updates_label'),
-      hint: '${trans('uptizm.monitors.form_ai_auto_updates_hint')} '
-          '${trans('uptizm.monitors.form_ai_auto_updates_hint_short')}',
+      hint: trans('uptizm.monitors.form_ai_auto_updates_hint'),
       child: _buildSwitchRow(
         label: trans('uptizm.monitors.form_ai_auto_updates_switch'),
         value: _aiAutoUpdates,

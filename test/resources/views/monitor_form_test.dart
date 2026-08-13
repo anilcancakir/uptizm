@@ -37,7 +37,6 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.form_ai_auto_updates_label': 'Autonomous status updates',
       'uptizm.monitors.form_ai_auto_updates_switch': 'Write and publish for me',
       'uptizm.monitors.form_ai_auto_updates_hint': 'Uptizm writes and publishes it.',
-      'uptizm.monitors.form_ai_auto_updates_hint_short': 'Independent of AI assist.',
       'uptizm.monitors.form_url_label': 'URL or host',
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',

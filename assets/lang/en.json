@@ -451,7 +451,7 @@
       "form_slo_label": "Uptime SLO target",
       "form_slo_hint": "Sets the error budget Uptizm tracks on the monitor's detail page.",
       "form_ai_mode_label": "AI assist",
-      "form_ai_mode_hint": "Suggest posts detected anomalies to the dashboard inbox for you to accept or dismiss, and creates nothing on its own. Auto goes further: it opens the incident itself and publishes its opening and closing updates to your status page, in its own words, without asking you first.",
+      "form_ai_mode_hint": "What Uptizm may decide on its own. Suggest posts detected anomalies to the dashboard inbox for you to accept or dismiss, and creates nothing. Auto opens the incident itself when it is confident enough, and falls back to a suggestion when it is not.",
       "form_notifications_title": "Notifications",
       "form_notifications_hint": "Who gets alerted about this monitor.",
       "form_alert_down": "Alert when this monitor goes down",
@@ -743,8 +743,7 @@
       "ai_mode_auto": "Auto",
       "form_ai_auto_updates_label": "Autonomous status updates",
       "form_ai_auto_updates_switch": "Write and publish updates for me",
-      "form_ai_auto_updates_hint": "When an incident on this monitor opens and when it closes, Uptizm writes the customer-facing update itself and publishes it to your status page, without asking you first. It reads the analysis it already produced, keeps internal detail out, and posts nothing at all if it cannot write something it trusts. Works for any incident, including the ones your thresholds opened.",
-      "form_ai_auto_updates_hint_short": "Independent of AI assist above: that one decides whether Uptizm may open an incident, this one whether it may speak to your customers about one."
+      "form_ai_auto_updates_hint": "What Uptizm may say to your customers. When an incident on this monitor opens and when it closes, it writes the update itself and publishes it to your status page, without asking first. It reads the analysis it already produced, keeps internal detail out, and posts nothing at all if it cannot write something it trusts. Works for any incident, including the ones your thresholds opened."
     },
     "status": {
       "up": "Operational",
