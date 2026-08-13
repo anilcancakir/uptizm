@@ -17,6 +17,7 @@ use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\ClosureValidationRule;
+use Illuminate\Validation\Concerns\ValidatesAttributes;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Unique;
 use Illuminate\Validation\Validator as ValidatorInstance;
@@ -361,8 +362,24 @@ class StoreMonitorMetricRequest extends FormRequest
      * a lone U+00A0 is length 1 and passes, and Laravel's `TrimStrings` leaves
      * it there because PCRE's `\s` stays ASCII-only under `/u` without
      * `PCRE_UCP`. The check therefore asks the normalizer itself.
-     * `distinct:ignore_case` catches the duplicate WITHIN
-     * one list, which the cross-list overlap rule cannot see.
+     * The duplicate WITHIN one list, which the cross-list overlap rule cannot
+     * see, is caught by the closure on the LIST rather than by `distinct` on the
+     * element. That is not a style choice. `distinct` resolves its comparison
+     * set from the leading EXPLICIT path of the attribute
+     * ({@see ValidatesAttributes::extractDistinctValues()}
+     * takes everything before the first wildcard), so under the bulk prefix the
+     * key is `metrics.*.ok_values.*` and the set is every `ok_values` element of
+     * every metric. It compared ACROSS metrics. A health endpoint publishes
+     * `status: ok` under each subsystem it checks, so one monitor carrying a
+     * verdict metric per subsystem is the ordinary case and it was refused
+     * whole, reporting `metrics.0.ok_values.0` for a list holding a single
+     * value. Two subsystems reading the same healthy word is not a duplicate.
+     *
+     * The closure also compares through {@see ThresholdEvaluator::normalizeMatchValue()}
+     * rather than folding case alone, for the reason
+     * {@see self::validateNoOverlappingValues()} states about the other axis:
+     * `ok` beside ` OK ` is two raw strings and one matched value, and a rule
+     * that disagrees with the evaluator lets the collision through to run time.
      *
      * `$prefix` lets {@see self::metricFieldRules()} reach these as
      * `metrics.*.<field>` on the bulk create path; the default keeps every
@@ -380,12 +397,38 @@ class StoreMonitorMetricRequest extends FormRequest
                 'sometimes',
                 'array',
                 'max:50',
+                static function (string $attribute, mixed $value, callable $fail): void {
+                    if (! is_array($value)) {
+                        return;
+                    }
+
+                    $seen = [];
+
+                    foreach ($value as $entry) {
+                        if (! is_string($entry)) {
+                            continue;
+                        }
+
+                        $normalized = ThresholdEvaluator::normalizeMatchValue($entry);
+
+                        if (isset($seen[$normalized])) {
+                            $fail(
+                                'A value is listed twice. Matching folds case and trims surrounding '
+                                .'whitespace, so the second entry can never band anything the first '
+                                .'does not already claim.'
+                            );
+
+                            return;
+                        }
+
+                        $seen[$normalized] = true;
+                    }
+                },
             ];
             $rules["{$prefix}{$field}.*"] = [
                 'string',
                 'min:1',
                 'max:120',
-                'distinct:ignore_case',
                 static function (string $attribute, mixed $value, callable $fail): void {
                     if (is_string($value) && ThresholdEvaluator::normalizeMatchValue($value) === '') {
                         $fail(

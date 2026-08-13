@@ -10,6 +10,7 @@ use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
 use App\Models\User;
+use App\Services\OnCall\EscalationDispatcher;
 use App\Services\StatusPages\StatusPageCache;
 use Closure;
 use Illuminate\Database\Eloquent\Collection;
@@ -67,6 +68,18 @@ class IncidentWriteService
 
     protected const string DEFAULT_RESOLVE_MESSAGE = 'Incident resolved by operator.';
 
+    /**
+     * The timeline note left when an incident is closed because the monitor it
+     * belonged to was deleted. Deliberately does not say "resolved": nothing
+     * recovered, the measurement stopped.
+     */
+    protected const string MONITOR_DELETED_MESSAGE =
+        'Closed automatically: the monitor this incident belonged to was deleted, '
+        .'so no further check can report on it.';
+
+    /** Author label for a transition no person made. */
+    protected const string SYSTEM_AUTHOR = 'Uptizm';
+
     protected const string DEFAULT_ACKNOWLEDGE_MESSAGE = 'Incident acknowledged; investigation in progress.';
 
     protected const string DEFAULT_REOPEN_MESSAGE = 'Incident reopened by operator.';
@@ -109,8 +122,10 @@ class IncidentWriteService
         $posted = null;
 
         // 1. Serialize against a concurrent automated open on the same monitor,
-        //    then dedupe and create atomically inside the lock.
-        $incident = $this->withMonitorLock($monitor, function () use (
+        //    then dedupe and create atomically inside the lock. No incident to
+        //    fall back to yet, and none needed: this path always holds a real
+        //    monitor, so the lock always resolves to the monitor's own key.
+        $incident = $this->withMonitorLock($monitor, null, function () use (
             $monitor,
             $severity,
             $title,
@@ -196,7 +211,7 @@ class IncidentWriteService
 
         // 1. Row-lock and gate the transition inside the per-monitor lock so a
         //    concurrent resolve or an automated recovery cannot double-resolve.
-        $current = $this->withMonitorLock($monitor, function () use (
+        $current = $this->withMonitorLock($monitor, $incident, function () use (
             $incident,
             $author,
             $message,
@@ -228,8 +243,13 @@ class IncidentWriteService
             });
         });
 
-        // 2. Page + broadcast + cache-bust the recovery only when this call did it.
-        if ($resolved) {
+        // 2. Page + broadcast + cache-bust the recovery only when this call did
+        //    it, and only when there is still a monitor to dispatch ABOUT. With
+        //    the monitor deleted there is no component to page on, no status
+        //    page carrying it (the assembler scopes to visible monitors) and no
+        //    cache entry to bust, so the transition is recorded and nothing is
+        //    announced.
+        if ($resolved && $monitor !== null) {
             $this->incidentDispatcher->dispatch($monitor, [
                 'opened' => null,
                 'resolved' => $current,
@@ -258,7 +278,7 @@ class IncidentWriteService
         $monitor = $this->monitorFor($incident);
         $posted = null;
 
-        $current = $this->withMonitorLock($monitor, function () use ($incident, $author, $message, &$posted): Incident {
+        $current = $this->withMonitorLock($monitor, $incident, function () use ($incident, $author, $message, &$posted): Incident {
             return DB::transaction(function () use ($incident, $author, $message, &$posted): Incident {
                 $fresh = Incident::query()->lockForUpdate()->findOrFail($incident->getKey());
 
@@ -303,7 +323,7 @@ class IncidentWriteService
         $reopened = false;
         $posted = null;
 
-        $current = $this->withMonitorLock($monitor, function () use (
+        $current = $this->withMonitorLock($monitor, $incident, function () use (
             $incident,
             $author,
             $message,
@@ -334,7 +354,10 @@ class IncidentWriteService
             });
         });
 
-        if ($reopened) {
+        // Nothing to announce when the monitor is gone, for the reason the
+        // resolve path states. Reopening an orphaned incident is a strange thing
+        // to want, but it is reachable and it must not fatal.
+        if ($reopened && $monitor !== null) {
             $this->dispatchOpened($monitor, $current);
         }
 
@@ -550,21 +573,128 @@ class IncidentWriteService
     }
 
     /**
-     * Load the primary monitor an incident locks and dispatches against.
+     * Load the primary monitor an incident locks and dispatches against, or null
+     * when it has none.
      *
-     * @throws RuntimeException When the incident has no primary monitor (its
-     *                          monitor was deleted), leaving nothing to lock on.
+     * It used to throw here, and the docblock outlived the change: an incident
+     * whose monitor was deleted has no primary monitor, and that is a REACHABLE
+     * state rather than a broken invariant, since `Monitor` soft-deletes and the
+     * relation applies that scope. Throwing made such an incident unwritable
+     * through every path at once, so it could not be resolved, acknowledged or
+     * updated by hand either. Callers take the lock on the incident instead
+     * ({@see self::withMonitorLock()}) and skip the dispatch, because there is
+     * no component left to page about.
      */
-    protected function monitorFor(Incident $incident): Monitor
+    protected function monitorFor(Incident $incident): ?Monitor
     {
-        $monitor = $incident->primaryMonitor;
-        if ($monitor === null) {
-            throw new RuntimeException(
-                "Incident {$incident->getKey()} has no primary monitor to lock and dispatch against.",
-            );
-        }
+        // Null rather than a throw, because the null case is REACHABLE and not a
+        // broken invariant: `Monitor` soft-deletes, the relation applies that
+        // scope, and an incident whose monitor was deleted therefore has none.
+        // Throwing here made such an incident unwritable through every path at
+        // once, so it could not be resolved, acknowledged or updated by hand,
+        // and it could not close by itself either (auto-resolve rides the next
+        // check, which never comes). Three of production's eight open incidents
+        // were in exactly that state.
+        return $incident->primaryMonitor;
+    }
 
-        return $monitor;
+    /**
+     * Close every still-open incident that `$monitor` leaves with no live
+     * monitor at all, silently.
+     *
+     * Called from {@see Monitor}'s `deleted` hook, so it covers every delete
+     * path rather than the one controller. It runs AFTER the soft-delete on
+     * purpose: `monitors()` applies the related model's scope, so the "is
+     * anything of mine still alive" question only answers correctly once the
+     * row being deleted is already excluded.
+     *
+     * WHY CLOSE AT ALL. An incident whose monitors are gone cannot end. Auto-
+     * resolve rides the next check ({@see ThresholdEvaluator::resolveIfRecovered()})
+     * and no check will ever arrive; it still counts as open on the dashboard;
+     * and it stays pageable, since {@see EscalationDispatcher::pageStep()}
+     * gates on lifecycle and maintenance and asks nothing about the monitor. On
+     * production three of eight open incidents were in that state. Grafana takes
+     * the same position for the same reason and says so in its own source: a
+     * deleted alert rule resolves its firing instances so none is left orphaned.
+     *
+     * WHY SILENTLY. Grafana emits a resolved notification here; this does not.
+     * "Resolved" would be a false sentence, because nothing recovered, we
+     * stopped measuring, and paging a team about the consequence of a delete
+     * they just performed is noise. The timeline entry carries the reason
+     * instead, internal rather than public: a status-page reader was never told
+     * this incident existed, since the assembler scopes to visible monitors.
+     *
+     * WHY ONLY THE FULLY ORPHANED ONES. An incident is many-to-many with
+     * monitors. One still alive means the outage may still be running, and
+     * closing it because a sibling component was deleted would retire something
+     * nobody fixed.
+     */
+    public function closeOrphanedBy(Monitor $monitor): void
+    {
+        // The PIVOT directly, not the `monitors()` relation. This runs on
+        // `deleted`, and that relation applies the soft-delete scope, so by the
+        // time it is asked the monitor being deleted is already invisible to it:
+        // the relation arm matched nothing and only the denormalised primary
+        // hint did any work, leaving every incident this monitor joined as a
+        // SECONDARY component open forever. The pivot carries no such scope.
+        //
+        // Grouped, because the two arms are alternatives to each other rather
+        // than to anything a caller might add later.
+        $attachedIds = DB::table('incident_monitors')
+            ->where('monitor_id', $monitor->getKey())
+            ->pluck('incident_id');
+
+        $incidents = Incident::query()
+            ->where(function ($query) use ($monitor, $attachedIds): void {
+                $query->where('primary_monitor_id', $monitor->getKey())
+                    ->orWhereIn('id', $attachedIds);
+            })
+            ->get();
+
+        foreach ($incidents as $incident) {
+            if (! $incident->lifecycle->isActive()) {
+                continue;
+            }
+
+            if ($incident->monitors()->exists()) {
+                continue;
+            }
+
+            DB::transaction(function () use ($incident): void {
+                $fresh = Incident::query()->lockForUpdate()->find($incident->getKey());
+
+                if ($fresh === null || ! $fresh->lifecycle->isActive()) {
+                    return;
+                }
+
+                $fresh->update([
+                    'lifecycle' => IncidentStatus::Resolved,
+                    'resolved_at' => now(),
+                ]);
+
+                $this->appendSystemNote($fresh, self::MONITOR_DELETED_MESSAGE);
+            });
+        }
+    }
+
+    /**
+     * A timeline entry nobody authored, internal to the team.
+     *
+     * {@see self::appendUpdate()} stamps `actor: human` and `is_public: true`,
+     * which are the right defaults for an operator's own note and the wrong ones
+     * for a transition the system made on its own.
+     */
+    protected function appendSystemNote(Incident $incident, string $message): IncidentUpdate
+    {
+        return $incident->updates()->create([
+            'actor' => 'system',
+            'author' => self::SYSTEM_AUTHOR,
+            'status' => IncidentStatus::Resolved,
+            'message' => $message,
+            'is_public' => false,
+            'autonomous' => true,
+            'display_at' => now(),
+        ]);
     }
 
     /**
@@ -594,9 +724,20 @@ class IncidentWriteService
      *
      * @param  Closure(): Incident  $critical
      */
-    protected function withMonitorLock(Monitor $monitor, Closure $critical): Incident
+    protected function withMonitorLock(?Monitor $monitor, ?Incident $incident, Closure $critical): Incident
     {
-        $lock = Cache::lock("check-persist-monitor:{$monitor->id}", self::LOCK_TTL_SECONDS);
+        // The monitor's key when there is one, because that is the lock the
+        // CHECK pipeline takes and these writes have to serialise against it.
+        // With no monitor there is no pipeline to race: no check will ever
+        // arrive for a deleted monitor. The incident's own key still guards two
+        // concurrent operators.
+        $key = match (true) {
+            $monitor !== null => "check-persist-monitor:{$monitor->id}",
+            $incident !== null => "incident-write:{$incident->getKey()}",
+            default => throw new RuntimeException('A locked incident write needs a monitor or an incident to key on.'),
+        };
+
+        $lock = Cache::lock($key, self::LOCK_TTL_SECONDS);
         $lock->block(self::MONITOR_LOCK_WAIT_SECONDS);
 
         try {
