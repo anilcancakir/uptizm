@@ -1027,6 +1027,22 @@ class IncidentController extends MagicController
         return const {};
       }
       await reload();
+
+      // Land on the incident, not on the list.
+      //
+      // The backend dedupes on purpose: a monitor that already has an active
+      // incident is not opened a second time and the existing one comes back.
+      // Navigating to the list made that indistinguishable from a failure, and
+      // it was, live: the form was filled, the button pressed, the list
+      // reappeared, and nothing about it was new. Going to the incident answers
+      // "what happened to my form" whichever of the two occurred, because the
+      // incident that now covers this outage is on screen either way.
+      final String id = incident.id;
+      if (id.isNotEmpty) {
+        MagicRoute.to('/incidents/$id');
+
+        return const {};
+      }
     }
     MagicRoute.to('/incidents');
     return const {};

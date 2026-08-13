@@ -110,9 +110,20 @@ class IncidentController extends Controller
             message: $request->validated('message'),
         );
 
+        // 201 only when something was actually created. `createManual()` dedupes
+        // by design: a monitor that already has an active incident is not opened
+        // a second time, and the existing one comes back untouched. Answering
+        // 201 for that told every caller a row had been made, and the app
+        // believed it: the operator filled the form, pressed Open incident,
+        // landed on the list, and found nothing new, because there was nothing
+        // new. 200 is the honest code for "here it is, it already existed".
         return IncidentResource::make($incident->load(self::DETAIL_RELATIONS))
             ->response()
-            ->setStatusCode(HttpResponse::HTTP_CREATED);
+            ->setStatusCode(
+                $incident->wasRecentlyCreated
+                    ? HttpResponse::HTTP_CREATED
+                    : HttpResponse::HTTP_OK,
+            );
     }
 
     /**
