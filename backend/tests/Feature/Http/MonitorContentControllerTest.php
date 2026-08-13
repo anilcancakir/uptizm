@@ -298,21 +298,27 @@ class MonitorContentControllerTest extends TestCase
         // one that would matter here is the archived body itself.
         $this->assertSame(self::CANDIDATE_KEYS, array_keys((array) $rows[0]));
 
-        // Ranked best first, so the numeric leaf leads. The client fills
-        // `source`, `extraction_path` and `type` from these names, so they are a
-        // wire contract and not an internal shape.
+        // Ranked best first, and the VERDICT leads rather than the number. The
+        // two used to be the other way round, because ranking scored the value
+        // alone and a numeric sample outscored a short string; a service that
+        // publishes its own health has already done the inference we would
+        // otherwise ask a model to make from the latency beside it, so
+        // {@see MetricCandidateExtractor::WEIGHT_VERDICT_KEY} now outranks every
+        // measurement. The client fills `source`, `extraction_path` and `type`
+        // from these names, so they are a wire contract and not an internal
+        // shape.
         $this->assertSame('c1', $rows[0]['ref']);
         $this->assertSame('json_path', $rows[0]['src']);
-        $this->assertSame('latency_ms', $rows[0]['path']);
-        $this->assertSame('97', $rows[0]['value']);
-        $this->assertSame('latency_ms', $rows[0]['label']);
-        $this->assertSame(['numeric', 'string'], $rows[0]['types']);
-
-        $this->assertSame('status', $rows[1]['path']);
-        $this->assertSame('degraded', $rows[1]['value']);
+        $this->assertSame('status', $rows[0]['path']);
+        $this->assertSame('degraded', $rows[0]['value']);
         // A non-numeric sample is string-only: offered as numeric it would
         // extract on every check and record nothing.
-        $this->assertSame(['string'], $rows[1]['types']);
+        $this->assertSame(['string'], $rows[0]['types']);
+
+        $this->assertSame('latency_ms', $rows[1]['path']);
+        $this->assertSame('97', $rows[1]['value']);
+        $this->assertSame('latency_ms', $rows[1]['label']);
+        $this->assertSame(['numeric', 'string'], $rows[1]['types']);
     }
 
     public function test_candidates_reads_only_the_newest_archived_version(): void

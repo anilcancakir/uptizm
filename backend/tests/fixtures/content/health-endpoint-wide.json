@@ -1,0 +1,125 @@
+{
+    "status": "degraded",
+    "checked_at": "2026-08-12T21:24:43+00:00",
+    "timestamp": 1786569883,
+    "duration_ms": 13.44,
+    "checks": {
+        "application": {
+            "status": "ok",
+            "message": null,
+            "duration_ms": 0.23,
+            "details": {
+                "environment": "production",
+                "debug": false,
+                "url": "https://fluttersdk.com",
+                "php_version": "8.5.6",
+                "laravel_version": "13.11.2",
+                "octane": true,
+                "octane_server": "frankenphp",
+                "maintenance": false,
+                "commit": "5080378b7f72",
+                "branch": "main",
+                "commit_subject": "seo: stop the version switcher from eating the crawl budget",
+                "committed_at": "2026-08-10T16:19:52+03:00",
+                "deployed_at": "2026-08-10T13:25:38+00:00"
+            }
+        },
+        "database": {
+            "status": "ok",
+            "message": null,
+            "duration_ms": 5.52,
+            "details": {
+                "connection": "mysql",
+                "driver": "mysql",
+                "database": "fluttersdk",
+                "latency_ms": 0.92,
+                "pending_migrations": 0
+            }
+        },
+        "redis": {
+            "status": "ok",
+            "message": null,
+            "duration_ms": 1.08,
+            "details": {
+                "connection": "default",
+                "client": "phpredis",
+                "latency_ms": 0.25,
+                "version": "7.0.15",
+                "used_memory_mb": 138.51,
+                "max_memory_mb": 512,
+                "used_memory_percent": 27.05,
+                "connected_clients": 255,
+                "evicted_keys": 0
+            }
+        },
+        "cache": {
+            "status": "ok",
+            "message": null,
+            "duration_ms": 0.59,
+            "details": {
+                "store": "redis",
+                "latency_ms": 0.36
+            }
+        },
+        "queue": {
+            "status": "ok",
+            "message": null,
+            "duration_ms": 2.94,
+            "details": {
+                "connection": "redis",
+                "driver": "redis",
+                "pending": {
+                    "default": 0
+                },
+                "pending_total": 0,
+                "failed_recent": 0,
+                "failed_window_hours": 24,
+                "failed_total": 0
+            }
+        },
+        "horizon": {
+            "status": "ok",
+            "message": null,
+            "duration_ms": 2.43,
+            "details": {
+                "master_status": "running",
+                "masters": 1,
+                "paused_masters": 0,
+                "supervisors": 1,
+                "processes": 1,
+                "queues": {
+                    "default": {
+                        "pending": 0,
+                        "wait_seconds": 0,
+                        "processes": 1
+                    }
+                },
+                "longest_wait_seconds": 0
+            }
+        },
+        "scheduler": {
+            "status": "ok",
+            "message": null,
+            "duration_ms": 0.43,
+            "details": {
+                "cache_store": "redis",
+                "cache_key": "health:scheduler:last_run",
+                "last_run_at": "2026-08-12T21:24:04+00:00",
+                "age_seconds": 39
+            }
+        },
+        "storage": {
+            "status": "degraded",
+            "message": "The disk is 81.4% full.",
+            "duration_ms": 0.13,
+            "details": {
+                "path": "/home/fluttersdk/htdocs/fluttersdk.com/storage",
+                "free_gb": 17.83,
+                "total_gb": 95.82,
+                "used_percent": 81.39,
+                "writable": true,
+                "unwritable_paths": []
+            }
+        }
+    }
+}
