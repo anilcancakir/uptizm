@@ -6,6 +6,8 @@ use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Http\Controllers\Api\V1\MonitorController;
+use App\Services\Monitoring\IncidentWriteService;
 use DateTimeInterface;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,6 +40,31 @@ class Monitor extends Model
 {
     use ConditionallyUsesUuids;
     use SoftDeletes;
+
+    /**
+     * Close the incidents this monitor leaves with nothing to report on.
+     *
+     * On `deleted` and not `deleting`, which is the whole reason this is a hook
+     * and not two lines in the controller: the "does this incident still have a
+     * live monitor" question is asked through the `monitors()` relation, that
+     * relation applies this model's own soft-delete scope, and it therefore only
+     * answers correctly once the row being deleted is already excluded.
+     *
+     * A hook rather than a call in {@see MonitorController::destroy()}
+     * because the controller is not the only way a monitor dies: a console
+     * command, a future bulk action or a cascade all reach `delete()` directly,
+     * and an orphaned incident is silent when it happens and expensive when it
+     * is found (it cannot close by any route, and it keeps paging). The work
+     * itself is a service call rather than logic here; see
+     * {@see IncidentWriteService::closeOrphanedBy()} for why closing is the
+     * chosen answer and why it is silent.
+     */
+    protected static function booted(): void
+    {
+        static::deleted(function (self $monitor): void {
+            app(IncidentWriteService::class)->closeOrphanedBy($monitor);
+        });
+    }
 
     /**
      * Number of consecutive failures required to open an incident when
