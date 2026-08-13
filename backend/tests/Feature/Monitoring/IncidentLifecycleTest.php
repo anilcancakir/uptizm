@@ -8,6 +8,7 @@ use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
+use App\Jobs\PublishAiIncidentUpdate;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\Team;
@@ -20,6 +21,7 @@ use App\Support\Monitoring\CheckResult;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -209,6 +211,36 @@ class IncidentLifecycleTest extends TestCase
             Incident::query()->count(),
             'it recovered in between, so this is a second outage and not a reopen',
         );
+    }
+
+    public function test_an_automated_open_queues_the_autonomous_update(): void
+    {
+        // The hook started beside `IncidentWriteService::dispatchOpened()`, which
+        // only a manual create and a reopen reach. The automated open goes
+        // through `CheckPersistenceService` -> `ThresholdEvaluator::evaluate()`
+        // -> `IncidentDispatcher`, so it queued nothing for the threshold and
+        // metric opens, which is to say for almost every incident. Live, an
+        // operator turned the switch on, an incident opened, and nothing ever
+        // ran.
+        Notification::fake();
+        Queue::fake();
+        [$monitor] = $this->makeMonitor();
+        $monitor->forceFill(['ai_auto_updates' => true])->save();
+
+        $this->drivePastThreshold($this->service(), $monitor->fresh());
+
+        Queue::assertPushed(PublishAiIncidentUpdate::class);
+    }
+
+    public function test_a_monitor_that_did_not_allow_it_queues_nothing(): void
+    {
+        Notification::fake();
+        Queue::fake();
+        [$monitor] = $this->makeMonitor();
+
+        $this->drivePastThreshold($this->service(), $monitor);
+
+        Queue::assertNotPushed(PublishAiIncidentUpdate::class);
     }
 
     protected function service(): CheckPersistenceService

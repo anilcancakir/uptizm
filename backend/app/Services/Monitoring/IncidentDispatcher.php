@@ -3,10 +3,12 @@
 namespace App\Services\Monitoring;
 
 use App\Enums\IncidentSeverity;
+use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\NotificationChannelSeverity;
 use App\Events\IncidentBroadcast;
 use App\Events\MonitorStatusChanged;
+use App\Jobs\PublishAiIncidentUpdate;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\NotificationChannel;
@@ -144,6 +146,22 @@ class IncidentDispatcher
             event(new IncidentBroadcast($outcome['resolved'], 'resolved'));
         }
 
+        // 3b. Hand an autonomous status update to the queue, for a monitor whose
+        //     operator allowed it.
+        //
+        //     HERE, and not beside `IncidentWriteService::dispatchOpened()` where
+        //     it started. That method is reached only by a manual create and a
+        //     reopen; the automated open goes `CheckPersistenceService` ->
+        //     `ThresholdEvaluator::evaluate()` -> this dispatcher, so the hook
+        //     sat on two rare paths and missed every threshold and metric open,
+        //     which is to say almost all of them. Live, an incident opened with
+        //     the switch on and nothing was ever queued.
+        //
+        //     This is the one seam every announcement crosses exactly once, in
+        //     both directions, which is also why it cannot double-post.
+        $this->dispatchAutonomousUpdate($monitor, $outcome['opened'], IncidentStatus::Investigating);
+        $this->dispatchAutonomousUpdate($monitor, $outcome['resolved'], IncidentStatus::Resolved);
+
         // 4. Broadcast the monitor health flip to the same live dashboard, only
         //    when the in-lock read recorded a real transition. The guard
         //    (changed, not paused) already ran inside the transaction, so a set
@@ -187,6 +205,31 @@ class IncidentDispatcher
         if ($outcome['opened'] !== null && $suppressedBy === null) {
             $this->escalationDispatcher->escalate($outcome['opened']);
         }
+    }
+
+    /**
+     * Queue the autonomous status update for one side of an outcome.
+     *
+     * Null incident means this outcome did not make that transition, so there is
+     * nothing to write about. The `ai_auto_updates` check here only keeps the
+     * queue clean: the job re-reads it at fire time, because dispatch and fire
+     * are minutes apart and the flag is the operator's consent.
+     *
+     * The stage is `investigating` at open rather than the incident's own
+     * `detected`: detected is what the monitoring system calls an incident
+     * nobody has picked up, and it is never what a customer is told.
+     */
+    protected function dispatchAutonomousUpdate(
+        Monitor $monitor,
+        ?Incident $incident,
+        IncidentStatus $stage,
+    ): void {
+        if ($incident === null || ! $monitor->ai_auto_updates) {
+            return;
+        }
+
+        PublishAiIncidentUpdate::dispatch((string) $incident->getKey(), $stage->value)
+            ->onQueue('ai');
     }
 
     /**
