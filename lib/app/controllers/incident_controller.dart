@@ -401,7 +401,12 @@ class IncidentController extends MagicController
     final IncidentAi? cached = _analysisById[id];
     if (cached != null && cached.degradeReason == null) return;
 
-    await _fetchAnalysis(id, announceStart: false, reportFailure: false);
+    await _fetchAnalysis(
+      id,
+      announceStart: false,
+      reportFailure: false,
+      refresh: false,
+    );
   }
 
   /// Re-asks for the analysis of incident [id] because the operator pressed the
@@ -413,8 +418,16 @@ class IncidentController extends MagicController
   /// same defect class this screen was just cleaned of, because a failed re-ask
   /// and a re-ask that degraded again both repaint byte-identically, leaving the
   /// operator unable to tell either from a button that does nothing.
-  Future<void> retryAnalysis(String id) =>
-      _fetchAnalysis(id, announceStart: true, reportFailure: true);
+  /// `refresh` is what separates this from [loadAnalysis] on the wire: the
+  /// backend serves a stored answer while the evidence has not moved, so
+  /// without it a retry would return the same row it was asked to re-ask, and
+  /// the button would be back to doing nothing.
+  Future<void> retryAnalysis(String id) => _fetchAnalysis(
+    id,
+    announceStart: true,
+    reportFailure: true,
+    refresh: true,
+  );
 
   /// The shared fetch behind [loadAnalysis] and [retryAnalysis].
   ///
@@ -427,6 +440,7 @@ class IncidentController extends MagicController
     String id, {
     required bool announceStart,
     required bool reportFailure,
+    required bool refresh,
   }) async {
     // Re-entrancy guard. The disabled retry button is a UI courtesy, not a
     // mechanism: a remount inside the request window would otherwise fire a
@@ -439,7 +453,9 @@ class IncidentController extends MagicController
     // listening elements dirty during a build that is still running.
     if (announceStart) refreshUI();
     try {
-      final response = await Http.get('/incidents/$id/analysis');
+      final response = await Http.get(
+        '/incidents/$id/analysis${refresh ? '?refresh=1' : ''}',
+      );
       if (!response.successful) {
         Log.error(
           '[IncidentController._fetchAnalysis] $id: ${response.errorMessage}',
@@ -486,6 +502,8 @@ class IncidentController extends MagicController
         degradeReason: aiDegradeReasonFromWire(
           data['degrade_reason'] as String?,
         ),
+        id: data['id'] as String?,
+        feedback: data['feedback'] as bool?,
       );
       _analysisById[id] = analysis;
 
@@ -522,6 +540,84 @@ class IncidentController extends MagicController
   /// Whether the analysis fetch for incident [id] is in flight, so the degraded
   /// section can show its retry as running rather than idle.
   bool analysisPending(String id) => _analysisPendingIds.contains(id);
+
+  /// Records this operator's rating of the analysis currently shown for
+  /// incident [id], and acts on it.
+  ///
+  /// The two ratings do different things on purpose. Helpful is an
+  /// acknowledgement: record it, thank the operator, stop. Not helpful is a
+  /// complaint, and a complaint that only writes a row is the same do-nothing
+  /// button this replaced, so it re-asks the model as well. That re-ask spends
+  /// a budget unit, which is the correct price for "this answer was wrong".
+  ///
+  /// The rating is posted with the analysis id the operator was LOOKING at,
+  /// not the incident's current one. A check landing between the paint and the
+  /// tap can move the analysis, and a vote that silently re-targets rates text
+  /// nobody read.
+  ///
+  /// Does nothing when there is no stored analysis to rate ([IncidentAi.id] is
+  /// null), which is every degrade path and every fixture.
+  Future<void> submitAnalysisFeedback(String id, bool helpful) async {
+    final IncidentAi? analysis = _analysisById[id];
+    final String? analysisId = analysis?.id;
+    if (analysis == null || analysisId == null) return;
+
+    // Paint the choice before the round trip. The vote is not a state the
+    // operator has to wait to see, and the server answers with the same value.
+    _analysisById[id] = analysis.withFeedback(helpful);
+    refreshUI();
+
+    try {
+      final response = await Http.post(
+        '/incidents/$id/analysis/feedback',
+        data: {'analysis_id': analysisId, 'helpful': helpful},
+      );
+
+      if (!response.successful) {
+        Log.error(
+          '[IncidentController.submitAnalysisFeedback] $id: '
+          '${response.errorMessage}',
+        );
+        // Put the button back where it was. A vote that failed and a vote that
+        // landed must not look the same.
+        _analysisById[id] = analysis;
+        refreshUI();
+        Magic.error(
+          trans('common.error_occurred'),
+          response.errorMessage ?? trans('common.error_occurred'),
+        );
+        return;
+      }
+
+      if (helpful) {
+        Magic.success(
+          trans('uptizm.ai.feedback_thanks_heading'),
+          trans('uptizm.ai.feedback_thanks_body'),
+        );
+        return;
+      }
+
+      // Not helpful: say the re-ask is happening, then do it. `retryAnalysis`
+      // overwrites the cached analysis with the new answer, which drops the
+      // vote from the view along with the text it was about, and that is
+      // correct: the rating belongs to the answer that earned it.
+      Magic.snackbar(
+        trans('uptizm.ai.feedback_retry_heading'),
+        trans('uptizm.ai.feedback_retry_body'),
+      );
+      await retryAnalysis(id);
+    } catch (error) {
+      Log.error(
+        '[IncidentController.submitAnalysisFeedback] $id failed: $error',
+      );
+      _analysisById[id] = analysis;
+      refreshUI();
+      Magic.error(
+        trans('common.error_occurred'),
+        trans('common.error_occurred'),
+      );
+    }
+  }
 
   /// Decodes an `evidence_for`/`evidence_against` wire list into
   /// [AiEvidence]s, tolerating a non-list or absent value as empty (the

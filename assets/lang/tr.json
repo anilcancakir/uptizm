@@ -887,7 +887,11 @@
       "analysis_title": "Yapay zeka analizi",
       "recommended_next_steps": "Önerilen sonraki adımlar",
       "helpful": "Yararlı",
-      "not_helpful": "Yararlı değil"
+      "not_helpful": "Yararlı değil",
+      "feedback_thanks_heading": "Geri bildiriminiz için teşekkürler",
+      "feedback_thanks_body": "İşe yarayan analizi kulağa doğru gelenden ayırmamıza yardım ediyor.",
+      "feedback_retry_heading": "Yeniden soruluyor",
+      "feedback_retry_body": "Analiz, güncel kanıtlarla baştan oluşturuluyor."
     },
     "common": {
       "save": "Kaydet",

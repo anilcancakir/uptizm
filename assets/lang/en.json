@@ -887,7 +887,11 @@
       "analysis_title": "AI analysis",
       "recommended_next_steps": "Recommended next steps",
       "helpful": "Helpful",
-      "not_helpful": "Not helpful"
+      "not_helpful": "Not helpful",
+      "feedback_thanks_heading": "Thanks for the feedback",
+      "feedback_thanks_body": "It helps us tell a useful analysis from a plausible one.",
+      "feedback_retry_heading": "Asking again",
+      "feedback_retry_body": "Rebuilding the analysis from the current evidence."
     },
     "common": {
       "save": "Save",

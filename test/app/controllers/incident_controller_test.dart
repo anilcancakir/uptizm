@@ -742,7 +742,7 @@ void main() {
       // body) must still release the retry, otherwise the one state where an
       // operator most wants to retry is the one where the button stays dead.
       Http.fake({
-        'incidents/pending-2/analysis': Http.response({
+        'incidents/pending-2/analysis*': Http.response({
           'message': 'Server Error',
         }, 500),
       });
@@ -798,7 +798,7 @@ void main() {
       // The disabled button is a courtesy, not the mechanism: a remount inside
       // the request window would fire again, and every request spends a unit.
       final fake = Http.fake({
-        'incidents/once/analysis': Http.response({
+        'incidents/once/analysis*': Http.response({
           'data': {'summary': 'once', 'confidence': 'low'},
         }),
       });
@@ -823,7 +823,7 @@ void main() {
       // detail view fetches from `initState`, so a screen reopened three times
       // used to pay three times for the same answer.
       final fake = Http.fake({
-        'incidents/cached/analysis': Http.response({
+        'incidents/cached/analysis*': Http.response({
           'data': {'summary': 'The origin returned 503s.', 'confidence': 'high'},
         }),
       });
@@ -835,18 +835,25 @@ void main() {
       await controller.loadAnalysis('cached');
 
       int calls() => fake.recorded
-          .where((entry) => entry.$1.url == '/incidents/cached/analysis')
+          .where((entry) => entry.$1.url.startsWith('/incidents/cached/analysis'))
           .length;
       expect(calls(), 1);
 
       // The retry is the explicit exception: it always asks again.
       await controller.retryAnalysis('cached');
       expect(calls(), 2);
+
+      // And it says so on the wire. Without `refresh` the backend answers from
+      // its own store while the evidence is unchanged, so a retry that omitted
+      // the flag would return the row it was asked to replace and the button
+      // would be back to doing nothing.
+      expect(fake.recorded.last.$1.url, equals('/incidents/cached/analysis?refresh=1'));
+      expect(fake.recorded.first.$1.url, equals('/incidents/cached/analysis'));
     });
 
     test('a cached DEGRADE is re-fetched, because that answer is worth re-asking', () async {
       final fake = Http.fake({
-        'incidents/degraded-cache/analysis': Http.response({
+        'incidents/degraded-cache/analysis*': Http.response({
           'data': {
             'summary': 'critical severity incident, currently investigating.',
             'confidence': 'low',
@@ -994,6 +1001,164 @@ void main() {
         expect(ai.evidenceFor, isEmpty);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // submitAnalysisFeedback: the Helpful / Not helpful buttons. Both record a
+  // vote; only Not helpful re-asks the model.
+  // ---------------------------------------------------------------------------
+
+  group('submitAnalysisFeedback', () {
+    test('posts the id of the analysis the operator was looking at', () async {
+      final fake = Http.fake({
+        'incidents/fb-1/analysis': Http.response({
+          'data': {
+            'summary': 'The origin returned 503s.',
+            'confidence': 'high',
+            'id': 'analysis-7',
+            'feedback': null,
+          },
+        }),
+        'incidents/fb-1/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'The origin returned 503s.',
+            'confidence': 'high',
+            'id': 'analysis-7',
+            'feedback': true,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-1');
+      await controller.submitAnalysisFeedback('fb-1', true);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url == '/incidents/fb-1/analysis/feedback' &&
+            (r.data as Map)['analysis_id'] == 'analysis-7' &&
+            (r.data as Map)['helpful'] == true,
+      );
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'fb-1'}))!.feedback,
+        isTrue,
+        reason: 'the button has to show what was just recorded',
+      );
+    });
+
+    test('helpful records the vote and does NOT re-ask the model', () async {
+      // The whole point of separating the two: a thumbs-up is an
+      // acknowledgement, and re-asking on it would spend a budget unit to
+      // replace an answer the operator just said was good.
+      final fake = Http.fake({
+        'incidents/fb-2/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high', 'id': 'a-2'},
+        }),
+        'incidents/fb-2/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'ok',
+            'confidence': 'high',
+            'id': 'a-2',
+            'feedback': true,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-2');
+      await controller.submitAnalysisFeedback('fb-2', true);
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url.contains('refresh=1'))
+            .length,
+        0,
+      );
+    });
+
+    test('not helpful records the vote and re-asks the model', () async {
+      final fake = Http.fake({
+        'incidents/fb-3/analysis': Http.response({
+          'data': {'summary': 'first answer', 'confidence': 'low', 'id': 'a-3'},
+        }),
+        'incidents/fb-3/analysis?refresh=1': Http.response({
+          'data': {'summary': 'second answer', 'confidence': 'low', 'id': 'a-3b'},
+        }),
+        'incidents/fb-3/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'first answer',
+            'confidence': 'low',
+            'id': 'a-3',
+            'feedback': false,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-3');
+      await controller.submitAnalysisFeedback('fb-3', false);
+
+      fake.assertSent(
+        (r) => r.url == '/incidents/fb-3/analysis?refresh=1',
+      );
+    });
+
+    test('does nothing when there is no stored analysis to rate', () async {
+      // Every degrade path, and every fixture-backed analysis. Posting a vote
+      // against a null id would 422, and rating a deterministic baseline is
+      // rating text no model wrote.
+      final fake = Http.fake({
+        'incidents/fb-4/analysis': Http.response({
+          'data': {
+            'summary': 'critical severity incident, currently investigating.',
+            'confidence': 'low',
+            'degrade_reason': 'budget_exhausted',
+            'id': null,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-4');
+      await controller.submitAnalysisFeedback('fb-4', true);
+
+      expect(
+        fake.recorded.where((entry) => entry.$1.method == 'POST').length,
+        0,
+      );
+    });
+
+    test('a failed vote puts the button back where it was', () async {
+      // A vote that failed and a vote that landed must not paint the same, or
+      // the operator is told their complaint was recorded when it was not.
+      Http.fake({
+        'incidents/fb-5/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high', 'id': 'a-5'},
+        }),
+        'incidents/fb-5/analysis/feedback': Http.response({'message': 'nope'}, 500),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-5');
+      await controller.submitAnalysisFeedback('fb-5', true);
+
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'fb-5'}))!.feedback,
+        isNull,
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------

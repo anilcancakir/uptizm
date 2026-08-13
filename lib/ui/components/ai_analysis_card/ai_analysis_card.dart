@@ -337,13 +337,23 @@ class AiAnalysisCard extends StatelessWidget {
     );
   }
 
+  /// One rating button, showing whether this is the choice already recorded.
+  ///
+  /// The chosen side is tinted and the other stays muted, so an operator who
+  /// comes back to the incident sees what they said rather than a pair of
+  /// buttons that look untouched. Both stay tappable: changing a vote is an
+  /// update, not a duplicate, and disabling the chosen one would make the
+  /// recorded state look like a failure to register the second tap.
   Widget _feedbackButton(String label, bool helpful) {
+    final bool chosen = ai.feedback == helpful;
+    final String tone = chosen ? 'text-ai' : 'text-fg-muted';
+
     return WButton(
       onTap: onFeedback == null ? null : () => onFeedback!(helpful),
       className:
-          'px-3 py-1.5 rounded-md text-sm font-medium text-fg-muted '
-          'hover:bg-surface-container',
-      child: WText(label, className: 'text-sm font-medium text-fg-muted'),
+          'px-3 py-1.5 rounded-md text-sm font-medium $tone '
+          '${chosen ? 'bg-ai-soft' : 'hover:bg-surface-container'}',
+      child: WText(label, className: 'text-sm font-medium $tone'),
     );
   }
 }

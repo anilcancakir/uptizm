@@ -1720,7 +1720,11 @@ void main() {
     /// mechanism is a SECOND call to the same endpoint.
     FakeNetworkDriver seedAnalysisOnlyIncident(Map<String, dynamic> analysis) {
       final FakeNetworkDriver fake = Http.fake({
+        // Both URLs, because the retry appends `?refresh=1`: without it the
+        // backend serves its stored answer, and the re-ask would return the
+        // row it was asked to replace.
         'incidents/deg-1/analysis': Http.response({'data': analysis}),
+        'incidents/deg-1/analysis?refresh=1': Http.response({'data': analysis}),
       });
       Magic.singleton('log', () => LogManager());
       IncidentController.instance.setSuccess([
@@ -1839,14 +1843,16 @@ void main() {
         final Finder retry = find.text(trans('uptizm.common.retry'));
         expect(retry, findsOneWidget);
 
-        // One GET so far, from `initState`. The tap has to produce a SECOND one:
-        // the endpoint recomputes per call, so re-asking is the whole mechanism,
-        // and a button that only repaints would look identical on screen.
+        // One GET so far, from `initState`. The tap has to produce a SECOND one,
+        // and it has to carry `refresh`: the backend serves a stored answer while
+        // the evidence is unchanged, so a re-ask without the flag would come back
+        // with the same row and the button would look identical on screen either
+        // way.
         int analysisRequests() => fake.recorded
             .where(
               (entry) =>
                   entry.$1.method == 'GET' &&
-                  entry.$1.url == '/incidents/deg-1/analysis',
+                  entry.$1.url.startsWith('/incidents/deg-1/analysis'),
             )
             .length;
         expect(analysisRequests(), 1);
@@ -1855,6 +1861,10 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(analysisRequests(), 2);
+        expect(
+          fake.recorded.last.$1.url,
+          equals('/incidents/deg-1/analysis?refresh=1'),
+        );
       },
     );
 

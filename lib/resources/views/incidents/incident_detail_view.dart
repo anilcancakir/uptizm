@@ -795,7 +795,14 @@ class _IncidentDetailViewState
         if (entitlement.aiLevelAllows(AiLevel.analysis)) {
           return AiAnalysisCard(
             ai: ai,
-            onFeedback: (_) {},
+            // Null when there is no stored analysis to rate: a degrade, or a
+            // fixture. The card renders the buttons inert rather than recording
+            // a vote against nothing, which is what the previous no-op closure
+            // did on EVERY path.
+            onFeedback: ai.id == null || widget.id == null
+                ? null
+                : (helpful) =>
+                      controller.submitAnalysisFeedback(widget.id!, helpful),
           );
         }
         bool unlocksAnalysis(PlanLimits limits) =>
