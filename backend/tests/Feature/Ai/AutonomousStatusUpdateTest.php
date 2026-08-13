@@ -168,10 +168,11 @@ class AutonomousStatusUpdateTest extends TestCase
         );
     }
 
-    public function test_a_team_below_the_auto_tier_publishes_nothing(): void
+    public function test_a_team_below_the_analysis_tier_publishes_nothing(): void
     {
-        // The same tier that gates auto-opening gates auto-speaking. A team that
-        // downgraded keeps its incidents and loses the autonomy.
+        // The analysis tier, not the auto one: this is built on the analysis that
+        // tier already grants. A team below it keeps its incidents and loses the
+        // narration.
         $monitor = $this->makeMonitor(true, plan: 'free');
         $incident = $this->makeIncident($monitor);
 
@@ -188,7 +189,7 @@ class AutonomousStatusUpdateTest extends TestCase
         );
     }
 
-    protected function makeMonitor(bool $autoUpdates, string $plan = 'business'): Monitor
+    protected function makeMonitor(bool $autoUpdates, string $plan = 'pro'): Monitor
     {
         $user = User::query()->create([
             'name' => 'Autonomy Tester',

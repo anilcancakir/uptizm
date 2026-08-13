@@ -163,9 +163,13 @@ class PublishAiIncidentUpdate implements ShouldQueue
 
         $team = Team::find($incident->team_id);
 
-        // The same tier that gates auto-opening gates auto-speaking. A team that
-        // downgraded keeps its incidents and loses the autonomy.
-        return $team !== null && (new PlanGate)->aiLevelAllows($team, 'auto');
+        // The `analysis` tier, not the `auto` one. This was bound to `auto`
+        // while it lived on `ai_mode`, and splitting the consent left the price
+        // behind: autonomous UPDATES are built on the analysis that tier already
+        // grants, and cost one more model call out of the same daily AI budget.
+        // Having decided the two are different consents, charging for them as one
+        // capability was the inconsistency.
+        return $team !== null && (new PlanGate)->aiLevelAllows($team, 'analysis');
     }
 
     /**
