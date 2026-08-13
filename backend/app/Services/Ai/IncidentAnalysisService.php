@@ -5,6 +5,7 @@ namespace App\Services\Ai;
 use App\Enums\AiConfidence;
 use App\Enums\AiDegradeReason;
 use App\Http\Controllers\Api\V1\MonitorController;
+use App\Models\AiIncidentAnalysis;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
@@ -73,6 +74,89 @@ class IncidentAnalysisService
      */
     public function analyzeFor(Incident $incident): IncidentAnalysisResult
     {
+        return $this->analyzeWith($incident, $this->composePayload($incident));
+    }
+
+    /**
+     * The stored analysis for an incident, asking the model only when what is
+     * on file no longer matches the evidence.
+     *
+     * This is the endpoint's entry point, and the read-through is the whole
+     * point of it: `analyzeFor()` spends one AI budget unit per call, so before
+     * this table existed three responders opening one incident bought three
+     * answers to one question, and a single operator refreshing a page did the
+     * same. The evidence fingerprint decides
+     * ({@see IncidentAnalysisPayload::evidenceFingerprint()}), not the row's
+     * age, so a hit is not a cache in the "possibly stale" sense: it is the
+     * same question, and re-asking it would buy the same answer.
+     *
+     * The returned pair carries a `stored` row only when the model answered. A
+     * degrade is not stored (see the table's migration), so on that path the
+     * result is the transient baseline and there is nothing to rate.
+     *
+     * @param  bool  $refresh  Skip the read and ask again. This is the retry
+     *                         button, and the one path that spends on purpose.
+     */
+    public function storedAnalysisFor(Incident $incident, bool $refresh = false): ResolvedAnalysis
+    {
+        $payload = $this->composePayload($incident);
+        $fingerprint = $payload->evidenceFingerprint();
+
+        if (! $refresh) {
+            $stored = AiIncidentAnalysis::query()
+                ->where('incident_id', $incident->getKey())
+                ->where('evidence_fingerprint', $fingerprint)
+                ->latest('created_at')
+                ->first();
+
+            if ($stored !== null) {
+                return new ResolvedAnalysis($stored->result, $stored);
+            }
+        }
+
+        $result = $this->analyzeWith($incident, $payload);
+
+        if ($result->degradeReason !== null) {
+            return new ResolvedAnalysis($result->toArray(), null);
+        }
+
+        // `updateOrCreate` rather than `create`: the unique index over
+        // (incident, fingerprint) is what stops two concurrent readers of the
+        // same incident from writing two rows for one answer, and on a refresh
+        // that produced the same fingerprint it replaces the text in place.
+        $stored = AiIncidentAnalysis::updateOrCreate(
+            [
+                'incident_id' => $incident->getKey(),
+                'evidence_fingerprint' => $fingerprint,
+            ],
+            [
+                'team_id' => $incident->team_id,
+                'result' => $result->toArray(),
+            ],
+        );
+
+        // Replacing the text in place is what makes this necessary. A vote is a
+        // statement about words, and after a refresh answered differently the
+        // words are gone while the row id is not, so a rating left attached
+        // would silently come to mean "this NEW text was unhelpful": the exact
+        // re-targeting the vote is keyed to an analysis rather than an incident
+        // to prevent. The compare is on the rendered result, so a re-ask that
+        // came back identical keeps its ratings, which is the honest outcome
+        // there: nothing the operator read has changed.
+        if ($stored->wasChanged('result')) {
+            $stored->feedback()->delete();
+        }
+
+        return new ResolvedAnalysis($stored->result, $stored);
+    }
+
+    /**
+     * Assemble the evidence for an incident: its timeline, the checks recorded
+     * against its affected monitors inside the incident window, the monitor
+     * roster, and the triggering metric.
+     */
+    protected function composePayload(Incident $incident): IncidentAnalysisPayload
+    {
         $incident->loadMissing([
             'updates' => fn ($query) => $query->orderBy('display_at'),
             'monitors',
@@ -87,8 +171,15 @@ class IncidentAnalysisService
             ->limit(self::MAX_CHECKS)
             ->get();
 
-        $payload = $this->buildPayload($incident, $checks, $monitorIds);
+        return $this->buildPayload($incident, $checks, $monitorIds);
+    }
 
+    /**
+     * Ask the model, degrading to the deterministic baseline on each of the
+     * four ways that can fail to produce a trustworthy answer.
+     */
+    protected function analyzeWith(Incident $incident, IncidentAnalysisPayload $payload): IncidentAnalysisResult
+    {
         $teamId = (string) $incident->team_id;
 
         // 1. Over budget never calls the LLM: degrade to the deterministic

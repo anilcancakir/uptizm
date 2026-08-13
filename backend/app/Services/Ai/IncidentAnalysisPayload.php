@@ -156,6 +156,94 @@ readonly class IncidentAnalysisPayload
     }
 
     /**
+     * A stable hash of the MATERIAL evidence, used to decide whether a stored
+     * analysis still answers the current question.
+     *
+     * Hashing {@see self::buildUserMessage()} outright would have been the
+     * obvious move and is the wrong one: every check row carries its own
+     * `checked_at` and latency, so on an open incident the hash would change on
+     * every single check and the store would never hit. That is the case the
+     * store exists for, since an open incident is the one people refresh.
+     *
+     * So the clock is dropped and the evidence is kept. What survives is what a
+     * root-cause answer is actually built from: the incident's own state, the
+     * affected roster, the timeline, the DISTINCT per-check verdict rows
+     * (region, status, status code, latency, monitor), the triggering metric,
+     * and the response bodies. What is dropped is identity, wall time, and
+     * repetition: `checked_at`, the ordinal, the body block's timestamp and its
+     * repeat count.
+     *
+     * Distinct rather than every row, because a growing list is still a moving
+     * hash. Dropping only the timestamps left a flatline re-hashing anyway: the
+     * first twenty checks of an incident each APPEND a row before the window
+     * saturates, so twenty identical failures bought twenty identical answers,
+     * which a test caught. Collapsing to the distinct set is the same move the
+     * bodies already make by dropping `repeat`, and it says the fingerprint
+     * asks what evidence exists rather than how many times it was seen.
+     *
+     * The cost is real and worth stating: going from two failing checks to
+     * nineteen does not re-ask, because the set is the same. A monitor that
+     * starts flapping DOES re-ask, since an `up` row joins the set, and the
+     * order is first-appearance rather than sorted so a recovery (up on top of
+     * down) hashes differently from an onset.
+     *
+     * Latency is deliberately IN, unrounded. It is the evidence for a whole
+     * class of incident, and a bucket width picked here would be a threshold
+     * nobody set.
+     */
+    public function evidenceFingerprint(): string
+    {
+        $checks = array_values(array_unique(array_map(
+            fn (array $check): string => implode('|', [
+                (string) ($check['region'] ?? ''),
+                (string) ($check['status'] ?? ''),
+                (string) ($check['status_code'] ?? ''),
+                (string) ($check['response_ms'] ?? ''),
+                (string) ($check['monitor'] ?? ''),
+            ]),
+            $this->checks,
+        )));
+
+        $bodies = array_map(
+            fn (array $body): array => [
+                'baseline' => (bool) ($body['baseline'] ?? false),
+                'fields' => (array) ($body['fields'] ?? []),
+            ],
+            $this->bodies,
+        );
+
+        // The metric readings carry `recorded_at` for the same reason the check
+        // rows carry `checked_at`, and it is dropped for the same reason: a
+        // metric sitting flat at one critical value would otherwise re-hash on
+        // every tick, which on a metric-triggered incident is every incident.
+        $metric = $this->triggeringMetric;
+        if ($metric !== null) {
+            $metric['readings'] = array_map(
+                fn (array $reading): array => [
+                    $reading['value'] ?? null,
+                    $reading['band'] ?? null,
+                ],
+                (array) ($metric['readings'] ?? []),
+            );
+        }
+
+        return hash('sha256', (string) json_encode([
+            $this->incidentId,
+            $this->severity,
+            $this->impact,
+            $this->lifecycle,
+            $this->signalSource,
+            $this->aiOwned,
+            $this->resolvedAt !== null,
+            $this->monitors,
+            $this->timeline,
+            $checks,
+            $bodies,
+            $metric,
+        ]));
+    }
+
+    /**
      * Determine whether a cited owned signal is actually in our catalog.
      *
      * @param  string  $type  One of `check_id` or `monitor_id`.
