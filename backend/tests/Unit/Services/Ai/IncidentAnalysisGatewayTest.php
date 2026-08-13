@@ -248,6 +248,33 @@ class IncidentAnalysisGatewayTest extends TestCase
         );
     }
 
+    public function test_one_monitors_name_does_not_delete_another_monitors_id(): void
+    {
+        // Raised in review. The drop used to fire on the name appearing ANYWHERE,
+        // so on a multi-monitor incident a later sentence naming a monitor
+        // deleted the parenthetical that was the only thing saying which
+        // monitor an earlier sentence meant.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            knownMonitorIds: ['a26c03f7-f8ab-49f9-876e-704061929a65'],
+            monitors: [
+                ['name' => 'API', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'Two monitors failed. The first (a26c03f7-f8ab-49f9-876e-704061929a65) '
+            .'went down at 10:00. API recovered later.',
+            $payload,
+        );
+
+        $this->assertSame(
+            'Two monitors failed. The first (API) went down at 10:00. API recovered later.',
+            $result['summary'],
+            'the id names its monitor rather than disappearing',
+        );
+    }
+
     public function test_a_monitor_id_outside_the_roster_is_left_alone(): void
     {
         // Naming it would mean guessing which monitor it is. Out of catalog is a

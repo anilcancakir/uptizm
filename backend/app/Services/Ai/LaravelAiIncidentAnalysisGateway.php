@@ -342,6 +342,50 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
     }
 
     /**
+     * Decide each ` (<id>)` in the text by what its own sentence already said.
+     *
+     * @param  string  $id  The monitor id to resolve.
+     * @param  string  $name  The monitor's name.
+     */
+    protected function resolveParenthesised(string $text, string $id, string $name): string
+    {
+        $needle = ' ('.$id.')';
+        $offset = 0;
+
+        while (($at = strpos($text, $needle, $offset)) !== false) {
+            $replacement = str_contains($this->sentenceBefore($text, $at), $name)
+                ? ''
+                : ' ('.$name.')';
+
+            $text = substr_replace($text, $replacement, $at, strlen($needle));
+            // Past what was just written, so a replacement can never be rescanned.
+            $offset = $at + strlen($replacement);
+        }
+
+        return $text;
+    }
+
+    /**
+     * The text from the start of the current sentence up to $at.
+     *
+     * Sentence-ending punctuation is the only boundary looked for, which is
+     * coarse and enough: this decides whether a monitor was already named a few
+     * words earlier, and an abbreviation shortening that window costs at worst
+     * a parenthetical that names its monitor instead of being dropped.
+     */
+    protected function sentenceBefore(string $text, int $at): string
+    {
+        $before = substr($text, 0, $at);
+        $boundary = max(
+            strrpos($before, '.') ?: -1,
+            strrpos($before, '!') ?: -1,
+            strrpos($before, '?') ?: -1,
+        );
+
+        return $boundary < 0 ? $before : substr($before, $boundary + 1);
+    }
+
+    /**
      * Rename our own prompt scaffolding where the model quoted it back.
      *
      * The fence header exists to stop the model treating a target's response as
@@ -398,11 +442,23 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
                 continue;
             }
 
-            // Parenthesised beside a name the sentence already used: drop it.
-            // Substituting there reads "the Checkout monitor (Checkout)".
-            if (str_contains($text, $name)) {
-                $text = str_replace(' ('.$id.')', '', $text);
-            }
+            // A parenthesised id is decided per occurrence, by whether ITS OWN
+            // SENTENCE already named the monitor.
+            //
+            // The test used to be presence anywhere in the answer, which review
+            // caught: on a multi-monitor incident the model writes "Two monitors
+            // failed. The first (<id>) went down at 10:00. API recovered later",
+            // the name lands in a LATER sentence, and the id is the only thing
+            // saying which monitor the earlier one meant. Presence deleted it and
+            // took the disambiguation with it.
+            //
+            // Strict adjacency was the obvious correction and is too tight: the
+            // shape the model actually writes is "<name> monitor (<id>)", with a
+            // word in between, which a test caught the moment it was tried. The
+            // sentence is the unit a reader resolves a pronoun in, so it is the
+            // unit here: named already, drop the parenthetical; not named,
+            // substitute, so "(<id>)" reads "(API)" rather than vanishing.
+            $text = $this->resolveParenthesised($text, $id, $name);
 
             // The `monitor_id:` form goes whole, prefix included. Substituting
             // only the value would leave `monitor_id:Checkout`, which is the
