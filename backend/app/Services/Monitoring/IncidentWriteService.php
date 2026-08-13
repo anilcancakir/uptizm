@@ -2,9 +2,11 @@
 
 namespace App\Services\Monitoring;
 
+use App\Enums\AiMode;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\SignalSource;
+use App\Jobs\PublishAiIncidentUpdate;
 use App\Jobs\TranslateStatusPageText;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
@@ -255,6 +257,8 @@ class IncidentWriteService
                 'resolved' => $current,
                 'status_change' => null,
             ]);
+
+            $this->dispatchAutonomousUpdate($monitor, $current, IncidentStatus::Resolved);
         }
 
         $this->fanOutTranslations($posted, 'message');
@@ -514,6 +518,38 @@ class IncidentWriteService
             'resolved' => null,
             'status_change' => null,
         ]);
+
+        $this->dispatchAutonomousUpdate($monitor, $incident, IncidentStatus::Investigating);
+    }
+
+    /**
+     * Hand an `ai_mode = auto` monitor's incident to the job that writes and
+     * publishes its status update.
+     *
+     * Dispatched from beside the notification fan-out, which is the right place
+     * for the same reason that one is: off-lock, off-transaction, and only when
+     * this call actually made the transition rather than finding it already
+     * made.
+     *
+     * The mode is checked here only to keep the queue clean; the job re-reads it
+     * at fire time, because dispatch and fire are minutes apart and switching a
+     * monitor off auto has to stop the NEXT post rather than the one after it.
+     *
+     * `investigating` rather than the incident's own `detected` at open: detected
+     * is what the monitoring system calls an incident nobody has picked up, and
+     * it is never what a customer is told.
+     */
+    protected function dispatchAutonomousUpdate(
+        Monitor $monitor,
+        Incident $incident,
+        IncidentStatus $stage,
+    ): void {
+        if ($monitor->ai_mode !== AiMode::Auto) {
+            return;
+        }
+
+        PublishAiIncidentUpdate::dispatch((string) $incident->getKey(), $stage->value)
+            ->onQueue('ai');
     }
 
     /**
