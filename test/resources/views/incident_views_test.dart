@@ -1972,5 +1972,23 @@ void main() {
       expect(find.text('Reading the evidence...'), findsOneWidget);
       expect(find.byType(AiAnalysisCard), findsNothing);
     });
+
+    testWidgets('the wait is animated, not a paragraph held still', (
+      tester,
+    ) async {
+      // The model call takes 14 to 21 seconds against the real provider, and
+      // two static lines held that long read as a screen that gave up. The
+      // skeleton is the only thing on this arm that says the work is running.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final Incident subject = incidentFixtures.firstWhere(
+        (incident) => incident.ai == null,
+      );
+
+      await tester.pumpWidget(wrap(IncidentDetailView(id: subject.id)));
+
+      expect(find.byType(MSSkeleton), findsNWidgets(3));
+    });
   });
 }

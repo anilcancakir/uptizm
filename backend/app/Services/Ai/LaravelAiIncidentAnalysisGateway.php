@@ -52,6 +52,32 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
     use RoutesOpenRouterByLatency;
 
     /**
+     * The shortest string that can be a root-cause narration rather than a
+     * fragment of one.
+     *
+     * The guard used to be `!== ''`, which is a check for a field that is
+     * missing rather than for an answer that is absent, and a live run walked
+     * straight through it. The provider answered 200 with a well-formed payload
+     * whose summary was the single word "No." and whose contributing factors
+     * were "One of" and "Two": fragments, stored as an analysis, rendered under
+     * a confidence badge with a Helpful button beneath it. The same incident
+     * re-asked twice immediately afterwards returned 502 and 626 characters of
+     * correct analysis, so this is a provider bad day and not a data problem,
+     * which is exactly the case the single retry already exists for. It simply
+     * was not reached, because nothing called three characters non-conforming.
+     *
+     * This IS a threshold, so here is the measurement rather than a round
+     * figure. Every real answer read off this box sits between 300 and 700
+     * characters; the fragments were 3, 6 and 3; the deterministic baseline
+     * this degrades to is itself 51. Nothing has ever been observed between 30
+     * and 300, so the floor sits at the bottom of that empty band: comfortably
+     * over every fragment, and far enough under every answer that a real one
+     * cannot trip it. A rejection costs one retry, which is cheap against a
+     * wrong claim that outlives the incident.
+     */
+    private const MIN_SUMMARY_LENGTH = 30;
+
+    /**
      * Summarize the likely root cause of an incident from its timeline and
      * recorded checks.
      *
@@ -430,7 +456,7 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
     {
         // 1. The flat scalar/array fields, exactly as the original flat contract.
         $summary = $data['summary'] ?? null;
-        if (! is_string($summary) || $summary === '') {
+        if (! is_string($summary) || mb_strlen(trim($summary)) < self::MIN_SUMMARY_LENGTH) {
             return null;
         }
 

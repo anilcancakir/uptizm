@@ -621,26 +621,52 @@ class _IncidentDetailViewState
     return _buildAiAnalysis(ai);
   }
 
-  /// Builds the in-flight analysis section: the card's own heading over one
-  /// line saying the evidence is being read.
+  /// Builds the in-flight analysis section: the card's own heading, one line
+  /// saying the evidence is being read, and a pulsing skeleton of the answer
+  /// that is coming.
   ///
   /// Deliberately NOT an [AiAnalysisCard] with empty slots. A confidence badge
   /// over blank evidence reads as an analysis that found nothing, which is the
   /// same lie the degraded arm exists to avoid; this says the work is happening
   /// and claims nothing about its result.
+  ///
+  /// The skeleton is what makes "happening" believable. The model call takes
+  /// 14 to 21 seconds against the real provider, measured, and two static lines
+  /// of text held for twenty seconds are indistinguishable from a screen that
+  /// has given up. [MSSkeleton] rather than a spinner because that is what the
+  /// component registry says for content loading, and its `animate-pulse` sits
+  /// behind wind's `motion-safe:` so a reduced-motion setting stops it.
+  ///
+  /// Three lines, the last one short, because that is the shape of the
+  /// paragraph replacing them. It is a placeholder for a summary, not a
+  /// progress bar: nothing here claims to know how far along the work is,
+  /// since the endpoint cannot say.
   Widget _buildPendingAnalysis() {
     return WDiv(
       className:
-          'flex flex-col gap-1 rounded-lg border border-color-border '
+          'flex flex-col gap-3 rounded-lg border border-color-border '
           'bg-surface-container p-4',
       children: [
-        WText(
-          trans('uptizm.incidents.analysis_pending_heading'),
-          className: 'text-sm font-semibold text-fg',
+        WDiv(
+          className: 'flex flex-col gap-1',
+          children: [
+            WText(
+              trans('uptizm.incidents.analysis_pending_heading'),
+              className: 'text-sm font-semibold text-fg',
+            ),
+            WText(
+              trans('uptizm.incidents.analysis_pending_body'),
+              className: 'text-sm leading-relaxed text-fg-muted',
+            ),
+          ],
         ),
-        WText(
-          trans('uptizm.incidents.analysis_pending_body'),
-          className: 'text-sm leading-relaxed text-fg-muted',
+        WDiv(
+          className: 'flex flex-col gap-2',
+          children: const [
+            MSSkeleton(shape: SkeletonShape.text, height: 12),
+            MSSkeleton(shape: SkeletonShape.text, height: 12),
+            MSSkeleton(shape: SkeletonShape.text, height: 12, width: 180),
+          ],
         ),
       ],
     );

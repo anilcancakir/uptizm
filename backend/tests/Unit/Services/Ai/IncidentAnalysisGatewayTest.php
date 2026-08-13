@@ -115,6 +115,39 @@ class IncidentAnalysisGatewayTest extends TestCase
         $this->assertStringContainsString('monitor_id:monitor-1', $result['summary']);
     }
 
+    public function test_a_fragment_is_not_an_analysis_and_drives_the_retry(): void
+    {
+        // The exact payload a live run produced: well-formed, 200, and not an
+        // answer. It walked through the old `!== ''` guard, was stored, and was
+        // rendered under a confidence badge with a Helpful button beneath it.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $this->assertNull($gateway->normalize([
+            'summary' => 'No.',
+            'confidence' => 'low',
+            'contributing_factors' => ['One of', 'Two'],
+            'evidence_for' => [],
+            'evidence_against' => [],
+            'suggested_actions' => [],
+        ]), 'null is what drives the single retry, then the deterministic baseline');
+    }
+
+    public function test_a_real_narration_is_not_mistaken_for_a_fragment(): void
+    {
+        // The other direction, and the one that would hurt silently: a floor set
+        // too high turns every answer into a retry and then a baseline.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $this->assertNotNull($gateway->normalize([
+            'summary' => 'Every region reported the endpoint down at once.',
+            'confidence' => 'high',
+            'contributing_factors' => [],
+            'evidence_for' => [],
+            'evidence_against' => [],
+            'suggested_actions' => [],
+        ]));
+    }
+
     public function test_a_bare_monitor_id_in_the_prose_becomes_the_monitor_name(): void
     {
         // The exact sentence a live run produced against the pinned model, with
