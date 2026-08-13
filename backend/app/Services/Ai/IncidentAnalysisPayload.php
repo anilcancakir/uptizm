@@ -63,9 +63,28 @@ readonly class IncidentAnalysisPayload
      * @param  string|null  $resolvedAt  ISO-8601 incident resolution, or null while still open.
      * @param  list<array{author: string|null, status: string|null, is_public: bool, autonomous: bool, display_at: string|null, message: string|null}>  $timeline  TRUSTED unified incident timeline.
      * @param  list<array{check_id: string, monitor_id: string, region: string|null, status: string|null, status_code: int|null, response_ms: int|null, checked_at: string|null}>  $checks  TRUSTED probe-owned check metadata.
-     * @param  list<array{check_id: string, error_message: string|null, response_body_preview: string|null, response_headers: array<string, string>}>  $untrustedChecks  UNTRUSTED probe-controlled per-check fields.
+     * @param  list<array{at: string, repeat: int, baseline: bool, fields: array<string, string>}>  $bodies  UNTRUSTED
+     *                                                                                                       response-body evidence: one entry per DISTINCT body, the first
+     *                                                                                                       a slice and the rest a diff against it. `repeat` says how many
+     *                                                                                                       checks carried the same body, which is the fact twenty copies
+     *                                                                                                       of it used to convey at a hundred times the cost.
      * @param  list<string>  $knownCheckIds  The owned catalog of check ids folded into this payload.
+     *                                       Deliberately NOT printed in the message: every one of them
+     *                                       already appears in `checks:` above, so a second copy taught the
+     *                                       model nothing and cost 798 characters on a 20-check incident.
+     *                                       It stays a property because {@see self::isKnownCitation()} is
+     *                                       what the gateway's allowlist reads, and that runs over the
+     *                                       model's ANSWER rather than over the prompt.
      * @param  list<string>  $knownMonitorIds  The owned catalog of affected monitor ids.
+     * @param  list<array{monitor_id: string, name: string, url: string|null}>  $monitors  TRUSTED roster of the
+     *                                                                                     affected monitors. The NAME is what makes prose readable: the payload
+     *                                                                                     used to send ids alone, so the model wrote "the monitor
+     *                                                                                     a27cd1e4-3795-41b6-9527-dbbda45e51da" because it had nothing else to
+     *                                                                                     call it. The id stays for citations.
+     * @param  array{label: string, path: string|null, direction: string|null, warn: string|null, critical: string|null, readings: list<array{value: string, band: string|null, recorded_at: string|null}>}|null  $triggeringMetric
+     *                                                                                                                                                                                                                               The metric whose breach opened this incident, with the bounds it crossed
+     *                                                                                                                                                                                                                               and the readings around it. Null for an incident opened by consecutive
+     *                                                                                                                                                                                                                               failures rather than a metric.
      */
     public function __construct(
         public string $incidentId,
@@ -78,9 +97,11 @@ readonly class IncidentAnalysisPayload
         public ?string $resolvedAt,
         public array $timeline,
         public array $checks,
-        public array $untrustedChecks,
+        public array $bodies,
         public array $knownCheckIds,
         public array $knownMonitorIds,
+        public array $monitors = [],
+        public ?array $triggeringMetric = null,
     ) {}
 
     /**
@@ -102,20 +123,31 @@ readonly class IncidentAnalysisPayload
             'ai_owned: '.($this->aiOwned ? 'true' : 'false'),
             "started_at: {$this->startedAt}",
             'resolved_at: '.($this->resolvedAt ?? 'n/a'),
+            'monitors: '.$this->renderMonitors(),
             'timeline: '.$this->encode($this->timeline),
-            'checks: '.$this->encode($this->checks),
-            'known check_ids: '.$this->encode($this->knownCheckIds),
+            ...$this->renderChecks(),
             'known monitor_ids: '.$this->encode($this->knownMonitorIds),
+            ...$this->renderTriggeringMetric(),
         ]);
 
-        // 2. Fence every attacker-influenceable per-check field, hard-truncated
-        //    so no payload can escape the delimited block or inflate the context.
+        // 2. Fence the response-body evidence. It is a slice and a set of diffs
+        //    rather than twenty copies now, but every value in it is still text
+        //    a target authored, so it stays inside the delimiter and every value
+        //    stays individually capped. Structuring untrusted data does not make
+        //    it trusted.
         $untrustedLines = [self::UNTRUSTED_BLOCK_HEADER];
-        foreach ($this->untrustedChecks as $check) {
-            $untrustedLines[] = 'check_id: '.($check['check_id'] ?? 'unknown');
-            $untrustedLines[] = 'error_message: '.$this->fence($check['error_message'] ?? null);
-            $untrustedLines[] = 'response_body_preview: '.$this->fence($check['response_body_preview'] ?? null);
-            $untrustedLines[] = 'response_headers: '.$this->fence($this->encode($check['response_headers'] ?? []));
+        foreach ($this->bodies as $body) {
+            $repeat = (int) ($body['repeat'] ?? 1);
+            $untrustedLines[] = sprintf(
+                '[%s] x%d %s:',
+                (string) ($body['at'] ?? 'unknown'),
+                $repeat,
+                ($body['baseline'] ?? false) ? 'baseline, relevant fields' : 'changed vs baseline',
+            );
+
+            foreach ((array) ($body['fields'] ?? []) as $path => $value) {
+                $untrustedLines[] = '  '.$this->fence((string) $path).' = '.$this->fence((string) $value);
+            }
         }
         $untrustedLines[] = self::UNTRUSTED_BLOCK_FOOTER;
 
@@ -140,6 +172,138 @@ readonly class IncidentAnalysisPayload
     }
 
     /**
+     * The recorded checks as a table, numbered.
+     *
+     * Read off a real prompt log: as JSON this block was 4,349 characters and
+     * 1,440 of them were raw uuid, with the SAME monitor uuid repeated once per
+     * row beside a roster line that already named the monitor. A uuid carries
+     * nothing an analyser can reason with; the only identity a check needs here
+     * is enough to say "this one, not that one", and an ordinal does that in one
+     * character. The braces, quotes and repeated key names of the JSON encoding
+     * went with it.
+     *
+     * The ordinal is also what the citation catalog vouches for now, so a
+     * `check_id:2` in the answer resolves against this table. Nothing downstream
+     * resolved the uuid anyway: the client never reads `check_id`, and
+     * {@see self::isKnownCitation()} is an allowlist over the model's own words.
+     *
+     * `monitor` is a column only when more than one monitor is affected. On the
+     * ordinary single-monitor incident it would repeat the same name on every
+     * row to say something the roster already said.
+     *
+     * @return list<string>
+     */
+    private function renderChecks(): array
+    {
+        if ($this->checks === []) {
+            return ['checks: none recorded'];
+        }
+
+        $named = count($this->monitors) > 1;
+        $lines = ['checks (newest first, the number is the citation handle):'];
+
+        foreach ($this->checks as $check) {
+            $lines[] = '  '.implode('  ', array_filter([
+                (string) ($check['n'] ?? '?'),
+                (string) ($check['checked_at'] ?? 'unknown'),
+                $named ? (string) ($check['monitor'] ?? '') : null,
+                (string) ($check['region'] ?? '-'),
+                (string) ($check['status'] ?? '-'),
+                (string) ($check['status_code'] ?? '-'),
+                isset($check['response_ms']) ? $check['response_ms'].'ms' : '-',
+            ], fn (?string $cell): bool => $cell !== null && $cell !== ''));
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The affected monitors as `name (monitor_id: ...)`, which is the one line
+     * that lets the analysis call a monitor what its operator calls it.
+     */
+    private function renderMonitors(): string
+    {
+        if ($this->monitors === []) {
+            return 'none';
+        }
+
+        return implode('; ', array_map(
+            fn (array $monitor): string => sprintf(
+                '%s (monitor_id: %s%s)',
+                (string) ($monitor['name'] ?? 'unnamed'),
+                (string) ($monitor['monitor_id'] ?? 'unknown'),
+                isset($monitor['url']) ? ', url: '.$monitor['url'] : '',
+            ),
+            $this->monitors,
+        ));
+    }
+
+    /**
+     * The metric wing: what breached, the bound it crossed, and the readings.
+     *
+     * Absent for an incident opened by consecutive failures rather than a
+     * metric, and rendered as nothing rather than as empty fields, so the model
+     * never reasons about a threshold that does not exist.
+     *
+     * @return list<string>
+     */
+    private function renderTriggeringMetric(): array
+    {
+        if ($this->triggeringMetric === null) {
+            return [];
+        }
+
+        $metric = $this->triggeringMetric;
+        $readings = implode(', ', array_map(
+            fn (array $reading): string => sprintf(
+                '%s [%s]',
+                (string) ($reading['value'] ?? '?'),
+                (string) ($reading['band'] ?? 'unbanded'),
+            ),
+            (array) ($metric['readings'] ?? []),
+        ));
+
+        return [
+            'triggering_metric: '.($metric['label'] ?? 'unknown')
+                .' (path: '.($metric['path'] ?? 'n/a').')',
+            $this->renderMetricThreshold($metric),
+            'metric_readings (newest first): '.($readings === '' ? 'none recorded' : $readings),
+        ];
+    }
+
+    /**
+     * The threshold line, in whichever form this metric actually has one.
+     *
+     * A string metric has no numeric bound at all: its threshold IS the value
+     * lists. Printing `warn none, critical none` for one told the model the
+     * opposite of the truth, that nothing was configured, on a metric whose
+     * entire configuration is the words it bands on. Found by running the
+     * rebuilt payload against a live `Overall Status` incident.
+     *
+     * @param  array<string, mixed>  $metric
+     */
+    private function renderMetricThreshold(array $metric): string
+    {
+        $lists = [];
+
+        foreach (['ok_values', 'warn_values', 'critical_values'] as $field) {
+            $values = (array) ($metric[$field] ?? []);
+
+            if ($values !== []) {
+                $lists[] = $field.': '.implode(', ', array_map(strval(...), $values));
+            }
+        }
+
+        if ($lists !== []) {
+            return 'metric_bands: '.implode('; ', $lists);
+        }
+
+        return 'metric_bounds: direction '.($metric['direction'] ?? 'n/a')
+            .', warn '.($metric['warn'] ?? 'none')
+            .', critical '.($metric['critical'] ?? 'none');
+    }
+
+    /**
      * Hard-truncate an untrusted value to the field cap. A null field renders
      * as an explicit `none` so the model never guesses at absent data.
      */
@@ -149,7 +313,38 @@ readonly class IncidentAnalysisPayload
             return 'none';
         }
 
-        return mb_substr($value, 0, self::UNTRUSTED_FIELD_MAX_LENGTH);
+        return $this->singleLine(mb_substr($value, 0, self::UNTRUSTED_FIELD_MAX_LENGTH));
+    }
+
+    /**
+     * Flatten anything a target authored onto ONE line.
+     *
+     * The cap alone never closed this: the fence is a line-delimited block, so a
+     * newline followed by the closing delimiter ends it early and everything
+     * after reads as our own trusted evidence. Both halves of a rendered field
+     * are target-authored, the JSON KEY as much as the value beside it, so both
+     * go through here. Raised in review against the key, and the value had the
+     * same hole: the existing injection test used a plain sentence, which a
+     * fence contains perfectly well, and never tried the delimiter itself.
+     *
+     * Every C0 and C1 control character goes, not just `\n`: a lone `\r` is a
+     * line break to plenty of readers, and the rest have no business in a prompt
+     * either way.
+     */
+    private function singleLine(string $value): string
+    {
+        $flattened = (string) preg_replace('/[\p{Cc}\p{Cf}]+/u', ' ', $value);
+
+        // Collapsing to one line is not enough on its own: the delimiter is
+        // still a literal string sitting in the text, and a reader that is not a
+        // line parser can be led by it wherever it appears. So the marker itself
+        // is defanged in anything a target authored. Ours is written by this
+        // class and never passes through here, so exactly one of each survives.
+        return str_replace(
+            [self::UNTRUSTED_BLOCK_HEADER, self::UNTRUSTED_BLOCK_FOOTER],
+            '[delimiter removed]',
+            $flattened,
+        );
     }
 
     /**

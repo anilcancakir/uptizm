@@ -996,6 +996,8 @@
       "detail_postmortem_publish_toast_description": "Artık herkese açık durum sayfasından okunabilir.",
       "ai_analysis_gated": "Yapay zeka olay analizi, kanıt, güven ve sonraki adımlarla birlikte olası nedeni belirler.",
       "analysis_degraded_heading": "Yapay zeka analizi",
+      "analysis_pending_heading": "AI analizi",
+      "analysis_pending_body": "Bu olay için kaydedilen check ve metrikler okunuyor.",
       "analysis_degraded_budget": "Bugünün yapay zeka bütçesi doldu, bu yüzden bu olay için analiz üretilmedi.",
       "analysis_degraded_untrusted": "Model güvenilir bir yanıt üretemedi, bu yüzden bu olay için analiz üretilmedi.",
       "analysis_degraded_unreachable": "Yapay zeka servisine şu an ulaşılamıyor, bu yüzden bu olay için analiz üretilmedi.",

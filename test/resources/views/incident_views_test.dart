@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart' hide Card, Switch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -138,6 +139,8 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       // the raw dotted key on the button.
       'uptizm.common.retry': 'Try again',
       'uptizm.incidents.analysis_degraded_heading': 'AI analysis',
+      'uptizm.incidents.analysis_pending_heading': 'AI analysis',
+      'uptizm.incidents.analysis_pending_body': 'Reading the evidence...',
       'uptizm.incidents.analysis_retry_pending': 'Retrying',
       'uptizm.incidents.detail_composer_post': 'Post update',
       'uptizm.incidents.detail_postmortem_heading': 'Postmortem draft',
@@ -1920,5 +1923,44 @@ void main() {
         );
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // The analysis section while the fetch is still in flight.
+  // ---------------------------------------------------------------------------
+  //
+  // Reported live: opening an incident showed no analysis section at all for
+  // the ten-odd seconds the model call takes, then the full card appeared. The
+  // section renders on `analysisFor() != null`, so "not fetched yet" and "there
+  // is nothing to show" were the same branch, and the operator read the first as
+  // the second.
+
+  group('IncidentDetailView analysis pending', () {
+    testWidgets('says the analysis is being prepared while the fetch runs', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Asserted on the FIRST frame and nothing further is pumped, which is the
+      // only window this state has under a synchronous fake: `FakeRequestHandler`
+      // is `MagicResponse Function(MagicRequest)`, so a hanging stub is not
+      // expressible and the fetch resolves on the next microtask. `initState`
+      // sets the pending flag before the first build runs, so the frame
+      // `pumpWidget` draws is the in-flight one; a `pump()` here would flush the
+      // fetch and assert against the settled screen instead.
+      //
+      // An incident the fixtures give NO analysis, because `analysisFor()` falls
+      // back to `incident.ai` and a fixture carrying one would render the card
+      // immediately and never reach the pending arm.
+      final Incident subject = incidentFixtures.firstWhere(
+        (incident) => incident.ai == null,
+      );
+
+      await tester.pumpWidget(wrap(IncidentDetailView(id: subject.id)));
+
+      expect(find.text('Reading the evidence...'), findsOneWidget);
+      expect(find.byType(AiAnalysisCard), findsNothing);
+    });
   });
 }

@@ -297,11 +297,7 @@ class _IncidentDetailViewState
             children: [
               if (!resolved) _buildResponderStrip(incident),
               _buildAffectedMonitors(incident),
-              if (controller.analysisFor(incident) case final ai?)
-                if (ai.degradeReason case final reason?)
-                  _buildDegradedAnalysis(incident, reason)
-                else
-                  _buildAiAnalysis(ai),
+              ?_buildAnalysisSection(incident),
               if (resolved) _buildPostmortem(incident),
               _buildTimeline(incident),
               _buildComposer(incident),
@@ -595,6 +591,60 @@ class _IncidentDetailViewState
   // ---------------------------------------------------------------------------
   // AI analysis
   // ---------------------------------------------------------------------------
+
+  /// Picks which of the analysis section's four states to draw, or null when
+  /// there is nothing to say at all.
+  ///
+  /// The pending arm is the one that was missing. The section used to render on
+  /// `analysisFor() != null`, so "not fetched yet" and "there is nothing to
+  /// show" were the same branch: opening an incident drew no analysis section
+  /// whatsoever for the ten-odd seconds the model call takes, and then the full
+  /// card appeared. An operator reads absence as an answer, so the screen was
+  /// telling them there was no analysis when it was in the middle of making one.
+  ///
+  /// Null only when the fetch has finished and produced nothing, which is the
+  /// one case where drawing a section would invent a surface for an answer that
+  /// does not exist.
+  Widget? _buildAnalysisSection(Incident incident) {
+    final IncidentAi? ai = controller.analysisFor(incident);
+
+    if (ai == null) {
+      return controller.analysisPending(incident.id)
+          ? _buildPendingAnalysis()
+          : null;
+    }
+
+    if (ai.degradeReason case final reason?) {
+      return _buildDegradedAnalysis(incident, reason);
+    }
+
+    return _buildAiAnalysis(ai);
+  }
+
+  /// Builds the in-flight analysis section: the card's own heading over one
+  /// line saying the evidence is being read.
+  ///
+  /// Deliberately NOT an [AiAnalysisCard] with empty slots. A confidence badge
+  /// over blank evidence reads as an analysis that found nothing, which is the
+  /// same lie the degraded arm exists to avoid; this says the work is happening
+  /// and claims nothing about its result.
+  Widget _buildPendingAnalysis() {
+    return WDiv(
+      className:
+          'flex flex-col gap-1 rounded-lg border border-color-border '
+          'bg-surface-container p-4',
+      children: [
+        WText(
+          trans('uptizm.incidents.analysis_pending_heading'),
+          className: 'text-sm font-semibold text-fg',
+        ),
+        WText(
+          trans('uptizm.incidents.analysis_pending_body'),
+          className: 'text-sm leading-relaxed text-fg-muted',
+        ),
+      ],
+    );
+  }
 
   /// Builds the degraded-analysis section: one line saying no analysis was
   /// produced and why, plus a retry when retrying can work.

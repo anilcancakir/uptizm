@@ -6,7 +6,11 @@ use App\Enums\AiConfidence;
 use App\Enums\AiDegradeReason;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Models\Incident;
+use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use App\Models\MonitorMetric;
+use App\Models\MonitorMetricValue;
+use App\Services\Monitoring\MetricCandidateExtractor;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
@@ -29,6 +33,33 @@ class IncidentAnalysisService
      * Maximum number of recent checks folded into the RCA evidence.
      */
     private const MAX_CHECKS = 20;
+
+    /** How many DISTINCT response bodies reach the prompt. */
+    private const MAX_DISTINCT_BODIES = 5;
+
+    /** How many fields one slice or one diff may carry. */
+    private const MAX_BODY_FIELDS = 20;
+
+    /** How many readings of the triggering metric travel with it. */
+    private const MAX_METRIC_READINGS = 12;
+
+    /**
+     * Leaf names that change on every check whatever the service is doing.
+     *
+     * `duration_ms` is matched by suffix rather than listed, because a health
+     * payload carries one per subsystem.
+     *
+     * @var list<string>
+     */
+    private const JITTER_LEAVES = [
+        'timestamp',
+        'checked_at',
+        'generated_at',
+        'time',
+        'now',
+        'uptime',
+        'uptime_seconds',
+    ];
 
     public function __construct(
         protected IncidentAnalysisGateway $gateway,
@@ -153,9 +184,16 @@ class IncidentAnalysisService
             'message' => $update->message,
         ])->all();
 
-        $trustedChecks = $checks->map(fn (MonitorCheck $check) => [
-            'check_id' => (string) $check->id,
-            'monitor_id' => (string) $check->monitor_id,
+        $roster = $this->monitorRoster($monitorIds);
+        $namesById = array_column($roster, 'name', 'monitor_id');
+
+        // Numbered, not identified. A uuid is 36 characters that tell the
+        // analyser nothing; the ordinal says "this check, not that one", which
+        // is the only identity this evidence needs, and it becomes the citation
+        // handle with it.
+        $trustedChecks = $checks->values()->map(fn (MonitorCheck $check, int $index) => [
+            'n' => $index + 1,
+            'monitor' => $namesById[(string) $check->monitor_id] ?? null,
             'region' => $check->region,
             'status' => $check->status?->value,
             'status_code' => $check->status_code,
@@ -163,12 +201,7 @@ class IncidentAnalysisService
             'checked_at' => $check->checked_at?->toIso8601String(),
         ])->all();
 
-        $untrustedChecks = $checks->map(fn (MonitorCheck $check) => [
-            'check_id' => (string) $check->id,
-            'error_message' => $check->error_message,
-            'response_body_preview' => $check->response_body_preview,
-            'response_headers' => $check->response_headers ?? [],
-        ])->all();
+        $metric = $this->triggeringMetric($incident);
 
         return new IncidentAnalysisPayload(
             incidentId: (string) $incident->id,
@@ -181,10 +214,315 @@ class IncidentAnalysisService
             resolvedAt: $incident->resolved_at?->toIso8601String(),
             timeline: $timeline,
             checks: $trustedChecks,
-            untrustedChecks: $untrustedChecks,
-            knownCheckIds: array_column($trustedChecks, 'check_id'),
+            bodies: $this->bodyEvidence($checks, $metric['path'] ?? null),
+            knownCheckIds: array_map(strval(...), array_column($trustedChecks, 'n')),
             knownMonitorIds: $monitorIds,
+            monitors: $roster,
+            triggeringMetric: $metric,
         );
+    }
+
+    /**
+     * The response-body evidence: one entry per DISTINCT body, the first a
+     * relevant slice and the rest a diff against it.
+     *
+     * Measured on one real incident: twenty checks carried four distinct
+     * bodies, and the old shape sent all twenty front-truncated at 500
+     * characters, which cost roughly 20,000 characters and cut the very field
+     * the incident was named after (`cache` did not appear in the first 500).
+     * Sending a body sixteen extra times conveys one fact, that it did not
+     * change, and `repeat` conveys the same fact in three characters.
+     *
+     * The SLICE is driven by the operator's own `extraction_path`, which is the
+     * point: we are not guessing where the interesting field is, the person who
+     * configured the metric already told us. Its parent subtree goes in whole,
+     * so the neighbours that explain it come along, plus every verdict field the
+     * service publishes about itself.
+     *
+     * The DIFF is filtered. Unfiltered it was 58 percent clock and
+     * self-measurement ({@see self::JITTER_LEAVES}), which is a field changing
+     * on every check by construction and therefore evidence of nothing.
+     *
+     * @param  Collection<int, MonitorCheck>  $checks
+     * @return list<array{at: string, repeat: int, baseline: bool, fields: array<string, string>}>
+     */
+    protected function bodyEvidence(Collection $checks, ?string $metricPath): array
+    {
+        $distinct = [];
+
+        foreach ($checks as $check) {
+            $body = $check->response_body_preview;
+
+            if ($body === null || $body === '') {
+                continue;
+            }
+
+            $key = $check->content_hash ?: md5($body);
+
+            if (isset($distinct[$key])) {
+                $distinct[$key]['repeat']++;
+
+                continue;
+            }
+
+            $decoded = json_decode($body, true);
+
+            $distinct[$key] = [
+                'at' => $check->checked_at?->toIso8601String() ?? 'unknown',
+                'repeat' => 1,
+                'fields' => is_array($decoded) ? $this->flatten($decoded) : ['body' => $body],
+            ];
+
+            if (count($distinct) >= self::MAX_DISTINCT_BODIES) {
+                break;
+            }
+        }
+
+        $evidence = [];
+        $baseline = null;
+
+        foreach ($distinct as $entry) {
+            if ($baseline === null) {
+                $baseline = $entry['fields'];
+                $evidence[] = [
+                    'at' => $entry['at'],
+                    'repeat' => $entry['repeat'],
+                    'baseline' => true,
+                    'fields' => $this->slice($entry['fields'], $metricPath),
+                ];
+
+                continue;
+            }
+
+            $evidence[] = [
+                'at' => $entry['at'],
+                'repeat' => $entry['repeat'],
+                'baseline' => false,
+                'fields' => $this->diff($baseline, $entry['fields']),
+            ];
+        }
+
+        return $evidence;
+    }
+
+    /**
+     * The fields worth showing from the baseline body: the metric's own subtree
+     * and every verdict the service publishes.
+     *
+     * With no metric path (an incident opened by consecutive failures) the
+     * verdicts alone are the slice, which is still far less than the whole body
+     * and is the half a reader would look at first.
+     *
+     * @param  array<string, string>  $fields
+     * @return array<string, string>
+     */
+    protected function slice(array $fields, ?string $metricPath): array
+    {
+        $parent = $metricPath !== null && str_contains($metricPath, '.')
+            ? substr($metricPath, 0, (int) strrpos($metricPath, '.'))
+            : $metricPath;
+
+        $kept = [];
+
+        foreach ($fields as $path => $value) {
+            // A dot-path subtree test, not a raw string prefix. `checks.cache` is
+            // a prefix of `checks.cache2.latency_ms`, so a prefix test pulls a
+            // NEIGHBOURING component's fields into the slice under the label of
+            // the one being investigated. The boundary is the separator.
+            $isMetricNeighbour = $parent !== null && $parent !== ''
+                && ($path === $parent || str_starts_with($path, $parent.'.'));
+
+            if ($isMetricNeighbour || MetricCandidateExtractor::namesAVerdict($path)) {
+                $kept[$path] = $value;
+            }
+
+            if (count($kept) >= self::MAX_BODY_FIELDS) {
+                break;
+            }
+        }
+
+        return $kept === [] ? array_slice($fields, 0, self::MAX_BODY_FIELDS, true) : $kept;
+    }
+
+    /**
+     * What changed between the baseline body and a later one, minus the fields
+     * that change every time and mean nothing.
+     *
+     * @param  array<string, string>  $baseline
+     * @param  array<string, string>  $current
+     * @return array<string, string>
+     */
+    protected function diff(array $baseline, array $current): array
+    {
+        $changed = [];
+
+        foreach ($current as $path => $value) {
+            if ($this->isJitter($path)) {
+                continue;
+            }
+
+            $before = $baseline[$path] ?? null;
+
+            if ($before === $value) {
+                continue;
+            }
+
+            $changed[$path] = ($before ?? 'absent').' -> '.$value;
+
+            if (count($changed) >= self::MAX_BODY_FIELDS) {
+                break;
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
+     * Whether this leaf changes on every check by construction.
+     *
+     * A clock and a self-measured duration are not observations about the
+     * target: they differ between any two bodies whatever the service is doing,
+     * so a diff carrying them spends its budget proving that time passed. The
+     * timing that DOES matter travels in the trusted check rows as `response_ms`,
+     * measured by our own probe rather than reported by the target.
+     */
+    protected function isJitter(string $path): bool
+    {
+        $segments = explode('.', $path);
+        $leaf = (string) end($segments);
+
+        return in_array($leaf, self::JITTER_LEAVES, true) || str_ends_with($leaf, 'duration_ms');
+    }
+
+    /**
+     * A decoded body as dot paths, matching the dialect
+     * {@see MetricExtractor::extractJsonPath()} evaluates, so a path in the
+     * evidence is a path the operator could paste into a metric.
+     *
+     * @param  array<array-key, mixed>  $node
+     * @return array<string, string>
+     */
+    protected function flatten(array $node, string $prefix = ''): array
+    {
+        $flat = [];
+
+        foreach ($node as $key => $value) {
+            $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
+
+            if (is_array($value) && $value !== []) {
+                $flat += $this->flatten($value, $path);
+
+                continue;
+            }
+
+            $flat[$path] = match (true) {
+                is_bool($value) => $value ? 'true' : 'false',
+                is_array($value) => '[]',
+                $value === null => 'null',
+                default => (string) $value,
+            };
+        }
+
+        return $flat;
+    }
+
+    /**
+     * The affected monitors as name + id, including soft-deleted ones.
+     *
+     * `withTrashed` on purpose: an incident outlives its monitor, and the name
+     * is the only readable handle the analysis has. Without it a post-mortem
+     * written after the monitor was removed loses the one word a person would
+     * recognise and falls back to the uuid, which is the defect this roster was
+     * added for.
+     *
+     * @param  list<string>  $monitorIds
+     * @return list<array{monitor_id: string, name: string, url: string|null}>
+     */
+    protected function monitorRoster(array $monitorIds): array
+    {
+        return Monitor::withTrashed()
+            ->whereIn('id', $monitorIds)
+            ->get(['id', 'name', 'url'])
+            ->map(fn (Monitor $monitor): array => [
+                'monitor_id' => (string) $monitor->id,
+                'name' => (string) $monitor->name,
+                'url' => $monitor->url,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The metric whose breach opened this incident, with the bound it crossed
+     * and the readings around it, or null when no metric did.
+     *
+     * This is the evidence that used to be missing outright. The incident row
+     * carries `trigger_metric_key` and the readings sit in
+     * `monitor_metric_values` with the band already frozen on them, so the
+     * analyser was being asked to explain a breach whose number, threshold and
+     * verdict were all one join away and none of them were sent.
+     *
+     * Windowed to the incident and one interval either side, because a reading
+     * from a week ago says nothing about this outage, and the readings that
+     * bracket the breach are what show whether it was a spike or a climb.
+     *
+     * @return array{label: string, path: string|null, direction: string|null, warn: string|null, critical: string|null, readings: list<array{value: string, band: string|null, recorded_at: string|null}>}|null
+     */
+    protected function triggeringMetric(Incident $incident): ?array
+    {
+        $key = $incident->trigger_metric_key;
+
+        if ($key === null || $key === '' || $incident->primary_monitor_id === null) {
+            return null;
+        }
+
+        $definition = MonitorMetric::query()
+            ->where('monitor_id', $incident->primary_monitor_id)
+            ->where('key', $key)
+            ->first();
+
+        $readings = MonitorMetricValue::query()
+            ->where('monitor_id', $incident->primary_monitor_id)
+            ->where('metric_key', $key)
+            ->when(
+                $incident->started_at !== null,
+                fn ($query) => $query->where('recorded_at', '>=', $incident->started_at->copy()->subHour()),
+            )
+            // Closed at the far end too, once the incident has one. Ordering by
+            // `recorded_at` desc with only a lower bound hands back the twelve
+            // NEWEST readings the metric has, which on an incident resolved last
+            // week are twelve readings from today: evidence about a different
+            // day, presented as the evidence for this outage.
+            ->when(
+                $incident->resolved_at !== null,
+                fn ($query) => $query->where('recorded_at', '<=', $incident->resolved_at->copy()->addHour()),
+            )
+            ->orderByDesc('recorded_at')
+            ->limit(self::MAX_METRIC_READINGS)
+            ->get();
+
+        if ($definition === null && $readings->isEmpty()) {
+            return null;
+        }
+
+        return [
+            'label' => (string) ($definition?->label ?? $key),
+            'path' => $definition?->extraction_path,
+            'direction' => $definition?->threshold_direction?->value,
+            'warn' => $definition?->warn_bound === null ? null : (string) (float) $definition->warn_bound,
+            'critical' => $definition?->critical_bound === null ? null : (string) (float) $definition->critical_bound,
+            // A string metric bands on words rather than bounds, so its
+            // threshold travels as the lists. Empty on a numeric metric, which
+            // is what makes the payload print the bounds instead.
+            'ok_values' => (array) ($definition?->ok_values ?? []),
+            'warn_values' => (array) ($definition?->warn_values ?? []),
+            'critical_values' => (array) ($definition?->critical_values ?? []),
+            'readings' => $readings->map(fn (MonitorMetricValue $value): array => [
+                'value' => (string) ($value->numeric_value ?? $value->string_value ?? '?'),
+                'band' => $value->band?->value,
+                'recorded_at' => $value->recorded_at?->toIso8601String(),
+            ])->values()->all(),
+        ];
     }
 
     /**
