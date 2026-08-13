@@ -891,7 +891,10 @@
       "feedback_thanks_heading": "Geri bildiriminiz için teşekkürler",
       "feedback_thanks_body": "İşe yarayan analizi kulağa doğru gelenden ayırmamıza yardım ediyor.",
       "feedback_retry_heading": "Yeniden soruluyor",
-      "feedback_retry_body": "Analiz, güncel kanıtlarla baştan oluşturuluyor."
+      "feedback_retry_body": "Analiz, güncel kanıtlarla baştan oluşturuluyor.",
+      "source_check": "Kontroller",
+      "source_monitor": "Monitör",
+      "source_timeline": "Zaman çizelgesi"
     },
     "common": {
       "save": "Kaydet",

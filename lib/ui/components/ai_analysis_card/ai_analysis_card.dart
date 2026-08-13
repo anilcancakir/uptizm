@@ -231,18 +231,58 @@ class AiAnalysisCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              WText(item.label, className: 'text-sm text-fg'),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: WText(
+                      item.label,
+                      className: 'text-sm font-medium text-fg',
+                    ),
+                  ),
+                  if (item.source case final source?) ...[
+                    const SizedBox(width: 8),
+                    _buildSourceTag(source),
+                  ],
+                ],
+              ),
               if (item.detail.isNotEmpty)
                 WText(item.detail, className: 'text-xs text-fg-muted'),
-              if (item.source case final source?)
-                WText(
-                  source,
-                  className: 'font-mono text-xs text-info-soft-foreground',
-                ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  /// The provenance tag on an evidence row: which zone of the incident record
+  /// the claim was drawn from.
+  ///
+  /// It used to be a third line under the detail, rendering the raw enum value
+  /// in mono blue: `check`, lowercase and untranslated, reading like a link that
+  /// went nowhere. Three things were wrong with that at once. It looked
+  /// interactive and was not, it was the wire value rather than a word, and
+  /// stacked under two lines of prose it competed with the evidence instead of
+  /// annotating it.
+  ///
+  /// It is now a quiet pill on the label's own row, where a provenance mark
+  /// belongs: the eye reads the claim, and the source is there when asked for.
+  /// An unknown value falls through to the raw string rather than being
+  /// dropped, because a source we cannot name is still a source, and hiding it
+  /// would silently downgrade a cited claim to an uncited one.
+  Widget _buildSourceTag(String source) {
+    final String label = switch (source) {
+      'check' => trans('uptizm.ai.source_check'),
+      'monitor' => trans('uptizm.ai.source_monitor'),
+      'timeline' => trans('uptizm.ai.source_timeline'),
+      _ => source,
+    };
+
+    return WDiv(
+      className:
+          'rounded-full bg-surface-container-high px-2 py-0.5 '
+          'border border-color-border-subtle',
+      child: WText(label, className: 'text-xs text-fg-muted'),
     );
   }
 

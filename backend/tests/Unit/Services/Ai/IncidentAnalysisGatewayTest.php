@@ -148,6 +148,27 @@ class IncidentAnalysisGatewayTest extends TestCase
         ]));
     }
 
+    public function test_the_fence_header_never_reaches_the_operator(): void
+    {
+        // Both sentences are verbatim from a live answer. The fence is ours, and
+        // an operator reading it is told their own service's reply is untrusted.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload();
+
+        $result = $gateway->sanitizeSummary(
+            "The untrusted probe data lists all component checks as 'ok' except "
+            ."storage, aligned with the untrusted probe data's top-level status.",
+            $payload,
+        );
+
+        $this->assertStringNotContainsStringIgnoringCase('untrusted', $result['summary']);
+        $this->assertSame(
+            "The response body lists all component checks as 'ok' except storage, "
+            ."aligned with the response body's top-level status.",
+            $result['summary'],
+        );
+    }
+
     public function test_a_bare_monitor_id_in_the_prose_becomes_the_monitor_name(): void
     {
         // The exact sentence a live run produced against the pinned model, with
