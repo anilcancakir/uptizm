@@ -67,9 +67,13 @@ class IncidentDraftService
     /**
      * Draft a public status update or a postmortem for an incident.
      */
-    public function draftFor(Incident $incident, IncidentDraftKind $kind, string $locale): IncidentDraftResult
-    {
-        $payload = $this->composePayload($incident, $kind, $locale);
+    public function draftFor(
+        Incident $incident,
+        IncidentDraftKind $kind,
+        string $locale,
+        ?string $postingAs = null,
+    ): IncidentDraftResult {
+        $payload = $this->composePayload($incident, $kind, $locale, $postingAs);
         $teamId = (string) $incident->team_id;
 
         // 1. Over budget never calls the provider.
@@ -108,8 +112,12 @@ class IncidentDraftService
     /**
      * Assemble what a draft is written from.
      */
-    protected function composePayload(Incident $incident, IncidentDraftKind $kind, string $locale): IncidentDraftPayload
-    {
+    protected function composePayload(
+        Incident $incident,
+        IncidentDraftKind $kind,
+        string $locale,
+        ?string $postingAs = null,
+    ): IncidentDraftPayload {
         $incident->loadMissing([
             'updates' => fn ($query) => $query->orderByDesc('display_at')->limit(self::MAX_UPDATES),
             'monitors',
@@ -141,6 +149,7 @@ class IncidentDraftService
             severity: (string) ($incident->severity?->value ?? 'unknown'),
             impact: (string) ($incident->impact?->value ?? 'unknown'),
             lifecycle: (string) ($incident->lifecycle?->value ?? 'unknown'),
+            postingAs: $postingAs,
             startedAt: (string) $incident->started_at?->toIso8601String(),
             resolvedAt: $incident->resolved_at?->toIso8601String(),
             duration: $this->duration($incident),

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\IncidentDraftKind;
+use App\Enums\IncidentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Incident;
 use App\Models\Team;
@@ -64,10 +65,19 @@ class IncidentDraftController extends Controller
             (new PlanGate)->assertAiLevel($team, 'analysis', 'AI incident drafting');
         }
 
+        // `posting_as` is the stage selected in the composer, which is what the
+        // update will be stamped with and is not always where the incident
+        // stands. Validated against the enum rather than trusted: it reaches a
+        // prompt, and an unrecognised value is dropped rather than passed
+        // through as a stage nobody defined.
+        $postingAs = $request->string('posting_as')->toString();
+        $postingAs = IncidentStatus::tryFrom($postingAs)?->value;
+
         $result = $this->incidentDraftService->draftFor(
             $incident,
             $kind,
             app()->getLocale(),
+            $postingAs,
         );
 
         return response()->json(['data' => $result->toArray()]);

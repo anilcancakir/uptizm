@@ -54,6 +54,7 @@ readonly class IncidentDraftPayload
      * @param  string  $severity  The incident's severity.
      * @param  string  $impact  The incident's impact.
      * @param  string  $lifecycle  Where the incident currently stands.
+     * @param  string|null  $postingAs  The stage this update is being POSTED as, when it differs from where the incident stands.
      * @param  string  $startedAt  ISO-8601 start.
      * @param  string|null  $resolvedAt  ISO-8601 resolution, or null while it runs.
      * @param  string  $duration  Human duration, already formatted.
@@ -71,6 +72,7 @@ readonly class IncidentDraftPayload
         public string $severity,
         public string $impact,
         public string $lifecycle,
+        public ?string $postingAs,
         public string $startedAt,
         public ?string $resolvedAt,
         public string $duration,
@@ -98,6 +100,12 @@ readonly class IncidentDraftPayload
             "severity: {$this->severity}",
             "impact: {$this->impact}",
             "lifecycle: {$this->lifecycle}",
+            // The stage the operator has selected in the composer, which is what
+            // the update will be stamped with. It is not always where the
+            // incident stands: an incident sitting at `detected` is one a probe
+            // opened and nobody has touched, and the first thing a human posts
+            // about it moves it on.
+            'posting as: '.($this->postingAs ?? $this->lifecycle),
             "started_at: {$this->startedAt}",
             'resolved_at: '.($this->resolvedAt ?? 'still open'),
             "duration: {$this->duration}",
@@ -281,11 +289,19 @@ readonly class IncidentDraftPayload
     private function task(): string
     {
         return match ($this->kind) {
+            // The stage is repeated HERE, in the last line the model reads,
+            // with the register for that stage inline. It was only in the system
+            // instructions before, and a live sweep of all five stages came back
+            // with four correct updates and a "resolved" one that opened "We are
+            // investigating elevated error rates": the investigating line, on an
+            // incident that had just ended. Last position and specific beats
+            // stated once, a page earlier, among four alternatives.
             IncidentDraftKind::Update => implode(' ', [
                 'Write the next PUBLIC status update for this incident, in',
                 $this->locale.'.',
-                'Two or three sentences. Say what is affected, what is being seen,',
-                'and what happens next. Do not repeat an update already posted above',
+                'It will be posted as: '.($this->postingAs ?? $this->lifecycle).'.',
+                $this->registerFor($this->postingAs ?? $this->lifecycle),
+                'One or two sentences. Do not repeat an update already posted above',
                 'word for word; this is the next one, not a restatement.',
             ]),
             IncidentDraftKind::Postmortem => implode(' ', [
@@ -295,6 +311,25 @@ readonly class IncidentDraftPayload
                 'evidence shows. Leave the internal root cause to the operator: say',
                 'plainly that it is still to be added rather than guessing at it.',
             ]),
+        };
+    }
+
+    /**
+     * What the update has to say at the stage it is being posted as.
+     *
+     * `detected` has no line of its own because it is not a stage anyone posts:
+     * it is what the monitoring system calls an incident nobody has picked up
+     * yet, and the first thing a person writes about one is that they are
+     * looking at it.
+     */
+    private function registerFor(string $stage): string
+    {
+        return match ($stage) {
+            'identified' => 'Say the cause has been identified and a fix is being worked on.',
+            'monitoring' => 'Say a fix has been applied and the results are being monitored.',
+            'resolved' => 'Say the incident is RESOLVED. It is over: do not say anything is '
+                .'being investigated, worked on or monitored.',
+            default => 'Say the issue is being investigated, and that another update will follow.',
         };
     }
 

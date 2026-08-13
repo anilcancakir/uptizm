@@ -566,7 +566,13 @@ class IncidentController extends MagicController
   /// and the caller says which one the operator is looking at.
   ///
   /// [kind] is `update` or `postmortem`, matching the route segment.
-  Future<String?> draftText(String id, String kind) async {
+  ///
+  /// [postingAs] is the lifecycle the composer has selected, which is what the
+  /// update will be stamped with and is NOT always where the incident stands: a
+  /// fresh incident sits at `detected`, and the first thing a person posts about
+  /// it moves it on. Without this the draft was written for the incident's
+  /// current stage and came back "We are investigating" under a Detected label.
+  Future<String?> draftText(String id, String kind, {String? postingAs}) async {
     final String key = '$kind:$id';
     // Re-entrancy guard, same shape as the analysis fetch: every call spends an
     // AI budget unit, so a second tap inside the request window must not buy a
@@ -576,7 +582,10 @@ class IncidentController extends MagicController
     _draftPendingKeys.add(key);
     refreshUI();
     try {
-      final response = await Http.post('/incidents/$id/draft-$kind');
+      final response = await Http.post(
+        '/incidents/$id/draft-$kind',
+        data: postingAs == null ? null : {'posting_as': postingAs},
+      );
       if (!response.successful) {
         Log.error('[IncidentController.draftText] $key: ${response.errorMessage}');
         return null;

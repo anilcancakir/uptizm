@@ -1330,7 +1330,14 @@ class _IncidentDetailViewState
   /// under the field is the promise's receipt and it is only shown when the
   /// promise was kept.
   Future<void> _onAiDraft(Incident incident) async {
-    final String? drafted = await controller.draftText(incident.id, 'update');
+    // The stage SELECTED in the composer, not the incident's own: this update
+    // will be stamped with it, and the sentence has to be the one that stage
+    // calls for.
+    final String? drafted = await controller.draftText(
+      incident.id,
+      'update',
+      postingAs: _lifecycle.name,
+    );
 
     if (!mounted) return;
 
