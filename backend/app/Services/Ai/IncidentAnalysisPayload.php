@@ -146,7 +146,7 @@ readonly class IncidentAnalysisPayload
             );
 
             foreach ((array) ($body['fields'] ?? []) as $path => $value) {
-                $untrustedLines[] = '  '.$path.' = '.$this->fence((string) $value);
+                $untrustedLines[] = '  '.$this->fence((string) $path).' = '.$this->fence((string) $value);
             }
         }
         $untrustedLines[] = self::UNTRUSTED_BLOCK_FOOTER;
@@ -313,7 +313,38 @@ readonly class IncidentAnalysisPayload
             return 'none';
         }
 
-        return mb_substr($value, 0, self::UNTRUSTED_FIELD_MAX_LENGTH);
+        return $this->singleLine(mb_substr($value, 0, self::UNTRUSTED_FIELD_MAX_LENGTH));
+    }
+
+    /**
+     * Flatten anything a target authored onto ONE line.
+     *
+     * The cap alone never closed this: the fence is a line-delimited block, so a
+     * newline followed by the closing delimiter ends it early and everything
+     * after reads as our own trusted evidence. Both halves of a rendered field
+     * are target-authored, the JSON KEY as much as the value beside it, so both
+     * go through here. Raised in review against the key, and the value had the
+     * same hole: the existing injection test used a plain sentence, which a
+     * fence contains perfectly well, and never tried the delimiter itself.
+     *
+     * Every C0 and C1 control character goes, not just `\n`: a lone `\r` is a
+     * line break to plenty of readers, and the rest have no business in a prompt
+     * either way.
+     */
+    private function singleLine(string $value): string
+    {
+        $flattened = (string) preg_replace('/[\p{Cc}\p{Cf}]+/u', ' ', $value);
+
+        // Collapsing to one line is not enough on its own: the delimiter is
+        // still a literal string sitting in the text, and a reader that is not a
+        // line parser can be led by it wherever it appears. So the marker itself
+        // is defanged in anything a target authored. Ours is written by this
+        // class and never passes through here, so exactly one of each survives.
+        return str_replace(
+            [self::UNTRUSTED_BLOCK_HEADER, self::UNTRUSTED_BLOCK_FOOTER],
+            '[delimiter removed]',
+            $flattened,
+        );
     }
 
     /**

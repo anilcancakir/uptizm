@@ -325,7 +325,12 @@ class IncidentAnalysisService
         $kept = [];
 
         foreach ($fields as $path => $value) {
-            $isMetricNeighbour = $parent !== null && $parent !== '' && str_starts_with($path, $parent);
+            // A dot-path subtree test, not a raw string prefix. `checks.cache` is
+            // a prefix of `checks.cache2.latency_ms`, so a prefix test pulls a
+            // NEIGHBOURING component's fields into the slice under the label of
+            // the one being investigated. The boundary is the separator.
+            $isMetricNeighbour = $parent !== null && $parent !== ''
+                && ($path === $parent || str_starts_with($path, $parent.'.'));
 
             if ($isMetricNeighbour || MetricCandidateExtractor::namesAVerdict($path)) {
                 $kept[$path] = $value;
@@ -482,6 +487,15 @@ class IncidentAnalysisService
             ->when(
                 $incident->started_at !== null,
                 fn ($query) => $query->where('recorded_at', '>=', $incident->started_at->copy()->subHour()),
+            )
+            // Closed at the far end too, once the incident has one. Ordering by
+            // `recorded_at` desc with only a lower bound hands back the twelve
+            // NEWEST readings the metric has, which on an incident resolved last
+            // week are twelve readings from today: evidence about a different
+            // day, presented as the evidence for this outage.
+            ->when(
+                $incident->resolved_at !== null,
+                fn ($query) => $query->where('recorded_at', '<=', $incident->resolved_at->copy()->addHour()),
             )
             ->orderByDesc('recorded_at')
             ->limit(self::MAX_METRIC_READINGS)
