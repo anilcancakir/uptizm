@@ -658,6 +658,57 @@ class MonitorControllerTest extends TestCase
     // The bulk metrics[] the AI create flow submits with the monitor
     // -----------------------------------------------------------------
 
+    public function test_two_metrics_may_share_a_band_value(): void
+    {
+        // Measured the moment the discovery path started proposing one verdict
+        // metric per subsystem: a health endpoint publishes `status: ok` under
+        // every check it runs, so eight of ten proposed metrics legitimately
+        // carried `ok_values: ["ok"]` and the whole create answered
+        // "The metrics.0.ok_values.0 field has a duplicate value."
+        //
+        // `distinct` does not mean what the rule's own docblock claimed. On the
+        // bulk path the rule key is `metrics.*.ok_values.*`, and Laravel resolves
+        // the comparison set from the leading EXPLICIT path
+        // (`ValidatesAttributes::extractDistinctValues()` takes everything before
+        // the first wildcard, here the whole `metrics` array), so it compared
+        // across metrics rather than within one list. Two different subsystems
+        // reading the same healthy word is not a duplicate; it is what a health
+        // payload looks like.
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('database_status', ['ok_values' => ['ok']]),
+                $this->metricRow('cache_status', ['ok_values' => ['ok']]),
+                $this->metricRow('queue_status', ['ok_values' => ['ok'], 'warn_values' => ['degraded']]),
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertSame(3, Monitor::query()->sole()->metrics()->count());
+    }
+
+    public function test_one_metric_still_cannot_repeat_a_value_in_its_own_list(): void
+    {
+        // The half that has to survive the fix. Within ONE list a repeat is a
+        // real defect: the second entry can never match anything the first does
+        // not already claim, and the pair reads as two configured values while
+        // banding as one. Case-folded, because matching is.
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'metrics' => [
+                $this->metricRow('status', ['ok_values' => ['ok', ' OK ']]),
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('metrics.0.ok_values');
+    }
+
     public function test_store_writes_the_submitted_metrics_with_the_monitor(): void
     {
         Queue::fake();

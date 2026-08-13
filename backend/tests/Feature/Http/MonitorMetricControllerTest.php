@@ -460,7 +460,13 @@ class MonitorMetricControllerTest extends TestCase
     public function test_store_rejects_a_duplicate_within_one_list(): void
     {
         // The overlap rule compares lists to each OTHER, so the within-one-list
-        // duplicate is the field rule's job.
+        // duplicate is the LIST rule's job. It used to be `distinct` on the
+        // element, which reported `ok_values.0`; that rule resolved its
+        // comparison set from the leading explicit path, so under the bulk
+        // prefix it compared across metrics and refused a monitor whose
+        // subsystems all read `ok`. The check moved onto the list itself and the
+        // error moved with it, which is also the better address: the defect is a
+        // property of the pair, not of the first element of it.
         [$monitor, $user] = $this->makeMonitor();
 
         try {
@@ -475,7 +481,7 @@ class MonitorMetricControllerTest extends TestCase
 
             $this->fail('a case-insensitive duplicate within one list must not validate');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('ok_values.0', $exception->errors());
+            $this->assertArrayHasKey('ok_values', $exception->errors());
         }
     }
 
