@@ -40,10 +40,24 @@ class EvidenceFingerprintTest extends TestCase
         $this->assertNotSame($gateway->evidenceFingerprint(), $server->evidenceFingerprint());
     }
 
-    public function test_a_latency_move_changes_the_fingerprint(): void
+    public function test_latency_jitter_does_not_change_the_fingerprint(): void
     {
-        $slow = $this->payload([$this->check(ms: 4100)]);
-        $slower = $this->payload([$this->check(ms: 9200)]);
+        // The correction the running system forced. Exact latency in the hash
+        // meant no two ticks ever matched, because no two checks answer in the
+        // same millisecond: one open incident produced three fingerprints and
+        // three paid answers inside ten minutes.
+        $first = $this->payload([$this->check(ms: 436)]);
+        $second = $this->payload([$this->check(ms: 445)]);
+
+        $this->assertSame($first->evidenceFingerprint(), $second->evidenceFingerprint());
+    }
+
+    public function test_a_real_latency_move_still_changes_the_fingerprint(): void
+    {
+        // The other half, and the one the banding could have quietly lost:
+        // half a second and three seconds are not the same fact.
+        $slow = $this->payload([$this->check(ms: 436)]);
+        $slower = $this->payload([$this->check(ms: 3389)]);
 
         $this->assertNotSame($slow->evidenceFingerprint(), $slower->evidenceFingerprint());
     }
@@ -66,39 +80,34 @@ class EvidenceFingerprintTest extends TestCase
         $this->assertNotSame($recovery->evidenceFingerprint(), $onset->evidenceFingerprint());
     }
 
-    public function test_a_metric_reading_repeating_at_the_same_value_does_not_change_the_fingerprint(): void
+    public function test_a_metric_reading_the_same_band_does_not_change_the_fingerprint(): void
     {
+        // A numeric metric never reports the same number twice. Hashing values
+        // grew and shifted the hash on every tick, exactly as the timestamps
+        // did, so what is hashed is the band.
         $one = $this->payload([$this->check()], $this->metric([
-            ['value' => '0', 'band' => 'critical', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
+            ['value' => '83.7', 'band' => 'warn', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
         ]));
-        $two = $this->payload([$this->check()], $this->metric([
-            ['value' => '0', 'band' => 'critical', 'recorded_at' => '2026-08-13T09:01:00+00:00'],
-            ['value' => '0', 'band' => 'critical', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
+        $later = $this->payload([$this->check()], $this->metric([
+            ['value' => '83.8', 'band' => 'warn', 'recorded_at' => '2026-08-13T09:01:00+00:00'],
+            ['value' => '83.7', 'band' => 'warn', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
         ]));
 
-        // Two readings rather than one IS a longer list, and unlike the checks
-        // the readings are not collapsed: what makes these equal is that the
-        // values and bands are identical once the timestamps are dropped, and
-        // json_encode of the two mapped lists differs by length. This test
-        // therefore pins the timestamp drop, not a dedupe.
-        $this->assertNotSame($one->evidenceFingerprint(), $two->evidenceFingerprint());
-
-        $sameShape = $this->payload([$this->check()], $this->metric([
-            ['value' => '0', 'band' => 'critical', 'recorded_at' => '2026-08-13T22:14:09+00:00'],
-        ]));
-        $this->assertSame($one->evidenceFingerprint(), $sameShape->evidenceFingerprint());
+        $this->assertSame($one->evidenceFingerprint(), $later->evidenceFingerprint());
     }
 
-    public function test_a_metric_value_change_changes_the_fingerprint(): void
+    public function test_a_metric_crossing_a_band_changes_the_fingerprint(): void
     {
-        $zero = $this->payload([$this->check()], $this->metric([
-            ['value' => '0', 'band' => 'critical', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
+        // What the analysis actually narrates, and the thing banding must not
+        // lose: the crossing.
+        $warn = $this->payload([$this->check()], $this->metric([
+            ['value' => '83.7', 'band' => 'warn', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
         ]));
-        $recovered = $this->payload([$this->check()], $this->metric([
-            ['value' => '42', 'band' => 'ok', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
+        $critical = $this->payload([$this->check()], $this->metric([
+            ['value' => '95.2', 'band' => 'critical', 'recorded_at' => '2026-08-13T09:00:00+00:00'],
         ]));
 
-        $this->assertNotSame($zero->evidenceFingerprint(), $recovered->evidenceFingerprint());
+        $this->assertNotSame($warn->evidenceFingerprint(), $critical->evidenceFingerprint());
     }
 
     public function test_resolving_the_incident_changes_the_fingerprint(): void

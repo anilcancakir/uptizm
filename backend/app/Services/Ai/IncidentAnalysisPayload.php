@@ -187,9 +187,18 @@ readonly class IncidentAnalysisPayload
      * order is first-appearance rather than sorted so a recovery (up on top of
      * down) hashes differently from an onset.
      *
-     * Latency is deliberately IN, unrounded. It is the evidence for a whole
-     * class of incident, and a bucket width picked here would be a threshold
-     * nobody set.
+     * Latency is banded rather than exact, and that correction came from the
+     * running system. Unrounded latency was kept here on the reasoning that it
+     * is the evidence for a whole class of incident and that any bucket width
+     * would be a threshold nobody set. Both halves were true and the conclusion
+     * was still wrong: no two checks answer in the same millisecond, so every
+     * tick added a DISTINCT row, the set grew, and one open incident produced
+     * three fingerprints and three paid answers inside ten minutes. A rule that
+     * never holds on a live incident is not a conservative rule.
+     *
+     * The ladder in {@see self::latencyBand()} is the threshold, stated in one
+     * place: 436ms and 445ms are the same fact and hash the same, 436ms and
+     * 3389ms are not and do not.
      */
     public function evidenceFingerprint(): string
     {
@@ -198,7 +207,7 @@ readonly class IncidentAnalysisPayload
                 (string) ($check['region'] ?? ''),
                 (string) ($check['status'] ?? ''),
                 (string) ($check['status_code'] ?? ''),
-                (string) ($check['response_ms'] ?? ''),
+                self::latencyBand($check['response_ms'] ?? null),
                 (string) ($check['monitor'] ?? ''),
             ]),
             $this->checks,
@@ -218,13 +227,17 @@ readonly class IncidentAnalysisPayload
         // every tick, which on a metric-triggered incident is every incident.
         $metric = $this->triggeringMetric;
         if ($metric !== null) {
-            $metric['readings'] = array_map(
-                fn (array $reading): array => [
-                    $reading['value'] ?? null,
-                    $reading['band'] ?? null,
-                ],
+            // The BANDS, distinct and in order of appearance, not the values.
+            // A numeric metric never reports the same number twice (83.7 then
+            // 83.8 then 83.7), so hashing values grows and shifts the hash on
+            // every tick exactly like the timestamps did. What the analysis
+            // actually narrates is the band: ok, warn, critical, and the
+            // crossing between them. A reading that moves without changing band
+            // does not change the answer, and one that changes band does.
+            $metric['readings'] = array_values(array_unique(array_map(
+                fn (array $reading): string => (string) ($reading['band'] ?? ''),
                 (array) ($metric['readings'] ?? []),
-            );
+            )));
         }
 
         return hash('sha256', (string) json_encode([
@@ -241,6 +254,32 @@ readonly class IncidentAnalysisPayload
             $bodies,
             $metric,
         ]));
+    }
+
+    /**
+     * A latency band, coarse enough that ordinary jitter does not move it.
+     *
+     * The rungs are where people already break latency when they talk about it
+     * (a tenth of a second, a quarter, a half, a second, two, five, ten), so the
+     * band changes when the sentence about it would change. Null latency is its
+     * own band rather than being folded into the fastest one: a check with no
+     * timing is a different fact from a fast check.
+     */
+    private static function latencyBand(mixed $ms): string
+    {
+        if ($ms === null || $ms === '') {
+            return 'none';
+        }
+
+        $ms = (int) $ms;
+
+        foreach ([100, 250, 500, 1000, 2000, 5000, 10000] as $rung) {
+            if ($ms < $rung) {
+                return '<'.$rung;
+            }
+        }
+
+        return '>=10000';
     }
 
     /**
