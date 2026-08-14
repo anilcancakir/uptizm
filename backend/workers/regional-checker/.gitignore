@@ -1,3 +1,10 @@
 node_modules/
 .wrangler/
 .dev.vars
+
+# `wrangler deploy --outdir dist` writes the bundle and its source map here so
+# `sentry-cli sourcemaps upload` has something to read (see deploy/README.md).
+# It is build output: 15k lines of generated JavaScript that changes on every
+# deploy and belongs to Cloudflare and Sentry, not to this repository. It was
+# committed once by accident and this rule is why that cannot repeat.
+dist/
