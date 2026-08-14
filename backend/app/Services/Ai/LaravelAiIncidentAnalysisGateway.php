@@ -78,6 +78,40 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
     private const MIN_SUMMARY_LENGTH = 30;
 
     /**
+     * The longest a root-cause summary may be, enforced rather than requested.
+     *
+     * The schema asked for "one or two sentences" in a DESCRIPTION and bounded
+     * nothing, so only the floor above existed and the ceiling was whatever the
+     * model felt like. MEASURED on a live Turkish run: 800 characters, six
+     * suggested actions, six contributing factors, where the good answer one
+     * incident earlier on the same model and the same prompt was about 300
+     * characters with two actions.
+     *
+     * What made it a defect rather than verbosity is WHERE the quality went. The
+     * opening sentences of that 800-character answer were correct; the tail
+     * carried a hallucinated English word dropped mid-sentence ("Boulder"),
+     * invented Turkish words ("dönüşcut", "retrivialerini"), a number fused into
+     * a word ("de1744ms") and stray English ("Hint", "control"). A fast, cheap
+     * model loses coherence in a non-English language as the generation runs on,
+     * and length is the one part of that we can bound instead of ask about.
+     *
+     * 400, because every good answer read off this provider sits between 250 and
+     * 400. A tighter cap would truncate correct analysis, which trades broken
+     * Turkish for cut-off Turkish and is no better.
+     */
+    public const int MAX_SUMMARY_LENGTH = 400;
+
+    /**
+     * The most entries any one output array may carry.
+     *
+     * Same measurement, same reasoning: six actions and six factors on the run
+     * that degraded, two and two on the run that did not. Three leaves room for
+     * a genuinely multi-causal incident without funding a list the model pads to
+     * fill.
+     */
+    public const int MAX_ITEMS = 3;
+
+    /**
      * Seconds one model call here may take before it is given up on.
      *
      * `laravel/ai` reads this method by name
@@ -104,6 +138,71 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
     public function timeout(): int
     {
         return 75;
+    }
+
+    /**
+     * Trim a summary to [$limit] characters, on a sentence boundary when there
+     * is one to land on.
+     *
+     * Public because the tests drive it directly, matching
+     * {@see LaravelAiIncidentDraftGateway::capSentences()}, which exists for the
+     * same reason: a schema bound is a REQUEST the provider is free to ignore,
+     * and this provider has already returned three sentences where the
+     * instructions asked for two.
+     *
+     * Sentence-aware rather than a plain substring, because cutting mid-word is
+     * the one outcome worse than cutting early: a reader cannot tell truncation
+     * from the model losing coherence, and losing coherence is exactly the
+     * failure this bound is here to hide. When no sentence boundary fits, it
+     * falls back to a word boundary, and only then to a hard cut.
+     */
+    public function capLength(string $summary, int $limit): string
+    {
+        $summary = trim($summary);
+
+        if (mb_strlen($summary) <= $limit) {
+            return $summary;
+        }
+
+        // 1. Keep whole sentences while they fit.
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $summary, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $kept = '';
+
+        foreach ($sentences as $sentence) {
+            $candidate = $kept === '' ? $sentence : $kept.' '.$sentence;
+
+            if (mb_strlen($candidate) > $limit) {
+                break;
+            }
+
+            $kept = $candidate;
+        }
+
+        if ($kept !== '') {
+            return $kept;
+        }
+
+        // 2. One sentence already overruns the limit, so fall back to the last
+        //    word boundary inside it rather than slicing a word in half.
+        $cut = mb_substr($summary, 0, $limit);
+        $lastSpace = mb_strrpos($cut, ' ');
+
+        return rtrim($lastSpace === false ? $cut : mb_substr($cut, 0, $lastSpace));
+    }
+
+    /**
+     * Keep at most [$limit] entries, and keep the FIRST of them.
+     *
+     * First rather than last, matching the draft's sentence cap and for the same
+     * measured reason: the answer front-loads and pads afterwards, so what a cap
+     * drops is what was added to fill space rather than the finding.
+     *
+     * @param  list<mixed>  $items
+     * @return list<mixed>
+     */
+    public function capItems(array $items, int $limit): array
+    {
+        return array_slice($items, 0, $limit);
     }
 
     /**
@@ -231,6 +330,10 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
         return [
             'summary' => $schema->string()
                 ->description('One or two sentences narrating the likely root cause for an operator.')
+                // A ceiling as well as the description, because the description
+                // was already there and the model answered 800 characters anyway.
+                // {@see self::MAX_SUMMARY_LENGTH} carries the measurement.
+                ->max(self::MAX_SUMMARY_LENGTH)
                 ->required(),
             'confidence' => $schema->string()
                 ->enum([
@@ -243,14 +346,17 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
             'contributing_factors' => $schema->array()
                 ->items($schema->string())
                 ->description('Short bullets naming the factors that contributed to the incident.')
+                ->max(self::MAX_ITEMS)
                 ->required(),
             'evidence_for' => $schema->array()
                 ->items($this->evidenceItemSchema($schema))
                 ->description('Evidence supporting the stated root cause, each a {label, detail, source} row.')
+                ->max(self::MAX_ITEMS)
                 ->required(),
             'evidence_against' => $schema->array()
                 ->items($this->evidenceItemSchema($schema))
                 ->description('Evidence that qualifies or contradicts the stated root cause, each a {label, detail, source} row.')
+                ->max(self::MAX_ITEMS)
                 ->required(),
             'suggested_actions' => $schema->array()
                 ->items($schema->object([
@@ -262,6 +368,7 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
                         ->required(),
                 ]))
                 ->description('Concrete next steps derived only from the evidence above.')
+                ->max(self::MAX_ITEMS)
                 ->required(),
         ];
     }
@@ -630,13 +737,21 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
             return null;
         }
 
+        // 3. Enforce the bounds the schema only asked for. The provider is free
+        //    to ignore `maxLength` and `maxItems`, and this one has already
+        //    ignored a "one or two sentences" instruction by 800 characters, so
+        //    the ceiling is applied here rather than trusted upstream. Trimming
+        //    beats rejecting: the opening of an over-long answer measured correct
+        //    every time, and it is the tail that carried the hallucinated words,
+        //    so throwing the whole response away would spend a retry to lose an
+        //    answer that was already right where it mattered.
         return [
-            'summary' => $summary,
+            'summary' => $this->capLength($summary, self::MAX_SUMMARY_LENGTH),
             'confidence' => $confidence,
-            'contributing_factors' => $factors,
-            'evidence_for' => $evidenceFor,
-            'evidence_against' => $evidenceAgainst,
-            'suggested_actions' => $suggestedActions,
+            'contributing_factors' => $this->capItems($factors, self::MAX_ITEMS),
+            'evidence_for' => $this->capItems($evidenceFor, self::MAX_ITEMS),
+            'evidence_against' => $this->capItems($evidenceAgainst, self::MAX_ITEMS),
+            'suggested_actions' => $this->capItems($suggestedActions, self::MAX_ITEMS),
         ];
     }
 
