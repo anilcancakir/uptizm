@@ -55,7 +55,14 @@ a complete and permanent answer and we would rather you send one than have to bl
 The **availability check** does not stop itself that way, and we would rather say so than
 let you find out. It keeps requesting on its schedule and records what came back, because
 a refusal is itself a measurement and publishing "they refuse our requests" is more honest
-than publishing nothing. If you want that one stopped, the section below is the way.
+than publishing nothing. A `403` is recorded like any other answer. If you want that one
+stopped, the section below is the way.
+
+There is one answer we do not record: an interactive bot challenge. If your edge replies to
+the availability check with a challenge page instead of a response, we have measured
+nothing about your service, so nothing is stored and your service is never published as
+down over it. We do not try to solve the challenge, swap our User-Agent for a browser one,
+or come back from a different address.
 
 ## How to reach a person
 
@@ -63,7 +70,7 @@ If you would prefer we did not request anything at all, or you want a different 
 you just want to know why we are there, write to [[bot.contact_email]] and say which domain
 you are asking about. We will remove your service from the catalog, which stops both
 clients. Blocking the User-Agent works too, and we will read that as the answer it is
-rather than routing around it.
+rather than routing around it. So does a bot challenge, on the terms described above.
 
 One more thing worth saying plainly, and the two clients differ here.
 [[bot.probe_egress]] The status-feed read is the opposite: it

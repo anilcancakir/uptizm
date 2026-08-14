@@ -124,6 +124,13 @@ class RelayClient implements ProbeTransport
             // is sent verbatim, order and shape intact.
             'max_bytes' => (int) config('content-archive.max_bytes'),
             'allowed_content_types' => config('content-archive.allowed_content_types'),
+            // Our identity, on the spec for the same reason the two above are:
+            // `resources/legal/bot.en.md` renders this exact config value and
+            // tells every operator that blocking it stops us, so a copy held in
+            // the worker would be the one place that page could quietly become
+            // untrue. The monitor's own `request_headers` still override it at
+            // the edge; this is the default, not a signature.
+            'user_agent' => (string) config('uptizm.bot_user_agent'),
         ];
     }
 }

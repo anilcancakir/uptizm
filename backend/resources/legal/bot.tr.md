@@ -56,8 +56,14 @@ tercih ederiz.
 **Erişilebilirlik kontrolü** kendini bu şekilde durdurmaz ve bunu keşfetmenize bırakmak
 yerine söylemeyi tercih ederiz. Programına göre istemeye devam eder ve ne aldığını
 kaydeder; çünkü bir reddetme de bir ölçümdür ve "isteklerimizi reddediyorlar" bilgisini
-yayımlamak, hiçbir şey yayımlamamaktan daha dürüsttür. Onun da durmasını istiyorsanız, yol
-aşağıdaki bölümde.
+yayımlamak, hiçbir şey yayımlamamaktan daha dürüsttür. Bir `403` de diğer her cevap gibi
+kaydedilir. Onun da durmasını istiyorsanız, yol aşağıdaki bölümde.
+
+Kaydetmediğimiz tek bir cevap var: etkileşimli bot doğrulaması. Uç sunucunuz erişilebilirlik
+kontrolüne bir yanıt yerine doğrulama sayfasıyla karşılık veriyorsa, servisiniz hakkında
+hiçbir şey ölçmüş olmayız; dolayısıyla hiçbir veri saklanmaz ve servisiniz bu yüzden asla
+kapalı olarak yayımlanmaz. Doğrulamayı çözmeye çalışmaz, User-Agent değerimizi bir tarayıcı
+değeriyle değiştirmez ve farklı bir adresten geri gelmeyiz.
 
 ## Bir insana nasıl ulaşılır
 
@@ -65,7 +71,8 @@ Hiçbir şey istememizi tercih ediyorsanız, farklı bir sıklık istiyorsanız 
 neden orada olduğumuzu öğrenmek istiyorsanız, hangi alan adını sorduğunuzu belirterek
 [[bot.contact_email]] adresine yazın. Servisinizi katalogdan kaldırırız; bu iki istemciyi
 de durdurur. User-Agent değerini engellemeniz de işe yarar ve bunu etrafından dolaşmak
-yerine olduğu gibi bir cevap olarak kabul ederiz.
+yerine olduğu gibi bir cevap olarak kabul ederiz. Bir bot doğrulaması da yukarıda anlatılan
+koşullarla aynı şekilde sayılır.
 
 Açıkça söylemekte fayda var, ve iki istemci bu noktada birbirinden ayrılıyor.
 [[bot.probe_egress]] Durum akışı okuması ise tam tersi:
