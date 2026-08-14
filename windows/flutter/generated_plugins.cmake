@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   flutter_secure_storage_windows
   flutter_timezone
+  sentry_flutter
   share_plus
   url_launcher_windows
   window_to_front

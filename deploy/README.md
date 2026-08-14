@@ -265,6 +265,86 @@ dashboard. The page says "accepted" and never "arrived" because the send is
 queued, so the provider's dashboard is the only place the actual delivery is
 visible.
 
+## Turning on Sentry
+
+Three projects under the `kodizm-sentry` org, one per half of the system:
+`uptizm-api`, `uptizm-app` and `uptizm-worker`. Two of the three are already wired
+by files in this repository and need nothing here: the Flutter DSN is in
+`.env.production` and the Worker DSN is in `wrangler.toml`, because a DSN is
+write-only and both of those bundles are public anyway.
+
+The backend is the one that needs a hand, because its DSN belongs in the server's
+own `.env`:
+
+```bash
+ssh personal
+sudo -u uptizm -H bash
+cd ~/htdocs/uptizm.com/backend
+echo 'SENTRY_LARAVEL_DSN=https://<key>@o4511168697794560.ingest.de.sentry.io/4511908893294672' >> .env
+php8.5 artisan optimize
+```
+
+Nothing reports until that is set AND `APP_ENV=production`, which is a gate in
+`config/sentry.php` rather than an accident: a DSN on a developer machine would
+spend quota that this org cannot replace, since the plan carries
+`onDemandMaxSpend = 0` and a spent quota drops real production events for the rest
+of the month rather than billing for more.
+
+**Profiling covers the queue and not the web tier, and that is a property of
+this box rather than a setting.** Two separate PHP builds run this application,
+which is worth knowing before anything here surprises you:
+
+| | version | thread safety | extension dir |
+|---|---|---|---|
+| frankenphp (Octane, HTTP) | 8.5.6 | ZTS | `/usr/lib/frankenphp/modules` |
+| system CLI (Horizon, scheduler) | 8.5.7 | NTS | `/usr/lib/php/20250925` |
+
+`pecl install` builds against the CLI. The frankenphp binary is a self-contained
+59 MB build carrying its own embedded PHP, it exposes no `php-config`, and its
+module directory is empty, so the extension the queue loads is invisible to the
+web tier by ABI as well as by path.
+
+```bash
+sudo pecl install excimer          # NOT pecl8.5, that binary does not exist here
+php8.5 -r 'echo phpversion("excimer"), PHP_EOL;'
+```
+
+That is the whole install. The version floor that matters elsewhere (excimer
+1.2.5 and below yield zero samples under ZTS) does not apply here, because the
+build this loads into is NTS.
+
+What you get: profiles for Horizon jobs and scheduled work, which is where the
+long work is (`analyze` runs up to 160 seconds). What you do not get: profiles
+for HTTP requests. Those keep transaction and span timing, including per-query
+duration and the call site of any query over 100ms, none of which depends on
+excimer. A missing extension is silent rather than an error, so
+`SENTRY_PROFILES_SAMPLE_RATE` needs no special value for the web tier.
+
+**There is no per-key rate limit to set, and looking for one is a dead end.**
+Sentry's client-key rate limit is a Business-plan feature; this org is on Team,
+so the field is absent from the UI. The API hides that badly: a `PUT` carrying
+`rateLimit` answers 200 and keeps `null`, while the same `PUT` renames the key
+happily, so it reads as a request that worked.
+
+The flood it would have capped is real. A relay outage fails every check job,
+`PerformMonitorCheck` retries three times, and at a thousand jobs a minute that
+is ~3000 events a minute against a 50,000 per MONTH allowance with no overage
+budget: under twenty minutes to spend the rest of the month's visibility, during
+the one incident class this product exists to detect.
+
+So the cap lives in the application instead. `App\Support\Sentry\SentryEventThrottle`
+runs inside `before_send` and allows one event per distinct fault per minute,
+which turns that outage into ~60 events an hour and loses nothing an operator
+reads (Sentry groups identical faults into one issue anyway). It fails OPEN, so
+a Redis outage costs quota rather than visibility. Nothing to configure at
+deploy time; it is listed here because the absent UI control is the first place
+anyone will look.
+
+**`sentry-cli` runs from your machine, not the server.** It needs a token with
+`org:read`, `project:read`, `project:write` and `project:releases`; the release and
+source-map steps in the deploy sections below assume `SENTRY_AUTH_TOKEN` and
+`SENTRY_ORG` are already in your shell profile.
+
 ## Deploying: what runs in what order
 
 Three things ship separately and the order between two of them is a contract, not a
@@ -290,11 +370,34 @@ realtime never connects. Everything in it ships to every browser, so
 
 ```bash
 cp .env .env.local.bak && cp .env.production .env
-flutter build web --release
+RELEASE="$(git rev-parse --short HEAD)"
+sed -i '' "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$RELEASE|" .env
+flutter build web --release --source-maps
 mv .env.local.bak .env
+sentry-cli sourcemaps upload --project uptizm-app --release "$RELEASE" build/web
 rsync -az --delete build/web/ personal:/home/uptizm-app/htdocs/app.uptizm.com/
 ssh personal 'chown -R uptizm-app:uptizm-app /home/uptizm-app/htdocs/app.uptizm.com'
 ```
+
+Three of those lines are new and each one fails quietly if you drop it.
+
+**`SENTRY_RELEASE` is written into `.env`, not exported.** The Flutter build reads
+its configuration from the bundled asset, not from your shell, so an exported
+variable reaches nothing. `.env.production` ships that key empty on purpose and the
+`sed` fills it for this build only, which is why the restore on the next line puts
+your development `.env` back untouched.
+
+**`--source-maps` is what makes a stack trace readable.** Without it every issue
+from the web client names a minified `dart2js` symbol, and web is this product's
+primary surface. Note that the maps are uploaded and then NOT shipped: `rsync`
+sends `build/web/`, which contains them, so if you would rather not serve `.map`
+files publicly, delete them after the upload and before the sync.
+
+**The release name must match on both sides or the maps are ignored.** The same
+`$RELEASE` goes into the bundle and into the upload, which is the entire contract.
+A mismatch produces no error anywhere: the events arrive, the maps sit in Sentry,
+and nothing connects them. `sentry-cli releases files "$RELEASE" list` is how you
+check that a release actually has artifacts.
 
 ## Deploying the backend
 
@@ -304,10 +407,31 @@ sudo -u uptizm -H bash
 cd ~/htdocs/uptizm.com && git pull && cd backend && php8.5 artisan migrate --force
 php8.5 /usr/local/bin/composer install --no-dev --optimize-autoloader
 npm ci && npm run build
+sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$(git rev-parse --short HEAD)|" .env
 php8.5 artisan optimize
 exit
 supervisorctl restart uptizm:*
 ```
+
+Then, from your own machine, tell Sentry the release exists and which commits are
+in it:
+
+```bash
+RELEASE="$(git rev-parse --short HEAD)"
+sentry-cli releases new --project uptizm-api "$RELEASE"
+sentry-cli releases set-commits --auto "$RELEASE"
+sentry-cli releases finalize "$RELEASE"
+```
+
+**The `sed` runs before `artisan optimize`, and that order is the whole point.**
+`optimize` runs `config:cache`, which evaluates every `env()` call once and freezes
+the result; a release written after it would sit in `.env` doing nothing until the
+next deploy happened to cache it. The same freeze is what makes the DSN work at
+all, since `config/sentry.php` only reads it when `APP_ENV` is `production`.
+
+**`set-commits --auto` is what makes an issue name a commit.** Without it the
+release exists and its "suspect commits" panel stays empty, which is most of the
+reason to create a release in the first place.
 
 Three things about that order, all learned the hard way on a deploy.
 
@@ -372,8 +496,19 @@ publishing `up` for monitors whose assertions were being violated.
 ```bash
 cd backend/workers/regional-checker
 npx wrangler deployments list        # what is actually live right now
-npx wrangler deploy
+RELEASE="$(git rev-parse --short HEAD)"
+npx wrangler deploy --outdir dist --var SENTRY_RELEASE:"$RELEASE"
+sentry-cli sourcemaps upload --project uptizm-worker --release "$RELEASE" dist
 ```
+
+**`--outdir` is what puts the bundle and its maps on your disk.** `wrangler.toml`
+already sets `upload_source_maps = true`, but that hands them to CLOUDFLARE; Sentry
+needs its own copy and can only take one from a directory. Without this the worker's
+stack traces name a column in a 500 KB bundle.
+
+**`--var` overrides the `SENTRY_RELEASE` binding for this deploy only.** It has to
+carry the same value the upload does, for the same reason the Flutter build does:
+a mismatch is silent on both ends.
 
 **Server first, edge second**, which `.claude/rules/relay-worker.md` also states: a
 worker deployed ahead of the backend sends a payload the backend cannot store yet.

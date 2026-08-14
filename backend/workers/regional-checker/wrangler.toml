@@ -4,10 +4,28 @@ compatibility_date = "2026-07-10"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+# Emit source maps and hand them to `wrangler deploy`, so a stack trace in
+# Sentry names a line in `src/`, not a column in the bundle. They are produced
+# on deploy only, never by `wrangler dev`, and the upload step that attaches
+# them to a release lives in `deploy/README.md`.
+upload_source_maps = true
+
 # RELAY_SECRET is never declared here. In `wrangler dev` it is read from
 # `.dev.vars` (git-ignored, provisioned out of band); in production it is
 # uploaded with `wrangler secret put RELAY_SECRET`. Source reads it via
 # `env.RELAY_SECRET`.
+
+# SENTRY_DSN is NOT a secret and is deliberately in the file rather than
+# alongside RELAY_SECRET above. A DSN only grants the right to SEND an event, it
+# reads nothing, and every browser-delivered SDK ships one in public bytes; the
+# repository being public costs nothing here. Keeping it declared is what makes
+# the deployed script the only place Sentry is enabled, since `wrangler dev` and
+# the vitest pool read `.dev.vars`, which has no DSN, and an absent DSN disables
+# the SDK. That is the whole mechanism preventing a local run from filing issues
+# against production.
+[vars]
+SENTRY_DSN = "https://5c393c58736813e382f76f8a298b7827@o4511168697794560.ingest.de.sentry.io/4511908894212176"
+SENTRY_ENVIRONMENT = "production"
 
 # One region-pinned Durable Object class runs the outbound probe. SQLite
 # DOs run on the Free plan and in `wrangler dev`, so the migration uses

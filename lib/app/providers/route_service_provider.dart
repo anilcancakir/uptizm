@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:magic/magic.dart';
 import 'package:magic_devtools/preview.dart';
 import 'package:magic_starter/magic_starter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../kernel.dart';
 import '../../routes/app.dart';
@@ -27,6 +28,19 @@ class RouteServiceProvider extends ServiceProvider {
 
   @override
   Future<void> boot() async {
+    // Name each screen in Sentry, and time how long it took to get there.
+    //
+    // Registered in boot() for the same reason the preview catalog below is:
+    // MagicRouter refuses an observer once it has built its routerConfig, and
+    // that build happens on the first frame. It also has to land before the
+    // first navigation, since a transaction can only measure a route change it
+    // was present for.
+    //
+    // Without this every event is filed against a route this app never names,
+    // because magic drives go_router and the SDK cannot see through it. Inert
+    // without a DSN, like the rest of the SDK.
+    MagicRouter.instance.addObserver(SentryNavigatorObserver());
+
     // Register the Magic Starter account surface FIRST: auth pages (carrying
     // the 'guest' gate), the settings hub + sub-pages, team management and
     // notification preferences. These own the paths uptizm previously served

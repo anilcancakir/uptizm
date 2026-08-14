@@ -6,6 +6,7 @@ use App\Http\Controllers\Marketing\SendContactMessageController;
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Middleware\SetApiLocale;
 use App\Http\Middleware\SetMarketingLocale;
+use App\Http\Middleware\SetSentryContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -15,6 +16,7 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -98,8 +100,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // surface, and that is exactly what was reaching a Turkish operator in
         // English. `SetMarketingLocale` owns the marketing pages, and a public
         // status page publishes in one owner-chosen language on purpose.
+        // `SetSentryContext` rides along for the same reason and with the same
+        // constraint: it reads the resolved user, so it has to run after the
+        // auth middleware. It tells Sentry which member of which team hit an
+        // error, which is where triage starts and which nothing supplies by
+        // default here, since `send_default_pii` is off.
         $middleware->api(append: [
             SetApiLocale::class,
+            SetSentryContext::class,
         ]);
 
         // Lean group for the public status pages: bind route params but skip
@@ -142,6 +150,19 @@ return Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Report unhandled exceptions to Sentry. This app has no
+        // `app/Exceptions/Handler.php` (Laravel 13 slim skeleton), so the
+        // registration is explicit rather than automatic: `Integration::handles()`
+        // registers a `reportable()` callback on the configuration object above.
+        // It is a REPORTER, not a renderer, so it changes nothing about the
+        // response shape `shouldRenderJsonWhen()` below decides.
+        //
+        // Whether an event actually leaves the process is decided entirely by
+        // the DSN, and `config/sentry.php` only supplies one in production. A
+        // local run and the test suite therefore call into a disabled client,
+        // which is the intended path rather than an accident.
+        Integration::handles($exceptions);
+
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );

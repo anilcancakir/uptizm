@@ -33,10 +33,28 @@ Schedule::job(new ScheduleMonitorChecks)
 // Hourly, not nightly. The strip's last cell is TODAY, so a once-a-day run left
 // every status page showing its most recent day as unmeasured until the following
 // morning. Hourly is ample: the strip's granularity is a whole day.
+// THE ONE SCHEDULED TASK WATCHED BY SENTRY, and the choice is forced rather
+// than preferred: this org's plan includes a single cron monitor seat, while
+// this file registers eleven tasks.
+//
+// It is not the most important one. `monitoring:schedule-checks` above is, and
+// that is exactly why it is not this: if check dispatch stops, every dashboard
+// empties and every status page freezes, so the product reports its own outage
+// within minutes. This job is the opposite shape. If it stops, checks keep
+// running and nothing looks wrong; the uptime strip simply stops advancing, and
+// the gap is only visible to someone who happens to compare a status page
+// against the raw check table. A silent failure that corrupts published data is
+// what a cron monitor is for.
+//
+// Its cadence also fits the tool. Cron monitoring expresses a schedule in
+// minutes at best, so the thirty-second dispatcher cannot be represented
+// honestly, and watching it would spend roughly 170k check-ins a month against
+// a plan whose overage budget is zero.
 Schedule::job(new AggregateMonitorDailyUptime)
     ->hourly()
     ->onOneServer()
-    ->name('monitoring:daily-uptime');
+    ->name('monitoring:daily-uptime')
+    ->sentryMonitor();
 
 // Fan out SSL certificate checks once a day (supervisor `ssl` queue,
 // single-server, unique lock prevents overlap with a still-running fan-out).
