@@ -87,12 +87,23 @@ return [
      * backwards and expensive when you do, since profiling is billed by
      * duration rather than by count.
      *
-     * Requires the `excimer` extension, and requires it at >= 1.2.6
-     * specifically: this deploy runs Octane on frankenphp, which is a ZTS
-     * build, and excimer 1.2.5 and below produce ZERO samples there without
-     * erroring. An empty profile and a disabled profiler look identical from
-     * the dashboard, so `deploy/README.md` carries a verification step rather
-     * than an install line.
+     * IT ONLY EVER PROFILES THE QUEUE, and that is a property of the server
+     * rather than a setting. Measured on the production box: two separate PHP
+     * builds run this application. Octane serves HTTP through the frankenphp
+     * binary, which carries its OWN embedded PHP (8.5.6, ZTS, modules in
+     * `/usr/lib/frankenphp/modules`), while Horizon and the scheduler run on the
+     * system CLI (8.5.7, NTS, `/usr/lib/php/20250925`). `pecl install excimer`
+     * builds against the CLI, and the two are incompatible by ABI as well as by
+     * path, so the extension the queue loads is invisible to the web tier.
+     *
+     * That split is acceptable here rather than merely tolerated: the work worth
+     * profiling is the long work, and the long work is queued. `analyze` runs
+     * for up to 160 seconds and nobody can currently say where it spends them.
+     * The HTTP tier keeps transaction and span timing, including per-query
+     * duration and the call site of anything over 100ms.
+     *
+     * A missing excimer is SILENT, not an error, so this rate staying at 0.1
+     * costs nothing on the web tier and does not need a second config key.
      *
      * @see https://docs.sentry.io/platforms/php/guides/laravel/profiling/
      */
@@ -127,9 +138,6 @@ return [
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#log_flush_threshold
     'log_flush_threshold' => env('SENTRY_LOG_FLUSH_THRESHOLD') === null ? null : (int) env('SENTRY_LOG_FLUSH_THRESHOLD'),
-
-    // The minimum log level that will be sent to Sentry as logs using the `sentry_logs` logging channel
-    'logs_channel_level' => env('SENTRY_LOG_LEVEL', env('SENTRY_LOGS_LEVEL', env('LOG_LEVEL', 'debug'))),
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#send_default_pii
     'send_default_pii' => env('SENTRY_SEND_DEFAULT_PII', false),

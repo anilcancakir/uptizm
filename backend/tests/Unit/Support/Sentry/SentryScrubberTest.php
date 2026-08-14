@@ -6,6 +6,8 @@ use App\Services\Monitoring\IncidentWriteService;
 use App\Support\Sentry\SentryScrubber;
 use Sentry\Breadcrumb;
 use Sentry\Event;
+use Sentry\Logs\Log;
+use Sentry\Logs\LogLevel;
 use Tests\TestCase;
 
 /**
@@ -186,6 +188,49 @@ class SentryScrubberTest extends TestCase
         $this->assertSame(SentryScrubber::MARKER, $breadcrumbs[0]->getMetadata()['auth_config']);
         $this->assertSame(42, $breadcrumbs[0]->getMetadata()['monitor_id']);
         $this->assertSame('Probe failed', $breadcrumbs[0]->getMessage(), 'The message must survive intact.');
+    }
+
+    /**
+     * A credential nested inside a log context, which is the shape a real call
+     * site produces.
+     *
+     * `Log::warning('...', ['monitor' => $monitor->toArray()])` puts the
+     * credential one level down, where a top-level key check never looks. It is
+     * also the case a naive fix gets wrong: by the time a log attribute exists
+     * the SDK has already JSON-ENCODED the array into a string
+     * (`Attribute::tryFromValue()`), so recursing over arrays finds nothing at
+     * all. The scrub has to reach inside the encoded value.
+     */
+    public function test_it_masks_a_credential_nested_inside_a_log_attribute(): void
+    {
+        $log = new Log(microtime(true), str_repeat('a', 32), LogLevel::warn(), 'Probe failed');
+        $log->setAttribute('monitor', [
+            'id' => 42,
+            'auth_config' => ['token' => 'LEAKED-IF-YOU-SEE-THIS'],
+        ]);
+
+        $scrubbed = SentryScrubber::beforeSendLog($log);
+
+        $value = (string) $scrubbed->attributes()->get('monitor')?->getValue();
+
+        $this->assertStringNotContainsString('LEAKED-IF-YOU-SEE-THIS', $value);
+        $this->assertStringContainsString(SentryScrubber::MARKER, $value);
+        $this->assertStringContainsString('42', $value, 'The unrelated sibling must survive.');
+    }
+
+    /**
+     * The top-level case, which is the one a flat context produces.
+     */
+    public function test_it_masks_a_top_level_log_attribute(): void
+    {
+        $log = new Log(microtime(true), str_repeat('a', 32), LogLevel::warn(), 'Probe failed');
+        $log->setAttribute('auth_config', 'Basic dXNlcjpwYXNz');
+        $log->setAttribute('monitor_id', 42);
+
+        $scrubbed = SentryScrubber::beforeSendLog($log);
+
+        $this->assertSame(SentryScrubber::MARKER, $scrubbed->attributes()->get('auth_config')?->getValue());
+        $this->assertSame(42, $scrubbed->attributes()->get('monitor_id')?->getValue());
     }
 
     /**

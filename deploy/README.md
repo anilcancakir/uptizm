@@ -290,18 +290,35 @@ spend quota that this org cannot replace, since the plan carries
 `onDemandMaxSpend = 0` and a spent quota drops real production events for the rest
 of the month rather than billing for more.
 
-**Profiling needs `excimer`, and needs it verified rather than installed.** Octane
-runs on frankenphp, which is a ZTS build, and excimer 1.2.5 and below produce zero
-samples there without erroring. An empty profile and a disabled profiler look
-identical from the dashboard, so check the version rather than the install:
+**Profiling covers the queue and not the web tier, and that is a property of
+this box rather than a setting.** Two separate PHP builds run this application,
+which is worth knowing before anything here surprises you:
+
+| | version | thread safety | extension dir |
+|---|---|---|---|
+| frankenphp (Octane, HTTP) | 8.5.6 | ZTS | `/usr/lib/frankenphp/modules` |
+| system CLI (Horizon, scheduler) | 8.5.7 | NTS | `/usr/lib/php/20250925` |
+
+`pecl install` builds against the CLI. The frankenphp binary is a self-contained
+59 MB build carrying its own embedded PHP, it exposes no `php-config`, and its
+module directory is empty, so the extension the queue loads is invisible to the
+web tier by ABI as well as by path.
 
 ```bash
-sudo pecl8.5 install excimer
-php8.5 -r 'echo phpversion("excimer"), PHP_EOL;'   # must print >= 1.2.6
+sudo pecl install excimer          # NOT pecl8.5, that binary does not exist here
+php8.5 -r 'echo phpversion("excimer"), PHP_EOL;'
 ```
 
-If it prints something older, leave `SENTRY_PROFILES_SAMPLE_RATE=0` in `.env` until
-it can be upgraded. Tracing and error reporting do not depend on it.
+That is the whole install. The version floor that matters elsewhere (excimer
+1.2.5 and below yield zero samples under ZTS) does not apply here, because the
+build this loads into is NTS.
+
+What you get: profiles for Horizon jobs and scheduled work, which is where the
+long work is (`analyze` runs up to 160 seconds). What you do not get: profiles
+for HTTP requests. Those keep transaction and span timing, including per-query
+duration and the call site of any query over 100ms, none of which depends on
+excimer. A missing extension is silent rather than an error, so
+`SENTRY_PROFILES_SAMPLE_RATE` needs no special value for the web tier.
 
 **There is no per-key rate limit to set, and looking for one is a dead end.**
 Sentry's client-key rate limit is a Business-plan feature; this org is on Team,

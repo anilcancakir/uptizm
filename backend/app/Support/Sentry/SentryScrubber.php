@@ -173,13 +173,68 @@ class SentryScrubber
      */
     public static function beforeSendLog(Log $log): ?Log
     {
-        foreach (array_keys($log->attributes()->all()) as $key) {
+        foreach ($log->attributes()->all() as $key => $attribute) {
             if (self::isSensitive($key)) {
                 $log->setAttribute($key, self::MARKER);
+
+                continue;
+            }
+
+            $rewritten = self::scrubEncodedAttribute($attribute->getValue());
+
+            if ($rewritten !== null) {
+                $log->setAttribute($key, $rewritten);
             }
         }
 
         return $log;
+    }
+
+    /**
+     * Mask inside an attribute the SDK has already JSON-encoded.
+     *
+     * This exists because a log attribute is a SCALAR by the time it reaches
+     * `before_send_log`. `Log::warning('...', ['monitor' => $monitor->toArray()])`
+     * is the realistic call shape, and `Attribute::tryFromValue()` turns that
+     * nested array into a JSON string, so the credential sits one level down
+     * inside a value rather than under a key anything can match. Recursing over
+     * arrays here, the obvious fix, would find nothing at all: there are no
+     * arrays left to recurse into.
+     *
+     * Decoding is guarded rather than attempted on everything: only a value
+     * that starts as an object or array is parsed, so an ordinary message
+     * string is never round-tripped. When nothing changed the original is kept
+     * untouched, so a re-encode can never reformat a value it had no reason to
+     * touch.
+     *
+     * @param  mixed  $value  The attribute's current value.
+     * @return string|null The rewritten JSON, or null when this attribute needs no change.
+     */
+    private static function scrubEncodedAttribute($value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        if ($value[0] !== '{' && $value[0] !== '[') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+
+        if (! is_array($decoded)) {
+            return null;
+        }
+
+        $scrubbed = self::scrub($decoded);
+
+        if ($scrubbed === $decoded) {
+            return null;
+        }
+
+        $encoded = json_encode($scrubbed);
+
+        return $encoded === false ? null : $encoded;
     }
 
     /**
