@@ -837,6 +837,16 @@ class ThresholdEvaluator
         //    reads affectedCount=0 with a blank monitor name. The component
         //    status freezes the monitor's current health at open time and
         //    mirrors it as the live status.
+        //
+        //    The two columns are named for `ComponentStatus` and carry
+        //    `MonitorStatus` values, which reads like a bug and is not: the
+        //    client decodes them with `statusKeyFromWire()`, whose vocabulary is
+        //    `up`/`down`/`degraded`/`paused` and whose fallback for anything
+        //    else is a blue `info` badge. Writing a real `ComponentStatus` here
+        //    would turn every affected monitor grey-blue on the incident page,
+        //    silently. An `IncidentSeverity::toComponentStatus()` existed for
+        //    exactly that and was never called by anything; it is gone rather
+        //    than left as an invitation.
         $componentStatus = $monitor->last_status?->value ?? MonitorStatus::Down->value;
         $incident->monitors()->attach($monitor->id, [
             'component_status_at_start' => $componentStatus,

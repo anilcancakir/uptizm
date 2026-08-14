@@ -359,6 +359,45 @@ class ThresholdEvaluatorTest extends TestCase
     }
 
     /**
+     * `severity` is the operator tier and `impact` is what a customer is told,
+     * and the automatic path emits only Critical and Warn. So mapping Warn onto
+     * the second-loudest CUSTOMER tier left the ladder with no middle rung at
+     * all: the client collapses `critical` and `major` into one red badge, which
+     * made a warn-tier metric breach on a monitor still answering HTTP 200 read
+     * exactly like a total outage, on the operator's dashboard and on their
+     * public status page both.
+     */
+    public function test_a_warn_metric_breach_is_minor_customer_impact(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, warnValues: ['degraded']);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'degraded']);
+
+        $this->assertSame(
+            IncidentImpact::Minor,
+            Incident::query()->sole()->impact,
+            'a warning tier is not a major customer-facing outage',
+        );
+    }
+
+    /**
+     * The other half of the ladder, pinned so a future edit cannot quietly
+     * flatten the two tiers into one: a real down streak still reads critical.
+     */
+    public function test_a_down_streak_is_critical_customer_impact(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
+        $monitor->forceFill(['consecutive_fails' => 1])->save();
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), [], []);
+
+        $this->assertSame(IncidentImpact::Critical, Incident::query()->sole()->impact);
+    }
+
+    /**
      * A two-tier metric is the natural shape of a health endpoint: `degraded`
      * warns, `down` pages. The metric-scoped dedupe used to swallow the second
      * half of that, because it asked only whether an incident existed and never
@@ -725,7 +764,10 @@ class ThresholdEvaluatorTest extends TestCase
             'team_id' => $monitor->team_id,
             'primary_monitor_id' => $monitor->id,
             'title' => "Anomaly detected on {$monitor->name}",
-            'impact' => IncidentImpact::Major,
+            // Warn pairs with Minor, matching what `IncidentSeverity::toImpact()`
+            // now produces. A fixture that pins the old pairing would keep
+            // describing a state the product no longer writes.
+            'impact' => IncidentImpact::Minor,
             'severity' => IncidentSeverity::Warn,
             'signal_source' => SignalSource::AiAnomaly,
             'lifecycle' => IncidentStatus::Detected,
