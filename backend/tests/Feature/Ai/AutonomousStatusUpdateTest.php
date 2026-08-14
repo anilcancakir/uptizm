@@ -9,6 +9,7 @@ use App\Enums\IncidentStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
 use App\Jobs\PublishAiIncidentUpdate;
+use App\Jobs\TranslateStatusPageText;
 use App\Models\AiIncidentAnalysis;
 use App\Models\Incident;
 use App\Models\Monitor;
@@ -24,6 +25,7 @@ use App\Services\Ai\IncidentDraftResult;
 use App\Services\Ai\IncidentDraftService;
 use App\Services\Ai\NonConformingAnalysisException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -63,6 +65,35 @@ class AutonomousStatusUpdateTest extends TestCase
         $this->assertTrue((bool) $update->autonomous);
         $this->assertSame('ai', $update->actor);
         $this->assertStringContainsString('investigating', $update->message);
+    }
+
+    public function test_an_autonomous_post_is_written_in_the_teams_language(): void
+    {
+        // No request exists here, so `SetApiLocale` has nothing to act on: this
+        // is a queued job, and reading `app()->getLocale()` would hand it the
+        // config default. The team is the nearest audience it has.
+        $monitor = $this->makeMonitor(true);
+        $monitor->team->owner->forceFill(['locale' => 'tr'])->save();
+        $incident = $this->makeIncident($monitor);
+
+        $job = new PublishAiIncidentUpdate((string) $incident->id, 'investigating');
+        $locale = (fn (): string => $this->locale($incident->fresh()))->call($job);
+
+        $this->assertSame('tr', $locale);
+    }
+
+    public function test_an_autonomous_post_is_queued_for_translation(): void
+    {
+        // Every operator-written update fans out through `IncidentWriteService`.
+        // This job writes the row itself, so it bypassed that and an autonomous
+        // post was the one update on the timeline a Turkish status page would
+        // have shown in the team's language while every other entry got
+        // translated.
+        Queue::fake();
+
+        $this->runJob($this->makeIncident($this->makeMonitor(true)));
+
+        Queue::assertPushed(TranslateStatusPageText::class);
     }
 
     public function test_a_monitor_that_never_allowed_it_publishes_nothing(): void

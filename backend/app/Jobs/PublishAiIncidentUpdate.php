@@ -120,10 +120,12 @@ class PublishAiIncidentUpdate implements ShouldQueue
 
         // 4. Draft the customer-facing sentence for the stage this update is
         //    posted as, in the team's own language.
+        $locale = $this->locale($incident);
+
         $result = $draftService->draftFor(
             $incident,
             IncidentDraftKind::Update,
-            $this->locale(),
+            $locale,
             $this->stage,
         );
 
@@ -141,7 +143,7 @@ class PublishAiIncidentUpdate implements ShouldQueue
         }
 
         // 5. Post it publicly, marked as what it is.
-        $incident->updates()->create([
+        $posted = $incident->updates()->create([
             'actor' => 'ai',
             'author' => self::AUTHOR,
             'status' => $this->stage,
@@ -150,6 +152,20 @@ class PublishAiIncidentUpdate implements ShouldQueue
             'autonomous' => true,
             'display_at' => now(),
         ]);
+
+        // 6. Queue the translations, with the language it was actually WRITTEN in
+        //    as the source. Every operator-written update reaches the status page
+        //    through this fan-out because `IncidentWriteService` calls it on all
+        //    six of its posting paths; this job writes its own row, so it went
+        //    around that and an autonomous post was the single entry on a
+        //    translated timeline that stayed in the team's language.
+        //
+        //    The source is `$locale` rather than the config default that the six
+        //    others pass. Those are right for what they are, since an operator
+        //    typed into a client that had already applied its own language; here
+        //    the job chose the language a few lines up and is the only thing that
+        //    knows it.
+        TranslateStatusPageText::fanOut($posted, 'message', $locale);
     }
 
     /**
@@ -231,12 +247,19 @@ class PublishAiIncidentUpdate implements ShouldQueue
     /**
      * The language the update is written in.
      *
-     * The team's own locale, not the request's: nobody is making this request.
-     * A status page reader gets the page's language through the translation
-     * fan-out that every other public update already goes through.
+     * The team's own locale, and it used to SAY that while returning the config
+     * default, which is how an operator whose whole interface was Turkish got an
+     * English post signed by this product. There is no request here to read a
+     * language from, so `SetApiLocale` cannot reach
+     * this path and {@see Team::preferredLocale()} is the answer instead.
+     *
+     * A status page reader still gets the page's own language: step 6 hands this
+     * value to the fan-out as the SOURCE, and the translation jobs cover every
+     * other shipped locale from there.
      */
-    protected function locale(): string
+    protected function locale(Incident $incident): string
     {
-        return (string) config('app.default_locale', config('app.locale'));
+        return $incident->team?->preferredLocale()
+            ?: (string) config('app.default_locale', config('app.locale'));
     }
 }

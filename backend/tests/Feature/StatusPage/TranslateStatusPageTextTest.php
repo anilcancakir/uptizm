@@ -358,7 +358,7 @@ class TranslateStatusPageTextTest extends TestCase
      * read, and a fifth caller appearing in a public controller, a view or a
      * route file is exactly the change this has to fail on.
      */
-    public function test_only_the_four_authenticated_write_paths_dispatch_this_job(): void
+    public function test_only_the_known_internal_write_paths_dispatch_this_job(): void
     {
         $callers = [];
 
@@ -379,12 +379,28 @@ class TranslateStatusPageTextTest extends TestCase
 
         sort($callers);
 
-        // Four files, and the job's own is not among them: it dispatches through
+        // The job's own file is not among them: it dispatches through
         // `self::dispatch()` inside `fanOut()`, so the only way to reach the queue
         // from anywhere else is one of the two strings scanned above.
+        //
+        // What this list actually guards is the second assertion below, not the
+        // count: translation is a MODEL CALL, and no public unauthenticated
+        // request may spend one. Two of the five are not authenticated write
+        // paths at all, which is why the method was renamed: `ThresholdEvaluator`
+        // and `PublishAiIncidentUpdate` are the monitoring pipeline reacting to a
+        // probe, with no human and no request behind either. They are on the list
+        // because they are internal and reachable only from a check that already
+        // ran, not because somebody signed in.
+        //
+        // `PublishAiIncidentUpdate` earned its place late: it writes its own
+        // update row instead of going through `IncidentWriteService`, so it
+        // skipped the fan-out every operator-written update gets, and an
+        // autonomous post was the one entry on a translated timeline that stayed
+        // in the team's own language.
         $this->assertSame([
             'Http/Controllers/Api/V1/ScheduledMaintenanceController.php',
             'Http/Controllers/Api/V1/StatusPageController.php',
+            'Jobs/PublishAiIncidentUpdate.php',
             'Services/Monitoring/IncidentWriteService.php',
             'Services/Monitoring/ThresholdEvaluator.php',
         ], $callers);
