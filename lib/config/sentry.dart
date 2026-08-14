@@ -85,6 +85,19 @@ void configureSentry(SentryFlutterOptions options) {
 
   // Release health: how many sessions a version ran without a crash. It is the
   // one signal that says a deploy made things worse, and it is cheap.
+  //
+  // ON WEB THIS DEPENDS ON ROUTE NAMES, which is not obvious and fails without
+  // a symptom. `WebSessionHandler.startSession` fires only when the name of the
+  // route CHANGES, or on the very first navigation when that name is exactly
+  // `/`, and it reads `RouteSettings.name` rather than `GoRoute.name`. A router
+  // that leaves pages unnamed therefore reports zero sessions forever while its
+  // transport keeps working perfectly. Measured here before it was fixed: a
+  // browser with no ad blocker made zero ingest requests across three route
+  // changes, while a forced capture from the same page returned 200.
+  //
+  // magic names its pages as of fluttersdk/magic#121. Until that lands in the
+  // version this app resolves, release health stays empty and error reporting
+  // is unaffected.
   options.enableAutoSessionTracking = true;
 
   // NOT ENABLED, each for a measured reason rather than an oversight:
@@ -95,4 +108,23 @@ void configureSentry(SentryFlutterOptions options) {
   // - Screenshot attachment renders a monitoring dashboard, which is customer
   //   data by definition.
   // - Profiling has no web implementation at all.
+  //
+  // AD BLOCKERS ARE A REAL AND UNFIXABLE HOLE IN THE WEB NUMBERS, and it is
+  // worth knowing before anyone reads client error counts as coverage.
+  //
+  // Since v9 this SDK loads the Sentry Browser JS bundle from
+  // `browser.sentry-cdn.com`, and that URL is hardcoded in `sentry_js_bundle.dart`
+  // (marked `@internal`, not exported, not configurable through any option).
+  // Blocklists match it by DOMAIN, so a blocked visitor never fetches the
+  // script and the SDK silently never initialises: `WebSdkIntegration` catches
+  // the fetch failure, logs it, and does not rethrow.
+  //
+  // The usual answer, a same-origin tunnel, does NOT fix this. It would move
+  // only the event-sending leg; the script fetch is a separate request to a
+  // separate blocked domain. And there is nothing to configure anyway:
+  // sentry-dart has no `tunnel` option (getsentry/sentry-dart#872, open since
+  // 2022) and never forwards one to the JS SDK it injects.
+  //
+  // Backend and worker reporting are untouched by this, being server to
+  // server. Client-side counts are a floor, not a measurement.
 }
