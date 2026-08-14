@@ -303,18 +303,25 @@ php8.5 -r 'echo phpversion("excimer"), PHP_EOL;'   # must print >= 1.2.6
 If it prints something older, leave `SENTRY_PROFILES_SAMPLE_RATE=0` in `.env` until
 it can be upgraded. Tracing and error reporting do not depend on it.
 
-**Cap each project's client key, in the Sentry UI.** This one is not optional
-and it cannot be scripted: the key rate-limit field is rejected by the API (a
-`PUT` carrying it returns 200 and changes nothing, while the same `PUT` renames
-the key happily), so it has to be set at Settings → Client Keys → Rate Limit on
-each of the three projects. Roughly 2000 events per hour is right.
+**There is no per-key rate limit to set, and looking for one is a dead end.**
+Sentry's client-key rate limit is a Business-plan feature; this org is on Team,
+so the field is absent from the UI. The API hides that badly: a `PUT` carrying
+`rateLimit` answers 200 and keeps `null`, while the same `PUT` renames the key
+happily, so it reads as a request that worked.
 
-The reason is arithmetic rather than tidiness. A relay outage fails every check
-job, `PerformMonitorCheck` retries three times, and at a thousand jobs a minute
-that is ~3000 events a minute against a 50,000 per MONTH allowance with no
-overage budget. The whole month's error visibility would be gone in under twenty
-minutes, during the one incident class this product exists to detect, and the
-outage itself is already reported by `AlarmDarkProbeRegions`.
+The flood it would have capped is real. A relay outage fails every check job,
+`PerformMonitorCheck` retries three times, and at a thousand jobs a minute that
+is ~3000 events a minute against a 50,000 per MONTH allowance with no overage
+budget: under twenty minutes to spend the rest of the month's visibility, during
+the one incident class this product exists to detect.
+
+So the cap lives in the application instead. `App\Support\Sentry\SentryEventThrottle`
+runs inside `before_send` and allows one event per distinct fault per minute,
+which turns that outage into ~60 events an hour and loses nothing an operator
+reads (Sentry groups identical faults into one issue anyway). It fails OPEN, so
+a Redis outage costs quota rather than visibility. Nothing to configure at
+deploy time; it is listed here because the absent UI control is the first place
+anyone will look.
 
 **`sentry-cli` runs from your machine, not the server.** It needs a token with
 `org:read`, `project:read`, `project:write` and `project:releases`; the release and

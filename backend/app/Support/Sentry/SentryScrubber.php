@@ -96,12 +96,22 @@ class SentryScrubber
      *
      * @param  Event  $event  The event about to be transmitted.
      * @param  EventHint|null  $hint  The SDK's hint, unused here but part of the contract.
-     * @return Event|null Always the event. Returning null would DROP it, and an
-     *                    observability layer that silently discards errors is
-     *                    worse than none, because nobody would know.
+     * @return Event|null The scrubbed event, or null when {@see SentryEventThrottle}
+     *                    has already reported this same fault within the last
+     *                    minute. Nothing else here ever discards an event.
      */
     public static function beforeSend(Event $event, ?EventHint $hint): ?Event
     {
+        // 0. Drop a fault already reported this minute, BEFORE doing the work of
+        //    scrubbing it. This is the only quota control available to this
+        //    deployment: Sentry's own per-key rate limit is a Business-plan
+        //    feature, and its absence is silent (the API accepts the field and
+        //    keeps null). See SentryEventThrottle for the arithmetic; it fails
+        //    open, so a cache outage costs quota rather than visibility.
+        if (! SentryEventThrottle::allows($event)) {
+            return null;
+        }
+
         // 1. The request bag: headers (Authorization, Cookie), body, query.
         $request = $event->getRequest();
 
