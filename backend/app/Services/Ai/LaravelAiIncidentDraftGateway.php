@@ -75,6 +75,27 @@ class LaravelAiIncidentDraftGateway implements Agent, Conversational, HasProvide
     private const MAX_UPDATE_SENTENCES = 2;
 
     /**
+     * Seconds one model call here may take before it is given up on.
+     *
+     * The same number and the same reasoning as
+     * {@see LaravelAiIncidentAnalysisGateway::timeout()}, which carries the
+     * measurements: `laravel/ai` falls back to a hardcoded 60 when nothing
+     * declares a timeout, this gateway matched that fallback, and the measured
+     * tail runs past 60.
+     *
+     * It is stated here rather than shared through a trait or a config key, and
+     * that is a deliberate choice about how the two are allowed to drift. They
+     * answer different questions of different sizes: the analysis reads a whole
+     * incident's evidence, the draft writes one or two sentences from an answer
+     * already settled. If one of them needs a different ceiling later, it should
+     * be able to say so without the other moving.
+     */
+    public function timeout(): int
+    {
+        return 75;
+    }
+
+    /**
      * The payload of the current call, held so the Agent hooks can read the
      * kind and locale the trait's `prompt()` does not pass through.
      *

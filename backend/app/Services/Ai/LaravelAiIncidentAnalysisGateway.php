@@ -78,6 +78,35 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
     private const MIN_SUMMARY_LENGTH = 30;
 
     /**
+     * Seconds one model call here may take before it is given up on.
+     *
+     * `laravel/ai` reads this method by name
+     * ({@see Promptable::getTimeout()}), and its fallback when
+     * nothing declares one is a hardcoded 60. This gateway matched every arm of
+     * that fallback, so 60 governed it by accident and nothing in the
+     * application said so.
+     *
+     * MEASURED against the live provider on 2026-08-14, one call each: 6.7s,
+     * 8.3s, 21.0s, 22.8s, 29.2s, and one that ran past 60 and degraded
+     * (`cURL error 28: Operation timed out after 60001 milliseconds`). So the
+     * tail is real, it moves, and 60 was cutting inside it.
+     *
+     * 75 is bounded from ABOVE by Octane, not by the provider. A cache-miss read
+     * of the analysis endpoint still calls the model inside an HTTP request
+     * (deliberately, unlike the analyze path: that one makes three calls whose
+     * sum cleared no wall, this makes one), and `octane.max_execution_time` is
+     * 90. Losing to our own clock first is what turns a slow provider into a
+     * clean degrade instead of a hard 500, and the fifteen seconds left over are
+     * for the degrade path and the response. `IncidentGatewayTimeoutTest` pins
+     * both directions, including that two calls at this value still fit inside
+     * `PublishAiIncidentUpdate`'s own ceiling.
+     */
+    public function timeout(): int
+    {
+        return 75;
+    }
+
+    /**
      * Summarize the likely root cause of an incident from its timeline and
      * recorded checks.
      *
