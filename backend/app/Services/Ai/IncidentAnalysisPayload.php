@@ -285,6 +285,27 @@ readonly class IncidentAnalysisPayload
             )));
         }
 
+        // The roster is sorted and NOTHING ELSE here is, and the line between
+        // them is whether order carries meaning.
+        //
+        // A review found that `monitorRoster()` had no `orderBy`, so the same two
+        // monitors could hash twice and miss the store: a re-asked model, another
+        // budget unit, a second row for one answer. It was invisible until now
+        // because every check so far ran on a single-monitor incident, where
+        // nothing could reorder. Which monitor is listed first says nothing about
+        // the incident, so sorting is the honest normalisation.
+        //
+        // The other lists are the opposite, and sorting them was a mistake this
+        // suite caught: `EvidenceFingerprintTest::test_a_recovery_reads_differently_from_an_onset`
+        // pins that an `up` on top of a `down` is a RECOVERY and the reverse is
+        // the failure starting. The distinct set is identical either way and only
+        // the order separates them, so first-appearance order IS evidence for the
+        // checks, the timeline, the body diffs and the metric bands. Their
+        // determinism belongs in the queries that read them, as a tiebreaker, not
+        // in a sort that would flatten a recovery and an onset into one question.
+        $monitors = $this->monitors;
+        sort($monitors);
+
         return hash('sha256', (string) json_encode([
             $this->incidentId,
             $this->severity,
@@ -293,7 +314,7 @@ readonly class IncidentAnalysisPayload
             $this->signalSource,
             $this->aiOwned,
             $this->resolvedAt !== null,
-            $this->monitors,
+            $monitors,
             $this->timeline,
             $checks,
             $bodies,

@@ -182,7 +182,10 @@ class IncidentAnalysisService
     protected function composePayload(Incident $incident): IncidentAnalysisPayload
     {
         $incident->loadMissing([
-            'updates' => fn ($query) => $query->orderBy('display_at'),
+            // `display_at` ties whenever two updates land in the same second,
+            // which a reopen plus its system note does. The timeline's order is
+            // its meaning, so it gets a tiebreaker rather than a sort.
+            'updates' => fn ($query) => $query->orderBy('display_at')->orderBy('id'),
             'monitors',
         ]);
 
@@ -191,7 +194,17 @@ class IncidentAnalysisService
         $checks = MonitorCheck::query()
             ->whereIn('monitor_id', $monitorIds)
             ->where('checked_at', '>=', $this->evidenceFrom($incident))
+            // A tiebreaker, not decoration. `checked_at` alone is not a total
+            // order here: this product writes one row per REGION per tick, so a
+            // three-region monitor ties three ways every minute, and PostgreSQL
+            // answers a tie in whatever order the scan produced. The check
+            // SEQUENCE is evidence (an `up` above a `down` is a recovery, the
+            // reverse is the failure starting), so it cannot be sorted away in
+            // the fingerprint; it has to be deterministic at the read instead, or
+            // the same evidence hashes twice and re-spends a budget unit.
             ->orderByDesc('checked_at')
+            ->orderBy('region')
+            ->orderBy('id')
             ->limit(self::MAX_CHECKS)
             ->get();
 
@@ -576,8 +589,14 @@ class IncidentAnalysisService
      * recognise and falls back to the uuid, which is the defect this roster was
      * added for.
      *
+     * Ordered by id, which is not cosmetic: the roster reaches the prompt, and a
+     * stable monitor list is a stable prompt for the provider's own cache. The
+     * hash no longer depends on it ({@see IncidentAnalysisPayload::evidenceFingerprint()}
+     * sorts every list it reads), so this is the readable half of that fix rather
+     * than the load-bearing one.
+     *
      * @param  list<string>  $monitorIds
-     * @return list<array{monitor_id: string, name: string, url: string|null}>
+     * @return list<array{monitor_id: string, name: string}>
      */
     protected function monitorRoster(array $monitorIds): array
     {
@@ -592,6 +611,7 @@ class IncidentAnalysisService
             // a payload that had already been cleaned of URLs itself.
             // `IncidentAnalysisRedactionTest` pins it, and sweeps the other
             // payloads so a third surface cannot reopen it.
+            ->orderBy('id')
             ->get(['id', 'name'])
             ->map(fn (Monitor $monitor): array => [
                 'monitor_id' => (string) $monitor->id,
@@ -646,7 +666,11 @@ class IncidentAnalysisService
                 $incident->resolved_at !== null,
                 fn ($query) => $query->where('recorded_at', '<=', $incident->resolved_at->copy()->addHour()),
             )
+            // Same tiebreaker reasoning as the checks above: readings tie across
+            // regions on `recorded_at`, and the BAND SEQUENCE is what the analysis
+            // narrates, so it stays ordered rather than sorted.
             ->orderByDesc('recorded_at')
+            ->orderBy('id')
             ->limit(self::MAX_METRIC_READINGS)
             ->get();
 

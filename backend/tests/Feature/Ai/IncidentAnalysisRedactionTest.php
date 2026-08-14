@@ -11,6 +11,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Ai\IncidentAnalysisPayload;
 use App\Services\Ai\IncidentAnalysisService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -119,6 +120,120 @@ class IncidentAnalysisRedactionTest extends TestCase
             [],
             $offenders,
             'a payload renders a monitor URL; the path segment is often the credential',
+        );
+    }
+
+    public function test_the_fingerprint_ignores_the_order_of_the_monitor_roster(): void
+    {
+        // Raised in review: `monitorRoster()` had no `orderBy`, so the same two
+        // monitors could come back in either order and hash twice, missing the
+        // store and re-spending a budget unit on an incident whose evidence never
+        // moved. Invisible until now because every check so far ran against a
+        // single-monitor incident, where nothing could reorder.
+        //
+        // Narrowed to the ROSTER on purpose. The first version of this asserted
+        // order-independence for the checks too, and
+        // `EvidenceFingerprintTest::test_a_recovery_reads_differently_from_an_onset`
+        // caught it: the check list is newest-first, so an `up` above a `down` is
+        // a recovery and the reverse is the failure starting, and the distinct set
+        // is identical either way. Order IS evidence there, so those reads get a
+        // deterministic tiebreaker in the query instead of a sort here. Which
+        // monitor is listed first says nothing about the incident.
+        $one = $this->payloadWith(
+            monitors: [
+                ['monitor_id' => 'm-1', 'name' => 'API'],
+                ['monitor_id' => 'm-2', 'name' => 'Web'],
+            ],
+            checks: [
+                ['check_id' => 'c-1', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'down', 'status_code' => 500],
+            ],
+        );
+
+        $two = $this->payloadWith(
+            monitors: [
+                ['monitor_id' => 'm-2', 'name' => 'Web'],
+                ['monitor_id' => 'm-1', 'name' => 'API'],
+            ],
+            checks: [
+                ['check_id' => 'c-1', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'down', 'status_code' => 500],
+            ],
+        );
+
+        $this->assertSame(
+            $one->evidenceFingerprint(),
+            $two->evidenceFingerprint(),
+            'which monitor is listed first is not a change in the evidence',
+        );
+    }
+
+    public function test_the_check_sequence_still_moves_the_fingerprint(): void
+    {
+        // The boundary of the fix above, asserted here as well as in
+        // `EvidenceFingerprintTest` because this is the test that would be edited
+        // if somebody decided to sort the checks after all.
+        $recovery = $this->payloadWith(
+            monitors: [['monitor_id' => 'm-1', 'name' => 'API']],
+            checks: [
+                ['check_id' => 'c-2', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'up', 'status_code' => 200],
+                ['check_id' => 'c-1', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'down', 'status_code' => 500],
+            ],
+        );
+
+        $onset = $this->payloadWith(
+            monitors: [['monitor_id' => 'm-1', 'name' => 'API']],
+            checks: [
+                ['check_id' => 'c-1', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'down', 'status_code' => 500],
+                ['check_id' => 'c-2', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'up', 'status_code' => 200],
+            ],
+        );
+
+        $this->assertNotSame(
+            $recovery->evidenceFingerprint(),
+            $onset->evidenceFingerprint(),
+            'a recovery and an onset are the same set in a different order',
+        );
+    }
+
+    public function test_different_evidence_still_produces_a_different_fingerprint(): void
+    {
+        // The guard on the guard: sorting the inputs must not flatten the hash
+        // into something that ignores the evidence itself.
+        $up = $this->payloadWith(
+            monitors: [['monitor_id' => 'm-1', 'name' => 'API']],
+            checks: [['check_id' => 'c-1', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'up', 'status_code' => 200]],
+        );
+
+        $down = $this->payloadWith(
+            monitors: [['monitor_id' => 'm-1', 'name' => 'API']],
+            checks: [['check_id' => 'c-1', 'monitor' => 'API', 'region' => 'eu-central', 'status' => 'down', 'status_code' => 500]],
+        );
+
+        $this->assertNotSame($up->evidenceFingerprint(), $down->evidenceFingerprint());
+    }
+
+    /**
+     * A payload carrying just the two collections this asserts about.
+     *
+     * @param  list<array<string, mixed>>  $monitors
+     * @param  list<array<string, mixed>>  $checks
+     */
+    protected function payloadWith(array $monitors, array $checks): IncidentAnalysisPayload
+    {
+        return new IncidentAnalysisPayload(
+            incidentId: 'i-1',
+            severity: 'critical',
+            impact: 'critical',
+            lifecycle: 'detected',
+            signalSource: 'user_threshold',
+            aiOwned: false,
+            startedAt: '2026-08-14T00:00:00+00:00',
+            resolvedAt: null,
+            timeline: [],
+            checks: $checks,
+            bodies: [],
+            knownCheckIds: array_column($checks, 'check_id'),
+            knownMonitorIds: array_column($monitors, 'monitor_id'),
+            monitors: $monitors,
         );
     }
 
