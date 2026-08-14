@@ -426,7 +426,7 @@ in it:
 ```bash
 RELEASE="$(git rev-parse --short HEAD)"
 sentry-cli releases new --project uptizm-api "$RELEASE"
-sentry-cli releases set-commits --auto "$RELEASE"
+sentry-cli releases set-commits --auto --ignore-missing "$RELEASE"
 sentry-cli releases finalize "$RELEASE"
 ```
 
@@ -445,6 +445,13 @@ all, since `config/sentry.php` only reads it when `APP_ENV` is `production`.
 **`set-commits --auto` is what makes an issue name a commit.** Without it the
 release exists and its "suspect commits" panel stays empty, which is most of the
 reason to create a release in the first place.
+
+**`--ignore-missing` is not optional here, and it is this repo's merge style that
+makes it so.** Pull requests land squashed, so the previous release's SHA is a
+commit that no longer exists in any history; without the flag `set-commits` fails
+with "Could not find the SHA of the previous release in the git history" and the
+release ships with no commits attached. With it, Sentry falls back to the last 20
+commits, which is the right answer for a squashed history.
 
 Three things about that order, all learned the hard way on a deploy.
 
