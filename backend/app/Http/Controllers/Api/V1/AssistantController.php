@@ -13,6 +13,7 @@ use App\Services\Ai\AssistantGateway;
 use App\Services\Ai\AssistantPayload;
 use App\Services\Ai\AssistantResult;
 use App\Services\Billing\PlanGate;
+use App\Support\Ai\PromptLanguage;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 
@@ -111,6 +112,10 @@ class AssistantController extends Controller
             incidents: $trustedIncidents,
             knownMonitorIds: array_column($trustedMonitors, 'monitor_id'),
             knownIncidentIds: array_column($trustedIncidents, 'incident_id'),
+            // The one AI surface with a live request behind it, so this is
+            // the request's locale rather than the team's: SetApiLocale has
+            // already resolved the caller's own stored preference.
+            language: PromptLanguage::nameFor(app()->getLocale()),
         );
     }
 
