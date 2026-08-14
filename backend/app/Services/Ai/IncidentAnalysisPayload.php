@@ -77,11 +77,11 @@ readonly class IncidentAnalysisPayload
      *                                       what the gateway's allowlist reads, and that runs over the
      *                                       model's ANSWER rather than over the prompt.
      * @param  list<string>  $knownMonitorIds  The owned catalog of affected monitor ids.
-     * @param  list<array{monitor_id: string, name: string, url: string|null}>  $monitors  TRUSTED roster of the
-     *                                                                                     affected monitors. The NAME is what makes prose readable: the payload
-     *                                                                                     used to send ids alone, so the model wrote "the monitor
-     *                                                                                     a27cd1e4-3795-41b6-9527-dbbda45e51da" because it had nothing else to
-     *                                                                                     call it. The id stays for citations.
+     * @param  list<array{monitor_id: string, name: string}>  $monitors  TRUSTED roster of the
+     *                                                                   affected monitors. The NAME is what makes prose readable: the payload
+     *                                                                   used to send ids alone, so the model wrote "the monitor
+     *                                                                   a27cd1e4-3795-41b6-9527-dbbda45e51da" because it had nothing else to
+     *                                                                   call it. The id stays for citations.
      * @param  array{label: string, path: string|null, direction: string|null, warn: string|null, critical: string|null, readings: list<array{value: string, band: string|null, recorded_at: string|null}>}|null  $triggeringMetric
      *                                                                                                                                                                                                                               The metric whose breach opened this incident, with the bounds it crossed
      *                                                                                                                                                                                                                               and the readings around it. Null for an incident opened by consecutive
@@ -410,11 +410,15 @@ readonly class IncidentAnalysisPayload
         }
 
         return implode('; ', array_map(
+            // Name and id only. A `url` key is ignored even if a caller supplies
+            // one: the path segment of a monitor address is often the credential,
+            // and this line is what put a whole one into a summary an operator
+            // read back. The name is what makes the prose readable and the id is
+            // what makes a citation checkable; the address adds neither.
             fn (array $monitor): string => sprintf(
-                '%s (monitor_id: %s%s)',
+                '%s (monitor_id: %s)',
                 (string) ($monitor['name'] ?? 'unnamed'),
                 (string) ($monitor['monitor_id'] ?? 'unknown'),
-                isset($monitor['url']) ? ', url: '.$monitor['url'] : '',
             ),
             $this->monitors,
         ));

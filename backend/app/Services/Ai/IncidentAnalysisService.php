@@ -583,11 +583,19 @@ class IncidentAnalysisService
     {
         return Monitor::withTrashed()
             ->whereIn('id', $monitorIds)
-            ->get(['id', 'name', 'url'])
+            // The URL is deliberately NOT selected. Its path segment is often the
+            // credential (`https://host/api/v1/<32 hex>/status`), and this roster
+            // is rendered into the prompt's trusted half, so the model copied the
+            // whole address into a summary an operator then read back. Worse, the
+            // draft service hands the stored analysis to the model as the settled
+            // cause, so a credential here reaches a PUBLISHED postmortem through
+            // a payload that had already been cleaned of URLs itself.
+            // `IncidentAnalysisRedactionTest` pins it, and sweeps the other
+            // payloads so a third surface cannot reopen it.
+            ->get(['id', 'name'])
             ->map(fn (Monitor $monitor): array => [
                 'monitor_id' => (string) $monitor->id,
                 'name' => (string) $monitor->name,
-                'url' => $monitor->url,
             ])
             ->values()
             ->all();

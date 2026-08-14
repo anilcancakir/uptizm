@@ -92,7 +92,10 @@ class AssistantController extends Controller
         $trustedMonitors = $monitors->map(fn (Monitor $monitor) => [
             'monitor_id' => (string) $monitor->id,
             'name' => $monitor->name,
-            'url' => $monitor->url,
+            // No URL. The whole roster is JSON-encoded into the prompt, and a
+            // monitor address of the shape `https://host/api/v1/<32 hex>/status`
+            // carries its credential in the path. The name answers every
+            // question an operator asks the assistant about a monitor.
             'status' => $monitor->last_status?->value,
         ])->all();
 

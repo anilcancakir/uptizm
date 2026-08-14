@@ -53,7 +53,10 @@ readonly class AssistantPayload
     /**
      * @param  string  $teamId  The team the assistant is answering for.
      * @param  string  $question  UNTRUSTED operator-supplied free-text question.
-     * @param  list<array{monitor_id: string, name: string, url: string, status: string|null}>  $monitors  TRUSTED current-team monitor roster.
+     * @param  list<array{monitor_id: string, name: string, status: string|null}>  $monitors  TRUSTED current-team monitor roster.
+     *                                                                                        The URL is absent by design: its path segment is often
+     *                                                                                        the credential, and this roster is JSON-encoded whole into
+     *                                                                                        the prompt. See `IncidentAnalysisRedactionTest`.
      * @param  list<array{incident_id: string, title: string, severity: string, lifecycle: string, started_at: string, resolved_at: string|null}>  $incidents  TRUSTED current-team recent incidents.
      * @param  list<string>  $knownMonitorIds  The owned catalog of the team's monitor ids.
      * @param  list<string>  $knownIncidentIds  The owned catalog of the team's incident ids.
