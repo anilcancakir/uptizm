@@ -6,6 +6,7 @@ use App\Http\Controllers\Marketing\SendContactMessageController;
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
 use App\Http\Middleware\SetApiLocale;
 use App\Http\Middleware\SetMarketingLocale;
+use App\Http\Middleware\SetSentryContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -99,8 +100,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // surface, and that is exactly what was reaching a Turkish operator in
         // English. `SetMarketingLocale` owns the marketing pages, and a public
         // status page publishes in one owner-chosen language on purpose.
+        // `SetSentryContext` rides along for the same reason and with the same
+        // constraint: it reads the resolved user, so it has to run after the
+        // auth middleware. It tells Sentry which member of which team hit an
+        // error, which is where triage starts and which nothing supplies by
+        // default here, since `send_default_pii` is off.
         $middleware->api(append: [
             SetApiLocale::class,
+            SetSentryContext::class,
         ]);
 
         // Lean group for the public status pages: bind route params but skip

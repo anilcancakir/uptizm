@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../services/locale_application_service.dart';
 import '../services/realtime_service.dart';
 import '../support/sentry_network_interceptor.dart';
+import '../support/sentry_user_context.dart';
 import '../support/web_links.dart';
 import '../../ui/layouts/app_layout.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
@@ -147,6 +148,18 @@ class AppServiceProvider extends ServiceProvider {
     //   Auth.manager.setUserFactory((data) => User.fromMap(data));
     // Magic Starter: Register user factory for auth session restoration.
     Auth.manager.setUserFactory((data) => User.fromMap(data));
+
+    // Keep Sentry's user card in step with the session. It follows
+    // `Auth.stateNotifier`, so login, logout, a boot-time restore and a team
+    // switch all reach it without any of those call sites knowing Sentry
+    // exists. See SentryUserContext for why logout has to clear it rather than
+    // leave the previous operator attached.
+    //
+    // AFTER setUserFactory, not before: `install()` reads the current session
+    // immediately, and `Auth.user<User>()` cannot hydrate a User until the
+    // factory above is registered. Ordered the other way it would report an
+    // anonymous first session on every boot that restored a signed-in user.
+    SentryUserContext.install();
 
     // Magic Starter: the identity contract, in one required call. The team
     // callbacks are passed because uptizm enables the teams feature; omitting

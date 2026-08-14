@@ -23,6 +23,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Sentry\Laravel\Integration;
+use Sentry\State\Scope;
 use Throwable;
 
 /**
@@ -108,6 +110,19 @@ class PerformMonitorCheck implements ShouldQueue
      */
     public function handle(ProbeTransport $relay, MetricExtractor $extractor, ?ContentArchive $archive = null): void
     {
+        // 0. Name the subject before anything can fail. An error raised below
+        //    is otherwise indistinguishable between monitors, and this is the
+        //    job that runs tens of thousands of times a day, so "one monitor is
+        //    broken" and "the probe path is broken" would look identical in
+        //    Sentry. The region goes with it because a failure that only
+        //    happens from one vantage point is a different bug.
+        //
+        //    A no-op without a DSN, which is every local run and the suite.
+        Integration::configureScope(function (Scope $scope): void {
+            $scope->setTag('monitor_id', (string) $this->monitor->getKey());
+            $scope->setTag('monitor_region', $this->region);
+        });
+
         // 1. Probe, through whichever network this monitor is allowed on, and
         //    get the parsed result inline.
         $result = $this->transportFor($relay)->dispatch($this->monitor, $this->region);
