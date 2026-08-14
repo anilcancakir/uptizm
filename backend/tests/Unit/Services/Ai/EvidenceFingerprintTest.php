@@ -101,8 +101,9 @@ class EvidenceFingerprintTest extends TestCase
     {
         // MEASURED on production the hour this shipped, on the incident the
         // store was built for. Its trigger is a numeric latency metric that
-        // crosses its own bound almost every reading: 31.5 critical, 6.94 ok,
-        // 9.55 ok, 76.9 critical, 4.03 ok, 27.04 critical. The band list is
+        // crosses its own bound almost every reading. The series, newest-first:
+        // 31.52 critical, 6.94 ok, 9.55 ok, 6.10 ok, 76.90 critical, 4.03 ok,
+        // 27.04 critical, 3.88 ok, 25.23 critical. The band list is
         // deduped in FIRST-SEEN order, so as the twelve-reading window slides it
         // alternates `[critical, ok]` and `[ok, critical]`: the same SET, a
         // different order, a different hash.
@@ -117,13 +118,21 @@ class EvidenceFingerprintTest extends TestCase
         // model with its values and timestamps in time order, untouched. Only the
         // hash normalises, and for a metric that alternates every minute the
         // order of two bands is noise rather than a crossing.
+        // Both windows are lifted from that series verbatim, newest-first, and
+        // the values keep the band they actually had. An earlier draft put `9.55`
+        // in the critical slot, which was a fixture that contradicted its own
+        // narrative twice: `9.55` measured `ok`, and the same value cannot sit in
+        // two bands under one threshold.
         $window = $this->payload([$this->check()], $this->metric([
-            ['value' => '31.5', 'band' => 'critical', 'recorded_at' => '2026-08-14T13:05:38+00:00'],
+            ['value' => '31.52', 'band' => 'critical', 'recorded_at' => '2026-08-14T13:05:38+00:00'],
             ['value' => '6.94', 'band' => 'ok', 'recorded_at' => '2026-08-14T13:04:34+00:00'],
         ]));
+        // The same window four minutes earlier, before the 31.52 arrived: the
+        // newest reading is an `ok` and the one under it is a `critical`, so the
+        // first-seen order is reversed while the set is identical.
         $windowSlid = $this->payload([$this->check()], $this->metric([
-            ['value' => '6.94', 'band' => 'ok', 'recorded_at' => '2026-08-14T13:04:34+00:00'],
-            ['value' => '9.55', 'band' => 'critical', 'recorded_at' => '2026-08-14T13:03:07+00:00'],
+            ['value' => '6.10', 'band' => 'ok', 'recorded_at' => '2026-08-14T13:01:46+00:00'],
+            ['value' => '76.90', 'band' => 'critical', 'recorded_at' => '2026-08-14T13:00:35+00:00'],
         ]));
 
         $this->assertSame(

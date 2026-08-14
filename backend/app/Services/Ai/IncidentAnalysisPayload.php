@@ -317,14 +317,21 @@ readonly class IncidentAnalysisPayload
         // nothing could reorder. Which monitor is listed first says nothing about
         // the incident, so sorting is the honest normalisation.
         //
-        // The other lists are the opposite, and sorting them was a mistake this
-        // suite caught: `EvidenceFingerprintTest::test_a_recovery_reads_differently_from_an_onset`
+        // The CHECKS, the TIMELINE and the BODY DIFFS are the opposite, and
+        // sorting them was a mistake this suite caught:
+        // `EvidenceFingerprintTest::test_a_recovery_reads_differently_from_an_onset`
         // pins that an `up` on top of a `down` is a RECOVERY and the reverse is
         // the failure starting. The distinct set is identical either way and only
-        // the order separates them, so first-appearance order IS evidence for the
-        // checks, the timeline, the body diffs and the metric bands. Their
-        // determinism belongs in the queries that read them, as a tiebreaker, not
-        // in a sort that would flatten a recovery and an onset into one question.
+        // the order separates them, so first-appearance order IS evidence there.
+        // Their determinism belongs in the queries that read them, as a
+        // tiebreaker, not in a sort that would flatten a recovery and an onset
+        // into one question.
+        //
+        // The METRIC BANDS used to be in that list and are not any more, which is
+        // the one place the two rules meet. A metric that crosses its bound every
+        // minute has no crossing to preserve in the order of its bands, and the
+        // crossing a reader needs is in the prompt regardless; the sort is applied
+        // where the bands are reduced, above.
         $monitors = $this->monitors;
         sort($monitors);
 
