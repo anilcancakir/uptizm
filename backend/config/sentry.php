@@ -87,27 +87,37 @@ return [
      * backwards and expensive when you do, since profiling is billed by
      * duration rather than by count.
      *
-     * IT ONLY EVER PROFILES THE QUEUE, and that is a property of the server
-     * rather than a setting. Measured on the production box: two separate PHP
-     * builds run this application. Octane serves HTTP through the frankenphp
-     * binary, which carries its OWN embedded PHP (8.5.6, ZTS, modules in
-     * `/usr/lib/frankenphp/modules`), while Horizon and the scheduler run on the
-     * system CLI (8.5.7, NTS, `/usr/lib/php/20250925`). `pecl install excimer`
-     * builds against the CLI, and the two are incompatible by ABI as well as by
-     * path, so the extension the queue loads is invisible to the web tier.
+     * DEFAULTS TO OFF, because on the deploy this application actually runs on,
+     * profiling cannot work at all. Both halves of that were measured on the
+     * production box rather than assumed, and each one alone would be enough:
      *
-     * That split is acceptable here rather than merely tolerated: the work worth
-     * profiling is the long work, and the long work is queued. `analyze` runs
-     * for up to 160 seconds and nobody can currently say where it spends them.
-     * The HTTP tier keeps transaction and span timing, including per-query
-     * duration and the call site of anything over 100ms.
+     * 1. TWO SEPARATE PHP BUILDS run this application. Octane serves HTTP
+     *    through the frankenphp binary, which carries its own embedded PHP
+     *    (8.5.6, ZTS, modules in `/usr/lib/frankenphp/modules`), while Horizon
+     *    and the scheduler run on the system CLI (8.5.7, NTS,
+     *    `/usr/lib/php/20250925`). An extension built for one is invisible to
+     *    the other, by ABI as well as by path, so the web tier could never be
+     *    profiled without rebuilding frankenphp from source.
+     * 2. The CLI half cannot be built for either, today: the box ships
+     *    `phpize8.4` and PHP 8.4 headers only, so `pecl install excimer`
+     *    silently produces an 8.4 extension that 8.5 never loads. Installing
+     *    `php8.5-dev` would fix that half, and it was a deliberate decision not
+     *    to add a system package for it.
      *
-     * A missing excimer is SILENT, not an error, so this rate staying at 0.1
-     * costs nothing on the web tier and does not need a second config key.
+     * WHAT IS NOT LOST, since this is the setting people reach for when an
+     * endpoint is slow: tracing does not depend on excimer in any way. Spans,
+     * per-query duration and the call site of anything over 100ms
+     * (`tracing.sql_origin`) all keep working, because they are built on
+     * Laravel's own events. Profiling would only have added a function-level
+     * CPU breakdown of the time the spans do not already explain.
+     *
+     * Set the env var to re-enable it if excimer ever becomes loadable. Note
+     * the rate is RELATIVE to the sampler: at 0.2 for an API request, a 0.1
+     * here profiles one request in fifty, not one in ten.
      *
      * @see https://docs.sentry.io/platforms/php/guides/laravel/profiling/
      */
-    'profiles_sample_rate' => env('SENTRY_PROFILES_SAMPLE_RATE') === null ? 0.1 : (float) env('SENTRY_PROFILES_SAMPLE_RATE'),
+    'profiles_sample_rate' => env('SENTRY_PROFILES_SAMPLE_RATE') === null ? 0.0 : (float) env('SENTRY_PROFILES_SAMPLE_RATE'),
 
     // Only continue incoming traces when the organization IDs are compatible with this SDK instance.
     'strict_trace_continuation' => env('SENTRY_STRICT_TRACE_CONTINUATION', false),

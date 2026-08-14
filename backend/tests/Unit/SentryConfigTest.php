@@ -159,6 +159,24 @@ class SentryConfigTest extends TestCase
     }
 
     /**
+     * Profiling defaults to OFF, because it cannot work on this deploy.
+     *
+     * Two PHP builds run this application (frankenphp's embedded ZTS build for
+     * HTTP, the system NTS CLI for the queue), so an extension built for one is
+     * invisible to the other, and the box carries PHP 8.4 headers only, so
+     * `pecl install excimer` silently produces an extension 8.5 never loads.
+     * A non-zero default would read as a working feature.
+     */
+    public function test_profiling_is_off_by_default(): void
+    {
+        $this->assertSame(
+            0.0,
+            config('sentry.profiles_sample_rate'),
+            'excimer cannot be loaded on this deploy; a non-zero rate would claim otherwise.',
+        );
+    }
+
+    /**
      * PII stays off. The scrubber masks known key names; `send_default_pii`
      * would start attaching request bodies and user addresses wholesale, which
      * is a category the scrubber cannot audit.
