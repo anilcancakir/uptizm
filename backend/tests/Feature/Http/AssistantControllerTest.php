@@ -15,8 +15,12 @@ use App\Services\Ai\AssistantGateway;
 use App\Services\Ai\AssistantPayload;
 use App\Services\Ai\AssistantResult;
 use App\Services\Ai\FakeAssistantGateway;
+use App\Services\Ai\NonConformingAnalysisException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Laravel\Ai\Exceptions\AiException;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -108,7 +112,155 @@ class AssistantControllerTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertJsonPath('data.confidence', 'low');
-        $this->assertStringContainsString('budget', strtolower((string) $response->json('data.answer')));
+        // The REASON rather than a word in the sentence. This used to assert the
+        // string contained "budget", which pinned English copy as though it were
+        // the contract and would have gone red the moment the sentence was
+        // localized. `degrade_reason` is the fact; the sentence is presentation.
+        $response->assertJsonPath('data.degrade_reason', 'budget_exhausted');
+    }
+
+    public function test_the_over_budget_sentence_is_written_in_the_callers_language(): void
+    {
+        // It was a hardcoded English literal, and the client renders `answer`
+        // straight into the chat bubble, so a Turkish operator over budget read
+        // an English sentence attributed to Uptizm AI.
+        config(['ai.budget.daily_per_team' => 0]);
+        [, $user] = $this->makeMonitor();
+        $user->forceFill(['locale' => 'tr'])->save();
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/assistant', [
+                'question' => 'Hangi izleyiciler yavaş?',
+            ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.degrade_reason', 'budget_exhausted');
+        $this->assertSame(
+            __('assistant.degraded_budget', [], 'tr'),
+            $response->json('data.answer'),
+        );
+        $this->assertNotSame(
+            __('assistant.degraded_budget', [], 'en'),
+            $response->json('data.answer'),
+            'the two locales must actually differ, or this asserts nothing',
+        );
+    }
+
+    public function test_a_real_answer_carries_no_degrade_reason(): void
+    {
+        // The other side of the flag: without this, always-degraded would pass.
+        $this->app->bind(AssistantGateway::class, FakeAssistantGateway::class);
+        [, $user] = $this->makeMonitor();
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/assistant', [
+                'question' => 'How many monitors are down right now?',
+            ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.degrade_reason', null);
+    }
+
+    public function test_a_transport_failure_answers_service_unavailable_rather_than_500(): void
+    {
+        // Reproduced by accident against the live provider:
+        // `cURL error 28: Connection timed out after 10001 milliseconds`. Nothing
+        // caught it, so it left as a 500 whose body is Laravel's own English
+        // "Server Error", and the client puts the backend's message straight into
+        // its toast. `IncidentAnalysisService` has caught this pair since the day
+        // it shipped; this endpoint never did.
+        $this->app->instance(AssistantGateway::class, new class implements AssistantGateway
+        {
+            public function answer(AssistantPayload $payload): AssistantResult
+            {
+                throw new ConnectionException('cURL error 28: Connection timed out');
+            }
+        });
+
+        [, $user] = $this->makeMonitor();
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/assistant', [
+                'question' => 'How many monitors are down right now?',
+            ]);
+
+        $response->assertStatus(503);
+        $this->assertSame(__('assistant.unavailable'), $response->json('message'));
+    }
+
+    public function test_a_provider_error_body_answers_service_unavailable(): void
+    {
+        // The branch that is easy to leave out and is the most ordinary provider
+        // bad day there is: `laravel/ai` raises a PLAIN `AiException` for an
+        // error body delivered IN-BAND with HTTP 200, so it descends from neither
+        // this app's exceptions nor the Guzzle pair above.
+        $this->app->instance(AssistantGateway::class, new class implements AssistantGateway
+        {
+            public function answer(AssistantPayload $payload): AssistantResult
+            {
+                throw new AiException('rate limited');
+            }
+        });
+
+        [, $user] = $this->makeMonitor();
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/assistant', [
+                'question' => 'How many monitors are down right now?',
+            ]);
+
+        $response->assertStatus(503);
+    }
+
+    public function test_untrusted_output_answers_service_unavailable(): void
+    {
+        // The gateway rejects non-conforming structured output after one retry.
+        // It threw a bare `RuntimeException`, which a caller can only catch by
+        // catching every runtime error, so it now throws the typed exception the
+        // analysis gateway already uses.
+        $this->app->instance(AssistantGateway::class, new class implements AssistantGateway
+        {
+            public function answer(AssistantPayload $payload): AssistantResult
+            {
+                throw new NonConformingAnalysisException('untrusted');
+            }
+        });
+
+        [, $user] = $this->makeMonitor();
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/assistant', [
+                'question' => 'How many monitors are down right now?',
+            ]);
+
+        $response->assertStatus(503);
+    }
+
+    public function test_a_failure_is_logged_with_what_failed(): void
+    {
+        // A 503 the operator can read is half of it; the other half is an ops
+        // line naming the failure, which a bare 500 never produced. Same shape as
+        // `IncidentAnalysisService`: the class, not the provider's own message.
+        Log::spy();
+
+        $this->app->instance(AssistantGateway::class, new class implements AssistantGateway
+        {
+            public function answer(AssistantPayload $payload): AssistantResult
+            {
+                throw new ConnectionException('cURL error 28: Connection timed out');
+            }
+        });
+
+        [, $user] = $this->makeMonitor();
+
+        $this->actingAs($user, 'sanctum')->postJson('/api/v1/assistant', [
+            'question' => 'How many monitors are down right now?',
+        ]);
+
+        Log::shouldHaveReceived('warning')->once()->withArgs(
+            fn (string $message, array $context): bool => str_contains($message, 'assistant')
+                && ($context['failure'] ?? null) === 'ConnectionException',
+        );
     }
 
     public function test_assistant_requires_authentication(): void

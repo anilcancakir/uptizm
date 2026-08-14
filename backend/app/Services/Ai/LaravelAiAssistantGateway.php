@@ -14,7 +14,6 @@ use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\StructuredAgentResponse;
-use RuntimeException;
 use Stringable;
 
 /**
@@ -49,7 +48,7 @@ class LaravelAiAssistantGateway implements Agent, AssistantGateway, Conversation
     /**
      * Answer a team-scoped question grounded in the team's own telemetry.
      *
-     * @throws RuntimeException When the model returns non-conforming output twice.
+     * @throws NonConformingAnalysisException When the model returns non-conforming output twice.
      */
     public function answer(AssistantPayload $payload): AssistantResult
     {
@@ -71,7 +70,12 @@ class LaravelAiAssistantGateway implements Agent, AssistantGateway, Conversation
         }
 
         if ($data === null) {
-            throw new RuntimeException('Assistant gateway received non-conforming structured output.');
+            // The TYPED exception the analysis gateway already uses, not a bare
+            // `RuntimeException`. A caller could only catch the bare one by
+            // catching every runtime error, which is why `AssistantController`
+            // caught nothing at all and answered 500 on the most ordinary
+            // provider bad day. Source-compatible: it extends RuntimeException.
+            throw new NonConformingAnalysisException('Assistant gateway received non-conforming structured output.');
         }
 
         // 3. Enforce the owned-citation allowlist on the free-text answer.
