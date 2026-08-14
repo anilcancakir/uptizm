@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_starter/magic_starter.dart';
+import 'package:sentry_dio/sentry_dio.dart';
 import '../models/user.dart';
 import '../services/locale_application_service.dart';
 import '../services/realtime_service.dart';
+import '../support/sentry_network_interceptor.dart';
 import '../support/web_links.dart';
 import '../../ui/layouts/app_layout.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
@@ -93,8 +95,52 @@ class AppServiceProvider extends ServiceProvider {
     Config.set('magic_starter.legal', WebLinks.legalConfig);
   }
 
+  /// Attach Sentry to the network driver, in two layers.
+  ///
+  /// `addSentry()` (from `sentry_dio`) contributes the automatic half: an HTTP
+  /// breadcrumb and a span per request, so a captured failure arrives with the
+  /// calls that preceded it. `captureFailedRequests` is turned OFF because its
+  /// events are raised inside the sentry_dio adapter, which means their stack
+  /// trace points at the SDK rather than at the caller, and they cannot carry
+  /// the endpoint-based fingerprint this app needs.
+  ///
+  /// [SentryNetworkInterceptor] is the second layer and does the actual
+  /// reporting, from magic's own interceptor chain where the real call site is
+  /// still on the stack. It runs after `addSentry()` so its events carry the
+  /// breadcrumbs that layer just recorded.
+  ///
+  /// The driver is resolved from the container rather than constructed, so a
+  /// host that never registered one (a bare widget test) would throw here and
+  /// take the whole boot with it. Reporting is not worth failing a boot over,
+  /// so the failure degrades to a log line, mirroring how magic registers its
+  /// own auth interceptor. It is caught NARROWLY and reported, not swallowed.
+  static void _registerSentryNetworkInterceptor() {
+    try {
+      final NetworkDriver driver = Magic.make<NetworkDriver>('network');
+
+      if (driver is DioNetworkDriver) {
+        driver.configureDriver((dio) => dio.addSentry(
+          captureFailedRequests: false,
+        ));
+      }
+
+      driver.addInterceptor(SentryNetworkInterceptor());
+    } catch (error) {
+      Log.warning('Could not wire Sentry into the network driver: $error');
+    }
+  }
+
   @override
   Future<void> boot() async {
+    // Report HTTP failures that would otherwise be invisible. magic's Http
+    // facade returns failures as VALUES rather than throwing, so no global
+    // error handler ever sees them and this app's own habit is to log and
+    // return quietly, which in a release build means the visitor's console and
+    // nowhere else. Registered here rather than in main() because the network
+    // driver is resolved from the container, which is only populated once
+    // Magic.init has run. Inert without a DSN, like the rest of the SDK.
+    _registerSentryNetworkInterceptor();
+
     // Perform async bootstrap logic here.
     //
     // IMPORTANT: Call setUserFactory() so Auth.user<T>() returns your model:

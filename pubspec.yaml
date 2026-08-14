@@ -56,6 +56,14 @@ dependencies:
   cupertino_icons: ^1.0.8
   fluttersdk_artisan: any
 
+  # Error and performance reporting. Unlike magic_devtools above, this is NOT
+  # dev-only: it is the release build's only way of telling anyone that
+  # something broke, since the console it currently logs to belongs to the
+  # visitor. It stays inert without a DSN, and `.env` only carries one in the
+  # production build (see lib/config/sentry.dart).
+  sentry_flutter: ^9.27.0
+  sentry_dio: ^9.27.0
+
   # Charting for the uptizm dashboards.
   fl_chart: ^1.1.1
 

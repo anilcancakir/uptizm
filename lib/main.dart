@@ -16,6 +16,8 @@ import 'config/wind_theme.g.dart';
 import 'config/uptizm_status_tokens.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:magic_devtools/magic_devtools.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
+import 'config/sentry.dart';
 import 'package:magic_starter/magic_starter.dart'
     show MagicStarter, MagicStarterCardTheme, MagicStarterModalTheme;
 import 'config/magic_starter.dart';
@@ -23,6 +25,25 @@ import 'config/magic_starter.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Load `.env` BEFORE Sentry, because the DSN lives in it and Magic.init is
+  // otherwise the first thing to read the file. `Env.load` is idempotent (it
+  // returns early once loaded), so Magic.init's own call below is a no-op and
+  // this costs nothing.
+  await Env.load();
+
+  // Everything the app does happens inside `appRunner`, deliberately: a failure
+  // during Magic.init or a provider's boot is exactly the kind that ships a
+  // blank page to a customer, and it would be invisible if Sentry only started
+  // afterwards.
+  //
+  // With no DSN this call still runs `appRunner` and simply reports nothing,
+  // which is what every development machine and the whole test suite do. See
+  // lib/config/sentry.dart.
+  await SentryFlutter.init(configureSentry, appRunner: _boot);
+}
+
+/// Boot the framework and hand the app to Flutter.
+Future<void> _boot() async {
   // Dev-tooling (dusk + telescope) plugins boot BEFORE Magic.init so the
   // snapshot pipeline and exception watcher are live during Magic boot. The
   // kDebugMode guard stays at the call site so release builds tree-shake the
