@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\IncidentDraftKind;
+use App\Support\Ai\PromptLanguage;
 
 /**
  * The evidence a draft is written from: the incident's own facts, what the
@@ -298,7 +299,7 @@ readonly class IncidentDraftPayload
             // stated once, a page earlier, among four alternatives.
             IncidentDraftKind::Update => implode(' ', [
                 'Write the next PUBLIC status update for this incident, in',
-                $this->locale.'.',
+                PromptLanguage::nameFor($this->locale).'.',
                 'It will be posted as: '.($this->postingAs ?? $this->lifecycle).'.',
                 $this->registerFor($this->postingAs ?? $this->lifecycle),
                 'One or two sentences. Do not repeat an update already posted above',
@@ -306,7 +307,7 @@ readonly class IncidentDraftPayload
             ]),
             IncidentDraftKind::Postmortem => implode(' ', [
                 'Write the postmortem draft for this resolved incident, in',
-                $this->locale.'.',
+                PromptLanguage::nameFor($this->locale).'.',
                 'Cover what happened, who it affected and for how long, and what the',
                 'evidence shows. Leave the internal root cause to the operator: say',
                 'plainly that it is still to be added rather than guessing at it.',

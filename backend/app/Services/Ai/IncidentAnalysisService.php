@@ -12,6 +12,7 @@ use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
 use App\Services\Monitoring\MetricCandidateExtractor;
+use App\Support\Ai\PromptLanguage;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
@@ -345,6 +346,20 @@ class IncidentAnalysisService
             knownMonitorIds: $monitorIds,
             monitors: $roster,
             triggeringMetric: $metric,
+            // The TEAM's language, not the request's. Most analyses are composed
+            // on the queue by `PublishAiIncidentUpdate`, where there is no
+            // request and so nothing for `SetApiLocale` to have set; reading
+            // `app()->getLocale()` here would quietly hand those the config
+            // default and leave the operator with the English analysis this was
+            // meant to fix.
+            //
+            // It deliberately does NOT enter `evidenceFingerprint()`: the
+            // fingerprint answers "does this analysis still fit the evidence",
+            // and a language is not evidence. The consequence is worth knowing:
+            // an operator who switches languages keeps the stored analysis until
+            // the evidence itself moves, which is what one row per incident
+            // means and is why it stays at one model call.
+            language: PromptLanguage::nameFor($incident->team?->preferredLocale()),
         );
     }
 

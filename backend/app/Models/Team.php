@@ -6,14 +6,43 @@ use App\Enums\Plan;
 use App\Services\Billing\PlanGate;
 use App\Support\Services\SystemTeam;
 use FlutterSdk\MagicStarter\Models\Team as MagicStarterTeam;
+use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Cashier\Billable;
 
-class Team extends MagicStarterTeam
+class Team extends MagicStarterTeam implements HasLocalePreference
 {
     use Billable;
     use HasFactory;
+
+    /**
+     * The language this team reads in.
+     *
+     * Its OWNER's language, and there is deliberately no `teams.locale` column:
+     * the owner already chose one in the settings screen, and inventing a second
+     * place to set the same thing earns a migration, a form field, and a way for
+     * the two to disagree. When somebody actually asks for a per-team override,
+     * that is the moment to add the column.
+     *
+     * It exists because some AI text has no request behind it to read a language
+     * from. An autonomous status update is written by a queued job at 3am and an
+     * incident analysis is composed on the queue as well, so
+     * `SetApiLocale` cannot reach either: there is no
+     * caller. The team is the nearest thing to an audience those two have.
+     *
+     * `?:` rather than `??` on the owner's value, matching the middleware:
+     * `users.locale` is NOT NULL with an `'en'` default, so null never arrives
+     * and an empty string is what does. `??` would pass that empty string on as
+     * a language, and `PromptLanguage` would then be asked
+     * to name nothing.
+     */
+    public function preferredLocale(): string
+    {
+        $owner = $this->owner?->locale;
+
+        return (is_string($owner) ? $owner : '') ?: (string) config('app.locale');
+    }
 
     /**
      * The attributes that are mass assignable.

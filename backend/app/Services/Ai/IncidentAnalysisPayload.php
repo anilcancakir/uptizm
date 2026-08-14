@@ -4,6 +4,7 @@ namespace App\Services\Ai;
 
 use App\Models\Incident;
 use App\Models\MonitorCheck;
+use App\Support\Ai\PromptLanguage;
 
 /**
  * The immutable evidence handed to the post-incident RCA LLM.
@@ -102,6 +103,7 @@ readonly class IncidentAnalysisPayload
         public array $knownMonitorIds,
         public array $monitors = [],
         public ?array $triggeringMetric = null,
+        public string $language = PromptLanguage::FALLBACK,
     ) {}
 
     /**
@@ -151,8 +153,20 @@ readonly class IncidentAnalysisPayload
         }
         $untrustedLines[] = self::UNTRUSTED_BLOCK_FOOTER;
 
+        // 3. The task, and the language to answer it in. AFTER the fence on
+        //    purpose: a language named inside it would be a monitored target
+        //    choosing what language our operator's analysis comes back in.
+        //
+        //    A language NAME rather than a locale code, per
+        //    {@see PromptLanguage}: "in tr" is a token a model may or may not
+        //    resolve, "in Turkish" is not. Every field is named because the
+        //    structured output has several, and asking for "the answer" in
+        //    Turkish reliably returned a Turkish summary with English labels.
         return $trusted."\n\n".implode("\n", $untrustedLines)
-            ."\n\nSummarize the likely root cause using only the evidence above.";
+            ."\n\nSummarize the likely root cause using only the evidence above."
+            .' Write the summary, every evidence label and detail, and every'
+            ." suggested action and rationale in {$this->language}."
+            .' Leave identifiers, metric keys, HTTP methods and status codes as they are.';
     }
 
     /**
