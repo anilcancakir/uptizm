@@ -283,6 +283,28 @@ readonly class IncidentAnalysisPayload
                 fn (array $reading): string => (string) ($reading['band'] ?? ''),
                 (array) ($metric['readings'] ?? []),
             )));
+
+            // The SET of bands seen, not the order they were seen in, and this
+            // is the one list here where that is the right call.
+            //
+            // MEASURED on production: the incident this store was built for
+            // triggers on a numeric latency metric that crosses its own bound
+            // almost every reading (31.5 critical, 6.94 ok, 9.55 ok, 76.9
+            // critical, 4.03 ok, 27.04 critical). The band list is deduped in
+            // first-seen order, so as the twelve-reading window slid it
+            // alternated `[critical, ok]` and `[ok, critical]` and the hash moved
+            // with it. Two responders opening that incident a minute apart each
+            // bought an answer, which is the exact cost this table ended.
+            //
+            // Safe in a way that sorting the CHECK list is not, and the
+            // difference is what the reader sees. The crossing stays fully
+            // visible in the prompt: the readings reach the model with their
+            // values and timestamps in time order, untouched by this. Only the
+            // hash normalises, and for a metric alternating every minute the
+            // order of two bands is noise. `EvidenceFingerprintTest` pins both:
+            // the flap no longer moves the hash, and a genuine band change still
+            // does.
+            sort($metric['readings']);
         }
 
         // The roster is sorted and NOTHING ELSE here is, and the line between
@@ -295,14 +317,21 @@ readonly class IncidentAnalysisPayload
         // nothing could reorder. Which monitor is listed first says nothing about
         // the incident, so sorting is the honest normalisation.
         //
-        // The other lists are the opposite, and sorting them was a mistake this
-        // suite caught: `EvidenceFingerprintTest::test_a_recovery_reads_differently_from_an_onset`
+        // The CHECKS, the TIMELINE and the BODY DIFFS are the opposite, and
+        // sorting them was a mistake this suite caught:
+        // `EvidenceFingerprintTest::test_a_recovery_reads_differently_from_an_onset`
         // pins that an `up` on top of a `down` is a RECOVERY and the reverse is
         // the failure starting. The distinct set is identical either way and only
-        // the order separates them, so first-appearance order IS evidence for the
-        // checks, the timeline, the body diffs and the metric bands. Their
-        // determinism belongs in the queries that read them, as a tiebreaker, not
-        // in a sort that would flatten a recovery and an onset into one question.
+        // the order separates them, so first-appearance order IS evidence there.
+        // Their determinism belongs in the queries that read them, as a
+        // tiebreaker, not in a sort that would flatten a recovery and an onset
+        // into one question.
+        //
+        // The METRIC BANDS used to be in that list and are not any more, which is
+        // the one place the two rules meet. A metric that crosses its bound every
+        // minute has no crossing to preserve in the order of its bands, and the
+        // crossing a reader needs is in the prompt regardless; the sort is applied
+        // where the bands are reduced, above.
         $monitors = $this->monitors;
         sort($monitors);
 
