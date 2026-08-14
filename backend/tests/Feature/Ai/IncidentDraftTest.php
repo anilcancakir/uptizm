@@ -52,6 +52,34 @@ class IncidentDraftTest extends TestCase
         $this->assertStringContainsString('API Uptime', $message, 'the name is what a reader needs');
     }
 
+    public function test_the_checks_that_opened_the_incident_are_in_the_evidence(): void
+    {
+        // Measured on the running system. The window ran from `started_at`, and
+        // the failures that TRIPPED the threshold are all before it, so every
+        // analysis was blind to the thing it was analysing. Worse at open: the
+        // autonomous job runs seconds after, and the first live analysis said
+        // "No checks were recorded and no probe response body was provided",
+        // which is the sentence the customer-facing draft was then built from.
+        [$monitor] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor);
+
+        // A failure from before the incident opened: one of the ones that caused
+        // it, since the threshold needs consecutive failures to trip.
+        $before = $this->makeCheck($monitor, ms: 9000);
+        $before->forceFill([
+            'checked_at' => $incident->started_at->copy()->subMinutes(2),
+            'status_code' => 503,
+        ])->save();
+
+        $message = $this->composeMessage($incident, IncidentDraftKind::Update);
+
+        $this->assertStringContainsString(
+            'HTTP 503',
+            $message,
+            'the check that opened the incident is evidence about it',
+        );
+    }
+
     public function test_an_update_is_not_shown_the_response_body(): void
     {
         // A public status note quoting an internal check path leaks the inside

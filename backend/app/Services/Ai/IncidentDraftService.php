@@ -6,6 +6,7 @@ use App\Enums\AiDegradeReason;
 use App\Enums\IncidentDraftKind;
 use App\Models\AiIncidentAnalysis;
 use App\Models\Incident;
+use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetricValue;
 use App\Services\Monitoring\IncidentTitle;
@@ -45,6 +46,17 @@ class IncidentDraftService
      * row saying it again.
      */
     private const MAX_CHECKS = 40;
+
+    /**
+     * How far BEFORE the incident opened the check window reaches, in checks.
+     *
+     * Same reasoning and same number as the analysis service's: a threshold
+     * trips on consecutive failures, so the failures that caused the incident
+     * are all before the moment it opened, and a window starting at
+     * `started_at` excludes exactly the evidence a draft is about. At open,
+     * which is where the autonomous path lives, it excluded everything.
+     */
+    private const CHECK_LOOKBACK_CHECKS = 10;
 
     /**
      * How many prior updates to carry.
@@ -129,9 +141,16 @@ class IncidentDraftService
             ->filter()
             ->unique('id');
 
+        $cadence = (int) ($incident->primaryMonitor?->check_interval_sec
+            ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC);
+
         $checks = MonitorCheck::query()
             ->whereIn('monitor_id', $monitors->pluck('id'))
-            ->where('checked_at', '>=', $incident->started_at)
+            ->where(
+                'checked_at',
+                '>=',
+                $incident->started_at->copy()->subSeconds(self::CHECK_LOOKBACK_CHECKS * $cadence),
+            )
             ->when(
                 $incident->resolved_at !== null,
                 fn ($query) => $query->where('checked_at', '<=', $incident->resolved_at),

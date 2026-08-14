@@ -35,6 +35,29 @@ class IncidentAnalysisService
      */
     private const MAX_CHECKS = 20;
 
+    /**
+     * How far BEFORE an incident opened its evidence window reaches, in checks.
+     *
+     * The window used to start at `started_at`, which reads as the obvious
+     * boundary and excludes the only checks that explain the incident: a
+     * threshold trips on CONSECUTIVE failures, so the failures that caused it
+     * are all before the moment it opened. Measured on the running system, an
+     * incident with thirty checks inside its window had thirteen in the fifteen
+     * minutes before it that nothing ever read.
+     *
+     * It is worse at open, which is where the autonomous path lives. That job
+     * runs seconds after the incident is created, and the first live analysis it
+     * produced said "No checks were recorded and no probe response body was
+     * provided, so no further root cause can be established" three seconds after
+     * an outage that had been failing for minutes. That sentence is what the
+     * customer-facing draft was then built from.
+     *
+     * Ten checks' worth of time, derived from the monitor's own cadence for the
+     * same reason the reopen window is: it scales with how closely the thing is
+     * watched, and it comfortably covers any `incident_threshold` anyone sets.
+     */
+    private const CHECK_LOOKBACK_CHECKS = 10;
+
     /** How many DISTINCT response bodies reach the prompt. */
     private const MAX_DISTINCT_BODIES = 5;
 
@@ -166,7 +189,7 @@ class IncidentAnalysisService
 
         $checks = MonitorCheck::query()
             ->whereIn('monitor_id', $monitorIds)
-            ->where('checked_at', '>=', $incident->started_at)
+            ->where('checked_at', '>=', $this->evidenceFrom($incident))
             ->orderByDesc('checked_at')
             ->limit(self::MAX_CHECKS)
             ->get();
@@ -238,6 +261,18 @@ class IncidentAnalysisService
 
             return $this->deterministicSummary($incident, AiDegradeReason::ServiceUnreachable);
         }
+    }
+
+    /**
+     * The instant the evidence window opens: a few checks before the incident
+     * did. See {@see self::CHECK_LOOKBACK_CHECKS}.
+     */
+    protected function evidenceFrom(Incident $incident): \DateTimeInterface
+    {
+        $cadence = (int) ($incident->primaryMonitor?->check_interval_sec
+            ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC);
+
+        return $incident->started_at->copy()->subSeconds(self::CHECK_LOOKBACK_CHECKS * $cadence);
     }
 
     /**
