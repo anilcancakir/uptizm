@@ -52,9 +52,28 @@ return [
 
     'channels' => [
 
+        /*
+         * `sentry_logs` is appended in production and nowhere else.
+         *
+         * The channel itself is registered by the Sentry service provider, not
+         * declared below, so it is absent from this file's `channels` list by
+         * design. Appending it HERE rather than by widening `LOG_STACK` in the
+         * server's `.env` is what makes it impossible to forget on a future
+         * deploy, and impossible to enable by accident on a laptop: the same
+         * `APP_ENV` gate that governs the DSN in `config/sentry.php` governs it.
+         *
+         * It carries what the default channel carries, which in production is
+         * `warning` and above. `ai-routing` and `evidence` are separate channels
+         * and are deliberately untouched: they record at `info` for their own
+         * reasons and are read as files, one as a latency series and one during
+         * an incident review months later.
+         */
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            'channels' => array_values(array_filter([
+                ...explode(',', (string) env('LOG_STACK', 'single')),
+                env('APP_ENV') === 'production' ? 'sentry_logs' : null,
+            ])),
             'ignore_exceptions' => false,
         ],
 
