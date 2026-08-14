@@ -15,6 +15,7 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -142,6 +143,19 @@ return Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Report unhandled exceptions to Sentry. This app has no
+        // `app/Exceptions/Handler.php` (Laravel 13 slim skeleton), so the
+        // registration is explicit rather than automatic: `Integration::handles()`
+        // registers a `reportable()` callback on the configuration object above.
+        // It is a REPORTER, not a renderer, so it changes nothing about the
+        // response shape `shouldRenderJsonWhen()` below decides.
+        //
+        // Whether an event actually leaves the process is decided entirely by
+        // the DSN, and `config/sentry.php` only supplies one in production. A
+        // local run and the test suite therefore call into a disabled client,
+        // which is the intended path rather than an accident.
+        Integration::handles($exceptions);
+
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
