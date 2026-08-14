@@ -14,6 +14,15 @@ enum AssistantRole {
 
   /// A reply from Uptizm AI.
   assistant,
+
+  /// The product speaking, not the assistant.
+  ///
+  /// Used when the backend answered without a model behind it, which today means
+  /// the team is over its daily AI allowance. That sentence used to arrive as an
+  /// [assistant] message, so an operator read a canned line as something Uptizm
+  /// AI had worked out for them; the backend now marks it with a
+  /// `degrade_reason` and this role is how the panel shows the difference.
+  system,
 }
 
 /// A single message in the assistant conversation.
@@ -145,12 +154,23 @@ class _AssistantState extends State<Assistant> {
   /// already surfaced an error toast and logged the failure, so this leaves
   /// the conversation unchanged rather than appending a placeholder reply.
   Future<void> _ask(String question) async {
-    final String? answer = await AssistantController.instance.ask(question);
-    if (!mounted || answer == null) return;
+    final AssistantReply? reply = await AssistantController.instance.ask(
+      question,
+    );
+    if (!mounted || reply == null) return;
 
     setState(() {
       _messages.add(
-        AssistantMessage(role: AssistantRole.assistant, text: answer),
+        AssistantMessage(
+          // A sentence the backend produced without a model is the SYSTEM
+          // speaking, not the assistant. It used to arrive as an assistant
+          // reply, so an operator over their daily AI allowance read a canned
+          // line as something Uptizm AI had reasoned out for them.
+          role: reply.degraded
+              ? AssistantRole.system
+              : AssistantRole.assistant,
+          text: reply.answer,
+        ),
       );
     });
   }
@@ -357,7 +377,10 @@ class _AssistantState extends State<Assistant> {
       ),
     );
 
-    if (isUser) {
+    // The avatar is the assistant's signature, so the system note must not
+    // carry it: an Uptizm AI mark beside a sentence no model produced is the
+    // same attribution problem the `system` role exists to fix.
+    if (isUser || message.role == AssistantRole.system) {
       // Left-aligned, no avatar: the bubble hugs its content at the leading
       // edge (Row defaults to MainAxisAlignment.start).
       return Row(

@@ -51,9 +51,16 @@ void main() {
         });
         final AssistantController controller = AssistantController.instance;
 
-        final String? answer = await controller.ask('Which monitors are slow?');
+        final AssistantReply? reply = await controller.ask(
+          'Which monitors are slow?',
+        );
 
-        expect(answer, equals('Your API monitor is up with 99.98% uptime.'));
+        expect(reply?.answer, equals('Your API monitor is up with 99.98% uptime.'));
+        expect(
+          reply?.degraded,
+          isFalse,
+          reason: 'a real answer must not read as the system speaking',
+        );
       },
     );
 
@@ -63,9 +70,11 @@ void main() {
         Http.unfake();
         final AssistantController controller = AssistantController.instance;
 
-        final String? answer = await controller.ask('Which monitors are slow?');
+        final AssistantReply? reply = await controller.ask(
+          'Which monitors are slow?',
+        );
 
-        expect(answer, isNull);
+        expect(reply, isNull);
       },
     );
 
@@ -75,9 +84,38 @@ void main() {
       });
       final AssistantController controller = AssistantController.instance;
 
-      final String? answer = await controller.ask('Which monitors are slow?');
+      final AssistantReply? reply = await controller.ask(
+        'Which monitors are slow?',
+      );
 
-      expect(answer, isNull);
+      expect(reply, isNull);
+    });
+
+    test('marks a reply the backend produced without a model', () async {
+      // THE DEFECT THIS PINS: over budget the backend answers 200 with a canned
+      // sentence, and the panel used to append it as an ASSISTANT reply, so an
+      // operator read a fixed line as something Uptizm AI had reasoned out. The
+      // backend marks it with `degrade_reason`; this is the client half.
+      Http.fake({
+        'assistant': Http.response({
+          'data': {
+            'answer': 'Ekibinizin bugüne ait yapay zeka kotası doldu.',
+            'confidence': 'low',
+            'stripped_citations': [],
+            'degrade_reason': 'budget_exhausted',
+          },
+        }),
+      });
+      final AssistantController controller = AssistantController.instance;
+
+      final AssistantReply? reply = await controller.ask('Hangi izleyiciler yavaş?');
+
+      expect(reply?.degraded, isTrue);
+      expect(
+        reply?.answer,
+        equals('Ekibinizin bugüne ait yapay zeka kotası doldu.'),
+        reason: 'the sentence still reaches the panel, just not as a reply',
+      );
     });
 
     test('returns null on a malformed payload', () async {
@@ -86,9 +124,11 @@ void main() {
       });
       final AssistantController controller = AssistantController.instance;
 
-      final String? answer = await controller.ask('Which monitors are slow?');
+      final AssistantReply? reply = await controller.ask(
+        'Which monitors are slow?',
+      );
 
-      expect(answer, isNull);
+      expect(reply, isNull);
     });
   });
 }

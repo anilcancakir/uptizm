@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\AiConfidence;
+use App\Enums\AiDegradeReason;
 
 /**
  * The immutable answer the floating-assistant LLM produces from a team's
@@ -23,11 +24,23 @@ readonly class AssistantResult
      * @param  string  $answer  The allowlist-cleaned answer.
      * @param  AiConfidence  $confidence  How strongly the answer is supported by the team's telemetry.
      * @param  list<string>  $strippedCitations  Out-of-catalog citations removed from the answer.
+     * @param  AiDegradeReason|null  $degradeReason  Set when no model produced this answer, so the
+     *                                               client can draw it as a system note instead of a
+     *                                               reply. Null on every real answer.
+     *
+     *                                               It exists because the over-budget path returns an
+     *                                               `AssistantResult` like any other, and the client
+     *                                               renders `answer` straight into the chat bubble: an
+     *                                               operator over budget was reading a canned sentence
+     *                                               attributed to Uptizm AI with nothing to mark it as
+     *                                               the system speaking. {@see IncidentAnalysisResult}
+     *                                               has carried this field since it shipped.
      */
     public function __construct(
         public string $answer,
         public AiConfidence $confidence,
         public array $strippedCitations = [],
+        public ?AiDegradeReason $degradeReason = null,
     ) {}
 
     /**
@@ -41,6 +54,7 @@ readonly class AssistantResult
             'answer' => $this->answer,
             'confidence' => $this->confidence->value,
             'stripped_citations' => $this->strippedCitations,
+            'degrade_reason' => $this->degradeReason?->value,
         ];
     }
 }
