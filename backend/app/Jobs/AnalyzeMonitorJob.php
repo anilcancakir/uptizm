@@ -24,6 +24,7 @@ use App\Services\Monitoring\ResponseDigest;
 use App\Services\Monitoring\ResponseDigestResult;
 use App\Services\Monitoring\TargetLocation;
 use App\Services\Monitoring\TargetLocationResult;
+use App\Support\Ai\PromptLanguage;
 use App\Support\Monitoring\AnalyzeRunStore;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\CredentialRedactor;
@@ -930,6 +931,11 @@ class AnalyzeMonitorJob implements ShouldBeEncrypted, ShouldQueue
             teamId: $this->teamId,
             digest: $digest,
             targetLocation: $location,
+            // The team's language, not a request's: this runs on the analyze
+            // queue. Its sibling call in this same flow, metric discovery,
+            // was already localized, so an operator read Turkish metric
+            // labels beside an English analysis of the same probe.
+            language: PromptLanguage::nameFor(Team::find($this->teamId)?->preferredLocale()),
         );
     }
 

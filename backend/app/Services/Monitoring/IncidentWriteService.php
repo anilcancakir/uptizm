@@ -255,6 +255,7 @@ class IncidentWriteService
                 'resolved' => $current,
                 'status_change' => null,
             ]);
+
         }
 
         $this->fanOutTranslations($posted, 'message');
@@ -514,6 +515,7 @@ class IncidentWriteService
             'resolved' => null,
             'status_change' => null,
         ]);
+
     }
 
     /**

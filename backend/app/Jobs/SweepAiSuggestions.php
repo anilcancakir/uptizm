@@ -21,6 +21,7 @@ use App\Services\Ai\AnomalyTriageGateway;
 use App\Services\Ai\ResponseTimeAnomalyDetector;
 use App\Services\Ai\TriagePayload;
 use App\Services\Monitoring\IncidentDispatcher;
+use App\Support\Ai\PromptLanguage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -353,6 +354,9 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
             knownCheckIds: [],
             knownMetricKeys: [],
             knownRegions: $knownRegions,
+            // The auto arm of the same triage the job above runs; both feed
+            // one operator-facing suggestion, so both name the language.
+            language: PromptLanguage::nameFor($monitor->team?->preferredLocale()),
         );
     }
 

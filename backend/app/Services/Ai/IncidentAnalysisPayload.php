@@ -4,6 +4,7 @@ namespace App\Services\Ai;
 
 use App\Models\Incident;
 use App\Models\MonitorCheck;
+use App\Support\Ai\PromptLanguage;
 
 /**
  * The immutable evidence handed to the post-incident RCA LLM.
@@ -76,11 +77,11 @@ readonly class IncidentAnalysisPayload
      *                                       what the gateway's allowlist reads, and that runs over the
      *                                       model's ANSWER rather than over the prompt.
      * @param  list<string>  $knownMonitorIds  The owned catalog of affected monitor ids.
-     * @param  list<array{monitor_id: string, name: string, url: string|null}>  $monitors  TRUSTED roster of the
-     *                                                                                     affected monitors. The NAME is what makes prose readable: the payload
-     *                                                                                     used to send ids alone, so the model wrote "the monitor
-     *                                                                                     a27cd1e4-3795-41b6-9527-dbbda45e51da" because it had nothing else to
-     *                                                                                     call it. The id stays for citations.
+     * @param  list<array{monitor_id: string, name: string}>  $monitors  TRUSTED roster of the
+     *                                                                   affected monitors. The NAME is what makes prose readable: the payload
+     *                                                                   used to send ids alone, so the model wrote "the monitor
+     *                                                                   a27cd1e4-3795-41b6-9527-dbbda45e51da" because it had nothing else to
+     *                                                                   call it. The id stays for citations.
      * @param  array{label: string, path: string|null, direction: string|null, warn: string|null, critical: string|null, readings: list<array{value: string, band: string|null, recorded_at: string|null}>}|null  $triggeringMetric
      *                                                                                                                                                                                                                               The metric whose breach opened this incident, with the bounds it crossed
      *                                                                                                                                                                                                                               and the readings around it. Null for an incident opened by consecutive
@@ -102,6 +103,7 @@ readonly class IncidentAnalysisPayload
         public array $knownMonitorIds,
         public array $monitors = [],
         public ?array $triggeringMetric = null,
+        public string $language = PromptLanguage::FALLBACK,
     ) {}
 
     /**
@@ -151,8 +153,219 @@ readonly class IncidentAnalysisPayload
         }
         $untrustedLines[] = self::UNTRUSTED_BLOCK_FOOTER;
 
+        // 3. The task, and the language to answer it in. AFTER the fence on
+        //    purpose: a language named inside it would be a monitored target
+        //    choosing what language our operator's analysis comes back in.
+        //
+        //    A language NAME rather than a locale code, per
+        //    {@see PromptLanguage}: "in tr" is a token a model may or may not
+        //    resolve, "in Turkish" is not. Every field is named because the
+        //    structured output has several, and asking for "the answer" in
+        //    Turkish reliably returned a Turkish summary with English labels.
         return $trusted."\n\n".implode("\n", $untrustedLines)
-            ."\n\nSummarize the likely root cause using only the evidence above.";
+            ."\n\nSummarize the likely root cause using only the evidence above."
+            // The padding rule, and it is here rather than only in the length
+            // cap because a cap can truncate padding and cannot prevent it.
+            // MEASURED: the model spent a whole 400-character summary listing
+            // every sub-check that was FINE (`checks.application.status ok,
+            // checks.database.status ok, checks.redis.status ok, ...`) and got
+            // cut off before it reached the one that was not. Naming what is
+            // healthy is not an analysis, and it is what pushed the answer into
+            // the length where this model starts losing coherence.
+            .' Name only what is WRONG. Do not list the components that are'
+            .' healthy; that they are absent from the summary already says so.'
+            .' Write the summary, every evidence label and detail, and every'
+            ." suggested action and rationale in {$this->language}."
+            .' Leave identifiers, metric keys, HTTP methods and status codes as they are.';
+    }
+
+    /**
+     * A stable hash of the MATERIAL evidence, used to decide whether a stored
+     * analysis still answers the current question.
+     *
+     * Hashing {@see self::buildUserMessage()} outright would have been the
+     * obvious move and is the wrong one: every check row carries its own
+     * `checked_at` and latency, so on an open incident the hash would change on
+     * every single check and the store would never hit. That is the case the
+     * store exists for, since an open incident is the one people refresh.
+     *
+     * So the clock is dropped and the evidence is kept. What survives is what a
+     * root-cause answer is actually built from: the incident's own state, the
+     * affected roster, the timeline, the DISTINCT per-check verdict rows
+     * (region, status, status code, latency, monitor), the triggering metric,
+     * and the response bodies. What is dropped is identity, wall time, and
+     * repetition: `checked_at`, the ordinal, the body block's timestamp and its
+     * repeat count.
+     *
+     * Distinct rather than every row, because a growing list is still a moving
+     * hash. Dropping only the timestamps left a flatline re-hashing anyway: the
+     * first twenty checks of an incident each APPEND a row before the window
+     * saturates, so twenty identical failures bought twenty identical answers,
+     * which a test caught. Collapsing to the distinct set is the same move the
+     * bodies already make by dropping `repeat`, and it says the fingerprint
+     * asks what evidence exists rather than how many times it was seen.
+     *
+     * The cost is real and worth stating: going from two failing checks to
+     * nineteen does not re-ask, because the set is the same. A monitor that
+     * starts flapping DOES re-ask, since an `up` row joins the set, and the
+     * order is first-appearance rather than sorted so a recovery (up on top of
+     * down) hashes differently from an onset.
+     *
+     * Latency is not in it at all, and getting there took three corrections a
+     * live incident forced one after another. Exact latency was kept first, on
+     * the reasoning that it is the evidence for a whole class of incident: no
+     * two checks answer in the same millisecond, so every tick added a distinct
+     * row and one open incident produced three fingerprints and three paid
+     * answers inside ten minutes. Banding it onto a ladder was the second
+     * attempt, and this monitor's latency wanders from 436ms to 3389ms on its
+     * own, so it crossed rungs by itself. The metric values and the response
+     * bodies each failed the same way for the same reason.
+     *
+     * The rule underneath all three is one sentence, and applying it everywhere
+     * is what finally held: a number a service reports is a READING, and a
+     * reading that matters already has a metric band watching it. So the
+     * fingerprint watches VERDICTS, which is what the product itself computes
+     * from those readings: up or down per region, the metric's band, a body
+     * field changing from one word to another. An operator who cares about
+     * latency defines a metric on it, and that metric's band is in here.
+     */
+    public function evidenceFingerprint(): string
+    {
+        // The VERDICT per region, with no timing in it at all.
+        $checks = array_values(array_unique(array_map(
+            fn (array $check): string => implode('|', [
+                (string) ($check['region'] ?? ''),
+                (string) ($check['status'] ?? ''),
+                (string) ($check['status_code'] ?? ''),
+                (string) ($check['monitor'] ?? ''),
+            ]),
+            $this->checks,
+        )));
+
+        // Only the body rows that say something. A monitored service reports
+        // live numbers, so its diff blocks read `used_percent = 82.87 -> 83.14`,
+        // `latency_ms = 59.16 -> 0.18`, and even
+        // `message = The disk is 82.9% full. -> The disk is 83.1% full.`
+        //
+        // Masking the digits was the first attempt and it was not enough,
+        // measured: the values stopped moving and the hash still did, because
+        // WHICH paths appear in a diff varies per check too. So a row that says
+        // nothing once the digits are gone is dropped entirely, and a block left
+        // with no rows goes with it. See {@see self::materialFields()}.
+        //
+        // Only the fingerprint sees this. The prompt is still handed the real
+        // numbers, because the analysis is what those numbers are for.
+        $bodies = array_values(array_filter(
+            array_map(
+                fn (array $body): array => [
+                    'baseline' => (bool) ($body['baseline'] ?? false),
+                    'fields' => self::materialFields((array) ($body['fields'] ?? [])),
+                ],
+                $this->bodies,
+            ),
+            fn (array $body): bool => $body['fields'] !== [],
+        ));
+
+        // The metric readings carry `recorded_at` for the same reason the check
+        // rows carry `checked_at`, and it is dropped for the same reason: a
+        // metric sitting flat at one critical value would otherwise re-hash on
+        // every tick, which on a metric-triggered incident is every incident.
+        $metric = $this->triggeringMetric;
+        if ($metric !== null) {
+            // The BANDS, distinct and in order of appearance, not the values.
+            // A numeric metric never reports the same number twice (83.7 then
+            // 83.8 then 83.7), so hashing values grows and shifts the hash on
+            // every tick exactly like the timestamps did. What the analysis
+            // actually narrates is the band: ok, warn, critical, and the
+            // crossing between them. A reading that moves without changing band
+            // does not change the answer, and one that changes band does.
+            $metric['readings'] = array_values(array_unique(array_map(
+                fn (array $reading): string => (string) ($reading['band'] ?? ''),
+                (array) ($metric['readings'] ?? []),
+            )));
+        }
+
+        // The roster is sorted and NOTHING ELSE here is, and the line between
+        // them is whether order carries meaning.
+        //
+        // A review found that `monitorRoster()` had no `orderBy`, so the same two
+        // monitors could hash twice and miss the store: a re-asked model, another
+        // budget unit, a second row for one answer. It was invisible until now
+        // because every check so far ran on a single-monitor incident, where
+        // nothing could reorder. Which monitor is listed first says nothing about
+        // the incident, so sorting is the honest normalisation.
+        //
+        // The other lists are the opposite, and sorting them was a mistake this
+        // suite caught: `EvidenceFingerprintTest::test_a_recovery_reads_differently_from_an_onset`
+        // pins that an `up` on top of a `down` is a RECOVERY and the reverse is
+        // the failure starting. The distinct set is identical either way and only
+        // the order separates them, so first-appearance order IS evidence for the
+        // checks, the timeline, the body diffs and the metric bands. Their
+        // determinism belongs in the queries that read them, as a tiebreaker, not
+        // in a sort that would flatten a recovery and an onset into one question.
+        $monitors = $this->monitors;
+        sort($monitors);
+
+        return hash('sha256', (string) json_encode([
+            $this->incidentId,
+            $this->severity,
+            $this->impact,
+            $this->lifecycle,
+            $this->signalSource,
+            $this->aiOwned,
+            $this->resolvedAt !== null,
+            $monitors,
+            $this->timeline,
+            $checks,
+            $bodies,
+            $metric,
+        ]));
+    }
+
+    /**
+     * The body rows that carry a state change rather than a moving number.
+     *
+     * A diff row arrives as `before -> after`. Masking the digits on both sides
+     * and comparing them is the whole test: `82.87 -> 83.14` becomes
+     * `##.## -> ##.##`, the two sides are identical, and the row is saying only
+     * that a number moved, which every check says. `ok -> degraded` masks to
+     * itself, the sides differ, and that is a state change worth a fresh answer.
+     *
+     * A baseline row carries no arrow and is kept, masked: the baseline is the
+     * shape of the body, and the shape is stable.
+     *
+     * @param  array<string, mixed>  $fields
+     * @return array<string, string>
+     */
+    private static function materialFields(array $fields): array
+    {
+        $material = [];
+
+        foreach ($fields as $path => $value) {
+            $masked = self::maskDigits((string) $value);
+
+            if (! str_contains($masked, ' -> ')) {
+                $material[(string) $path] = $masked;
+
+                continue;
+            }
+
+            [$before, $after] = explode(' -> ', $masked, 2);
+
+            if ($before !== $after) {
+                $material[(string) $path] = $masked;
+            }
+        }
+
+        return $material;
+    }
+
+    /**
+     * Replace every run of digits with a single `#`.
+     */
+    private static function maskDigits(string $value): string
+    {
+        return preg_replace('/\d+/', '#', $value) ?? $value;
     }
 
     /**
@@ -228,11 +441,15 @@ readonly class IncidentAnalysisPayload
         }
 
         return implode('; ', array_map(
+            // Name and id only. A `url` key is ignored even if a caller supplies
+            // one: the path segment of a monitor address is often the credential,
+            // and this line is what put a whole one into a summary an operator
+            // read back. The name is what makes the prose readable and the id is
+            // what makes a citation checkable; the address adds neither.
             fn (array $monitor): string => sprintf(
-                '%s (monitor_id: %s%s)',
+                '%s (monitor_id: %s)',
                 (string) ($monitor['name'] ?? 'unnamed'),
                 (string) ($monitor['monitor_id'] ?? 'unknown'),
-                isset($monitor['url']) ? ', url: '.$monitor['url'] : '',
             ),
             $this->monitors,
         ));

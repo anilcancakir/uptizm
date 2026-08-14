@@ -451,7 +451,7 @@
       "form_slo_label": "Çalışma süresi SLO hedefi",
       "form_slo_hint": "Uptizm'in izleyicinin detay sayfasında takip ettiği hata bütçesini belirler.",
       "form_ai_mode_label": "Yapay zeka desteği",
-      "form_ai_mode_hint": "Öneri modu, tespit edilen anormallikleri onaylamanız veya reddetmeniz için panel gelen kutusuna gönderir; hiçbir şey otomatik olarak oluşturulmaz.",
+      "form_ai_mode_hint": "Uptizm kendi başına neye karar verebilir. Öneri modu, tespit ettiği anormallikleri panodaki gelen kutusuna düşürür; kabul ya da reddetmek sende kalır ve hiçbir şey oluşturulmaz. Otomatik modu, yeterince eminse olayı kendisi açar; emin değilse öneriye düşer.",
       "form_notifications_title": "Bildirimler",
       "form_notifications_hint": "Bu izleyici hakkında kimlerin uyarılacağı.",
       "form_alert_down": "Bu izleyici çöktüğünde uyar",
@@ -739,7 +739,11 @@
       "metrics_unit_hour": "Saat",
       "metrics_unit_ratio": "Oran",
       "metrics_unit_count_short": "Sayı (kısa)",
-      "metrics_reading_stale": "Yeni veri yok"
+      "metrics_reading_stale": "Yeni veri yok",
+      "ai_mode_auto": "Otomatik",
+      "form_ai_auto_updates_label": "Otomatik durum güncellemeleri",
+      "form_ai_auto_updates_switch": "Güncellemeleri benim için yaz ve yayımla",
+      "form_ai_auto_updates_hint": "Uptizm müşterilerine ne söyleyebilir. Bu monitörde bir olay açıldığında ve kapandığında, güncellemeyi kendisi yazar ve sana sormadan durum sayfanda yayımlar. Zaten ürettiği analizi okur, iç detayı dışarıda bırakır, ve güvendiği bir metin yazamazsa hiçbir şey yayımlamaz. Eşiklerinin açtığı olaylar dahil, her olay için çalışır."
     },
     "status": {
       "up": "Çalışıyor",
@@ -887,7 +891,14 @@
       "analysis_title": "Yapay zeka analizi",
       "recommended_next_steps": "Önerilen sonraki adımlar",
       "helpful": "Yararlı",
-      "not_helpful": "Yararlı değil"
+      "not_helpful": "Yararlı değil",
+      "feedback_thanks_heading": "Geri bildiriminiz için teşekkürler",
+      "feedback_thanks_body": "İşe yarayan analizi kulağa doğru gelenden ayırmamıza yardım ediyor.",
+      "feedback_retry_heading": "Yeniden soruluyor",
+      "feedback_retry_body": "Analiz, güncel kanıtlarla baştan oluşturuluyor.",
+      "source_check": "Kontroller",
+      "source_monitor": "Monitör",
+      "source_timeline": "Zaman çizelgesi"
     },
     "common": {
       "save": "Kaydet",
@@ -998,6 +1009,7 @@
       "analysis_degraded_heading": "Yapay zeka analizi",
       "analysis_pending_heading": "AI analizi",
       "analysis_pending_body": "Bu olay için kaydedilen check ve metrikler okunuyor.",
+      "analysis_failed_body": "Analiz yüklenemedi.",
       "analysis_degraded_budget": "Bugünün yapay zeka bütçesi doldu, bu yüzden bu olay için analiz üretilmedi.",
       "analysis_degraded_untrusted": "Model güvenilir bir yanıt üretemedi, bu yüzden bu olay için analiz üretilmedi.",
       "analysis_degraded_unreachable": "Yapay zeka servisine şu an ulaşılamıyor, bu yüzden bu olay için analiz üretilmedi.",
@@ -1049,7 +1061,11 @@
       "title_metric_string_value": ":metric \":value\" bildirdi",
       "title_ssl_expiring_one": ":monitor sertifikası :days gün içinde doluyor",
       "title_ssl_expiring_other": ":monitor sertifikası :days gün içinde doluyor",
-      "title_ai_anomaly": ":monitor üzerinde anomali saptandı"
+      "title_ai_anomaly": ":monitor üzerinde anomali saptandı",
+      "detail_draft_degraded_heading": "Şablondan dolduruldu",
+      "detail_draft_degraded_body": "Bunu yapay zekâ yazamadı, standart metin dolduruldu. Yayımlamadan önce düzenle.",
+      "form_affected_empty": "Henüz monitörünüz yok. Önce bir tane ekleyin, sonra olayı ona bağlayın.",
+      "form_affected_loading": "Monitörleriniz yükleniyor..."
     },
     "settings": {
       "hub_title": "Ayarlar",

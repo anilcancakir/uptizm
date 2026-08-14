@@ -93,6 +93,26 @@ class IncidentController extends MagicController
   /// the better part of a minute, and taps again.
   final Set<String> _analysisPendingIds = {};
 
+  /// The incident ids whose last analysis fetch never landed.
+  ///
+  /// A different fact from every other state here, and the one the screen was
+  /// missing. Reported from the running app: open an incident, watch the
+  /// skeleton, watch it disappear, read nothing. A failed request and "the
+  /// server says there is no analysis" both left [analysisFor] null with
+  /// [analysisPending] false, so the section drew one blank for two outcomes,
+  /// and an operator reads blank as an answer.
+  ///
+  /// A DEGRADE is not in here on purpose. That arrives as a payload carrying a
+  /// reason, has its own section and its own retry rules (budget exhaustion is
+  /// not retryable), so marking it failed too would stack a second notice on one
+  /// outcome and put the vaguer one on top. This set is only for the request
+  /// itself not landing, where the analysis may well exist and retrying is the
+  /// whole point.
+  ///
+  /// Per id rather than one slot, for the same reason [_analysisPendingIds] is:
+  /// this controller outlives every screen, so two incidents can be in flight.
+  final Set<String> _analysisFailedIds = {};
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -401,7 +421,12 @@ class IncidentController extends MagicController
     final IncidentAi? cached = _analysisById[id];
     if (cached != null && cached.degradeReason == null) return;
 
-    await _fetchAnalysis(id, announceStart: false, reportFailure: false);
+    await _fetchAnalysis(
+      id,
+      announceStart: false,
+      reportFailure: false,
+      refresh: false,
+    );
   }
 
   /// Re-asks for the analysis of incident [id] because the operator pressed the
@@ -413,8 +438,16 @@ class IncidentController extends MagicController
   /// same defect class this screen was just cleaned of, because a failed re-ask
   /// and a re-ask that degraded again both repaint byte-identically, leaving the
   /// operator unable to tell either from a button that does nothing.
-  Future<void> retryAnalysis(String id) =>
-      _fetchAnalysis(id, announceStart: true, reportFailure: true);
+  /// `refresh` is what separates this from [loadAnalysis] on the wire: the
+  /// backend serves a stored answer while the evidence has not moved, so
+  /// without it a retry would return the same row it was asked to re-ask, and
+  /// the button would be back to doing nothing.
+  Future<void> retryAnalysis(String id) => _fetchAnalysis(
+    id,
+    announceStart: true,
+    reportFailure: true,
+    refresh: true,
+  );
 
   /// The shared fetch behind [loadAnalysis] and [retryAnalysis].
   ///
@@ -427,6 +460,7 @@ class IncidentController extends MagicController
     String id, {
     required bool announceStart,
     required bool reportFailure,
+    required bool refresh,
   }) async {
     // Re-entrancy guard. The disabled retry button is a UI courtesy, not a
     // mechanism: a remount inside the request window would otherwise fire a
@@ -434,16 +468,23 @@ class IncidentController extends MagicController
     if (_analysisPendingIds.contains(id)) return;
 
     _analysisPendingIds.add(id);
+    // Cleared on entry, not only on success: while a request is in flight the
+    // screen shows the skeleton, and a stale failure notice underneath it would
+    // report the last attempt as though it were this one.
+    _analysisFailedIds.remove(id);
     // Only the retry announces itself. `loadAnalysis` runs from `initState`, and
     // `refreshUI` is a bare `notifyListeners()`, so notifying there would mark
     // listening elements dirty during a build that is still running.
     if (announceStart) refreshUI();
     try {
-      final response = await Http.get('/incidents/$id/analysis');
+      final response = await Http.get(
+        '/incidents/$id/analysis${refresh ? '?refresh=1' : ''}',
+      );
       if (!response.successful) {
         Log.error(
           '[IncidentController._fetchAnalysis] $id: ${response.errorMessage}',
         );
+        _analysisFailedIds.add(id);
         if (reportFailure) {
           Magic.error(
             trans('common.error_occurred'),
@@ -465,6 +506,7 @@ class IncidentController extends MagicController
         Log.error(
           '[IncidentController._fetchAnalysis] $id: malformed payload',
         );
+        _analysisFailedIds.add(id);
         if (reportFailure) {
           Magic.error(
             trans('common.error_occurred'),
@@ -486,6 +528,8 @@ class IncidentController extends MagicController
         degradeReason: aiDegradeReasonFromWire(
           data['degrade_reason'] as String?,
         ),
+        id: data['id'] as String?,
+        feedback: data['feedback'] as bool?,
       );
       _analysisById[id] = analysis;
 
@@ -502,6 +546,7 @@ class IncidentController extends MagicController
       }
     } catch (error) {
       Log.error('[IncidentController._fetchAnalysis] $id failed: $error');
+      _analysisFailedIds.add(id);
       if (reportFailure) {
         Magic.error(
           trans('common.error_occurred'),
@@ -522,6 +567,175 @@ class IncidentController extends MagicController
   /// Whether the analysis fetch for incident [id] is in flight, so the degraded
   /// section can show its retry as running rather than idle.
   bool analysisPending(String id) => _analysisPendingIds.contains(id);
+
+  /// Whether the last analysis fetch for incident [id] never landed, so the
+  /// section can say that instead of drawing nothing.
+  ///
+  /// Only true when there is also no analysis to show: a fetch that failed after
+  /// an earlier one succeeded leaves the earlier answer on screen, and reporting
+  /// a failure over a visible analysis would contradict it.
+  bool analysisFailed(String id) =>
+      _analysisFailedIds.contains(id) && _analysisById[id] == null;
+
+  /// The incident ids with a draft request in flight, keyed by the draft path
+  /// so a postmortem draft and an update draft do not disable each other.
+  final Set<String> _draftPendingKeys = {};
+
+  /// Whether a draft of [kind] for incident [id] is being written right now.
+  ///
+  /// The composer reads this to show the wait as a skeleton. It is not a
+  /// courtesy: the model call runs 13 to 21 seconds against the real provider,
+  /// and a button that repaints identically for twenty seconds is one an
+  /// operator presses again.
+  bool draftPending(String id, String kind) =>
+      _draftPendingKeys.contains('$kind:$id');
+
+  /// Asks the backend to draft the next public status update, or the
+  /// postmortem, for incident [id].
+  ///
+  /// Returns the drafted text, or null when the backend produced none. Null is
+  /// the ONLY failure signal the caller needs, and it is deliberately not an
+  /// exception: the caller already owns a localized template for both surfaces
+  /// (`draftUpdate` and `postmortemDraft`), those templates were written by a
+  /// person in both locales, and they are a better fallback than anything a
+  /// degraded backend could compose. So a null means "fill your own template",
+  /// and the caller says which one the operator is looking at.
+  ///
+  /// [kind] is `update` or `postmortem`, matching the route segment.
+  ///
+  /// [postingAs] is the lifecycle the composer has selected, which is what the
+  /// update will be stamped with and is NOT always where the incident stands: a
+  /// fresh incident sits at `detected`, and the first thing a person posts about
+  /// it moves it on. Without this the draft was written for the incident's
+  /// current stage and came back "We are investigating" under a Detected label.
+  Future<String?> draftText(String id, String kind, {String? postingAs}) async {
+    final String key = '$kind:$id';
+    // Re-entrancy guard, same shape as the analysis fetch: every call spends an
+    // AI budget unit, so a second tap inside the request window must not buy a
+    // second draft of the same thing.
+    if (_draftPendingKeys.contains(key)) return null;
+
+    _draftPendingKeys.add(key);
+    refreshUI();
+    try {
+      final response = await Http.post(
+        '/incidents/$id/draft-$kind',
+        data: postingAs == null ? null : {'posting_as': postingAs},
+      );
+      if (!response.successful) {
+        Log.error('[IncidentController.draftText] $key: ${response.errorMessage}');
+        return null;
+      }
+
+      final Object? data = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (data is! Map<String, dynamic>) {
+        Log.error('[IncidentController.draftText] $key: malformed payload');
+        return null;
+      }
+
+      final Object? draft = data['draft'];
+
+      return draft is String && draft.trim().isNotEmpty ? draft : null;
+    } catch (error) {
+      Log.error('[IncidentController.draftText] $key failed: $error');
+
+      return null;
+    } finally {
+      _draftPendingKeys.remove(key);
+      refreshUI();
+    }
+  }
+
+  /// Records this operator's rating of the analysis currently shown for
+  /// incident [id], and acts on it.
+  ///
+  /// The two ratings do different things on purpose. Helpful is an
+  /// acknowledgement: record it, thank the operator, stop. Not helpful is a
+  /// complaint, and a complaint that only writes a row is the same do-nothing
+  /// button this replaced, so it re-asks the model as well. That re-ask spends
+  /// a budget unit, which is the correct price for "this answer was wrong".
+  ///
+  /// The rating is posted with the analysis id the operator was LOOKING at,
+  /// not the incident's current one. A check landing between the paint and the
+  /// tap can move the analysis, and a vote that silently re-targets rates text
+  /// nobody read.
+  ///
+  /// Does nothing when there is no stored analysis to rate ([IncidentAi.id] is
+  /// null), which is every degrade path and every fixture.
+  Future<void> submitAnalysisFeedback(String id, bool helpful) async {
+    final IncidentAi? analysis = _analysisById[id];
+    final String? analysisId = analysis?.id;
+    if (analysis == null || analysisId == null) return;
+
+    // Tapping the choice already recorded is a no-op, not a re-vote. Raised in
+    // review, and on the Not-helpful side it is a cost bug rather than a tidy-up:
+    // that arm re-asks the model, so a second tap on an already-recorded
+    // thumbs-down spends another budget unit to buy a re-ask of the re-ask.
+    //
+    // It cannot swallow a legitimate second complaint, because a re-ask that
+    // answered DIFFERENTLY deletes the vote it invalidated: the recorded value
+    // only survives when the model returned the same text, and asking a third
+    // time for a fourth identical answer is the waste this prevents.
+    if (analysis.feedback == helpful) return;
+
+    // Paint the choice before the round trip. The vote is not a state the
+    // operator has to wait to see, and the server answers with the same value.
+    _analysisById[id] = analysis.withFeedback(helpful);
+    refreshUI();
+
+    try {
+      final response = await Http.post(
+        '/incidents/$id/analysis/feedback',
+        data: {'analysis_id': analysisId, 'helpful': helpful},
+      );
+
+      if (!response.successful) {
+        Log.error(
+          '[IncidentController.submitAnalysisFeedback] $id: '
+          '${response.errorMessage}',
+        );
+        // Put the button back where it was. A vote that failed and a vote that
+        // landed must not look the same.
+        _analysisById[id] = analysis;
+        refreshUI();
+        Magic.error(
+          trans('common.error_occurred'),
+          response.errorMessage ?? trans('common.error_occurred'),
+        );
+        return;
+      }
+
+      if (helpful) {
+        Magic.success(
+          trans('uptizm.ai.feedback_thanks_heading'),
+          trans('uptizm.ai.feedback_thanks_body'),
+        );
+        return;
+      }
+
+      // Not helpful: say the re-ask is happening, then do it. `retryAnalysis`
+      // overwrites the cached analysis with the new answer, which drops the
+      // vote from the view along with the text it was about, and that is
+      // correct: the rating belongs to the answer that earned it.
+      Magic.snackbar(
+        trans('uptizm.ai.feedback_retry_heading'),
+        trans('uptizm.ai.feedback_retry_body'),
+      );
+      await retryAnalysis(id);
+    } catch (error) {
+      Log.error(
+        '[IncidentController.submitAnalysisFeedback] $id failed: $error',
+      );
+      _analysisById[id] = analysis;
+      refreshUI();
+      Magic.error(
+        trans('common.error_occurred'),
+        trans('common.error_occurred'),
+      );
+    }
+  }
 
   /// Decodes an `evidence_for`/`evidence_against` wire list into
   /// [AiEvidence]s, tolerating a non-list or absent value as empty (the
@@ -860,6 +1074,22 @@ class IncidentController extends MagicController
         return const {};
       }
       await reload();
+
+      // Land on the incident, not on the list.
+      //
+      // The backend dedupes on purpose: a monitor that already has an active
+      // incident is not opened a second time and the existing one comes back.
+      // Navigating to the list made that indistinguishable from a failure, and
+      // it was, live: the form was filled, the button pressed, the list
+      // reappeared, and nothing about it was new. Going to the incident answers
+      // "what happened to my form" whichever of the two occurred, because the
+      // incident that now covers this outage is on screen either way.
+      final String id = incident.id;
+      if (id.isNotEmpty) {
+        MagicRoute.to('/incidents/$id');
+
+        return const {};
+      }
     }
     MagicRoute.to('/incidents');
     return const {};

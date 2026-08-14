@@ -587,6 +587,50 @@ class MonitorControllerTest extends TestCase
         );
     }
 
+    public function test_the_autonomous_updates_flag_survives_a_round_trip(): void
+    {
+        // Found by turning the switch on, saving, and re-opening the form to
+        // find it off. The write landed and the READ denied it:
+        // `MonitorResource` never carried the field, the client reads an absent
+        // key as false, and the operator was shown a setting they had changed as
+        // if they had not. Both directions are asserted, because a resource that
+        // hardcodes `true` would pass a one-way test.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $created = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'ai_auto_updates' => true,
+        ]);
+
+        $created->assertStatus(201);
+        $created->assertJsonPath('data.ai_auto_updates', true);
+
+        $monitor = Monitor::query()->latest('created_at')->first();
+        $this->assertTrue((bool) $monitor->ai_auto_updates);
+
+        $off = $this->putJson("/api/v1/monitors/{$monitor->id}", [
+            'ai_auto_updates' => false,
+        ]);
+
+        $off->assertStatus(200);
+        $off->assertJsonPath('data.ai_auto_updates', false);
+        $this->assertFalse((bool) $monitor->fresh()->ai_auto_updates);
+    }
+
+    public function test_a_monitor_defaults_to_never_publishing_on_its_own(): void
+    {
+        // The safe direction for a flag whose true value writes on a public page:
+        // a monitor never arrives already doing it.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', $this->validPayload());
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.ai_auto_updates', false);
+    }
+
     public function test_store_rejects_an_unknown_ai_mode(): void
     {
         Queue::fake();

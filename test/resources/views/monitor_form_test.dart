@@ -25,6 +25,18 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.form_field_name_label': 'Name',
       'uptizm.monitors.form_field_name_placeholder': 'e.g. API gateway',
       'uptizm.monitors.form_type_label': 'Type',
+      // The AI-assist ladder. Absent from this loader, `trans()` answers with
+      // the raw dotted key, three of them side by side in one segmented
+      // control, and the row overflowed by 164px: a harness artifact that looks
+      // exactly like a layout defect.
+      'uptizm.monitors.form_ai_mode_label': 'AI assist',
+      'uptizm.monitors.form_ai_mode_hint': 'What Uptizm may do on its own.',
+      'uptizm.monitors.ai_mode_off': 'Off',
+      'uptizm.monitors.ai_mode_suggest': 'Suggest',
+      'uptizm.monitors.ai_mode_auto': 'Auto',
+      'uptizm.monitors.form_ai_auto_updates_label': 'Autonomous status updates',
+      'uptizm.monitors.form_ai_auto_updates_switch': 'Write and publish for me',
+      'uptizm.monitors.form_ai_auto_updates_hint': 'Uptizm writes and publishes it.',
       'uptizm.monitors.form_url_label': 'URL or host',
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',

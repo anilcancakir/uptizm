@@ -8,6 +8,7 @@ use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
+use App\Jobs\PublishAiIncidentUpdate;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\Team;
@@ -15,10 +16,12 @@ use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Monitoring\CheckPersistenceService;
+use App\Services\Monitoring\IncidentWriteService;
 use App\Support\Monitoring\CheckResult;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -131,6 +134,115 @@ class IncidentLifecycleTest extends TestCase
     /**
      * Resolve the service with its real collaborators from the container.
      */
+    public function test_resolving_a_still_broken_monitor_reopens_instead_of_opening_a_second(): void
+    {
+        // Measured on the running system: a manual resolve leaves
+        // `consecutive_fails` where it was and clears the only other gate, so the
+        // NEXT check opened a brand new incident. Clicking resolve ten times on a
+        // monitor that is still down therefore produced ten incidents, and with
+        // autonomous updates on, twenty model calls and ten customer-facing posts.
+        Notification::fake();
+        [$monitor] = $this->makeMonitor();
+        $service = $this->service();
+
+        $this->drivePastThreshold($service, $monitor);
+        $first = Incident::query()->sole();
+
+        // The operator resolves it by hand while the monitor is still failing.
+        $this->app->make(IncidentWriteService::class)->resolve($first, author: 'Operator');
+
+        // The next check arrives, still down.
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-3', status: MonitorStatus::Down));
+
+        $this->assertSame(
+            1,
+            Incident::query()->count(),
+            'a monitor that never recovered is one outage, not two',
+        );
+        $this->assertTrue(
+            Incident::query()->sole()->lifecycle->isActive(),
+            'and it is open again, so a mistaken resolve does not silence a real outage',
+        );
+    }
+
+    public function test_a_failure_after_the_window_is_a_new_incident(): void
+    {
+        // The other half. The window answers "is this the same outage", so past
+        // it a fresh failure is a fresh episode and gets its own incident, its
+        // own timeline and its own postmortem.
+        Notification::fake();
+        [$monitor] = $this->makeMonitor();
+        $service = $this->service();
+
+        $this->drivePastThreshold($service, $monitor);
+        $first = Incident::query()->sole();
+        $this->app->make(IncidentWriteService::class)->resolve($first, author: 'Operator');
+
+        // Far enough past the reopen window that this is a different outage.
+        $first->forceFill(['resolved_at' => now()->subDay()])->save();
+
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-4', status: MonitorStatus::Down));
+
+        $this->assertSame(2, Incident::query()->count());
+    }
+
+    public function test_a_recovery_inside_the_window_makes_the_next_failure_a_new_incident(): void
+    {
+        // The second condition, and the one a window alone would get wrong: a
+        // monitor that actually came back and broke again is two outages even
+        // minutes apart, and the auto-resolve already closed the first one on
+        // its own terms.
+        Notification::fake();
+        [$monitor] = $this->makeMonitor();
+        $service = $this->service();
+
+        $this->drivePastThreshold($service, $monitor);
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'up-1', status: MonitorStatus::Up));
+
+        $this->assertSame(1, Incident::query()->count());
+        $this->assertNotNull(Incident::query()->sole()->resolved_at, 'the recovery closed it');
+
+        // Down again, twice, inside the reopen window.
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-5', status: MonitorStatus::Down));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-6', status: MonitorStatus::Down));
+
+        $this->assertSame(
+            2,
+            Incident::query()->count(),
+            'it recovered in between, so this is a second outage and not a reopen',
+        );
+    }
+
+    public function test_an_automated_open_queues_the_autonomous_update(): void
+    {
+        // The hook started beside `IncidentWriteService::dispatchOpened()`, which
+        // only a manual create and a reopen reach. The automated open goes
+        // through `CheckPersistenceService` -> `ThresholdEvaluator::evaluate()`
+        // -> `IncidentDispatcher`, so it queued nothing for the threshold and
+        // metric opens, which is to say for almost every incident. Live, an
+        // operator turned the switch on, an incident opened, and nothing ever
+        // ran.
+        Notification::fake();
+        Queue::fake();
+        [$monitor] = $this->makeMonitor();
+        $monitor->forceFill(['ai_auto_updates' => true])->save();
+
+        $this->drivePastThreshold($this->service(), $monitor->fresh());
+
+        Queue::assertPushed(PublishAiIncidentUpdate::class);
+    }
+
+    public function test_a_monitor_that_did_not_allow_it_queues_nothing(): void
+    {
+        Notification::fake();
+        Queue::fake();
+        [$monitor] = $this->makeMonitor();
+
+        $this->drivePastThreshold($this->service(), $monitor);
+
+        Queue::assertNotPushed(PublishAiIncidentUpdate::class);
+    }
+
     protected function service(): CheckPersistenceService
     {
         return $this->app->make(CheckPersistenceService::class);

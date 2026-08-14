@@ -63,6 +63,14 @@ const WindRecipe assistantBubbleRecipe = WindRecipe(
     kAssistantRoleAxis: {
       'user': 'bg-primary text-on-primary',
       'assistant': 'bg-surface-container text-fg',
+      // The system's own voice, not the assistant's. It carries the sentence
+      // shown when no model produced an answer (today: the team is over its
+      // daily AI allowance), and it has to read as the product speaking rather
+      // than as something Uptizm AI worked out. Muted foreground on the page
+      // canvas plus a hairline, so it recedes instead of competing with the
+      // replies around it.
+      'system':
+          'bg-surface text-fg-muted border border-color-border-subtle',
     },
   },
   defaultVariants: {kAssistantRoleAxis: 'assistant'},

@@ -215,6 +215,21 @@ class IncidentAi {
   /// time for no gain.
   final AiDegradeReason? degradeReason;
 
+  /// The stored analysis this text came from, or `null` when there is none.
+  ///
+  /// Null on every degrade path, because a deterministic baseline is never
+  /// stored: no row, no id, and nothing to rate. It is also null for a fixture,
+  /// which is why the feedback footer keys off this rather than off
+  /// [degradeReason].
+  final String? id;
+
+  /// This operator's own rating of the analysis: `true` helpful, `false` not,
+  /// `null` not rated.
+  ///
+  /// Per-reader and not the team's aggregate, so the buttons reflect what THIS
+  /// person clicked rather than what a colleague did.
+  final bool? feedback;
+
   const IncidentAi({
     required this.trigger,
     required this.confidence,
@@ -224,7 +239,24 @@ class IncidentAi {
     required this.suggestedActions,
     required this.similarIncidents,
     this.degradeReason,
+    this.id,
+    this.feedback,
   });
+
+  /// A copy carrying a different rating, used to repaint the footer the moment
+  /// the vote is accepted without refetching the whole analysis.
+  IncidentAi withFeedback(bool? feedback) => IncidentAi(
+    trigger: trigger,
+    confidence: confidence,
+    tldr: tldr,
+    evidenceFor: evidenceFor,
+    evidenceAgainst: evidenceAgainst,
+    suggestedActions: suggestedActions,
+    similarIncidents: similarIncidents,
+    degradeReason: degradeReason,
+    id: id,
+    feedback: feedback,
+  );
 }
 
 /// Acknowledgement record: a human confirmed they are on the incident.

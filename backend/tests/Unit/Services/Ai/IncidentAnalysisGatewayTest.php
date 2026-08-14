@@ -115,6 +115,188 @@ class IncidentAnalysisGatewayTest extends TestCase
         $this->assertStringContainsString('monitor_id:monitor-1', $result['summary']);
     }
 
+    public function test_a_fragment_is_not_an_analysis_and_drives_the_retry(): void
+    {
+        // The exact payload a live run produced: well-formed, 200, and not an
+        // answer. It walked through the old `!== ''` guard, was stored, and was
+        // rendered under a confidence badge with a Helpful button beneath it.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $this->assertNull($gateway->normalize([
+            'summary' => 'No.',
+            'confidence' => 'low',
+            'contributing_factors' => ['One of', 'Two'],
+            'evidence_for' => [],
+            'evidence_against' => [],
+            'suggested_actions' => [],
+        ]), 'null is what drives the single retry, then the deterministic baseline');
+    }
+
+    public function test_a_real_narration_is_not_mistaken_for_a_fragment(): void
+    {
+        // The other direction, and the one that would hurt silently: a floor set
+        // too high turns every answer into a retry and then a baseline.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $this->assertNotNull($gateway->normalize([
+            'summary' => 'Every region reported the endpoint down at once.',
+            'confidence' => 'high',
+            'contributing_factors' => [],
+            'evidence_for' => [],
+            'evidence_against' => [],
+            'suggested_actions' => [],
+        ]));
+    }
+
+    public function test_an_evidence_label_written_as_an_identifier_becomes_words(): void
+    {
+        // Three labels from one live answer, where the previous run on the same
+        // incident had written "HTTP checks all up".
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $result = $gateway->sanitizeEvidence([
+            ['label' => 'monitor_up_checks', 'detail' => 'Every probe returned 200.', 'source' => 'check'],
+            ['label' => 'overall_status_degraded', 'detail' => 'The metric read degraded.', 'source' => 'monitor'],
+        ], $this->payload());
+
+        $this->assertSame('Monitor up checks', $result['evidence'][0]['label']);
+        $this->assertSame('Overall status degraded', $result['evidence'][1]['label']);
+    }
+
+    public function test_a_real_heading_is_left_exactly_as_written(): void
+    {
+        // The narrow-on-purpose half: a heading that merely CONTAINS an
+        // underscore is prose, and rewriting it would edit the model rather
+        // than repair its formatting.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+
+        $result = $gateway->sanitizeEvidence([
+            ['label' => 'HTTP checks all up', 'detail' => 'Every probe returned 200.', 'source' => 'check'],
+            ['label' => 'Metric queue_depth breached', 'detail' => 'It crossed the bound.', 'source' => 'monitor'],
+        ], $this->payload());
+
+        $this->assertSame('HTTP checks all up', $result['evidence'][0]['label']);
+        $this->assertSame('Metric queue_depth breached', $result['evidence'][1]['label']);
+    }
+
+    public function test_the_fence_header_never_reaches_the_operator(): void
+    {
+        // Both sentences are verbatim from a live answer. The fence is ours, and
+        // an operator reading it is told their own service's reply is untrusted.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload();
+
+        $result = $gateway->sanitizeSummary(
+            "The untrusted probe data lists all component checks as 'ok' except "
+            ."storage, aligned with the untrusted probe data's top-level status.",
+            $payload,
+        );
+
+        $this->assertStringNotContainsStringIgnoringCase('untrusted', $result['summary']);
+        $this->assertSame(
+            "The response body lists all component checks as 'ok' except storage, "
+            ."aligned with the response body's top-level status.",
+            $result['summary'],
+        );
+    }
+
+    public function test_a_bare_monitor_id_in_the_prose_becomes_the_monitor_name(): void
+    {
+        // The exact sentence a live run produced against the pinned model, with
+        // a real monitor uuid, after the roster line already named the monitor.
+        // Every id in it is a VALID catalog entry, so the citation strip is
+        // right to leave it and the operator still reads 36 characters of noise.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            knownMonitorIds: ['a26c03f7-f8ab-49f9-876e-704061929a65'],
+            monitors: [
+                ['name' => 'Checkout', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'The Checkout monitor (a26c03f7-f8ab-49f9-876e-704061929a65) shows a complete outage.',
+            $payload,
+        );
+
+        $this->assertSame(
+            'The Checkout monitor shows a complete outage.',
+            $result['summary'],
+        );
+        $this->assertSame([], $result['stripped'], 'It was a valid citation, not a fabricated one.');
+    }
+
+    public function test_a_monitor_id_the_sentence_did_not_already_name_gains_the_name(): void
+    {
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            knownMonitorIds: ['a26c03f7-f8ab-49f9-876e-704061929a65'],
+            monitors: [
+                ['name' => 'Checkout', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'Failures concentrate on monitor_id:a26c03f7-f8ab-49f9-876e-704061929a65 across every region.',
+            $payload,
+        );
+
+        $this->assertSame(
+            'Failures concentrate on Checkout across every region.',
+            $result['summary'],
+            'the machine token goes whole, prefix included',
+        );
+    }
+
+    public function test_one_monitors_name_does_not_delete_another_monitors_id(): void
+    {
+        // Raised in review. The drop used to fire on the name appearing ANYWHERE,
+        // so on a multi-monitor incident a later sentence naming a monitor
+        // deleted the parenthetical that was the only thing saying which
+        // monitor an earlier sentence meant.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            knownMonitorIds: ['a26c03f7-f8ab-49f9-876e-704061929a65'],
+            monitors: [
+                ['name' => 'API', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'Two monitors failed. The first (a26c03f7-f8ab-49f9-876e-704061929a65) '
+            .'went down at 10:00. API recovered later.',
+            $payload,
+        );
+
+        $this->assertSame(
+            'Two monitors failed. The first (API) went down at 10:00. API recovered later.',
+            $result['summary'],
+            'the id names its monitor rather than disappearing',
+        );
+    }
+
+    public function test_a_monitor_id_outside_the_roster_is_left_alone(): void
+    {
+        // Naming it would mean guessing which monitor it is. Out of catalog is a
+        // different failure, and the citation strip is what speaks for it.
+        $gateway = new LaravelAiIncidentAnalysisGateway;
+        $payload = $this->payload(
+            monitors: [
+                ['name' => 'Checkout', 'monitor_id' => 'a26c03f7-f8ab-49f9-876e-704061929a65'],
+            ],
+        );
+
+        $result = $gateway->sanitizeSummary(
+            'Something happened on 11111111-2222-3333-4444-555555555555 too.',
+            $payload,
+        );
+
+        $this->assertStringContainsString(
+            '11111111-2222-3333-4444-555555555555',
+            $result['summary'],
+        );
+    }
+
     // ---------------------------------------------------------------------
     // (3) Deterministic fake, bound in place of the real gateway
     // ---------------------------------------------------------------------
@@ -294,6 +476,7 @@ class IncidentAnalysisGatewayTest extends TestCase
         array $knownCheckIds = ['check-1'],
         array $knownMonitorIds = ['monitor-1'],
         array $bodies = [],
+        array $monitors = [],
     ): IncidentAnalysisPayload {
         return new IncidentAnalysisPayload(
             incidentId: 'incident-1',
@@ -328,6 +511,7 @@ class IncidentAnalysisGatewayTest extends TestCase
             bodies: $bodies,
             knownCheckIds: $knownCheckIds,
             knownMonitorIds: $knownMonitorIds,
+            monitors: $monitors,
         );
     }
 }

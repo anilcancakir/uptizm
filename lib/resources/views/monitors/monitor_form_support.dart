@@ -109,11 +109,21 @@ List<MetricOption> get kSloTargets => [
 
 /// AI-assist mode options for the monitor form's `ai_mode` control.
 ///
-/// Only `off`/`suggest` ship; `auto` (fully autonomous incident creation) is
-/// deferred, so it is deliberately absent from this list.
+/// All three ship now. `auto` was left out of this list while the backend
+/// already supported it, on the note that autonomous incident creation was
+/// deferred; it is not deferred any more, and leaving it out made a shipped
+/// capability unreachable from the only screen that configures it.
+///
+/// The three are a ladder of consent, and the labels have to carry that,
+/// because the last rung hands the AI the customer-facing status page:
+/// - `off`: Uptizm watches and pages, and says nothing on its own.
+/// - `suggest`: detected anomalies land in the inbox for an operator to accept.
+/// - `auto`: an anomaly opens an incident by itself, and the incident's opening
+///   and closing status updates are written and PUBLISHED without asking.
 List<MetricOption> get kAiModes => [
   MetricOption(label: trans('uptizm.monitors.ai_mode_off'), value: 'off'),
   MetricOption(label: trans('uptizm.monitors.ai_mode_suggest'), value: 'suggest'),
+  MetricOption(label: trans('uptizm.monitors.ai_mode_auto'), value: 'auto'),
 ];
 
 // ---------------------------------------------------------------------------

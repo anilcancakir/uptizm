@@ -451,7 +451,7 @@
       "form_slo_label": "Uptime SLO target",
       "form_slo_hint": "Sets the error budget Uptizm tracks on the monitor's detail page.",
       "form_ai_mode_label": "AI assist",
-      "form_ai_mode_hint": "Suggest mode posts detected anomalies to the dashboard inbox for you to approve or dismiss; nothing is ever created automatically.",
+      "form_ai_mode_hint": "What Uptizm may decide on its own. Suggest posts detected anomalies to the dashboard inbox for you to accept or dismiss, and creates nothing. Auto opens the incident itself when it is confident enough, and falls back to a suggestion when it is not.",
       "form_notifications_title": "Notifications",
       "form_notifications_hint": "Who gets alerted about this monitor.",
       "form_alert_down": "Alert when this monitor goes down",
@@ -739,7 +739,11 @@
       "metrics_unit_hour": "Hours",
       "metrics_unit_ratio": "Ratio",
       "metrics_unit_count_short": "Count (compact)",
-      "metrics_reading_stale": "No recent data"
+      "metrics_reading_stale": "No recent data",
+      "ai_mode_auto": "Auto",
+      "form_ai_auto_updates_label": "Autonomous status updates",
+      "form_ai_auto_updates_switch": "Write and publish updates for me",
+      "form_ai_auto_updates_hint": "What Uptizm may say to your customers. When an incident on this monitor opens and when it closes, it writes the update itself and publishes it to your status page, without asking first. It reads the analysis it already produced, keeps internal detail out, and posts nothing at all if it cannot write something it trusts. Works for any incident, including the ones your thresholds opened."
     },
     "status": {
       "up": "Operational",
@@ -887,7 +891,14 @@
       "analysis_title": "AI analysis",
       "recommended_next_steps": "Recommended next steps",
       "helpful": "Helpful",
-      "not_helpful": "Not helpful"
+      "not_helpful": "Not helpful",
+      "feedback_thanks_heading": "Thanks for the feedback",
+      "feedback_thanks_body": "It helps us tell a useful analysis from a plausible one.",
+      "feedback_retry_heading": "Asking again",
+      "feedback_retry_body": "Rebuilding the analysis from the current evidence.",
+      "source_check": "Checks",
+      "source_monitor": "Monitor",
+      "source_timeline": "Timeline"
     },
     "common": {
       "save": "Save",
@@ -998,6 +1009,7 @@
       "analysis_degraded_heading": "AI analysis",
       "analysis_pending_heading": "AI analysis",
       "analysis_pending_body": "Reading the checks and metrics recorded for this incident.",
+      "analysis_failed_body": "The analysis could not be loaded.",
       "analysis_degraded_budget": "Today's AI budget is spent, so no analysis was produced for this incident.",
       "analysis_degraded_untrusted": "The model could not produce a reliable answer, so no analysis was produced for this incident.",
       "analysis_degraded_unreachable": "The AI service is currently unreachable, so no analysis was produced for this incident.",
@@ -1049,7 +1061,11 @@
       "title_metric_string_value": ":metric reported \":value\"",
       "title_ssl_expiring_one": ":monitor SSL cert expires in :days day",
       "title_ssl_expiring_other": ":monitor SSL cert expires in :days days",
-      "title_ai_anomaly": "Anomaly detected on :monitor"
+      "title_ai_anomaly": "Anomaly detected on :monitor",
+      "detail_draft_degraded_heading": "Drafted from a template",
+      "detail_draft_degraded_body": "The AI could not write this one, so the standard wording was filled in. Edit it before you post.",
+      "form_affected_empty": "You have no monitors yet. Add one first, then file the incident against it.",
+      "form_affected_loading": "Loading your monitors..."
     },
     "settings": {
       "hub_title": "Settings",

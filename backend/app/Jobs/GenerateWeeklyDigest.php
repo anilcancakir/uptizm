@@ -11,6 +11,7 @@ use App\Services\Ai\AiBudget;
 use App\Services\Ai\DigestGateway;
 use App\Services\Ai\DigestPayload;
 use App\Services\Ai\DigestResult;
+use App\Support\Ai\PromptLanguage;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -199,6 +200,9 @@ class GenerateWeeklyDigest implements ShouldQueue
             incidents: $trustedIncidents,
             knownIncidentIds: array_column($trustedIncidents, 'incident_id'),
             knownMonitorIds: $monitorIds,
+            // The digest MAIL already localizes through HasLocalePreference,
+            // so an English body inside a Turkish email was the whole defect.
+            language: PromptLanguage::nameFor($team?->preferredLocale()),
         );
     }
 

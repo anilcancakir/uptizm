@@ -137,6 +137,32 @@ class IncidentWriteControllerTest extends TestCase
         $this->assertNull($incident->fresh()->resolved_at);
     }
 
+    public function test_creating_against_a_monitor_that_already_has_one_answers_200(): void
+    {
+        // The dedupe is deliberate: a monitor with an active incident is not
+        // opened a second time and the existing one comes back untouched.
+        // Answering 201 for that told the caller a row had been made, and the
+        // app believed it: the operator filled the form, pressed Open incident,
+        // landed back on the list, and found nothing new, because there was
+        // nothing new. 200 is what "here it is, it already existed" looks like.
+        [, $monitor] = $this->actingAsTeamMemberWithMonitor();
+        $existing = $this->makeIncident($monitor, IncidentStatus::Investigating);
+
+        $response = $this->postJson('/api/v1/incidents', [
+            'monitor_id' => $monitor->id,
+            'severity' => 'critical',
+            'title' => 'A second incident for the same monitor',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.id', $existing->id);
+        $this->assertSame(
+            1,
+            Incident::query()->where('primary_monitor_id', $monitor->id)->count(),
+            'the dedupe still holds; only the status code changed',
+        );
+    }
+
     public function test_post_update_appends_to_the_timeline(): void
     {
         [, $monitor] = $this->actingAsTeamMemberWithMonitor();

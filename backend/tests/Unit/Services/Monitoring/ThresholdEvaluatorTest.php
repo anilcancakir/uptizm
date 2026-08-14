@@ -16,6 +16,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
+use App\Models\MonitorMetricValue;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\IncidentTitle;
@@ -218,6 +219,62 @@ class ThresholdEvaluatorTest extends TestCase
      * right sentence and dropped the key would leave the operator app with
      * nothing to localize from and pass every assertion above.
      */
+    public function test_a_resolved_metric_incident_reopens_instead_of_opening_a_second(): void
+    {
+        // The same loop as the down path, on the branch the reopen fix first
+        // missed: a manual resolve leaves the metric still breaching, the
+        // active-incident gate clears, and the very next check opened another
+        // one. This is the branch a metric-driven monitor actually uses, so it
+        // is the branch an operator hits.
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $first = Incident::query()->sole();
+
+        // Resolved by hand while the metric is still over its bound.
+        $first->update(['lifecycle' => IncidentStatus::Resolved, 'resolved_at' => now()]);
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(1, Incident::query()->count(), 'one metric still over its bound is one incident');
+        $this->assertTrue(Incident::query()->sole()->lifecycle->isActive());
+    }
+
+    public function test_a_metric_that_came_back_to_ok_opens_a_new_incident(): void
+    {
+        // The other half on this branch: a reading in the ok band between the
+        // resolve and the next breach makes the second breach its own episode.
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $first = Incident::query()->sole();
+        $first->update(['lifecycle' => IncidentStatus::Resolved, 'resolved_at' => now()]);
+
+        // Back under the bound. The reading is written explicitly because
+        // `evaluate()` does not persist metric values: `CheckPersistenceService`
+        // does, one layer up, and it is the stored reading that says the metric
+        // was seen healthy. Writing it here keeps that dependency visible rather
+        // than letting this test pass for a reason production does not share.
+        MonitorMetricValue::query()->create([
+            'team_id' => $monitor->team_id,
+            'monitor_id' => $monitor->id,
+            'check_id' => $this->makeCheck($monitor, MonitorStatus::Up)->id,
+            'metric_key' => 'cpu',
+            'numeric_value' => 12.0,
+            'band' => MetricBand::Ok,
+            'recorded_at' => now(),
+        ]);
+
+        // And over it again.
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(2, Incident::query()->count());
+    }
+
     public function test_a_numeric_metric_breach_opens_a_bound_titled_incident(): void
     {
         $monitor = $this->makeMonitor(incidentThreshold: 99);
@@ -299,6 +356,45 @@ class ThresholdEvaluatorTest extends TestCase
         $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'degraded']);
 
         $this->assertSame(IncidentSeverity::Warn, Incident::query()->sole()->severity);
+    }
+
+    /**
+     * `severity` is the operator tier and `impact` is what a customer is told,
+     * and the automatic path emits only Critical and Warn. So mapping Warn onto
+     * the second-loudest CUSTOMER tier left the ladder with no middle rung at
+     * all: the client collapses `critical` and `major` into one red badge, which
+     * made a warn-tier metric breach on a monitor still answering HTTP 200 read
+     * exactly like a total outage, on the operator's dashboard and on their
+     * public status page both.
+     */
+    public function test_a_warn_metric_breach_is_minor_customer_impact(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $this->makeStringMetric($monitor, warnValues: ['degraded']);
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], ['redis' => 'degraded']);
+
+        $this->assertSame(
+            IncidentImpact::Minor,
+            Incident::query()->sole()->impact,
+            'a warning tier is not a major customer-facing outage',
+        );
+    }
+
+    /**
+     * The other half of the ladder, pinned so a future edit cannot quietly
+     * flatten the two tiers into one: a real down streak still reads critical.
+     */
+    public function test_a_down_streak_is_critical_customer_impact(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
+        $monitor->forceFill(['consecutive_fails' => 1])->save();
+        $evaluator = new ThresholdEvaluator;
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Down), [], []);
+
+        $this->assertSame(IncidentImpact::Critical, Incident::query()->sole()->impact);
     }
 
     /**
@@ -668,7 +764,10 @@ class ThresholdEvaluatorTest extends TestCase
             'team_id' => $monitor->team_id,
             'primary_monitor_id' => $monitor->id,
             'title' => "Anomaly detected on {$monitor->name}",
-            'impact' => IncidentImpact::Major,
+            // Warn pairs with Minor, matching what `IncidentSeverity::toImpact()`
+            // now produces. A fixture that pins the old pairing would keep
+            // describing a state the product no longer writes.
+            'impact' => IncidentImpact::Minor,
             'severity' => IncidentSeverity::Warn,
             'signal_source' => SignalSource::AiAnomaly,
             'lifecycle' => IncidentStatus::Detected,

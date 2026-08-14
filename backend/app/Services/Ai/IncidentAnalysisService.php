@@ -5,12 +5,14 @@ namespace App\Services\Ai;
 use App\Enums\AiConfidence;
 use App\Enums\AiDegradeReason;
 use App\Http\Controllers\Api\V1\MonitorController;
+use App\Models\AiIncidentAnalysis;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
 use App\Services\Monitoring\MetricCandidateExtractor;
+use App\Support\Ai\PromptLanguage;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
@@ -33,6 +35,29 @@ class IncidentAnalysisService
      * Maximum number of recent checks folded into the RCA evidence.
      */
     private const MAX_CHECKS = 20;
+
+    /**
+     * How far BEFORE an incident opened its evidence window reaches, in checks.
+     *
+     * The window used to start at `started_at`, which reads as the obvious
+     * boundary and excludes the only checks that explain the incident: a
+     * threshold trips on CONSECUTIVE failures, so the failures that caused it
+     * are all before the moment it opened. Measured on the running system, an
+     * incident with thirty checks inside its window had thirteen in the fifteen
+     * minutes before it that nothing ever read.
+     *
+     * It is worse at open, which is where the autonomous path lives. That job
+     * runs seconds after the incident is created, and the first live analysis it
+     * produced said "No checks were recorded and no probe response body was
+     * provided, so no further root cause can be established" three seconds after
+     * an outage that had been failing for minutes. That sentence is what the
+     * customer-facing draft was then built from.
+     *
+     * Ten checks' worth of time, derived from the monitor's own cadence for the
+     * same reason the reopen window is: it scales with how closely the thing is
+     * watched, and it comfortably covers any `incident_threshold` anyone sets.
+     */
+    private const CHECK_LOOKBACK_CHECKS = 10;
 
     /** How many DISTINCT response bodies reach the prompt. */
     private const MAX_DISTINCT_BODIES = 5;
@@ -73,8 +98,94 @@ class IncidentAnalysisService
      */
     public function analyzeFor(Incident $incident): IncidentAnalysisResult
     {
+        return $this->analyzeWith($incident, $this->composePayload($incident));
+    }
+
+    /**
+     * The stored analysis for an incident, asking the model only when what is
+     * on file no longer matches the evidence.
+     *
+     * This is the endpoint's entry point, and the read-through is the whole
+     * point of it: `analyzeFor()` spends one AI budget unit per call, so before
+     * this table existed three responders opening one incident bought three
+     * answers to one question, and a single operator refreshing a page did the
+     * same. The evidence fingerprint decides
+     * ({@see IncidentAnalysisPayload::evidenceFingerprint()}), not the row's
+     * age, so a hit is not a cache in the "possibly stale" sense: it is the
+     * same question, and re-asking it would buy the same answer.
+     *
+     * The returned pair carries a `stored` row only when the model answered. A
+     * degrade is not stored (see the table's migration), so on that path the
+     * result is the transient baseline and there is nothing to rate.
+     *
+     * @param  bool  $refresh  Skip the read and ask again. This is the retry
+     *                         button, and the one path that spends on purpose.
+     */
+    public function storedAnalysisFor(Incident $incident, bool $refresh = false): ResolvedAnalysis
+    {
+        $payload = $this->composePayload($incident);
+        $fingerprint = $payload->evidenceFingerprint();
+
+        if (! $refresh) {
+            $stored = AiIncidentAnalysis::query()
+                ->where('incident_id', $incident->getKey())
+                ->where('evidence_fingerprint', $fingerprint)
+                ->latest('created_at')
+                ->first();
+
+            if ($stored !== null) {
+                return new ResolvedAnalysis($stored->result, $stored);
+            }
+        }
+
+        $result = $this->analyzeWith($incident, $payload);
+
+        if ($result->degradeReason !== null) {
+            return new ResolvedAnalysis($result->toArray(), null);
+        }
+
+        // `updateOrCreate` rather than `create`: the unique index over
+        // (incident, fingerprint) is what stops two concurrent readers of the
+        // same incident from writing two rows for one answer, and on a refresh
+        // that produced the same fingerprint it replaces the text in place.
+        $stored = AiIncidentAnalysis::updateOrCreate(
+            [
+                'incident_id' => $incident->getKey(),
+                'evidence_fingerprint' => $fingerprint,
+            ],
+            [
+                'team_id' => $incident->team_id,
+                'result' => $result->toArray(),
+            ],
+        );
+
+        // Replacing the text in place is what makes this necessary. A vote is a
+        // statement about words, and after a refresh answered differently the
+        // words are gone while the row id is not, so a rating left attached
+        // would silently come to mean "this NEW text was unhelpful": the exact
+        // re-targeting the vote is keyed to an analysis rather than an incident
+        // to prevent. The compare is on the rendered result, so a re-ask that
+        // came back identical keeps its ratings, which is the honest outcome
+        // there: nothing the operator read has changed.
+        if ($stored->wasChanged('result')) {
+            $stored->feedback()->delete();
+        }
+
+        return new ResolvedAnalysis($stored->result, $stored);
+    }
+
+    /**
+     * Assemble the evidence for an incident: its timeline, the checks recorded
+     * against its affected monitors inside the incident window, the monitor
+     * roster, and the triggering metric.
+     */
+    protected function composePayload(Incident $incident): IncidentAnalysisPayload
+    {
         $incident->loadMissing([
-            'updates' => fn ($query) => $query->orderBy('display_at'),
+            // `display_at` ties whenever two updates land in the same second,
+            // which a reopen plus its system note does. The timeline's order is
+            // its meaning, so it gets a tiebreaker rather than a sort.
+            'updates' => fn ($query) => $query->orderBy('display_at')->orderBy('id'),
             'monitors',
         ]);
 
@@ -82,13 +193,30 @@ class IncidentAnalysisService
 
         $checks = MonitorCheck::query()
             ->whereIn('monitor_id', $monitorIds)
-            ->where('checked_at', '>=', $incident->started_at)
+            ->where('checked_at', '>=', $this->evidenceFrom($incident))
+            // A tiebreaker, not decoration. `checked_at` alone is not a total
+            // order here: this product writes one row per REGION per tick, so a
+            // three-region monitor ties three ways every minute, and PostgreSQL
+            // answers a tie in whatever order the scan produced. The check
+            // SEQUENCE is evidence (an `up` above a `down` is a recovery, the
+            // reverse is the failure starting), so it cannot be sorted away in
+            // the fingerprint; it has to be deterministic at the read instead, or
+            // the same evidence hashes twice and re-spends a budget unit.
             ->orderByDesc('checked_at')
+            ->orderBy('region')
+            ->orderBy('id')
             ->limit(self::MAX_CHECKS)
             ->get();
 
-        $payload = $this->buildPayload($incident, $checks, $monitorIds);
+        return $this->buildPayload($incident, $checks, $monitorIds);
+    }
 
+    /**
+     * Ask the model, degrading to the deterministic baseline on each of the
+     * four ways that can fail to produce a trustworthy answer.
+     */
+    protected function analyzeWith(Incident $incident, IncidentAnalysisPayload $payload): IncidentAnalysisResult
+    {
         $teamId = (string) $incident->team_id;
 
         // 1. Over budget never calls the LLM: degrade to the deterministic
@@ -147,6 +275,18 @@ class IncidentAnalysisService
 
             return $this->deterministicSummary($incident, AiDegradeReason::ServiceUnreachable);
         }
+    }
+
+    /**
+     * The instant the evidence window opens: a few checks before the incident
+     * did. See {@see self::CHECK_LOOKBACK_CHECKS}.
+     */
+    protected function evidenceFrom(Incident $incident): \DateTimeInterface
+    {
+        $cadence = (int) ($incident->primaryMonitor?->check_interval_sec
+            ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC);
+
+        return $incident->started_at->copy()->subSeconds(self::CHECK_LOOKBACK_CHECKS * $cadence);
     }
 
     /**
@@ -219,6 +359,20 @@ class IncidentAnalysisService
             knownMonitorIds: $monitorIds,
             monitors: $roster,
             triggeringMetric: $metric,
+            // The TEAM's language, not the request's. Most analyses are composed
+            // on the queue by `PublishAiIncidentUpdate`, where there is no
+            // request and so nothing for `SetApiLocale` to have set; reading
+            // `app()->getLocale()` here would quietly hand those the config
+            // default and leave the operator with the English analysis this was
+            // meant to fix.
+            //
+            // It deliberately does NOT enter `evidenceFingerprint()`: the
+            // fingerprint answers "does this analysis still fit the evidence",
+            // and a language is not evidence. The consequence is worth knowing:
+            // an operator who switches languages keeps the stored analysis until
+            // the evidence itself moves, which is what one row per incident
+            // means and is why it stays at one model call.
+            language: PromptLanguage::nameFor($incident->team?->preferredLocale()),
         );
     }
 
@@ -435,18 +589,33 @@ class IncidentAnalysisService
      * recognise and falls back to the uuid, which is the defect this roster was
      * added for.
      *
+     * Ordered by id, which is not cosmetic: the roster reaches the prompt, and a
+     * stable monitor list is a stable prompt for the provider's own cache. The
+     * hash no longer depends on it ({@see IncidentAnalysisPayload::evidenceFingerprint()}
+     * sorts every list it reads), so this is the readable half of that fix rather
+     * than the load-bearing one.
+     *
      * @param  list<string>  $monitorIds
-     * @return list<array{monitor_id: string, name: string, url: string|null}>
+     * @return list<array{monitor_id: string, name: string}>
      */
     protected function monitorRoster(array $monitorIds): array
     {
         return Monitor::withTrashed()
             ->whereIn('id', $monitorIds)
-            ->get(['id', 'name', 'url'])
+            // The URL is deliberately NOT selected. Its path segment is often the
+            // credential (`https://host/api/v1/<32 hex>/status`), and this roster
+            // is rendered into the prompt's trusted half, so the model copied the
+            // whole address into a summary an operator then read back. Worse, the
+            // draft service hands the stored analysis to the model as the settled
+            // cause, so a credential here reaches a PUBLISHED postmortem through
+            // a payload that had already been cleaned of URLs itself.
+            // `IncidentAnalysisRedactionTest` pins it, and sweeps the other
+            // payloads so a third surface cannot reopen it.
+            ->orderBy('id')
+            ->get(['id', 'name'])
             ->map(fn (Monitor $monitor): array => [
                 'monitor_id' => (string) $monitor->id,
                 'name' => (string) $monitor->name,
-                'url' => $monitor->url,
             ])
             ->values()
             ->all();
@@ -497,7 +666,11 @@ class IncidentAnalysisService
                 $incident->resolved_at !== null,
                 fn ($query) => $query->where('recorded_at', '<=', $incident->resolved_at->copy()->addHour()),
             )
+            // Same tiebreaker reasoning as the checks above: readings tie across
+            // regions on `recorded_at`, and the BAND SEQUENCE is what the analysis
+            // narrates, so it stays ordered rather than sorted.
             ->orderByDesc('recorded_at')
+            ->orderBy('id')
             ->limit(self::MAX_METRIC_READINGS)
             ->get();
 

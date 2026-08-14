@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Http\Controllers\Api\V1\AssistantController;
+use App\Support\Ai\PromptLanguage;
 
 /**
  * The immutable evidence handed to the floating-assistant LLM.
@@ -52,7 +53,10 @@ readonly class AssistantPayload
     /**
      * @param  string  $teamId  The team the assistant is answering for.
      * @param  string  $question  UNTRUSTED operator-supplied free-text question.
-     * @param  list<array{monitor_id: string, name: string, url: string, status: string|null}>  $monitors  TRUSTED current-team monitor roster.
+     * @param  list<array{monitor_id: string, name: string, status: string|null}>  $monitors  TRUSTED current-team monitor roster.
+     *                                                                                        The URL is absent by design: its path segment is often
+     *                                                                                        the credential, and this roster is JSON-encoded whole into
+     *                                                                                        the prompt. See `IncidentAnalysisRedactionTest`.
      * @param  list<array{incident_id: string, title: string, severity: string, lifecycle: string, started_at: string, resolved_at: string|null}>  $incidents  TRUSTED current-team recent incidents.
      * @param  list<string>  $knownMonitorIds  The owned catalog of the team's monitor ids.
      * @param  list<string>  $knownIncidentIds  The owned catalog of the team's incident ids.
@@ -64,6 +68,7 @@ readonly class AssistantPayload
         public array $incidents,
         public array $knownMonitorIds,
         public array $knownIncidentIds,
+        public string $language = PromptLanguage::FALLBACK,
     ) {}
 
     /**
@@ -91,7 +96,12 @@ readonly class AssistantPayload
             self::UNTRUSTED_BLOCK_FOOTER,
         ]);
 
-        return $trusted."\n\n".$untrusted."\n\nAnswer the question using only the evidence above.";
+        return $trusted."\n\n".$untrusted."\n\nAnswer the question using only the evidence above."
+            ." Answer in {$this->language}, whatever language the question was asked in:"
+            .' this is the language the operator reads their interface in, and a reply that'
+            .' follows the question instead would answer a Turkish operator in English the'
+            .' moment they pasted an English error message into it.'
+            .' Leave monitor names, identifiers, metric keys and status codes as they are.';
     }
 
     /**

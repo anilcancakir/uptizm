@@ -16,6 +16,7 @@ use App\Services\Ai\AnomalyCandidate;
 use App\Services\Ai\AnomalyTriageGateway;
 use App\Services\Ai\TriagePayload;
 use App\Services\Ai\TriageResult;
+use App\Support\Ai\PromptLanguage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -188,6 +189,8 @@ class TriageAnomalyCandidate implements ShouldQueue
             responseBodyPreview: $this->truncate($latestCheck?->response_body_preview),
             responseHeaders: $this->redactHeaders($latestCheck?->response_headers ?? []),
             metricStringValue: $this->truncate(is_string($metricStringValue) ? $metricStringValue : null),
+            // The suggestion this labels is read by the operator in the app.
+            language: PromptLanguage::nameFor($monitor->team?->preferredLocale()),
         );
     }
 

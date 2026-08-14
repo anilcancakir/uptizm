@@ -44,6 +44,27 @@ class MonitorSchemaDefaultsTest extends TestCase
         $this->assertTrue((bool) $monitor->alert_on_down);
     }
 
+    public function test_the_cadence_fallback_three_services_reach_for_exists(): void
+    {
+        // `Monitor::DEFAULT_CHECK_INTERVAL_SEC` was referenced from three
+        // services and defined nowhere, so each of those lines was a fatal
+        // "Undefined constant" waiting for its branch: the evidence lookback in
+        // IncidentAnalysisService and IncidentDraftService, and the reopen
+        // window in ThresholdEvaluator. All three sit behind `?? `, and every
+        // fixture in the suite sets `check_interval_sec`, so 1,500 green tests
+        // never evaluated the right-hand side once. An unloaded attribute (any
+        // `select()` that omits the column) reads null and gets there.
+        //
+        // Reading it here is the whole assertion: an undefined constant cannot
+        // be read. The bounds are the platform's own validation rule
+        // (`StoreMonitorRequest`: min 30, max 86400), so the fallback can never
+        // be a cadence the product would refuse on the way in.
+        $fallback = Monitor::DEFAULT_CHECK_INTERVAL_SEC;
+
+        $this->assertGreaterThanOrEqual(30, $fallback);
+        $this->assertLessThanOrEqual(86400, $fallback);
+    }
+
     public function test_the_probe_spec_never_carries_a_null_timeout_or_method(): void
     {
         // The spec is what the edge worker consumes. A null timeout there is a

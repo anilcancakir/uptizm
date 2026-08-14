@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/models/incident.dart';
+import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/enums/status_key.dart';
 import '../status_badge/index.dart';
 import 'incident_card.recipe.dart';
@@ -42,12 +43,19 @@ class IncidentCard extends StatelessWidget {
   /// Creates an [IncidentCard] for the given [incident].
   const IncidentCard({super.key, required this.incident, this.onTap});
 
-  /// Resolves the accent-stripe className from the recipe for the current
-  /// [IncidentImpact].
+  /// Resolves the accent-stripe className: the customer-facing impact while the
+  /// incident runs, and a muted tone once it is over.
+  ///
+  /// A resolved incident kept the full outage red, so a list holding one live
+  /// incident and two closed ones read as three outages. The lifecycle pill
+  /// already says "Resolved"; the stripe was contradicting it in the loudest
+  /// colour on the screen.
   String _resolveStripeClassName() {
-    return incidentCardRecipe(
-      variants: {kIncidentCardImpactAxis: incident.impact.statusKey.name},
-    );
+    final String tone = incident.lifecycle == IncidentLifecycle.resolved
+        ? 'resolved'
+        : incident.impact.statusKey.name;
+
+    return incidentCardRecipe(variants: {kIncidentCardImpactAxis: tone});
   }
 
   @override

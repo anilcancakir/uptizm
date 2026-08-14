@@ -742,7 +742,7 @@ void main() {
       // body) must still release the retry, otherwise the one state where an
       // operator most wants to retry is the one where the button stays dead.
       Http.fake({
-        'incidents/pending-2/analysis': Http.response({
+        'incidents/pending-2/analysis?refresh=1': Http.response({
           'message': 'Server Error',
         }, 500),
       });
@@ -757,6 +757,105 @@ void main() {
 
       expect(controller.analysisPending('pending-2'), isFalse);
       expect(controller.analysisFor(Incident.fromMap({'id': 'pending-2'})), isNull);
+    });
+
+    test('records a failed fetch so the screen can say so', () async {
+      // THE DEFECT THIS PINS, reported from the running app: open an incident,
+      // watch the skeleton, watch it disappear, and read nothing at all. A
+      // failed request and "the server says there is no analysis" both left
+      // `analysisFor` null with `analysisPending` false, so the section drew
+      // the same blank for both, and blank is what an operator reads as an
+      // answer.
+      //
+      // They are different facts. A degrade arrives as a PAYLOAD with a reason
+      // and already has its own arm; this is the request never landing, where
+      // the analysis may well exist and a retry is the whole point.
+      Http.fake({
+        'incidents/failed-1/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(controller.analysisFailed('failed-1'), isFalse);
+
+      await controller.loadAnalysis('failed-1');
+
+      expect(controller.analysisFailed('failed-1'), isTrue);
+      expect(
+        controller.analysisFailed('another-incident'),
+        isFalse,
+        reason: 'the flag is per incident, like the pending one',
+      );
+    });
+
+    test('a retry that succeeds clears the failed flag', () async {
+      // Otherwise the notice outlives the problem: the operator retries, the
+      // answer arrives, and the screen keeps telling them it could not load.
+      Http.fake({
+        'incidents/failed-2/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+        'incidents/failed-2/analysis?refresh=1': Http.response({
+          'data': {'summary': 'the storage check reported degraded', 'confidence': 'high'},
+        }),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('failed-2');
+      expect(controller.analysisFailed('failed-2'), isTrue);
+
+      await controller.retryAnalysis('failed-2');
+
+      expect(controller.analysisFailed('failed-2'), isFalse);
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'failed-2'})),
+        isNotNull,
+      );
+    });
+
+    test('a successful fetch never marks a failure', () async {
+      Http.fake({
+        'incidents/ok-1/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('ok-1');
+
+      expect(controller.analysisFailed('ok-1'), isFalse);
+    });
+
+    test('a degrade payload is not a failure', () async {
+      // The distinction the whole state exists for. A degrade ARRIVED: it has a
+      // reason, its own section, and its own retry rules (budget exhaustion is
+      // not retryable). Marking it failed as well would draw two notices about
+      // one outcome, and the wrong one on top.
+      Http.fake({
+        'incidents/deg-2/analysis': Http.response({
+          'data': {
+            'summary': 'no analysis was produced',
+            'confidence': 'low',
+            'degrade_reason': 'budget_exhausted',
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('deg-2');
+
+      expect(controller.analysisFailed('deg-2'), isFalse);
     });
 
     test('one incident finishing does not release another one still running', () async {
@@ -826,6 +925,9 @@ void main() {
         'incidents/cached/analysis': Http.response({
           'data': {'summary': 'The origin returned 503s.', 'confidence': 'high'},
         }),
+        'incidents/cached/analysis?refresh=1': Http.response({
+          'data': {'summary': 'The origin returned 503s.', 'confidence': 'high'},
+        }),
       });
       final IncidentController controller = Magic.findOrPut(
         IncidentController.new,
@@ -835,13 +937,20 @@ void main() {
       await controller.loadAnalysis('cached');
 
       int calls() => fake.recorded
-          .where((entry) => entry.$1.url == '/incidents/cached/analysis')
+          .where((entry) => entry.$1.url.startsWith('/incidents/cached/analysis'))
           .length;
       expect(calls(), 1);
 
       // The retry is the explicit exception: it always asks again.
       await controller.retryAnalysis('cached');
       expect(calls(), 2);
+
+      // And it says so on the wire. Without `refresh` the backend answers from
+      // its own store while the evidence is unchanged, so a retry that omitted
+      // the flag would return the row it was asked to replace and the button
+      // would be back to doing nothing.
+      expect(fake.recorded.last.$1.url, equals('/incidents/cached/analysis?refresh=1'));
+      expect(fake.recorded.first.$1.url, equals('/incidents/cached/analysis'));
     });
 
     test('a cached DEGRADE is re-fetched, because that answer is worth re-asking', () async {
@@ -994,6 +1103,304 @@ void main() {
         expect(ai.evidenceFor, isEmpty);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // draftText: the Draft with AI buttons, which used to fill a template.
+  // ---------------------------------------------------------------------------
+
+  group('draftText', () {
+    test('POSTs the kind-specific route and returns the draft', () async {
+      final fake = Http.fake({
+        'incidents/d-1/draft-update': Http.response({
+          'data': {'draft': 'We are investigating this issue.', 'degrade_reason': null},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final String? draft = await controller.draftText('d-1', 'update');
+
+      expect(draft, equals('We are investigating this issue.'));
+      fake.assertSent(
+        (r) => r.method == 'POST' && r.url == '/incidents/d-1/draft-update',
+      );
+    });
+
+    test('a degraded answer returns null so the caller fills its own template', () async {
+      // Null is the whole failure contract: the client owns a localized
+      // template for both surfaces and it is better than anything a degraded
+      // backend could compose.
+      Http.fake({
+        'incidents/d-2/draft-postmortem': Http.response({
+          'data': {'draft': null, 'degrade_reason': 'budget_exhausted'},
+        }),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(await controller.draftText('d-2', 'postmortem'), isNull);
+    });
+
+    test('reports the draft as pending while it runs, and clears it after', () async {
+      // The composer swaps its field for a skeleton on this flag, and the
+      // button disables on it. A flag that never cleared would leave the
+      // composer as a skeleton for the rest of the screen's life.
+      Http.fake({
+        'incidents/d-3/draft-update': Http.response({
+          'data': {'draft': 'We are investigating this issue.'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<String?> inFlight = controller.draftText('d-3', 'update');
+      expect(controller.draftPending('d-3', 'update'), isTrue);
+      expect(
+        controller.draftPending('d-3', 'postmortem'),
+        isFalse,
+        reason: 'the two drafts must not disable each other',
+      );
+
+      await inFlight;
+      expect(controller.draftPending('d-3', 'update'), isFalse);
+    });
+
+    test('a second tap inside the request window buys nothing', () async {
+      // Every call spends an AI budget unit.
+      final fake = Http.fake({
+        'incidents/d-4/draft-update': Http.response({
+          'data': {'draft': 'We are investigating this issue.'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      final Future<String?> first = controller.draftText('d-4', 'update');
+      final String? second = await controller.draftText('d-4', 'update');
+      await first;
+
+      expect(second, isNull);
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url == '/incidents/d-4/draft-update')
+            .length,
+        1,
+      );
+    });
+
+    test('a blank draft counts as no draft', () async {
+      // A backend that answered 200 with an empty string is not a draft, and
+      // filling the composer with it would look like the button worked.
+      Http.fake({
+        'incidents/d-5/draft-update': Http.response({
+          'data': {'draft': '   '},
+        }),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(await controller.draftText('d-5', 'update'), isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // submitAnalysisFeedback: the Helpful / Not helpful buttons. Both record a
+  // vote; only Not helpful re-asks the model.
+  // ---------------------------------------------------------------------------
+
+  group('submitAnalysisFeedback', () {
+    test('posts the id of the analysis the operator was looking at', () async {
+      final fake = Http.fake({
+        'incidents/fb-1/analysis': Http.response({
+          'data': {
+            'summary': 'The origin returned 503s.',
+            'confidence': 'high',
+            'id': 'analysis-7',
+            'feedback': null,
+          },
+        }),
+        'incidents/fb-1/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'The origin returned 503s.',
+            'confidence': 'high',
+            'id': 'analysis-7',
+            'feedback': true,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-1');
+      await controller.submitAnalysisFeedback('fb-1', true);
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            r.url == '/incidents/fb-1/analysis/feedback' &&
+            (r.data as Map)['analysis_id'] == 'analysis-7' &&
+            (r.data as Map)['helpful'] == true,
+      );
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'fb-1'}))!.feedback,
+        isTrue,
+        reason: 'the button has to show what was just recorded',
+      );
+    });
+
+    test('helpful records the vote and does NOT re-ask the model', () async {
+      // The whole point of separating the two: a thumbs-up is an
+      // acknowledgement, and re-asking on it would spend a budget unit to
+      // replace an answer the operator just said was good.
+      final fake = Http.fake({
+        'incidents/fb-2/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high', 'id': 'a-2'},
+        }),
+        'incidents/fb-2/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'ok',
+            'confidence': 'high',
+            'id': 'a-2',
+            'feedback': true,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-2');
+      await controller.submitAnalysisFeedback('fb-2', true);
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url.contains('refresh=1'))
+            .length,
+        0,
+      );
+    });
+
+    test('not helpful records the vote and re-asks the model', () async {
+      final fake = Http.fake({
+        'incidents/fb-3/analysis': Http.response({
+          'data': {'summary': 'first answer', 'confidence': 'low', 'id': 'a-3'},
+        }),
+        'incidents/fb-3/analysis?refresh=1': Http.response({
+          'data': {'summary': 'second answer', 'confidence': 'low', 'id': 'a-3b'},
+        }),
+        'incidents/fb-3/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'first answer',
+            'confidence': 'low',
+            'id': 'a-3',
+            'feedback': false,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-3');
+      await controller.submitAnalysisFeedback('fb-3', false);
+
+      fake.assertSent(
+        (r) => r.url == '/incidents/fb-3/analysis?refresh=1',
+      );
+    });
+
+    test('tapping the recorded choice again buys nothing', () async {
+      // Raised in review. On the Not-helpful arm this is a cost bug, not a
+      // tidy-up: that arm re-asks the model, so a second tap on an
+      // already-recorded thumbs-down would spend another budget unit re-asking
+      // the re-ask.
+      final fake = Http.fake({
+        'incidents/fb-6/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high', 'id': 'a-6'},
+        }),
+        'incidents/fb-6/analysis/feedback': Http.response({
+          'data': {
+            'summary': 'ok',
+            'confidence': 'high',
+            'id': 'a-6',
+            'feedback': true,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-6');
+      await controller.submitAnalysisFeedback('fb-6', true);
+      await controller.submitAnalysisFeedback('fb-6', true);
+
+      expect(
+        fake.recorded
+            .where((entry) => entry.$1.url.endsWith('/analysis/feedback'))
+            .length,
+        1,
+      );
+    });
+
+    test('does nothing when there is no stored analysis to rate', () async {
+      // Every degrade path, and every fixture-backed analysis. Posting a vote
+      // against a null id would 422, and rating a deterministic baseline is
+      // rating text no model wrote.
+      final fake = Http.fake({
+        'incidents/fb-4/analysis': Http.response({
+          'data': {
+            'summary': 'critical severity incident, currently investigating.',
+            'confidence': 'low',
+            'degrade_reason': 'budget_exhausted',
+            'id': null,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-4');
+      await controller.submitAnalysisFeedback('fb-4', true);
+
+      expect(
+        fake.recorded.where((entry) => entry.$1.method == 'POST').length,
+        0,
+      );
+    });
+
+    test('a failed vote puts the button back where it was', () async {
+      // A vote that failed and a vote that landed must not paint the same, or
+      // the operator is told their complaint was recorded when it was not.
+      Http.fake({
+        'incidents/fb-5/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high', 'id': 'a-5'},
+        }),
+        'incidents/fb-5/analysis/feedback': Http.response({'message': 'nope'}, 500),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('fb-5');
+      await controller.submitAnalysisFeedback('fb-5', true);
+
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'fb-5'}))!.feedback,
+        isNull,
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------

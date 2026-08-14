@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\DigestController;
 use App\Http\Controllers\Api\V1\EscalationPolicyController;
 use App\Http\Controllers\Api\V1\IncidentAnalysisController;
 use App\Http\Controllers\Api\V1\IncidentController;
+use App\Http\Controllers\Api\V1\IncidentDraftController;
 use App\Http\Controllers\Api\V1\MonitorCheckController;
 use App\Http\Controllers\Api\V1\MonitorContentController;
 use App\Http\Controllers\Api\V1\MonitorController;
@@ -298,6 +299,16 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.incidents.updates.store');
     Route::get('incidents/{incident}/analysis', [IncidentAnalysisController::class, 'show'])
         ->name('api.v1.incidents.analysis');
+    Route::post('incidents/{incident}/analysis/feedback', [IncidentAnalysisController::class, 'feedback'])
+        ->name('api.v1.incidents.analysis.feedback');
+
+    // Drafting spends an AI budget unit per call, which is why both are POST
+    // although neither stores anything: a GET is the verb a browser, a
+    // prefetcher or a retry repeats on its own.
+    Route::post('incidents/{incident}/draft-update', [IncidentDraftController::class, 'update'])
+        ->name('api.v1.incidents.draft.update');
+    Route::post('incidents/{incident}/draft-postmortem', [IncidentDraftController::class, 'postmortem'])
+        ->name('api.v1.incidents.draft.postmortem');
 
     Route::get('dashboard/stats', [DashboardController::class, 'stats'])
         ->name('api.v1.dashboard.stats');

@@ -31,6 +31,16 @@ const List<AssistantMessage> _seed = [
         "I'll set up an HTTP monitor with your default regions and a 30s "
         "interval. Review the details and create it whenever you're ready.",
   ),
+  // The third role, so the catalog shows what the product's own voice looks
+  // like beside a reply. It carries no avatar and recedes on purpose: an
+  // Uptizm AI mark over a sentence no model produced is the attribution
+  // problem this role exists to fix.
+  AssistantMessage(
+    role: AssistantRole.system,
+    text:
+        "Today's AI allowance for your team is used up. I cannot answer from "
+        'the model until it resets.',
+  ),
 ];
 
 /// Static preview for [Assistant].

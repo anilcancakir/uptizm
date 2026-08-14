@@ -2,6 +2,14 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 
+/// What one `POST /assistant` round-trip produced.
+///
+/// A record rather than a bare String because the answer alone lost a fact the
+/// panel needs: the backend marks a reply it produced WITHOUT a model with a
+/// `degrade_reason` (today, the team over its daily AI allowance), and without it
+/// the panel drew that canned sentence as something Uptizm AI had worked out.
+typedef AssistantReply = ({String answer, bool degraded});
+
 /// Controller backing the floating Assistant widget's live Q&A round-trip.
 ///
 /// Fires `POST /assistant` with the operator's question and returns the
@@ -20,7 +28,7 @@ class AssistantController extends MagicController {
   /// grounded answer, or `null` on failure (network error, non-2xx, or a
   /// malformed payload). Logs and surfaces an error toast on every failure
   /// path so the caller never sees a silent swallow.
-  Future<String?> ask(String question) async {
+  Future<AssistantReply?> ask(String question) async {
     try {
       final response = await Http.post(
         '/assistant',
@@ -42,13 +50,19 @@ class AssistantController extends MagicController {
       final Object? answer = data is Map<String, dynamic>
           ? data['answer']
           : null;
+      // Presence, not a specific value: `AiDegradeReason` is a closed set the
+      // backend owns, and the panel only needs to know whether a model was
+      // behind this sentence. Reading the case here would put the same
+      // three-way switch in a second place for no gain.
+      final bool degraded =
+          data is Map<String, dynamic> && data['degrade_reason'] != null;
       if (answer is! String) {
         Log.error('[AssistantController.ask] malformed response payload');
         _toastFailed(null);
         return null;
       }
 
-      return answer;
+      return (answer: answer, degraded: degraded);
     } catch (error) {
       Log.error('[AssistantController.ask] failed: $error');
       _toastFailed(null);

@@ -529,18 +529,39 @@ class _IncidentCreateViewState
   /// Builds the required Affected-monitors multi-select (React `RegionPicker`
   /// fed the monitor options).
   Widget _buildAffectedField() {
+    final List<Region> options = _monitorOptions;
+
     return MSFormField(
       label: trans('uptizm.incidents.form_affected_label'),
       hint: trans('uptizm.incidents.form_affected_hint'),
       error: _affectedError,
-      child: RegionPicker(
-        regions: _monitorOptions,
-        value: _affected,
-        onChanged: (next) => setState(() {
-          _affected = next;
-          _affectedError = null;
-        }),
-      ),
+      // An empty roster renders a SENTENCE, not an empty grid.
+      //
+      // `RegionPicker` draws one tile per option, so with no options it drew
+      // nothing: driving the running app, a cold open of this form snapshotted
+      // as label, hint, then straight on to Severity. The one required choice
+      // on the screen had no control under it, and the screen offered no reason,
+      // so the operator could neither complete the form nor learn why.
+      //
+      // Two different states reach here and they get different sentences,
+      // because the remedies are opposite: the roster is still being fetched
+      // (wait), or this team owns no monitors at all (go make one). Neither is
+      // an empty rectangle.
+      child: options.isNotEmpty
+          ? RegionPicker(
+              regions: options,
+              value: _affected,
+              onChanged: (next) => setState(() {
+                _affected = next;
+                _affectedError = null;
+              }),
+            )
+          : WText(
+              MonitorController.instance.isFirstLoad
+                  ? trans('uptizm.incidents.form_affected_loading')
+                  : trans('uptizm.incidents.form_affected_empty'),
+              className: 'text-sm text-fg-muted',
+            ),
     );
   }
 

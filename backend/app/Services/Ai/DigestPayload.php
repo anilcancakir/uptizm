@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Jobs\GenerateWeeklyDigest;
+use App\Support\Ai\PromptLanguage;
 
 /**
  * The immutable evidence handed to the weekly-digest LLM.
@@ -49,6 +50,7 @@ readonly class DigestPayload
         public array $incidents,
         public array $knownIncidentIds,
         public array $knownMonitorIds,
+        public string $language = PromptLanguage::FALLBACK,
     ) {}
 
     /**
@@ -68,7 +70,9 @@ readonly class DigestPayload
             'incidents: '.$this->encode($this->incidents),
             'known incident_ids: '.$this->encode($this->knownIncidentIds),
             'known monitor_ids: '.$this->encode($this->knownMonitorIds),
-        ])."\n\nSummarize this team's week using only the evidence above.";
+        ])."\n\nSummarize this team's week using only the evidence above."
+            ." Write it in {$this->language}."
+            .' Leave monitor names, identifiers and percentages as they are.';
     }
 
     /**

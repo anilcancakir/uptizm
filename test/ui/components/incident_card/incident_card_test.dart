@@ -77,6 +77,17 @@ void main() {
       expect(cls, contains('bg-info'));
     });
 
+    test('a resolved incident emits the green bg-up stripe', () {
+      // A closed incident kept the full outage red, so a list holding one live
+      // incident and two closed ones read as three outages, in the loudest
+      // colour on the screen and against the "Resolved" pill beside it.
+      final cls = incidentCardRecipe(
+        variants: {kIncidentCardImpactAxis: 'resolved'},
+      );
+      expect(cls, contains('bg-up'));
+      expect(cls, isNot(contains('bg-down')));
+    });
+
     test('default variant resolves to down (bg-down)', () {
       final cls = incidentCardRecipe();
       expect(cls, contains('bg-down'));

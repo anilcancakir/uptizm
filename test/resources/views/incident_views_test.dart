@@ -141,6 +141,8 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.analysis_degraded_heading': 'AI analysis',
       'uptizm.incidents.analysis_pending_heading': 'AI analysis',
       'uptizm.incidents.analysis_pending_body': 'Reading the evidence...',
+      'uptizm.incidents.analysis_failed_body':
+          'The analysis could not be loaded.',
       'uptizm.incidents.analysis_retry_pending': 'Retrying',
       'uptizm.incidents.detail_composer_post': 'Post update',
       'uptizm.incidents.detail_postmortem_heading': 'Postmortem draft',
@@ -1720,7 +1722,11 @@ void main() {
     /// mechanism is a SECOND call to the same endpoint.
     FakeNetworkDriver seedAnalysisOnlyIncident(Map<String, dynamic> analysis) {
       final FakeNetworkDriver fake = Http.fake({
+        // Both URLs, because the retry appends `?refresh=1`: without it the
+        // backend serves its stored answer, and the re-ask would return the
+        // row it was asked to replace.
         'incidents/deg-1/analysis': Http.response({'data': analysis}),
+        'incidents/deg-1/analysis?refresh=1': Http.response({'data': analysis}),
       });
       Magic.singleton('log', () => LogManager());
       IncidentController.instance.setSuccess([
@@ -1839,14 +1845,16 @@ void main() {
         final Finder retry = find.text(trans('uptizm.common.retry'));
         expect(retry, findsOneWidget);
 
-        // One GET so far, from `initState`. The tap has to produce a SECOND one:
-        // the endpoint recomputes per call, so re-asking is the whole mechanism,
-        // and a button that only repaints would look identical on screen.
+        // One GET so far, from `initState`. The tap has to produce a SECOND one,
+        // and it has to carry `refresh`: the backend serves a stored answer while
+        // the evidence is unchanged, so a re-ask without the flag would come back
+        // with the same row and the button would look identical on screen either
+        // way.
         int analysisRequests() => fake.recorded
             .where(
               (entry) =>
                   entry.$1.method == 'GET' &&
-                  entry.$1.url == '/incidents/deg-1/analysis',
+                  entry.$1.url.startsWith('/incidents/deg-1/analysis'),
             )
             .length;
         expect(analysisRequests(), 1);
@@ -1855,6 +1863,10 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(analysisRequests(), 2);
+        expect(
+          fake.recorded.last.$1.url,
+          equals('/incidents/deg-1/analysis?refresh=1'),
+        );
       },
     );
 
@@ -1935,6 +1947,70 @@ void main() {
   // is nothing to show" were the same branch, and the operator read the first as
   // the second.
 
+  group('IncidentDetailView analysis failed', () {
+    testWidgets('says the analysis could not be loaded instead of drawing '
+        'nothing', (tester) async {
+      // THE DEFECT THIS PINS, reported from the running app: the skeleton
+      // appears, disappears, and leaves an empty space where the analysis
+      // should be. A failed request and "there is no analysis" both left
+      // `analysisFor` null with nothing pending, so one blank covered two
+      // outcomes and an operator reads blank as an answer.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final Incident subject = incidentFixtures.firstWhere(
+        (incident) => incident.ai == null,
+      );
+
+      // A 500 on the analysis read, which is what a slow provider looks like
+      // from here once a wall upstream cuts the request.
+      Http.fake({
+        'incidents/${subject.id}/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+      });
+
+      await tester.pumpWidget(wrap(IncidentDetailView(id: subject.id)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('The analysis could not be loaded.'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
+      expect(
+        find.byType(AiAnalysisCard),
+        findsNothing,
+        reason: 'a failure must not draw a card around an answer that is absent',
+      );
+    });
+
+    testWidgets('a successful read draws the answer and no failure notice', (
+      tester,
+    ) async {
+      // The other side, so the notice cannot be a permanent fixture of the
+      // screen.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final Incident subject = incidentFixtures.firstWhere(
+        (incident) => incident.ai == null,
+      );
+
+      Http.fake({
+        'incidents/${subject.id}/analysis': Http.response({
+          'data': {
+            'summary': 'The storage check reported degraded while HTTP stayed 200.',
+            'confidence': 'high',
+          },
+        }),
+      });
+
+      await tester.pumpWidget(wrap(IncidentDetailView(id: subject.id)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('The analysis could not be loaded.'), findsNothing);
+      expect(find.byType(AiAnalysisCard), findsOneWidget);
+    });
+  });
+
   group('IncidentDetailView analysis pending', () {
     testWidgets('says the analysis is being prepared while the fetch runs', (
       tester,
@@ -1961,6 +2037,24 @@ void main() {
 
       expect(find.text('Reading the evidence...'), findsOneWidget);
       expect(find.byType(AiAnalysisCard), findsNothing);
+    });
+
+    testWidgets('the wait is animated, not a paragraph held still', (
+      tester,
+    ) async {
+      // The model call takes 14 to 21 seconds against the real provider, and
+      // two static lines held that long read as a screen that gave up. The
+      // skeleton is the only thing on this arm that says the work is running.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final Incident subject = incidentFixtures.firstWhere(
+        (incident) => incident.ai == null,
+      );
+
+      await tester.pumpWidget(wrap(IncidentDetailView(id: subject.id)));
+
+      expect(find.byType(MSSkeleton), findsNWidgets(3));
     });
   });
 }

@@ -13,10 +13,12 @@ use App\Services\Ai\AnomalyTriageGateway;
 use App\Services\Ai\AssistantGateway;
 use App\Services\Ai\DigestGateway;
 use App\Services\Ai\IncidentAnalysisGateway;
+use App\Services\Ai\IncidentDraftGateway;
 use App\Services\Ai\LaravelAiAnalysisGateway;
 use App\Services\Ai\LaravelAiAssistantGateway;
 use App\Services\Ai\LaravelAiDigestGateway;
 use App\Services\Ai\LaravelAiIncidentAnalysisGateway;
+use App\Services\Ai\LaravelAiIncidentDraftGateway;
 use App\Services\Ai\LaravelAiTriageGateway;
 use App\Services\Ai\OpenRouterUpstreamRecorder;
 use App\Services\Monitoring\ProbeTransport;
@@ -50,6 +52,7 @@ class AppServiceProvider extends ServiceProvider
         // Bind the post-incident RCA boundary the same way. Tests rebind the
         // FakeIncidentAnalysisGateway, so no real Anthropic call happens in CI.
         $this->app->bind(IncidentAnalysisGateway::class, LaravelAiIncidentAnalysisGateway::class);
+        $this->app->bind(IncidentDraftGateway::class, LaravelAiIncidentDraftGateway::class);
 
         // Bind the weekly-digest boundary the same way. Tests rebind the
         // FakeDigestGateway, so no real Anthropic call happens in CI.

@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\MonitorContentController;
 use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Marketing\SendContactMessageController;
 use App\Http\Controllers\StatusPage\ShowStatusPageController;
+use App\Http\Middleware\SetApiLocale;
 use App\Http\Middleware\SetMarketingLocale;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
@@ -86,6 +87,19 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: [
             '127.0.0.1',
             '::1',
+        ]);
+
+        // Answer every API request in the caller's own language. Appended, so it
+        // runs after the auth middleware has resolved the user whose stored
+        // preference it reads.
+        //
+        // It is on the `api` group and nowhere else, deliberately. The client
+        // localizes itself, so the only server-generated prose is the AI
+        // surface, and that is exactly what was reaching a Turkish operator in
+        // English. `SetMarketingLocale` owns the marketing pages, and a public
+        // status page publishes in one owner-chosen language on purpose.
+        $middleware->api(append: [
+            SetApiLocale::class,
         ]);
 
         // Lean group for the public status pages: bind route params but skip
