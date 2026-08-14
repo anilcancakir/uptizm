@@ -168,6 +168,41 @@ class AutonomousStatusUpdateTest extends TestCase
         );
     }
 
+    public function test_an_incident_customers_cannot_notice_publishes_nothing(): void
+    {
+        // The live case this closes: a metric read `degraded` out of a health
+        // endpoint that was still answering HTTP 200 in 682ms, so the only
+        // affected thing was a storage check inside the operator's own system.
+        // The analysis said exactly that and was useful on the incident page.
+        // The public post could not say it, because `updateRules()` forbids
+        // naming an internal component, which left the model with the empty
+        // truth: "We are currently investigating this issue." A status page
+        // entry that tells a customer something is wrong, while nothing they
+        // touch is wrong and no detail is allowed, is worse than silence.
+        //
+        // `impact` is the right axis and already exists for this: its own
+        // docblock calls it the CUSTOMER-facing tier, distinct from the
+        // operator's `severity`.
+        $incident = $this->makeIncident($this->makeMonitor(true));
+        $incident->forceFill(['impact' => IncidentImpact::Minor])->save();
+
+        $this->runJob($incident);
+
+        $this->assertSame(0, $incident->updates()->count());
+
+        // And the analysis is still waiting, which is the half of this that is
+        // easy to lose. Gating the whole job on impact would have been the
+        // one-line version and it silently took the operator's pre-warmed
+        // analysis with it: the incident page then pays 9 to 20 seconds of
+        // loading on first open, for a monitor whose operator asked for MORE
+        // automation, not less. The impact rule is about what customers are
+        // told; it was never about what the operator gets to see.
+        $this->assertSame(
+            1,
+            AiIncidentAnalysis::query()->where('incident_id', $incident->id)->count(),
+        );
+    }
+
     public function test_a_team_below_the_analysis_tier_publishes_nothing(): void
     {
         // The analysis tier, not the auto one: this is built on the analysis that

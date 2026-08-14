@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\IncidentDraftKind;
+use App\Enums\IncidentImpact;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Team;
@@ -105,7 +106,19 @@ class PublishAiIncidentUpdate implements ShouldQueue
         //    minute later finds it already waiting rather than paying for it.
         $analysisService->storedAnalysisFor($incident);
 
-        // 3. Draft the customer-facing sentence for the stage this update is
+        // 3. Nothing a customer can notice means nothing to tell them. The gate
+        //    sits HERE rather than beside the consent checks above, and the
+        //    ordering is the whole point: the analysis belongs to the OPERATOR
+        //    and is worth having either way, so it is already stored and waiting
+        //    on the incident page by the time this returns. Gating the job as a
+        //    whole is the shorter version and it quietly charges an operator who
+        //    asked for more automation with a cold analysis and 9 to 20 seconds
+        //    of loading on first open.
+        if (! $this->impactWarrantsPublicPost($incident)) {
+            return;
+        }
+
+        // 4. Draft the customer-facing sentence for the stage this update is
         //    posted as, in the team's own language.
         $result = $draftService->draftFor(
             $incident,
@@ -127,7 +140,7 @@ class PublishAiIncidentUpdate implements ShouldQueue
             return;
         }
 
-        // 4. Post it publicly, marked as what it is.
+        // 5. Post it publicly, marked as what it is.
         $incident->updates()->create([
             'actor' => 'ai',
             'author' => self::AUTHOR,
@@ -170,6 +183,31 @@ class PublishAiIncidentUpdate implements ShouldQueue
         // Having decided the two are different consents, charging for them as one
         // capability was the inconsistency.
         return $team !== null && (new PlanGate)->aiLevelAllows($team, 'analysis');
+    }
+
+    /**
+     * Whether this incident is something a customer could actually notice.
+     *
+     * The gate the first live run was missing. A metric read `degraded` out of a
+     * health endpoint that was still answering HTTP 200 in 682ms, so the only
+     * affected thing was a storage check inside the operator's own system. The
+     * analysis said exactly that and was useful; the public post could not
+     * repeat it, because `LaravelAiIncidentDraftGateway::updateRules()` forbids
+     * naming an internal component, and what reached the status page was the
+     * empty truth
+     * left over: "We are currently investigating this issue." An entry telling a
+     * customer something is wrong, while nothing they touch is wrong and no
+     * detail is permitted, is worse than silence.
+     *
+     * `impact` is the axis rather than `severity` because that is what it is for:
+     * {@see IncidentImpact} calls itself the CUSTOMER-facing tier, explicitly
+     * distinct from the operator's. Deterministic, and deliberately not the
+     * model's own judgment: whether to speak publicly is not a decision to hand
+     * to the thing being gated.
+     */
+    protected function impactWarrantsPublicPost(Incident $incident): bool
+    {
+        return $incident->impact === IncidentImpact::Critical;
     }
 
     /**
