@@ -77,6 +77,35 @@ class IncidentAnalysisBoundsTest extends TestCase
         $this->assertSame('Birinci cümle burada. İkinci cümle burada.', $result);
     }
 
+    public function test_a_mid_sentence_cut_is_marked_as_one(): void
+    {
+        // MEASURED on the first live run after the cap shipped: the model wrote
+        // one enormous sentence enumerating every healthy sub-check, so no
+        // sentence boundary existed to land on and the word-boundary fallback
+        // left `...cache (checks.cache) ok,` on screen. A summary that stops at a
+        // comma reads as a model that lost its place, which is the exact
+        // impression the cap was added to prevent.
+        $gateway = app(LaravelAiIncidentAnalysisGateway::class);
+        $oneLongSentence = 'Uygulama ok, veritabani ok, redis ok, cache ok, kuyruk ok, horizon ok';
+
+        $result = $gateway->capLength($oneLongSentence, 40);
+
+        $this->assertStringEndsWith('…', $result, 'a truncation has to look like one');
+        $this->assertStringNotContainsString(',…', $result, 'the dangling comma goes with it');
+        $this->assertLessThanOrEqual(40, mb_strlen($result));
+    }
+
+    public function test_a_sentence_boundary_cut_carries_no_ellipsis(): void
+    {
+        // The distinction: cutting between sentences loses nothing a reader can
+        // see, so marking it would claim damage that did not happen.
+        $gateway = app(LaravelAiIncidentAnalysisGateway::class);
+
+        $result = $gateway->capLength('Birinci cümle burada. İkinci cümle burada. Üçüncü cümle burada.', 45);
+
+        $this->assertStringEndsNotWith('…', $result);
+    }
+
     public function test_a_short_summary_is_returned_untouched(): void
     {
         $gateway = app(LaravelAiIncidentAnalysisGateway::class);

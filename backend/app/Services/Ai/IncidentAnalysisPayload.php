@@ -164,6 +164,16 @@ readonly class IncidentAnalysisPayload
         //    Turkish reliably returned a Turkish summary with English labels.
         return $trusted."\n\n".implode("\n", $untrustedLines)
             ."\n\nSummarize the likely root cause using only the evidence above."
+            // The padding rule, and it is here rather than only in the length
+            // cap because a cap can truncate padding and cannot prevent it.
+            // MEASURED: the model spent a whole 400-character summary listing
+            // every sub-check that was FINE (`checks.application.status ok,
+            // checks.database.status ok, checks.redis.status ok, ...`) and got
+            // cut off before it reached the one that was not. Naming what is
+            // healthy is not an analysis, and it is what pushed the answer into
+            // the length where this model starts losing coherence.
+            .' Name only what is WRONG. Do not list the components that are'
+            .' healthy; that they are absent from the summary already says so.'
             .' Write the summary, every evidence label and detail, and every'
             ." suggested action and rationale in {$this->language}."
             .' Leave identifiers, metric keys, HTTP methods and status codes as they are.';

@@ -184,10 +184,20 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
 
         // 2. One sentence already overruns the limit, so fall back to the last
         //    word boundary inside it rather than slicing a word in half.
-        $cut = mb_substr($summary, 0, $limit);
+        //
+        //    MEASURED on the first live run after this shipped: the model wrote
+        //    one enormous sentence enumerating every healthy sub-check, so there
+        //    was no boundary to land on and the operator read
+        //    `...cache (checks.cache) ok,` on screen. A summary that stops at a
+        //    comma reads as a model that lost its place, which is the impression
+        //    the whole cap exists to prevent, so the trailing punctuation goes
+        //    and an ellipsis says what happened. One character of room is
+        //    reserved for it, because the limit is a limit.
+        $cut = mb_substr($summary, 0, $limit - 1);
         $lastSpace = mb_strrpos($cut, ' ');
+        $trimmed = rtrim($lastSpace === false ? $cut : mb_substr($cut, 0, $lastSpace));
 
-        return rtrim($lastSpace === false ? $cut : mb_substr($cut, 0, $lastSpace));
+        return rtrim($trimmed, " \t\n\r,;:-").'…';
     }
 
     /**
