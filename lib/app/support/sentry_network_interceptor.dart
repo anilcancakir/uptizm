@@ -36,6 +36,18 @@ enum SentryHttpDisposition {
 ///
 /// It reports and returns; it never changes the outcome of a request.
 class SentryNetworkInterceptor extends MagicNetworkInterceptor {
+  /// Failures already reported this session, as `METHOD /path {status}`.
+  ///
+  /// Session-scoped rather than time-windowed on purpose: a web session is a
+  /// tab, so it ends when the page does, and a returning user reports the
+  /// failure again. A timer would need a clock, a test seam and a decision
+  /// about what "recently" means, to save an issue that Sentry already groups.
+  @visibleForTesting
+  static final Set<String> reportedFailures = <String>{};
+
+  /// The same set, under the name the reporting path uses.
+  static Set<String> get _reportedFailures => reportedFailures;
+
   /// Report the failure, then hand it back untouched.
   ///
   /// The return value is meaningful to magic: a `MagicResponse` RESOLVES the
@@ -59,6 +71,37 @@ class SentryNetworkInterceptor extends MagicNetworkInterceptor {
           category: 'http',
           level: SentryLevel.warning,
           message: '$method $endpoint -> $status',
+          data: {
+            'method': method,
+            'endpoint': endpoint,
+            'status_code': status,
+          },
+        ),
+      );
+
+      return error;
+    }
+
+    // One issue per distinct failure per session, then breadcrumbs.
+    //
+    // Without this the client is a flood source rather than a signal: the app
+    // polls notifications every 30 seconds, so a one-hour backend outage across
+    // a couple of hundred open tabs is tens of thousands of identical events.
+    // The plan's error allowance is 50k a MONTH and carries no overage budget,
+    // so that single outage would spend the year's visibility on one already
+    // obvious fact.
+    //
+    // The first occurrence is the one that carries information; the rest are
+    // the same fingerprint arriving repeatedly, which Sentry would group into
+    // one issue anyway while still billing for each. Their breadcrumbs still
+    // show the retry pattern to whoever opens that issue.
+    if (!_reportedFailures.add('$method $endpoint $status')) {
+      Sentry.addBreadcrumb(
+        Breadcrumb(
+          type: 'http',
+          category: 'http',
+          level: SentryLevel.error,
+          message: '$method $endpoint -> $status (repeat)',
           data: {
             'method': method,
             'endpoint': endpoint,

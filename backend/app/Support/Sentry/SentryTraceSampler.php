@@ -16,20 +16,35 @@ use Sentry\Tracing\SamplingContext;
  * this application, because its two most interesting workloads sit at opposite
  * ends of the volume scale and would need opposite rates.
  *
- * THE ARITHMETIC BEHIND THE NUMBERS
+ * WHICH RATE ACTUALLY CONTROLS PROBE VOLUME, AND IT IS NOT THE OBVIOUS ONE
  *
- * The check queue sets the ceiling. The shortest sellable interval is 5 seconds
- * and the common one is 30 (`config/plans.php`), across 5 regions, so a hundred
- * monitors is ~1000 jobs a minute, ~43M a month. With `tracing.sql_queries` on,
- * each is a transaction of roughly a dozen spans, so capturing them all would
- * be ~500M spans against this org's 50M monthly allowance: ten times the quota
- * from one queue alone. {@see self::RATE_CHECK_QUEUE} brings that to ~500K and
- * still samples about one check a minute, which is enough to see a latency
- * trend and far more than enough to see a broken one.
+ * A per-job rate for `PerformMonitorCheck` looks like the volume control and is
+ * not one. `QueueIntegration` writes the DISPATCHING trace's decision into every
+ * queued payload (`getTraceparent()`, unconditionally), and on the consuming
+ * side it drops any job whose parent was unsampled BEFORE this sampler is
+ * consulted at all. So the real chain is
+ *
+ *     console.command.scheduled  ->  ScheduleMonitorChecks  ->  N x PerformMonitorCheck
+ *
+ * and only the first link is ever asked a question. A rate written on the last
+ * link is unreachable code that reads like a budget.
+ *
+ * The arithmetic therefore lives on {@see self::RATE_SCHEDULER}. There are
+ * 86,400 thirty-second ticks a month; each fans out one check per monitor per
+ * region, so a hundred monitors across five regions is ~500 checks a tick. At
+ * 0.001 that is ~86 sampled ticks, ~43,000 check transactions a month, roughly
+ * 500K spans against this org's 50M allowance.
+ *
+ * What that shape costs, stated rather than hidden: the samples arrive in ~86
+ * bursts rather than spread evenly, so this is not a latency time series. It
+ * does not need to be. Per-check latency is measured properly and completely in
+ * `monitor_checks.response_ms`; what a trace adds is the code path around the
+ * probe, and 86 of those a month is plenty to see one break.
  *
  * `analyze` is the opposite shape: a few hundred runs a MONTH, each spending
- * real model budget, each worth reconstructing when it goes wrong. It is
- * sampled at 1.0 and costs almost nothing at that rate.
+ * real model budget, each worth reconstructing when it goes wrong. It is the
+ * one case that overrides an inherited decision, because the client that calls
+ * it samples at 0.1 and would otherwise discard nine runs in ten.
  *
  * WHAT HAPPENS WHEN THE BUDGET IS WRONG. The plan carries
  * `onDemandMaxSpend = 0`, so overshooting the quota does not produce a bill.
@@ -59,12 +74,21 @@ class SentryTraceSampler
     public const float RATE_BACKGROUND = 0.05;
 
     /**
-     * The scheduler, which fires every 30 seconds forever.
+     * The scheduler, and THE control that decides probe volume.
+     *
+     * See the class docblock: every check job inherits this decision, so this
+     * single number sets how many of the month's ~43M probes are traced. It is
+     * not "how interesting is the scheduler", it is the whole probe budget.
      */
-    public const float RATE_SCHEDULER = 0.01;
+    public const float RATE_SCHEDULER = 0.001;
 
     /**
-     * The probe queue. See the class docblock for why this is a thousandth.
+     * The probe queue when, and only when, it starts its own trace.
+     *
+     * Reachable from a dispatch with no parent (an Artisan command, a tinker
+     * session), which is rare in production. The scheduled fan-out never
+     * reaches it, for the reason spelled out in the class docblock, so do not
+     * mistake this for the volume control.
      */
     public const float RATE_CHECK_QUEUE = 0.001;
 
@@ -109,18 +133,6 @@ class SentryTraceSampler
      */
     public static function sample(SamplingContext $context): float
     {
-        // 1. A parent decision always wins, in BOTH directions. Re-deciding
-        //    here would tear a distributed trace in half: a request the client
-        //    sampled would arrive with no server side, which reads as the
-        //    backend never having handled it. Note that `null` (no parent) is
-        //    deliberately distinct from `false` (a parent that said no), which
-        //    the idiomatic `if ($parentSampled)` check collapses.
-        $parentSampled = $context->getParentSampled();
-
-        if ($parentSampled !== null) {
-            return $parentSampled ? self::RATE_ALWAYS : 0.0;
-        }
-
         $transactionContext = $context->getTransactionContext();
 
         if ($transactionContext === null) {
@@ -128,15 +140,63 @@ class SentryTraceSampler
         }
 
         $name = $transactionContext->getName();
+        $op = $transactionContext->getOp();
 
-        // 2. Branch on the operation the SDK tagged, since the same rate means
-        //    very different volume for a queue job and an HTTP request.
-        return match ($transactionContext->getOp()) {
+        // 1. Model spend overrides an inherited decision, and this ordering is
+        //    the whole reason the check exists here rather than below. Analyze
+        //    is called BY the Flutter client, which samples at 0.1, so under
+        //    plain inheritance nine runs in ten arrive with
+        //    `parentSampled = false` and the one path worth reconstructing is
+        //    the one path that never has a trace.
+        if (self::spendsModelBudget($op, $name)) {
+            return self::RATE_ALWAYS;
+        }
+
+        // 2. Otherwise a parent decision wins, in BOTH directions. Re-deciding
+        //    here would tear a distributed trace in half: a request the client
+        //    sampled would arrive with no server side, which reads as the
+        //    backend never having handled it. `null` (no parent) is deliberately
+        //    distinct from `false` (a parent that said no), which the idiomatic
+        //    `if ($parentSampled)` check collapses.
+        $parentSampled = $context->getParentSampled();
+
+        if ($parentSampled !== null) {
+            return $parentSampled ? self::RATE_ALWAYS : 0.0;
+        }
+
+        // 3. A trace that starts HERE picks its own rate. Which of these arms
+        //    actually decides volume is not obvious: see the class docblock.
+        return match ($op) {
             'queue.process' => self::rateForJob($name),
             'http.server' => self::rateForPath($name),
             'console.command.scheduled', 'console.command' => self::RATE_SCHEDULER,
             default => self::RATE_BACKGROUND,
         };
+    }
+
+    /**
+     * Whether this transaction is one that costs money to run.
+     *
+     * @param  string|null  $op  The SDK's operation tag.
+     * @param  string  $name  The transaction name: a job class, or a request path.
+     */
+    private static function spendsModelBudget(?string $op, string $name): bool
+    {
+        if ($op === 'queue.process') {
+            return $name === AnalyzeMonitorJob::class;
+        }
+
+        if ($op !== 'http.server') {
+            return false;
+        }
+
+        foreach (self::MODEL_SPENDING_SUFFIXES as $suffix) {
+            if (str_ends_with($name, $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

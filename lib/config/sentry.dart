@@ -37,7 +37,16 @@ const double _tracesSampleRate = 0.1;
 /// Whether this build reports to Sentry at all.
 bool get sentryEnabled => sentryDsn.isNotEmpty;
 
-/// The DSN, or an empty string on every build that is not production.
+/// The DSN, or an EMPTY STRING on every build that is not production.
+///
+/// The return type is deliberately `String` and never `String?`, and the
+/// disabled value is deliberately `''` rather than null. `Sentry.init` throws
+/// `ArgumentError('DSN is required.')` when the DSN is NULL, while an empty
+/// string is a documented, supported "do not send anything" (see
+/// `SentryOptions.dsn`). Since `appRunner` runs inside that call, making this
+/// nullable would stop the entire app from booting on every developer machine
+/// and in the whole test suite, and the failure would look like a Sentry
+/// configuration error rather than what it is.
 String get sentryDsn {
   if (envString('APP_ENV', 'local') != _productionEnvironment) {
     return '';

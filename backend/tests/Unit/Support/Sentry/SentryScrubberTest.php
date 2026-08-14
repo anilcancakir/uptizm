@@ -4,6 +4,7 @@ namespace Tests\Unit\Support\Sentry;
 
 use App\Services\Monitoring\IncidentWriteService;
 use App\Support\Sentry\SentryScrubber;
+use Sentry\Breadcrumb;
 use Sentry\Event;
 use Tests\TestCase;
 
@@ -150,6 +151,41 @@ class SentryScrubberTest extends TestCase
 
         $this->assertSame(SentryScrubber::MARKER, $contexts['probe']['credentials']);
         $this->assertSame('eu-west', $contexts['probe']['region']);
+    }
+
+    /**
+     * The path that was open until a review found it, and the one most likely
+     * to carry a real credential in practice.
+     *
+     * Sentry's Laravel integration turns every `Log::warning($message, $context)`
+     * into a breadcrumb with `$context` attached VERBATIM
+     * (`EventHandler::logHandler()`), and 28 files in `app/` log with a context
+     * array. Breadcrumbs travel with the next event, so a credential logged
+     * anywhere reaches Sentry attached to an unrelated error, and the request,
+     * extra, contexts and tags passes never see it.
+     */
+    public function test_it_masks_sensitive_values_in_breadcrumbs(): void
+    {
+        $event = Event::createEvent();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_WARNING,
+                Breadcrumb::TYPE_DEFAULT,
+                'log.warning',
+                'Probe failed',
+                [
+                    'monitor_id' => 42,
+                    'auth_config' => 'Basic dXNlcjpwYXNz',
+                ],
+            ),
+        ]);
+
+        $breadcrumbs = SentryScrubber::beforeSend($event, null)->getBreadcrumbs();
+
+        $this->assertCount(1, $breadcrumbs);
+        $this->assertSame(SentryScrubber::MARKER, $breadcrumbs[0]->getMetadata()['auth_config']);
+        $this->assertSame(42, $breadcrumbs[0]->getMetadata()['monitor_id']);
+        $this->assertSame('Probe failed', $breadcrumbs[0]->getMessage(), 'The message must survive intact.');
     }
 
     /**

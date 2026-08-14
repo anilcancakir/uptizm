@@ -20,25 +20,20 @@ use Tests\TestCase;
  * `onDemandMaxSpend = 0`, which means overshooting does not produce a bill, it
  * produces a MONTH OF DROPPED DATA once the quota is gone.
  *
- * The arithmetic that sets these numbers: the shortest sellable check interval
- * is 5 seconds and the common one is 30, across 5 regions, so a hundred
- * monitors is already ~1000 queued jobs a minute, ~43M a month. Each is a
- * transaction with roughly a dozen spans once `tracing.sql_queries` is on, so
- * capturing them all would be ~500M spans against a 50M allowance: ten times
- * the quota, from one queue. At 0.001 the same queue costs ~500K spans and
- * still produces about one sampled check a minute, which is plenty to watch a
- * latency trend.
- *
- * The opposite mistake is just as real and this file pins it too: `analyze`
- * runs a few hundred times a MONTH and each run spends real money on model
- * calls, so it is sampled at 1.0. Sampling it like a check would mean the one
- * path worth a trace is the one path that never has one.
+ * THE TESTS BELOW PIN EFFECTIVE RATES, NOT INTENDED ONES, and that distinction
+ * is why several of them pass a `parentSampled` argument. Sentry's queue
+ * integration propagates the dispatching trace's decision into every job
+ * payload and drops an unsampled job before this sampler is consulted, so a
+ * test that only ever exercises the parentless case would happily certify a
+ * rate that production never applies. Two of these assertions exist because
+ * exactly that happened: the check-queue rate was unreachable, and the AI rate
+ * was being overridden to zero by an unsampled caller.
  */
 class SentryTraceSamplerTest extends TestCase
 {
     /**
-     * A parent decision always wins, and this is the assertion that keeps
-     * distributed traces intact.
+     * A parent decision wins for ordinary traffic, which is what keeps a
+     * distributed trace in one piece.
      *
      * The Flutter client starts a trace and propagates it; if this service
      * re-decided independently, a trace the client kept would arrive here with
@@ -66,22 +61,68 @@ class SentryTraceSamplerTest extends TestCase
     }
 
     /**
-     * The volume driver. See the class docblock for the arithmetic.
+     * The rate that actually governs probe volume, and it is the SCHEDULER's.
+     *
+     * This is the correction that matters most in this file. A per-job rate for
+     * `PerformMonitorCheck` reads like the volume control and is not one:
+     * `QueueIntegration` writes the dispatching trace's decision into every
+     * queued payload, and refuses a job whose parent was unsampled BEFORE this
+     * sampler is consulted. The chain is therefore
+     * `console.command.scheduled` -> `ScheduleMonitorChecks` -> every
+     * `PerformMonitorCheck` it fans out, and only the first link is ever asked.
+     *
+     * So the arithmetic lives here: 86,400 thirty-second ticks a month, each
+     * fanning out one check per monitor per region. At 0.001 that is ~86
+     * sampled ticks, which at a hundred monitors across five regions is ~43,000
+     * check transactions a month. The per-check latency this does NOT sample is
+     * not lost, it is measured properly in `monitor_checks.response_ms`; what a
+     * trace adds is the code path around it.
      */
-    public function test_the_check_queue_is_sampled_at_the_floor(): void
+    public function test_the_scheduler_rate_is_the_one_that_governs_probe_volume(): void
     {
-        $context = $this->contextFor(PerformMonitorCheck::class, 'queue.process');
+        $context = $this->contextFor('monitoring:schedule-checks', 'console.command.scheduled');
 
         $this->assertSame(0.001, SentryTraceSampler::sample($context));
     }
 
     /**
-     * The rare expensive path. A few hundred runs a month, each spending model
-     * budget, so every one of them is worth a trace.
+     * The consequence of the above, pinned so nobody "fixes" it back.
+     *
+     * A check job reaching this sampler at all means its dispatching trace was
+     * already sampled, so the honest answer is to keep it: a sampled tick whose
+     * fan-out is missing is worse than useless, it is a trace that looks like
+     * the dispatcher did nothing.
      */
-    public function test_the_analyze_job_is_always_sampled(): void
+    public function test_a_check_job_under_a_sampled_parent_is_kept(): void
     {
-        $context = $this->contextFor(AnalyzeMonitorJob::class, 'queue.process');
+        $context = $this->contextFor(PerformMonitorCheck::class, 'queue.process', parentSampled: true);
+
+        $this->assertSame(1.0, SentryTraceSampler::sample($context));
+    }
+
+    /**
+     * The rare expensive path, and the one case where a parent decision is
+     * deliberately OVERRIDDEN.
+     *
+     * Analyze spends real model budget a few hundred times a month. Left to
+     * inheritance it would be traced at the rate of whoever called it: the
+     * Flutter client samples at 0.1, so nine runs in ten would arrive with
+     * `parentSampled = false` and be discarded, and the one path worth
+     * reconstructing would be the one path with no trace.
+     */
+    public function test_the_analyze_job_is_sampled_even_under_an_unsampled_parent(): void
+    {
+        $context = $this->contextFor(AnalyzeMonitorJob::class, 'queue.process', parentSampled: false);
+
+        $this->assertSame(1.0, SentryTraceSampler::sample($context));
+    }
+
+    /**
+     * The same override on the request half.
+     */
+    public function test_a_model_spending_endpoint_is_sampled_even_under_an_unsampled_parent(): void
+    {
+        $context = $this->contextFor('/api/v1/monitors/analyze', 'http.server', parentSampled: false);
 
         $this->assertSame(1.0, SentryTraceSampler::sample($context));
     }
@@ -168,17 +209,6 @@ class SentryTraceSamplerTest extends TestCase
         $context = $this->contextFor('/s/acme-status', 'http.server');
 
         $this->assertSame(0.05, SentryTraceSampler::sample($context));
-    }
-
-    /**
-     * The scheduler fires every 30 seconds forever. It is worth watching, but
-     * not once a minute.
-     */
-    public function test_scheduled_commands_are_sampled_sparsely(): void
-    {
-        $context = $this->contextFor('monitoring:dispatch', 'console.command.scheduled');
-
-        $this->assertSame(0.01, SentryTraceSampler::sample($context));
     }
 
     /**

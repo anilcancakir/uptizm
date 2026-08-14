@@ -94,7 +94,43 @@ void main() {
     });
   });
 
+  group('deduplication', () {
+    setUp(SentryNetworkInterceptor.reportedFailures.clear);
+
+    test('the same failure is only reported once per session', () {
+      // The app polls notifications every 30 seconds, so a backend outage is
+      // not one failure, it is one failure repeated for as long as the tab is
+      // open. Reported every time, a single hour-long outage across a couple of
+      // hundred tabs would spend most of a 50k MONTHLY error allowance on one
+      // fact somebody already knows.
+      final interceptor = SentryNetworkInterceptor();
+      final error = MagicError(message: 'gateway down');
+
+      interceptor.onError(error);
+      interceptor.onError(error);
+      interceptor.onError(error);
+
+      expect(SentryNetworkInterceptor.reportedFailures, hasLength(1));
+    });
+
+    test('a different endpoint or status is its own report', () {
+      final interceptor = SentryNetworkInterceptor();
+
+      interceptor.onError(MagicError(message: 'a'));
+      interceptor.onError(
+        MagicError(
+          message: 'b',
+          request: MagicRequest(url: '/monitors', method: 'GET'),
+        ),
+      );
+
+      expect(SentryNetworkInterceptor.reportedFailures, hasLength(2));
+    });
+  });
+
   group('onError', () {
+    setUp(SentryNetworkInterceptor.reportedFailures.clear);
+
     test('it returns the error untouched so the interceptor chain survives', () {
       // magic reads the return value: a `MagicResponse` RESOLVES the failure as
       // a success, anything else lets it continue. Reporting must never change

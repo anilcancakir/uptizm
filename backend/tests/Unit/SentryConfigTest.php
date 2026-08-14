@@ -140,6 +140,25 @@ class SentryConfigTest extends TestCase
     }
 
     /**
+     * Structured logs travel on their own transport with their own hook, so
+     * `before_send` does not cover them. Enabling logs without this wires a
+     * second and wider path for the values the scrubber exists to stop.
+     */
+    public function test_the_log_pipeline_has_its_own_scrubber(): void
+    {
+        $this->assertSame(
+            [SentryScrubber::class, 'beforeSendLog'],
+            config('sentry.before_send_log'),
+        );
+
+        $this->assertSame(
+            'warning',
+            config('sentry.logs_channel_level'),
+            'Inheriting LOG_LEVEL would ship debug lines into a 5GB allowance with no overage budget.',
+        );
+    }
+
+    /**
      * PII stays off. The scrubber masks known key names; `send_default_pii`
      * would start attaching request bodies and user addresses wholesale, which
      * is a category the scrubber cannot audit.

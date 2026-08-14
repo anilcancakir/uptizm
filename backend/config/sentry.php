@@ -151,6 +151,29 @@ return [
      */
     'before_send' => [SentryScrubber::class, 'beforeSend'],
 
+    /*
+     * The same gate for the structured-log pipeline, which is a SEPARATE
+     * transport with a separate hook.
+     *
+     * `enable_logs` above ships each line's context as log attributes without
+     * ever passing it through `before_send`, so turning logs on without this
+     * would open a second and wider road for exactly the values the scrubber
+     * exists to keep in. 28 files in `app/` log with a context array.
+     */
+    'before_send_log' => [SentryScrubber::class, 'beforeSendLog'],
+
+    /*
+     * The level that reaches Sentry's log product, pinned rather than inherited.
+     *
+     * The SDK's own default chains down to `LOG_LEVEL`, whose value in
+     * `.env.example` is `debug` and which no deploy step sets explicitly. A
+     * machine that ever ran with a verbose level would quietly start shipping
+     * debug lines into a 5GB monthly allowance, and the plan has no overage
+     * budget to absorb it. `warning` is what production writes to disk today,
+     * so this keeps the two surfaces telling the same story.
+     */
+    'logs_channel_level' => env('SENTRY_LOGS_LEVEL', 'warning'),
+
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#ignore_exceptions
     // 'ignore_exceptions' => [],
 

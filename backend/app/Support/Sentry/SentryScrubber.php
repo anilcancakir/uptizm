@@ -5,8 +5,10 @@ namespace App\Support\Sentry;
 use App\Models\Monitor;
 use App\Services\Monitoring\IncidentWriteService;
 use App\Support\Monitoring\CredentialRedactor;
+use Sentry\Breadcrumb;
 use Sentry\Event;
 use Sentry\EventHint;
+use Sentry\Logs\Log;
 
 /**
  * The last gate between this application's secrets and Sentry.
@@ -130,7 +132,44 @@ class SentryScrubber
             $event->setTags(self::scrubTags($tags));
         }
 
+        // 5. Breadcrumbs, which is where a credential is MOST likely to be
+        //    found. Sentry's Laravel integration turns every
+        //    `Log::warning($message, $context)` into a breadcrumb carrying that
+        //    context verbatim, 28 files here log with one, and breadcrumbs ride
+        //    along with whatever event happens next. A credential logged in one
+        //    place therefore arrives attached to an unrelated error somewhere
+        //    else, which none of the passes above would ever see.
+        $breadcrumbs = $event->getBreadcrumbs();
+
+        if ($breadcrumbs !== []) {
+            $event->setBreadcrumb(array_map(self::scrubBreadcrumb(...), $breadcrumbs));
+        }
+
         return $event;
+    }
+
+    /**
+     * The same gate for structured logs, which travel on their own pipeline.
+     *
+     * Wired as `before_send_log` in `config/sentry.php`. It is a SEPARATE hook
+     * for a separate transport: `enable_logs` ships every log line's context as
+     * log attributes (`LogsHandler` merges `$context` and `$record['extra']`
+     * straight in), and none of it passes through `beforeSend()` above. Turning
+     * logs on without this would open a second, wider road for exactly the
+     * values that road exists to keep in.
+     *
+     * @param  Log  $log  The log record about to be transmitted.
+     * @return Log|null Always the record; see `beforeSend()` for why this never discards.
+     */
+    public static function beforeSendLog(Log $log): ?Log
+    {
+        foreach (array_keys($log->attributes()->all()) as $key) {
+            if (self::isSensitive($key)) {
+                $log->setAttribute($key, self::MARKER);
+            }
+        }
+
+        return $log;
     }
 
     /**
@@ -158,6 +197,39 @@ class SentryScrubber
         }
 
         return $data;
+    }
+
+    /**
+     * Mask the sensitive metadata on one breadcrumb.
+     *
+     * A `Breadcrumb` is immutable and exposes no bulk setter, so this rebuilds
+     * it through `withMetadata()` one key at a time. Only masked keys are
+     * rewritten; an untouched breadcrumb is returned as-is, which keeps the
+     * common case free.
+     *
+     * The message itself is left alone. It is a developer-authored sentence,
+     * and this class masks KEYS rather than reading values (see the class
+     * docblock for what that does not cover).
+     */
+    private static function scrubBreadcrumb(Breadcrumb $breadcrumb): Breadcrumb
+    {
+        foreach ($breadcrumb->getMetadata() as $key => $value) {
+            if (! is_string($key)) {
+                continue;
+            }
+
+            if (self::isSensitive($key)) {
+                $breadcrumb = $breadcrumb->withMetadata($key, self::MARKER);
+
+                continue;
+            }
+
+            if (is_array($value)) {
+                $breadcrumb = $breadcrumb->withMetadata($key, self::scrub($value));
+            }
+        }
+
+        return $breadcrumb;
     }
 
     /**
