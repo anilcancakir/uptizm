@@ -2,9 +2,6 @@
 
 namespace App\Services\Ai\Concerns;
 
-use App\Jobs\PublishAiIncidentUpdate;
-use App\Services\Ai\AiDeadline;
-
 /**
  * Keeps a gateway's single retry inside the wall its first attempt already spent
  * from.
@@ -26,7 +23,7 @@ use App\Services\Ai\AiDeadline;
  *
  * These gateways run on two paths with two different walls: inside an Octane
  * request (`octane.max_execution_time`, 90) and inside
- * {@see PublishAiIncidentUpdate} on the queue (`$timeout`, 180, running
+ * `PublishAiIncidentUpdate` on the queue (`$timeout`, 180, running
  * an analysis and then a draft). Budgeting the OPERATION at 75 satisfies both
  * without asking which path it is on, which is the reason it is one number and
  * not a branch on `runningInConsole()`:
@@ -38,7 +35,7 @@ use App\Services\Ai\AiDeadline;
  * would be one more thing to be wrong about than an arithmetic that holds either
  * way.
  *
- * The floor comes from `ai.minimum_call_seconds`, the number {@see AiDeadline}
+ * The floor comes from `ai.minimum_call_seconds`, the number `AiDeadline`
  * already refuses to start a call below. A second opinion about what "too little
  * time left" means would be one opinion too many.
  */

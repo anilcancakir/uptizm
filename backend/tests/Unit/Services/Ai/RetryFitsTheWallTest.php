@@ -125,11 +125,24 @@ class RetryFitsTheWallTest extends TestCase
         $gateway = app(LaravelAiIncidentAnalysisGateway::class);
         $minimum = (int) config('ai.minimum_call_seconds');
 
-        $justUnder = LaravelAiIncidentAnalysisGateway::WALL_SECONDS - $minimum + 1;
-        $justOver = LaravelAiIncidentAnalysisGateway::WALL_SECONDS - $minimum;
+        // A second clear of the boundary on each side, not sitting on it. The
+        // first draft probed at exactly `WALL - minimum`, which floors to one
+        // below the minimum as often as to the minimum itself: it passed alone
+        // and failed under the parallel suite. Second time this file was bitten
+        // by asserting an exact tick of real time, hence the rule rather than the
+        // arithmetic.
+        $tooLittle = LaravelAiIncidentAnalysisGateway::WALL_SECONDS - $minimum + 1;
+        $enough = LaravelAiIncidentAnalysisGateway::WALL_SECONDS - $minimum - 1;
 
-        $this->assertNull($gateway->secondsLeftForRetry(microtime(true) - $justUnder));
-        $this->assertSame($minimum, $gateway->secondsLeftForRetry(microtime(true) - $justOver));
+        $this->assertNull(
+            $gateway->secondsLeftForRetry(microtime(true) - $tooLittle),
+            'under the minimum call, a retry must not be started at all',
+        );
+        $this->assertGreaterThanOrEqual(
+            $minimum,
+            $gateway->secondsLeftForRetry(microtime(true) - $enough),
+            'above the minimum call, the retry gets what is left',
+        );
     }
 
     public function test_the_first_attempt_still_gets_the_whole_wall(): void
