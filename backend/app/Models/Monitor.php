@@ -81,6 +81,28 @@ class Monitor extends Model
     public const int DEFAULT_INCIDENT_THRESHOLD = 2;
 
     /**
+     * Cadence in seconds assumed when a monitor's own `check_interval_sec` is
+     * not available, which is narrower than it sounds: the column is `required`
+     * on both write requests and NOT NULL in the schema, so this is reached only
+     * through a model whose attribute was never loaded, as any `select()` that
+     * omits the column produces.
+     *
+     * Three callers multiply it into a window rather than using it as a cadence,
+     * so the value decides how much history a fallback looks at: the evidence
+     * lookback in `IncidentAnalysisService` and `IncidentDraftService`, and the
+     * reopen window in `ThresholdEvaluator`. They are named in backticks rather
+     * than through `{@see}` for the reason spelled out on
+     * `MANUAL_CHECK_COOLDOWN_SECONDS` below: Pint's `fully_qualified_strict_types`
+     * fixer turns an FQCN in a docblock into a real import, and a domain model
+     * importing three services to describe a constant is a worse trade than a
+     * reader running one grep. Sixty seconds is the
+     * interval most monitors actually run at, and it sits inside the platform's
+     * own accepted range (30 to 86400), so a window built on it can never be
+     * one the product would have rejected at the door.
+     */
+    public const int DEFAULT_CHECK_INTERVAL_SEC = 60;
+
+    /**
      * Minimum number of seconds between two manual checks on the same
      * monitor. Enforced by an atomic conditional UPDATE on
      * `last_manual_check_at` in the manual-check endpoint
