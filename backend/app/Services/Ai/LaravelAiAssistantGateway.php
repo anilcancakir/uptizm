@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\AiConfidence;
+use App\Services\Ai\Concerns\BoundsRetriesToTheWall;
 use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
@@ -42,8 +43,29 @@ use Stringable;
  */
 class LaravelAiAssistantGateway implements Agent, AssistantGateway, Conversational, HasProviderOptions, HasStructuredOutput
 {
+    use BoundsRetriesToTheWall;
     use Promptable;
     use RoutesOpenRouterByLatency;
+
+    /**
+     * Seconds one model call here may take before it is given up on.
+     *
+     * `laravel/ai` reads this method by name
+     * ({@see Promptable::getTimeout()}) and falls back to a
+     * hardcoded 60 when nothing declares one. This gateway matched that
+     * fallback, so 60 governed it by accident, and it was the only one of the
+     * three in-request gateways still doing so.
+     *
+     * The same number as the analysis and draft gateways, and the same reason:
+     * it is the operation's whole budget ({@see BoundsRetriesToTheWall}), fifteen
+     * under Octane's ninety so the degrade path and the response still have room
+     * after it is spent. Every successful call measured against this provider on
+     * 2026-08-14 landed between 3.6 and 56.5 seconds.
+     */
+    public function timeout(): int
+    {
+        return self::WALL_SECONDS;
+    }
 
     /**
      * Answer a team-scoped question grounded in the team's own telemetry.
@@ -59,14 +81,19 @@ class LaravelAiAssistantGateway implements Agent, AssistantGateway, Conversation
         $model = config('ai.triage.model');
         $model = is_string($model) ? $model : null;
 
-        // 1. First attempt.
-        // verify-at-execute: confirm against installed vendor/laravel/ai.
+        // 1. First attempt, timed from here because the retry below spends what
+        //    this one leaves rather than getting a fresh budget of its own.
+        $startedAt = microtime(true);
         $data = $this->parse($this->prompt($message, model: $model));
 
-        // 2. Validate-then-retry once on non-conforming structured output.
-        if ($data === null) {
-            // verify-at-execute: confirm against installed vendor/laravel/ai.
-            $data = $this->parse($this->prompt($message, model: $model));
+        // 2. Validate-then-retry once on non-conforming structured output,
+        //    bounded to the rest of the operation's wall. This gateway had the
+        //    worst version of the problem {@see BoundsRetriesToTheWall} describes:
+        //    it declared no timeout at all, so both attempts inherited
+        //    `laravel/ai`'s hardcoded 60 and the pair could reach 120 against
+        //    Octane's 90.
+        if ($data === null && ($left = $this->secondsLeftForRetry($startedAt)) !== null) {
+            $data = $this->parse($this->prompt($message, model: $model, timeout: $left));
         }
 
         if ($data === null) {

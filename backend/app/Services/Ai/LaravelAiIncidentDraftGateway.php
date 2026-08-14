@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\IncidentDraftKind;
+use App\Services\Ai\Concerns\BoundsRetriesToTheWall;
 use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Agent;
@@ -43,6 +44,7 @@ use Stringable;
  */
 class LaravelAiIncidentDraftGateway implements Agent, Conversational, HasProviderOptions, HasStructuredOutput, IncidentDraftGateway
 {
+    use BoundsRetriesToTheWall;
     use Promptable;
     use RoutesOpenRouterByLatency;
 
@@ -92,7 +94,7 @@ class LaravelAiIncidentDraftGateway implements Agent, Conversational, HasProvide
      */
     public function timeout(): int
     {
-        return 75;
+        return self::WALL_SECONDS;
     }
 
     /**
@@ -119,9 +121,15 @@ class LaravelAiIncidentDraftGateway implements Agent, Conversational, HasProvide
         // One retry on non-conforming output, matching the analysis gateway.
         // The budget is consumed once per draft upstream in the service, never
         // per prompt, so the retry does not double-charge.
+        //
+        // Bounded to what is LEFT of the operation's wall, for the reason
+        // {@see BoundsRetriesToTheWall} carries: two fresh 75-second calls in one
+        // request ran past Octane's 90 on production and answered a hard 500.
+        // This endpoint runs in a request as well, so it had the same shape.
+        $startedAt = microtime(true);
         $draft = $this->parse($this->prompt($message, model: $model));
-        if ($draft === null) {
-            $draft = $this->parse($this->prompt($message, model: $model));
+        if ($draft === null && ($left = $this->secondsLeftForRetry($startedAt)) !== null) {
+            $draft = $this->parse($this->prompt($message, model: $model, timeout: $left));
         }
 
         if ($draft === null) {

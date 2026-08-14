@@ -4,6 +4,7 @@ namespace App\Services\Ai;
 
 use App\Enums\AiConfidence;
 use App\Enums\EvidenceSource;
+use App\Services\Ai\Concerns\BoundsRetriesToTheWall;
 use App\Services\Ai\Concerns\RoutesOpenRouterByLatency;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
@@ -48,6 +49,7 @@ use Stringable;
  */
 class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProviderOptions, HasStructuredOutput, IncidentAnalysisGateway
 {
+    use BoundsRetriesToTheWall;
     use Promptable;
     use RoutesOpenRouterByLatency;
 
@@ -137,7 +139,7 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
      */
     public function timeout(): int
     {
-        return 75;
+        return self::WALL_SECONDS;
     }
 
     /**
@@ -235,9 +237,18 @@ class LaravelAiIncidentAnalysisGateway implements Agent, Conversational, HasProv
         //    nested evidence/action schema; the team's AI budget is consumed
         //    once per analysis upstream in the service, never per prompt, so
         //    the retry does not double-charge.
+        //
+        //    The retry is bounded to what is LEFT of the operation's wall, not
+        //    given a fresh timeout of its own. A first attempt that took 34 s and
+        //    came back unusable used to hand the second one another 75, and on
+        //    production that pair ran past Octane's 90 and answered a hard 500
+        //    instead of the degrade that was available. When there is not enough
+        //    left to be worth a call, this falls through to the throw below,
+        //    which is the same degrade an untrusted answer already produces.
+        $startedAt = microtime(true);
         $data = $this->parse($this->prompt($message, model: $model));
-        if ($data === null) {
-            $data = $this->parse($this->prompt($message, model: $model));
+        if ($data === null && ($left = $this->secondsLeftForRetry($startedAt)) !== null) {
+            $data = $this->parse($this->prompt($message, model: $model, timeout: $left));
         }
 
         if ($data === null) {
