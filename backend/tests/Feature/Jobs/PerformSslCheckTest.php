@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Jobs;
 
+use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
@@ -147,6 +148,59 @@ class PerformSslCheckTest extends TestCase
         $this->jobReturning($monitor->id, $certificate)->handle(new HostGuard);
 
         $this->assertSame(1, Incident::query()->where('primary_monitor_id', $monitor->id)->count());
+    }
+
+    /**
+     * A renewed certificate closes the incident its expiry opened.
+     *
+     * Nothing did this before, and the consequence was worse than a stale row:
+     * {@see PerformSslCheck::hasActiveSslIncident()} suppresses a second open
+     * while one is active, so the first expiry warning a monitor ever got also
+     * silenced its SSL lane for good. The next real expiry, a year later, would
+     * have paged nobody.
+     */
+    public function test_a_renewed_certificate_closes_the_open_ssl_incident(): void
+    {
+        $monitor = $this->makeMonitor(url: 'https://example.com/', thresholdDays: 14);
+
+        // 1. Five days left: the incident opens.
+        $this->jobReturning($monitor->id, $this->fabricateCertificate(daysUntilExpiration: 5))
+            ->handle(new HostGuard);
+
+        $opened = Incident::query()->where('primary_monitor_id', $monitor->id)->sole();
+        $this->assertTrue($opened->lifecycle->isActive());
+
+        // 2. Renewed to ninety days, comfortably outside the alert window.
+        $this->jobReturning($monitor->id, $this->fabricateCertificate(daysUntilExpiration: 90))
+            ->handle(new HostGuard);
+
+        $resolved = Incident::query()->where('primary_monitor_id', $monitor->id)->sole();
+        $this->assertSame(IncidentStatus::Resolved, $resolved->lifecycle);
+        $this->assertNotNull($resolved->resolved_at);
+
+        // 3. Narrated on the public timeline, like every other auto-resolve.
+        $this->assertSame(1, $resolved->updates()->count());
+    }
+
+    /**
+     * And the lane is open again afterwards, which is the half that makes the
+     * close worth having: a monitor whose certificate expired once must still
+     * be able to warn about the next one.
+     */
+    public function test_the_ssl_lane_pages_again_after_a_renewal(): void
+    {
+        $monitor = $this->makeMonitor(url: 'https://example.com/', thresholdDays: 14);
+
+        $this->jobReturning($monitor->id, $this->fabricateCertificate(daysUntilExpiration: 5))
+            ->handle(new HostGuard);
+        $this->jobReturning($monitor->id, $this->fabricateCertificate(daysUntilExpiration: 90))
+            ->handle(new HostGuard);
+        $this->jobReturning($monitor->id, $this->fabricateCertificate(daysUntilExpiration: 3))
+            ->handle(new HostGuard);
+
+        $incidents = Incident::query()->where('primary_monitor_id', $monitor->id)->get();
+        $this->assertCount(2, $incidents, 'the second expiry earns its own incident');
+        $this->assertCount(1, $incidents->filter(fn (Incident $i): bool => $i->lifecycle->isActive()));
     }
 
     /**
