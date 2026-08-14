@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Support\Ai\PromptLanguage;
+
 /**
  * The immutable, self-contained evidence handed to the triage LLM.
  *
@@ -76,6 +78,7 @@ readonly class TriagePayload
         public ?string $responseBodyPreview = null,
         public array $responseHeaders = [],
         public ?string $metricStringValue = null,
+        public string $language = PromptLanguage::FALLBACK,
     ) {}
 
     /**
@@ -115,7 +118,12 @@ readonly class TriagePayload
             self::UNTRUSTED_BLOCK_FOOTER,
         ]);
 
-        return $trusted."\n\n".$untrusted."\n\nLabel this anomaly using only the evidence above.";
+        // The language instruction sits AFTER the fence, like every other
+        // payload here: a language named inside it would be a monitored target
+        // choosing what language our operator's suggestion arrives in.
+        return $trusted."\n\n".$untrusted."\n\nLabel this anomaly using only the evidence above."
+            ." Write the label and the rationale in {$this->language}."
+            .' Leave the signal name, the method, metric keys and region codes as they are.';
     }
 
     /**
