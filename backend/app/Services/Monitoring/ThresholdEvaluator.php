@@ -16,6 +16,7 @@ use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
 use App\Models\MonitorMetricValue;
 use App\Services\Ai\AiIncidentOpener;
+use Illuminate\Support\Collection;
 
 /**
  * Opens {@see Incident} rows tagged {@see SignalSource::UserThreshold} when a
@@ -93,6 +94,14 @@ class ThresholdEvaluator
                 // metric-driven monitor actually uses, so it is the one an
                 // operator hits; the fix landed on the down path first and this
                 // was still open behind it.
+                //
+                // Deliberately AHEAD of the streak gate below and not subject to
+                // it. The streak exists to establish that a breach is real, and
+                // a reopenable candidate has already established it: the outage
+                // opened an incident once, and `sameOutageJustResolved()` has
+                // proved the metric was never seen healthy since. Re-proving it
+                // would mute a mistaken resolve for a further `incident_threshold`
+                // checks, which is the exact failure the reopen exists to stop.
                 $reopenable = $this->sameOutageJustResolved(
                     $monitor,
                     $metricBreach['metric']->key,
@@ -106,37 +115,54 @@ class ThresholdEvaluator
                     ];
                 }
 
-                $opened = $this->openIncident(
-                    monitor: $monitor,
-                    check: $check,
-                    severity: $metricBreach['severity'],
-                    title: $metricBreach['title'],
-                    metricKey: $metricBreach['metric']->key,
-                    titleKey: $metricBreach['title_key'],
-                    titleParams: $metricBreach['title_params'],
-                );
+                // A single sample over a bound is a spike, not an outage. The
+                // down lane has always waited for `incident_threshold` failures
+                // and this one opened on the first breach, which on a live
+                // monitor meant a total-response-time metric that banded
+                // `critical` 21 times in 105 samples opened an incident for
+                // every one of them, `ok` on both sides.
+                //
+                // A short streak falls THROUGH rather than returning: this check
+                // opened nothing, so the consecutive-fail lane and the resolve
+                // lane below both still get their turn.
+                if ($this->breachStreakMet($monitor, $check, $metricBreach['metric']->key)) {
+                    $opened = $this->openIncident(
+                        monitor: $monitor,
+                        check: $check,
+                        severity: $metricBreach['severity'],
+                        title: $metricBreach['title'],
+                        metricKey: $metricBreach['metric']->key,
+                        titleKey: $metricBreach['title_key'],
+                        titleParams: $metricBreach['title_params'],
+                    );
 
-                return [
-                    'opened' => $opened,
-                    'resolved' => null,
-                    'escalated' => null,
-                ];
-            }
+                    return [
+                        'opened' => $opened,
+                        'resolved' => null,
+                        'escalated' => null,
+                    ];
+                }
+            } else {
+                // The metric-scoped dedupe above used to be the whole story, so
+                // a breach that arrived LOUDER than the open incident was
+                // swallowed: a two-tier metric (`degraded` warns, `down` pages,
+                // the natural shape of a health endpoint) opened at warn and then
+                // never paged, because the critical-only channels gate on the
+                // incident's own severity and nothing ever raised it.
+                //
+                // No streak here either, and for the reopen's reason: the
+                // incident is already open, so the breach is already established,
+                // and delaying an escalation delays a page on something that is
+                // getting worse.
+                $escalated = $this->escalateIfLouder($active, $metricBreach);
 
-            // The metric-scoped dedupe above used to be the whole story, so a
-            // breach that arrived LOUDER than the open incident was swallowed:
-            // a two-tier metric (`degraded` warns, `down` pages, the natural
-            // shape of a health endpoint) opened at warn and then never paged,
-            // because the critical-only channels gate on the incident's own
-            // severity and nothing ever raised it.
-            $escalated = $this->escalateIfLouder($active, $metricBreach);
-
-            if ($escalated !== null) {
-                return [
-                    'opened' => null,
-                    'resolved' => null,
-                    'escalated' => $escalated,
-                ];
+                if ($escalated !== null) {
+                    return [
+                        'opened' => null,
+                        'resolved' => null,
+                        'escalated' => $escalated,
+                    ];
+                }
             }
         }
 
@@ -174,6 +200,18 @@ class ThresholdEvaluator
             ? $this->resolveIfRecovered($monitor)
             : null;
 
+        // 3a. Then a metric incident whose metric has been reading ok for a full
+        //     run. NOT gated on the check's own status, deliberately: a metric
+        //     incident lives while the monitor answers 200, which is the case
+        //     {@see self::recoveredSince()} already documents.
+        //
+        //     At most one incident resolves per check, because the outcome
+        //     carries one `resolved` slot and the dispatcher notifies on it. The
+        //     condition is durable, so a second one closes on the next check
+        //     rather than closing here without a notification; one interval of
+        //     delay costs less than a silent resolve.
+        $resolved ??= $this->resolveRecoveredMetricIncident($monitor);
+
         return [
             'opened' => $opened,
             'resolved' => $resolved,
@@ -203,6 +241,18 @@ class ThresholdEvaluator
 
         $incident->update([
             'severity' => $breach['severity'],
+            // The customer tier travels with the operator one, because it is
+            // the only one a customer ever sees: `StatusPageAssembler` puts
+            // `impact` on the wire and no `severity` at all. Leaving it where
+            // the open put it published "Minor" about an incident whose own
+            // title already read `breached critical bound`, which is what two
+            // live incidents were doing for seven hours before this line.
+            //
+            // Safe to derive rather than merge: `impact` is written in exactly
+            // three places and all three are incident CREATION, so there is no
+            // operator-pinned value here to stomp. The `impact_override` flag
+            // the enum's docblock used to describe was never built.
+            'impact' => $breach['severity']->toImpact(),
             // The title carries the offending value, so an escalated incident
             // that still read "reported degraded" would name a state it has
             // moved on from. The key and the parameters travel with it for the
@@ -287,6 +337,189 @@ class ThresholdEvaluator
         TranslateStatusPageText::fanOut($note, 'message', (string) config('app.default_locale'));
 
         return $incident;
+    }
+
+    /**
+     * How many consecutive samples establish a metric verdict, in either
+     * direction: the monitor's own `incident_threshold`, the same number the
+     * consecutive-fail lane counts failures with.
+     *
+     * One number for open and close both, so a metric cannot be quicker to
+     * alarm than it is to clear. Floored at one because a zero threshold would
+     * make every run vacuously satisfied, including the empty one.
+     */
+    protected function verdictRunLength(Monitor $monitor): int
+    {
+        return max(1, (int) ($monitor->incident_threshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD));
+    }
+
+    /**
+     * True when this breach is the last link of an unbroken run of
+     * {@see self::verdictRunLength()} breaching samples on [$metricKey].
+     *
+     * The current sample is NOT read back from the table. The evaluator already
+     * holds it: banding it is how this method came to be called at all, and
+     * asking the database to confirm a value the caller passed in would couple
+     * this decision to a write ordering it does not need. So only the samples
+     * BEFORE this check are read, and this check's own row is excluded by id
+     * rather than by timestamp, because a multi-region monitor writes several
+     * rows on the same second.
+     *
+     * Bands are frozen at insert, so a run spanning a threshold edit is judged
+     * by the bounds each sample was actually measured against. That is the same
+     * property {@see self::recoveredSince()} relies on, and it is why history
+     * can answer this at all.
+     */
+    protected function breachStreakMet(Monitor $monitor, MonitorCheck $check, string $metricKey): bool
+    {
+        $needed = $this->verdictRunLength($monitor) - 1;
+
+        if ($needed <= 0) {
+            return true;
+        }
+
+        $prior = $this->recentBands(
+            monitor: $monitor,
+            metricKey: $metricKey,
+            limit: $needed,
+            excludingCheckId: $check->id,
+        );
+
+        // An exact count, not "at least": a metric with less history than the
+        // run needs has not yet been observed long enough to convict.
+        return $prior->count() === $needed
+            && $prior->every(fn (?MetricBand $band): bool => $band !== null && $band !== MetricBand::Ok);
+    }
+
+    /**
+     * Resolve one metric-scoped incident whose metric has read `ok` for a full
+     * run, and return it so the caller can notify on the recovery.
+     *
+     * The gap this fills: {@see self::resolveIfRecovered()} is scoped to the
+     * DOWN incident (`trigger_metric_key IS NULL`) on purpose, and the only
+     * other writers of `resolved_at` are the operator's own resolve and the
+     * orphan close a monitor deletion triggers. So nothing closed a metric
+     * incident, and because {@see self::hasActiveIncidentForMetric()} suppresses
+     * a second open while one is active, the first breach a metric ever had also
+     * silenced it permanently. Measured on production: an incident opened on a
+     * Redis latency bound sat `detected` for seven hours while 102 of that
+     * metric's last 105 readings banded `ok`.
+     *
+     * Two exclusions, both mirroring guards this class already applies:
+     *
+     * - `ai_owned` incidents belong to the autonomous lane, which owns their
+     *   lifecycle end to end. Their `trigger_metric_key` is a signal name rather
+     *   than a configured metric key, so the readings this method would judge
+     *   them on are not theirs to begin with.
+     * - An SSL-expiry incident carries a marker key with no metric values behind
+     *   it, so it falls out through the run's exact-count rule rather than
+     *   through a special case. A renewed certificate is `PerformSslCheck`'s own
+     *   question to answer, and it is named in backticks rather than a `{@see}`
+     *   because Pint's `fully_qualified_strict_types` fixer turns the latter
+     *   into a real `use App\Jobs\...` at the top of a domain service.
+     */
+    protected function resolveRecoveredMetricIncident(Monitor $monitor): ?Incident
+    {
+        $length = $this->verdictRunLength($monitor);
+
+        $incident = Incident::query()
+            ->where('primary_monitor_id', $monitor->id)
+            ->where('ai_owned', false)
+            ->whereNotNull('trigger_metric_key')
+            ->orderBy('started_at')
+            ->orderBy('id')
+            ->get()
+            ->first(fn (Incident $incident): bool => $incident->lifecycle->isActive()
+                && $this->metricRunIsOk($monitor, (string) $incident->trigger_metric_key, $length));
+
+        if ($incident === null) {
+            return null;
+        }
+
+        // 1. Transition and stamp the timeline, exactly as the down-lane resolve
+        //    does: directly, because the per-monitor lock is already held by
+        //    `CheckPersistenceService` and asking the write service for it would
+        //    deadlock ({@see self::reopenInline()} records the measurement).
+        $incident->update([
+            'lifecycle' => IncidentStatus::Resolved,
+            'resolved_at' => now(),
+        ]);
+
+        // 2. Named by the metric rather than the monitor, because the monitor
+        //    never went down: the sentence has to say what actually recovered or
+        //    it reads as an outage note on a service that never had one. The
+        //    label is the operator's own wording and the key is the fallback for
+        //    a metric deleted out from under its incident.
+        $label = $monitor->metrics()
+            ->where('key', $incident->trigger_metric_key)
+            ->value('label') ?? $incident->trigger_metric_key;
+
+        // 3. Public and fanned out for translation for the reason the down-lane
+        //    note is: a status page renders it like any other update, and an
+        //    untranslated one sits at `pending` in every non-default language.
+        $note = $incident->updates()->create([
+            'actor' => 'system',
+            'author' => 'System',
+            'status' => IncidentStatus::Resolved,
+            'message' => "{$label} returned to its normal range on {$monitor->name}; incident auto-resolved.",
+            'is_public' => true,
+            'autonomous' => false,
+            'display_at' => now(),
+        ]);
+
+        TranslateStatusPageText::fanOut($note, 'message', (string) config('app.default_locale'));
+
+        return $incident;
+    }
+
+    /**
+     * True when [$metricKey]'s most recent `$length` samples all banded `ok`.
+     *
+     * Unlike {@see self::breachStreakMet()} this counts the current check's own
+     * row, and the asymmetry is the point: a recovery is about a metric that is
+     * NOT breaching, so it never reached the breach code and the evaluator holds
+     * no banded sample for it. The table is the only place that reading lives.
+     *
+     * A null band does not count as ok. Null means the metric was recorded with
+     * nothing to judge it against (no direction, or a string metric with no
+     * configured vocabulary), and an unjudged reading is not evidence of health,
+     * which is the rule {@see self::band()} already applies one layer down.
+     */
+    protected function metricRunIsOk(Monitor $monitor, string $metricKey, int $length): bool
+    {
+        $recent = $this->recentBands($monitor, $metricKey, $length);
+
+        return $recent->count() === $length
+            && $recent->every(fn (?MetricBand $band): bool => $band === MetricBand::Ok);
+    }
+
+    /**
+     * The `$limit` most recent frozen bands for [$metricKey], newest first.
+     *
+     * Ordered on `recorded_at` with `id` as the tiebreak, because a multi-region
+     * monitor writes one row per region on the same timestamp and an unordered
+     * tail would make the run's shape depend on the plan.
+     *
+     * @return Collection<int, MetricBand|null>
+     */
+    protected function recentBands(
+        Monitor $monitor,
+        string $metricKey,
+        int $limit,
+        ?string $excludingCheckId = null,
+    ): Collection {
+        return MonitorMetricValue::query()
+            ->where('monitor_id', $monitor->id)
+            ->where('metric_key', $metricKey)
+            ->when(
+                $excludingCheckId !== null,
+                fn ($query) => $query->where('check_id', '!=', $excludingCheckId),
+            )
+            ->orderByDesc('recorded_at')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get(['band'])
+            ->map(fn (MonitorMetricValue $value): ?MetricBand => $value->band);
     }
 
     /**

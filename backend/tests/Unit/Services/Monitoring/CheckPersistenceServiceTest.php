@@ -3,6 +3,7 @@
 namespace Tests\Unit\Services\Monitoring;
 
 use App\Enums\IncidentSeverity;
+use App\Enums\IncidentStatus;
 use App\Enums\MetricBand;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
@@ -251,12 +252,17 @@ class CheckPersistenceServiceTest extends TestCase
     }
 
     /**
-     * The end-to-end string lane through the real persistence path: a critical
-     * value opens exactly one incident, and a LATER check reporting the same
-     * value opens no second one. The dedupe is the difference between one page
-     * and one page per check interval.
+     * The end-to-end string lane through the real persistence path, which is
+     * the only place the metric streak can be measured honestly: the run is read
+     * back out of `monitor_metric_values`, and this is the path that writes
+     * them.
+     *
+     * Three checks, three verdicts. The first breach is a spike and opens
+     * nothing. The second makes it `incident_threshold` consecutive samples and
+     * opens exactly one incident. The third changes nothing, because the dedupe
+     * is the difference between one page and one page per check interval.
      */
-    public function test_a_critical_string_sample_opens_exactly_one_incident_across_two_checks(): void
+    public function test_a_critical_string_sample_opens_one_incident_once_the_run_is_long_enough(): void
     {
         $monitor = $this->makeMonitor(incidentThreshold: 2);
         $this->attachStringMetric($monitor, criticalValues: ['down']);
@@ -272,21 +278,72 @@ class CheckPersistenceServiceTest extends TestCase
             $samples,
         );
 
-        $incident = Incident::query()->sole();
-        $this->assertSame(IncidentSeverity::Critical, $incident->severity);
-        $this->assertSame(SignalSource::UserThreshold, $incident->signal_source);
-        $this->assertFalse($incident->ai_owned);
-        $this->assertSame('cache_state', $incident->trigger_metric_key);
+        $this->assertSame(
+            0,
+            Incident::query()->count(),
+            'one sample over the line is a spike; the down lane has always waited too',
+        );
 
-        // A distinct probe run carrying the same value: still one incident.
+        // A distinct probe run carrying the same value completes the run.
         $service->persist(
             $monitor,
             $this->makeResult($monitor, probeRunId: 'run-y', status: MonitorStatus::Up),
             $samples,
         );
 
+        $incident = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Critical, $incident->severity);
+        $this->assertSame(SignalSource::UserThreshold, $incident->signal_source);
+        $this->assertFalse($incident->ai_owned);
+        $this->assertSame('cache_state', $incident->trigger_metric_key);
+
+        // And a third: still one incident.
+        $service->persist(
+            $monitor,
+            $this->makeResult($monitor, probeRunId: 'run-z', status: MonitorStatus::Up),
+            $samples,
+        );
+
         $this->assertSame(1, Incident::query()->count());
-        $this->assertSame(2, MonitorMetricValue::query()->where('metric_key', 'cache_state')->count());
+        $this->assertSame(3, MonitorMetricValue::query()->where('metric_key', 'cache_state')->count());
+    }
+
+    /**
+     * The recovery half of the same lane, end to end: the metric comes back and
+     * the incident closes on its own.
+     *
+     * Worth having through the real path rather than only against the evaluator,
+     * because the run is read from rows this service writes, and a resolve that
+     * worked on hand-written fixtures and not on real ones would look identical
+     * from the evaluator's side.
+     */
+    public function test_a_recovered_string_metric_closes_its_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->attachStringMetric($monitor, okValues: ['up'], criticalValues: ['down']);
+        $service = $this->service();
+
+        foreach (['run-a', 'run-b'] as $run) {
+            $service->persist(
+                $monitor,
+                $this->makeResult($monitor, probeRunId: $run, status: MonitorStatus::Up),
+                ['latency' => '99', 'cache_state' => 'down'],
+            );
+        }
+
+        $this->assertTrue(Incident::query()->sole()->lifecycle->isActive());
+
+        foreach (['run-c', 'run-d'] as $run) {
+            $service->persist(
+                $monitor,
+                $this->makeResult($monitor, probeRunId: $run, status: MonitorStatus::Up),
+                ['latency' => '99', 'cache_state' => 'up'],
+            );
+        }
+
+        $incident = Incident::query()->sole();
+        $this->assertSame(IncidentStatus::Resolved, $incident->lifecycle);
+        $this->assertNotNull($incident->resolved_at);
     }
 
     /**
