@@ -290,35 +290,39 @@ spend quota that this org cannot replace, since the plan carries
 `onDemandMaxSpend = 0` and a spent quota drops real production events for the rest
 of the month rather than billing for more.
 
-**Profiling covers the queue and not the web tier, and that is a property of
-this box rather than a setting.** Two separate PHP builds run this application,
-which is worth knowing before anything here surprises you:
+**Profiling is OFF and installing excimer here does not work. Do not spend an
+afternoon on it.** Both blockers were measured on this box on 2026-08-14:
 
 | | version | thread safety | extension dir |
 |---|---|---|---|
 | frankenphp (Octane, HTTP) | 8.5.6 | ZTS | `/usr/lib/frankenphp/modules` |
 | system CLI (Horizon, scheduler) | 8.5.7 | NTS | `/usr/lib/php/20250925` |
 
-`pecl install` builds against the CLI. The frankenphp binary is a self-contained
-59 MB build carrying its own embedded PHP, it exposes no `php-config`, and its
-module directory is empty, so the extension the queue loads is invisible to the
-web tier by ABI as well as by path.
+Two separate PHP builds run this application, so an extension built for one is
+invisible to the other. The frankenphp binary is a self-contained 59 MB build
+with its own embedded PHP; it exposes no `php-config` and its module directory
+is empty, so the web tier cannot be profiled without rebuilding it from source.
+
+And the CLI half cannot be built either, today. `sudo pecl install excimer`
+SUCCEEDS and is still useless: the box carries `phpize8.4` and PHP 8.4 headers
+only, so it compiles 1.2.6 into `/usr/lib/php/20240924/` and `php8.5 -m` never
+shows it. That is the trap, because nothing in the output says the target was
+wrong. Verify rather than trust:
 
 ```bash
-sudo pecl install excimer          # NOT pecl8.5, that binary does not exist here
-php8.5 -r 'echo phpversion("excimer"), PHP_EOL;'
+php8.5 -m | grep -i excimer || echo "not loaded by php8.5"
 ```
 
-That is the whole install. The version floor that matters elsewhere (excimer
-1.2.5 and below yield zero samples under ZTS) does not apply here, because the
-build this loads into is NTS.
+Making the queue half work would mean `sudo apt install php8.5-dev` and a
+rebuild against `phpize8.5`. That was considered and declined: it adds a system
+package for a function-level CPU breakdown, on the tier that is not the slow
+one. `SENTRY_PROFILES_SAMPLE_RATE=0` is set in the server's `.env` and the
+config defaults to `0.0`.
 
-What you get: profiles for Horizon jobs and scheduled work, which is where the
-long work is (`analyze` runs up to 160 seconds). What you do not get: profiles
-for HTTP requests. Those keep transaction and span timing, including per-query
-duration and the call site of any query over 100ms, none of which depends on
-excimer. A missing extension is silent rather than an error, so
-`SENTRY_PROFILES_SAMPLE_RATE` needs no special value for the web tier.
+**None of this affects request timing or query performance.** Tracing does not
+use excimer at all: spans, per-query duration and the call site of any query
+over 100ms are built on Laravel's own events and work today. Profiling would
+only have added a CPU breakdown of the time those spans do not already explain.
 
 **There is no per-key rate limit to set, and looking for one is a dead end.**
 Sentry's client-key rate limit is a Business-plan feature; this org is on Team,
@@ -407,7 +411,10 @@ sudo -u uptizm -H bash
 cd ~/htdocs/uptizm.com && git pull && cd backend && php8.5 artisan migrate --force
 php8.5 /usr/local/bin/composer install --no-dev --optimize-autoloader
 npm ci && npm run build
-sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$(git rev-parse --short HEAD)|" .env
+RELEASE="$(git rev-parse --short HEAD)"
+grep -q '^SENTRY_RELEASE=' .env \
+  && sed -i "s|^SENTRY_RELEASE=.*|SENTRY_RELEASE=$RELEASE|" .env \
+  || printf 'SENTRY_RELEASE=%s\n' "$RELEASE" >> .env
 php8.5 artisan optimize
 exit
 supervisorctl restart uptizm:*
@@ -423,7 +430,13 @@ sentry-cli releases set-commits --auto "$RELEASE"
 sentry-cli releases finalize "$RELEASE"
 ```
 
-**The `sed` runs before `artisan optimize`, and that order is the whole point.**
+**Append when the key is absent, do not just `sed`.** A bare substitution is a
+no-op on a file that has no `SENTRY_RELEASE=` line, and it exits 0 while doing
+it, so the deploy looks clean and every event afterwards is filed against no
+release at all. The server's `.env` had neither Sentry key when this landed, and
+a plain `sed` would have silently skipped both.
+
+**The write runs before `artisan optimize`, and that order is the whole point.**
 `optimize` runs `config:cache`, which evaluates every `env()` call once and freezes
 the result; a release written after it would sit in `.env` doing nothing until the
 next deploy happened to cache it. The same freeze is what makes the DSN work at
