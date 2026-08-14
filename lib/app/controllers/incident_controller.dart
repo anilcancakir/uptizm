@@ -93,6 +93,26 @@ class IncidentController extends MagicController
   /// the better part of a minute, and taps again.
   final Set<String> _analysisPendingIds = {};
 
+  /// The incident ids whose last analysis fetch never landed.
+  ///
+  /// A different fact from every other state here, and the one the screen was
+  /// missing. Reported from the running app: open an incident, watch the
+  /// skeleton, watch it disappear, read nothing. A failed request and "the
+  /// server says there is no analysis" both left [analysisFor] null with
+  /// [analysisPending] false, so the section drew one blank for two outcomes,
+  /// and an operator reads blank as an answer.
+  ///
+  /// A DEGRADE is not in here on purpose. That arrives as a payload carrying a
+  /// reason, has its own section and its own retry rules (budget exhaustion is
+  /// not retryable), so marking it failed too would stack a second notice on one
+  /// outcome and put the vaguer one on top. This set is only for the request
+  /// itself not landing, where the analysis may well exist and retrying is the
+  /// whole point.
+  ///
+  /// Per id rather than one slot, for the same reason [_analysisPendingIds] is:
+  /// this controller outlives every screen, so two incidents can be in flight.
+  final Set<String> _analysisFailedIds = {};
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -448,6 +468,10 @@ class IncidentController extends MagicController
     if (_analysisPendingIds.contains(id)) return;
 
     _analysisPendingIds.add(id);
+    // Cleared on entry, not only on success: while a request is in flight the
+    // screen shows the skeleton, and a stale failure notice underneath it would
+    // report the last attempt as though it were this one.
+    _analysisFailedIds.remove(id);
     // Only the retry announces itself. `loadAnalysis` runs from `initState`, and
     // `refreshUI` is a bare `notifyListeners()`, so notifying there would mark
     // listening elements dirty during a build that is still running.
@@ -460,6 +484,7 @@ class IncidentController extends MagicController
         Log.error(
           '[IncidentController._fetchAnalysis] $id: ${response.errorMessage}',
         );
+        _analysisFailedIds.add(id);
         if (reportFailure) {
           Magic.error(
             trans('common.error_occurred'),
@@ -481,6 +506,7 @@ class IncidentController extends MagicController
         Log.error(
           '[IncidentController._fetchAnalysis] $id: malformed payload',
         );
+        _analysisFailedIds.add(id);
         if (reportFailure) {
           Magic.error(
             trans('common.error_occurred'),
@@ -520,6 +546,7 @@ class IncidentController extends MagicController
       }
     } catch (error) {
       Log.error('[IncidentController._fetchAnalysis] $id failed: $error');
+      _analysisFailedIds.add(id);
       if (reportFailure) {
         Magic.error(
           trans('common.error_occurred'),
@@ -540,6 +567,15 @@ class IncidentController extends MagicController
   /// Whether the analysis fetch for incident [id] is in flight, so the degraded
   /// section can show its retry as running rather than idle.
   bool analysisPending(String id) => _analysisPendingIds.contains(id);
+
+  /// Whether the last analysis fetch for incident [id] never landed, so the
+  /// section can say that instead of drawing nothing.
+  ///
+  /// Only true when there is also no analysis to show: a fetch that failed after
+  /// an earlier one succeeded leaves the earlier answer on screen, and reporting
+  /// a failure over a visible analysis would contradict it.
+  bool analysisFailed(String id) =>
+      _analysisFailedIds.contains(id) && _analysisById[id] == null;
 
   /// The incident ids with a draft request in flight, keyed by the draft path
   /// so a postmortem draft and an update draft do not disable each other.

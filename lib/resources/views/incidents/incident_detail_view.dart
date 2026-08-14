@@ -609,9 +609,21 @@ class _IncidentDetailViewState
     final IncidentAi? ai = controller.analysisFor(incident);
 
     if (ai == null) {
-      return controller.analysisPending(incident.id)
-          ? _buildPendingAnalysis()
-          : null;
+      if (controller.analysisPending(incident.id)) {
+        return _buildPendingAnalysis();
+      }
+
+      // The arm that was missing, and the reason the null branch above used to
+      // be wrong rather than incomplete: a request that never landed and a
+      // server saying there is nothing to show both arrive here, and drawing
+      // nothing for both told the operator an answer had been reached when the
+      // screen had simply failed to ask. Reported from the running app as a
+      // skeleton that appeared, vanished, and left a gap.
+      if (controller.analysisFailed(incident.id)) {
+        return _buildFailedAnalysis(incident);
+      }
+
+      return null;
     }
 
     if (ai.degradeReason case final reason?) {
@@ -762,6 +774,50 @@ class _IncidentDetailViewState
             ],
           ),
           if (retryable) _buildAnalysisRetryButton(incident),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the section for an analysis whose fetch never landed.
+  ///
+  /// Distinct from the DEGRADED arm, which reports a decision the backend made
+  /// and can explain (over budget, provider down, output untrusted). This one
+  /// has no reason to give because nothing came back to give one, so it says the
+  /// one true thing and offers the retry rather than guessing at a cause.
+  ///
+  /// The retry is always offered here, unlike the degraded arm where budget
+  /// exhaustion withholds it: a request that failed to land has spent nothing,
+  /// so there is no cost to weigh against trying again.
+  ///
+  /// Deliberately not an [AiAnalysisCard] with empty slots, for the same reason
+  /// the pending arm is not: a confidence badge over blank evidence reads as an
+  /// analysis that found nothing.
+  Widget _buildFailedAnalysis(Incident incident) {
+    return MSCard(
+      variant: CardVariant.surface,
+      child: WDiv(
+        // The degraded arm's row, verbatim, including why `flex-1` stays behind
+        // the `sm:` prefix: it resolves to an `Expanded`, and under `flex-col`
+        // inside the page scroll an unbounded main axis throws.
+        className:
+            'flex flex-col gap-3 sm:flex-row sm:items-start '
+            'sm:justify-between',
+        children: [
+          WDiv(
+            className: 'min-w-0 sm:flex-1 flex flex-col gap-1',
+            children: [
+              WText(
+                trans('uptizm.incidents.analysis_degraded_heading'),
+                className: 'text-sm font-semibold text-fg',
+              ),
+              WText(
+                trans('uptizm.incidents.analysis_failed_body'),
+                className: 'text-sm leading-relaxed text-fg-muted',
+              ),
+            ],
+          ),
+          _buildAnalysisRetryButton(incident),
         ],
       ),
     );

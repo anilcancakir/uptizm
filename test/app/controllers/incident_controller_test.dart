@@ -759,6 +759,105 @@ void main() {
       expect(controller.analysisFor(Incident.fromMap({'id': 'pending-2'})), isNull);
     });
 
+    test('records a failed fetch so the screen can say so', () async {
+      // THE DEFECT THIS PINS, reported from the running app: open an incident,
+      // watch the skeleton, watch it disappear, and read nothing at all. A
+      // failed request and "the server says there is no analysis" both left
+      // `analysisFor` null with `analysisPending` false, so the section drew
+      // the same blank for both, and blank is what an operator reads as an
+      // answer.
+      //
+      // They are different facts. A degrade arrives as a PAYLOAD with a reason
+      // and already has its own arm; this is the request never landing, where
+      // the analysis may well exist and a retry is the whole point.
+      Http.fake({
+        'incidents/failed-1/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      expect(controller.analysisFailed('failed-1'), isFalse);
+
+      await controller.loadAnalysis('failed-1');
+
+      expect(controller.analysisFailed('failed-1'), isTrue);
+      expect(
+        controller.analysisFailed('another-incident'),
+        isFalse,
+        reason: 'the flag is per incident, like the pending one',
+      );
+    });
+
+    test('a retry that succeeds clears the failed flag', () async {
+      // Otherwise the notice outlives the problem: the operator retries, the
+      // answer arrives, and the screen keeps telling them it could not load.
+      Http.fake({
+        'incidents/failed-2/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+        'incidents/failed-2/analysis?refresh=1': Http.response({
+          'data': {'summary': 'the storage check reported degraded', 'confidence': 'high'},
+        }),
+      });
+      Magic.singleton('log', () => LogManager());
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('failed-2');
+      expect(controller.analysisFailed('failed-2'), isTrue);
+
+      await controller.retryAnalysis('failed-2');
+
+      expect(controller.analysisFailed('failed-2'), isFalse);
+      expect(
+        controller.analysisFor(Incident.fromMap({'id': 'failed-2'})),
+        isNotNull,
+      );
+    });
+
+    test('a successful fetch never marks a failure', () async {
+      Http.fake({
+        'incidents/ok-1/analysis': Http.response({
+          'data': {'summary': 'ok', 'confidence': 'high'},
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('ok-1');
+
+      expect(controller.analysisFailed('ok-1'), isFalse);
+    });
+
+    test('a degrade payload is not a failure', () async {
+      // The distinction the whole state exists for. A degrade ARRIVED: it has a
+      // reason, its own section, and its own retry rules (budget exhaustion is
+      // not retryable). Marking it failed as well would draw two notices about
+      // one outcome, and the wrong one on top.
+      Http.fake({
+        'incidents/deg-2/analysis': Http.response({
+          'data': {
+            'summary': 'no analysis was produced',
+            'confidence': 'low',
+            'degrade_reason': 'budget_exhausted',
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('deg-2');
+
+      expect(controller.analysisFailed('deg-2'), isFalse);
+    });
+
     test('one incident finishing does not release another one still running', () async {
       // THE DEFECT THIS PINS. The flag used to be a single slot cleared
       // unconditionally, so: open A (a minute-long request), go back, open B, and

@@ -141,6 +141,8 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.analysis_degraded_heading': 'AI analysis',
       'uptizm.incidents.analysis_pending_heading': 'AI analysis',
       'uptizm.incidents.analysis_pending_body': 'Reading the evidence...',
+      'uptizm.incidents.analysis_failed_body':
+          'The analysis could not be loaded.',
       'uptizm.incidents.analysis_retry_pending': 'Retrying',
       'uptizm.incidents.detail_composer_post': 'Post update',
       'uptizm.incidents.detail_postmortem_heading': 'Postmortem draft',
@@ -1944,6 +1946,70 @@ void main() {
   // section renders on `analysisFor() != null`, so "not fetched yet" and "there
   // is nothing to show" were the same branch, and the operator read the first as
   // the second.
+
+  group('IncidentDetailView analysis failed', () {
+    testWidgets('says the analysis could not be loaded instead of drawing '
+        'nothing', (tester) async {
+      // THE DEFECT THIS PINS, reported from the running app: the skeleton
+      // appears, disappears, and leaves an empty space where the analysis
+      // should be. A failed request and "there is no analysis" both left
+      // `analysisFor` null with nothing pending, so one blank covered two
+      // outcomes and an operator reads blank as an answer.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final Incident subject = incidentFixtures.firstWhere(
+        (incident) => incident.ai == null,
+      );
+
+      // A 500 on the analysis read, which is what a slow provider looks like
+      // from here once a wall upstream cuts the request.
+      Http.fake({
+        'incidents/${subject.id}/analysis': Http.response({
+          'message': 'Server Error',
+        }, 500),
+      });
+
+      await tester.pumpWidget(wrap(IncidentDetailView(id: subject.id)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('The analysis could not be loaded.'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
+      expect(
+        find.byType(AiAnalysisCard),
+        findsNothing,
+        reason: 'a failure must not draw a card around an answer that is absent',
+      );
+    });
+
+    testWidgets('a successful read draws the answer and no failure notice', (
+      tester,
+    ) async {
+      // The other side, so the notice cannot be a permanent fixture of the
+      // screen.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final Incident subject = incidentFixtures.firstWhere(
+        (incident) => incident.ai == null,
+      );
+
+      Http.fake({
+        'incidents/${subject.id}/analysis': Http.response({
+          'data': {
+            'summary': 'The storage check reported degraded while HTTP stayed 200.',
+            'confidence': 'high',
+          },
+        }),
+      });
+
+      await tester.pumpWidget(wrap(IncidentDetailView(id: subject.id)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('The analysis could not be loaded.'), findsNothing);
+      expect(find.byType(AiAnalysisCard), findsOneWidget);
+    });
+  });
 
   group('IncidentDetailView analysis pending', () {
     testWidgets('says the analysis is being prepared while the fetch runs', (
