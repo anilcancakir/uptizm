@@ -91,6 +91,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'tags',
     'show_on_status_page',
     'only_show_if_degraded',
+    'follow_redirects',
     'alert_on_down',
     'alert_on_recover',
     'ssl_tracking',
@@ -141,6 +142,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     // Booleans.
     'show_on_status_page': 'bool',
     'only_show_if_degraded': 'bool',
+    'follow_redirects': 'bool',
     'alert_on_down': 'bool',
     'alert_on_recover': 'bool',
     'ssl_tracking': 'bool',
@@ -394,6 +396,17 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// Set whether this monitor is shown on the public status page.
   set showOnStatusPage(bool value) =>
       setAttribute('show_on_status_page', value);
+
+  /// Whether a 3xx is followed to its destination or recorded as the answer.
+  ///
+  /// Off by default. Off is right when a redirect would itself be a regression,
+  /// such as a signed-in page answering 302 to a login screen; on is right for a
+  /// homepage behind a geo redirect, where the 3xx is the service working.
+  bool get followRedirects =>
+      getAttribute('follow_redirects') as bool? ?? false;
+
+  /// Set whether a 3xx is followed to its destination.
+  set followRedirects(bool value) => setAttribute('follow_redirects', value);
 
   /// Whether this monitor only appears on the status page when degraded.
   bool get onlyShowIfDegraded =>

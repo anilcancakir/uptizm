@@ -143,6 +143,13 @@ class MonitorForm extends StatefulWidget {
   /// Initial "alert when this monitor goes down" state.
   final bool initialAlertOnDown;
 
+  /// Whether the probe follows a 3xx to its destination.
+  ///
+  /// A real setting rather than a request-shape default, so an edit sends the
+  /// operator's own value: it has a control on this form, which is exactly the
+  /// difference `buildFields()` documents between the two kinds of field.
+  final bool initialFollowRedirects;
+
   /// Initial "alert when it recovers" state.
   final bool initialAlertOnRecover;
 
@@ -207,6 +214,7 @@ class MonitorForm extends StatefulWidget {
     this.initialAiMode = 'off',
     this.initialAiAutoUpdates = false,
     this.initialAlertOnDown = true,
+    this.initialFollowRedirects = false,
     this.initialAlertOnRecover = true,
     this.isEdit = false,
     this.startAdvanced = false,
@@ -306,6 +314,8 @@ class _MonitorFormState extends State<MonitorForm>
   String? _timeoutError;
 
   /// Alert when the monitor goes down (React `notifyDown`).
+  bool _followRedirects = false;
+
   bool _notifyDown = true;
 
   /// Alert when the monitor recovers (React `notifyRecover`).
@@ -419,6 +429,7 @@ class _MonitorFormState extends State<MonitorForm>
     _body = widget.initialBody;
     _aiMode = widget.initialAiMode;
     _aiAutoUpdates = widget.initialAiAutoUpdates;
+    _followRedirects = widget.initialFollowRedirects;
     _notifyDown = widget.initialAlertOnDown;
     _notifyRecover = widget.initialAlertOnRecover;
 
@@ -1055,6 +1066,26 @@ class _MonitorFormState extends State<MonitorForm>
           className: 'max-w-32',
         ),
       ),
+      // HTTP only: a TCP probe opens a socket and has no redirect to follow.
+      //
+      // Laid out like `_buildAdvancedToggle()` rather than wrapped in an
+      // `MSFormField`: `_buildSwitchRow` renders its own label, so a form field
+      // around it would print the same sentence twice.
+      if (_isHttp)
+        WDiv(
+          className: 'flex flex-col gap-1.5',
+          children: [
+            _buildSwitchRow(
+              label: trans('uptizm.monitors.form_follow_redirects_label'),
+              value: _followRedirects,
+              onChanged: (value) => setState(() => _followRedirects = value),
+            ),
+            WText(
+              trans('uptizm.monitors.form_follow_redirects_hint'),
+              className: 'text-xs text-fg-muted',
+            ),
+          ],
+        ),
     ];
   }
 
@@ -1280,6 +1311,7 @@ class _MonitorFormState extends State<MonitorForm>
       'ai_auto_updates': _aiAutoUpdates,
       if (!widget.isEdit) 'show_on_status_page': true,
       if (!widget.isEdit) 'only_show_if_degraded': false,
+      'follow_redirects': _followRedirects,
       'alert_on_down': _notifyDown,
       'alert_on_recover': _notifyRecover,
       // Always sent, including as an explicit null: null is the operator's way

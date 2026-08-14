@@ -20,8 +20,9 @@ use Tests\TestCase;
  * its own default and the two halves quietly disagree.
  *
  * This pins the fields that exist for that reason and would otherwise have no
- * test at all: the archive ceiling, the content-type allowlist and the bot
- * identity.
+ * test at all: the archive ceiling, the content-type allowlist, the bot identity
+ * and the redirect policy, including the one case where the origin overrules the
+ * column because a published page promises it will.
  */
 class RelaySpecTest extends TestCase
 {
@@ -74,6 +75,50 @@ class RelaySpecTest extends TestCase
     }
 
     /**
+     * A customer's own monitor gets the redirect policy it asked for.
+     *
+     * They gave us the URL and they own what is behind it, so following a 3xx to
+     * where their own service points is not a page they did not publish.
+     */
+    public function test_a_customer_monitor_carries_its_own_redirect_policy(): void
+    {
+        $monitor = $this->makeMonitor(['follow_redirects' => true]);
+        Http::fake([
+            '*' => Http::response($this->relayPayload($monitor), 200),
+        ]);
+
+        $this->app->make(RelayClient::class)->dispatch($monitor, 'eu-west');
+
+        Http::assertSent(fn (Request $request): bool => ($this->spec($request)['follow_redirects'] ?? null) === true);
+    }
+
+    /**
+     * A catalog monitor never does, whatever its column says.
+     *
+     * `resources/legal/bot.en.md` tells every third-party operator that the
+     * availability check requests ONE URL and reads no other page, and a
+     * followed redirect is a second request to a second URL. The column is
+     * written here deliberately: the guarantee has to hold against a seeder, a
+     * console write, the admin panel and a future importer, not just against the
+     * API's own validation, so it lives at the one place the value reaches the
+     * wire.
+     */
+    public function test_a_catalog_monitor_never_follows_a_redirect_even_when_its_column_says_so(): void
+    {
+        $monitor = $this->makeMonitor(['follow_redirects' => true]);
+        $monitor->team->forceFill(['is_system' => true])->save();
+        $monitor->refresh();
+
+        Http::fake([
+            '*' => Http::response($this->relayPayload($monitor), 200),
+        ]);
+
+        $this->app->make(RelayClient::class)->dispatch($monitor, 'eu-west');
+
+        Http::assertSent(fn (Request $request): bool => ($this->spec($request)['follow_redirects'] ?? null) === false);
+    }
+
+    /**
      * The spec as the worker receives it.
      *
      * Decoded from the raw body rather than read through `$request->data()`,
@@ -115,7 +160,10 @@ class RelaySpecTest extends TestCase
         ];
     }
 
-    protected function makeMonitor(): Monitor
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function makeMonitor(array $attributes = []): Monitor
     {
         $user = User::query()->create([
             'name' => 'Relay Tester',
@@ -135,6 +183,7 @@ class RelaySpecTest extends TestCase
             'url' => 'https://example.com/health',
             'check_interval_sec' => 60,
             'regions' => ['eu-west'],
+            ...$attributes,
         ]);
     }
 }

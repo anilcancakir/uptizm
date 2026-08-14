@@ -118,6 +118,11 @@ class UpdateMonitorRequest extends StoreMonitorRequest
                 'sometimes',
                 'boolean',
             ],
+            // See StoreMonitorRequest.
+            'follow_redirects' => [
+                'sometimes',
+                'boolean',
+            ],
             'only_show_if_degraded' => [
                 'sometimes',
                 'boolean',

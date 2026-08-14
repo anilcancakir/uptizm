@@ -89,6 +89,7 @@ type ProbeSpec = {
     max_bytes?: number;
     allowed_content_types?: string[];
     user_agent?: string | null;
+    follow_redirects?: boolean;
 };
 
 /** The payload, as `CheckResult::fromWorkerPayload()` on the origin reads it. */
@@ -154,6 +155,7 @@ function spec(overrides: Partial<ProbeSpec> = {}): ProbeSpec {
             "application/json",
         ],
         user_agent: null,
+        follow_redirects: false,
         ...overrides,
     };
 }
@@ -185,6 +187,7 @@ type SentRequest = {
     url: string;
     headers: Headers;
     body: string;
+    redirect: Request["redirect"];
 };
 
 /**
@@ -221,6 +224,11 @@ function interceptFetch(respond: Responder = NO_FIXTURE): () => SentRequest {
             url: request.url,
             headers: request.headers,
             body: await request.clone().text(),
+            // The redirect MODE, not the redirect behaviour: this spy replaces
+            // `fetch` outright, so the runtime never gets to follow anything.
+            // What the probe controls is the instruction, and that is what a
+            // test at this layer can honestly assert.
+            redirect: request.redirect,
         };
 
         return respond(request);
@@ -736,6 +744,42 @@ describe("an edge refusal is never a verdict about the target", () => {
         await runProbe(spec({ user_agent: null }));
 
         expect(sent().headers.get("user-agent")).toBeNull();
+    });
+
+    it("stops at a redirect unless the monitor asked to follow it", async () => {
+        // The default this probe has always had, and the reason it is a default:
+        // a login page answering 302 instead of 200 is a regression, and
+        // following it would publish the login screen as health. `bot.en.md`
+        // also promises a third-party operator that the availability check reads
+        // no other page, and the origin is what keeps a catalog monitor off this
+        // flag; here the rule is simply "honour what the spec says".
+        const sent = interceptFetch(() => new Response(null, {
+            status: 307,
+            headers: { location: "https://target.example/fr" },
+        }));
+
+        const { result } = await runProbe(spec({ follow_redirects: false }));
+
+        expect(sent().redirect).toBe("manual");
+        expect(result.status_code).toBe(307);
+        expect(result.status).toBe("degraded");
+    });
+
+    it("asks the runtime to follow when the monitor said to", async () => {
+        // Measured on production: stripe.com answers the probe with a 307 to a
+        // language-specific path, so a monitor of the homepage read `degraded`
+        // forever while the service was working. Following is opt-in per monitor
+        // because neither answer is right for every one of them.
+        //
+        // Asserted on the REQUEST rather than on a followed response, and that
+        // is not a weaker test, it is the only honest one here: the spy replaces
+        // `fetch`, so workerd never performs the follow. The instruction is what
+        // this probe owns; performing it is the runtime's job.
+        const sent = interceptFetch(() => new Response("ok", { status: 200 }));
+
+        await runProbe(spec({ follow_redirects: true }));
+
+        expect(sent().redirect).toBe("follow");
     });
 
     it("keeps a plain 403 a real outage", async () => {

@@ -54,6 +54,21 @@ type ProbeRequest = {
     auth_config: AuthConfig | null;
 
     /**
+     * Whether a 3xx is a step on the way to the answer or the answer itself.
+     *
+     * Absent or false stops at the redirect, which is what this probe has always
+     * done and is right for a monitor watching one endpoint: a login page
+     * answering 302 instead of 200 is a regression, and following it would
+     * publish the login screen as health.
+     *
+     * The origin decides who may set it. The catalog probe never does, because
+     * `resources/legal/bot.en.md` promises one URL per service; that is enforced
+     * in `RelayClient::buildSpec()` rather than here, so this worker only has to
+     * honour what it is told.
+     */
+    follow_redirects?: boolean;
+
+    /**
      * The identity string the origin publishes on its bot page, or null from an
      * origin deployed behind this field.
      *
@@ -753,7 +768,7 @@ async function probeHttp(
             method: (probe.method ?? "GET").toUpperCase(),
             headers: probeHeaders(probe),
             body: probe.request_body ?? undefined,
-            redirect: "manual",
+            redirect: probe.follow_redirects === true ? "follow" : "manual",
             signal: AbortSignal.timeout(probe.timeout_seconds * 1000),
         }),
         resolveColo(),
