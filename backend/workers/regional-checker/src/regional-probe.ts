@@ -18,6 +18,11 @@
  */
 
 import { connect } from "cloudflare:sockets";
+import { DurableObject } from "cloudflare:workers";
+
+import type {
+    Env,
+} from "./env";
 
 import {
     type AssertionSubject,
@@ -466,7 +471,17 @@ const BODY_PREVIEW_BYTES = 10_240;
  */
 const CONTENT_MAX_BYTES_FALLBACK = 1_048_576;
 
-export class RegionalProbe {
+/**
+ * It extends `DurableObject` rather than standing alone, and the reason is a
+ * type rather than a behaviour: `instrumentDurableObjectWithSentry` accepts a
+ * `T extends DurableObject<E>`, so a bare class with a `fetch` method (which is
+ * all workerd itself requires, and what this was) cannot be handed to it
+ * without a cast. The base class supplies the `ctx`/`env` properties and the
+ * RPC brand the SDK's signature asks for; it changes nothing about how the
+ * runtime dispatches into `fetch`, and nothing here reads `ctx` or `env`. The
+ * class NAME is what the applied migration `v1` records, and that is untouched.
+ */
+export class RegionalProbe extends DurableObject<Env> {
     async fetch(request: Request): Promise<Response> {
         if (request.method !== "POST") {
             return new Response("method not allowed", {

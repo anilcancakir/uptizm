@@ -55,11 +55,12 @@ import type {
 /**
  * The DO class as a Durable Object.
  *
- * `RegionalProbe` is a plain class with a `fetch` method, which is all workerd
- * requires of a Durable Object, but `runInDurableObject` and
- * `DurableObjectNamespace<T>` both want the branded `DurableObject` shape. The
- * intersection says what is true (this class IS the DO behind that binding)
- * without touching production code to say it.
+ * `RegionalProbe` now extends `DurableObject<Env>` (the Sentry instrumentation
+ * wrapper's signature requires it), so it already carries the branded shape
+ * `runInDurableObject` and `DurableObjectNamespace<T>` want. The intersection is
+ * kept because it costs nothing and states the same truth either way: this class
+ * IS the DO behind that binding. It was load-bearing when the class stood alone,
+ * and it is what keeps this file honest if the base class is ever dropped again.
  */
 type ProbeInstance = RegionalProbe & DurableObject;
 
