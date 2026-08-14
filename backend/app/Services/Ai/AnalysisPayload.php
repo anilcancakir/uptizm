@@ -6,6 +6,7 @@ use App\Enums\LocationBasis;
 use App\Services\Monitoring\ResponseDigest;
 use App\Services\Monitoring\ResponseDigestResult;
 use App\Services\Monitoring\TargetLocationResult;
+use App\Support\Ai\PromptLanguage;
 use App\Support\Monitoring\CheckResult;
 use App\Support\Monitoring\ProbeHeaderAllowList;
 
@@ -157,6 +158,7 @@ readonly class AnalysisPayload
         public string $teamId = '',
         public ?ResponseDigestResult $digest = null,
         public ?TargetLocationResult $targetLocation = null,
+        public string $language = PromptLanguage::FALLBACK,
     ) {}
 
     /**
@@ -172,7 +174,9 @@ readonly class AnalysisPayload
     public function buildUserMessage(?string $researchNotes = null): string
     {
         return $this->render(
-            'Suggest a monitor configuration using only the evidence above.',
+            'Suggest a monitor configuration using only the evidence above.'
+                ." Write the monitor name and every human-readable label in {$this->language}."
+                .' Leave the URL, the method, header names, metric keys and region codes as they are.',
             $researchNotes,
         );
     }
@@ -184,6 +188,14 @@ readonly class AnalysisPayload
      * Two asks rather than one because the two turns want different answers
      * from the same facts, and the closing line is the only difference: this
      * one carries no research notes, because it is the turn that produces them.
+     *
+     * It names NO language, unlike the suggestion turn. What this turn writes is
+     * not read by a person: the note comes straight back into the next prompt as
+     * fenced evidence, so translating it would spend tokens moving text between
+     * two languages on its way from one model call to another, and any term the
+     * translation softened would be softened for the turn that has to act on it.
+     * The suggestion turn is where the operator finally reads something, and that
+     * is where the language is named.
      */
     public function buildResearchMessage(): string
     {
