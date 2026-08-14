@@ -69,12 +69,28 @@ class SentryTraceSampler
     public const float RATE_CHECK_QUEUE = 0.001;
 
     /**
-     * The path prefix the analyze endpoint lives under.
+     * The paths that spend model budget, matched on their SUFFIX.
      *
-     * Matched as a prefix rather than an exact string so the sub-resources that
-     * belong to a run (its status, its result) inherit the same treatment.
+     * A suffix rather than a prefix, for two independent reasons. Three of the
+     * four sit behind a route parameter (`/incidents/{id}/draft-update`), so
+     * there is no prefix to key on. And a prefix on `/monitors/analyze` also
+     * swallows `/monitors/analyze/{run}`, which is the POLLING endpoint the
+     * client hits repeatedly while a run is in flight: exactly the call pattern
+     * that should NOT be sampled at 1.0. A test pins that distinction.
+     *
+     * ADDING AN AI ENDPOINT MEANS ADDING IT HERE. Nothing detects model spend
+     * automatically, and the cost of forgetting is quiet: the endpoint is
+     * sampled like ordinary API traffic, so its failures are visible one time
+     * in five.
+     *
+     * @var list<string>
      */
-    private const string ANALYZE_PATH = '/api/v1/monitors/analyze';
+    private const array MODEL_SPENDING_SUFFIXES = [
+        '/monitors/analyze',
+        '/draft-update',
+        '/draft-postmortem',
+        '/assistant',
+    ];
 
     /**
      * The API prefix, which is the contract with the Flutter client.
@@ -144,8 +160,10 @@ class SentryTraceSampler
      */
     private static function rateForPath(string $path): float
     {
-        if (str_starts_with($path, self::ANALYZE_PATH)) {
-            return self::RATE_ALWAYS;
+        foreach (self::MODEL_SPENDING_SUFFIXES as $suffix) {
+            if (str_ends_with($path, $suffix)) {
+                return self::RATE_ALWAYS;
+            }
         }
 
         if (str_starts_with($path, self::API_PREFIX)) {

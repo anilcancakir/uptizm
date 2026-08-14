@@ -119,6 +119,47 @@ class SentryTraceSamplerTest extends TestCase
     }
 
     /**
+     * Every OTHER path that spends model budget, and the list is the reason
+     * this is a suffix match rather than a prefix one.
+     *
+     * Each of these sits behind a route parameter, so there is no shared prefix
+     * to key on. They are individually cheap to sample because they are rare
+     * (one per incident, not one per check), and individually worth it because
+     * a failure costs an operator both money and an answer.
+     */
+    public function test_every_model_spending_endpoint_is_always_sampled(): void
+    {
+        $paths = [
+            '/api/v1/incidents/42/draft-update',
+            '/api/v1/incidents/42/draft-postmortem',
+            '/api/v1/assistant',
+        ];
+
+        foreach ($paths as $path) {
+            $this->assertSame(
+                1.0,
+                SentryTraceSampler::sample($this->contextFor($path, 'http.server')),
+                "$path spends AI budget, so it is worth a trace every time.",
+            );
+        }
+    }
+
+    /**
+     * The trap a prefix match walks straight into.
+     *
+     * `/monitors/analyze/{run}` is the POLLING endpoint the client hits while a
+     * run is in flight, so it is called many times per analyze rather than once.
+     * A prefix match on `/monitors/analyze` swept it up and sampled it at 1.0,
+     * which is the opposite of what its call pattern deserves.
+     */
+    public function test_the_analyze_polling_endpoint_is_not_treated_as_the_analyze_call(): void
+    {
+        $context = $this->contextFor('/api/v1/monitors/analyze/9f8e7d6c', 'http.server');
+
+        $this->assertSame(0.2, SentryTraceSampler::sample($context));
+    }
+
+    /**
      * Public status pages are cached for 60s and served to anonymous traffic,
      * so they are high-volume and low-information.
      */
