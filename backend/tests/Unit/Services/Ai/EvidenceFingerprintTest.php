@@ -97,6 +97,42 @@ class EvidenceFingerprintTest extends TestCase
         $this->assertSame($one->evidenceFingerprint(), $later->evidenceFingerprint());
     }
 
+    public function test_a_flapping_metric_does_not_move_the_fingerprint_every_tick(): void
+    {
+        // MEASURED on production the hour this shipped, on the incident the
+        // store was built for. Its trigger is a numeric latency metric that
+        // crosses its own bound almost every reading: 31.5 critical, 6.94 ok,
+        // 9.55 ok, 76.9 critical, 4.03 ok, 27.04 critical. The band list is
+        // deduped in FIRST-SEEN order, so as the twelve-reading window slides it
+        // alternates `[critical, ok]` and `[ok, critical]`: the same SET, a
+        // different order, a different hash.
+        //
+        // The cost is the whole point of the store. Two responders opening that
+        // incident a minute apart each bought an answer, which is the state this
+        // table was added to end.
+        //
+        // Sorting the BAND list is safe in a way that sorting the check list is
+        // not, and the difference is what the reader sees. The crossing stays
+        // fully visible in the prompt: `triggeringMetric['readings']` reaches the
+        // model with its values and timestamps in time order, untouched. Only the
+        // hash normalises, and for a metric that alternates every minute the
+        // order of two bands is noise rather than a crossing.
+        $window = $this->payload([$this->check()], $this->metric([
+            ['value' => '31.5', 'band' => 'critical', 'recorded_at' => '2026-08-14T13:05:38+00:00'],
+            ['value' => '6.94', 'band' => 'ok', 'recorded_at' => '2026-08-14T13:04:34+00:00'],
+        ]));
+        $windowSlid = $this->payload([$this->check()], $this->metric([
+            ['value' => '6.94', 'band' => 'ok', 'recorded_at' => '2026-08-14T13:04:34+00:00'],
+            ['value' => '9.55', 'band' => 'critical', 'recorded_at' => '2026-08-14T13:03:07+00:00'],
+        ]));
+
+        $this->assertSame(
+            $window->evidenceFingerprint(),
+            $windowSlid->evidenceFingerprint(),
+            'a metric that alternates every tick must not buy an answer every tick',
+        );
+    }
+
     public function test_a_metric_crossing_a_band_changes_the_fingerprint(): void
     {
         // What the analysis actually narrates, and the thing banding must not

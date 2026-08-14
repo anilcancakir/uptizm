@@ -283,6 +283,28 @@ readonly class IncidentAnalysisPayload
                 fn (array $reading): string => (string) ($reading['band'] ?? ''),
                 (array) ($metric['readings'] ?? []),
             )));
+
+            // The SET of bands seen, not the order they were seen in, and this
+            // is the one list here where that is the right call.
+            //
+            // MEASURED on production: the incident this store was built for
+            // triggers on a numeric latency metric that crosses its own bound
+            // almost every reading (31.5 critical, 6.94 ok, 9.55 ok, 76.9
+            // critical, 4.03 ok, 27.04 critical). The band list is deduped in
+            // first-seen order, so as the twelve-reading window slid it
+            // alternated `[critical, ok]` and `[ok, critical]` and the hash moved
+            // with it. Two responders opening that incident a minute apart each
+            // bought an answer, which is the exact cost this table ended.
+            //
+            // Safe in a way that sorting the CHECK list is not, and the
+            // difference is what the reader sees. The crossing stays fully
+            // visible in the prompt: the readings reach the model with their
+            // values and timestamps in time order, untouched by this. Only the
+            // hash normalises, and for a metric alternating every minute the
+            // order of two bands is noise. `EvidenceFingerprintTest` pins both:
+            // the flap no longer moves the hash, and a genuine band change still
+            // does.
+            sort($metric['readings']);
         }
 
         // The roster is sorted and NOTHING ELSE here is, and the line between
