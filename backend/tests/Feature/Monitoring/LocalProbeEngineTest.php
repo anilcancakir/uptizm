@@ -6,6 +6,7 @@ use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
+use App\Models\ProbeRegionHealth;
 use App\Models\Proxy;
 use App\Models\ProxySource;
 use App\Services\Monitoring\CheckPersistenceService;
@@ -159,6 +160,94 @@ class LocalProbeEngineTest extends TestCase
         $this->assertSame(MonitorStatus::Down, $reading->status);
         $this->assertSame(403, $reading->statusCode);
         $this->assertSame(0, $exit->fresh()->failed_attempts);
+    }
+
+    /**
+     * A bot challenge is the target's edge declining to let this engine measure
+     * anything, so it produces no verdict at all.
+     *
+     * The mirror of the same branch in `regional-probe.ts`, and it has to be a
+     * mirror: the two transports serve the same monitors and a target that is
+     * unmeasurable through one is unmeasurable through the other. Measured on
+     * production through the relay, openai.com and claude.ai answered every
+     * check this way for seven and a half hours while serving browsers fine.
+     */
+    public function test_a_bot_challenge_is_refused_rather_than_called_an_outage(): void
+    {
+        $monitor = $this->systemMonitor(['expected_status_code' => 200]);
+        $exit = $this->makeProxy('us-east');
+        $this->fakeTarget(403, [
+            'Content-Type' => 'text/html',
+            'cf-mitigated' => 'challenge',
+        ]);
+
+        $reading = $this->engine()->dispatch($monitor, 'us-east');
+
+        $this->assertTrue($reading->probeRefused);
+        $this->assertSame(MonitorStatus::Down, $reading->status, 'the wire value stays conservative for an older reader');
+        $this->assertStringContainsString('cf-mitigated', (string) $reading->errorMessage);
+
+        // The status code TRAVELS with this refusal, unlike every other one.
+        // It is what tells `recordRegionHealth()` the exits carried the request,
+        // and it is the only refusal that can carry one: a status code cannot
+        // exist without a response.
+        $this->assertSame(403, $reading->statusCode);
+
+        // The exit did its job: it carried the request and the target answered.
+        // Blaming it would retire a working proxy over the target's own policy.
+        $this->assertSame(0, $exit->fresh()->failed_attempts);
+
+        // And the REGION is proven healthy by the same evidence. Counting this
+        // against it would alarm a region that is carrying traffic fine.
+        $health = ProbeRegionHealth::query()->where('region', 'us-east')->sole();
+        $this->assertNotNull($health->last_success_at);
+        $this->assertNull($health->last_failure_at);
+        $this->assertSame(0, $health->consecutive_empty_intervals);
+    }
+
+    /**
+     * The probe identifies itself with the string the bot page publishes.
+     *
+     * `resources/legal/bot.en.md` tells every operator that both clients
+     * "identify themselves with the same string on every request" and that
+     * blocking that string stops us. Only `FeedFetcher` was doing it; this
+     * engine and the relay, which together are the larger client by a wide
+     * margin, sent whatever the runtime defaulted to. The page has to be true,
+     * and the challenge branch above is worth nothing if a target has no way to
+     * express a block.
+     */
+    public function test_the_probe_identifies_itself_with_the_published_user_agent(): void
+    {
+        $monitor = $this->systemMonitor(['expected_status_code' => 200]);
+        $this->makeProxy('us-east');
+        $this->fakeTarget(200);
+
+        $this->engine()->dispatch($monitor, 'us-east');
+
+        Http::assertSent(fn (Request $request): bool => $this->sentUserAgent($request)
+            === (string) config('uptizm.bot_user_agent'));
+    }
+
+    /**
+     * A monitor's own header wins, whatever case it is written in.
+     *
+     * The casing is the point. Guzzle sends what it is given, so a plain array
+     * union of `User-Agent` over `user-agent` puts BOTH on the wire and the
+     * target matches neither. A monitor that declares its own identity is
+     * describing the request it wants made; ours is a default.
+     */
+    public function test_a_monitors_own_user_agent_replaces_ours_regardless_of_case(): void
+    {
+        $monitor = $this->systemMonitor([
+            'expected_status_code' => 200,
+            'request_headers' => ['user-agent' => 'AcmeChecker/2'],
+        ]);
+        $this->makeProxy('us-east');
+        $this->fakeTarget(200);
+
+        $this->engine()->dispatch($monitor, 'us-east');
+
+        Http::assertSent(fn (Request $request): bool => $this->sentUserAgent($request) === 'AcmeChecker/2');
     }
 
     public function test_a_301_is_recorded_as_a_301_and_the_redirect_is_never_followed(): void
@@ -798,6 +887,30 @@ class LocalProbeEngineTest extends TestCase
      *
      * @param  array<string, string>  $headers
      */
+    /**
+     * The single User-Agent the request carried, found without caring how it was
+     * cased and asserting there is exactly ONE of it.
+     *
+     * Both halves matter. Laravel's `Request::header()` is a case-sensitive array
+     * lookup, so asking for `User-Agent` misses a header written `user-agent` and
+     * a test built on it would read a working override as a missing one. And the
+     * count is the defect this pair exists to catch: two differently-cased
+     * User-Agent headers are two headers on the wire, and the target matches
+     * neither.
+     */
+    protected function sentUserAgent(Request $request): ?string
+    {
+        $found = [];
+
+        foreach ($request->headers() as $name => $values) {
+            if (strcasecmp((string) $name, 'user-agent') === 0) {
+                $found = [...$found, ...$values];
+            }
+        }
+
+        return count($found) === 1 ? $found[0] : null;
+    }
+
     protected function fakeTarget(int $status, array $headers = ['Content-Type' => 'text/html']): void
     {
         Http::fake(function (Request $request, array $options) use ($status, $headers) {

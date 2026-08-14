@@ -654,7 +654,7 @@ class LocalProbeEngine implements ProbeTransport
         ];
 
         try {
-            $response = Http::withHeaders((array) $monitor->request_headers)
+            $response = Http::withHeaders($this->requestHeaders($monitor))
                 ->withOptions([
                     ...$this->egressOptions($exit),
                     'allow_redirects' => false,
@@ -805,6 +805,29 @@ class LocalProbeEngine implements ProbeTransport
         array $handlerStats,
     ): CheckResult {
         $headers = $this->normaliseHeaders($headers);
+
+        // A bot challenge is the target's edge declining to let this engine
+        // measure anything, so it produces no verdict, exactly as the relay's
+        // `regional-probe.ts` decides for the same response. Measured on
+        // production: openai.com and claude.ai answered every check with 403,
+        // `cf-mitigated: challenge` and an interactive page while serving
+        // browsers fine, and two "is down" incidents stayed open over it.
+        //
+        // The status code travels with the refusal on purpose; see
+        // {@see self::failureReading()} and {@see self::recordRegionHealth()}.
+        $challenge = $this->describeBotChallenge($monitor, $headers, $statusCode);
+        if ($challenge !== null) {
+            return $this->failureReading(
+                monitor: $monitor,
+                region: $region,
+                checkedAt: $checkedAt,
+                probeRunId: $probeRunId,
+                message: $challenge,
+                refused: true,
+                statusCode: $statusCode,
+            );
+        }
+
         $totalTime = $handlerStats['total_time'] ?? null;
 
         return CheckResult::fromWorkerPayload([
@@ -845,6 +868,12 @@ class LocalProbeEngine implements ProbeTransport
      * which is what `regional-probe.ts:292` puts on the wire: a reader that
      * predates `probe_refused` sees the conservative value, and everything
      * current branches on the flag instead.
+     *
+     * `$statusCode` is null for every caller but the bot challenge, the one
+     * non-verdict that arrived WITH a response. It is not decoration there:
+     * {@see self::recordRegionHealth()} reads a status code on a refusal as
+     * proof the region's exits carried the request, which is what separates
+     * "the target would not let us measure" from "our egress is dark".
      */
     protected function failureReading(
         Monitor $monitor,
@@ -853,13 +882,14 @@ class LocalProbeEngine implements ProbeTransport
         string $probeRunId,
         string $message,
         bool $refused,
+        ?int $statusCode = null,
     ): CheckResult {
         return CheckResult::fromWorkerPayload([
             'monitor_id' => (string) $monitor->getKey(),
             'region' => $region,
             'checked_at' => $checkedAt->format(DateTimeImmutable::ATOM),
             'status' => MonitorStatus::Down->value,
-            'status_code' => null,
+            'status_code' => $statusCode,
             'response_ms' => null,
             'error_message' => $message,
             // Nothing was measured, so nothing is reported: the worker's
@@ -873,6 +903,78 @@ class LocalProbeEngine implements ProbeTransport
             'content_type' => null,
             'content_truncated' => false,
         ]);
+    }
+
+    /**
+     * The outgoing headers: our identity first, the monitor's own over it.
+     *
+     * `resources/legal/bot.en.md` tells every operator that both clients
+     * identify themselves with the same string and that blocking it stops us,
+     * and only the feed reader was doing it. The availability check is the
+     * larger of the two by a wide margin, so the published page was untrue about
+     * the client an operator is actually seeing, and the advice it gives was
+     * unactionable. It also makes the challenge branch above mean something: a
+     * block we honour has to be a block a target can express.
+     *
+     * The monitor's own header wins, whatever case it is written in, which is
+     * why the merge is by lowercased key rather than a plain array union. Guzzle
+     * sends what it is given, so `User-Agent` beside `user-agent` is two headers
+     * on the wire, and the target would match neither.
+     *
+     * @return array<string, string>
+     */
+    protected function requestHeaders(Monitor $monitor): array
+    {
+        $headers = ['User-Agent' => (string) config('uptizm.bot_user_agent')];
+
+        foreach ((array) $monitor->request_headers as $name => $value) {
+            $existing = array_key_first(array_filter(
+                $headers,
+                fn (string $key): bool => strcasecmp($key, (string) $name) === 0,
+                ARRAY_FILTER_USE_KEY,
+            ));
+
+            unset($headers[$existing]);
+            $headers[(string) $name] = (string) $value;
+        }
+
+        return $headers;
+    }
+
+    /**
+     * The operator-facing sentence for a response that is a bot challenge, or
+     * null when the response is an ordinary one.
+     *
+     * The PHP half of `describeBotChallenge()` in `regional-probe.ts`, and it
+     * has to stay the same rule: the two transports serve the same monitors, so
+     * a target unmeasurable through one is unmeasurable through the other.
+     *
+     * Read from the header the challenge declares itself with rather than
+     * inferred from a status code. `cf-mitigated` is Cloudflare's own signal,
+     * and that is the difference between a measurement and a guess: a 403 with
+     * no such header is the target answering and must stay a real outage, which
+     * `test_a_client_error_is_down_and_is_still_a_reading` pins.
+     *
+     * Any value at all counts, not `challenge` alone. Cloudflare may add
+     * siblings, and the property this turns on is that the request was
+     * mitigated rather than served.
+     *
+     * @param  array<string, string>  $headers  Lowercased response headers.
+     */
+    protected function describeBotChallenge(Monitor $monitor, array $headers, int $statusCode): ?string
+    {
+        $mitigated = trim($headers['cf-mitigated'] ?? '');
+
+        if ($mitigated === '') {
+            return null;
+        }
+
+        $target = parse_url($monitor->url, PHP_URL_HOST) ?: $monitor->url;
+
+        return "{$target} served a bot challenge instead of a response "
+            ."(HTTP {$statusCode}, cf-mitigated: {$mitigated}). The probe measured "
+            .'nothing about the service, so no check was recorded. Point the monitor at '
+            .'an endpoint the target does not challenge, such as a health or status API.';
     }
 
     /**
@@ -1179,7 +1281,19 @@ class LocalProbeEngine implements ProbeTransport
         // the FIRST dark tick and the "a single missed tick is normal" rule was
         // dead. Counting intervals is the scheduled job's job, because the job is
         // the only thing here that runs once per interval.
-        if ($result->probeRefused) {
+        // A refusal that carries a STATUS CODE is the one refusal the exits are
+        // innocent of: the only way to have a status code is to have received a
+        // response, so the tunnel carried the request and the target answered.
+        // Today that is the bot challenge, and treating it as evidence of a dark
+        // region would be a measurable defect rather than a theoretical one:
+        // `AlarmDarkProbeRegions` counts an interval empty when
+        // `last_failure_at >= last_success_at`, this engine writes the row once
+        // per (monitor, region), and a region holding two challenged catalog
+        // targets out of eight ends roughly a quarter of its ticks on one. Three
+        // of those in a row is common enough to alarm a region that wrote check
+        // rows the whole time, which is the exact failure the docblock above
+        // records an earlier revision producing from the opposite mistake.
+        if ($result->probeRefused && $result->statusCode === null) {
             $health->update([
                 'last_failure_at' => now(),
                 'healthy_proxy_count' => $healthyProxyCount,
