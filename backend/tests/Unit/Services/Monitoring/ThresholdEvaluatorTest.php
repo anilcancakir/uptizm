@@ -226,7 +226,7 @@ class ThresholdEvaluatorTest extends TestCase
         // active-incident gate clears, and the very next check opened another
         // one. This is the branch a metric-driven monitor actually uses, so it
         // is the branch an operator hits.
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
         $evaluator = new ThresholdEvaluator;
 
@@ -246,7 +246,7 @@ class ThresholdEvaluatorTest extends TestCase
     {
         // The other half on this branch: a reading in the ok band between the
         // resolve and the next breach makes the second breach its own episode.
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
         $evaluator = new ThresholdEvaluator;
 
@@ -277,7 +277,7 @@ class ThresholdEvaluatorTest extends TestCase
 
     public function test_a_numeric_metric_breach_opens_a_bound_titled_incident(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
         $evaluator = new ThresholdEvaluator;
 
@@ -296,6 +296,167 @@ class ThresholdEvaluatorTest extends TestCase
     }
 
     /**
+     * The metric lane opened on the FIRST breaching sample while the down lane
+     * has always waited for `incident_threshold` of them, and a spike is not an
+     * outage on either lane.
+     *
+     * Measured on production: one monitor's total-response-time metric landed
+     * in `critical` 21 times across 105 samples in two hours, with `ok` on both
+     * sides of nearly every one of them. Every isolated spike was an incident.
+     */
+    public function test_a_lone_metric_breach_waits_for_the_streak(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(0, Incident::query()->count(), 'one sample over a bound is a spike, not an outage');
+        $this->assertNull($outcome['opened']);
+    }
+
+    public function test_a_breach_on_top_of_a_breaching_sample_opens(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        // The sample BEFORE this check, written the way
+        // `CheckPersistenceService` writes it. See
+        // {@see self::recordSample()} for why it is spelled out here.
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical);
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(1, Incident::query()->count());
+        $this->assertSame(IncidentSeverity::Critical, Incident::query()->sole()->severity);
+    }
+
+    /**
+     * The streak is CONSECUTIVE, so one healthy reading in the middle of it
+     * starts the count over. Without this a flapping metric would accumulate
+     * breaches across an hour and page on the pair that happened to be counted.
+     */
+    public function test_an_ok_sample_breaks_the_streak(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 120);
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok, secondsAgo: 60);
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(0, Incident::query()->count());
+    }
+
+    /**
+     * The half that did not exist at all: NOTHING closed a metric incident.
+     *
+     * `resolveIfRecovered()` is scoped to `trigger_metric_key IS NULL` on
+     * purpose, and the only other writers of `resolved_at` are the operator
+     * resolve and the orphan close. So a metric incident stayed open forever,
+     * and because `hasActiveIncidentForMetric()` suppresses a second open while
+     * one is active, that metric could never page again either. Measured on
+     * production: an incident opened on a Redis latency bound stayed `detected`
+     * for seven hours while 102 of its last 105 readings were `ok`.
+     */
+    public function test_a_metric_incident_closes_after_an_ok_run(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 180);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $opened = Incident::query()->sole();
+
+        // Two readings back in the ok band, which is the same number of samples
+        // the open needed.
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok, secondsAgo: 60);
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok);
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 12.0], []);
+
+        $this->assertSame($opened->getKey(), $outcome['resolved']?->getKey());
+
+        $resolved = Incident::query()->sole();
+        $this->assertSame(IncidentStatus::Resolved, $resolved->lifecycle);
+        $this->assertNotNull($resolved->resolved_at);
+
+        // The close is narrated on the public timeline like the down-lane one,
+        // or the status page shows an incident that simply stops.
+        $this->assertSame(1, $resolved->updates()->count());
+    }
+
+    public function test_a_short_ok_run_leaves_the_metric_incident_open(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 180);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        // One ok reading on top of the breaching one: half a recovery.
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok);
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 12.0], []);
+
+        $this->assertNull($outcome['resolved']);
+        $this->assertTrue(Incident::query()->sole()->lifecycle->isActive());
+    }
+
+    /**
+     * The recovery is scoped to the incident's OWN metric. A monitor with a
+     * healthy disk gauge and a breaching latency one must keep the latency
+     * incident open, and the two share nothing but the monitor.
+     */
+    public function test_one_metric_recovering_does_not_close_another_metrics_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 180);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        // A different metric's readings are healthy; `cpu` has said nothing new.
+        $this->recordSample($monitor, 'disk', MetricBand::Ok, secondsAgo: 60);
+        $this->recordSample($monitor, 'disk', MetricBand::Ok);
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], []);
+
+        $this->assertNull($outcome['resolved']);
+        $this->assertTrue(Incident::query()->sole()->lifecycle->isActive());
+    }
+
+    /**
+     * The AI lane owns its own incidents end to end, which is why the threshold
+     * lane's dedupe already excludes them
+     * ({@see ThresholdEvaluator::hasActiveIncidentForMonitor()}). Closing one
+     * from here would let this lane retire a detection it never made, and an
+     * AI incident's `trigger_metric_key` is a signal name rather than a
+     * configured metric, so the readings it would be judged on are not its own.
+     */
+    public function test_the_threshold_lane_never_closes_an_ai_owned_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2);
+        $evaluator = new ThresholdEvaluator;
+        $ai = $this->makeActiveAiIncident($monitor);
+
+        $this->recordSample($monitor, 'response_time', MetricBand::Ok, secondsAgo: 60);
+        $this->recordSample($monitor, 'response_time', MetricBand::Ok);
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), [], []);
+
+        $this->assertNull($outcome['resolved']);
+        $this->assertTrue($ai->refresh()->lifecycle->isActive());
+    }
+
+    /**
      * A configured string value landing in `critical_values` opens on the same
      * lane a numeric bound breach does, and the metric dedupe keeps a sustained
      * mismatch to ONE incident rather than one per check interval.
@@ -307,7 +468,7 @@ class ThresholdEvaluatorTest extends TestCase
      */
     public function test_a_critical_string_value_opens_one_incident_and_a_second_check_opens_none(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, criticalValues: ['down']);
         $evaluator = new ThresholdEvaluator;
 
@@ -349,7 +510,7 @@ class ThresholdEvaluatorTest extends TestCase
 
     public function test_a_warn_string_value_opens_a_warn_incident(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, warnValues: ['degraded']);
         $evaluator = new ThresholdEvaluator;
 
@@ -369,7 +530,7 @@ class ThresholdEvaluatorTest extends TestCase
      */
     public function test_a_warn_metric_breach_is_minor_customer_impact(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, warnValues: ['degraded']);
         $evaluator = new ThresholdEvaluator;
 
@@ -407,7 +568,7 @@ class ThresholdEvaluatorTest extends TestCase
      */
     public function test_a_critical_value_escalates_an_open_warn_incident(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, warnValues: ['degraded'], criticalValues: ['down']);
         $evaluator = new ThresholdEvaluator;
 
@@ -455,7 +616,7 @@ class ThresholdEvaluatorTest extends TestCase
      */
     public function test_a_numeric_escalation_moves_the_title_key_to_the_critical_bound(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
         $evaluator = new ThresholdEvaluator;
 
@@ -481,12 +642,49 @@ class ThresholdEvaluatorTest extends TestCase
         $this->assertSame(['metric' => 'CPU'], $escalated->title_params);
     }
 
+    /**
+     * The public half of an escalation, and the half that was missing.
+     *
+     * `severity` is the operator tier; `impact` is the customer one, and it is
+     * the ONLY one a customer ever sees: {@see StatusPageAssembler} serializes
+     * `impact` and no `severity` at all. So an escalation that raised severity
+     * and left impact where the open had put it kept publishing "Minor" about
+     * an incident whose own title said `breached critical bound`.
+     *
+     * Measured on production before this fix: two open incidents carried
+     * `severity=critical` alongside `impact=minor`, seven hours apart, both on
+     * a public status page.
+     */
+    public function test_an_escalation_raises_the_public_impact_with_the_severity(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        // 1. The warn band opens at the warn pairing, which is the tier the
+        //    ladder is supposed to start on.
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 85.0], []);
+        $this->assertSame(IncidentImpact::Minor, Incident::query()->sole()->impact);
+
+        // 2. The critical band escalates, and the customer tier travels with
+        //    the operator one.
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $escalated = Incident::query()->sole();
+        $this->assertSame(IncidentSeverity::Critical, $escalated->severity);
+        $this->assertSame(
+            IncidentImpact::Critical,
+            $escalated->impact,
+            'the status page publishes impact, so an unraised impact understates a live outage',
+        );
+    }
+
     public function test_a_warn_value_does_not_de_escalate_a_critical_incident(): void
     {
         // The other direction is deliberately silent: an outage that improves
         // from `down` to `degraded` is still the same outage, and quietly
         // downgrading it would retire the critical channels mid-incident.
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, warnValues: ['degraded'], criticalValues: ['down']);
         $evaluator = new ThresholdEvaluator;
 
@@ -504,7 +702,7 @@ class ThresholdEvaluatorTest extends TestCase
      */
     public function test_an_unlisted_string_value_opens_on_the_unmatched_band(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, okValues: ['up'], unmatchedBand: MetricBand::Critical);
         $evaluator = new ThresholdEvaluator;
 
@@ -526,7 +724,7 @@ class ThresholdEvaluatorTest extends TestCase
      */
     public function test_a_long_string_value_is_cut_to_fit_the_incident_title_column(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, okValues: ['up'], unmatchedBand: MetricBand::Critical);
         $evaluator = new ThresholdEvaluator;
 
@@ -556,7 +754,7 @@ class ThresholdEvaluatorTest extends TestCase
 
     public function test_an_ok_string_value_opens_nothing(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $this->makeStringMetric($monitor, okValues: ['up'], criticalValues: ['down']);
         $evaluator = new ThresholdEvaluator;
 
@@ -574,7 +772,7 @@ class ThresholdEvaluatorTest extends TestCase
      */
     public function test_a_string_metric_with_three_empty_lists_opens_nothing(): void
     {
-        $monitor = $this->makeMonitor(incidentThreshold: 99);
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
         $metric = $this->makeStringMetric($monitor);
         $evaluator = new ThresholdEvaluator;
 
@@ -774,6 +972,40 @@ class ThresholdEvaluatorTest extends TestCase
             'ai_owned' => true,
             'trigger_metric_key' => 'response_time',
             'started_at' => now(),
+        ]);
+    }
+
+    /**
+     * Persist one banded metric reading, the way `CheckPersistenceService`
+     * writes it one layer up.
+     *
+     * Spelled out in the tests rather than produced by `evaluate()`, because
+     * `evaluate()` does not persist anything: the check, its metric values and
+     * their frozen bands are all written by
+     * `CheckPersistenceService::persistWithinTransaction()`
+     * BEFORE the evaluator is called. The streak and the recovery both read
+     * that history back, so a test that skipped it would be asking the
+     * evaluator a question production never asks it.
+     *
+     * `secondsAgo` orders the run explicitly instead of relying on insert
+     * order: the query sorts on `recorded_at` and rows written in one test tick
+     * would otherwise share a timestamp and leave the run's shape to the
+     * tiebreak.
+     */
+    protected function recordSample(
+        Monitor $monitor,
+        string $metricKey,
+        MetricBand $band,
+        int $secondsAgo = 0,
+    ): MonitorMetricValue {
+        return MonitorMetricValue::query()->create([
+            'id' => (string) Str::orderedUuid(),
+            'team_id' => $monitor->team_id,
+            'monitor_id' => $monitor->id,
+            'check_id' => (string) Str::orderedUuid(),
+            'metric_key' => $metricKey,
+            'band' => $band,
+            'recorded_at' => now()->subSeconds($secondsAgo),
         ]);
     }
 

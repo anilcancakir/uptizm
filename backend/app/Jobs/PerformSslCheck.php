@@ -174,9 +174,12 @@ class PerformSslCheck implements ShouldQueue
             'ssl_last_error' => null,
         ])->save();
 
-        // 2. Outside the alert window: nothing to open.
+        // 2. Outside the alert window: nothing to open, and an incident that IS
+        //    open has been overtaken by a renewal.
         $daysRemaining = $certificate->daysUntilExpirationDate();
         if ($daysRemaining > $monitor->ssl_alert_threshold_days) {
+            $this->resolveRenewedSslIncident($monitor, $daysRemaining, $statusPageCache);
+
             return;
         }
 
@@ -201,8 +204,8 @@ class PerformSslCheck implements ShouldQueue
         return Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->where('trigger_metric_key', self::SSL_TRIGGER_KEY)
-            ->get()
-            ->contains(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+            ->active()
+            ->exists();
     }
 
     /**
@@ -266,6 +269,65 @@ class PerformSslCheck implements ShouldQueue
         //    monitor now that the pivot is attached, so the page reflects the
         //    SSL incident immediately. Placed after attach() (the pivot boundary)
         //    because an Incident observer would fire before it and miss the pages.
+        $statusPageCache->invalidateForMonitors([$monitor->id]);
+    }
+
+    /**
+     * Close the monitor's active SSL-expiry incident once the certificate is
+     * back outside the alert window.
+     *
+     * The half this job was missing, and the missing half was worse than a
+     * stale row: {@see self::hasActiveSslIncident()} suppresses a second open
+     * while one is active, so the first expiry warning a monitor ever received
+     * also silenced its SSL lane permanently. The next real expiry, a year
+     * later, would have paged nobody.
+     *
+     * No streak here, unlike the metric lane's
+     * {@see ThresholdEvaluator::resolveRecoveredMetricIncident()}: days-until-
+     * expiry is a monotonic countdown read once a day, not a sampled
+     * measurement, so there is nothing to flap and one reading past the window
+     * is the whole story.
+     */
+    protected function resolveRenewedSslIncident(
+        Monitor $monitor,
+        int $daysRemaining,
+        StatusPageCache $statusPageCache,
+    ): void {
+        $incident = Incident::query()
+            ->where('primary_monitor_id', $monitor->id)
+            ->where('trigger_metric_key', self::SSL_TRIGGER_KEY)
+            ->active()
+            ->orderBy('started_at')
+            ->orderBy('id')
+            ->first();
+
+        if ($incident === null) {
+            return;
+        }
+
+        $incident->update([
+            'lifecycle' => IncidentStatus::Resolved,
+            'resolved_at' => now(),
+        ]);
+
+        // Public and English, like every other system note: the status page
+        // renders it and `TranslateStatusPageText` is what carries it into the
+        // reader's language. The day count is in the sentence because "renewed"
+        // alone does not say whether the renewal was generous or a near miss.
+        $note = $incident->updates()->create([
+            'actor' => 'system',
+            'author' => 'System',
+            'status' => IncidentStatus::Resolved,
+            'message' => "The certificate for {$monitor->name} was renewed and now expires in {$daysRemaining} days; incident auto-resolved.",
+            'is_public' => true,
+            'autonomous' => false,
+            'display_at' => now(),
+        ]);
+
+        TranslateStatusPageText::fanOut($note, 'message', (string) config('app.default_locale'));
+
+        event(new IncidentBroadcast($incident, 'resolved'));
+
         $statusPageCache->invalidateForMonitors([$monitor->id]);
     }
 

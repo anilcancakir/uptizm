@@ -397,9 +397,17 @@ class TranslateStatusPageTextTest extends TestCase
         // skipped the fan-out every operator-written update gets, and an
         // autonomous post was the one entry on a translated timeline that stayed
         // in the team's own language.
+        //
+        // `PerformSslCheck` joined for the same reason and on the same terms: it
+        // writes its own auto-resolve note when a certificate is renewed rather
+        // than routing through the write service, and it is a scheduled job with
+        // no request and no human behind it. The volume is bounded by the SSL
+        // schedule, one note per monitor per renewal, which is the far side of a
+        // yearly certificate rather than anything a caller can drive.
         $this->assertSame([
             'Http/Controllers/Api/V1/ScheduledMaintenanceController.php',
             'Http/Controllers/Api/V1/StatusPageController.php',
+            'Jobs/PerformSslCheck.php',
             'Jobs/PublishAiIncidentUpdate.php',
             'Services/Monitoring/IncidentWriteService.php',
             'Services/Monitoring/ThresholdEvaluator.php',

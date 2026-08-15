@@ -499,23 +499,29 @@ class MetricDiscoveryTest extends TestCase
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
         $this->archiveVersion($monitor, $this->htmlFixture());
+        // "Consistent" is now two conditions, not one. The ordering above is the
+        // first. The second is that the pair has to be consistent with the
+        // READING as well: this fixture's `c2` serves 4200, and the pair this
+        // test used to carry (`warn 100, critical 900`) banded that very sample
+        // critical, so the bound was refuted by the only observation behind it.
+        // A pair beyond the 3x / 6x floor is the one that survives verbatim.
         $this->fakeGateway($this->selectionsFor([
             [
                 'ref' => 'c2',
                 'label' => 'Requests served',
                 'type' => 'numeric',
                 'threshold_direction' => ThresholdDirection::HighBad->value,
-                'warn' => 100,
-                'critical' => 900,
+                'warn' => 20000,
+                'critical' => 50000,
             ],
         ]));
 
         $response = $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover");
 
         // Compared as numbers, not identically: JSON has one number type, so a
-        // whole float travels as `100`.
-        $this->assertSame(100.0, (float) $response->json('data.suggested_metrics.0.warn'));
-        $this->assertSame(900.0, (float) $response->json('data.suggested_metrics.0.critical'));
+        // whole float travels as `20000`.
+        $this->assertSame(20000.0, (float) $response->json('data.suggested_metrics.0.warn'));
+        $this->assertSame(50000.0, (float) $response->json('data.suggested_metrics.0.critical'));
     }
 
     // -----------------------------------------------------------------
@@ -1474,9 +1480,11 @@ class MetricDiscoveryTest extends TestCase
 
     public function test_a_model_supplied_bound_outranks_the_derived_one(): void
     {
-        // Derivation is a fallback, never a correction. The model may have read
-        // the service's own documented budget; the observation is only the one
-        // reading this backend happens to hold.
+        // Derivation is a fallback and a FLOOR, never a rewrite. The model may
+        // have read the service's own documented budget, so a bound further out
+        // than this backend would have derived is kept exactly as given; only
+        // one tighter than the derivation is lifted, and that case has its own
+        // test below.
         $team = $this->actingAsTeamMember();
         $monitor = $this->makeMonitor($team->id);
         $body = (string) json_encode(['latency_ms' => 120]);
@@ -1499,6 +1507,81 @@ class MetricDiscoveryTest extends TestCase
 
         $this->assertSame(400.0, (float) $suggestion['warn']);
         $this->assertSame(900.0, (float) $suggestion['critical']);
+    }
+
+    /**
+     * A model bound sitting closer to the observation than this backend's own
+     * derivation is lifted out to it.
+     *
+     * Measured on production, and this is the shape: a total-response-time
+     * metric shipped with `warn 32, critical 64.1` against a reading in the
+     * tens of milliseconds, and the FIRST sample after discovery read 69.15 and
+     * banded `critical`. Over the two days that followed the metric's own
+     * average was 41.9, above its own warn bound, so the bound was describing
+     * ordinary operation as a degradation.
+     *
+     * The floor is not a new number: `AnalyzeMonitorJob::deterministicSuggestion()`
+     * and this class both already anchor a threshold at three and six times the
+     * reading, and the defect was that the model's own answer was exempt from
+     * the convention every derived bound obeys.
+     */
+    public function test_a_model_bound_tighter_than_the_derivation_is_lifted_to_it(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['latency_ms' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $latency = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $latency->ref,
+                'label' => 'Latency',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::HighBad->value,
+                // Barely above the reading itself: this bands warn on any
+                // ordinary jitter and critical on a single slow response.
+                'warn' => 130,
+                'critical' => 200,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(360.0, (float) $suggestion['warn']);
+        $this->assertSame(720.0, (float) $suggestion['critical']);
+    }
+
+    /**
+     * The same floor under `low_bad`, where "too close to the reading" means too
+     * HIGH: a free-disk warn just under the current figure fires on the first
+     * ordinary write.
+     */
+    public function test_a_low_bad_model_bound_is_pushed_down_to_its_own_floor(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team->id);
+        $body = (string) json_encode(['free_disk_gb' => 120]);
+        $this->archiveVersion($monitor, $body);
+        $disk = $this->candidateIn($body, '120');
+
+        $this->fakeGateway($this->selectionsFor([
+            [
+                'ref' => $disk->ref,
+                'label' => 'Free disk',
+                'type' => MetricType::Numeric->value,
+                'threshold_direction' => ThresholdDirection::LowBad->value,
+                'warn' => 100,
+                'critical' => 90,
+            ],
+        ]));
+
+        $suggestion = (array) $this->postJson("/api/v1/monitors/{$monitor->id}/metrics/discover")
+            ->json('data.suggested_metrics.0');
+
+        $this->assertSame(40.0, (float) $suggestion['warn']);
+        $this->assertSame(20.0, (float) $suggestion['critical']);
     }
 
     public function test_only_the_bound_the_model_omitted_is_derived(): void

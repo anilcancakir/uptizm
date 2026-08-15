@@ -770,20 +770,77 @@ class MetricDiscoveryService
         $unit = $this->effectiveUnit($candidate, $selection);
 
         $derived = [
-            'warn' => $submitted['warn']
-                ?? ThresholdQuantiser::quantise(
-                    $this->derivedBound($observed, $direction, self::WARN_MULTIPLIER, $unit),
-                ),
-            'critical' => $submitted['critical']
-                ?? ThresholdQuantiser::quantise(
-                    $this->derivedBound($observed, $direction, self::CRITICAL_MULTIPLIER, $unit),
-                ),
+            'warn' => $this->boundNoTighterThanDerived(
+                $submitted['warn'],
+                $observed,
+                $direction,
+                self::WARN_MULTIPLIER,
+                $unit,
+            ),
+            'critical' => $this->boundNoTighterThanDerived(
+                $submitted['critical'],
+                $observed,
+                $direction,
+                self::CRITICAL_MULTIPLIER,
+                $unit,
+            ),
         ];
 
         // 3. A pair the direction's own ordering refuses is not a suggestion: it
         //    is a 422 on the bulk create the operator kicked off by accepting it.
         //    The model's half is kept and only the derived half is given up.
         return $direction->validateBounds($derived['warn'], $derived['critical']) ? $derived : $submitted;
+    }
+
+    /**
+     * The bound to ship: the model's own when it is at least as far out as this
+     * backend would have derived, and the derivation when it is closer.
+     *
+     * A model-supplied bound used to win outright, per bound and not per pair,
+     * which meant the ceiling, the quantiser and the ordering check all ran on
+     * the DERIVED half only. The model's number was exempt from the very
+     * convention every derived number obeys, and a live discovery run shipped
+     * `warn 32, critical 64.1` on a response time whose next reading was 69.15
+     * and whose two-day average settled at 41.9. A bound below a metric's own
+     * average describes ordinary operation as a degradation, and the resulting
+     * incident is indistinguishable from a real one.
+     *
+     * So the derivation becomes a FLOOR rather than only a fallback. The
+     * model's number still wins whenever it is further out, which is the case
+     * the exemption existed for: it may have read the service's documented
+     * budget, and this backend holds one reading.
+     *
+     * The comparison is direction-aware because "closer to the reading" flips.
+     * Under `high_bad` a breach is a value ABOVE the bound, so a smaller bound
+     * fires sooner and the floor is a `max`. Under `low_bad` it is the mirror.
+     * That also covers the bounded-scale branch of {@see self::derivedBound()}:
+     * a percentage derives toward its own ceiling instead of multiplying, and
+     * that result is still the far side.
+     *
+     * Ordering cannot invert here. `max` and `min` are monotone in both
+     * arguments, and the warn floor is always nearer the reading than the
+     * critical one, so a valid pair stays valid and only the caller's own
+     * quantisation collapse can still refuse it.
+     */
+    protected function boundNoTighterThanDerived(
+        ?float $submitted,
+        float $observed,
+        ThresholdDirection $direction,
+        int $multiplier,
+        ?MetricUnit $unit,
+    ): float {
+        $floor = ThresholdQuantiser::quantise(
+            $this->derivedBound($observed, $direction, $multiplier, $unit),
+        );
+
+        if ($submitted === null) {
+            return $floor;
+        }
+
+        return match ($direction) {
+            ThresholdDirection::HighBad => max($submitted, $floor),
+            ThresholdDirection::LowBad => min($submitted, $floor),
+        };
     }
 
     /**

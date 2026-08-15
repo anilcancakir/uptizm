@@ -8,6 +8,7 @@ use App\Enums\IncidentStatus;
 use App\Enums\SignalSource;
 use App\Services\Monitoring\IncidentTitle;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -103,6 +104,24 @@ class Incident extends Model
     public function primaryMonitor(): BelongsTo
     {
         return $this->belongsTo(Monitor::class, 'primary_monitor_id');
+    }
+
+    /**
+     * Narrow to the incidents that still demand operator attention.
+     *
+     * The SQL half of {@see IncidentStatus::isActive()}, reading the terminal
+     * set from the enum so the two cannot drift. Without it "is this one still
+     * open" was answerable only after hydration, and every caller that wanted a
+     * monitor's one active incident loaded that monitor's entire incident
+     * history to find it: unbounded, on a query that runs once per monitor per
+     * check tick.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereNotIn('lifecycle', IncidentStatus::terminalValues());
     }
 
     /**
