@@ -33,4 +33,25 @@ enum IncidentStatus: string
     {
         return $this === self::Resolved;
     }
+
+    /**
+     * The terminal states, as wire values, for a query that has to ask this
+     * question in SQL.
+     *
+     * Derived from {@see self::isTerminal()} rather than listed, so the
+     * predicate has one definition and a new terminal case cannot be added to
+     * one of them and forgotten in the other. It exists because "is this
+     * incident still open" was previously only answerable in PHP, which meant
+     * every caller loaded a monitor's whole incident history to find the one
+     * row it wanted.
+     *
+     * @return list<string>
+     */
+    public static function terminalValues(): array
+    {
+        return array_values(array_map(
+            fn (self $status): string => $status->value,
+            array_filter(self::cases(), fn (self $status): bool => $status->isTerminal()),
+        ));
+    }
 }

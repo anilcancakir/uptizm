@@ -288,13 +288,19 @@ class ThresholdEvaluator
         }
 
         // 2. Scope to the active down incident only (trigger_metric_key NULL).
-        //    Active-ness is the lifecycle enum's own predicate; there is no
-        //    query scope for it, so filter the loaded rows.
+        //    Active-ness is asked in SQL through {@see Incident::scopeActive()},
+        //    which reads the terminal set off the enum; this used to load the
+        //    monitor's entire incident history and filter the hydrated rows.
+        //    Ordered explicitly because a bare `first()` on an unordered query
+        //    lets the plan decide which of two rows wins, and the dedupe that
+        //    makes "two" impossible is a different method's promise.
         $incident = Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->whereNull('trigger_metric_key')
-            ->get()
-            ->first(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+            ->active()
+            ->orderBy('started_at')
+            ->orderBy('id')
+            ->first();
 
         if ($incident === null) {
             return null;
@@ -426,11 +432,15 @@ class ThresholdEvaluator
             ->where('primary_monitor_id', $monitor->id)
             ->where('ai_owned', false)
             ->whereNotNull('trigger_metric_key')
+            ->active()
             ->orderBy('started_at')
             ->orderBy('id')
             ->get()
-            ->first(fn (Incident $incident): bool => $incident->lifecycle->isActive()
-                && $this->metricRunIsOk($monitor, (string) $incident->trigger_metric_key, $length));
+            ->first(fn (Incident $incident): bool => $this->metricRunIsOk(
+                $monitor,
+                (string) $incident->trigger_metric_key,
+                $length,
+            ));
 
         if ($incident === null) {
             return null;
@@ -811,8 +821,10 @@ class ThresholdEvaluator
         return Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->where('trigger_metric_key', $metricKey)
-            ->get()
-            ->first(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+            ->active()
+            ->orderBy('started_at')
+            ->orderBy('id')
+            ->first();
     }
 
     /**
@@ -832,8 +844,8 @@ class ThresholdEvaluator
         return Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->where('ai_owned', false)
-            ->get()
-            ->contains(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+            ->active()
+            ->exists();
     }
 
     /**

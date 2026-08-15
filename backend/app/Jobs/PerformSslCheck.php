@@ -204,8 +204,8 @@ class PerformSslCheck implements ShouldQueue
         return Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->where('trigger_metric_key', self::SSL_TRIGGER_KEY)
-            ->get()
-            ->contains(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+            ->active()
+            ->exists();
     }
 
     /**
@@ -296,8 +296,10 @@ class PerformSslCheck implements ShouldQueue
         $incident = Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->where('trigger_metric_key', self::SSL_TRIGGER_KEY)
-            ->get()
-            ->first(fn (Incident $incident): bool => $incident->lifecycle->isActive());
+            ->active()
+            ->orderBy('started_at')
+            ->orderBy('id')
+            ->first();
 
         if ($incident === null) {
             return;
