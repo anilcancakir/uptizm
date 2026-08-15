@@ -176,8 +176,40 @@ Schedule::job(new RefreshProxySources)
 // region within minutes of `probe_region_health.consecutive_empty_intervals`
 // crossing `config('proxy.health.failure_threshold')`, without re-querying on
 // every 30-second monitor-check tick.
+//
+// Two limits worth stating here rather than leaving a reader to infer that a
+// silent alarm means a healthy fleet. `probe_region_health` is written in
+// exactly one place, `LocalProbeEngine::recordRegionHealth()`, and that engine
+// probes the SYSTEM team's catalog monitors only, so a region reached through
+// the relay never gets a row and can never be alarmed on. And on a deployment
+// with no proxy provider wired, the catalog leaves through
+// `ProxyRegions::directRegion()`, where there is no exit to blame and therefore
+// no refusal at all, so `last_failure_at` stays null and the streak never
+// starts. Both are true of production today: zero proxy rows, one region with a
+// row, and that region on the direct path.
+//
+// Neither is a defect in this job. It watches a proxy pool, and it will start
+// answering the moment there is one.
 Schedule::job(new AlarmDarkProbeRegions)
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->onOneServer()
     ->name('proxy:alarm-dark-regions');
+
+// Drop the failed jobs nobody is going to retry.
+//
+// Laravel ships `queue:prune-failed` and nothing scheduled it, so the table only
+// ever grew: 121 rows on production, none from the last 24 hours, the oldest
+// from a defect fixed weeks ago. A failed job is worth reading while it is fresh
+// and is archaeology after that, and an unbounded table is the kind of thing
+// that is noticed as a disk-space alert rather than as a queue problem.
+//
+// Two weeks, which is longer than the seven days an AI suggestion gets because
+// this is the record of something that BROKE: a fortnight covers a holiday plus
+// the week either side of it. Daily at 04:50, in the same quiet band as the two
+// prunes above and after both, so the nightly housekeeping stays serialised.
+Schedule::command('queue:prune-failed', ['--hours=336'])
+    ->dailyAt('04:50')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('queue:prune-failed');
