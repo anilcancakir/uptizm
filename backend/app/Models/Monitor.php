@@ -150,6 +150,7 @@ class Monitor extends Model
         'incident_threshold' => self::DEFAULT_INCIDENT_THRESHOLD,
         'show_on_status_page' => false,
         'only_show_if_degraded' => false,
+        'follow_redirects' => false,
         'is_group' => false,
         'alert_on_down' => true,
         'alert_on_recover' => true,
@@ -198,6 +199,11 @@ class Monitor extends Model
         'slo_target' => 'float',
         'show_on_status_page' => 'boolean',
         'only_show_if_degraded' => 'boolean',
+        // Opt-in, and honoured only for a customer's own monitor: the catalog
+        // probe never follows a redirect whatever this says, because
+        // `resources/legal/bot.en.md` promises one URL. The promise is kept in
+        // `RelayClient::buildSpec()`.
+        'follow_redirects' => 'boolean',
         'is_group' => 'boolean',
     ];
 

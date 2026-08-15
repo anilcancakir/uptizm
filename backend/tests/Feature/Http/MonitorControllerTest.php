@@ -83,6 +83,51 @@ class MonitorControllerTest extends TestCase
         Queue::assertPushed(PerformMonitorCheck::class, 2);
     }
 
+    /**
+     * The redirect policy survives the write and comes back on the read.
+     *
+     * Its own test rather than a line in the create case above, because this is
+     * the shape a dropped write hides in: a boolean absent from `rules()` or
+     * from the resource looks identical to a boolean the operator left off, and
+     * the monitor quietly keeps measuring the wrong thing. Both halves are
+     * asserted, and the default is asserted too, because "always false" would
+     * pass an assertion that only ever checks the off state.
+     */
+    public function test_the_redirect_policy_round_trips_through_the_api(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $created = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'follow_redirects' => true,
+        ]);
+
+        $created->assertStatus(201);
+        $created->assertJsonPath('data.follow_redirects', true);
+        $this->assertTrue(Monitor::query()->sole()->follow_redirects);
+
+        $updated = $this->patchJson('/api/v1/monitors/'.Monitor::query()->sole()->getKey(), [
+            'follow_redirects' => false,
+        ]);
+
+        $updated->assertStatus(200);
+        $updated->assertJsonPath('data.follow_redirects', false);
+        $this->assertFalse(Monitor::query()->sole()->follow_redirects);
+    }
+
+    public function test_a_monitor_created_without_a_redirect_policy_does_not_follow(): void
+    {
+        // The opt-in half. A default that flipped would change what every
+        // existing monitor measures without anyone asking for it.
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/monitors', $this->validPayload())->assertStatus(201);
+
+        $this->assertFalse(Monitor::query()->sole()->follow_redirects);
+    }
+
     public function test_store_rejects_cloud_metadata_link_local_url(): void
     {
         Queue::fake();

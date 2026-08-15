@@ -88,6 +88,8 @@ type ProbeSpec = {
     assertion_rules: AssertionRule[] | null;
     max_bytes?: number;
     allowed_content_types?: string[];
+    user_agent?: string | null;
+    follow_redirects?: boolean;
 };
 
 /** The payload, as `CheckResult::fromWorkerPayload()` on the origin reads it. */
@@ -152,6 +154,8 @@ function spec(overrides: Partial<ProbeSpec> = {}): ProbeSpec {
         allowed_content_types: [
             "application/json",
         ],
+        user_agent: null,
+        follow_redirects: false,
         ...overrides,
     };
 }
@@ -183,6 +187,7 @@ type SentRequest = {
     url: string;
     headers: Headers;
     body: string;
+    redirect: Request["redirect"];
 };
 
 /**
@@ -219,6 +224,11 @@ function interceptFetch(respond: Responder = NO_FIXTURE): () => SentRequest {
             url: request.url,
             headers: request.headers,
             body: await request.clone().text(),
+            // The redirect MODE, not the redirect behaviour: this spy replaces
+            // `fetch` outright, so the runtime never gets to follow anything.
+            // What the probe controls is the instruction, and that is what a
+            // test at this layer can honestly assert.
+            redirect: request.redirect,
         };
 
         return respond(request);
@@ -656,6 +666,134 @@ describe("an edge refusal is never a verdict about the target", () => {
         expect(result.error_message).toContain(TARGET_HOST);
         expect(result.error_message?.toLowerCase()).not.toContain("consider using fetch");
         expect(result.error_message?.toLowerCase()).not.toContain("proxy request failed");
+    });
+
+    it("treats a bot challenge as a refusal rather than an outage", async () => {
+        // Measured on production: openai.com and claude.ai answer this relay with
+        // 403, `cf-mitigated: challenge` and a 10 KB interactive challenge page,
+        // continuously, while serving browsers perfectly well. Two "is down"
+        // incidents stayed open for seven and a half hours over it.
+        //
+        // A challenge is not a verdict about the service. It is the target's edge
+        // declining to let this probe measure anything, which is precisely what
+        // `probe_refused` already means, and no request header can change it: the
+        // page wants JavaScript executed.
+        interceptFetch(() => new Response("<!DOCTYPE html><html>challenge</html>", {
+            status: 403,
+            headers: {
+                "cf-mitigated": "challenge",
+                "content-type": "text/html; charset=UTF-8",
+            },
+        }));
+
+        const { result } = await runProbe(spec());
+
+        expect(result.probe_refused).toBe(true);
+        expect(result.status).toBe("down");
+
+        // The operator gets the one fact they can act on, and the header is quoted
+        // because it is what makes this a measurement rather than a guess.
+        expect(result.error_message).toContain(TARGET_HOST);
+        expect(result.error_message).toContain("cf-mitigated");
+    });
+
+    it("identifies itself with the user agent the origin publishes", async () => {
+        // `resources/legal/bot.en.md` tells every operator that both clients
+        // "identify themselves with the same string on every request" and that
+        // blocking that string is a supported way to stop us. Only the feed
+        // reader was doing it; the availability check, which is the larger of
+        // the two by a wide margin, sent whatever the runtime defaulted to. The
+        // published page has to be true, and honouring a block (the challenge
+        // branch above) is worth nothing if there is nothing to block.
+        //
+        // It travels on the signed spec rather than being a worker constant for
+        // the reason `max_bytes` does: the origin renders that page from the
+        // same config value, and a second copy here is how the two drift.
+        const sent = interceptFetch(() => new Response("ok", { status: 200 }));
+
+        await runProbe(spec({ user_agent: "UptizmBot/1.0 (+https://uptizm.com/bot)" }));
+
+        expect(sent().headers.get("user-agent")).toBe("UptizmBot/1.0 (+https://uptizm.com/bot)");
+    });
+
+    it("lets a monitor's own user agent win whatever case it is written in", async () => {
+        // A monitor that declares its own User-Agent is describing the request it
+        // wants made, and ours is a default, not an override.
+        //
+        // The casing is the whole test. Header names are case-insensitive on the
+        // wire but a plain object spread is not, so merging `User-Agent` over
+        // `user-agent` produces BOTH keys and `Headers` joins them with a comma:
+        // the target would receive `UptizmBot/1.0, AcmeChecker/2` and match
+        // neither. Going through `Headers.set()` is what makes the override real.
+        const sent = interceptFetch(() => new Response("ok", { status: 200 }));
+
+        await runProbe(spec({
+            user_agent: "UptizmBot/1.0 (+https://uptizm.com/bot)",
+            request_headers: { "User-Agent": "AcmeChecker/2" },
+        }));
+
+        expect(sent().headers.get("user-agent")).toBe("AcmeChecker/2");
+    });
+
+    it("sends no user agent when the spec carries none", async () => {
+        // An origin deployed behind this worker does not send the field, and
+        // inventing a string here would put a second source of truth beside the
+        // published page. Absent is absent.
+        const sent = interceptFetch(() => new Response("ok", { status: 200 }));
+
+        await runProbe(spec({ user_agent: null }));
+
+        expect(sent().headers.get("user-agent")).toBeNull();
+    });
+
+    it("stops at a redirect unless the monitor asked to follow it", async () => {
+        // The default this probe has always had, and the reason it is a default:
+        // a login page answering 302 instead of 200 is a regression, and
+        // following it would publish the login screen as health. `bot.en.md`
+        // also promises a third-party operator that the availability check reads
+        // no other page, and the origin is what keeps a catalog monitor off this
+        // flag; here the rule is simply "honour what the spec says".
+        const sent = interceptFetch(() => new Response(null, {
+            status: 307,
+            headers: { location: "https://target.example/fr" },
+        }));
+
+        const { result } = await runProbe(spec({ follow_redirects: false }));
+
+        expect(sent().redirect).toBe("manual");
+        expect(result.status_code).toBe(307);
+        expect(result.status).toBe("degraded");
+    });
+
+    it("asks the runtime to follow when the monitor said to", async () => {
+        // Measured on production: stripe.com answers the probe with a 307 to a
+        // language-specific path, so a monitor of the homepage read `degraded`
+        // forever while the service was working. Following is opt-in per monitor
+        // because neither answer is right for every one of them.
+        //
+        // Asserted on the REQUEST rather than on a followed response, and that
+        // is not a weaker test, it is the only honest one here: the spy replaces
+        // `fetch`, so workerd never performs the follow. The instruction is what
+        // this probe owns; performing it is the runtime's job.
+        const sent = interceptFetch(() => new Response("ok", { status: 200 }));
+
+        await runProbe(spec({ follow_redirects: true }));
+
+        expect(sent().redirect).toBe("follow");
+    });
+
+    it("keeps a plain 403 a real outage", async () => {
+        // The expensive direction to get wrong. An ordinary 403 is the target
+        // answering, and laundering every one of them into "not our problem" would
+        // silently stop a genuine authorization failure from ever paging anyone.
+        // Only the challenge header earns the refusal.
+        interceptFetch(() => new Response("forbidden", { status: 403 }));
+
+        const { result } = await runProbe(spec());
+
+        expect(result.probe_refused).toBe(false);
+        expect(result.status).toBe("down");
+        expect(result.status_code).toBe(403);
     });
 
     it("records no assertion outcome for a probe that never got a response", async () => {

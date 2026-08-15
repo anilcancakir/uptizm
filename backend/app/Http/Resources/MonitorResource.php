@@ -78,6 +78,7 @@ class MonitorResource extends JsonResource
             'tags' => $this->resource->tags ?? [],
             'show_on_status_page' => (bool) $this->resource->show_on_status_page,
             'only_show_if_degraded' => (bool) $this->resource->only_show_if_degraded,
+            'follow_redirects' => (bool) $this->resource->follow_redirects,
             'alert_on_down' => (bool) $this->resource->alert_on_down,
             'alert_on_recover' => (bool) $this->resource->alert_on_recover,
             'ssl_tracking' => (bool) $this->resource->ssl_tracking,

@@ -54,6 +54,31 @@ type ProbeRequest = {
     auth_config: AuthConfig | null;
 
     /**
+     * Whether a 3xx is a step on the way to the answer or the answer itself.
+     *
+     * Absent or false stops at the redirect, which is what this probe has always
+     * done and is right for a monitor watching one endpoint: a login page
+     * answering 302 instead of 200 is a regression, and following it would
+     * publish the login screen as health.
+     *
+     * The origin decides who may set it. The catalog probe never does, because
+     * `resources/legal/bot.en.md` promises one URL per service; that is enforced
+     * in `RelayClient::buildSpec()` rather than here, so this worker only has to
+     * honour what it is told.
+     */
+    follow_redirects?: boolean;
+
+    /**
+     * The identity string the origin publishes on its bot page, or null from an
+     * origin deployed behind this field.
+     *
+     * Carried on the spec rather than held here so there is one source of truth
+     * for it: the page a target's operator reads renders from the origin's own
+     * config, and a constant in this worker would be a second one.
+     */
+    user_agent?: string | null;
+
+    /**
      * The response assertions this probe evaluates against its own reading.
      *
      * Null, or an empty list, means NO ASSERTIONS, which is a different state
@@ -530,6 +555,76 @@ export class RegionalProbe extends DurableObject<Env> {
  * advice for whoever wrote this worker and means nothing to a customer looking at
  * a monitor. This says what they can actually change.
  */
+/**
+ * The outgoing headers, in the order the last writer should win.
+ *
+ * A `Headers` object rather than an object literal, and that is the whole
+ * reason this is a function. Header names are case-insensitive on the wire but
+ * an object spread is not, so `{...{"user-agent": ours}, ...{"User-Agent":
+ * theirs}}` produces two keys, `Headers` joins them with a comma, and the
+ * target receives `UptizmBot/1.0, AcmeChecker/2` and matches neither.
+ * `Headers.set()` replaces regardless of casing, which is what makes the
+ * precedence below real rather than nominal. It also makes the credential rule
+ * the old comment already stated ("credentials go on last so a monitor cannot
+ * shadow its own Authorization header") true for a hand-written `authorization`
+ * as well as an `Authorization`.
+ *
+ * 1. Our own identity, so `resources/legal/bot.en.md` is true: it tells every
+ *    operator that both clients identify themselves with the same string and
+ *    that blocking it stops us. Honouring a block is worth nothing if there is
+ *    nothing to block. The string travels on the signed spec rather than living
+ *    here, for the reason `max_bytes` does: the origin renders that page from
+ *    the same config value, and a copy here is how the two drift. Absent means
+ *    absent, because an origin older than the field did not ask for one.
+ * 2. The monitor's own headers, which describe the request it wants made and so
+ *    override a default of ours.
+ * 3. The decrypted credentials, which nothing may shadow.
+ */
+function probeHeaders(probe: ProbeRequest): Headers {
+    const headers = new Headers();
+
+    if (probe.user_agent !== null && probe.user_agent !== undefined && probe.user_agent !== "") {
+        headers.set("user-agent", probe.user_agent);
+    }
+
+    for (const [name, value] of Object.entries(probe.request_headers ?? {})) {
+        headers.set(name, value);
+    }
+
+    for (const [name, value] of Object.entries(authHeaders(probe.auth_config))) {
+        headers.set(name, value);
+    }
+
+    return headers;
+}
+
+/**
+ * The operator-facing sentence for a response that is a bot challenge, or null
+ * when the response is an ordinary one.
+ *
+ * Read from the header the challenge declares itself with rather than inferred
+ * from a status code or sniffed out of the body. `cf-mitigated` is Cloudflare's
+ * own signal and it is the difference between a measurement and a guess: a 403
+ * with no such header is the target answering, and must stay a real outage.
+ *
+ * The value is quoted back rather than matched exhaustively. Cloudflare uses
+ * `challenge` today and may add siblings, and any value at all on this header
+ * means the request was mitigated rather than served, which is the property this
+ * branch turns on.
+ */
+function describeBotChallenge(response: Response, probe: ProbeRequest): string | null {
+    const mitigated = response.headers.get("cf-mitigated");
+
+    if (mitigated === null || mitigated.trim() === "") {
+        return null;
+    }
+
+    return `${probeTarget(probe)} served a bot challenge instead of a response `
+        + `(HTTP ${response.status}, cf-mitigated: ${mitigated}). The probe measured `
+        + "nothing about the service, so no check was recorded. Point the monitor at "
+        + "an endpoint the target does not challenge, such as a health or status API.";
+}
+
 function describeEdgeRefusal(probe: ProbeRequest): string {
     return `A TCP check cannot reach ${probeTarget(probe)}: the edge network `
         + "refuses a raw connection to a host it serves over HTTP. Monitor this "
@@ -596,38 +691,66 @@ async function executeProbe(
     } catch (error: unknown) {
         const refused = isRefusedByEdge(error);
 
-        return {
-            result: {
-                monitor_id: probe.monitor_id,
-                probe_run_id: probe.probe_run_id,
-                region: probe.region,
-                checked_at: checkedAt,
-                // A refused probe measured nothing, so it carries no verdict the
-                // API should trust. `down` stays on the wire for older readers,
-                // and `probe_refused` is what the API branches on.
-                status: "down",
-                status_code: null,
-                response_ms: null,
-                error_message: refused
-                    ? describeEdgeRefusal(probe)
-                    : describeProbeFailure(error, probe),
-                timing: emptyTiming(),
-                response_headers: {},
-                response_body_preview: null,
-                colo: "unknown",
-                probe_refused: refused,
-                content: null,
-                content_type: null,
-                content_truncated: false,
-                // A probe that never got a response read nothing to assert
-                // against, so no rule was evaluated. Reporting a failed
-                // assertion here would blame the rules for a connection that
-                // never happened.
-                assertions: null,
-            },
-            colo: "unknown",
-        };
+        return unmeasured(
+            probe,
+            checkedAt,
+            refused ? describeEdgeRefusal(probe) : describeProbeFailure(error, probe),
+            refused,
+        );
     }
+}
+
+/**
+ * The payload for a probe that produced no measurement of the target.
+ *
+ * Shared by the two ways that happens rather than written twice, because the
+ * shape is the load-bearing part: every field here is a deliberate absence, and
+ * a second copy is one field-addition away from disagreeing with this one.
+ *
+ * `status: "down"` stays on the wire for a reader older than the flag; it is
+ * NOT the discriminator. `probe_refused` is, and the origin branches on it
+ * before anything else (`CheckPersistenceService::persist()` step 0), so a
+ * refusal never becomes a check, never advances `consecutive_fails`, and never
+ * pages anyone. `assertions` is null rather than false for the same reason the
+ * catch path always set it so: rules that never ran cannot have failed.
+ *
+ * `statusCode` is null for every caller but the bot challenge, which is the one
+ * non-verdict that arrived WITH a response. Reporting it is not decoration: the
+ * origin's `LocalProbeEngine::recordRegionHealth()` reads a status code on a
+ * refusal as proof that the region's exits carried the request, which separates
+ * "the target would not let us measure" from "our own egress is dark". Both
+ * transports emit the same shape here so that rule cannot depend on which one
+ * ran.
+ */
+function unmeasured(
+    probe: ProbeRequest,
+    checkedAt: string,
+    errorMessage: string,
+    refused: boolean,
+    statusCode: number | null = null,
+): { result: CheckResultPayload; colo: string } {
+    return {
+        result: {
+            monitor_id: probe.monitor_id,
+            probe_run_id: probe.probe_run_id,
+            region: probe.region,
+            checked_at: checkedAt,
+            status: "down",
+            status_code: statusCode,
+            response_ms: null,
+            error_message: errorMessage,
+            timing: emptyTiming(),
+            response_headers: {},
+            response_body_preview: null,
+            colo: "unknown",
+            probe_refused: refused,
+            content: null,
+            content_type: null,
+            content_truncated: false,
+            assertions: null,
+        },
+        colo: "unknown",
+    };
 }
 
 /**
@@ -643,18 +766,32 @@ async function probeHttp(
     const [response, colo] = await Promise.all([
         fetch(probe.url, {
             method: (probe.method ?? "GET").toUpperCase(),
-            // Headers/method may be null when a monitor sets none; fetch()
-            // rejects a null `headers`, so default to an empty object.
-            // Credentials go on last so a monitor cannot accidentally shadow its
-            // own Authorization header with a hand-written one.
-            headers: { ...(probe.request_headers ?? {}), ...authHeaders(probe.auth_config) },
+            headers: probeHeaders(probe),
             body: probe.request_body ?? undefined,
-            redirect: "manual",
+            redirect: probe.follow_redirects === true ? "follow" : "manual",
             signal: AbortSignal.timeout(probe.timeout_seconds * 1000),
         }),
         resolveColo(),
     ]);
     const ttfbAt = Date.now();
+
+    // 1a. A bot challenge is the target's edge declining to let this probe
+    //     measure anything, which is the same non-verdict an edge refusal
+    //     carries and NOT a statement about the service. Measured on
+    //     production: openai.com and claude.ai answered every check with 403,
+    //     `cf-mitigated: challenge` and a 10 KiB interactive page while serving
+    //     browsers perfectly well, and two "is down" incidents stayed open for
+    //     seven and a half hours over it.
+    //
+    //     No request header fixes this, so there is nothing to retry with: the
+    //     page wants JavaScript executed. The header is read rather than the
+    //     status code guessed at, deliberately, because an ordinary 403 IS the
+    //     target answering and laundering every one of them into "not our
+    //     problem" would stop a real authorization failure from ever paging.
+    const challenge = describeBotChallenge(response, probe);
+    if (challenge !== null) {
+        return unmeasured(probe, checkedAt, challenge, true, response.status);
+    }
 
     // 2. Drain the response body ONCE, up to the archive ceiling, and derive
     //    both the 10 KiB preview and the archivable content from that one read.

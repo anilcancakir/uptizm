@@ -141,6 +141,7 @@ class _MonitorEditViewState
             initialBody: monitor.requestBody ?? '',
             initialAiMode: monitor.aiMode,
             initialAiAutoUpdates: monitor.aiAutoUpdates,
+            initialFollowRedirects: monitor.followRedirects,
             initialAlertOnDown: monitor.alertOnDown,
             initialAlertOnRecover: monitor.alertOnRecover,
             submitLabel: trans('uptizm.monitors.form_submit_save'),

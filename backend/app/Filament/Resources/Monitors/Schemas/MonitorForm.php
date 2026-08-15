@@ -169,6 +169,25 @@ class MonitorForm
                             ->maxValue(599)
                             ->placeholder('200')
                             ->dehydrated(fn (mixed $state): bool => filled($state)),
+                        /*
+                         * Off for a catalog monitor, and disabled rather than hidden so
+                         * the reason is on screen instead of being a missing control an
+                         * admin has to go looking for.
+                         *
+                         * This is the UI half of the rule; the guarantee lives in
+                         * `RelayClient::buildSpec()`, which forces false for a
+                         * system-team monitor whatever the column holds. Both exist
+                         * because they answer different questions: this one stops an
+                         * admin writing a value that would be ignored, and that one
+                         * keeps `resources/legal/bot.en.md` true against a seeder, a
+                         * console write or an importer that never sees this form.
+                         */
+                        Toggle::make('follow_redirects')
+                            ->label('Follow redirects')
+                            ->helperText(fn (?Monitor $record): string => static::isCatalogMonitor($record)
+                                ? 'Unavailable for catalog monitors: the published bot policy promises one URL per service.'
+                                : 'Off records the 3xx itself, which is right when a redirect would be a regression.')
+                            ->disabled(fn (?Monitor $record): bool => static::isCatalogMonitor($record)),
                         Select::make('regions')
                             ->label('Probe regions')
                             ->multiple()
@@ -296,6 +315,20 @@ class MonitorForm
                             ->label('Only show when degraded'),
                     ]),
             ]);
+    }
+
+    /**
+     * Whether this record is one of the catalog's own monitors.
+     *
+     * Read through the team relation rather than a config value or an id list,
+     * for the reason `LocalProbeEngine::assertSystemOwned()` states: it is the
+     * same answer the probe path already trusts. A record with no team, which is
+     * every create form, is not a catalog monitor, so the toggle is available
+     * where a new customer monitor is being written.
+     */
+    protected static function isCatalogMonitor(?Monitor $record): bool
+    {
+        return $record?->team?->is_system === true;
     }
 
     /**

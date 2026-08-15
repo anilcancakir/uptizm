@@ -489,6 +489,8 @@
       "form_body_placeholder": "{ \"ping\": true }",
       "form_timeout_label": "Zaman aşımı",
       "form_timeout_hint": "Bir kontrolün başarısız sayılmasından önceki saniye sayısı.",
+      "form_follow_redirects_label": "Yönlendirmeleri takip et",
+      "form_follow_redirects_hint": "Kapalıyken yönlendirmenin kendisi kaydedilir; bir 3xx zaten bir gerileme demekse doğrusu budur.",
       "form_submit_create": "İzleyici oluştur",
       "form_submit_save": "Değişiklikleri kaydet",
       "form_cancel": "İptal",

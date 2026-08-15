@@ -489,6 +489,8 @@
       "form_body_placeholder": "{ \"ping\": true }",
       "form_timeout_label": "Timeout",
       "form_timeout_hint": "Seconds before a check counts as failed.",
+      "form_follow_redirects_label": "Follow redirects",
+      "form_follow_redirects_hint": "Off records the redirect itself, which is right when a 3xx would be a regression.",
       "form_submit_create": "Create monitor",
       "form_submit_save": "Save changes",
       "form_cancel": "Cancel",

@@ -265,6 +265,13 @@ class StoreMonitorRequest extends FormRequest
             'show_on_status_page' => [
                 'boolean',
             ],
+            // Whether a 3xx is the answer or a step on the way to it. Neither is
+            // right for every monitor: a login page answering 302 instead of 200
+            // is a regression, and a homepage behind a geo redirect is working.
+            // Opt-in, so no existing monitor changes what it measures.
+            'follow_redirects' => [
+                'boolean',
+            ],
             'only_show_if_degraded' => [
                 'boolean',
             ],

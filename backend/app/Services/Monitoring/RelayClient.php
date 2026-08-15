@@ -113,6 +113,24 @@ class RelayClient implements ProbeTransport
             'expected_status_code' => $monitor->expected_status_code,
             'auth_config' => $monitor->auth_config,
             'assertion_rules' => $monitor->assertion_rules,
+            // A monitor's own answer to "is a 3xx the answer or a step on the way
+            // to it", EXCEPT for the catalog, which never follows one whatever
+            // its column says.
+            //
+            // The exception is a published promise rather than a preference:
+            // `resources/legal/bot.en.md` tells every third-party operator that
+            // the availability check requests one URL and reads no other page,
+            // and a followed redirect is a second request to a second URL. It is
+            // enforced here, at the one place the value reaches the wire, so a
+            // seeder, a console write, the admin panel or a future importer
+            // cannot make that page untrue by writing the column.
+            //
+            // A customer's own monitor is a different relationship: they gave us
+            // the URL and they own what is behind it, so the page does not speak
+            // for them and their toggle is honoured.
+            'follow_redirects' => $monitor->team?->is_system === true
+                ? false
+                : (bool) $monitor->follow_redirects,
             'probe_run_id' => (string) Str::uuid(),
             // The body ceiling and the content-type allowlist travel on the
             // signed spec because the worker cannot read Laravel config. A
@@ -124,6 +142,13 @@ class RelayClient implements ProbeTransport
             // is sent verbatim, order and shape intact.
             'max_bytes' => (int) config('content-archive.max_bytes'),
             'allowed_content_types' => config('content-archive.allowed_content_types'),
+            // Our identity, on the spec for the same reason the two above are:
+            // `resources/legal/bot.en.md` renders this exact config value and
+            // tells every operator that blocking it stops us, so a copy held in
+            // the worker would be the one place that page could quietly become
+            // untrue. The monitor's own `request_headers` still override it at
+            // the edge; this is the default, not a signature.
+            'user_agent' => (string) config('uptizm.bot_user_agent'),
         ];
     }
 }
