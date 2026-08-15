@@ -589,10 +589,19 @@ curl -s -o /dev/null -w '%{http_code} %{content_type}\n' \
   https://admin.uptizm.com/livewire/livewire.min.js
 ```
 
-`200 application/javascript` is the pass. A `404 text/html` is nginx serving its
-own error page, which means the static-asset location in the vhost lost its
-`try_files $uri @octane` and every Livewire page on this box is inert. Check the
-nginx error log rather than the application log; the application was never asked:
+A **200 with a JavaScript content type** is the pass, and read the status first:
+the type carries a charset (`application/javascript; charset=utf-8` when this was
+written) and matching that string exactly is how a verification step starts
+failing on a server that spells it differently.
+
+A `404 text/html` is the failure, and the SIZE tells you who answered. nginx's own
+error page is about 150 bytes; Laravel's is a few kilobytes. A small one means the
+static-asset location in the vhost lost its `try_files $uri @octane` and every
+Livewire page on this box is inert. A large one is Laravel answering, which is a
+different problem and a much smaller one.
+
+Check the nginx error log rather than the application log; on the nginx failure
+the application was never asked:
 
 ```
 openat() ".../public/livewire/livewire.min.js" failed (2: No such file or directory)
