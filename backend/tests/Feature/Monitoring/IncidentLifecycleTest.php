@@ -382,7 +382,11 @@ class IncidentLifecycleTest extends TestCase
         return new CheckResult(
             monitorId: (string) $monitor->id,
             region: 'us-east-1',
-            checkedAt: $checkedAt ?? new DateTimeImmutable,
+            // `now()` and not `new DateTimeImmutable`, so a test that freezes the
+            // clock governs every check it writes rather than only the ones it
+            // stamps by hand. Identical outside time travel, where `now()` is
+            // the real clock, and it keeps a travelled test from mixing two.
+            checkedAt: $checkedAt ?? now()->toDateTimeImmutable(),
             status: $status,
             statusCode: $status === MonitorStatus::Up ? 200 : 503,
             responseMs: 128,
