@@ -45,21 +45,35 @@ class StaffGateTest extends TestCase
      */
     protected const STAFF_EMAIL = 'ops@uptizm.com';
 
-    public function test_an_allowlisted_verified_user_with_a_confirmed_second_factor_may_access_the_panel(): void
+    public function test_an_allowlisted_verified_user_may_access_the_panel(): void
     {
         $this->allowlist([self::STAFF_EMAIL]);
 
         $this->assertTrue($this->staffUser()->canAccessPanel($this->panel()));
     }
 
-    public function test_an_allowlisted_verified_user_without_a_confirmed_second_factor_is_denied(): void
+    /**
+     * A second factor is NOT required, and this test is the record of that being
+     * a decision rather than an omission.
+     *
+     * The gate asked for a confirmed second factor until 2026-08-15 and no
+     * longer does. What remains in front of a console with cross-team CRUD, on a
+     * login page reachable from the public internet, is the allowlist, a
+     * verified address and a password, so a leaked password is now enough on its
+     * own. That is accepted while the account surface is reworked, and restoring
+     * it is one condition on the gate plus this test flipping back.
+     */
+    public function test_a_confirmed_second_factor_is_not_required(): void
     {
         $this->allowlist([self::STAFF_EMAIL]);
 
         $user = $this->staffUser();
-        $user->forceFill(['two_factor_confirmed_at' => null])->save();
+        $user->forceFill([
+            'two_factor_secret' => null,
+            'two_factor_confirmed_at' => null,
+        ])->save();
 
-        $this->assertFalse($user->canAccessPanel($this->panel()));
+        $this->assertTrue($user->canAccessPanel($this->panel()));
     }
 
     public function test_a_user_absent_from_the_allowlist_is_denied(): void
@@ -108,29 +122,6 @@ class StaffGateTest extends TestCase
         $user = $this->staffUser(['email' => 'Ops@UPTIZM.com']);
 
         $this->assertTrue($user->canAccessPanel($this->panel()));
-    }
-
-    public function test_a_secret_without_a_confirmation_is_not_a_second_factor(): void
-    {
-        /*
-         * `EnableTwoFactorAuthentication` writes `two_factor_secret` and NULLS
-         * `two_factor_confirmed_at`; only `ConfirmTwoFactorAuthentication` sets the
-         * latter. So this row is a setup that was started and abandoned, and it
-         * must not pass. This asserts the MEANING of the signal rather than the
-         * call: the helper the gate uses is named `hasEnabledTwoFactorAuthentication()`
-         * and lives in a sibling package we bump ourselves, so an upgrade
-         * repointing it at the secret would surface here instead of quietly
-         * widening the gate.
-         */
-        $this->allowlist([self::STAFF_EMAIL]);
-
-        $user = $this->staffUser();
-        $user->forceFill([
-            'two_factor_secret' => encrypt('JBSWY3DPEHPK3PXP'),
-            'two_factor_confirmed_at' => null,
-        ])->save();
-
-        $this->assertFalse($user->canAccessPanel($this->panel()));
     }
 
     public function test_a_user_with_no_address_is_denied_even_against_an_empty_allowlist_entry(): void
