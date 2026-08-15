@@ -123,18 +123,28 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
      * sides are normalised again here. That is deliberate duplication, not
      * distrust of the config file.
      *
-     * WHICH SECOND-FACTOR SIGNAL, AND WHY NOT THE OTHERS
+     * NO SECOND FACTOR, AND WHAT THAT COSTS
      *
-     * `hasEnabledTwoFactorAuthentication()` reads `two_factor_confirmed_at`, which
-     * is the only signal meaning CONFIRMED. `two_factor_secret` is weaker by a
-     * wide margin: `EnableTwoFactorAuthentication` writes the secret and NULLS the
-     * confirmation, and only `ConfirmTwoFactorAuthentication` sets it, so a secret
-     * on its own describes a setup that was started and abandoned. The helper's
-     * name says "enabled" while its body means "confirmed", and it lives in a
-     * sibling package we bump ourselves, so
-     * `StaffGateTest::test_a_secret_without_a_confirmation_is_not_a_second_factor()`
-     * pins the meaning rather than the call: an upgrade repointing that helper at
-     * the secret would go red there instead of quietly widening this gate.
+     * This gate required a CONFIRMED second factor until 2026-08-15. It was
+     * removed deliberately, not lost, while the account surface is reworked.
+     *
+     * Be clear about the trade. This panel's login page is reachable from the
+     * public internet on its own subdomain, and behind it is cross-team CRUD
+     * over every user and every monitor. What is left in front of that is the
+     * allowlist, a verified address and a password, so a single leaked or
+     * reused password is now enough by itself: the allowlist says WHO may try,
+     * and nothing says the person trying is them. A second factor was the only
+     * control here that survived a password compromise.
+     *
+     * Restoring it is one condition:
+     *
+     *     return $this->hasVerifiedEmail() && $this->hasEnabledTwoFactorAuthentication();
+     *
+     * and flipping `StaffGateTest::test_a_confirmed_second_factor_is_not_required()`
+     * back. If it is restored, read `two_factor_confirmed_at` and nothing else:
+     * `EnableTwoFactorAuthentication` writes `two_factor_secret` and NULLS the
+     * confirmation, and only `ConfirmTwoFactorAuthentication` sets it, so a
+     * secret on its own describes a setup that was started and abandoned.
      *
      * THE ONE HOLE IN "VERIFIED", AND WHAT CLOSES IT
      *
@@ -176,7 +186,7 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
             return false;
         }
 
-        // 4. A verified address and a CONFIRMED second factor, both required.
-        return $this->hasVerifiedEmail() && $this->hasEnabledTwoFactorAuthentication();
+        // 4. A verified address. NOT a second factor: see the docblock.
+        return $this->hasVerifiedEmail();
     }
 }

@@ -83,8 +83,11 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
  *
  * `->login()` below admits any user Filament can authenticate, so this file on its
  * own gates nothing. The control is `User::canAccessPanel()`, which requires all
- * three of: membership of `config('uptizm.staff_emails')`, a verified address, and a
- * CONFIRMED second factor. Filament calls it from
+ * four of: the request being for THIS panel, a non-empty address once normalised,
+ * membership of `config('uptizm.staff_emails')`, and a verified address. It
+ * required a confirmed second factor until 2026-08-15; that method's docblock
+ * carries what removing it costs and what restoring it takes. Filament calls it
+ * from
  * `Filament\Http\Middleware\Authenticate`, and that middleware falls back to
  * `config('app.env') !== 'local'` when the user model does not implement
  * `FilamentUser`, which would admit every authenticated user on a dev box and

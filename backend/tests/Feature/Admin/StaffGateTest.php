@@ -13,9 +13,15 @@ use Tests\TestCase;
  *
  * The panel's login page answers publicly on `config('uptizm.admin_host')` and the
  * console behind it carries cross-team CRUD over every user, team and monitor, so
- * this gate is the whole of the access control. Three conditions must ALL hold: the
- * address is in `config('uptizm.staff_emails')`, the address is verified, and a
- * second factor is CONFIRMED.
+ * this gate is the whole of the access control. Four conditions must ALL hold: the
+ * request is for the staff panel, the address is non-empty once normalised, the
+ * address is in `config('uptizm.staff_emails')`, and the address is verified.
+ *
+ * A CONFIRMED second factor was a fifth until 2026-08-15 and is not one now. That
+ * removal is deliberate and `test_a_confirmed_second_factor_is_not_required()` is
+ * its record; `User::canAccessPanel()` carries what it costs and what restoring it
+ * takes. With it gone, a leaked password is enough on its own, so the four above
+ * are load-bearing in a way they were not before.
  *
  * WHY THE ALLOW CASE COMES FIRST IN THIS FILE
  *
@@ -25,16 +31,18 @@ use Tests\TestCase;
  * either direction and this suite goes red, rather than only in the direction that
  * locks staff out.
  *
- * WHAT IS PINNED BEYOND THE FOUR REQUIRED BRANCHES
+ * WHAT IS PINNED BEYOND THE REQUIRED BRANCHES
  *
- * Three properties that are easy to lose silently and expensive to lose at all:
- * that an unverified address is refused (none of the four branches covers the
- * second condition on its own); that a two-factor SECRET without a confirmation is
- * not a second factor, which pins the meaning of the sibling package's
- * `hasEnabledTwoFactorAuthentication()` rather than the fact that it is called; and
+ * Two properties that are easy to lose silently and expensive to lose at all: that
+ * an unverified address is refused, which no other branch covers on its own; and
  * that a user with no address is refused even when the allowlist carries an empty
  * entry, which is the branch keeping a guest out given that `hasVerifiedEmail()`
  * returns true for one.
+ *
+ * A third used to live here, pinning that a two-factor SECRET without a
+ * confirmation is not a second factor. It guarded the MEANING of the sibling
+ * package's `hasEnabledTwoFactorAuthentication()` rather than the fact that it was
+ * called, and it went with the condition that called it.
  */
 class StaffGateTest extends TestCase
 {
@@ -45,21 +53,35 @@ class StaffGateTest extends TestCase
      */
     protected const STAFF_EMAIL = 'ops@uptizm.com';
 
-    public function test_an_allowlisted_verified_user_with_a_confirmed_second_factor_may_access_the_panel(): void
+    public function test_an_allowlisted_verified_user_may_access_the_panel(): void
     {
         $this->allowlist([self::STAFF_EMAIL]);
 
         $this->assertTrue($this->staffUser()->canAccessPanel($this->panel()));
     }
 
-    public function test_an_allowlisted_verified_user_without_a_confirmed_second_factor_is_denied(): void
+    /**
+     * A second factor is NOT required, and this test is the record of that being
+     * a decision rather than an omission.
+     *
+     * The gate asked for a confirmed second factor until 2026-08-15 and no
+     * longer does. What remains in front of a console with cross-team CRUD, on a
+     * login page reachable from the public internet, is the allowlist, a
+     * verified address and a password, so a leaked password is now enough on its
+     * own. That is accepted while the account surface is reworked, and restoring
+     * it is one condition on the gate plus this test flipping back.
+     */
+    public function test_a_confirmed_second_factor_is_not_required(): void
     {
         $this->allowlist([self::STAFF_EMAIL]);
 
         $user = $this->staffUser();
-        $user->forceFill(['two_factor_confirmed_at' => null])->save();
+        $user->forceFill([
+            'two_factor_secret' => null,
+            'two_factor_confirmed_at' => null,
+        ])->save();
 
-        $this->assertFalse($user->canAccessPanel($this->panel()));
+        $this->assertTrue($user->canAccessPanel($this->panel()));
     }
 
     public function test_a_user_absent_from_the_allowlist_is_denied(): void
@@ -108,29 +130,6 @@ class StaffGateTest extends TestCase
         $user = $this->staffUser(['email' => 'Ops@UPTIZM.com']);
 
         $this->assertTrue($user->canAccessPanel($this->panel()));
-    }
-
-    public function test_a_secret_without_a_confirmation_is_not_a_second_factor(): void
-    {
-        /*
-         * `EnableTwoFactorAuthentication` writes `two_factor_secret` and NULLS
-         * `two_factor_confirmed_at`; only `ConfirmTwoFactorAuthentication` sets the
-         * latter. So this row is a setup that was started and abandoned, and it
-         * must not pass. This asserts the MEANING of the signal rather than the
-         * call: the helper the gate uses is named `hasEnabledTwoFactorAuthentication()`
-         * and lives in a sibling package we bump ourselves, so an upgrade
-         * repointing it at the secret would surface here instead of quietly
-         * widening the gate.
-         */
-        $this->allowlist([self::STAFF_EMAIL]);
-
-        $user = $this->staffUser();
-        $user->forceFill([
-            'two_factor_secret' => encrypt('JBSWY3DPEHPK3PXP'),
-            'two_factor_confirmed_at' => null,
-        ])->save();
-
-        $this->assertFalse($user->canAccessPanel($this->panel()));
     }
 
     public function test_a_user_with_no_address_is_denied_even_against_an_empty_allowlist_entry(): void
@@ -255,8 +254,13 @@ class StaffGateTest extends TestCase
     }
 
     /**
-     * A user that satisfies all three conditions, before the case at hand breaks
+     * A user that satisfies every condition, before the case at hand breaks
      * exactly one of them.
+     *
+     * It still carries a confirmed second factor, which the gate no longer reads.
+     * That is deliberate: the fixture stays a fully-provisioned staff account, so
+     * `test_a_confirmed_second_factor_is_not_required()` has to clear the columns
+     * itself and therefore states what it is testing instead of inheriting it.
      *
      * `two_factor_confirmed_at` is force-filled because it is not mass assignable,
      * which is the same reason `ConfirmTwoFactorAuthentication` force-fills it.
