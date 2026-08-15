@@ -21,6 +21,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\IncidentTitle;
 use App\Services\Monitoring\ThresholdEvaluator;
+use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -407,6 +408,64 @@ class ThresholdEvaluatorTest extends TestCase
 
         $this->assertNull($outcome['resolved']);
         $this->assertTrue(Incident::query()->sole()->lifecycle->isActive());
+    }
+
+    /**
+     * The metric half of the same second-boundary defect, and it reaches further
+     * than the down lane's because a metric incident is the only kind that can
+     * be reopened on a reading nobody looked at.
+     *
+     * `resolveRecoveredMetricIncident()` stamps `resolved_at` with `now()` after
+     * `CheckPersistenceService` has already written the ok samples, so the
+     * reading that CAUSED the resolve is always a moment older than the resolve
+     * itself. A `recorded_at >= resolved_at` query therefore found it only while
+     * the two landed in one second. Past that boundary the metric would read as
+     * never having recovered, and the next breach would reopen the closed
+     * incident instead of opening its own.
+     */
+    public function test_a_metric_recovery_survives_a_second_boundary(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 1);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        // On a clock this test controls, so every stamp is a fact rather than a
+        // race with the second hand.
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:10'));
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $opened = Incident::query()->sole();
+
+        // The metric comes back. Both ok readings are stamped BEFORE the resolve
+        // they trigger, which is the ordering production always has: the samples
+        // are persisted, then the evaluator runs and calls `now()`.
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:11'));
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok);
+
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:12'));
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok);
+
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:13'));
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 12.0], []);
+
+        $resolved = Incident::query()->sole();
+        $this->assertSame($opened->getKey(), $resolved->getKey());
+        $this->assertNotNull($resolved->resolved_at);
+        $this->assertTrue(
+            $resolved->resolved_at->greaterThan(new DateTimeImmutable('2026-08-15 12:00:12')),
+            'the fixture is only meaningful while the resolve is stamped after the readings that caused it',
+        );
+
+        // And it breaks again a minute later, inside the reopen window. It
+        // recovered, so this is a second episode.
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:01:13'));
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(
+            2,
+            Incident::query()->count(),
+            'a metric that came back is a new outage when it breaks again, whichever second the resolve landed in',
+        );
     }
 
     /**

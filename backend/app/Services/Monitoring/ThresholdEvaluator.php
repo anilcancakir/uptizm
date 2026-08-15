@@ -905,8 +905,8 @@ class ThresholdEvaluator
     }
 
     /**
-     * Whether the thing that broke was seen working again since [$candidate]
-     * was resolved.
+     * Whether the thing that broke was seen working again, at or since the
+     * moment [$candidate] closed.
      *
      * The two branches ask different questions of different tables, and neither
      * substitutes for the other. A down incident recovers when a check comes
@@ -914,15 +914,64 @@ class ThresholdEvaluator
      * which a check's own status cannot answer: the monitor stays `up` through
      * the whole thing, because a service reporting `degraded` in a healthy 200
      * is exactly the case metric incidents exist for.
+     *
+     * ## Why each branch asks twice
+     *
+     * "Since" alone was wrong, and wrong in a way that looked right for months.
+     * An AUTO-resolve is caused by the healthy reading, so that reading is
+     * written BEFORE `resolved_at` is stamped: `CheckPersistenceService` writes
+     * the check, then {@see self::resolveIfRecovered()} calls `now()`. Laravel
+     * stores both truncated to the second, so a `>= resolved_at` query found
+     * the causing reading only while the two writes landed inside one second,
+     * and missed it whenever they straddled a boundary.
+     *
+     * The consequence was not cosmetic. A monitor that genuinely recovered,
+     * auto-resolved, and then failed again inside the reopen window had its
+     * CLOSED incident reopened instead of opening a second one, so two distinct
+     * outages shared one timeline and one postmortem. It surfaced as a test that
+     * failed once under `--parallel`, which is only where the straddle is likely.
+     *
+     * So each branch first asks whether the thing was already healthy AT the
+     * moment it closed, which is the auto-resolve's whole premise and is what a
+     * timestamp comparison cannot see, and only then whether it has been healthy
+     * since, which is the manual-resolve case this method was written for. Both
+     * are needed: an operator who resolves a still-failing monitor answers no to
+     * the first and yes to the second only once it actually comes back.
      */
     protected function recoveredSince(Monitor $monitor, Incident $candidate, ?string $metricKey): bool
     {
         if ($metricKey === null) {
+            $healthyWhenClosed = MonitorCheck::query()
+                ->where('monitor_id', $monitor->id)
+                ->where('checked_at', '<=', $candidate->resolved_at)
+                ->orderByDesc('checked_at')
+                ->orderByDesc('id')
+                ->value('status');
+
+            // Compared against the CASE and not its value: Eloquent's
+            // `value()` hydrates a model and reads the attribute, so the cast
+            // has already run and a string comparison here is always false.
+            if ($healthyWhenClosed === MonitorStatus::Up) {
+                return true;
+            }
+
             return MonitorCheck::query()
                 ->where('monitor_id', $monitor->id)
                 ->where('checked_at', '>=', $candidate->resolved_at)
                 ->where('status', MonitorStatus::Up)
                 ->exists();
+        }
+
+        $healthyWhenClosed = MonitorMetricValue::query()
+            ->where('monitor_id', $monitor->id)
+            ->where('metric_key', $metricKey)
+            ->where('recorded_at', '<=', $candidate->resolved_at)
+            ->orderByDesc('recorded_at')
+            ->orderByDesc('id')
+            ->value('band');
+
+        if ($healthyWhenClosed === MetricBand::Ok) {
+            return true;
         }
 
         return MonitorMetricValue::query()

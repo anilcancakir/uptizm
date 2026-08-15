@@ -213,6 +213,64 @@ class IncidentLifecycleTest extends TestCase
         );
     }
 
+    /**
+     * The same recovery, with the check and the resolve on opposite sides of a
+     * second boundary. Same outcome required.
+     *
+     * This is not a contrived clock. The two timestamps come from two separate
+     * reads: `CheckPersistenceService` writes the check with the probe's own
+     * `checked_at`, and `resolveIfRecovered()` stamps `resolved_at` with `now()`
+     * afterwards, inside the same lock. Laravel stores both truncated to the
+     * SECOND, so `checked_at >= resolved_at` held only while the two landed in
+     * the same second, and flipped whenever they straddled one.
+     *
+     * That flip is not a test artefact. In production it merges two distinct
+     * outages into one: the monitor recovered, the incident auto-resolved, and
+     * the next failure reopened the closed incident instead of opening its own,
+     * taking the first one's timeline and postmortem with it. It surfaced here
+     * first only because `--parallel` makes the straddle likely.
+     */
+    public function test_a_recovery_is_a_recovery_across_a_second_boundary(): void
+    {
+        Notification::fake();
+        [$monitor] = $this->makeMonitor();
+        $service = $this->service();
+
+        // The outage, then the recovery, on a clock this test controls so the
+        // straddle is a fact rather than a race. Every check keeps its natural
+        // order; only the RESOLVE lands in the following second, which is what
+        // happens when the two writes fall either side of a boundary.
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:10'));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-1', status: MonitorStatus::Down, checkedAt: now()->toDateTimeImmutable()));
+
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:11'));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-2', status: MonitorStatus::Down, checkedAt: now()->toDateTimeImmutable()));
+
+        // The recovery reading is stamped here, and `resolveIfRecovered()` calls
+        // `now()` a moment later, on the other side of the second.
+        $recoveredAt = new DateTimeImmutable('2026-08-15 12:00:12');
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:13'));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'up-1', status: MonitorStatus::Up, checkedAt: $recoveredAt));
+
+        $incident = Incident::query()->sole();
+        $this->assertNotNull($incident->resolved_at, 'the recovery closed it');
+        $this->assertTrue(
+            $incident->resolved_at->greaterThan($recoveredAt),
+            'the fixture is only meaningful while the resolve is stamped after the reading that caused it',
+        );
+
+        $this->travelTo(new DateTimeImmutable('2026-08-15 12:00:20'));
+
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-5', status: MonitorStatus::Down));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-6', status: MonitorStatus::Down));
+
+        $this->assertSame(
+            2,
+            Incident::query()->count(),
+            'a recovery is a recovery whichever side of a second it was written on',
+        );
+    }
+
     public function test_an_automated_open_queues_the_autonomous_update(): void
     {
         // The hook started beside `IncidentWriteService::dispatchOpened()`, which
@@ -315,12 +373,20 @@ class IncidentLifecycleTest extends TestCase
     /**
      * Build a CheckResult carrying the given status for a direct persist call.
      */
-    protected function makeResult(Monitor $monitor, string $probeRunId, MonitorStatus $status): CheckResult
-    {
+    protected function makeResult(
+        Monitor $monitor,
+        string $probeRunId,
+        MonitorStatus $status,
+        ?DateTimeImmutable $checkedAt = null,
+    ): CheckResult {
         return new CheckResult(
             monitorId: (string) $monitor->id,
             region: 'us-east-1',
-            checkedAt: new DateTimeImmutable,
+            // `now()` and not `new DateTimeImmutable`, so a test that freezes the
+            // clock governs every check it writes rather than only the ones it
+            // stamps by hand. Identical outside time travel, where `now()` is
+            // the real clock, and it keeps a travelled test from mixing two.
+            checkedAt: $checkedAt ?? now()->toDateTimeImmutable(),
             status: $status,
             statusCode: $status === MonitorStatus::Up ? 200 : 503,
             responseMs: 128,
