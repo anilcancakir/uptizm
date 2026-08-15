@@ -82,8 +82,9 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
  * WHERE THE ACCESS CONTROL ACTUALLY LIVES, WHICH IS NOT HERE
  *
  * `->login()` below admits any user Filament can authenticate, so this file on its
- * own gates nothing. The control is `User::canAccessPanel()`, which requires both
- * of: membership of `config('uptizm.staff_emails')` and a verified address. It
+ * own gates nothing. The control is `User::canAccessPanel()`, which requires all
+ * four of: the request being for THIS panel, a non-empty address once normalised,
+ * membership of `config('uptizm.staff_emails')`, and a verified address. It
  * required a confirmed second factor until 2026-08-15; that method's docblock
  * carries what removing it costs and what restoring it takes. Filament calls it
  * from
