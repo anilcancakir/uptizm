@@ -76,13 +76,28 @@ class ScheduleTest extends TestCase
      * a task registered without one would surface as an empty string rather than
      * being silently skipped.
      *
+     * The emptiness check is not defensive padding. An empty schedule, which is
+     * what `routes/console.php` failing to load looks like, makes
+     * {@see self::test_no_task_is_scheduled_without_a_line_in_this_file()}
+     * VACUOUSLY true: `array_diff([], ...)` is `[]`. Its sibling would still go
+     * red, but it would say "monitoring:schedule-checks is not scheduled" and
+     * send a reader looking for a deleted task instead of a schedule that never
+     * loaded. Asserting it here names the real cause in both tests at once.
+     *
      * @return list<string>
      */
     private function registeredTaskNames(): array
     {
-        return array_map(
+        $names = array_map(
             fn ($event): string => (string) $event->description,
             $this->app->make(Schedule::class)->events(),
         );
+
+        $this->assertNotEmpty(
+            $names,
+            'The scheduler holds no events at all, so routes/console.php did not load in this context.',
+        );
+
+        return $names;
     }
 }
