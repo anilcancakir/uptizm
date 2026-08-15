@@ -11,6 +11,14 @@ return [
     | the worker verifies, then dispatches into the DO that matches
     | the payload's `region` field.
     |
+    | There is deliberately no region list here. Which regions exist is the
+    | `MonitorRegion` enum's answer and nothing else's: it is what
+    | `RelayClient::dispatch()` validates against, what the monitor write path
+    | validates against, and what the landing page counts. A `regions` key used
+    | to sit here, was read by nothing, and listed two of the five the enum
+    | carries, so anyone who trusted it would have concluded that the region
+    | production probes every minute was unsupported.
+    |
     */
 
     'secret' => env('RELAY_SECRET'),
@@ -22,15 +30,6 @@ return [
     | https://uptizm-regional-checker.<subdomain>.workers.dev).
     */
     'url' => env('RELAY_URL', 'http://localhost:8787'),
-
-    /*
-    | Canonical list of regions (demo: 2-region set).
-    | Full constellation (5 regions): us-east, us-west, eu-west, eu-central, ap
-    */
-    'regions' => [
-        'us-east',
-        'eu-west',
-    ],
 
     /*
     | HMAC header names and replay window.
