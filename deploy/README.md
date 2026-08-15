@@ -577,6 +577,36 @@ ones, since the build swaps the file in and out:
 curl -s https://app.uptizm.com/assets/.env | grep -E 'API_URL|BROADCAST_CONNECTION'
 ```
 
+**The admin panel** is the case that proves why a 200 is not evidence. It lives on
+its own hostname (`admin.uptizm.com`, from `AdminPanelProvider`'s `->domain()`),
+and a broken one still returns 200 with a complete login page: the HTML renders,
+the CSS loads, every Filament script loads, and the panel is simply dead, because
+Livewire's own script is a ROUTE rather than a file and nginx can answer it before
+the application ever sees it. Ask for that one asset by name:
+
+```bash
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' \
+  https://admin.uptizm.com/livewire/livewire.min.js
+```
+
+A **200 with a JavaScript content type** is the pass, and read the status first:
+the type carries a charset (`application/javascript; charset=utf-8` when this was
+written) and matching that string exactly is how a verification step starts
+failing on a server that spells it differently.
+
+A `404 text/html` is the failure, and the SIZE tells you who answered. nginx's own
+error page is about 150 bytes; Laravel's is a few kilobytes. A small one means the
+static-asset location in the vhost lost its `try_files $uri @octane` and every
+Livewire page on this box is inert. A large one is Laravel answering, which is a
+different problem and a much smaller one.
+
+Check the nginx error log rather than the application log; on the nginx failure
+the application was never asked:
+
+```
+openat() ".../public/livewire/livewire.min.js" failed (2: No such file or directory)
+```
+
 **The edge** answers only a signed spec, so sign one. Run it ON the box so
 `RELAY_SECRET` never leaves it: read `RELAY_URL` and `RELAY_SECRET` from
 `backend/.env`, sign `${timestamp}.${body}` with HMAC-SHA256, and POST to
