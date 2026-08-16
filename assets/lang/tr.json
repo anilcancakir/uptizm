@@ -884,6 +884,7 @@
       "suggested_actions": "Önerilen eylemler",
       "open_incident": "Olay aç",
       "dismiss": "Yoksay",
+      "unconfirmed": "Model bunu gerçek bir sapma olarak görmedi",
       "anomaly_dismissed_title": "Anormallik yoksayıldı",
       "anomaly_dismissed_description": "\":reason\" olarak işaretlendi. Uptizm bunu gelecekteki tespitlerde dikkate alır.",
       "right_now_label": "Şu anda",

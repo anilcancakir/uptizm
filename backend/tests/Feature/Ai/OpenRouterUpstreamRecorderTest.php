@@ -105,6 +105,12 @@ class OpenRouterUpstreamRecorderTest extends TestCase
      * A complete chat completion, structured-output content included, for the one
      * test that drives a real gateway rather than a bare HTTP call.
      *
+     * The recommendation has to clear
+     * {@see LaravelAiTriageGateway}'s narration floor or the gateway treats this
+     * body as non-conforming, retries, and throws before the assertions on the
+     * REQUEST are ever reached. Keep it a sentence: production narrations run a
+     * 220-character 5th percentile, so this is still well inside the short end.
+     *
      * @return array<string, mixed>
      */
     private function completionBody(): array
@@ -119,7 +125,7 @@ class OpenRouterUpstreamRecorderTest extends TestCase
                             'confirmed' => true,
                             'severity' => 'warn',
                             'confidence' => 'medium',
-                            'recommendation' => 'Check the upstream dependency.',
+                            'recommendation' => 'Check the upstream dependency: latency tripled against its baseline.',
                         ]),
                     ],
                 ],
@@ -210,7 +216,7 @@ class OpenRouterUpstreamRecorderTest extends TestCase
 
         // The answer survived the recorder reading the body it was parsed from.
         $this->assertSame('warn', $result->severity);
-        $this->assertSame('Check the upstream dependency.', $result->recommendation);
+        $this->assertSame('Check the upstream dependency: latency tripled against its baseline.', $result->recommendation);
     }
 
     /**

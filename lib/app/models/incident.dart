@@ -394,6 +394,10 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
       // `IncidentController.analysisFor`'s merge, and a hardcoded null there
       // would make that merge untestable.
       degradeReason: aiDegradeReasonFromWire(raw['degrade_reason'] as String?),
+      // Read as `bool?` rather than defaulted: an absent or null key means no
+      // model answered (the statistical degrade path), which the card must not
+      // render as the model having disagreed. See [IncidentAi.confirmed].
+      confirmed: raw['confirmed'] as bool?,
     );
   }
 

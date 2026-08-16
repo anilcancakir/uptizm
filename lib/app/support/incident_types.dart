@@ -230,6 +230,21 @@ class IncidentAi {
   /// person clicked rather than what a colleague did.
   final bool? feedback;
 
+  /// The model's own verdict on the anomaly it labeled, or `null` when no model
+  /// answered.
+  ///
+  /// Tri-state on purpose, and collapsing it to a plain `bool` would be a lie in
+  /// both directions. `false` is the model saying the evidence is not a real
+  /// deviation, which is worth showing the operator. `null` is the deterministic
+  /// statistical path, where nothing was asked and so nothing was denied; a
+  /// default of `false` would put a disagreement marker on a card no model ever
+  /// read, and a default of `true` would claim an endorsement nobody gave.
+  ///
+  /// It is a label and never a suppression: an unconfirmed anomaly still reaches
+  /// this inbox. What the backend does with it is decline to open an incident
+  /// autonomously, which is why an operator sees this card at all.
+  final bool? confirmed;
+
   const IncidentAi({
     required this.trigger,
     required this.confidence,
@@ -241,6 +256,7 @@ class IncidentAi {
     this.degradeReason,
     this.id,
     this.feedback,
+    this.confirmed,
   });
 
   /// A copy carrying a different rating, used to repaint the footer the moment
@@ -256,6 +272,7 @@ class IncidentAi {
     degradeReason: degradeReason,
     id: id,
     feedback: feedback,
+    confirmed: confirmed,
   );
 }
 
