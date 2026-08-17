@@ -98,7 +98,90 @@ class TriageGatewayTest extends TestCase
     }
 
     // ---------------------------------------------------------------------
-    // (3) Deterministic fake, bound in place of the real gateway
+    // (3) The narration gate, on the sanitized text
+    // ---------------------------------------------------------------------
+
+    public function test_a_token_answer_is_rejected_as_non_conforming(): void
+    {
+        $gateway = new LaravelAiTriageGateway;
+
+        // The exact response production stored on 2026-08-15: the model answered
+        // the `confirmed` question a second time in the narration field, and the
+        // operator's inbox card read "No".
+        $result = $gateway->interpret([
+            'confirmed' => false,
+            'severity' => 'warn',
+            'confidence' => 'low',
+            'recommendation' => 'No',
+        ], $this->payload());
+
+        $this->assertNull($result);
+    }
+
+    public function test_a_real_narration_is_interpreted(): void
+    {
+        $gateway = new LaravelAiTriageGateway;
+
+        $result = $gateway->interpret([
+            'confirmed' => true,
+            'severity' => 'warn',
+            'confidence' => 'medium',
+            'recommendation' => 'Response time drifted to roughly three times its baseline and held there.',
+        ], $this->payload());
+
+        $this->assertInstanceOf(TriageResult::class, $result);
+        $this->assertSame(
+            'Response time drifted to roughly three times its baseline and held there.',
+            $result->recommendation,
+        );
+    }
+
+    public function test_a_narration_left_short_by_the_allowlist_is_rejected(): void
+    {
+        $gateway = new LaravelAiTriageGateway;
+
+        // Long enough before the allowlist runs, nothing at all after it: every
+        // citation here is outside the payload's catalog. Gating the RAW text
+        // would let this through as an empty card body.
+        $recommendation = 'check_id:aaaaaaaaaa check_id:bbbbbbbbbb check_id:cccccccccc check_id:dddddddddd';
+        $this->assertGreaterThan(40, mb_strlen($recommendation));
+
+        $result = $gateway->interpret([
+            'confirmed' => true,
+            'severity' => 'warn',
+            'confidence' => 'medium',
+            'recommendation' => $recommendation,
+        ], $this->payload());
+
+        $this->assertNull($result);
+    }
+
+    public function test_free_text_instead_of_structured_output_is_non_conforming(): void
+    {
+        $gateway = new LaravelAiTriageGateway;
+
+        $this->assertNull($gateway->interpret(null, $this->payload()));
+    }
+
+    public function test_the_models_verdict_survives_interpretation(): void
+    {
+        $gateway = new LaravelAiTriageGateway;
+
+        // A negative verdict is a LABEL and never a suppression: a conforming
+        // narration alongside it still yields a result, carrying the false.
+        $result = $gateway->interpret([
+            'confirmed' => false,
+            'severity' => 'info',
+            'confidence' => 'low',
+            'recommendation' => 'The latest reading sits below the baseline; the earlier spike has already passed.',
+        ], $this->payload());
+
+        $this->assertInstanceOf(TriageResult::class, $result);
+        $this->assertFalse($result->confirmed);
+    }
+
+    // ---------------------------------------------------------------------
+    // (4) Deterministic fake, bound in place of the real gateway
     // ---------------------------------------------------------------------
 
     public function test_fake_gateway_yields_a_deterministic_result(): void

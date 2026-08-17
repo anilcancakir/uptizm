@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\AiConfidence;
 use App\Enums\AiSuggestionKind;
 use App\Enums\AiSuggestionStatus;
+use App\Jobs\SweepAiSuggestions;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -19,6 +20,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * `source` distinguishes an LLM-authored proposal from the statistical
  * degrade path, and `dedupe_key` (unique at the DB level) stops the same
  * signal from flooding the inbox.
+ *
+ * `confirmed` is the model's own verdict on the anomaly, and NULL is a real
+ * state rather than a missing one: the statistical degrade path calls no model,
+ * so it has no verdict to record. It is a label and never a suppression switch,
+ * the anomaly stands either way; what it does gate is the AUTONOMOUS open in
+ * {@see SweepAiSuggestions}, which declines to act without a human when the
+ * model itself does not read the evidence as a real deviation.
  *
  * Relationships:
  * - belongs to {@see Team} (tenant boundary)
@@ -41,6 +49,7 @@ class AiSuggestion extends Model
         'score',
         'severity',
         'confidence',
+        'confirmed',
         'source',
         'recommendation',
         'evidence',
@@ -59,6 +68,7 @@ class AiSuggestion extends Model
         'status' => AiSuggestionStatus::class,
         'evidence' => 'array',
         'score' => 'float',
+        'confirmed' => 'boolean',
         'expires_at' => 'datetime',
     ];
 
