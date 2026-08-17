@@ -149,12 +149,16 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
         }
 
         // 2. Score it. A null result means no actionable anomaly (or cold-start
-        //    with no configured bounds), so there is nothing to act on.
+        //    with no configured bounds), so there is nothing to OPEN. It is also
+        //    the only moment an incident this lane opened can be considered over,
+        //    which is the other half of its lifecycle.
         $candidate = $detector->detect(
             $window->pluck('response_ms')->map(static fn (mixed $ms): int => (int) $ms)->all(),
             $this->buildConfig($monitor, $window),
         );
         if ($candidate === null) {
+            $this->resolveRecoveredAnomalyIncident($monitor, $window, $dispatcher);
+
             return;
         }
 
@@ -175,6 +179,152 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
         // 5. Suggest: hand the non-secret candidate DTO to the triage job on the
         //    ai queue, exactly as before.
         TriageAnomalyCandidate::dispatch((string) $monitor->id, $candidate->toArray())->onQueue('ai');
+    }
+
+    /**
+     * Close an incident this lane opened, once the signal behind it is back
+     * under the level it was raised against.
+     *
+     * The autonomous lane owns its own incidents end to end, and until now it
+     * only owned the opening half: `ThresholdEvaluator` scopes itself off
+     * `ai_owned` rows in three places (correctly, since their
+     * `trigger_metric_key` is a signal name and not a configured metric key), and
+     * nothing else in this lane ever wrote a resolve. Measured on production
+     * 2026-08-17, an incident auto-opened from an EWMA fire that cleared its
+     * control limit by 0.37% had been `detected` and `critical` for a day and a
+     * half while the monitor answered in 45ms.
+     *
+     * Two conditions, and the first is the call site rather than a branch here:
+     * this runs only where the detector found nothing in the monitor's whole
+     * window, so the anomaly is already undetectable by its own standard. The
+     * second is read back from the checks, so the note can state it.
+     *
+     * FAIL-CLOSED throughout. No active AI incident, no suggestion behind it, no
+     * numeric level on its evidence, or too few readings to judge, and the
+     * incident is left exactly as it is: for a human, which is today's behaviour,
+     * so no branch here is ever worse than the state it replaces.
+     *
+     * @param  Collection<int, MonitorCheck>  $window  Oldest-to-newest, as loaded for the detector.
+     */
+    private function resolveRecoveredAnomalyIncident(
+        Monitor $monitor,
+        Collection $window,
+        IncidentDispatcher $dispatcher,
+    ): void {
+        $incident = Incident::query()
+            ->where('primary_monitor_id', $monitor->id)
+            ->where('ai_owned', true)
+            ->active()
+            ->orderBy('started_at')
+            ->orderBy('id')
+            ->first();
+
+        if ($incident === null) {
+            return;
+        }
+
+        $level = $this->raisedAgainstLevel($incident);
+        if ($level === null) {
+            return;
+        }
+
+        if (! $this->readingsAreUnder($monitor, $window, $level)) {
+            return;
+        }
+
+        // The transition is idempotent under a row lock: two overlapping sweeps
+        // (the unique lock frees before the next tick) must not both resolve it
+        // and stamp two notes.
+        $resolved = DB::transaction(function () use ($incident): ?Incident {
+            $fresh = Incident::query()->lockForUpdate()->find($incident->getKey());
+
+            if ($fresh === null || ! $fresh->lifecycle->isActive()) {
+                return null;
+            }
+
+            $fresh->update([
+                'lifecycle' => IncidentStatus::Resolved,
+                'resolved_at' => now(),
+            ]);
+
+            return $fresh;
+        });
+
+        if ($resolved === null) {
+            return;
+        }
+
+        // `system`, not `ai`: no model was asked, this lane's own arithmetic
+        // decided it. Public and fanned out for the reason the metric lane's
+        // recovery note is: a status page renders it like any other update, and
+        // an untranslated one sits at `pending` in every non-default language.
+        $note = $resolved->updates()->create([
+            'actor' => 'system',
+            'author' => 'System',
+            'status' => IncidentStatus::Resolved,
+            'message' => "Response time on {$monitor->name} returned to its normal range; incident auto-resolved.",
+            'is_public' => true,
+            'autonomous' => false,
+            'display_at' => now(),
+        ]);
+
+        TranslateStatusPageText::fanOut($note, 'message', (string) config('app.default_locale'));
+
+        // The shared off-lock seam, exactly as the open path drives it, so a
+        // resolve pages, broadcasts and busts the public cache like any other.
+        $dispatcher->dispatch($monitor, [
+            'opened' => null,
+            'resolved' => $resolved,
+            'status_change' => null,
+        ]);
+    }
+
+    /**
+     * The level the incident was raised against, or null when nothing numeric
+     * stands behind it.
+     *
+     * Read from the suggestions linked to the incident rather than recomputed,
+     * because the level has to be the one the episode was actually judged by. A
+     * dedupe fold can link several suggestions to one incident, so the SMALLEST
+     * threshold wins: it is the strictest bar, and closing on the loosest would
+     * let a still-elevated signal end an episode a tighter fire had opened.
+     */
+    private function raisedAgainstLevel(Incident $incident): ?float
+    {
+        $levels = AiSuggestion::query()
+            ->where('accepted_incident_id', $incident->id)
+            ->pluck('evidence')
+            ->map(static fn (mixed $evidence): mixed => is_array($evidence) ? ($evidence['threshold'] ?? null) : null)
+            ->filter(static fn (mixed $threshold): bool => is_int($threshold) || is_float($threshold))
+            ->map(static fn (mixed $threshold): float => (float) $threshold)
+            ->all();
+
+        return $levels === [] ? null : min($levels);
+    }
+
+    /**
+     * True when the trailing run of readings all sit under [$level].
+     *
+     * The run length is the monitor's own {@see Monitor::$incident_threshold},
+     * the same number the down and metric lanes count verdicts in, so one
+     * setting governs how twitchy every lane is. A window holding fewer readings
+     * than that cannot answer the question and is treated as a no.
+     *
+     * @param  Collection<int, MonitorCheck>  $window  Oldest-to-newest.
+     */
+    private function readingsAreUnder(Monitor $monitor, Collection $window, float $level): bool
+    {
+        $length = max(1, (int) ($monitor->incident_threshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD));
+        $trailing = $window->slice(-$length)->values();
+
+        if ($trailing->count() < $length) {
+            return false;
+        }
+
+        return $trailing->every(
+            static fn (MonitorCheck $check): bool => $check->response_ms !== null
+                && (float) $check->response_ms < $level,
+        );
     }
 
     /**

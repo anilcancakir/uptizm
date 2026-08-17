@@ -385,7 +385,7 @@ class TranslateStatusPageTextTest extends TestCase
         //
         // What this list actually guards is the second assertion below, not the
         // count: translation is a MODEL CALL, and no public unauthenticated
-        // request may spend one. Two of the five are not authenticated write
+        // request may spend one. Four of the seven are not authenticated write
         // paths at all, which is why the method was renamed: `ThresholdEvaluator`
         // and `PublishAiIncidentUpdate` are the monitoring pipeline reacting to a
         // probe, with no human and no request behind either. They are on the list
@@ -404,11 +404,19 @@ class TranslateStatusPageTextTest extends TestCase
         // no request and no human behind it. The volume is bounded by the SSL
         // schedule, one note per monitor per renewal, which is the far side of a
         // yearly certificate rather than anything a caller can drive.
+        //
+        // `SweepAiSuggestions` is the newest, and it qualifies on the same two
+        // terms: it is the scheduled anomaly sweep, so there is no request and no
+        // human behind it, and it writes its own auto-resolve note rather than
+        // routing through the write service. Its volume is bounded harder than
+        // the SSL one: at most one note per incident, and the AI lane's own
+        // dedupe means a monitor carries at most one open incident to close.
         $this->assertSame([
             'Http/Controllers/Api/V1/ScheduledMaintenanceController.php',
             'Http/Controllers/Api/V1/StatusPageController.php',
             'Jobs/PerformSslCheck.php',
             'Jobs/PublishAiIncidentUpdate.php',
+            'Jobs/SweepAiSuggestions.php',
             'Services/Monitoring/IncidentWriteService.php',
             'Services/Monitoring/ThresholdEvaluator.php',
         ], $callers);
