@@ -9,6 +9,7 @@ import 'package:uptizm/ui/components/ai_inbox_item/ai_inbox_item.dart';
 import 'package:uptizm/ui/components/ai_inbox_item/ai_inbox_item.preview.dart';
 import 'package:uptizm/ui/components/ai_inbox_item/ai_inbox_item.recipe.dart';
 
+import '../../../support/bundled_lang.dart';
 import '../../../support/incident_fixtures.dart';
 
 void main() {
@@ -190,12 +191,120 @@ void main() {
     expect(badge.level, equals(AiConfidence.medium));
   });
 
-  testWidgets('AiInboxItemPreview renders without error', (tester) async {
+  testWidgets('AiInboxItemPreview covers both verdict states', (tester) async {
     await tester.pumpWidget(wrap(const AiInboxItemPreview()));
     await tester.pump();
 
-    // All fixture AI incidents should produce an AiInboxItem widget.
-    final aiIncidentCount = incidentFixtures.where((i) => i.ai != null).length;
-    expect(find.byType(AiInboxItem), findsNWidgets(aiIncidentCount));
+    // The preview catalog is the component contract's variant matrix, so the
+    // assertion is about what it COVERS, not about how many rows it happens to
+    // hold: every row renders, and the disputed state is one of them. The count
+    // used to be derived from `incidentFixtures`, a list the preview does not
+    // read, so adding a row here failed a test about something else.
+    expect(find.byType(AiInboxItem), findsWidgets);
+    expect(
+      find.byIcon(Icons.info_outline),
+      findsOneWidget,
+      reason: 'the catalog must show the caveat line, and show it on exactly '
+          'the row that carries a negative verdict',
+    );
+    expect(tester.takeException(), isNull);
   });
+
+  // ---------------------------------------------------------------------------
+  // The model's verdict line
+  // ---------------------------------------------------------------------------
+
+  /// One inbox row whose `ai.confirmed` is whatever the wire carried.
+  ///
+  /// Built through [Incident.fromMap] rather than a hand-made [IncidentAi], so
+  /// the decode step is part of what is under test: the field travels as a JSON
+  /// tri-state and an `as bool?` that silently defaulted would pass a fixture
+  /// that named the value directly.
+  Incident rowWithVerdict(Object? confirmed) {
+    return Incident.fromMap({
+      'id': 'anomaly-1',
+      'signal_source': 'ai_anomaly',
+      'ai_owned': true,
+      'started_at': '2026-08-15T21:04:00Z',
+      'primary_monitor_id': 'm0',
+      'monitors': const [
+        {'monitor_id': 'm0', 'name': 'fluttersdk.com'},
+      ],
+      'ai': {
+        'trigger': 'anomaly',
+        'confidence': 'low',
+        'tldr':
+            'Response time was flagged by the EWMA detector: observed 53ms '
+            'against a 120.8ms baseline.',
+        'confirmed': confirmed,
+      },
+    });
+  }
+
+  testWidgets('AiInboxItem states the caveat when the model disputed the row', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(AiInboxItem(incident: rowWithVerdict(false))));
+    await tester.pump();
+
+    expect(
+      find.byIcon(Icons.info_outline),
+      findsOneWidget,
+      reason: 'a disputed anomaly must say so, or it reads as one the model '
+          'stood behind',
+    );
+  });
+
+  testWidgets('AiInboxItem stays silent when the model confirmed the row', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(AiInboxItem(incident: rowWithVerdict(true))));
+    await tester.pump();
+
+    expect(find.byIcon(Icons.info_outline), findsNothing);
+  });
+
+  testWidgets('AiInboxItem stays silent when no model answered at all', (
+    tester,
+  ) async {
+    // The statistical degrade path (over budget, or a gateway failure) writes a
+    // suggestion with no verdict. Marking that as disputed would put words in
+    // the mouth of a model that never read the evidence, so null is NOT false.
+    await tester.pumpWidget(wrap(AiInboxItem(incident: rowWithVerdict(null))));
+    await tester.pump();
+
+    expect(find.byIcon(Icons.info_outline), findsNothing);
+  });
+
+  testWidgets('AiInboxItem lays the real caveat sentence out on a phone width', (
+    tester,
+  ) async {
+    // The SHIPPED Turkish string, not a fixture: the caveat is a full sentence
+    // beside a glyph, and the raw i18n key it falls back to is one short
+    // unbreakable token that would prove nothing about wrapping.
+    Translator.instance.setLoader(_BundledTurkishLoader());
+    await Translator.instance.setLocale(const Locale('tr'));
+
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(wrap(AiInboxItem(incident: rowWithVerdict(false))));
+    await tester.pump();
+
+    expect(
+      find.text(readBundledLang('tr')['uptizm.ai.unconfirmed'] as String),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+}
+
+/// Feeds [trans] the app's shipped Turkish catalogue, so a layout assertion is
+/// made against the sentence an operator actually reads.
+class _BundledTurkishLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async =>
+      readBundledLang('tr');
 }

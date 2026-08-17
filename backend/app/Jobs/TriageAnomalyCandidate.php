@@ -280,15 +280,17 @@ class TriageAnomalyCandidate implements ShouldQueue
     }
 
     /**
-     * Persist an LLM-labeled suggestion. Confidence, severity, and the (already
-     * allowlist-cleaned) recommendation come from the model; the score and
-     * evidence come from the statistical candidate, which is the source of truth.
+     * Persist an LLM-labeled suggestion. Confidence, severity, the verdict, and
+     * the (already allowlist-cleaned) recommendation come from the model; the
+     * score and evidence come from the statistical candidate, which is the
+     * source of truth.
      */
     private function persistFromTriage(Monitor $monitor, string $dedupeKey, TriageResult $result): void
     {
         $this->persist($monitor, $dedupeKey, [
             'severity' => $result->severity,
             'confidence' => $result->confidence,
+            'confirmed' => $result->confirmed,
             'source' => 'llm',
             'recommendation' => $result->recommendation,
         ]);
@@ -296,7 +298,9 @@ class TriageAnomalyCandidate implements ShouldQueue
 
     /**
      * Persist the deterministic degrade path: a templated recommendation and a
-     * confidence read straight off the statistical severity band. No LLM text.
+     * confidence read straight off the statistical severity band. No LLM text,
+     * and deliberately no `confirmed`: no model ran, so there is no verdict and
+     * the column stays null rather than inventing a false one.
      */
     private function persistStatistical(Monitor $monitor, string $dedupeKey): void
     {

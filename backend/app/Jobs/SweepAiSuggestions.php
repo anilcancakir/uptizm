@@ -43,12 +43,13 @@ use Throwable;
  *
  *  - Suggest: the candidate is handed to {@see TriageAnomalyCandidate} on the
  *    `ai` queue, which labels it and writes an inbox suggestion for an operator.
- *  - Auto: the sweep labels it inline and, when the triage clears the confidence
- *    threshold AND the daily budget admits the spend, AUTO-ACCEPTS by opening an
- *    `ai_owned` incident via the shared {@see AiIncidentOpener} (the operator
- *    accept path minus the human gate) and stamping an autonomous opening update.
- *    Below the threshold or over budget it degrades to a pending suggestion and
- *    never auto-opens. `off` monitors are never touched.
+ *  - Auto: the sweep labels it inline and, when the triage CONFIRMS the anomaly
+ *    AND clears the confidence threshold AND the daily budget admits the spend,
+ *    AUTO-ACCEPTS by opening an `ai_owned` incident via the shared
+ *    {@see AiIncidentOpener} (the operator accept path minus the human gate) and
+ *    stamping an autonomous opening update. Unconfirmed, below the threshold, or
+ *    over budget it degrades to a pending suggestion and never auto-opens.
+ *    `off` monitors are never touched.
  *
  * Dispatch-time dedupe guards both modes: a candidate whose `dedupe_key` already
  * has a live suggestion is dropped here, so re-scanning a still-open episode
@@ -329,8 +330,9 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
 
     /**
      * Auto mode: label the candidate under budget, and auto-accept it into an
-     * incident only when the triage clears the confidence threshold. Over budget
-     * or below threshold degrades to a pending suggestion and never auto-opens.
+     * incident only when the triage both confirms the anomaly and clears the
+     * confidence threshold. Over budget, unconfirmed, or below threshold degrades
+     * to a pending suggestion and never auto-opens.
      */
     private function sweepAuto(
         Monitor $monitor,
@@ -365,12 +367,18 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // 3. Below the confidence threshold: keep the labeled anomaly as a pending
-        //    inbox suggestion for an operator, do not auto-open.
-        if (! $this->clearsAutoThreshold($result->confidence)) {
+        // 3. Two independent conditions gate acting without a human, and either
+        //    one missing keeps the labeled anomaly as a pending inbox suggestion
+        //    instead: the model must read the evidence as a real deviation at
+        //    all, and it must say so confidently. Neither SUPPRESSES anything;
+        //    the anomaly reaches the operator either way, we just decline to
+        //    open an incident on its behalf while the model itself is telling us
+        //    there is nothing there.
+        if (! $result->confirmed || ! $this->clearsAutoThreshold($result->confidence)) {
             $this->persistSuggestion($monitor, $candidate, [
                 'severity' => $result->severity,
                 'confidence' => $result->confidence,
+                'confirmed' => $result->confirmed,
                 'source' => 'llm',
                 'recommendation' => $result->recommendation,
             ], AiSuggestionStatus::Pending, null);
@@ -378,13 +386,15 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // 4. High confidence AND within budget: auto-accept. Create the accepted
-        //    suggestion (the audit trail), open one ai_owned incident via the
-        //    shared creator, link it back, and stamp the autonomous opening note.
+        // 4. Confirmed at high confidence AND within budget: auto-accept. Create
+        //    the accepted suggestion (the audit trail), open one ai_owned
+        //    incident via the shared creator, link it back, and stamp the
+        //    autonomous opening note.
         $incident = DB::transaction(function () use ($monitor, $candidate, $result, $opener): Incident {
             $suggestion = $this->persistSuggestion($monitor, $candidate, [
                 'severity' => $result->severity,
                 'confidence' => $result->confidence,
+                'confirmed' => $result->confirmed,
                 'source' => 'llm',
                 'recommendation' => $result->recommendation,
             ], AiSuggestionStatus::Accepted, null);
@@ -420,7 +430,9 @@ class SweepAiSuggestions implements ShouldBeUnique, ShouldQueue
 
     /**
      * Persist the degrade fallback: a deterministic statistical suggestion with a
-     * confidence read straight off the anomaly's severity band. No LLM text.
+     * confidence read straight off the anomaly's severity band. No LLM text, and
+     * deliberately no `confirmed`: no model ran, so there is no verdict to record
+     * and the column stays null rather than inventing a false one.
      */
     private function persistStatisticalSuggestion(Monitor $monitor, AnomalyCandidate $candidate): void
     {

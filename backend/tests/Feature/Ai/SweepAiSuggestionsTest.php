@@ -299,6 +299,55 @@ class SweepAiSuggestionsTest extends TestCase
         $this->assertSame(IncidentStatus::Detected, $incident->refresh()->lifecycle);
     }
 
+    public function test_auto_monitor_the_model_did_not_confirm_does_not_auto_open(): void
+    {
+        // The confidence bar alone is not enough: this stub is as confident as
+        // the auto-open path ever requires, and says the evidence is not a real
+        // deviation. Acting on that without a human is what this guard stops.
+        $this->app->instance(AnomalyTriageGateway::class, new UnconfirmedTriageGateway);
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $this->seedAnomalousWindow($monitor);
+
+        $this->runSweep();
+
+        $this->assertSame(0, Incident::query()->count());
+
+        // Not suppressed: the anomaly still reaches the operator's inbox, and it
+        // carries the verdict that kept it there.
+        $suggestion = AiSuggestion::query()->sole();
+        $this->assertSame(AiSuggestionStatus::Pending, $suggestion->status);
+        $this->assertSame('llm', $suggestion->source);
+        $this->assertFalse($suggestion->confirmed);
+        $this->assertNull($suggestion->accepted_incident_id);
+    }
+
+    public function test_an_auto_opened_suggestion_records_the_confirming_verdict(): void
+    {
+        $this->app->instance(AnomalyTriageGateway::class, new HighConfidenceTriageGateway);
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $this->seedAnomalousWindow($monitor);
+
+        $this->runSweep();
+
+        $this->assertTrue(AiSuggestion::query()->sole()->confirmed);
+    }
+
+    public function test_a_statistical_degrade_records_no_verdict(): void
+    {
+        // Over budget: no model ran, so there is no verdict to record and the
+        // column must stay null rather than reading as a denial.
+        config(['ai.budget.daily_per_team' => 0]);
+        $this->app->instance(AnomalyTriageGateway::class, new HighConfidenceTriageGateway);
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $this->seedAnomalousWindow($monitor);
+
+        $this->runSweep();
+
+        $suggestion = AiSuggestion::query()->sole();
+        $this->assertSame('statistical', $suggestion->source);
+        $this->assertNull($suggestion->confirmed);
+    }
+
     public function test_auto_monitor_over_budget_does_not_auto_open(): void
     {
         // A zero daily cap forces over budget even with a high-confidence stub:
@@ -518,6 +567,26 @@ class HighConfidenceTriageGateway implements AnomalyTriageGateway
             severity: 'critical',
             confidence: AiConfidence::High,
             recommendation: 'High-confidence stub: sustained response-time deviation.',
+            strippedCitations: [],
+        );
+    }
+}
+
+/**
+ * A gateway that is confidently NEGATIVE: it clears the confidence bar while
+ * reading the evidence as no real deviation, which is the shape production
+ * produced on 2026-08-15 and the only one that isolates the confirmed guard
+ * from the confidence guard beside it.
+ */
+class UnconfirmedTriageGateway implements AnomalyTriageGateway
+{
+    public function triage(TriagePayload $payload): TriageResult
+    {
+        return new TriageResult(
+            confirmed: false,
+            severity: 'info',
+            confidence: AiConfidence::High,
+            recommendation: 'The latest reading sits below its baseline; the earlier spike has passed.',
             strippedCitations: [],
         );
     }

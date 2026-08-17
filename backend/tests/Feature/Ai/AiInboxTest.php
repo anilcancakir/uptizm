@@ -70,6 +70,38 @@ class AiInboxTest extends TestCase
         $response->assertJsonPath('data.0.ai.trigger', 'anomaly');
     }
 
+    public function test_inbox_carries_the_models_verdict(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team, MonitorStatus::Up);
+        $this->makeSuggestion($team, $monitor, [
+            'confirmed' => false,
+        ]);
+
+        $response = $this->getJson('/api/v1/dashboard/ai-inbox');
+
+        $response->assertOk();
+        $response->assertJsonPath('data.0.ai.confirmed', false);
+    }
+
+    public function test_inbox_distinguishes_no_verdict_from_a_denied_one(): void
+    {
+        // The statistical degrade path calls no model, so its suggestion has no
+        // verdict. Emitting that as `false` would put a "the model disagreed"
+        // marker on a card no model ever saw.
+        $team = $this->actingAsTeamMember();
+        $monitor = $this->makeMonitor($team, MonitorStatus::Up);
+        $this->makeSuggestion($team, $monitor, [
+            'source' => 'statistical',
+            'confirmed' => null,
+        ]);
+
+        $response = $this->getJson('/api/v1/dashboard/ai-inbox');
+
+        $response->assertOk();
+        $response->assertJsonPath('data.0.ai.confirmed', null);
+    }
+
     public function test_inbox_never_emits_the_raw_evidence(): void
     {
         $team = $this->actingAsTeamMember();

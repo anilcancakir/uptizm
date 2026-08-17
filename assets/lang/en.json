@@ -884,6 +884,7 @@
       "suggested_actions": "Suggested actions",
       "open_incident": "Open incident",
       "dismiss": "Dismiss",
+      "unconfirmed": "The model did not read this as a real deviation",
       "anomaly_dismissed_title": "Anomaly dismissed",
       "anomaly_dismissed_description": "Marked as \":reason\". Uptizm weighs this in future detection.",
       "right_now_label": "Right now",

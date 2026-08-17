@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ai;
 
+use App\Enums\AiConfidence;
 use App\Enums\AiMode;
 use App\Enums\AiSuggestionKind;
 use App\Enums\AiSuggestionStatus;
@@ -92,6 +93,24 @@ class TriageAnomalyCandidateTest extends TestCase
         $suggestion = AiSuggestion::query()->sole();
         $this->assertSame('statistical', $suggestion->source);
         $this->assertNotEmpty($suggestion->recommendation);
+
+        // No model ran, so there is no verdict. Null, never a false, which would
+        // read as the model having denied something it was never asked.
+        $this->assertNull($suggestion->confirmed);
+    }
+
+    public function test_the_models_verdict_is_persisted_with_the_suggestion(): void
+    {
+        // A negative verdict never suppresses in suggest mode: the anomaly still
+        // reaches the inbox, and now it arrives carrying what the model said.
+        $this->app->instance(AnomalyTriageGateway::class, new NegativeVerdictTriageGateway);
+        $monitor = $this->makeMonitor(AiMode::Suggest);
+
+        TriageAnomalyCandidate::dispatchSync($monitor->id, $this->candidateFor($monitor));
+
+        $suggestion = AiSuggestion::query()->sole();
+        $this->assertSame('llm', $suggestion->source);
+        $this->assertFalse($suggestion->confirmed);
     }
 
     public function test_duplicate_dedupe_key_creates_no_second_row(): void
@@ -263,5 +282,23 @@ class ThrowingTriageGateway implements AnomalyTriageGateway
     public function triage(TriagePayload $payload): TriageResult
     {
         throw new RuntimeException('Simulated provider outage.');
+    }
+}
+
+/**
+ * A gateway that labels the anomaly as no real deviation, so a test can assert
+ * the verdict reaches the row instead of being computed and dropped.
+ */
+class NegativeVerdictTriageGateway implements AnomalyTriageGateway
+{
+    public function triage(TriagePayload $payload): TriageResult
+    {
+        return new TriageResult(
+            confirmed: false,
+            severity: 'info',
+            confidence: AiConfidence::Low,
+            recommendation: 'The latest reading sits below its baseline; the earlier spike has passed.',
+            strippedCitations: [],
+        );
     }
 }

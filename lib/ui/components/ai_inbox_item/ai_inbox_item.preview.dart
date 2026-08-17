@@ -6,12 +6,17 @@ import 'ai_inbox_item.dart';
 
 /// Static variant-matrix preview for [AiInboxItem].
 ///
-/// Renders three incidents that carry an AI analysis payload so the preview
-/// catalog shows the confidence range: a high-confidence AI-owned outage, a
-/// medium-confidence latency degradation, and a medium-confidence auto-resolved
-/// blip. Built from raw `IncidentResource`-shaped maps through
-/// [Incident.fromMap] so the preview exercises the same decode path the live
-/// inbox uses.
+/// Renders four incidents that carry an AI analysis payload so the preview
+/// catalog shows the confidence range and both verdict states: a
+/// high-confidence AI-owned outage, a medium-confidence latency degradation, a
+/// medium-confidence auto-resolved blip, and a low-confidence row the model
+/// itself disputed (the only one drawing the caveat line). Built from raw
+/// `IncidentResource`-shaped maps through [Incident.fromMap] so the preview
+/// exercises the same decode path the live inbox uses.
+///
+/// The first three carry no `confirmed` key at all, which is the wire shape of
+/// a suggestion no model answered for, and is also what keeps the caveat line a
+/// visible difference in the catalog rather than something on every row.
 ///
 /// Both rows show no-op approve/dismiss callbacks to demonstrate the
 /// graduated-trust affordance without side effects.
@@ -85,6 +90,31 @@ class AiInboxItemPreview extends StatelessWidget {
         'tldr':
             'A short latency blip on Docs from eu-central that cleared on its '
             'own within 6 minutes. No errors and no other region affected.',
+      },
+    }),
+    Incident.fromMap(const {
+      'id': 'marketing-drift',
+      'title': 'Response-time drift on Marketing site',
+      'impact': 'minor',
+      'severity': 'info',
+      'signal_source': 'ai_anomaly',
+      'lifecycle': 'detected',
+      'ai_owned': true,
+      'started_at': '2026-07-11T08:00:00Z',
+      'primary_monitor_id': 'm0',
+      'monitors': [
+        {'monitor_id': 'm0', 'name': 'Marketing site'},
+      ],
+      'ai': {
+        'trigger': 'AI anomaly',
+        'confidence': 'low',
+        'tldr':
+            'The EWMA detector flagged a drift, but the latest reading is 53ms '
+            'against a 120.8ms baseline: the earlier spike has already passed.',
+        // The state this row exists to show. It reached the inbox precisely
+        // BECAUSE the model said no: an unconfirmed anomaly is never opened
+        // autonomously, so it waits here for a person instead.
+        'confirmed': false,
       },
     }),
   ];

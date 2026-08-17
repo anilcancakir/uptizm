@@ -25,8 +25,24 @@ import 'ai_inbox_item.recipe.dart';
 /// root (ai-soft card, left ai stripe, overflow-hidden)
 ///   header: glyph + monitor name + AiConfidenceBadge + time (ml-auto)
 ///   summary: one-sentence tldr
+///   verdict: shown ONLY when the model read this as no real deviation
 ///   actions: Open incident (primary) + Dismiss (ghost)
 /// ```
+///
+/// ### The verdict line
+///
+/// The model answers whether the evidence reads as a real deviation, separately
+/// from how confident it is about the label it wrote. A negative answer does not
+/// remove the anomaly (the statistics fired, and they are the source of truth),
+/// so the row still appears; what it changes is that the backend declines to
+/// open the incident autonomously and leaves the call to a person. Saying so on
+/// the card is what makes that a decision the operator can make: without it, a
+/// row the model disputed looks exactly like one it stood behind.
+///
+/// It is deliberately quiet, muted text rather than a status colour, matching
+/// how the incident detail view states a degraded analysis. A caveat about our
+/// own output is not a monitoring alarm and must not borrow the vocabulary of
+/// one.
 ///
 /// ### Graduated-trust UX
 ///
@@ -47,6 +63,9 @@ import 'ai_inbox_item.recipe.dart';
 class AiInboxItem extends StatelessWidget {
   /// Affordance glyph on the expand control.
   static const IconData _expandIcon = Icons.keyboard_arrow_down;
+
+  /// Glyph marking the model's own caveat about the row it wrote.
+  static const IconData _verdictIcon = Icons.info_outline;
 
   /// The incident carrying the AI analysis data.
   final Incident incident;
@@ -90,6 +109,13 @@ class AiInboxItem extends StatelessWidget {
               _buildHeader(),
               // AI summary paragraph (tldr from the IncidentAi payload).
               _buildSummary(),
+              // The model's caveat, present ONLY when it disputed the anomaly.
+              // Conditionally in the list rather than conditionally visible: a
+              // wind flex gap reserves a slot for a child that renders nothing,
+              // so an empty widget here would open a double gap on every other
+              // row. `== false` and not `!`, because null is "no model ran" and
+              // must stay silent.
+              if (incident.ai!.confirmed == false) _buildVerdict(),
               // Action row: open-incident + dismiss (explicit tap only).
               _buildActions(),
             ],
@@ -145,6 +171,30 @@ class AiInboxItem extends StatelessWidget {
   /// Builds the AI summary paragraph from [IncidentAi.tldr].
   Widget _buildSummary() {
     return WText(incident.ai!.tldr, className: 'text-sm text-fg-muted');
+  }
+
+  /// Builds the model's own caveat line: this anomaly fired statistically, and
+  /// the model that labeled it does not read the evidence as a real deviation.
+  ///
+  /// A plain Flutter [Row] with an [Expanded] text, copying
+  /// `AiAnalysisCard._buildActionCard`, because that is the shape already proven
+  /// here for a glyph beside a sentence that has to wrap. A wind flex row makes
+  /// its children greedy instead, which is what overflows the header when a
+  /// [Row] is used there.
+  Widget _buildVerdict() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        WIcon(_verdictIcon, className: 'text-sm text-fg-muted'),
+        const SizedBox(width: 8),
+        Expanded(
+          child: WText(
+            trans('uptizm.ai.unconfirmed'),
+            className: 'text-xs text-fg-muted',
+          ),
+        ),
+      ],
+    );
   }
 
   /// Builds the action row with open-incident and dismiss buttons.

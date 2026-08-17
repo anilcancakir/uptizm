@@ -26,7 +26,7 @@ use Stringable;
  * package surface it touches is confined to this one file: churn in that package
  * is a one-file change and never reaches the monitoring core.
  *
- * The honest-AI-boundary is enforced in four places:
+ * The honest-AI-boundary is enforced in five places:
  * - GROUNDING: {@see instructions()} tells the model it has no access to the
  *   customer's deploys/git/logs/APM and that it only labels an already-fired
  *   anomaly.
@@ -36,6 +36,10 @@ use Stringable;
  *   fields; non-conforming output is retried once, then rejected.
  * - ALLOWLIST: {@see sanitizeRecommendation()} strips any owned-signal citation
  *   the model invented that the payload's catalog does not vouch for.
+ * - NARRATION GATE: {@see interpret()} rejects a narration too short to be the
+ *   sentence the schema asked for, measured on what survived the allowlist, so
+ *   a token answer degrades to the deterministic statistical text instead of
+ *   becoming the operator's whole card body.
  *
  * No tools, no function-calling, no DB access are ever exposed to the model.
  */
@@ -55,6 +59,19 @@ class LaravelAiTriageGateway implements Agent, AnomalyTriageGateway, Conversatio
     ];
 
     /**
+     * The shortest narration that can carry an operator-usable sentence.
+     *
+     * The schema asks for one or two sentences, and a model that instead answers
+     * the `confirmed` question a second time here satisfies it: production
+     * stored a recommendation of "No" on 2026-08-15 and the inbox card rendered
+     * that one word as its whole body. This is a floor rather than a quality
+     * score, and it is set where a rejection costs nothing: real narrations run
+     * 72 to 250 characters, and the deterministic statistical fallback a
+     * rejection degrades to is 148.
+     */
+    private const MIN_RECOMMENDATION_LENGTH = 40;
+
+    /**
      * Label and briefly narrate a statistical anomaly from its evidence.
      *
      * @throws RuntimeException When the model returns non-conforming output twice.
@@ -67,20 +84,56 @@ class LaravelAiTriageGateway implements Agent, AnomalyTriageGateway, Conversatio
 
         // 1. First attempt.
         // verify-at-execute: confirm against installed vendor/laravel/ai.
-        $data = $this->parse($this->prompt($message, model: $model));
+        $result = $this->interpret($this->structuredFrom($this->prompt($message, model: $model)), $payload);
 
         // 2. Validate-then-retry once on non-conforming structured output.
-        if ($data === null) {
+        if ($result === null) {
             // verify-at-execute: confirm against installed vendor/laravel/ai.
-            $data = $this->parse($this->prompt($message, model: $model));
+            $result = $this->interpret($this->structuredFrom($this->prompt($message, model: $model)), $payload);
         }
 
-        if ($data === null) {
+        if ($result === null) {
             throw new RuntimeException('Triage gateway received non-conforming structured output.');
         }
 
-        // 3. Enforce the owned-signal allowlist on the free-text recommendation.
+        return $result;
+    }
+
+    /**
+     * Turn one structured model response into a usable {@see TriageResult}, or
+     * null to signal non-conforming output (a retry, then the caller's degrade).
+     *
+     * Public and I/O-free so the whole interpretation boundary is unit-testable
+     * without a real prompt, for the same reason
+     * {@see self::sanitizeRecommendation()} is.
+     *
+     * @param  array<string, mixed>|null  $structured  The model's structured
+     *                                                 fields, or null when it
+     *                                                 answered with free text.
+     */
+    public function interpret(?array $structured, TriagePayload $payload): ?TriageResult
+    {
+        if ($structured === null) {
+            return null;
+        }
+
+        // 1. Schema conformance: the four fields, with the enum-bounded ones
+        //    inside their enums.
+        $data = $this->parse($structured);
+        if ($data === null) {
+            return null;
+        }
+
+        // 2. Enforce the owned-signal allowlist on the free-text recommendation.
         $cleaned = $this->sanitizeRecommendation($data['recommendation'], $payload);
+
+        // 3. Gate the narration on what SURVIVED the allowlist, not on what the
+        //    model sent: a recommendation that is only long enough because of
+        //    citations we then strip would otherwise reach the operator as an
+        //    empty card body.
+        if (mb_strlen(trim($cleaned['recommendation'])) < self::MIN_RECOMMENDATION_LENGTH) {
+            return null;
+        }
 
         return new TriageResult(
             confirmed: $data['confirmed'],
@@ -190,20 +243,26 @@ class LaravelAiTriageGateway implements Agent, AnomalyTriageGateway, Conversatio
     }
 
     /**
-     * Validate the structured response against the flat schema.
+     * The structured fields of a conforming response, or null when the model
+     * answered with free text instead of the requested shape.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function structuredFrom(AgentResponse $response): ?array
+    {
+        return $response instanceof StructuredAgentResponse ? $response->toArray() : null;
+    }
+
+    /**
+     * Validate the structured fields against the flat schema.
      *
      * Returns the normalized fields, or null to signal a retry / hard failure.
      *
+     * @param  array<string, mixed>  $data
      * @return array{confirmed: bool, severity: string, confidence: AiConfidence, recommendation: string}|null
      */
-    private function parse(AgentResponse $response): ?array
+    private function parse(array $data): ?array
     {
-        if (! $response instanceof StructuredAgentResponse) {
-            return null;
-        }
-
-        $data = $response->toArray();
-
         if (! is_bool($data['confirmed'] ?? null)) {
             return null;
         }

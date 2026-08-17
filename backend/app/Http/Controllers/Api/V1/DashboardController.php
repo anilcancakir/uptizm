@@ -222,6 +222,11 @@ class DashboardController extends Controller
                 'confidence' => $suggestion->confidence->value,
                 'tldr' => $suggestion->recommendation,
                 'trigger' => 'anomaly',
+                // Tri-state on the wire as it is in the column: true confirmed,
+                // false the model saw no real deviation, null no model ran. The
+                // client marks only the false, so the two silent states must
+                // stay distinguishable rather than collapsing to a boolean.
+                'confirmed' => $suggestion->confirmed,
             ],
         ];
     }
