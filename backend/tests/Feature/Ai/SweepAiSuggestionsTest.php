@@ -7,6 +7,9 @@ use App\Enums\AiMode;
 use App\Enums\AiSuggestionKind;
 use App\Enums\AiSuggestionStatus;
 use App\Enums\EscalationTargetType;
+use App\Enums\IncidentImpact;
+use App\Enums\IncidentSeverity;
+use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
@@ -192,6 +195,110 @@ class SweepAiSuggestionsTest extends TestCase
         $this->assertNull($suggestion->accepted_incident_id);
     }
 
+    // ---------------------------------------------------------------------
+    // The closing half of the autonomous lane
+    // ---------------------------------------------------------------------
+
+    public function test_a_quiet_signal_resolves_the_incident_the_lane_opened(): void
+    {
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $incident = $this->openedAnomalyIncident($monitor, threshold: 900.0);
+        $this->seedQuietWindow($monitor, responseMs: 200);
+
+        $this->runSweep();
+
+        $incident->refresh();
+        $this->assertSame(IncidentStatus::Resolved, $incident->lifecycle);
+        $this->assertNotNull($incident->resolved_at);
+    }
+
+    public function test_the_resolve_leaves_a_public_system_note(): void
+    {
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $incident = $this->openedAnomalyIncident($monitor, threshold: 900.0);
+        $this->seedQuietWindow($monitor, responseMs: 200);
+
+        $this->runSweep();
+
+        // A status page renders this like any other update, so it has to be
+        // public, system-authored, and not marked autonomous (the AI did not
+        // write the sentence; the lane's own arithmetic did).
+        $note = $incident->updates()->where('status', IncidentStatus::Resolved->value)->sole();
+        $this->assertSame('system', $note->actor);
+        $this->assertTrue($note->is_public);
+        $this->assertFalse($note->autonomous);
+        $this->assertStringContainsString($monitor->name, $note->message);
+    }
+
+    public function test_the_resolve_dispatches_through_the_shared_seam(): void
+    {
+        // The mirror of the open-path assertion above. A resolve that only wrote
+        // the row would leave the dashboard showing an incident that is over and
+        // the public status page serving it from a stale cache, and no other
+        // test here would notice.
+        Event::fake([IncidentBroadcast::class]);
+        $cache = Mockery::spy(StatusPageCache::class);
+        $this->app->instance(StatusPageCache::class, $cache);
+
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $incident = $this->openedAnomalyIncident($monitor, threshold: 900.0);
+        $this->seedQuietWindow($monitor, responseMs: 200);
+
+        $this->runSweep();
+
+        Event::assertDispatched(
+            IncidentBroadcast::class,
+            fn (IncidentBroadcast $event): bool => $event->kind === 'resolved'
+                && $event->incident->id === $incident->id,
+        );
+        $cache->shouldHaveReceived('invalidateForMonitors')->once()->with([$monitor->id]);
+    }
+
+    public function test_a_signal_still_above_its_level_keeps_the_incident_open(): void
+    {
+        // Quiet enough that the DETECTOR raises nothing (a flat series has no
+        // spike and no drift), yet every reading is still above the level this
+        // incident was opened against. Nothing recovered, so nothing closes.
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $incident = $this->openedAnomalyIncident($monitor, threshold: 900.0);
+        $this->seedQuietWindow($monitor, responseMs: 2500);
+
+        $this->runSweep();
+
+        $this->assertSame(IncidentStatus::Detected, $incident->refresh()->lifecycle);
+    }
+
+    public function test_an_incident_with_no_judgeable_level_is_left_for_a_human(): void
+    {
+        // Fail-closed: with no numeric threshold on the suggestion behind it
+        // there is nothing to measure recovery against, and guessing would close
+        // a real outage. Leaving it open is exactly today's behaviour, so the
+        // fallback is never worse than the state this change replaces.
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $incident = $this->openedAnomalyIncident($monitor, threshold: null);
+        $this->seedQuietWindow($monitor, responseMs: 200);
+
+        $this->runSweep();
+
+        $this->assertSame(IncidentStatus::Detected, $incident->refresh()->lifecycle);
+    }
+
+    public function test_a_non_ai_incident_is_never_touched_by_this_lane(): void
+    {
+        // The down lane and the metric lane own their own incidents, and
+        // ThresholdEvaluator scopes itself off ai_owned rows for the mirror of
+        // this reason. Closing one from here would resolve an outage on the
+        // strength of a response-time number.
+        $monitor = $this->makeMonitor(AiMode::Auto);
+        $incident = $this->openedAnomalyIncident($monitor, threshold: 900.0);
+        $incident->update(['ai_owned' => false]);
+        $this->seedQuietWindow($monitor, responseMs: 200);
+
+        $this->runSweep();
+
+        $this->assertSame(IncidentStatus::Detected, $incident->refresh()->lifecycle);
+    }
+
     public function test_auto_monitor_the_model_did_not_confirm_does_not_auto_open(): void
     {
         // The confidence bar alone is not enough: this stub is as confident as
@@ -316,6 +423,71 @@ class SweepAiSuggestionsTest extends TestCase
         // 2. Trailing plateau: a clear, sustained shift the detector must flag.
         for ($i = 110; $i < 120; $i++) {
             $this->makeCheck($monitor, $start->copy()->addMinutes($i), 2500);
+        }
+    }
+
+    /**
+     * Put the monitor in the state the autonomous lane leaves behind: one open
+     * `ai_owned` incident, plus the accepted suggestion that opened it carrying
+     * the level the anomaly was raised against.
+     *
+     * A null [$threshold] models evidence with nothing numeric to recover
+     * against, which is the fail-closed branch.
+     */
+    protected function openedAnomalyIncident(Monitor $monitor, ?float $threshold): Incident
+    {
+        $incident = Incident::query()->create([
+            'team_id' => $monitor->team_id,
+            'primary_monitor_id' => $monitor->id,
+            'title' => 'Anomaly detected on '.$monitor->name,
+            'impact' => IncidentImpact::Major,
+            'severity' => IncidentSeverity::Warn,
+            'signal_source' => SignalSource::AiAnomaly,
+            'lifecycle' => IncidentStatus::Detected,
+            'ai_owned' => true,
+            'trigger_metric_key' => 'response_time',
+            'started_at' => now()->subHours(3),
+        ]);
+
+        $incident->monitors()->attach($monitor->id, [
+            'component_status_at_start' => MonitorStatus::Up->value,
+            'component_status_current' => MonitorStatus::Up->value,
+        ]);
+
+        AiSuggestion::query()->create([
+            'team_id' => $monitor->team_id,
+            'monitor_id' => $monitor->id,
+            'kind' => AiSuggestionKind::ResponseTimeAnomaly,
+            'signal' => 'response_time',
+            'method' => 'ewma',
+            'score' => 4.2,
+            'severity' => 'warn',
+            'confidence' => AiConfidence::High,
+            'source' => 'llm',
+            'recommendation' => 'Response time drifted well past its control limit and held there.',
+            'evidence' => $threshold === null
+                ? ['unit' => 'ms', 'observed' => 2500]
+                : ['unit' => 'ms', 'observed' => 2500, 'baseline' => 200, 'threshold' => $threshold],
+            'dedupe_key' => 'opened:'.Str::uuid(),
+            'status' => AiSuggestionStatus::Accepted,
+            'accepted_incident_id' => $incident->id,
+            'expires_at' => now()->addDays(7),
+        ]);
+
+        return $incident;
+    }
+
+    /**
+     * Seed a window the detector finds nothing in: a flat series has no spike
+     * (MAD scale is zero) and no drift (sigma is zero), so both branches guard
+     * off and the sweep reaches its resolve arm.
+     */
+    protected function seedQuietWindow(Monitor $monitor, int $responseMs): void
+    {
+        $start = now()->subMinutes(120);
+
+        for ($i = 0; $i < 120; $i++) {
+            $this->makeCheck($monitor, $start->copy()->addMinutes($i), $responseMs);
         }
     }
 

@@ -27,6 +27,11 @@ use DateTimeInterface;
  * not met, the monitor's configured warn/critical bounds act as STATIC
  * thresholds so a sparse-cadence monitor is still evaluated instead of sitting
  * in cold-start forever; with neither history nor bounds, the result is null.
+ *
+ * Both statistical branches then pass through
+ * {@see self::raisedAboveBaseline()}, which drops a fire whose latest reading is
+ * not actually above its own baseline. A shift is not a reading, and this
+ * detector is only ever asked about one direction.
  */
 class ResponseTimeAnomalyDetector
 {
@@ -96,14 +101,60 @@ class ResponseTimeAnomalyDetector
         }
 
         // 1. Cold-start gate: trust the statistical limits only when the window
-        //    is both deep enough AND spread over enough wall-clock time.
+        //    is both deep enough AND spread over enough wall-clock time. Each
+        //    branch is filtered on its own so a spike dropped for pointing the
+        //    wrong way still falls through to the drift test.
         if ($this->statisticalLimitsTrusted($values, $config)) {
-            return $this->detectMad($values, $config)
-                ?? $this->detectEwma($values, $config);
+            return $this->raisedAboveBaseline($this->detectMad($values, $config))
+                ?? $this->raisedAboveBaseline($this->detectEwma($values, $config));
         }
 
         // 2. Cold-start fallback: the configured bounds become static thresholds.
         return $this->detectStatic($values, $config);
+    }
+
+    /**
+     * Drop a statistical candidate whose latest reading is not actually worse
+     * than its own baseline.
+     *
+     * Both statistical branches measure a SHIFT rather than the current reading,
+     * so both can fire while the endpoint is answering faster than usual. EWMA
+     * carries the decaying tail of a spike that has already passed; MAD can
+     * confirm a run of samples breaching in the NEGATIVE direction, which is a
+     * service that got faster. Measured on production over 2026-08-15..17, two
+     * of five EWMA fires had a latest reading at or below baseline (53ms against
+     * 120.8ms, 89ms against 93.7ms), and the model handed that evidence answered
+     * "No", "no_action" and "none" because there was nothing to describe.
+     *
+     * This is a product judgement, not a statistical correction. The signal is
+     * `response_time` and every consumer reads it as "this endpoint is slow":
+     * the incident title, the severity tier, the operator's card. There is no
+     * vocabulary anywhere for "it got faster", so a fire that could only be
+     * narrated that way is better not raised than raised and mislabelled.
+     *
+     * A candidate with no numeric baseline passes through untouched. That is the
+     * static branch, which compared the latest sample against a CONFIGURED bound:
+     * clearing that bound is itself the statement that the reading is high, and
+     * there is no baseline to compare it to.
+     */
+    private function raisedAboveBaseline(?AnomalyCandidate $candidate): ?AnomalyCandidate
+    {
+        if ($candidate === null) {
+            return null;
+        }
+
+        $observed = $candidate->evidence['observed'] ?? null;
+        $baseline = $candidate->evidence['baseline'] ?? null;
+
+        if (! is_int($observed) && ! is_float($observed)) {
+            return $candidate;
+        }
+
+        if (! is_int($baseline) && ! is_float($baseline)) {
+            return $candidate;
+        }
+
+        return (float) $observed > (float) $baseline ? $candidate : null;
     }
 
     /**

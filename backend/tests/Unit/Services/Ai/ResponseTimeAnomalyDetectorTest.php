@@ -174,6 +174,58 @@ class ResponseTimeAnomalyDetectorTest extends TestCase
     }
 
     // ---------------------------------------------------------------------
+    // Direction sanity: the reading, not just the shift
+    // ---------------------------------------------------------------------
+
+    public function test_a_spike_that_has_already_passed_is_not_flagged(): void
+    {
+        // The production shape, measured on fluttersdk.com over 2026-08-15..17:
+        // a spike ends and the EWMA carries its decaying tail for several more
+        // samples, so the statistic still clears its control limit while the
+        // endpoint is already answering FASTER than its own window average.
+        //
+        // 90x100, 9x400, then one 50. mean = 126.5, so the latest sample sits
+        // well below the baseline. MAD is guarded off (>=50% of samples equal
+        // the median), so EWMA owns this and its smoothed value is still ~295
+        // against a ~224 limit: it flags, and there is nothing to flag.
+        $window = array_merge(array_fill(0, 90, 100), array_fill(0, 9, 400), [50]);
+
+        $this->assertNull($this->detect($window, $this->config()));
+    }
+
+    public function test_an_endpoint_that_got_faster_is_not_an_anomaly(): void
+    {
+        // The MAD half of the same rule. Three trailing 1ms samples breach the
+        // robust threshold hard (M ~= -13.4) in the NEGATIVE direction, so the
+        // spike branch confirms and would raise a `critical` response-time
+        // anomaly for a service that got a hundred times faster.
+        $window = array_merge(
+            array_fill(0, 25, 90),
+            array_fill(0, 50, 100),
+            array_fill(0, 22, 110),
+            [1, 1, 1],
+        );
+
+        $this->assertNull($this->detect($window, $this->config()));
+    }
+
+    public function test_a_real_drift_upward_still_flags(): void
+    {
+        // The guard is about the DIRECTION of the reading, not its size: the
+        // same window shape with the latest sample above the baseline is still
+        // an anomaly, or the rule would have silenced the detector outright.
+        $window = array_merge(array_fill(0, 90, 100), array_fill(0, 10, 400));
+
+        $candidate = $this->detect($window, $this->config());
+
+        $this->assertNotNull($candidate);
+        $this->assertGreaterThan(
+            $candidate->evidence['baseline'],
+            $candidate->evidence['observed'],
+        );
+    }
+
+    // ---------------------------------------------------------------------
     // Cold-start gate + static bounds
     // ---------------------------------------------------------------------
 
