@@ -10,11 +10,21 @@ import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.preview.d
 import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.recipe.dart';
 import 'package:uptizm/ui/components/ai_confidence_badge/index.dart';
 
+import '../../../support/bundled_lang.dart';
+
 void main() {
-  setUp(() {
+  setUp(() async {
     MagicApp.reset();
     Magic.flush();
     Magic.singleton('magic_starter', () => MagicStarterManager());
+
+    // The card composes AiConfidenceBadge, whose label now comes from the
+    // catalogue. Without a loader `trans` hands back the raw key, and
+    // `uptizm.ai.confidence_high` is a single unbreakable 25-character token
+    // that overflows the header row: a failure about a missing catalogue that
+    // reads as a layout bug in the card.
+    Translator.instance.setLoader(_BundledTurkishLoader());
+    await Translator.instance.setLocale(const Locale('tr'));
   });
 
   tearDown(() {
@@ -206,4 +216,12 @@ void main() {
     final aiIncidentCount = incidents.where((i) => i.ai != null).length;
     expect(find.byType(AiAnalysisCard), findsNWidgets(aiIncidentCount));
   });
+}
+
+/// Serves the shipped Turkish catalogue, so every string this card lays out is
+/// the one an operator reads rather than a key.
+class _BundledTurkishLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async =>
+      readBundledLang('tr');
 }

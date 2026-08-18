@@ -11,7 +11,8 @@ import '../enums/incident_title_key.dart'
     show IncidentTitleKey, incidentTitleKeyFromWire;
 import '../enums/signal_source.dart' show SignalSource, signalSourceFromWire;
 import '../enums/timeline_actor.dart' show TimelineActor;
-import '../support/formatters.dart' show formatDuration, formatRelativeMeta;
+import '../support/formatters.dart'
+    show formatDuration, formatRelativeAge, formatRelativeMeta;
 import '../support/incident_types.dart'
     show
         AffectedMonitor,
@@ -304,6 +305,16 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
     final DateTime started = _readDateTime('started_at') ?? DateTime.now();
     return formatRelativeMeta(started, _readDateTime('resolved_at'));
   }
+
+  /// Age of the incident's start with no verb attached, e.g. `"14 dk önce"`.
+  ///
+  /// For the surfaces that state the age on its own. The AI inbox is the one
+  /// today: its rows are pending anomalies, so "started"/"resolved" would be
+  /// claiming a lifecycle the row does not have. It used to reach this by
+  /// regex-stripping the English verb off [startedAt], which silently stopped
+  /// matching once that clause was translated.
+  String get startedAge =>
+      formatRelativeAge(_readDateTime('started_at') ?? DateTime.now());
 
   /// Elapsed duration, e.g. `"14m"` or `"1h 06m"`.
   ///

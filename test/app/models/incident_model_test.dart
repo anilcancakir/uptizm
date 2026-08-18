@@ -8,7 +8,7 @@ import 'package:uptizm/app/enums/incident_severity.dart' show IncidentSeverity, 
 import 'package:uptizm/app/enums/signal_source.dart' show SignalSource, signalSourceFromWire;
 import 'package:uptizm/app/enums/timeline_actor.dart' show TimelineActor, timelineActorFromWire;
 import 'package:uptizm/app/support/formatters.dart'
-    show formatDuration, formatHourMinute, formatRelativeMeta;
+    show formatDuration, formatHourMinute, formatRelativeAge, formatRelativeMeta;
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/app/enums/incident_title_key.dart'
     show IncidentTitleKey, incidentTitleKeyFromWire;
@@ -351,8 +351,11 @@ void main() {
         'resolved_at': null,
       });
 
-      expect(incident.startedAt, startsWith('started '));
-      expect(incident.startedAt, endsWith(' ago'));
+      // Turkish closes with the verb, so the shape assertion has to close with
+      // it too; asserting an English prefix here is what hid the untranslated
+      // clause until an operator read it on a Turkish dashboard.
+      expect(incident.startedAt, endsWith(' başladı'));
+      expect(incident.startedAt, contains(' önce '));
     });
 
     test('startedAt reads as resolved when resolved_at is set', () {
@@ -363,8 +366,8 @@ void main() {
         'resolved_at': '2026-07-09T15:20:00.000Z',
       });
 
-      expect(incident.startedAt, startsWith('resolved '));
-      expect(incident.startedAt, endsWith(' ago'));
+      expect(incident.startedAt, endsWith(' çözüldü'));
+      expect(incident.startedAt, contains(' önce '));
     });
 
     test('duration reproduces the IncidentSummary elapsed format', () {
@@ -570,13 +573,52 @@ void main() {
       final DateTime resolved = DateTime.utc(2026, 7, 9, 14, 34);
 
       expect(formatDuration(started, resolved), '14dk');
-      expect(formatRelativeMeta(started, null), startsWith('started '));
       expect(
         RegExp(r'^\d{2}:\d{2}$').hasMatch(formatHourMinute(
           '2026-07-09T14:34:00.000Z',
         )),
         isTrue,
       );
+    });
+
+    test('the relative age reads in Turkish at every granularity', () {
+      final DateTime now = DateTime.now();
+
+      expect(formatRelativeAge(now.subtract(const Duration(seconds: 8))),
+          '8 sn önce');
+      expect(formatRelativeAge(now.subtract(const Duration(minutes: 14))),
+          '14 dk önce');
+      expect(
+          formatRelativeAge(now.subtract(const Duration(hours: 2))), '2 sa önce');
+      expect(
+          formatRelativeAge(now.subtract(const Duration(days: 5))), '5 gün önce');
+    });
+
+    test('the meta line puts the Turkish verb last, not first', () {
+      // The whole reason the clause is a catalogue entry rather than a prefix
+      // concatenated onto the age: English leads with the verb and Turkish
+      // closes with it, so a `'$verb $age'` would read "başladı 14 dk önce".
+      final DateTime now = DateTime.now();
+      final DateTime started = now.subtract(const Duration(minutes: 14));
+
+      expect(formatRelativeMeta(started, null), '14 dk önce başladı');
+      expect(
+        formatRelativeMeta(started, now.subtract(const Duration(hours: 2))),
+        '2 sa önce çözüldü',
+      );
+    });
+
+    test('startedAge states the age with no lifecycle verb attached', () {
+      // What the AI inbox renders. It used to reach this by regex-stripping the
+      // English verb off `startedAt`, which matches nothing once translated.
+      final Incident incident = Incident()
+        ..setAttribute(
+          'started_at',
+          DateTime.now().subtract(const Duration(minutes: 14)).toIso8601String(),
+        );
+
+      expect(incident.startedAge, '14 dk önce');
+      expect(incident.startedAge, isNot(contains('başladı')));
     });
   });
 

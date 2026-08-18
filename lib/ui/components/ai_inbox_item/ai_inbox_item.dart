@@ -61,9 +61,6 @@ import 'ai_inbox_item.recipe.dart';
 /// ```
 @immutable
 class AiInboxItem extends StatelessWidget {
-  /// Affordance glyph on the expand control.
-  static const IconData _expandIcon = Icons.keyboard_arrow_down;
-
   /// Glyph marking the model's own caveat about the row it wrote.
   static const IconData _verdictIcon = Icons.info_outline;
 
@@ -155,13 +152,11 @@ class AiInboxItem extends StatelessWidget {
         // Confidence badge: shrink-wrap pill; non-greedy inside the wrap row.
         AiConfidenceBadge(incident.ai!.confidence),
 
-        // Relative time ("4m ago"): pushed to the end via ml-auto. Strip the
-        // "started "/"resolved " prefix the incident carries for incident lists.
+        // Relative age ("4 dk önce"): pushed to the end via ml-auto. The bare
+        // age, not the incident meta line: these rows are pending anomalies, so
+        // "started"/"resolved" would name a lifecycle they do not have.
         WText(
-          incident.startedAt.replaceFirst(
-            RegExp(r'^(started|resolved)\s+'),
-            '',
-          ),
+          incident.startedAge,
           className: 'ml-auto font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
@@ -219,25 +214,18 @@ class AiInboxItem extends StatelessWidget {
           ),
         ),
 
-        // Dismiss: a ghost button with a trailing chevron (the design source's
-        // dropdown trigger; the reason menu is a deferred follow-up).
+        // Dismiss: a plain ghost button. It carried a trailing chevron copied
+        // from the design source, where it opened a dismiss-reason menu; here
+        // it opened nothing, so the affordance promised a choice that did not
+        // exist. The chevron comes back with the menu, not before it.
         WButton(
           onTap: onDismiss,
           className:
-              'flex flex-row items-center gap-1 rounded-md px-3 py-1.5 '
+              'flex flex-row items-center rounded-md px-3 py-1.5 '
               'text-xs font-medium text-fg-muted hover:bg-surface-container',
-          child: WDiv(
-            className: 'flex flex-row items-center gap-1',
-            children: [
-              WText(
-                trans('uptizm.ai.dismiss'),
-                className: 'text-xs font-medium text-fg-muted',
-              ),
-              WIcon(
-                _expandIcon,
-                className: 'text-sm text-fg-muted',
-              ),
-            ],
+          child: WText(
+            trans('uptizm.ai.dismiss'),
+            className: 'text-xs font-medium text-fg-muted',
           ),
         ),
       ],

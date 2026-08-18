@@ -885,8 +885,6 @@
       "open_incident": "Olay aç",
       "dismiss": "Yoksay",
       "unconfirmed": "Model bunu gerçek bir sapma olarak görmedi",
-      "anomaly_dismissed_title": "Anormallik yoksayıldı",
-      "anomaly_dismissed_description": "\":reason\" olarak işaretlendi. Uptizm bunu gelecekteki tespitlerde dikkate alır.",
       "right_now_label": "Şu anda",
       "ai_detected": "Yapay zeka tespiti",
       "similar_incidents": "Benzer olaylar",
@@ -910,9 +908,12 @@
       "coming_soon_title": "Yakında geliyor",
       "list_and": "ve",
       "time_just_now": "az önce",
+      "time_seconds_ago": ":count sn önce",
       "time_minutes_ago": ":count dk önce",
       "time_hours_ago": ":count sa önce",
-      "time_days_ago": ":count gün önce"
+      "time_days_ago": ":count gün önce",
+      "time_started": ":age başladı",
+      "time_resolved": ":age çözüldü"
     },
     "incidents": {
       "list_title": "Olaylar",

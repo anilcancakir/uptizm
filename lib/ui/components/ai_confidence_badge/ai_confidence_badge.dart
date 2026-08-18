@@ -12,6 +12,10 @@ import 'ai_confidence_badge.recipe.dart';
 /// inactive (paused). Part of the graduated-trust UX, so a glance tells an
 /// operator how much weight to give the suggestion.
 ///
+/// The label is the bare adjective ("Yüksek", "High") rather than the full
+/// phrase. It sits in a wrapping header row beside a monitor name and a
+/// timestamp, and the AI sparkle next to it already supplies the noun.
+///
 /// Uses [aiConfidenceBadgeRecipe] (a [WindSlotRecipe]) to emit the correct
 /// soft background, text color, and geometry for each confidence level.
 ///
@@ -42,9 +46,11 @@ class AiConfidenceBadge extends StatelessWidget {
     // 1. Resolve the className from the recipe once.
     final className = _resolveClassName();
 
-    // 2. Resolve the display label: "{Level} confidence".
-    final displayLabel =
-        '${level.name[0].toUpperCase()}${level.name.substring(1)} confidence';
+    // 2. Resolve the display label from the catalogue. The key is built from
+    //    the enum's own name, so a new confidence level is a missing key rather
+    //    than a silently English label; the three that exist are pinned by a
+    //    test that reads the shipped catalogue.
+    final String displayLabel = trans('uptizm.ai.confidence_${level.name}');
 
     // 3. Build: pill row with text.
     //    NOTE: `flex flex-row`, NOT `inline-flex`. Wind lists `inline-flex`
