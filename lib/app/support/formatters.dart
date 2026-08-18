@@ -5,9 +5,10 @@
 /// (`lib/app/support/`) and the ORM models can format wall-clock and elapsed
 /// strings without importing fixture data.
 ///
-/// All are pure except [formatDuration], which reads its unit words from the
-/// locale catalogue: a caller with no [TranslationLoader] registered gets the
-/// raw key back, so a test asserting a duration needs one.
+/// All are pure except [formatDuration], [formatRelativeAge] and
+/// [formatRelativeMeta], which read their words from the locale catalogue: a
+/// caller with no [TranslationLoader] registered gets the raw key back, so a
+/// test asserting any of the three needs one.
 library;
 
 import 'package:magic/magic.dart';
@@ -74,26 +75,60 @@ String formatDuration(DateTime startedAt, DateTime until) {
   return '$hours$h ${minutes.toString().padLeft(2, '0')}$m';
 }
 
-/// Formats how long ago [checkedAt] was, at the granularity a monitor's check
-/// cadence needs: `"8s ago"`, `"3m ago"`, `"2h ago"`, or `"5d ago"`.
-String formatCheckedAgo(DateTime checkedAt) {
-  final Duration elapsed = DateTime.now().difference(checkedAt);
+/// How long ago [instant] was, as a compact localized string: `"8 sn önce"`,
+/// `"14 dk önce"`, `"2 sa önce"`, `"5 gün önce"` (`"8s ago"`, `"14m ago"`,
+/// `"2h ago"`, `"5d ago"` in English).
+///
+/// Seconds are the finest grain because a monitor's last-checked line is read
+/// against a check cadence measured in seconds; anything coarser renders a
+/// just-completed check as if nothing had happened for a minute.
+///
+/// This is deliberately NOT the same function as `notification_center`'s
+/// private `_relativeTime`, which floors at `time_just_now` instead. That is a
+/// different granularity contract for a friendlier surface, not a duplicate to
+/// unify: a notification does not gain from `"8 sn önce"`, and a monitor does.
+String formatRelativeAge(DateTime instant) {
+  final Duration elapsed = DateTime.now().difference(instant);
+
   final int seconds = elapsed.inSeconds.abs();
-  if (seconds < 60) return '${seconds}s ago';
+  if (seconds < 60) {
+    return trans('uptizm.common.time_seconds_ago', {'count': '$seconds'});
+  }
+
   final int minutes = elapsed.inMinutes.abs();
-  if (minutes < 60) return '${minutes}m ago';
+  if (minutes < 60) {
+    return trans('uptizm.common.time_minutes_ago', {'count': '$minutes'});
+  }
+
   final int hours = elapsed.inHours.abs();
-  if (hours < 24) return '${hours}h ago';
-  return '${elapsed.inDays.abs()}d ago';
+  if (hours < 24) {
+    return trans('uptizm.common.time_hours_ago', {'count': '$hours'});
+  }
+
+  return trans('uptizm.common.time_days_ago', {
+    'count': '${elapsed.inDays.abs()}',
+  });
 }
 
-/// Formats the relative-time meta line (e.g. `"started 14m ago"` or
-/// `"resolved 2h ago"`) from [startedAt]/[resolvedAt].
+/// The relative-time meta line: `"14 dk önce başladı"` / `"2 sa önce çözüldü"`
+/// (`"started 14m ago"` / `"resolved 2h ago"` in English).
+///
+/// The whole clause comes from the catalogue with the age interpolated, rather
+/// than a prefix concatenated onto [formatRelativeAge]. Word order is the
+/// reason: English leads with the verb and Turkish closes with it, so a
+/// `'$prefix $age'` would read `"başladı 14 dk önce"`, which is the shape a
+/// naive port produces and a Turkish reader trips over.
+///
+/// Callers wanting the bare age (an AI inbox row has no start/resolve to state)
+/// should call [formatRelativeAge] directly. Stripping the verb back off this
+/// string used to be a regex over the English words, which stopped matching the
+/// moment the clause was translated.
 String formatRelativeMeta(DateTime startedAt, DateTime? resolvedAt) {
   final bool isResolved = resolvedAt != null;
-  final DateTime reference = resolvedAt ?? startedAt;
-  final Duration elapsed = DateTime.now().difference(reference);
-  final int minutes = elapsed.inMinutes.abs();
-  final String magnitude = minutes < 60 ? '${minutes}m' : '${elapsed.inHours}h';
-  return '${isResolved ? 'resolved' : 'started'} $magnitude ago';
+  final String age = formatRelativeAge(resolvedAt ?? startedAt);
+
+  return trans(
+    isResolved ? 'uptizm.common.time_resolved' : 'uptizm.common.time_started',
+    {'age': age},
+  );
 }

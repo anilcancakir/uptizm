@@ -11,7 +11,7 @@ import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
-import '../../../app/support/formatters.dart' show formatCheckedAgo;
+import '../../../app/support/formatters.dart' show formatRelativeAge;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
 import '../../../app/support/monitor_types.dart' show CheckRow, UptimeSegment;
@@ -656,7 +656,7 @@ class _MonitorDetailViewState
           value: paused
               ? trans('uptizm.status.paused')
               : (monitor.lastCheckedAt != null
-                    ? formatCheckedAgo(monitor.lastCheckedAt!.toDateTime)
+                    ? formatRelativeAge(monitor.lastCheckedAt!.toDateTime)
                     : '—'),
           hint: trans('uptizm.monitors.kpi_hint_interval', {
             'interval': monitor.intervalLabel,

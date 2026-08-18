@@ -276,6 +276,35 @@ void main() {
     expect(find.byIcon(Icons.info_outline), findsNothing);
   });
 
+  testWidgets('AiInboxItem offers no menu it cannot open', (tester) async {
+    // The dismiss button carried a chevron copied from the design source, where
+    // it opened a reason menu. Here it opened nothing, so the glyph promised a
+    // choice that did not exist. It comes back with the menu, not before.
+    await tester.pumpWidget(
+      wrap(AiInboxItem(incident: rowWithVerdict(null), onDismiss: () {})),
+    );
+    await tester.pump();
+
+    expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
+  });
+
+  testWidgets('AiInboxItem states the age without a lifecycle verb', (
+    tester,
+  ) async {
+    // A pending anomaly has neither started nor resolved as an incident, and
+    // the verb used to be removed by a regex over the English words, which
+    // matches nothing once the clause is Turkish.
+    Translator.instance.setLoader(_BundledTurkishLoader());
+    await Translator.instance.setLocale(const Locale('tr'));
+
+    await tester.pumpWidget(wrap(AiInboxItem(incident: rowWithVerdict(null))));
+    await tester.pump();
+
+    expect(find.textContaining('önce'), findsOneWidget);
+    expect(find.textContaining('başladı'), findsNothing);
+    expect(find.textContaining('çözüldü'), findsNothing);
+  });
+
   testWidgets('AiInboxItem lays the real caveat sentence out on a phone width', (
     tester,
   ) async {
