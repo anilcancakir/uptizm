@@ -9,6 +9,7 @@ use App\Services\Services\ServicePageAssembler;
 use App\Services\Services\SitemapBuilder;
 use App\Support\Marketing\ChromeData;
 use App\Support\Marketing\LegalDocument;
+use App\Support\Monitoring\ReadingFreshness;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -85,7 +86,7 @@ class ShowServiceIndexController
             'services' => $services,
             // As view data rather than a fully qualified constant in the template,
             // matching the service page and `marketing/contact.blade.php`.
-            'staleAfterSeconds' => ServicePageAssembler::STALE_AFTER_SECONDS,
+            'staleAfterSeconds' => ReadingFreshness::STALE_AFTER_SECONDS,
             // The middle verdict, so a hub row can withhold the affirmative claim
             // exactly the way the detail page does.
             'mixedVerdict' => ServicePageAssembler::VERDICT_MIXED,
@@ -161,7 +162,7 @@ class ShowServiceIndexController
         return [
             '[[index.service_count]]' => (string) count($services),
             '[[index.region_count]]' => (string) count(MonitorRegion::cases()),
-            '[[index.stale_after_seconds]]' => (string) ServicePageAssembler::STALE_AFTER_SECONDS,
+            '[[index.stale_after_seconds]]' => (string) ReadingFreshness::STALE_AFTER_SECONDS,
         ];
     }
 
