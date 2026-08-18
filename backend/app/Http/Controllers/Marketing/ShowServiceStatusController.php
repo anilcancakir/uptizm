@@ -9,6 +9,7 @@ use App\Services\Services\FeedFetcher;
 use App\Services\Services\ServicePageAssembler;
 use App\Support\Marketing\ChromeData;
 use App\Support\Marketing\LegalDocument;
+use App\Support\Monitoring\ReadingFreshness;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -216,7 +217,7 @@ class ShowServiceStatusController
             // constants inside the template, the same way the contact page takes
             // its field names: Blade has no `use` statement, and the sentences
             // these appear in are already dense enough.
-            'staleAfterSeconds' => ServicePageAssembler::STALE_AFTER_SECONDS,
+            'staleAfterSeconds' => ReadingFreshness::STALE_AFTER_SECONDS,
             'agreeingRegions' => ServicePageAssembler::MIN_AGREEING_REGIONS,
             // The middle verdict, so the view can withhold the affirmative claim
             // without restating the ladder value as a literal.
@@ -324,7 +325,7 @@ class ShowServiceStatusController
                 ? Monitor::DEFAULT_INCIDENT_THRESHOLD
                 : max(array_column($endpoints, 'incidentThreshold'))),
             '[[service.agreeing_regions]]' => (string) ServicePageAssembler::MIN_AGREEING_REGIONS,
-            '[[service.stale_after_seconds]]' => (string) ServicePageAssembler::STALE_AFTER_SECONDS,
+            '[[service.stale_after_seconds]]' => (string) ReadingFreshness::STALE_AFTER_SECONDS,
             '[[service.strip_days]]' => (string) ($strips === [] ? 0 : count($strips[0])),
         ];
     }

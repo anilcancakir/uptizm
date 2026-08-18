@@ -20,6 +20,7 @@ use App\Models\ServiceFeedSnapshot;
 use App\Services\Services\FeedFetcher;
 use App\Services\Services\ServicePageAssembler;
 use App\Services\StatusPages\StatusPageAssembler;
+use App\Support\Monitoring\ReadingFreshness;
 use App\Support\Services\SystemTeam;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -49,7 +50,7 @@ use Tests\TestCase;
  *   - no uptime percentage, availability figure or SLA number attributed to the
  *     third party, ever, and the 90-day strip labelled as uptizm's reachability of
  *     the NAMED endpoint;
- *   - a reading older than {@see ServicePageAssembler::STALE_AFTER_SECONDS} shown as
+ *   - a reading older than {@see ReadingFreshness::STALE_AFTER_SECONDS} shown as
  *     unknown rather than frozen at its last value;
  *   - a public "we could not reach it" only after the monitor's consecutive-failure
  *     threshold AND more than one region agreeing;
@@ -414,7 +415,7 @@ class ServiceStatusPageTest extends TestCase
             $service,
             indicator: 'critical',
             components: [],
-            ageSeconds: ServicePageAssembler::STALE_AFTER_SECONDS + 60,
+            ageSeconds: ReadingFreshness::STALE_AFTER_SECONDS + 60,
         );
 
         $this->get($this->pagePath('en'))
@@ -828,7 +829,7 @@ class ServiceStatusPageTest extends TestCase
         $this->reach(
             $service,
             MonitorRegion::USEast,
-            ageSeconds: ServicePageAssembler::STALE_AFTER_SECONDS + 60,
+            ageSeconds: ReadingFreshness::STALE_AFTER_SECONDS + 60,
             responseMs: 4242,
         );
 

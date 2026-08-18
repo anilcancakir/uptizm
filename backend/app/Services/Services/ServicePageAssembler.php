@@ -12,6 +12,7 @@ use App\Models\Service;
 use App\Models\ServiceFeedSnapshot;
 use App\Services\StatusPages\ComponentDailyUptimeService;
 use App\Services\StatusPages\StatusPageAssembler;
+use App\Support\Monitoring\ReadingFreshness;
 use App\Support\StatusPages\StatusPresentation;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
@@ -50,7 +51,7 @@ use Illuminate\Database\Eloquent\Collection;
  *     fabricated SLO this repo already removed once.
  *  2. EVERY READING IS FIRST PERSON, ENDPOINT-NAMED AND TIMESTAMPED. Each
  *     endpoint carries the host that was probed and when, and past
- *     {@see self::STALE_AFTER_SECONDS} it becomes
+ *     {@see ReadingFreshness::STALE_AFTER_SECONDS} it becomes
  *     {@see StatusPageAssembler::STATUS_UNKNOWN} rather than freezing on its
  *     last known value: checks older than the bound are never read at all, so
  *     there is no last-known value in the model to fall back to.
@@ -101,7 +102,6 @@ class ServicePageAssembler
      * cadence this catalog's monitors run on, so a reading goes unknown only
      * when something is actually wrong rather than when a tick was late.
      */
-    public const int STALE_AFTER_SECONDS = 600;
 
     /**
      * How many distinct regions must agree before the own-probe block reports a
@@ -435,7 +435,7 @@ class ServicePageAssembler
      * first.
      *
      * The window IS the staleness rule: rows older than
-     * {@see self::STALE_AFTER_SECONDS} are never selected, so a stale endpoint
+     * {@see ReadingFreshness::STALE_AFTER_SECONDS} are never selected, so a stale endpoint
      * has no last-known reading in the payload and cannot be rendered as one by
      * a careless template.
      *
@@ -448,7 +448,7 @@ class ServicePageAssembler
         /** @var Collection<int, MonitorCheck> $checks */
         $checks = MonitorCheck::query()
             ->where('monitor_id', $monitor->getKey())
-            ->where('checked_at', '>=', $now->subSeconds(self::STALE_AFTER_SECONDS))
+            ->where('checked_at', '>=', $now->subSeconds(ReadingFreshness::STALE_AFTER_SECONDS))
             ->orderByDesc('checked_at')
             ->limit(self::MAX_RECENT_CHECK_ROWS)
             ->get();
@@ -582,7 +582,7 @@ class ServicePageAssembler
         // NOT presented as their current state, and it stops contributing to the
         // divergence comparison, because a disagreement with a stale quote is
         // not a disagreement.
-        $stale = $age === null || $age > self::STALE_AFTER_SECONDS;
+        $stale = $age === null || $age > ReadingFreshness::STALE_AFTER_SECONDS;
 
         $components = $this->feedComponents($snapshot);
         $incidents = $this->feedIncidents($snapshot);

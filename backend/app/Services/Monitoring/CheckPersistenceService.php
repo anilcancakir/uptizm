@@ -11,8 +11,8 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetricValue;
-use App\Services\Services\ServicePageAssembler;
 use App\Support\Monitoring\CheckResult;
+use App\Support\Monitoring\ReadingFreshness;
 use Carbon\Carbon;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Facades\Cache;
@@ -596,10 +596,10 @@ class CheckPersistenceService
      * Exactly the shape `SweepAiSuggestions` closed for the autonomous lane, in
      * another lane.
      *
-     * "Dark" is the SAME threshold the public page already uses to withhold a
-     * verdict ({@see ServicePageAssembler::STALE_AFTER_SECONDS}), deliberately
-     * read from there rather than restated here: a second copy of a threshold is
-     * how the two surfaces come to disagree about what stale means.
+     * "Dark" is the SAME threshold the public page uses to withhold a verdict,
+     * shared from {@see ReadingFreshness} rather than restated here: a second
+     * copy is how the two surfaces come to disagree about what stale means, and
+     * that disagreement IS this defect.
      *
      * The asymmetry with the public page is what this fixes. That page has
      * withheld a verdict for a stale target all along; the incident table kept
@@ -614,8 +614,8 @@ class CheckPersistenceService
      * FAIL-CLOSED on everything it cannot judge. A reading still inside the
      * window keeps the incident (one refused tick is not a dark target, and a
      * real outage underneath must not be closed out from under a responder), and
-     * a multi-component incident is left for a human, because one component going
-     * dark says nothing about the others on it.
+     * a multi-component incident is never selected at all, because one component
+     * going dark says nothing about the others on it.
      */
     protected function closeIncidentGoneDark(Monitor $monitor, CheckResult $result): void
     {
@@ -624,7 +624,7 @@ class CheckPersistenceService
         // Compared directly rather than through a signed `diffInSeconds`, which
         // returns a NEGATIVE value for a past timestamp and inverts the test.
         $cutoff = Carbon::instance($result->checkedAt)
-            ->subSeconds(ServicePageAssembler::STALE_AFTER_SECONDS);
+            ->subSeconds(ReadingFreshness::STALE_AFTER_SECONDS);
 
         $newestReading = MonitorCheck::query()
             ->where('monitor_id', $monitor->id)
@@ -636,18 +636,18 @@ class CheckPersistenceService
             return;
         }
 
+        // The single-component constraint is a subquery, not a loop test. This
+        // runs on EVERY refused tick of every dark monitor, so counting the pivot
+        // per incident would be an N+1 on the hot refusal path.
         $incidents = Incident::query()
             ->where('primary_monitor_id', $monitor->id)
             ->active()
+            ->has('monitors', '=', 1)
             ->orderBy('started_at')
             ->orderBy('id')
             ->get();
 
         foreach ($incidents as $incident) {
-            if ($incident->monitors()->count() !== 1) {
-                continue;
-            }
-
             $this->resolveGoneDark($incident, $monitor);
         }
     }
