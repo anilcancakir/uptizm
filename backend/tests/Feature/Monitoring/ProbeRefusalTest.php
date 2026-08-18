@@ -2,17 +2,23 @@
 
 namespace Tests\Feature\Monitoring;
 
+use App\Enums\IncidentImpact;
+use App\Enums\IncidentSeverity;
+use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Enums\SignalSource;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\CheckPersistenceService;
+use App\Services\Monitoring\IncidentDispatcher;
 use App\Support\Monitoring\CheckResult;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -29,6 +35,12 @@ use Tests\TestCase;
  * Counting it as a SUCCESS would be worse: resetting the streak would mask a real
  * outage underneath. So the only honest handling is no verdict at all, plus a
  * monitor-level error the operator can act on, and that is what these tests pin.
+ *
+ * There is a THIRD thing a refusal settles, added after production showed the
+ * gap: an incident opened before the target went dark. No check row means the
+ * recovery path never runs, so those incidents could never close, and two of
+ * them sat `critical` for four days. Closing one is not a recovery and must not
+ * page anyone; the second group below pins that.
  */
 class ProbeRefusalTest extends TestCase
 {
@@ -191,6 +203,174 @@ class ProbeRefusalTest extends TestCase
 
         $this->assertNull($legacy->colo);
         $this->assertFalse($legacy->probeRefused);
+    }
+
+    // ---------------------------------------------------------------------
+    // A target that went dark cannot evidence the incident it opened
+    // ---------------------------------------------------------------------
+
+    public function test_a_refused_probe_closes_an_incident_it_can_no_longer_evidence(): void
+    {
+        // The production shape, measured 2026-08-18: openai.com and claude.ai
+        // began serving a bot challenge, the probe correctly refused, and the
+        // incidents each had already opened sat `detected` and `critical` for
+        // FOUR DAYS. A refusal writes no check row, so the recovery path that
+        // would have closed them never had an `up` reading to run on.
+        $monitor = $this->makeMonitor();
+        $incident = $this->openIncident($monitor);
+        $this->staleCheck($monitor);
+
+        app(CheckPersistenceService::class)->persist($monitor, $this->refusal($monitor));
+
+        $incident->refresh();
+        $this->assertSame(IncidentStatus::Resolved, $incident->lifecycle);
+        $this->assertNotNull($incident->resolved_at);
+    }
+
+    public function test_the_close_says_it_is_not_a_recovery(): void
+    {
+        $monitor = $this->makeMonitor();
+        $incident = $this->openIncident($monitor);
+        $this->staleCheck($monitor);
+
+        app(CheckPersistenceService::class)->persist($monitor, $this->refusal($monitor));
+
+        $note = $incident->updates()->sole();
+        $this->assertSame('system', $note->actor);
+        // Internal: the public page already withholds a verdict for a stale
+        // target through its own staleness rule, so there is nothing to announce.
+        $this->assertFalse($note->is_public);
+        // NOT an AI action. The client renders `autonomous` as an "Auto mode"
+        // badge, and no model was involved in this arithmetic.
+        $this->assertFalse($note->autonomous);
+        $this->assertStringContainsString('no longer', $note->message);
+    }
+
+    public function test_the_close_never_routes_through_the_recovery_dispatch(): void
+    {
+        // The whole point: `IncidentResolved` tells a responder the service came
+        // back. Nothing came back here, we simply stopped being able to look.
+        //
+        // Asserted on the DISPATCHER, not on the notification or the event. Both
+        // of those are vacuous in this suite: `IncidentResolved` is gated on the
+        // monitor's `alert_on_recover` flag, and `IncidentBroadcast` is
+        // `ShouldDispatchAfterCommit` while `RefreshDatabase` holds a transaction
+        // that never commits, so neither can fire whatever this code does. The
+        // first version of this test wired the dispatcher back in as a mutant and
+        // still passed, which is how that was caught.
+        $dispatcher = Mockery::spy(IncidentDispatcher::class);
+        $this->app->instance(IncidentDispatcher::class, $dispatcher);
+
+        $monitor = $this->makeMonitor();
+        $incident = $this->openIncident($monitor);
+        $this->staleCheck($monitor);
+
+        app(CheckPersistenceService::class)->persist($monitor, $this->refusal($monitor));
+
+        // The close still happened; it just did not announce a recovery.
+        $this->assertSame(IncidentStatus::Resolved, $incident->refresh()->lifecycle);
+        $dispatcher->shouldNotHaveReceived('dispatch');
+    }
+
+    public function test_a_fresh_reading_keeps_the_incident_open(): void
+    {
+        // One refused tick is not a dark target. While a recent reading still
+        // stands, the incident it opened is still evidenced and a real outage
+        // underneath must not be closed out from under the responder.
+        $monitor = $this->makeMonitor();
+        $incident = $this->openIncident($monitor);
+        $this->freshCheck($monitor);
+
+        app(CheckPersistenceService::class)->persist($monitor, $this->refusal($monitor));
+
+        $this->assertSame(IncidentStatus::Detected, $incident->refresh()->lifecycle);
+    }
+
+    public function test_a_multi_monitor_incident_is_left_for_a_human(): void
+    {
+        // One component going dark says nothing about the others on the same
+        // incident, so closing it would resolve an outage on evidence that only
+        // covers part of it.
+        $monitor = $this->makeMonitor();
+        $other = $this->makeMonitor(['name' => 'Second component', 'url' => 'other.test:443']);
+        $incident = $this->openIncident($monitor);
+        $incident->monitors()->attach($other->id, [
+            'component_status_at_start' => MonitorStatus::Down->value,
+            'component_status_current' => MonitorStatus::Down->value,
+        ]);
+        $this->staleCheck($monitor);
+
+        app(CheckPersistenceService::class)->persist($monitor, $this->refusal($monitor));
+
+        $this->assertSame(IncidentStatus::Detected, $incident->refresh()->lifecycle);
+    }
+
+    public function test_a_refusal_with_no_open_incident_writes_nothing(): void
+    {
+        $monitor = $this->makeMonitor();
+        $this->staleCheck($monitor);
+
+        app(CheckPersistenceService::class)->persist($monitor, $this->refusal($monitor));
+
+        $this->assertSame(0, Incident::query()->count());
+    }
+
+    /**
+     * An active incident on [$monitor], attached to it and nothing else.
+     */
+    protected function openIncident(Monitor $monitor): Incident
+    {
+        $incident = Incident::query()->create([
+            'team_id' => $monitor->team_id,
+            'primary_monitor_id' => $monitor->id,
+            'title' => $monitor->name.' is down',
+            'impact' => IncidentImpact::Major,
+            'severity' => IncidentSeverity::Critical,
+            'signal_source' => SignalSource::UserThreshold,
+            'lifecycle' => IncidentStatus::Detected,
+            'started_at' => now()->subDays(4),
+        ]);
+
+        $incident->monitors()->attach($monitor->id, [
+            'component_status_at_start' => MonitorStatus::Down->value,
+            'component_status_current' => MonitorStatus::Down->value,
+        ]);
+
+        return $incident;
+    }
+
+    /**
+     * The monitor's newest reading, old enough that the page would withhold it.
+     *
+     * The refusal fixture runs at a fixed 2026-07-31T10:00Z, and staleness is
+     * measured against the moment the probe ran rather than against wall-clock
+     * now, so this sits before that instant.
+     */
+    protected function staleCheck(Monitor $monitor): void
+    {
+        $this->writeCheck($monitor, new DateTimeImmutable('2026-07-20T10:00:00+00:00'));
+    }
+
+    /**
+     * A reading recent enough, relative to the refusal fixture's own clock, that
+     * the incident it evidences still stands.
+     */
+    protected function freshCheck(Monitor $monitor): void
+    {
+        $this->writeCheck($monitor, new DateTimeImmutable('2026-07-31T09:58:00+00:00'));
+    }
+
+    protected function writeCheck(Monitor $monitor, DateTimeImmutable $at): void
+    {
+        MonitorCheck::query()->create([
+            'monitor_id' => $monitor->id,
+            'team_id' => $monitor->team_id,
+            'region' => 'us-east',
+            'checked_at' => $at,
+            'status' => MonitorStatus::Down->value,
+            'status_code' => 403,
+            'response_ms' => 40,
+        ]);
     }
 
     /**
