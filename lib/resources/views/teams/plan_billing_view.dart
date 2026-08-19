@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/support/billing_types.dart' show Plan;
+import '../../../app/support/formatters.dart' show formatCount;
 import '../../../app/support/team_types.dart'
     show Invoice, PaymentMethod, UsageStat;
 import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
@@ -931,7 +932,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     if (price == null) {
       return trans('uptizm.teams.billing_plan_price_custom');
     }
-    return '\$${_formatCount(price)}';
+    return '\$${formatCount(price)}';
   }
 
   /// The under-price billing note for [plan] at the selected cycle: "Tailored to
@@ -958,17 +959,6 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       ),
       BillingCycle.annual => trans('uptizm.teams.billing_renewal_cycle_annual'),
     };
-  }
-
-  /// Formats an integer with thousands separators: `1000 -> "1,000"`.
-  String _formatCount(int n) {
-    final String digits = n.abs().toString();
-    final StringBuffer buffer = StringBuffer();
-    for (int i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
-      buffer.write(digits[i]);
-    }
-    return n < 0 ? '-$buffer' : buffer.toString();
   }
 
   // ---------------------------------------------------------------------------

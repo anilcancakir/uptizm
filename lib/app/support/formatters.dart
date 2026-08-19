@@ -132,3 +132,31 @@ String formatRelativeMeta(DateTime startedAt, DateTime? resolvedAt) {
     {'age': age},
   );
 }
+
+/// Formats an integer with the locale's thousands separator: `83365` renders as
+/// `83,365` in English and `83.365` in Turkish.
+///
+/// The separator is locale DATA, not a style choice, so it comes from the
+/// catalogue like the words above rather than from a hardcoded glyph. There were
+/// two byte-identical private copies of this, in `UsageMeter` and
+/// `PlanBillingView`, both hardcoding a comma; a Turkish billing page reported
+/// `83,365 checks`.
+///
+/// A caller with no [TranslationLoader] registered gets the raw key back for the
+/// separator, so the fallback keeps the digits readable instead of splicing a
+/// key into the middle of a number.
+String formatCount(int n) {
+  final String key = trans('uptizm.common.thousands_separator');
+  final String separator = key.length == 1 ? key : ',';
+  final String digits = n.abs().toString();
+  final StringBuffer buffer = StringBuffer();
+
+  for (int i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) {
+      buffer.write(separator);
+    }
+    buffer.write(digits[i]);
+  }
+
+  return n < 0 ? '-$buffer' : buffer.toString();
+}

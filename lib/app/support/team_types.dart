@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:magic/magic.dart' show trans;
 
 import '../enums/invoice_status.dart' show InvoiceStatus;
 import '../enums/team_role.dart' show TeamRole;
@@ -487,14 +488,33 @@ class UsageStat {
   /// (`{monitors, responders, checks_this_month}`, each `{used, limit}`; see
   /// `BillingController::usage()`), in the screen's existing display order.
   ///
-  /// Labels/units are hardcoded English display copy (mirroring the
-  /// design-lab fixture's `billingUsage`, which is not localized either), not
-  /// wire fields; the wire response carries only the numbers.
+  /// Labels and units are display copy, not wire fields; the wire response
+  /// carries only the numbers. They come from the catalogue rather than from
+  /// English literals: the billing page rendered "Monitors", "Responders",
+  /// "Checks this month" and "checks" in English inside an otherwise fully
+  /// Turkish page.
+  ///
+  /// Resolved here, at decode time, matching `formatters.dart` reading its words
+  /// from the catalogue in this same layer. A locale change needs a fresh boot
+  /// anyway (magic_starter persists it and nothing re-points the translator
+  /// live), so there is no window where a decoded label is stale but visible.
   static List<UsageStat> fromWireMap(Map<String, dynamic> map) {
     return [
-      _entryFromWire('Monitors', map['monitors'], ''),
-      _entryFromWire('Responders', map['responders'], ''),
-      _entryFromWire('Checks this month', map['checks_this_month'], 'checks'),
+      _entryFromWire(
+        trans('uptizm.teams.usage_monitors'),
+        map['monitors'],
+        '',
+      ),
+      _entryFromWire(
+        trans('uptizm.teams.usage_responders'),
+        map['responders'],
+        '',
+      ),
+      _entryFromWire(
+        trans('uptizm.teams.usage_checks_this_month'),
+        map['checks_this_month'],
+        trans('uptizm.teams.usage_unit_checks'),
+      ),
     ];
   }
 

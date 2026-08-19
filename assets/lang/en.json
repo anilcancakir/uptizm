@@ -913,7 +913,8 @@
       "time_hours_ago": ":counth ago",
       "time_days_ago": ":countd ago",
       "time_started": "started :age",
-      "time_resolved": "resolved :age"
+      "time_resolved": "resolved :age",
+      "thousands_separator": ","
     },
     "incidents": {
       "list_title": "Incidents",
@@ -1469,7 +1470,11 @@
       "escalation_target_user": "User :id",
       "escalation_target_on_call": "On-call rotation",
       "escalation_delay_immediate": "Immediately",
-      "escalation_delay_after": "After :n min"
+      "escalation_delay_after": "After :n min",
+      "usage_monitors": "Monitors",
+      "usage_responders": "Responders",
+      "usage_checks_this_month": "Checks this month",
+      "usage_unit_checks": "checks"
     },
     "titles": {
       "dashboard": "Dashboard",
