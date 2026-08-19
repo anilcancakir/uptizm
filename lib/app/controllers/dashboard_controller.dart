@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
@@ -11,9 +13,9 @@ import '../enums/status_key.dart';
 /// endpoints instead of the design-lab fixtures: `GET /dashboard/stats` for
 /// the KPI row, `GET /dashboard/active-incidents` for the active-incidents
 /// panel, `GET /dashboard/monitors-snapshot` for the monitor snapshot, and
-/// `GET /dashboard/ai-inbox` for the AI inbox (the backend always returns an
-/// empty list there; AI triage is deferred, so [aiSuggestions] naturally
-/// renders the existing empty state).
+/// `GET /dashboard/ai-inbox` for the AI inbox (live: it returns the team's
+/// pending `AiSuggestion` rows, so an empty [aiSuggestions] means the fleet has
+/// no open anomaly, not that the feature is unfinished).
 ///
 /// Data-only: the dashboard has no mutable state and no mock actions, so this
 /// controller only exposes reads over the fetched data, loaded once through
@@ -53,8 +55,9 @@ class DashboardController extends MagicController
   /// Cached `GET /dashboard/monitors-snapshot` result.
   List<Monitor> _monitorsSnapshot = [];
 
-  /// Cached `GET /dashboard/ai-inbox` result (always empty today; the
-  /// backend reserves the contract ahead of AI triage).
+  /// Cached `GET /dashboard/ai-inbox` result: the team's pending, non-expired
+  /// `AiSuggestion` rows, which `SweepAiSuggestions` writes every two minutes for
+  /// any monitor whose `ai_mode` is `suggest` or `auto`.
   List<Incident> _aiInbox = [];
 
   /// Active incidents: everything the backend still considers open.
@@ -63,8 +66,9 @@ class DashboardController extends MagicController
   /// The team's monitors with their last-known health status.
   List<Monitor> get monitorsSnapshot => _monitorsSnapshot;
 
-  /// AI inbox entries. Always empty today (AI triage is deferred
-  /// server-side), which drives the existing empty-state rendering.
+  /// AI inbox entries. An empty list means the fleet has no open anomaly right
+  /// now, which renders the inbox-zero state; it does not mean the feature is
+  /// unfinished.
   List<Incident> get aiSuggestions => _aiInbox;
 
   /// Count of monitors currently up.
@@ -221,6 +225,90 @@ class DashboardController extends MagicController
     refreshUI();
 
     await _ensureLoading();
+  }
+
+  /// The shortest interval between two reading-triggered stats refreshes.
+  ///
+  /// A reading arrives per monitor per region, so on a 60s cadence across three
+  /// regions a 20-monitor team produces one every second. The throttle turns
+  /// that stream into at most one `GET /dashboard/stats` per window, which is
+  /// what keeps the KPI row live without reintroducing polling.
+  static const Duration _statsThrottle = Duration(seconds: 15);
+
+  /// When the last reading-triggered stats refresh was issued, or null when
+  /// none has been.
+  DateTime? _lastReadingStatsRefresh;
+
+  /// Applies a `check.recorded` broadcast: patches the snapshot row in place and
+  /// refreshes the aggregate KPIs at most once per [_statsThrottle].
+  ///
+  /// The split is deliberate, and it is a choice about where an aggregate is
+  /// DEFINED, not just about cost:
+  ///
+  ///  - The snapshot row is patched locally, because the frame carries exactly
+  ///    the three fields the row renders. Zero HTTP, instant.
+  ///  - The KPI counters are NOT recomputed locally. `avg_response_ms`,
+  ///    `uptime_24h` and the status buckets are defined by `DashboardController`
+  ///    on the server (the uptime one reads the raw check stream, which no client
+  ///    holds), and a second definition here is precisely how two surfaces come
+  ///    to disagree about the same fleet. So the reading asks the server to
+  ///    recompute, on a throttle, and the server stays the only place that knows
+  ///    the formula.
+  ///
+  /// A reading for a monitor this client has never listed patches nothing, and
+  /// then also refreshes nothing: an unknown monitor means the snapshot is stale
+  /// in a way one row cannot fix, and [reload] on the next transition or
+  /// navigation is what settles it.
+  void noteCheckRecorded(Map<String, dynamic> payload) {
+    final String? id = payload['monitor_id'] as String?;
+    final String? checkedAt = payload['last_checked_at'] as String?;
+    if (id == null || checkedAt == null) return;
+
+    final int index = _monitorsSnapshot.indexWhere((Monitor m) => m.id == id);
+    if (index == -1) return;
+
+    final Carbon? incoming = _parseInstant(checkedAt);
+    if (incoming == null) return;
+
+    final Monitor cached = _monitorsSnapshot[index];
+    final Carbon? held = cached.lastCheckedAt;
+    if (held != null && incoming.isBefore(held)) return;
+
+    // The raw wire string, never a DateTime: magic's `setAttribute` formats a
+    // DateTime as `yyyy-MM-ddTHH:mm:ss` and drops the offset, shifting every
+    // reading by the device's UTC offset.
+    cached
+      ..setAttribute('last_status', payload['last_status'])
+      ..setAttribute('last_checked_at', checkedAt)
+      ..setAttribute('last_response_ms', payload['last_response_ms']);
+    refreshUI();
+
+    _refreshStatsThrottled();
+  }
+
+  /// Issues `_reloadStats()` unless one was issued inside [_statsThrottle].
+  ///
+  /// Fire-and-forget: `_reloadStats` already swallows a transport failure as a
+  /// documented degradation, and a KPI refresh must never surface as an error on
+  /// a screen the operator did not ask to reload.
+  void _refreshStatsThrottled() {
+    final DateTime now = DateTime.now();
+    final DateTime? last = _lastReadingStatsRefresh;
+    if (last != null && now.difference(last) < _statsThrottle) return;
+
+    _lastReadingStatsRefresh = now;
+    unawaited(_reloadStats());
+  }
+
+  /// Parses a wire timestamp, returning null rather than throwing on a value the
+  /// device cannot read. A malformed frame must not take down the socket
+  /// listener that delivered it.
+  Carbon? _parseInstant(String raw) {
+    try {
+      return Carbon.parse(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Refreshes the `GET /dashboard/stats` counters.

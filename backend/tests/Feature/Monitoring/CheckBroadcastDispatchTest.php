@@ -5,6 +5,7 @@ namespace Tests\Feature\Monitoring;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Events\IncidentBroadcast;
+use App\Events\MonitorCheckRecorded;
 use App\Events\MonitorStatusChanged;
 use App\Jobs\PerformSslCheck;
 use App\Models\Incident;
@@ -201,6 +202,103 @@ class CheckBroadcastDispatchTest extends TestCase
         Event::assertDispatchedTimes(MonitorStatusChanged::class, 1);
     }
 
+    // ---------------------------------------------------------------------
+    // A reading is an event even when the health did not change
+    // ---------------------------------------------------------------------
+
+    public function test_a_same_status_check_broadcasts_the_reading(): void
+    {
+        Event::fake([MonitorCheckRecorded::class, MonitorStatusChanged::class]);
+        Notification::fake();
+        $monitor = $this->makeMonitor(lastStatus: MonitorStatus::Up, incidentThreshold: 10);
+        $service = $this->service();
+
+        // The exact case MonitorStatusChanged is silent for, and the common one:
+        // a healthy fleet answering normally. The reading still moved
+        // last_response_ms, last_checked_at, and the live uptime window, so it
+        // has to reach the screen.
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'up-1', status: MonitorStatus::Up));
+
+        Event::assertNotDispatched(MonitorStatusChanged::class);
+        Event::assertDispatched(
+            MonitorCheckRecorded::class,
+            fn (MonitorCheckRecorded $event): bool => $event->monitor->id === $monitor->id
+                && $event->check->status === MonitorStatus::Up
+                && $event->check->region === 'us-east-1',
+        );
+    }
+
+    public function test_the_reading_carries_the_monitor_past_its_denorm_update(): void
+    {
+        Event::fake([MonitorCheckRecorded::class, MonitorStatusChanged::class]);
+        Notification::fake();
+        $monitor = $this->makeMonitor(lastStatus: MonitorStatus::Up, incidentThreshold: 10);
+        $service = $this->service();
+
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'down-1', status: MonitorStatus::Down));
+
+        // The whole value of the event is the POST-check state. A monitor
+        // captured before the in-lock UPDATE would broadcast the health the
+        // dashboard already has, which is indistinguishable from no event.
+        Event::assertDispatched(
+            MonitorCheckRecorded::class,
+            fn (MonitorCheckRecorded $event): bool => $event->monitor->last_status === MonitorStatus::Down
+                && $event->monitor->last_response_ms === 128,
+        );
+    }
+
+    public function test_each_region_broadcasts_its_own_reading(): void
+    {
+        Event::fake([MonitorCheckRecorded::class, MonitorStatusChanged::class]);
+        Notification::fake();
+        $monitor = $this->makeMonitor(lastStatus: MonitorStatus::Up, incidentThreshold: 10);
+        $service = $this->service();
+
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'up-a', status: MonitorStatus::Up));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'up-b', status: MonitorStatus::Up, region: 'eu-west-1'));
+
+        // Deliberately NOT the once-per-flip contract MonitorStatusChanged holds.
+        // Two regions measured the target twice, so there are two readings; the
+        // client applies the newest and the debounce absorbs the burst.
+        Event::assertDispatchedTimes(MonitorCheckRecorded::class, 2);
+    }
+
+    public function test_a_refused_probe_broadcasts_no_reading(): void
+    {
+        Event::fake([MonitorCheckRecorded::class, MonitorStatusChanged::class]);
+        Notification::fake();
+        $monitor = $this->makeMonitor(lastStatus: MonitorStatus::Up, incidentThreshold: 10);
+        $service = $this->service();
+
+        $service->persist($monitor, $this->makeResult(
+            $monitor,
+            probeRunId: 'refused-1',
+            status: MonitorStatus::Down,
+            refused: true,
+        ));
+
+        // A refusal measured nothing about the target and writes no check row, so
+        // there is no reading to announce. Broadcasting one would put a `down`
+        // verdict on the dashboard that the check stream deliberately refuses to
+        // record.
+        Event::assertNotDispatched(MonitorCheckRecorded::class);
+    }
+
+    public function test_a_duplicate_delivery_broadcasts_no_second_reading(): void
+    {
+        Event::fake([MonitorCheckRecorded::class, MonitorStatusChanged::class]);
+        Notification::fake();
+        $monitor = $this->makeMonitor(lastStatus: MonitorStatus::Up, incidentThreshold: 10);
+        $service = $this->service();
+
+        // Same (monitor, region, probe_run_id) twice: a job retry. The durable
+        // dedup guard returns before any write, so the reading is announced once.
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'retry-1', status: MonitorStatus::Up));
+        $service->persist($monitor, $this->makeResult($monitor, probeRunId: 'retry-1', status: MonitorStatus::Up));
+
+        Event::assertDispatchedTimes(MonitorCheckRecorded::class, 1);
+    }
+
     public function test_an_ssl_incident_open_broadcasts_incident_opened(): void
     {
         Event::fake([IncidentBroadcast::class, MonitorStatusChanged::class]);
@@ -268,6 +366,7 @@ class CheckBroadcastDispatchTest extends TestCase
         string $probeRunId,
         MonitorStatus $status,
         string $region = 'us-east-1',
+        bool $refused = false,
     ): CheckResult {
         return new CheckResult(
             monitorId: (string) $monitor->id,
@@ -285,6 +384,7 @@ class CheckBroadcastDispatchTest extends TestCase
             responseHeaders: [],
             responseBodyPreview: null,
             probeRunId: $probeRunId,
+            probeRefused: $refused,
         );
     }
 

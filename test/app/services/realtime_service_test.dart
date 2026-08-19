@@ -11,10 +11,16 @@ import 'package:uptizm/app/services/realtime_service.dart';
 /// network, so a test can assert the coalesced reload pass reached it.
 class _SpyDashboardController extends DashboardController {
   int reloadCount = 0;
+  final List<Map<String, dynamic>> notedReadings = <Map<String, dynamic>>[];
 
   @override
   Future<void> reload() async {
     reloadCount++;
+  }
+
+  @override
+  void noteCheckRecorded(Map<String, dynamic> payload) {
+    notedReadings.add(payload);
   }
 }
 
@@ -36,6 +42,7 @@ class _SpyIncidentController extends IncidentController {
 class _SpyMonitorController extends MonitorController {
   int reloadCount = 0;
   final List<Map<String, dynamic>> notedPayloads = <Map<String, dynamic>>[];
+  final List<Map<String, dynamic>> notedReadings = <Map<String, dynamic>>[];
 
   @override
   Future<void> reload() async {
@@ -45,6 +52,11 @@ class _SpyMonitorController extends MonitorController {
   @override
   void noteAnalyzeProgress(Map<String, dynamic> payload) {
     notedPayloads.add(payload);
+  }
+
+  @override
+  void noteCheckRecorded(Map<String, dynamic> payload) {
+    notedReadings.add(payload);
   }
 }
 
@@ -192,7 +204,15 @@ void main() {
 
     echo.assertListening('private-teams.t1', 'incident.opened');
     echo.assertListening('private-teams.t1', 'incident.resolved');
+    // The backend has broadcast `incident.escalated` since the warn->critical
+    // escalation landed (`IncidentDispatcher::dispatch()`), and this client
+    // listened for four names, none of them that one. Magic's Reverb channel
+    // filters by EXACT event name, so every escalation arrived on the socket and
+    // was dropped: a warn incident became critical server-side and the open
+    // dashboard kept rendering it as warn until the operator navigated.
+    echo.assertListening('private-teams.t1', 'incident.escalated');
     echo.assertListening('private-teams.t1', 'monitor.status');
+    echo.assertListening('private-teams.t1', 'check.recorded');
     echo.assertListening('private-teams.t1', 'analyze.progress');
   });
 
@@ -316,6 +336,85 @@ void main() {
       );
       await flushDebounce();
 
+      expect(Magic.isRegistered<MonitorController>(), isFalse);
+    },
+  );
+
+  test(
+    'an escalated incident event reloads the dashboard and incident controllers',
+    () async {
+      Auth.fake(user: userWithTeam('t1'));
+      final _SpyDashboardController dashboard = _SpyDashboardController();
+      final _SpyIncidentController incident = _SpyIncidentController();
+      final _SpyMonitorController monitor = _SpyMonitorController();
+      Magic.put<DashboardController>(dashboard);
+      Magic.put<IncidentController>(incident);
+      Magic.put<MonitorController>(monitor);
+      final RealtimeService service = RealtimeService(debounce: Duration.zero);
+      await service.syncWithAuthState();
+
+      // Delivered through the wire rather than by calling the handler, because
+      // the defect was never in the handler: `onIncidentEvent` always did the
+      // right thing with an escalation, nothing ever handed it one.
+      echo.dispatch('private-teams.t1', 'incident.escalated', const {});
+      await flushDebounce();
+
+      expect(dashboard.reloadCount, 1);
+      expect(incident.reloadCount, 1);
+      expect(monitor.reloadCount, 0);
+    },
+  );
+
+  test(
+    'a check.recorded frame patches the registered controllers and refetches nothing',
+    () async {
+      Auth.fake(user: userWithTeam('t1'));
+      final _SpyDashboardController dashboard = _SpyDashboardController();
+      final _SpyIncidentController incident = _SpyIncidentController();
+      final _SpyMonitorController monitor = _SpyMonitorController();
+      Magic.put<DashboardController>(dashboard);
+      Magic.put<IncidentController>(incident);
+      Magic.put<MonitorController>(monitor);
+      final RealtimeService service = RealtimeService(debounce: Duration.zero);
+      await service.syncWithAuthState();
+
+      const Map<String, dynamic> reading = <String, dynamic>{
+        'monitor_id': 'm1',
+        'region': 'eu-west',
+        'result': 'up',
+        'response_ms': 143,
+        'checked_at': '2026-08-19T09:30:00+00:00',
+        'last_status': 'up',
+        'last_checked_at': '2026-08-19T09:30:00+00:00',
+        'last_response_ms': 143,
+      };
+      echo.dispatch('private-teams.t1', 'check.recorded', reading);
+      await flushDebounce();
+
+      // The payload IS the update, so it is applied rather than used as a dirty
+      // flag. A reload here would turn a 60s check cadence into four HTTP
+      // requests per monitor per cycle, which is the polling this replaces.
+      expect(monitor.notedReadings, <Map<String, dynamic>>[reading]);
+      expect(dashboard.notedReadings, <Map<String, dynamic>>[reading]);
+      expect(dashboard.reloadCount, 0);
+      expect(incident.reloadCount, 0);
+      expect(monitor.reloadCount, 0);
+    },
+  );
+
+  test(
+    'a check.recorded event never instantiates an unregistered controller',
+    () async {
+      Auth.fake(user: userWithTeam('t1'));
+      final RealtimeService service = RealtimeService(debounce: Duration.zero);
+      await service.syncWithAuthState();
+
+      echo.dispatch('private-teams.t1', 'check.recorded', const {
+        'monitor_id': 'm1',
+      });
+      await flushDebounce();
+
+      expect(Magic.isRegistered<DashboardController>(), isFalse);
       expect(Magic.isRegistered<MonitorController>(), isFalse);
     },
   );

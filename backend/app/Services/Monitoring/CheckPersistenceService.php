@@ -5,6 +5,7 @@ namespace App\Services\Monitoring;
 use App\Enums\IncidentStatus;
 use App\Enums\MetricType;
 use App\Enums\MonitorStatus;
+use App\Events\MonitorCheckRecorded;
 use App\Jobs\PerformMonitorCheck;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Models\Incident;
@@ -158,6 +159,11 @@ class CheckPersistenceService
                 'resolved' => null,
                 'status_change' => null,
             ];
+            // The durable reading, threaded out of the lock so step 5 can announce
+            // it. Stays null on every path that writes nothing (the dedup guard
+            // above returns before the lock is even taken), which is what makes a
+            // retried delivery announce the reading exactly once.
+            $recordedCheck = null;
             $this->withMonitorLock($monitor, function () use (
                 $monitor,
                 $result,
@@ -165,6 +171,7 @@ class CheckPersistenceService
                 $contentHash,
                 $contentHashNormalized,
                 &$outcome,
+                &$recordedCheck,
             ): void {
                 // 3a. Write the check, refresh the denorm columns, and freeze
                 //     metric samples in a single transaction so a partial batch
@@ -196,6 +203,12 @@ class CheckPersistenceService
                 //     opened/resolved outcome; the assignment above replaces the
                 //     whole array, so the transition is merged in afterwards.
                 $outcome['status_change'] = $statusChange;
+
+                // 3d. Hand the reading out of the lock. `$monitor` was refreshed
+                //     in place for the evaluator above, so it already carries this
+                //     check's denorm health and the broadcast payload reads the
+                //     post-check state rather than the one the dashboard has.
+                $recordedCheck = $check;
             });
 
             // 4. Dispatch incident notifications OFF-LOCK: the monitor lock is
@@ -204,6 +217,26 @@ class CheckPersistenceService
             //    held. The dispatcher is shared with the manual write path so
             //    both routes fire the same side effects in the same order.
             $this->incidentDispatcher->dispatch($monitor, $outcome);
+
+            // 5. Announce the reading itself, AFTER the incident dispatch so a
+            //    health flip's `monitor.status` reaches the client ahead of the
+            //    reading that produced it: the flip drives a reload, the reading
+            //    only patches a row, and applying them the other way round would
+            //    briefly show the new latency against the old status.
+            //
+            //    This fires on EVERY persisted check, not only on a transition.
+            //    Three dashboard KPIs (`avg_response_ms`, the live `uptime_24h`,
+            //    "last checked") and a monitor's whole latency history are derived
+            //    from the reading, so between two flips they moved server-side and
+            //    nothing carried them to a screen that was already open.
+            //
+            //    A refused probe never reaches here: step 0 returns before the
+            //    lock, because a refusal measured nothing about the target and
+            //    announcing it would publish a verdict the check stream itself
+            //    declines to record.
+            if ($recordedCheck !== null) {
+                event(new MonitorCheckRecorded($monitor, $recordedCheck));
+            }
         } finally {
             $payloadLock->release();
         }

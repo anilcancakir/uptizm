@@ -197,6 +197,149 @@ void main() {
     expect(controller.monitorById('api')!.sloDownMinutes7d, isNull);
   });
 
+  // ---------------------------------------------------------------------------
+  // noteCheckRecorded: a socket reading applied in place
+  // ---------------------------------------------------------------------------
+
+  /// A `check.recorded` frame for [id] as the backend shapes it.
+  Map<String, dynamic> reading({
+    String id = 'api',
+    String lastStatus = 'up',
+    String checkedAt = '2026-08-19T09:30:00+00:00',
+    int? responseMs = 143,
+  }) => <String, dynamic>{
+    'monitor_id': id,
+    'region': 'eu-west',
+    'result': lastStatus,
+    'response_ms': responseMs,
+    'checked_at': checkedAt,
+    'last_status': lastStatus,
+    'last_checked_at': checkedAt,
+    'last_response_ms': responseMs,
+  };
+
+  test('noteCheckRecorded patches the cached monitor without a fetch', () {
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {
+        'id': 'api',
+        'name': 'API',
+        'last_status': 'up',
+        'last_checked_at': '2026-08-19T09:00:00+00:00',
+        'last_response_ms': 90,
+      }),
+    ]);
+    // No Http.fake at all: a reading that reached for the network would throw
+    // here rather than pass quietly, which is the property under test.
+
+    controller.noteCheckRecorded(
+      reading(lastStatus: 'degraded', responseMs: 512),
+    );
+
+    final Monitor patched = controller.monitorById('api')!;
+    expect(patched.status, equals(StatusKey.degraded));
+    expect(patched.responseMs, equals(512));
+    expect(patched.lastCheckedAt!.format('yyyy-MM-dd HH:mm'), '2026-08-19 09:30');
+  });
+
+  test('noteCheckRecorded ignores a monitor that is not in the inventory', () {
+    // The channel is team-wide, so a reading arrives for every monitor the team
+    // owns. Inserting one from a reading would add a row with no url, no type and
+    // no interval to a list that renders all three.
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {'id': 'api', 'name': 'API'}),
+    ]);
+
+    controller.noteCheckRecorded(reading(id: 'never-listed'));
+
+    expect(controller.monitors.map((Monitor m) => m.id).toList(), ['api']);
+  });
+
+  test('noteCheckRecorded ignores a reading older than the one held', () {
+    // Regions land in whatever order the socket delivers them and each frame
+    // carries the denorm state as of ITS write. Applying a late one would wind
+    // last_checked_at backwards, and the detail view refetches its history on
+    // exactly that field moving.
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {
+        'id': 'api',
+        'name': 'API',
+        'last_status': 'down',
+        'last_checked_at': '2026-08-19T09:30:00+00:00',
+        'last_response_ms': 512,
+      }),
+    ]);
+
+    controller.noteCheckRecorded(
+      reading(lastStatus: 'up', checkedAt: '2026-08-19T09:29:00+00:00', responseMs: 90),
+    );
+
+    final Monitor held = controller.monitorById('api')!;
+    expect(held.status, equals(StatusKey.down));
+    expect(held.responseMs, equals(512));
+  });
+
+  test('noteCheckRecorded applies a reading with the same timestamp', () {
+    // Only STRICTLY older is dropped. A re-delivery at the same instant carries
+    // the same truth, and treating equal as stale would drop the first reading of
+    // a monitor whose held timestamp came from the same check.
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {
+        'id': 'api',
+        'name': 'API',
+        'last_status': 'up',
+        'last_checked_at': '2026-08-19T09:30:00+00:00',
+        'last_response_ms': 90,
+      }),
+    ]);
+
+    controller.noteCheckRecorded(reading(responseMs: 143));
+
+    expect(controller.monitorById('api')!.responseMs, equals(143));
+  });
+
+  test('noteCheckRecorded survives a malformed or absent timestamp', () {
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {
+        'id': 'api',
+        'name': 'API',
+        'last_response_ms': 90,
+      }),
+    ]);
+
+    // A frame the device cannot place in time is dropped, not thrown: the
+    // listener that delivered it must survive a bad payload.
+    controller.noteCheckRecorded(reading(checkedAt: 'not-a-timestamp'));
+    controller.noteCheckRecorded(const <String, dynamic>{'monitor_id': 'api'});
+    controller.noteCheckRecorded(const <String, dynamic>{});
+
+    expect(controller.monitorById('api')!.responseMs, equals(90));
+  });
+
+  test('noteCheckRecorded carries a null latency through', () {
+    // A down check has no latency. The field has to become null rather than keep
+    // the last good number, or a dead endpoint reads as fast.
+    final MonitorController controller = MonitorController.instance;
+    controller.seedForTest([
+      Monitor.fromMap(const {
+        'id': 'api',
+        'name': 'API',
+        'last_status': 'up',
+        'last_checked_at': '2026-08-19T09:00:00+00:00',
+        'last_response_ms': 90,
+      }),
+    ]);
+
+    controller.noteCheckRecorded(reading(lastStatus: 'down', responseMs: null));
+
+    expect(controller.monitorById('api')!.responseMs, isNull);
+    expect(controller.monitorById('api')!.status, equals(StatusKey.down));
+  });
+
   test('monitorById returns null for an unknown or null id', () {
     final MonitorController controller = MonitorController.instance;
 
