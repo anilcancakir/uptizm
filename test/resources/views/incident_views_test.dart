@@ -1635,6 +1635,66 @@ void main() {
     );
 
     testWidgets(
+      'a plan-walled analysis shows the upgrade path, not a retry',
+      (tester) async {
+        // Below the analysis tier the backend answers 403 with an `upgrade`
+        // envelope. That is permanent and priced, so the section has to offer
+        // the purchase; it used to render "the analysis could not be loaded"
+        // over a retry that could never succeed, because the screen's own
+        // upgrade nudge sat on the branch that runs after a SUCCESSFUL fetch.
+        //
+        // `eu-packet-loss` rather than `checkout-503`: the latter carries an
+        // inline `Incident.ai` from the design-lab fixture, so `analysisFor`
+        // never returns null and the refusal branch is unreachable for it. The
+        // live `IncidentResource` carries no analysis, which is the shape this
+        // asserts against.
+        await tester.binding.setSurfaceSize(const Size(1280, 5200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final FakeNetworkDriver driver = Http.fake();
+        driver.stub(
+          'incidents/eu-packet-loss/analysis',
+          Http.response(<String, dynamic>{
+            'message':
+                'AI incident analysis is available on the Pro plan and up. '
+                'Upgrade to use it.',
+            'upgrade': <String, dynamic>{
+              'required_plan': 'pro',
+              'feature': 'AI incident analysis',
+            },
+          }, 403),
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            const IncidentDetailView(id: 'eu-packet-loss'),
+            size: const Size(1280, 5200),
+          ),
+        );
+        await tester.pumpAndSettle();
+        tester.takeException(); // see the header chip-row overflow note above
+
+        expect(find.byType(MSUpgradeNudge), findsOneWidget);
+        expect(
+          find.textContaining('available on the Pro plan'),
+          findsOneWidget,
+          reason: "the nudge names what the server refused, not the client's "
+              'own copy of the catalog',
+        );
+        expect(
+          find.text(trans('uptizm.incidents.analysis_failed_body')),
+          findsNothing,
+          reason: 'a priced refusal is not a request that failed to land',
+        );
+        expect(
+          find.text(trans('uptizm.common.retry')),
+          findsNothing,
+          reason: 'nothing about trying again changes the plan',
+        );
+      },
+    );
+
+    testWidgets(
       'fetches the AI analysis and enriches the card with evidence + '
       'suggested actions, keeping similar-incidents empty',
       (tester) async {

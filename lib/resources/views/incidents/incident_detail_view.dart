@@ -619,6 +619,16 @@ class _IncidentDetailViewState
       // nothing for both told the operator an answer had been reached when the
       // screen had simply failed to ask. Reported from the running app as a
       // skeleton that appeared, vanished, and left a gap.
+      // Ahead of the failure arm, because a refusal that names a price is a
+      // different fact from a request that did not land. The nudge used to live
+      // only after a successful fetch, gated on the client's own copy of the
+      // tier, so the one case it was written for (the backend's 403 below the
+      // analysis tier) could never reach it and drew "could not be loaded" over
+      // a retry that cannot work.
+      if (controller.analysisGate(incident.id) case final gate?) {
+        return _buildGatedAnalysis(gate);
+      }
+
       if (controller.analysisFailed(incident.id)) {
         return _buildFailedAnalysis(incident);
       }
@@ -631,6 +641,24 @@ class _IncidentDetailViewState
     }
 
     return _buildAiAnalysis(ai);
+  }
+
+  /// Builds the plan-wall section for an analysis the team's plan does not
+  /// include.
+  ///
+  /// The message and the tier come from [gate], which the backend built when it
+  /// refused: it already named the feature and the cheapest plan that unlocks
+  /// it, so re-deriving either from the client's catalog would be a second
+  /// source of truth for one sentence. No retry is offered, because there is
+  /// nothing to retry.
+  Widget _buildGatedAnalysis(PlanUpgradeRequirement gate) {
+    return MSUpgradeNudge(
+      message: gate.message.isEmpty
+          ? trans('uptizm.incidents.ai_analysis_gated')
+          : gate.message,
+      requiredPlan: gate.planLabel,
+      onUpgrade: () => UpgradePrompt.startUpgrade(gate.requiredPlan),
+    );
   }
 
   /// Builds the in-flight analysis section: the card's own heading, one line
