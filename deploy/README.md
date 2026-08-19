@@ -133,6 +133,21 @@ rather than pretending to work.
 | `MAIL_MAILER` / `RESEND_KEY` | Mail goes to the log. No status-page subscriber receives a confirmation, no alert email is sent, and the contact form is not rendered at all. Cloudflare Email Routing on this domain **receives** only; sending needs a provider. The cutover is the next section. |
 | `APP_OWN_STATUS_PAGE_URL` | The landing page footer has no link to a status page of our own. Every competitor in this category publishes one, so its absence is visible. |
 
+One of these does NOT fail closed, and it is the reason this table needed a note
+rather than another row:
+
+| Key | Until it is set |
+|---|---|
+| `MAGIC_STARTER_FRONTEND_URL` | Three emails ship links a customer cannot use, and **nothing errors**. The team-invitation accept link and the password-reset link are built by concatenation, so a blank value produces the RELATIVE `/invitations/<token>/accept` and `/auth/reset-password?token=...`; a mail client cannot resolve either, so an invited teammate cannot join and a locked-out customer cannot get back in. The verification link is guarded and stays absolute, but it points at the API and answers raw JSON (`{"message":"Email verified successfully."}`) instead of a page. Set it to the client's origin (`https://app.uptizm.com`). |
+
+Two things to know when setting it. `app.frontend_url` is a second key for the same
+value and was dead until `magic-starter-laravel` #17: the reset URL read
+`config('magic-starter.frontend_url', config('app.frontend_url'))`, whose default
+argument only fires for a MISSING key, and a blank env line makes the key present and
+empty. And these notifications are `ShouldQueue`, so they are rendered by the QUEUE
+WORKER: an `.env` edit without `supervisorctl restart uptizm:*` changes nothing about
+the mails that go out.
+
 Two of those now change what the landing page SAYS, not just what the product
 does. `ShowLandingController` derives the page's feature claims from the
 deployment's actual capabilities, so a missing key removes a claim rather than
