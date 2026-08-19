@@ -52,12 +52,20 @@ void main() {
   Future<void> pumpAtWidth(
     WidgetTester tester,
     double width,
-    Widget widget,
-  ) async {
+    Widget widget, {
+    double bottomInset = 0,
+  }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = Size(width, 900);
+    // Both readings matter and they are read by different owners: BottomNav
+    // reserves the strip from `viewPadding.bottom`, SafeArea reacts to
+    // `padding.bottom`.
+    tester.view.padding = FakeViewPadding(bottom: bottomInset);
+    tester.view.viewPadding = FakeViewPadding(bottom: bottomInset);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
 
     await tester.pumpWidget(wrap(widget));
     await tester.pump();
@@ -184,5 +192,58 @@ void main() {
       );
       expect(find.byIcon(Icons.close), findsOneWidget);
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bottom system inset: owned by the BottomNav, not by the content region
+  // ---------------------------------------------------------------------------
+
+  group('AppLayout bottom inset ownership', () {
+    const layout = AppLayout(child: MSPageContainer(child: WText('content')));
+
+    testWidgets(
+      'the mobile content region carries no bottom inset, because the '
+      'BottomNav below it already reserves the home indicator',
+      (tester) async {
+        await pumpAtWidth(tester, 390, layout, bottomInset: 34);
+
+        final BuildContext region = tester.element(find.byType(Assistant));
+
+        // Counting it twice is what parked the FAB one home-indicator height
+        // higher than the page container's pb-24 clearance was sized for, so it
+        // came to rest on the last row of a list instead of below it.
+        expect(MediaQuery.of(region).padding.bottom, 0);
+      },
+    );
+
+    testWidgets(
+      'the mobile FAB clears the content region by its own 16px margin alone',
+      (tester) async {
+        await pumpAtWidth(tester, 390, layout, bottomInset: 34);
+
+        final double regionBottom = tester.getRect(find.byType(BottomNav)).top;
+        final Finder fab = find.ancestor(
+          of: find.byIcon(Icons.auto_awesome),
+          matching: find.byType(WButton),
+        );
+
+        expect(
+          regionBottom - tester.getRect(fab).bottom,
+          closeTo(16, 0.5),
+        );
+      },
+    );
+
+    testWidgets(
+      'the desktop content region keeps the bottom inset, because no nav bar '
+      'sits between it and the display edge',
+      (tester) async {
+        await pumpAtWidth(tester, 1200, layout, bottomInset: 34);
+
+        final BuildContext region = tester.element(find.byType(Assistant));
+
+        expect(MediaQuery.of(region).padding.bottom, 34);
+      },
+    );
   });
 }
