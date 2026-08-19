@@ -913,7 +913,8 @@
       "time_hours_ago": ":count sa önce",
       "time_days_ago": ":count gün önce",
       "time_started": ":age başladı",
-      "time_resolved": ":age çözüldü"
+      "time_resolved": ":age çözüldü",
+      "thousands_separator": "."
     },
     "incidents": {
       "list_title": "Olaylar",
@@ -1469,7 +1470,11 @@
       "escalation_target_user": "Kullanıcı :id",
       "escalation_target_on_call": "Nöbet rotasyonu",
       "escalation_delay_immediate": "Hemen",
-      "escalation_delay_after": ":n dk sonra"
+      "escalation_delay_after": ":n dk sonra",
+      "usage_monitors": "İzleyiciler",
+      "usage_responders": "Yanıtlayıcılar",
+      "usage_checks_this_month": "Bu ayki kontroller",
+      "usage_unit_checks": "kontrol"
     },
     "titles": {
       "dashboard": "Panel",

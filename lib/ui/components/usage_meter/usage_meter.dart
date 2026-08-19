@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
+import '../../../app/support/formatters.dart' show formatCount;
 import 'usage_meter.recipe.dart';
 
 /// Tone for a usage meter, tracking how close a resource is to its limit.
@@ -56,17 +57,6 @@ class UsageMeter extends StatelessWidget {
     this.className,
   });
 
-  /// Format an integer with thousands separators: 1000 -> "1,000".
-  String _formatCount(int n) {
-    final digits = n.abs().toString();
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
-      buffer.write(digits[i]);
-    }
-    return n < 0 ? '-$buffer' : buffer.toString();
-  }
-
   @override
   Widget build(BuildContext context) {
     final lim = limit;
@@ -82,7 +72,7 @@ class UsageMeter extends StatelessWidget {
     final slots = usageMeterRecipe(variants: {kUsageMeterToneAxis: tone.name});
     final widthFactor = unlimited ? 0.04 : math.max(0.02, ratio);
     final suffix = unit != null ? ' $unit' : '';
-    final limitText = unlimited ? '∞' : '${_formatCount(lim)}$suffix';
+    final limitText = unlimited ? '∞' : '${formatCount(lim)}$suffix';
 
     return WDiv(
       className: className == null
@@ -94,7 +84,7 @@ class UsageMeter extends StatelessWidget {
           children: [
             WText(label, className: slots['label']),
             WText(
-              '${_formatCount(used)}$suffix / $limitText',
+              '${formatCount(used)}$suffix / $limitText',
               className: slots['readout'],
             ),
           ],
