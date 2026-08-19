@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/dashboard_controller.dart';
+import 'package:uptizm/app/enums/status_key.dart';
+import 'package:uptizm/app/models/monitor.dart';
 
 void main() {
   setUp(() {
@@ -93,6 +95,114 @@ void main() {
     Http.fake(dashboardStubs());
     return DashboardController.instance;
   }
+
+  // ---------------------------------------------------------------------------
+  // noteCheckRecorded: the socket reading path
+  // ---------------------------------------------------------------------------
+
+  /// A `check.recorded` frame as the backend shapes it.
+  Map<String, dynamic> reading({
+    String id = 'm1',
+    String lastStatus = 'up',
+    String checkedAt = '2026-08-19T09:30:00+00:00',
+    int? responseMs = 143,
+  }) => <String, dynamic>{
+    'monitor_id': id,
+    'region': 'eu-west',
+    'result': lastStatus,
+    'response_ms': responseMs,
+    'checked_at': checkedAt,
+    'last_status': lastStatus,
+    'last_checked_at': checkedAt,
+    'last_response_ms': responseMs,
+  };
+
+  /// How many `dashboard/stats` reads [driver] recorded.
+  int statsReads(FakeNetworkDriver driver) => driver.recorded
+      .where((entry) => entry.$1.url.contains('dashboard/stats'))
+      .length;
+
+  test('noteCheckRecorded patches the snapshot row in place', () async {
+    final FakeNetworkDriver driver = Http.fake(dashboardStubs());
+    final DashboardController controller = DashboardController.instance;
+    await controller.reload();
+
+    controller.noteCheckRecorded(reading(lastStatus: 'degraded', responseMs: 512));
+
+    final Monitor patched = controller.monitorsSnapshot
+        .firstWhere((Monitor m) => m.id == 'm1');
+    expect(patched.status, equals(StatusKey.degraded));
+    expect(patched.responseMs, equals(512));
+    expect(driver.recorded, isNotEmpty);
+  });
+
+  test(
+    'a burst of readings costs at most one extra stats read per throttle window',
+    () async {
+      final FakeNetworkDriver driver = Http.fake(dashboardStubs());
+      final DashboardController controller = DashboardController.instance;
+      await controller.reload();
+      final int afterReload = statsReads(driver);
+
+      // Three regions of two monitors inside one window: six frames. Without the
+      // throttle this is six aggregate reads, which is the polling the socket was
+      // supposed to replace.
+      for (int i = 0; i < 3; i++) {
+        controller.noteCheckRecorded(reading(id: 'm1'));
+        controller.noteCheckRecorded(reading(id: 'm2'));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(statsReads(driver) - afterReload, equals(1));
+    },
+  );
+
+  test(
+    'a reading for a monitor outside the snapshot patches and reads nothing',
+    () async {
+      final FakeNetworkDriver driver = Http.fake(dashboardStubs());
+      final DashboardController controller = DashboardController.instance;
+      await controller.reload();
+      final int afterReload = statsReads(driver);
+
+      // An unknown monitor means the snapshot is stale in a way one row cannot
+      // repair, so this path deliberately does nothing at all and leaves the next
+      // reload to settle it.
+      controller.noteCheckRecorded(reading(id: 'never-listed'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(statsReads(driver) - afterReload, equals(0));
+      expect(controller.monitorsSnapshot.map((Monitor m) => m.id).toList(),
+          equals(['m1', 'm2']));
+    },
+  );
+
+  test('noteCheckRecorded ignores a reading older than the one held', () async {
+    Http.fake({
+      ...dashboardStubs(),
+      'dashboard/monitors-snapshot': Http.response({
+        'data': [
+          {
+            'id': 'm1',
+            'name': 'API',
+            'last_status': 'down',
+            'last_checked_at': '2026-08-19T09:30:00+00:00',
+            'last_response_ms': 512,
+          },
+        ],
+      }),
+    });
+    final DashboardController controller = DashboardController.instance;
+    await controller.reload();
+
+    controller.noteCheckRecorded(
+      reading(lastStatus: 'up', checkedAt: '2026-08-19T09:29:00+00:00', responseMs: 90),
+    );
+
+    final Monitor held = controller.monitorsSnapshot.single;
+    expect(held.status, equals(StatusKey.down));
+    expect(held.responseMs, equals(512));
+  });
 
   test('DashboardController.instance registers and returns a singleton', () {
     final DashboardController first = DashboardController.instance;

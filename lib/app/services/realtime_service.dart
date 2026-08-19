@@ -27,22 +27,26 @@ enum _ReloadTarget {
 /// mounted monitoring controllers whenever the backend broadcasts a change.
 ///
 /// The backend is the sole author of monitoring truth: it broadcasts
-/// `incident.opened`/`incident.resolved`/`monitor.status`/`analyze.progress`
-/// on the private `teams.{teamId}` channel. This service is the thin client
-/// half. It mirrors `AppServiceProvider._syncPollingWithAuthState`'s
+/// `incident.opened`/`incident.resolved`/`incident.escalated`/`monitor.status`/
+/// `check.recorded`/`analyze.progress` on the private `teams.{teamId}` channel.
+/// This service is the thin client half. It mirrors `AppServiceProvider._syncPollingWithAuthState`'s
 /// idempotent auth lifecycle (safe to call [syncWithAuthState] on every
 /// `Auth.stateNotifier` bump) and adds team-awareness: it re-reads the current
 /// team on each sync and moves the subscription when the team changes.
 ///
-/// On the first three events it schedules a single coalesced (debounced)
-/// reload pass over the monitoring controllers, and it reloads a controller
-/// ONLY when it is already registered in the IoC container, so a background
-/// event never instantiates a screen the user is not viewing. A reload
-/// failure is caught and logged as a documented degradation, never thrown out
-/// of the listener. `analyze.progress` diverges: it carries the progress
-/// itself rather than a dirty signal, so it is forwarded straight to
-/// [MonitorController.noteAnalyzeProgress] instead of scheduling a reload; see
-/// [onAnalyzeProgress].
+/// The six events split into two kinds, and the split is the design:
+///
+///  - **A dirty signal** (`incident.*`, `monitor.status`). Something changed
+///    whose consequences are wider than the frame can carry, so the service
+///    schedules a single coalesced (debounced) reload pass.
+///  - **A payload** (`check.recorded`, `analyze.progress`). The frame IS the
+///    update, so it is applied straight to the controller and marks nothing
+///    dirty. See [onCheckRecorded] and [onAnalyzeProgress].
+///
+/// Either way a controller is touched ONLY when it is already registered in the
+/// IoC container, so a background event never instantiates a screen the user is
+/// not viewing. A reload failure is caught and logged as a documented
+/// degradation, never thrown out of the listener.
 ///
 /// Reverb has no replay, so any change that fired while the socket was down is
 /// lost from the stream. The service therefore also refetches every registered
@@ -195,7 +199,9 @@ class RealtimeService {
     channel
       ..listen('incident.opened', onIncidentEvent)
       ..listen('incident.resolved', onIncidentEvent)
+      ..listen('incident.escalated', onIncidentEvent)
       ..listen('monitor.status', onMonitorEvent)
+      ..listen('check.recorded', onCheckRecorded)
       ..listen('analyze.progress', onAnalyzeProgress);
     _channel = channel;
     _subscribedTeamId = teamId;
@@ -302,6 +308,32 @@ class RealtimeService {
   void onAnalyzeProgress(BroadcastEvent event) {
     if (!Magic.isRegistered<MonitorController>()) return;
     Magic.find<MonitorController>().noteAnalyzeProgress(event.data);
+  }
+
+  /// Handles a `check.recorded` event by applying the reading to whichever of
+  /// the monitor and dashboard controllers is mounted.
+  ///
+  /// Like [onAnalyzeProgress] and unlike the incident and status handlers, this
+  /// marks NOTHING dirty: the payload is the update. `MonitorStatusChanged`
+  /// covers the transition, which genuinely needs a refetch (an incident may
+  /// have opened alongside it); a reading only moves three denormalised fields,
+  /// and those fields travel in the frame.
+  ///
+  /// Scheduling a reload here instead would be self-defeating. A team on a 60s
+  /// cadence across three regions produces a reading every 20s per monitor, so
+  /// the debounce would fire continuously and each pass costs four HTTP requests
+  /// on the dashboard alone. That is the polling this event exists to remove.
+  ///
+  /// Guarded on registration for the same reason the others are: a reading that
+  /// arrives while the operator is on Settings must not mount the dashboard.
+  @visibleForTesting
+  void onCheckRecorded(BroadcastEvent event) {
+    if (Magic.isRegistered<MonitorController>()) {
+      Magic.find<MonitorController>().noteCheckRecorded(event.data);
+    }
+    if (Magic.isRegistered<DashboardController>()) {
+      Magic.find<DashboardController>().noteCheckRecorded(event.data);
+    }
   }
 
   /// Schedules a coalesced reload of every monitoring controller.

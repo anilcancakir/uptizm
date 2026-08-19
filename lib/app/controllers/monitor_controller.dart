@@ -405,6 +405,68 @@ class MonitorController extends MagicController
     refreshUI();
   }
 
+  /// Applies a `check.recorded` broadcast to the cached inventory in place.
+  ///
+  /// The reading IS the update, so this patches the three denormalised fields
+  /// the frame carries and fetches nothing. That is the difference from
+  /// [refreshOne]: a monitor answering normally every 60 seconds must not cost a
+  /// `GET /monitors/{id}` per region per cycle just to move a latency number.
+  ///
+  /// Three guards, each for a case that happens in production:
+  ///
+  ///  1. **Not in the cache: no-op.** The channel is team-wide, so a reading
+  ///     arrives for every monitor the team owns, including ones this client has
+  ///     never listed. Inserting a half-populated [Monitor] built from a reading
+  ///     would put a row with no url and no interval into the inventory.
+  ///  2. **Older than what is held: no-op.** Regions land in whatever order the
+  ///     socket delivers them, and each frame carries the denorm state as of ITS
+  ///     write, so applying a late frame would wind `last_checked_at` backwards
+  ///     and re-trigger the detail view's refetch on stale data.
+  ///  3. **Unparseable timestamp: no-op.** Without a comparable instant there is
+  ///     no way to honour guard 2, and a reading with no time is not one the UI
+  ///     can place anyway.
+  ///
+  /// The timestamp is stored as the RAW ISO-8601 string from the wire, never
+  /// round-tripped through [DateTime]: magic's `setAttribute` formats a DateTime
+  /// as `yyyy-MM-ddTHH:mm:ss` and drops the offset, which would silently shift
+  /// every reading by the device's UTC offset.
+  ///
+  /// [refreshUI] is what makes the monitor DETAIL page live as well as the list:
+  /// its `_fetchedAgainstCheckedAt` guard refetches the check-derived lists on a
+  /// notify whose `last_checked_at` moved, which is exactly what just happened.
+  void noteCheckRecorded(Map<String, dynamic> payload) {
+    final String? id = payload['monitor_id'] as String?;
+    final String? checkedAt = payload['last_checked_at'] as String?;
+    if (id == null || checkedAt == null) return;
+
+    final int index = _monitors.indexWhere((Monitor m) => m.id == id);
+    if (index == -1) return;
+
+    final Carbon? incoming = _parseInstant(checkedAt);
+    if (incoming == null) return;
+
+    final Monitor cached = _monitors[index];
+    final Carbon? held = cached.lastCheckedAt;
+    if (held != null && incoming.isBefore(held)) return;
+
+    cached
+      ..setAttribute('last_status', payload['last_status'])
+      ..setAttribute('last_checked_at', checkedAt)
+      ..setAttribute('last_response_ms', payload['last_response_ms']);
+    refreshUI();
+  }
+
+  /// Parses a wire timestamp, returning null rather than throwing on a value the
+  /// device cannot read. `Carbon.parse` throws on malformed input, and a bad
+  /// frame must not take down the socket listener that delivered it.
+  Carbon? _parseInstant(String raw) {
+    try {
+      return Carbon.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Manual-check cooldown
   // ---------------------------------------------------------------------------
