@@ -31,9 +31,8 @@ class _NotificationChannelsLangLoader implements TranslationLoader {
       'uptizm.enums.channel_type.teams': 'Microsoft Teams',
       'uptizm.teams.channels_title': 'Notification channels',
       'uptizm.teams.channels_description':
-          'Team-level integrations your alerts route to. Per-device delivery '
-          '(in-app, web push) is in your account notifications; which monitors '
-          'alert is set per monitor.',
+          'Team-level integrations your alerts route to. Which monitors alert '
+          'is set per monitor.',
       'uptizm.teams.channels_slack_desc': 'Post alerts to a Slack channel.',
       'uptizm.teams.channels_webhook_desc':
           'POST alerts to your own HTTP endpoint.',
