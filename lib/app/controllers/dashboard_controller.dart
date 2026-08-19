@@ -55,8 +55,9 @@ class DashboardController extends MagicController
   /// Cached `GET /dashboard/monitors-snapshot` result.
   List<Monitor> _monitorsSnapshot = [];
 
-  /// Cached `GET /dashboard/ai-inbox` result (always empty today; the
-  /// backend reserves the contract ahead of AI triage).
+  /// Cached `GET /dashboard/ai-inbox` result: the team's pending, non-expired
+  /// `AiSuggestion` rows, which `SweepAiSuggestions` writes every two minutes for
+  /// any monitor whose `ai_mode` is `suggest` or `auto`.
   List<Incident> _aiInbox = [];
 
   /// Active incidents: everything the backend still considers open.
@@ -65,8 +66,9 @@ class DashboardController extends MagicController
   /// The team's monitors with their last-known health status.
   List<Monitor> get monitorsSnapshot => _monitorsSnapshot;
 
-  /// AI inbox entries. Always empty today (AI triage is deferred
-  /// server-side), which drives the existing empty-state rendering.
+  /// AI inbox entries. An empty list means the fleet has no open anomaly right
+  /// now, which renders the inbox-zero state; it does not mean the feature is
+  /// unfinished.
   List<Incident> get aiSuggestions => _aiInbox;
 
   /// Count of monitors currently up.
