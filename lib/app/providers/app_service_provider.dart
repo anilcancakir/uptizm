@@ -34,20 +34,58 @@ class AppServiceProvider extends ServiceProvider {
     //   app.singleton('my_service', () => MyService());
   }
 
-  /// Starts or stops notification polling to track [Auth]'s current state.
+  /// Starts or stops notification delivery to track [Auth]'s current state.
   ///
   /// Mirrors `MagicStarterAppLayout`'s lifecycle
   /// (magic_starter/lib/src/ui/layouts/magic_starter_app_layout.dart:40-50):
   /// `Auth.stateNotifier` bumps on login, logout, and restore, so this single
-  /// listener keeps polling in sync with auth state for the whole app
-  /// lifetime instead of being tied to a widget's mount/unmount. Both calls
-  /// are idempotent (see `Notify.startPolling`/`stopPolling` docs).
-  static void _syncPollingWithAuthState() {
-    if (Auth.check()) {
-      Notify.startPolling();
-    } else {
+  /// listener keeps delivery in sync with auth state for the whole app lifetime
+  /// instead of being tied to a widget's mount/unmount. Every call is idempotent
+  /// (see `Notify.startRealtime`/`startPolling`/`stopPolling` docs).
+  ///
+  /// The socket comes FIRST and the timer is the fallback. `Notify.startRealtime`
+  /// subscribes to this user's private notification channel and returns false when
+  /// the app has no broadcast driver; `startPolling()` then no-ops if the socket
+  /// came up and arms the 30-second timer if it did not. Chaining rather than
+  /// firing both at once is what makes that ordering hold: `startPolling()` cannot
+  /// know a socket is coming.
+  ///
+  /// The channel is the USER's, not the team's, and a team switch therefore does
+  /// not move it: a notification belongs to one person, and the team channel every
+  /// teammate is subscribed to would hand them each other's inbox. The backend
+  /// authorises this name in `routes/channels.php` and shapes the frame for it in
+  /// `User::receivesBroadcastNotificationsOn()`.
+  void _syncNotificationDeliveryWithAuthState() {
+    if (!Auth.check()) {
+      Notify.stopRealtime();
       Notify.stopPolling();
+
+      return;
     }
+
+    final String userId = User.current.id;
+    if (userId.isEmpty) {
+      // A restored session whose user has not resolved yet. Poll for now; the
+      // next `Auth.stateNotifier` bump arrives with the identity and upgrades.
+      Notify.startPolling();
+
+      return;
+    }
+
+    // Wrapped the way [_syncRealtime] is: the listener is synchronous and this is
+    // not, so `unawaited` fires it without blocking, and the guard logs a
+    // connect-time throw instead of letting it escape as an unhandled async error.
+    unawaited(
+      Notify.startRealtime(channel: 'App.Models.User.$userId')
+          .then((_) => Notify.startPolling())
+          .catchError((Object error) {
+            Log.error(
+              '[AppServiceProvider] notification realtime sync failed: $error',
+            );
+            // Never leave the bell with neither path.
+            Notify.startPolling();
+          }),
+    );
   }
 
   /// Re-syncs the realtime channel subscription to track [Auth]'s current
@@ -219,8 +257,8 @@ class AppServiceProvider extends ServiceProvider {
     // Notifications: start polling immediately if a session was restored on
     // boot, then keep polling in lockstep with every future login/logout via
     // `Auth.stateNotifier`.
-    _syncPollingWithAuthState();
-    Auth.stateNotifier.addListener(_syncPollingWithAuthState);
+    _syncNotificationDeliveryWithAuthState();
+    Auth.stateNotifier.addListener(_syncNotificationDeliveryWithAuthState);
 
     // Realtime: subscribe to the team's private channel immediately if a
     // session was restored on boot, then keep the subscription in lockstep
