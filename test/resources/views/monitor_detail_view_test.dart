@@ -446,6 +446,30 @@ void main() {
   });
 
   testWidgets(
+    'MonitorDetailView lays the KPI cards two-up at a mobile width, matching '
+    'its own loading skeleton',
+    (tester) async {
+      await tester.pumpWidget(
+        wrap(const MonitorDetailView(id: 'api'), size: const Size(360, 3200)),
+      );
+      await settleSkeleton(tester);
+
+      final Finder cards = find.byType(KpiStatCard);
+      final Rect first = tester.getRect(cards.at(0));
+      final Rect second = tester.getRect(cards.at(1));
+      final Rect third = tester.getRect(cards.at(2));
+
+      // Cards 1 and 2 share a row; card 3 starts the next one. A one-up column
+      // here reflowed the `grid-cols-2` skeleton on every load and pushed the
+      // uptime strip below the fold on a phone.
+      expect(second.top, first.top);
+      expect(second.left, greaterThan(first.left));
+      expect(third.top, greaterThanOrEqualTo(first.bottom));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'MonitorDetailView Metrics tab hosts the MonitorMetricsTab orchestrator',
     (tester) async {
       // Pin a desktop-class surface so the dense Metrics tab lays out without

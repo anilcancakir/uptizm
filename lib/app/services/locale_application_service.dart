@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart' show Locale;
+import 'package:flutter/widgets.dart' show Locale, WidgetsBinding;
 
 import 'package:magic/magic.dart';
 
@@ -24,10 +24,30 @@ class LocaleApplicationService {
     if (locale == null || locale.isEmpty) return;
     if (Lang.current.languageCode == locale) return;
 
-    // reload: false because MagicApplication's own MaterialApp.locale already
-    // follows the runtime Translator (magic_app_widget.dart), so notifying is
-    // enough to rebuild the app in the new locale; a Magic.reload() remount
-    // would be a redundant full reset.
+    // Two steps, because loading the catalogue is only half the job.
+    // `Translator.setLocale` notifies nobody, and `MagicApplication` reads
+    // `Lang.current` during build (`_resolveRuntimeLocale`), so the new locale
+    // reaches `MaterialApp.locale` on the next build and nothing asks for one.
+    // Widgets already on screen keep their old strings: a Turkish account
+    // logging in got a Turkish dashboard under a bottom tab bar still reading
+    // Home / Monitors / Incidents / Status, because the routed page was new and
+    // the shell was not.
     await Lang.setLocale(Locale(locale), reload: false);
+    _requestRebuild();
+  }
+
+  /// Asks magic to remount the app so mounted widgets re-read [Lang].
+  ///
+  /// After the current frame, not during it: this runs from an
+  /// `Auth.stateNotifier` listener, and `Magic.reload()` swaps the key above
+  /// the whole tree, which must not happen while that tree is building.
+  ///
+  /// The `scheduleFrame` is load-bearing, not defensive.
+  /// `addPostFrameCallback` registers a callback for the next frame without
+  /// requesting one, and an app sitting idle after a login has stopped
+  /// producing them, so on its own the callback can wait indefinitely.
+  void _requestRebuild() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => Magic.reload());
+    WidgetsBinding.instance.scheduleFrame();
   }
 }

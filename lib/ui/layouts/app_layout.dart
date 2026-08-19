@@ -119,16 +119,30 @@ class AppLayout extends StatelessWidget {
           // Content scroll region with the floating AI assistant on top. The
           // Stack spans only the content (between top bar and bottom nav), so
           // the FAB anchors bottom-right ABOVE the bottom nav, never over it.
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              WDiv(
-                className: 'overflow-y-auto',
-                scrollPrimary: true,
-                child: keyedChild,
-              ),
-              const Assistant(),
-            ],
+          //
+          // The bottom system inset belongs to BottomNav, which reserves it
+          // from `viewPadding.bottom` as a sibling below this region. Handing
+          // that same inset down here lets a descendant reserve it a second
+          // time: the Assistant's own SafeArea did, which lifted the FAB one
+          // home-indicator height (34px on this phone) above what the page
+          // container's `pb-24` clearance was sized for, and parked it on the
+          // last row of every short list. Removing it here states the geometry
+          // once. The desktop branch keeps the inset, because nothing sits
+          // between its content column and the display edge.
+          child: MediaQuery.removePadding(
+            context: context,
+            removeBottom: true,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                WDiv(
+                  className: 'overflow-y-auto',
+                  scrollPrimary: true,
+                  child: keyedChild,
+                ),
+                const Assistant(),
+              ],
+            ),
           ),
         ),
         BottomNav(currentPath: currentPath),

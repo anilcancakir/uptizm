@@ -617,8 +617,9 @@ class _MonitorDetailViewState
 
   /// Builds the four-card KPI row from the monitor fixture.
   ///
-  /// Single-column base, widening to two columns at `sm:` then four at `lg:`
-  /// so the grid never forces a multi-column layout onto a narrow phone.
+  /// Two cards across from the narrowest phone, four at `lg:`. The loading
+  /// skeleton this row replaces is already two-up, so a one-up base made the
+  /// placeholder reflow on every load.
   Widget _buildKpiRow(Monitor monitor, bool paused) {
     // 1. Derive the headline metrics directly from the fixtures.
     final int openIncidents = _incidentsFor(monitor)
@@ -628,10 +629,9 @@ class _MonitorDetailViewState
         ? '${monitor.responseMs}ms'
         : '-';
 
-    // 2. Single-column base; widen to two then four columns at breakpoints.
+    // 2. Two-up from the narrowest phone, four across at `lg`.
     return WDiv(
-      className:
-          'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
+      className: 'grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_uptime_24h'),
