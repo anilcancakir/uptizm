@@ -61,7 +61,14 @@ class IncidentResource extends JsonResource
                     'monitor_id' => $monitor->id,
                     'name' => $monitor->name,
                     'component_status_at_start' => $monitor->pivot->component_status_at_start ?? null,
-                    'component_status_current' => $monitor->pivot->component_status_current ?? null,
+                    // Read from the monitor, not the pivot. The pivot column is
+                    // written once, at open, equal to `_at_start` by all three
+                    // openers, and no code has ever updated it: a field named
+                    // "current" reported the status the incident opened with, forever.
+                    // The client labels this row "Affected monitors" with a live
+                    // status badge, so a paused monitor sat there reading "Major
+                    // outage" while nothing was probing it.
+                    'component_status_current' => $monitor->effectiveStatus()?->value,
                 ])->values(),
             ),
             'updates' => $this->whenLoaded(
