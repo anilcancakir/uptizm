@@ -55,6 +55,8 @@ class _DashboardLangLoader implements TranslationLoader {
       'uptizm.dashboard.kpi_hint_vs_24h': 'vs. last 24h',
       'uptizm.dashboard.kpi_hint_ai_detected': ':count AI-detected',
       'uptizm.dashboard.kpi_delta_down': ':count down',
+      'uptizm.dashboard.fleet_pending_suffix': ':count awaiting a first check',
+      'uptizm.dashboard.fleet_paused_suffix': ':count paused',
       'uptizm.ai.right_now_label': 'Right now',
       'uptizm.ai.open_incident': 'Open incident',
       'uptizm.ai.dismiss': 'Dismiss',
@@ -385,6 +387,70 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'the monitors-up KPI accounts for both pending and paused monitors',
+    (tester) async {
+      // 1 up, 2 never checked, 1 paused: the KPI reads "1 / 4", and the three
+      // monitors missing from the numerator are named rather than left to look
+      // like failures. Naming only the pending ones still left the paused one
+      // unaccounted for.
+      Http.fake({
+        'dashboard/stats': Http.response({
+          'data': {
+            'monitors_up': 1,
+            'monitors_down': 0,
+            'monitors_degraded': 0,
+            'monitors_paused': 1,
+            'monitors_pending': 2,
+            'monitors_total': 4,
+            'avg_response_ms': null,
+            'open_incidents': 0,
+            'uptime_24h': null,
+            'uptime_24h_delta': null,
+          },
+        }),
+        'dashboard/active-incidents': Http.response({'data': <dynamic>[]}),
+        'dashboard/monitors-snapshot': Http.response({
+          'data': _monitorsSnapshotPayload,
+        }),
+        'dashboard/ai-inbox': Http.response({'data': <dynamic>[]}),
+      });
+
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const DashboardView()));
+      await tester.pumpAndSettle();
+
+      // Scoped to the KPI card itself: the AI fleet-summary banner composes the
+      // same fragments, so an unscoped finder matches twice and would pass on
+      // the banner alone while the card said nothing.
+      final Finder card = find.ancestor(
+        of: find.text('1 / 4'),
+        matching: find.byType(KpiStatCard),
+      );
+      expect(card, findsOneWidget);
+
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.textContaining('2 awaiting a first check'),
+        ),
+        findsOneWidget,
+        reason: 'the pending monitors must stay named',
+      );
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.textContaining('1 paused'),
+        ),
+        findsOneWidget,
+        reason: 'a paused monitor is missing from the numerator by design, so '
+            'the KPI has to say so',
+      );
+    },
+  );
 
   testWidgets('DashboardView renders the same KPI values as the controller', (
     tester,

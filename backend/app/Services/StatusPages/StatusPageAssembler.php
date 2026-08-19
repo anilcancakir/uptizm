@@ -182,11 +182,11 @@ class StatusPageAssembler
     {
         return $page->monitors()
             ->where('show_on_status_page', true)
-            ->where(function (Builder $query): void {
-                // "Not paused": a never-checked (null) monitor still shows.
-                $query->whereNull('last_status')
-                    ->orWhere('last_status', '!=', MonitorStatus::Paused->value);
-            })
+            // "Not paused" reads the administrative column too. Filtering on
+            // `last_status` alone excluded nothing, because pausing never writes
+            // that column: a paused monitor kept publishing its final reading,
+            // and a `down` one rolled the whole page up to a major outage.
+            ->notPaused()
             ->whereNot(function (Builder $query): void {
                 // Degraded-only components disappear from the page while healthy.
                 $query->where('only_show_if_degraded', true)
@@ -244,7 +244,7 @@ class StatusPageAssembler
 
             $components[] = [
                 'label' => $monitor->pivot?->custom_label ?? $monitor->name,
-                'status' => $this->componentStatus($monitor->last_status),
+                'status' => $this->componentStatus($monitor->effectiveStatus()),
                 'uptimePercent' => $this->uptimePercent($strip),
                 'strip' => array_map(
                     static fn (array $day): array => [

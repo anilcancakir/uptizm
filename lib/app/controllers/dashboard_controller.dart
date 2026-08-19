@@ -80,6 +80,13 @@ class DashboardController extends MagicController
   /// Count of monitors awaiting their first check (no last-known status yet).
   int get pendingCount => _monitorsPending;
 
+  /// Count of monitors the customer has paused.
+  ///
+  /// These sit in [monitorCount] but can never sit in [upCount], so a KPI that
+  /// shows the ratio alone leaves them unaccounted for: the reader sees a
+  /// monitor missing from the numerator and reads it as a failure.
+  int get pausedCount => _monitorsPaused;
+
   /// Total number of monitors the team owns.
   ///
   /// Reads the backend's `monitors_total`, which counts every monitor including

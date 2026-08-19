@@ -225,6 +225,36 @@ void main() {
     expect(controller.openIncidentsCount, equals(5));
   });
 
+  test('pausedCount reads monitors_paused', () async {
+    // A paused monitor sits in the total but can never sit in `upCount`, so the
+    // view needs the count to explain the gap. The field was parsed and then
+    // only ever used in the bucket-sum fallback, so no surface could name it.
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 2,
+          'monitors_down': 0,
+          'monitors_degraded': 0,
+          'monitors_paused': 3,
+          'monitors_pending': 0,
+          'monitors_total': 5,
+          'avg_response_ms': 120,
+          'open_incidents': 0,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': []}),
+      'dashboard/monitors-snapshot': Http.response({'data': []}),
+      'dashboard/ai-inbox': Http.response({'data': []}),
+    });
+    final DashboardController controller = DashboardController.instance;
+
+    await controller.reload();
+
+    expect(controller.pausedCount, equals(3));
+    expect(controller.upCount, equals(2));
+    expect(controller.monitorCount, equals(5));
+  });
+
   test('monitorCount reads monitors_total, so pending monitors count', () async {
     // A team that just created three monitors: none checked yet, so every
     // status bucket is zero and only the total and pending counts carry them.

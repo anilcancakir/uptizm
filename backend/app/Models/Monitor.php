@@ -73,6 +73,19 @@ class Monitor extends Model
     }
 
     /**
+     * Administrative `status` value for a monitor the customer has stopped.
+     *
+     * The column is a plain string rather than a backed enum (see the cast
+     * block below), so these two constants are the only spelling of it.
+     */
+    public const string STATUS_PAUSED = 'paused';
+
+    /**
+     * Administrative `status` value for a monitor under active measurement.
+     */
+    public const string STATUS_ACTIVE = 'active';
+
+    /**
      * Number of consecutive failures required to open an incident when
      * the monitor has no explicit `incident_threshold`. Picked so a
      * single transient flake does not page anyone, but a sustained
@@ -294,7 +307,90 @@ class Monitor extends Model
     public function scopeDue(Builder $query, ?DateTimeInterface $at = null): Builder
     {
         return $query
-            ->where('status', 'active')
+            ->active()
             ->where('next_check_at', '<=', $at ?? now());
+    }
+
+    /**
+     * Scope to monitors under active measurement, whatever their last reading.
+     *
+     * Every job that probes a monitor belongs behind this scope. `scopeDue()`
+     * had the gate inline and the daily SSL fan-out had none, so
+     * a paused monitor stopped receiving uptime checks and kept receiving
+     * certificate checks, which could open an incident for an endpoint the
+     * customer had explicitly stopped watching.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    /**
+     * Scope to monitors whose effective status is paused: the SQL mirror of
+     * {@see effectiveStatus()}.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopePaused(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query): void {
+            $query->where('status', self::STATUS_PAUSED)
+                ->orWhere('last_status', MonitorStatus::Paused->value);
+        });
+    }
+
+    /**
+     * The complement of {@see scopePaused()}: everything a reader may be shown
+     * health for.
+     *
+     * A never-checked monitor passes: a null `last_status` means "no reading
+     * yet", not "paused", and the page shows it as pending.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeNotPaused(Builder $query): Builder
+    {
+        return $query
+            ->where('status', '!=', self::STATUS_PAUSED)
+            ->where(function (Builder $query): void {
+                $query->whereNull('last_status')
+                    ->orWhere('last_status', '!=', MonitorStatus::Paused->value);
+            });
+    }
+
+    /**
+     * Whether the customer has stopped this monitor.
+     */
+    public function isPaused(): bool
+    {
+        return $this->status === self::STATUS_PAUSED
+            || $this->last_status === MonitorStatus::Paused;
+    }
+
+    /**
+     * The health a reader may be shown, administrative state first.
+     *
+     * `last_status` is the last READING; `status` is whether readings are still
+     * being taken at all. Pausing writes only the administrative column and
+     * deliberately leaves the final reading in place, so a caller that trusts
+     * `last_status` alone republishes a frozen reading as live health. That is
+     * how a paused monitor came to publish "Major System Outage" on a
+     * customer's public status page for an endpoint nothing was probing.
+     *
+     * Null means the monitor has never been checked, which callers render as
+     * pending rather than as any health verdict.
+     */
+    public function effectiveStatus(): ?MonitorStatus
+    {
+        if ($this->isPaused()) {
+            return MonitorStatus::Paused;
+        }
+
+        return $this->last_status;
     }
 }

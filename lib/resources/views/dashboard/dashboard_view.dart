@@ -266,6 +266,28 @@ class _DashboardViewState
   // ---------------------------------------------------------------------------
 
   /// Builds the KPI stat-card grid from [DashboardController]'s derivations.
+  /// The qualifiers behind a monitors-up count that does not reach the total:
+  /// monitors awaiting a first check, and monitors the customer paused.
+  ///
+  /// Both are named rather than one winning, because "3 / 5" with only the
+  /// pending one shown still leaves a monitor unaccounted for and a missing
+  /// monitor reads as a failure. Each fragment is a complete localised phrase
+  /// joined by a comma, never a prefix glued onto a translated tail.
+  String? _fleetHint() {
+    final List<String> parts = [
+      if (controller.pendingCount > 0)
+        trans('uptizm.dashboard.fleet_pending_suffix', {
+          'count': '${controller.pendingCount}',
+        }),
+      if (controller.pausedCount > 0)
+        trans('uptizm.dashboard.fleet_paused_suffix', {
+          'count': '${controller.pausedCount}',
+        }),
+    ];
+
+    return parts.isEmpty ? null : parts.join(', ');
+  }
+
   Widget _buildKpiRow() {
     // 1. Single-column base; widen to two then four columns at breakpoints.
     return WDiv(
@@ -276,19 +298,15 @@ class _DashboardViewState
           label: trans('uptizm.dashboard.kpi_monitors_up'),
           value: '${controller.upCount} / ${controller.monitorCount}',
           // Nothing down is good news: a red downward trend on "0 down" made a
-          // healthy fleet read as degraded. Pending monitors get their own
-          // hint, since 0 up out of 3 is otherwise indistinguishable from an
-          // outage.
+          // healthy fleet read as degraded. Pending and paused monitors are
+          // named in the hint, since 0 up out of 3 is otherwise
+          // indistinguishable from an outage.
           delta: controller.downCount > 0
               ? trans('uptizm.dashboard.kpi_delta_down', {
                   'count': '${controller.downCount}',
                 })
               : null,
-          hint: controller.pendingCount > 0
-              ? trans('uptizm.dashboard.fleet_pending_suffix', {
-                  'count': '${controller.pendingCount}',
-                })
-              : null,
+          hint: _fleetHint(),
           trend: controller.downCount > 0 ? KpiTrend.down : KpiTrend.neutral,
         ),
         KpiStatCard(

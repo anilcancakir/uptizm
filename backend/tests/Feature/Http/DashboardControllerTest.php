@@ -65,6 +65,51 @@ class DashboardControllerTest extends TestCase
         $this->assertSame(1, $data['open_incidents']);
     }
 
+    /**
+     * A paused monitor is not reported by its last reading.
+     *
+     * `MonitorController::pause()` flips the administrative `status` column and
+     * deliberately leaves `last_status` holding the final reading, so a KPI that
+     * groups by `last_status` alone keeps publishing that reading as live health.
+     * The dashboard claimed an active outage for an endpoint nothing had probed
+     * since the customer paused it, and `monitors_paused` could never be
+     * anything but zero because no write path ever puts `paused` in that column.
+     */
+    public function test_stats_reports_a_paused_monitor_as_paused_not_by_its_last_reading(): void
+    {
+        $team = $this->makeTeam();
+
+        $this->makeMonitor($team, MonitorStatus::Up, responseMs: 100);
+        $this->makePausedMonitor($team, MonitorStatus::Down);
+        $this->makePausedMonitor($team, MonitorStatus::Up);
+
+        $response = (new DashboardController)->stats($this->requestFor($team));
+        $data = $response->getData(true)['data'];
+
+        $this->assertSame(2, $data['monitors_paused']);
+        $this->assertSame(1, $data['monitors_up']);
+        $this->assertSame(0, $data['monitors_down']);
+        $this->assertSame(0, $data['monitors_pending']);
+        $this->assertSame(3, $data['monitors_total']);
+    }
+
+    /**
+     * The fleet average latency is a claim about what is being measured now, so
+     * a paused monitor's frozen `last_response_ms` has no place in it.
+     */
+    public function test_stats_excludes_a_paused_monitor_from_the_average_response_time(): void
+    {
+        $team = $this->makeTeam();
+
+        $this->makeMonitor($team, MonitorStatus::Up, responseMs: 100);
+        $this->makePausedMonitor($team, MonitorStatus::Up, responseMs: 900);
+
+        $response = (new DashboardController)->stats($this->requestFor($team));
+        $data = $response->getData(true)['data'];
+
+        $this->assertSame(100, $data['avg_response_ms']);
+    }
+
     public function test_stats_counts_a_monitor_awaiting_its_first_check(): void
     {
         $team = $this->makeTeam();
@@ -261,6 +306,30 @@ class DashboardControllerTest extends TestCase
             'check_interval_sec' => 60,
             'last_status' => $lastStatus,
             'last_response_ms' => $responseMs,
+        ]);
+    }
+
+    /**
+     * A monitor paused the way the product pauses one: the administrative
+     * `status` column flips, the final reading stays in `last_status`, and the
+     * scheduler clock is cleared. Never `last_status => Paused`, which no
+     * production write path produces.
+     */
+    protected function makePausedMonitor(
+        Team $team,
+        MonitorStatus $lastReading,
+        ?int $responseMs = null,
+    ): Monitor {
+        return Monitor::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Paused '.Str::random(6),
+            'type' => MonitorType::Http,
+            'url' => 'https://example.com/health',
+            'check_interval_sec' => 60,
+            'status' => 'paused',
+            'last_status' => $lastReading,
+            'last_response_ms' => $responseMs,
+            'next_check_at' => null,
         ]);
     }
 

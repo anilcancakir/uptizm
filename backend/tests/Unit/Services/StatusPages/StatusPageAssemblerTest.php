@@ -57,6 +57,40 @@ class StatusPageAssemblerTest extends TestCase
         $this->assertSame('degraded', $viewModel->overallStatus);
     }
 
+    /**
+     * A monitor paused through the product is excluded from the public page.
+     *
+     * The exclusion above passes because its fixture writes `paused` straight
+     * into `last_status`, a value no write path produces: `pause()` flips the
+     * administrative `status` column and leaves the final reading alone. So the
+     * filter ran against a state that cannot occur while the state that does
+     * occur went through, and a paused monitor kept publishing its last reading
+     * on the customer's public page (a `down` reading rolled the whole page up
+     * to a major outage) for an endpoint nothing was probing.
+     */
+    public function test_a_monitor_paused_through_the_product_is_excluded(): void
+    {
+        $team = $this->makeTeam();
+        $page = $this->makePage($team);
+
+        $up = $this->makeMonitor($team, ['last_status' => MonitorStatus::Up]);
+        $pausedWhileDown = $this->makeMonitor($team, [
+            'status' => 'paused',
+            'last_status' => MonitorStatus::Down,
+            'next_check_at' => null,
+        ]);
+
+        $page->monitors()->attach([
+            $up->id => ['display_order' => 0],
+            $pausedWhileDown->id => ['display_order' => 1],
+        ]);
+
+        $viewModel = (new StatusPageAssembler)->build($page);
+
+        $this->assertCount(1, $viewModel->components);
+        $this->assertSame('operational', $viewModel->overallStatus);
+    }
+
     public function test_view_model_never_carries_secret_monitor_fields(): void
     {
         $team = $this->makeTeam();
