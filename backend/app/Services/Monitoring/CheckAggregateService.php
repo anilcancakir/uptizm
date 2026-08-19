@@ -6,9 +6,8 @@ use App\Enums\MonitorStatus;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use Carbon\CarbonImmutable;
-use DateTimeImmutable;
 use DateTimeInterface;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -226,7 +225,10 @@ class CheckAggregateService
      * (multi-region monitors hit the same endpoint every 30s across N
      * regions, which quickly blows past a per-sample chart).
      *
-     * @return Collection<int, MonitorCheck>
+     * Returns PLAIN ARRAYS in the endpoint's wire shape, not models: see the
+     * comment at step 2 for the measurement that motivated it.
+     *
+     * @return Collection<int, array<string, mixed>>
      */
     public function responseTimeSamples(Monitor $monitor, string $range): Collection
     {
@@ -252,22 +254,42 @@ class CheckAggregateService
             ->orderByRaw("{$bucketExpr} ASC")
             ->get();
 
-        // 2. Hydrate synthetic MonitorCheck rows so the resource layer
-        //    keeps its existing shape. region stays null because an
-        //    aggregated dot doesn't belong to a single region.
-        return $rows->map(function ($row) use ($bucketSeconds): MonitorCheck {
+        // 2. Emit the wire shape DIRECTLY, without hydrating a model per dot.
+        //
+        //    This used to `forceFill` a synthetic MonitorCheck per bucket and hand
+        //    the collection to MonitorCheckResource, purely so the resource layer
+        //    kept its existing shape. Measured against a 60s monitor with 100k
+        //    checks, the default `24h` range returns ~1,400 buckets and the
+        //    endpoint took 440ms, of which the SQL was 47ms: roughly 85% of the
+        //    request was spent building and serialising throwaway Eloquent models
+        //    for a chart that draws dots. `90d` was FASTER at 180ms despite
+        //    scanning every row, because it buckets 2-hourly and returns ~270.
+        //
+        //    The keys and their null-by-construction fields are unchanged and
+        //    pinned by MonitorResponseTimesControllerTest, including the timestamp
+        //    format: CarbonImmutable serialises exactly as the model cast did.
+        return $rows->map(function ($row) use ($bucketSeconds): array {
             $bucketTs = (int) $row->bucket_ts;
             $status = ((int) $row->downs) > 0
                 ? MonitorStatus::Down
                 : (((int) $row->degrades) > 0 ? MonitorStatus::Degraded : MonitorStatus::Up);
 
-            return (new MonitorCheck)->forceFill([
-                'checked_at' => (new DateTimeImmutable)
-                    ->setTimestamp($bucketTs + (int) ($bucketSeconds / 2)),
-                'response_ms' => (int) round((float) $row->avg_ms),
-                'status' => $status,
+            return [
+                'id' => null,
                 'region' => null,
-            ]);
+                'status' => $status->value,
+                'status_code' => null,
+                'response_ms' => (int) round((float) $row->avg_ms),
+                'timing_dns_ms' => null,
+                'timing_connect_ms' => null,
+                'timing_tls_ms' => null,
+                'timing_ttfb_ms' => null,
+                'timing_download_ms' => null,
+                'checked_at' => CarbonImmutable::createFromTimestampUTC(
+                    $bucketTs + (int) ($bucketSeconds / 2),
+                ),
+                'error_message' => null,
+            ];
         });
     }
 

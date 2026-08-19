@@ -207,8 +207,12 @@ class DashboardControllerTest extends TestCase
         $controller = new MonitorCheckController(new CheckAggregateService);
         $request = $this->requestFor($team, ['range' => '24h']);
 
-        $response = $controller->responseTimes($request, $monitor);
-        $payload = $response->response()->getData(true);
+        // A JsonResponse now, not a resource collection: the endpoint stopped
+        // hydrating a synthetic MonitorCheck per bucket, which was ~85% of the
+        // request on the default 24h range of a busy monitor. So `getData()`
+        // directly instead of `->response()->getData()`. The wire shape itself is
+        // pinned key for key by MonitorResponseTimesControllerTest.
+        $payload = $controller->responseTimes($request, $monitor)->getData(true);
 
         $this->assertGreaterThan(0, count($payload['data']));
         $this->assertArrayHasKey('response_ms', $payload['data'][0]);

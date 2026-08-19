@@ -80,13 +80,20 @@ class MonitorCheckController extends Controller
      * {@see MonitorCheckResource} since a bucketed row is a synthetic
      * {@see MonitorCheck} with the same shape.
      */
-    public function responseTimes(Request $request, Monitor $monitor): AnonymousResourceCollection
+    public function responseTimes(Request $request, Monitor $monitor): JsonResponse
     {
         $this->authorizeMonitor($request, $monitor);
 
-        return MonitorCheckResource::collection(
-            $this->aggregates->responseTimeSamples($monitor, $this->resolveRange($request)),
-        );
+        // No resource collection here on purpose: an aggregated dot is not a check
+        // row, and wrapping ~1,400 of them in synthetic models cost more than the
+        // query did. The sampler already emits the exact wire shape, which
+        // MonitorResponseTimesControllerTest pins key for key.
+        return response()->json([
+            'data' => $this->aggregates->responseTimeSamples(
+                $monitor,
+                $this->resolveRange($request),
+            ),
+        ]);
     }
 
     /**
