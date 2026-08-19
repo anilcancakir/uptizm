@@ -113,6 +113,29 @@ class IncidentController extends MagicController
   /// this controller outlives every screen, so two incidents can be in flight.
   final Set<String> _analysisFailedIds = {};
 
+  /// The plan wall behind a refused analysis, per incident id.
+  ///
+  /// A third outcome, and the one the screen could not tell apart from the
+  /// second. Below the analysis tier the backend answers `403` with an
+  /// `upgrade` envelope naming the plan and the feature, so the refusal is
+  /// permanent and priced, not a request that failed. It used to land in
+  /// [_analysisFailedIds] and draw "the analysis could not be loaded" over a
+  /// retry that could never succeed, while the screen's own upgrade nudge sat
+  /// on the branch that runs after a SUCCESSFUL fetch, where a 403 never
+  /// arrives.
+  ///
+  /// The requirement is kept rather than a bool: the message and the tier come
+  /// from the server that refused, so the nudge names what was actually gated
+  /// instead of re-deriving it from the client's copy of the catalog.
+  final Map<String, PlanUpgradeRequirement> _analysisGateById = {};
+
+  /// The plan wall refusing analysis for incident [id], or null when there is
+  /// none.
+  ///
+  /// A caller that gets a requirement must render the upgrade path and NOT a
+  /// retry: nothing about trying again changes the plan.
+  PlanUpgradeRequirement? analysisGate(String id) => _analysisGateById[id];
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -275,6 +298,12 @@ class IncidentController extends MagicController
     _detailId = null;
     _detailSettled = false;
     _analysisById.clear();
+    // The three per-id flags are as team-scoped as the payloads they describe.
+    // The gate is the load-bearing one: switching into a team whose plan does
+    // unlock analysis would otherwise keep showing the previous team's wall.
+    _analysisGateById.clear();
+    _analysisFailedIds.clear();
+    _analysisPendingIds.clear();
     setState(null, status: const RxStatus.empty(), notify: false);
     refreshUI();
 
@@ -472,6 +501,9 @@ class IncidentController extends MagicController
     // screen shows the skeleton, and a stale failure notice underneath it would
     // report the last attempt as though it were this one.
     _analysisFailedIds.remove(id);
+    // Same reasoning for the gate: an upgrade taken in this session has to be
+    // able to clear the wall, and this fetch is what re-establishes it.
+    _analysisGateById.remove(id);
     // Only the retry announces itself. `loadAnalysis` runs from `initState`, and
     // `refreshUI` is a bare `notifyListeners()`, so notifying there would mark
     // listening elements dirty during a build that is still running.
@@ -484,6 +516,19 @@ class IncidentController extends MagicController
         Log.error(
           '[IncidentController._fetchAnalysis] $id: ${response.errorMessage}',
         );
+        // A plan wall is not a failed request. Record it so the section can
+        // offer the upgrade instead of a retry, and never toast: the fetch runs
+        // on every mount of an incident the team cannot analyse, so a dialog
+        // here would fire unprompted on each visit.
+        final PlanUpgradeRequirement? gate =
+            PlanUpgradeRequirement.fromResponse(response);
+        if (gate != null) {
+          _analysisGateById[id] = gate;
+          if (announceStart) refreshUI();
+
+          return;
+        }
+
         _analysisFailedIds.add(id);
         if (reportFailure) {
           Magic.error(

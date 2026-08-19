@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart' show PlanUpgradeRequirement;
 
 import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/models/incident.dart';
@@ -620,6 +621,75 @@ void main() {
   });
 
   group('loadAnalysis', () {
+
+    test('a 403 with an upgrade envelope is a gate, not a failure', () async {
+      // The non-2xx path logs before it classifies, and a plain unit test has
+      // no container binding for it (the file's own pattern, see above).
+      Magic.singleton('log', () => LogManager());
+      Config.set('logging', {
+        'default': 'console',
+        'channels': {
+          'console': {'driver': 'console', 'level': 'debug'},
+        },
+      });
+      final FakeNetworkDriver driver = Http.fake();
+      driver.stub(
+        'incidents/gated-1/analysis',
+        Http.response(<String, dynamic>{
+          'message':
+              'AI incident analysis is available on the Pro plan and up. '
+              'Upgrade to use it.',
+          'upgrade': <String, dynamic>{
+            'required_plan': 'pro',
+            'feature': 'AI incident analysis',
+          },
+        }, 403),
+      );
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('gated-1');
+
+      final PlanUpgradeRequirement? gate = controller.analysisGate('gated-1');
+      expect(gate, isNotNull);
+      expect(gate!.requiredPlan, equals('pro'));
+      expect(gate.feature, equals('AI incident analysis'));
+      expect(
+        controller.analysisFailed('gated-1'),
+        isFalse,
+        reason: 'a priced refusal must not draw the retry state',
+      );
+    });
+
+    test('a 403 without an upgrade envelope stays a plain failure', () async {
+      // The non-2xx path logs before it classifies, and a plain unit test has
+      // no container binding for it (the file's own pattern, see above).
+      Magic.singleton('log', () => LogManager());
+      Config.set('logging', {
+        'default': 'console',
+        'channels': {
+          'console': {'driver': 'console', 'level': 'debug'},
+        },
+      });
+      // An authorization denial no purchase fixes. The gate detector keys on
+      // the envelope, not the status, so this must fall through to the failure
+      // arm rather than offering to sell the user a plan.
+      final FakeNetworkDriver driver = Http.fake();
+      driver.stub(
+        'incidents/denied-1/analysis',
+        Http.response(<String, dynamic>{'message': 'Forbidden.'}, 403),
+      );
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.loadAnalysis('denied-1');
+
+      expect(controller.analysisGate('denied-1'), isNull);
+      expect(controller.analysisFailed('denied-1'), isTrue);
+    });
+
     test(
       'GETs /incidents/{id}/analysis and decodes evidence_for/against + '
       'suggested_actions',
