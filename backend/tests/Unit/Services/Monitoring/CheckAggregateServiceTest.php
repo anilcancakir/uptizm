@@ -75,7 +75,12 @@ class CheckAggregateServiceTest extends TestCase
 
         // The worst status observed inside a bucket must win the dot color,
         // and averaging must fold every response_ms inside that bucket.
-        $worst = $samples->firstWhere('status', MonitorStatus::Down);
+        //
+        // A sample is a plain ARRAY in the endpoint's wire shape now, not a
+        // synthetic MonitorCheck: hydrating ~1,400 throwaway models for the
+        // default 24h range cost more than the query. So the status is the enum's
+        // wire value rather than the enum.
+        $worst = $samples->firstWhere('status', MonitorStatus::Down->value);
         $this->assertNotNull($worst);
     }
 
