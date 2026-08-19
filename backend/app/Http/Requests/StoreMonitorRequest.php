@@ -76,13 +76,11 @@ class StoreMonitorRequest extends FormRequest
      * verbatim, so a Free team cannot silently exceed its tier.
      *
      * The count guard is skipped on an update ({@see UpdateMonitorRequest}
-     * inherits this) because editing an existing monitor does not add one; only
-     * the interval floor still applies, so a paid-tier interval cannot survive
-     * a downgrade-then-edit.
+     * inherits this) because editing an existing monitor does not add one.
      *
-     * The region allowance is enforced on the DELTA, not on the payload: it
-     * refuses only when the submitted count exceeds both the plan allowance and
-     * the count already stored on the monitor. The client posts the full field
+     * The region allowance AND the interval floor are enforced on the DELTA, not
+     * on the payload: each refuses only when the submission is worse than both
+     * the plan allowance and the value already stored on the monitor. The client posts the full field
      * map on every edit, so a payload-only gate would refuse a downgraded team
      * fixing a typo on a grandfathered multi-region monitor. Gating the delta
      * keeps that monitor editable at its stored count and still refuses any
@@ -110,9 +108,29 @@ class StoreMonitorRequest extends FormRequest
                 }
             }
 
+            // Gated on the DELTA, for the same reason the region allowance below
+            // is: the client posts the full field map on every edit, so a
+            // payload-only gate refused a downgraded team RENAMING a grandfathered
+            // monitor, with an error about a field they never touched. Refusing
+            // only a submission faster than both the floor and the stored value
+            // keeps the monitor editable and still refuses any speed-up.
+            //
+            // This replaces an explicit decision the other way ("only the interval
+            // floor still applies, so a paid-tier interval cannot survive a
+            // downgrade-then-edit"), because the premise does not hold: nothing
+            // clamps the interval where the scheduler arms `next_check_at`, so the
+            // paid cadence survives the downgrade regardless. Measured on a 30s
+            // monitor under a 180s Free floor, consecutive checks landed 31s, 59s,
+            // 32s, 58s and 59s apart. The payload gate never clawed anything back;
+            // it only blocked edits. Enforcing the floor at SCHEDULE time is the
+            // fix for that half, and it changes a paying customer's monitoring
+            // cadence, so it is a maintainer's call and not this one.
             $floor = $gate->minCheckIntervalSec($team);
             $interval = (int) $this->input('check_interval_sec');
-            if ($interval > 0 && $interval < $floor) {
+            $storedInterval = $isCreate ? null : (int) $monitor->check_interval_sec;
+            $exceedsStored = $storedInterval === null || $interval < $storedInterval;
+
+            if ($interval > 0 && $interval < $floor && $exceedsStored) {
                 $validator->errors()->add(
                     'check_interval_sec',
                     "Your {$gate->planLabel($team)} plan checks at most every {$floor}s. Upgrade for faster checks.",
