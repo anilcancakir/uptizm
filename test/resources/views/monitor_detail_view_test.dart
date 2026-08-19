@@ -7,6 +7,7 @@ import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/index.dart';
+import 'package:uptizm/ui/components/ai_insight/index.dart';
 import 'package:uptizm/ui/components/check_history_table/index.dart';
 import 'package:uptizm/ui/components/incident_card/index.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
@@ -315,6 +316,38 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'the response chart claims nothing about anomalies while nothing detects them',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+      await settleSkeleton(tester);
+
+      // `_anomaliesFor()` returns `const []` by construction: no anomaly source is
+      // wired into this chart, and its own docblock says so. So the "clear" copy
+      // was not a data-dependent reading, it was UNCONDITIONAL, and it rendered
+      // inside an AiInsight on every monitor: freshly created, zero checks, or
+      // down. An AI-badged reassurance nothing measured is the one thing the
+      // product's honesty rules forbid, and the budget-burn insight one function
+      // away already gates itself on real figures.
+      // Counted, not matched on copy: `WText` does not produce a widget
+      // `find.textContaining` can see (the vacuity check that proved the matcher
+      // reaches this screen's other text passed while the insight's own string did
+      // not), so the number of insights is the honest instrument here.
+      //
+      // ONE is the budget-burn insight, which gates itself on real 7-day and
+      // 30-day figures AND on the budget actually being at risk. The response
+      // insight was the second, and it gated on nothing: `_anomaliesFor()` returns
+      // `const []` by construction, so its "holding within its expected response
+      // band, no anomalies flagged" branch was unconditional for any monitor with
+      // any data at all, including one that is DOWN. Measured live on a
+      // freshly created monitor with two checks and `last_status = down`.
+      expect(find.byType(AiInsight), findsOneWidget);
+    },
+  );
 
   testWidgets('MonitorDetailView renders four KPI stat cards', (tester) async {
     // Match the physical surface to the declared 1280 MediaQuery so the dense

@@ -39,7 +39,7 @@ import 'monitor_metrics_tab.dart';
 ///
 /// - **Overview** carries a response-time [MetricChart] (series + anomalies)
 ///   with a [DateRangePicker] in its heading row, a response [AiInsight] below
-///   the chart, and the recent [CheckHistoryTable].
+///   the chart WHEN an anomaly was detected, and the recent [CheckHistoryTable].
 /// - **Metrics** hosts the full [MonitorMetricsTab] orchestrator.
 /// - **Incidents** lists the monitor's [IncidentCard]s, or a graceful
 ///   [MSEmptyState] when none touch it.
@@ -1019,10 +1019,15 @@ class _MonitorDetailViewState
 
   /// Builds the response-time surface for the Overview tab.
   ///
-  /// Renders the [MetricChart] plus a response [AiInsight] (anomaly copy when
-  /// anomalies are present, otherwise no-anomaly copy) when the monitor reports
-  /// a response series; shows a paused or no-data [MSEmptyState] otherwise so
-  /// the section never renders an empty chart frame.
+  /// Renders the [MetricChart] when the monitor reports a response series, plus a
+  /// response [AiInsight] ONLY when an anomaly was actually detected; shows a
+  /// paused or no-data [MSEmptyState] otherwise so the section never renders an
+  /// empty chart frame.
+  ///
+  /// There used to be a second branch asserting the monitor was "holding within
+  /// its expected response band" whenever no anomaly was present. Since
+  /// [_anomaliesFor] returns `const []` by construction, that branch was
+  /// unconditional rather than a reading.
   Widget _buildResponseSurface(
     Monitor monitor,
     bool paused,
@@ -1043,17 +1048,29 @@ class _MonitorDetailViewState
             unit: 'ms',
             anomalies: anomalies,
           ),
-          AiInsight(
-            child: WText(
-              anomalies.isNotEmpty
-                  ? trans('uptizm.monitors.response_insight_anomaly', {
-                      'name': monitor.name,
-                    })
-                  : trans('uptizm.monitors.response_insight_clear', {
-                      'name': monitor.name,
-                    }),
+          // Only when something was actually detected.
+          //
+          // This used to fall through to a "holding within its expected response
+          // band, no anomalies flagged" line whenever the chart had any data. That
+          // was not a reading: `_anomaliesFor()` returns `const []` by
+          // construction (no anomaly source is wired into this chart), so the
+          // reassurance was UNCONDITIONAL, and it rendered under an AiInsight
+          // badge. Measured live on a monitor created seconds earlier with two
+          // checks and `last_status = down`: the screen said it was holding within
+          // band with no anomalies flagged.
+          //
+          // The budget-burn insight in this same file already gates itself on real
+          // figures AND on the budget being at risk; this brings the two into line.
+          // When an anomaly feed does arrive, the branch below starts rendering on
+          // its own.
+          if (anomalies.isNotEmpty)
+            AiInsight(
+              child: WText(
+                trans('uptizm.monitors.response_insight_anomaly', {
+                  'name': monitor.name,
+                }),
+              ),
             ),
-          ),
         ],
       );
     }

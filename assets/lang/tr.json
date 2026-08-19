@@ -559,7 +559,6 @@
       "reliability_burn_breached_burning": ":name 30 günlük hata bütçesini tüketti ve tüketmeye devam ediyor: :allowed bütçeye karşı :used kesinti. Kesinti durmadıkça SLO ihlali sürecek; yükseltme politikasını sıkılaştırmak faydalı olabilir.",
       "reliability_burn_at_risk": ":name 30 günlük bütçesinin çoğunu tüketti: :allowed bütçeye karşı :used kesinti. Bu pencerede birkaç dakika daha kesinti %:slo SLO'yu ihlal eder.",
       "response_insight_anomaly": "Saat 13:00'te :name'in beklenen bandının çok üzerinde bir p99 sıçraması işaretlendi ve bu sıçrama hatasız şekilde ap-southeast bölgesiyle sınırlı kaldı. Bu, bir köken kesintisi değil, o yoldaki bölgesel gecikme olarak okunuyor.",
-      "response_insight_clear": ":name bu pencerede beklenen yanıt bandının içinde kalıyor. Herhangi bir anormallik işaretlenmedi.",
       "section_response_time": "Yanıt süresi · :range",
       "section_recent_checks": "Son kontroller",
       "paused_title": "İzleme duraklatıldı",

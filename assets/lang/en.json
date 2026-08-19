@@ -559,7 +559,6 @@
       "reliability_burn_breached_burning": ":name has spent its 30-day error budget and is still burning: :used of downtime against a :allowed budget. The SLO stays breached unless the downtime stops, worth tightening its escalation policy.",
       "reliability_burn_at_risk": ":name has burned most of its 30-day budget: :used of downtime against a :allowed budget. A few more minutes this window would breach the :slo% SLO.",
       "response_insight_anomaly": "Flagged a p99 spike at 13:00, well above :name's expected band and isolated to ap-southeast with no errors. Reads as regional latency on that path, not an origin outage.",
-      "response_insight_clear": ":name is holding within its expected response band this window. No anomalies flagged.",
       "section_response_time": "Response time · :range",
       "section_recent_checks": "Recent checks",
       "paused_title": "Monitoring paused",
