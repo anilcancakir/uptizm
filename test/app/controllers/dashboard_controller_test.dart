@@ -1,9 +1,12 @@
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/dashboard_controller.dart';
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/app/models/monitor.dart';
+
+import '../../support/bundled_lang.dart';
 
 void main() {
   setUp(() {
@@ -318,6 +321,39 @@ void main() {
     expect(summary, isNot(contains('fleet_all_operational')));
   });
 
+  test('fleetSummary reads grammatically for a single monitor', () async {
+    // The all-operational sentence is the one a healthy account sees every day,
+    // and a brand new account has exactly one monitor. Asserted against the
+    // SHIPPED catalogue rather than a fixture, because a fixture would agree
+    // with the test author instead of with the product, which is how "All 1
+    // monitors are operational" got as far as an iPhone screenshot.
+    Translator.instance.setLoader(_BundledLoader('en'));
+    await Translator.instance.setLocale(const Locale('en'));
+
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 1,
+          'monitors_down': 0,
+          'monitors_degraded': 0,
+          'monitors_paused': 0,
+          'monitors_pending': 0,
+          'monitors_total': 1,
+          'open_incidents': 0,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': []}),
+      'dashboard/monitors-snapshot': Http.response({'data': []}),
+      'dashboard/ai-inbox': Http.response({'data': []}),
+    });
+    final DashboardController controller = DashboardController.instance;
+
+    await controller.reload();
+
+    expect(controller.fleetSummary, isNot(contains('1 monitors')));
+    expect(controller.fleetSummary, contains('monitor is operational'));
+  });
+
   test(
     'reload decodes the active incidents from GET /dashboard/active-incidents',
     () async {
@@ -491,4 +527,15 @@ void main() {
       );
     });
   });
+}
+
+/// Serves the shipped catalogue for one locale, so the sentence asserted above
+/// is the one an operator reads rather than a key.
+class _BundledLoader implements TranslationLoader {
+  _BundledLoader(this.locale);
+
+  final String locale;
+
+  @override
+  Future<Map<String, dynamic>> load(Locale _) async => readBundledLang(locale);
 }
