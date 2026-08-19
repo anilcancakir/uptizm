@@ -163,7 +163,11 @@ class CheckAggregateService
 
         // 1. The bucket is the monitor's OWN cadence, so every region
         //    reporting one interval collapses into a single slot.
-        $bucketSeconds = max(1, (int) $monitor->check_interval_sec);
+        // The EFFECTIVE cadence, matching what the scheduler spends. Reading the
+        // stored column while the loop runs at the plan's floor would count one
+        // expected slot per stored interval and find a check in only some of
+        // them, turning a healthy downgraded monitor into a coverage gap.
+        $bucketSeconds = max(1, $monitor->effectiveCheckIntervalSec());
         $bucketExpr = $this->bucketExpression($bucketSeconds);
 
         // 2. Count distinct buckets, not rows. The conditional inside the

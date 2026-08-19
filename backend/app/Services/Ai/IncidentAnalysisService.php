@@ -283,8 +283,10 @@ class IncidentAnalysisService
      */
     protected function evidenceFrom(Incident $incident): \DateTimeInterface
     {
-        $cadence = (int) ($incident->primaryMonitor?->check_interval_sec
-            ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC);
+        // Effective, not stored: this window is counted in checks, and the loop
+        // spends them at the plan's floor.
+        $cadence = $incident->primaryMonitor?->effectiveCheckIntervalSec()
+            ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC;
 
         return $incident->started_at->copy()->subSeconds(self::CHECK_LOOKBACK_CHECKS * $cadence);
     }

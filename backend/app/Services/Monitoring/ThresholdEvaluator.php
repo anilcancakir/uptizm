@@ -881,8 +881,11 @@ class ThresholdEvaluator
      */
     protected function sameOutageJustResolved(Monitor $monitor, ?string $metricKey = null): ?Incident
     {
-        $cadence = $monitor->check_interval_sec ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC;
-        $window = now()->subSeconds(self::REOPEN_WINDOW_CHECKS * (int) $cadence);
+        // Measured in CHECKS, so it reads the effective cadence: at the stored
+        // value the window would be shorter than the checks it counts and the
+        // duplicate-suppression guard would stop suppressing.
+        $cadence = $monitor->effectiveCheckIntervalSec();
+        $window = now()->subSeconds(self::REOPEN_WINDOW_CHECKS * $cadence);
 
         $candidate = Incident::query()
             ->where('primary_monitor_id', $monitor->id)

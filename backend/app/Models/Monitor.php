@@ -6,6 +6,7 @@ use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\IncidentWriteService;
 use DateTimeInterface;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
@@ -370,6 +371,34 @@ class Monitor extends Model
     {
         return $this->status === self::STATUS_PAUSED
             || $this->last_status === MonitorStatus::Paused;
+    }
+
+    /**
+     * The cadence the scheduler actually uses: the monitor's own interval, never
+     * faster than the team's plan allows.
+     *
+     * `check_interval_sec` is what the CUSTOMER asked for and stays untouched, so
+     * an upgrade restores their fast cadence without them re-entering it. This is
+     * what the loop honours, and what every consumer that means "how often is
+     * this really checked" has to read: the stored value alone was enforced on
+     * writes and nowhere else, so a downgraded team kept its paid cadence
+     * indefinitely (measured: 31s, 59s, 32s, 58s, 59s gaps on a 30s monitor under
+     * a 180s Free floor) while being blocked from editing the monitor at all.
+     *
+     * Cheap enough to call per tick: `PlanGate::limits()` reads the static
+     * catalog plus columns already on the team. The scheduler eager-loads `team`
+     * so this adds no query there.
+     */
+    public function effectiveCheckIntervalSec(?PlanGate $gate = null): int
+    {
+        $requested = (int) ($this->check_interval_sec ?? self::DEFAULT_CHECK_INTERVAL_SEC);
+        $team = $this->team;
+
+        if ($team === null) {
+            return $requested;
+        }
+
+        return max($requested, ($gate ?? new PlanGate)->minCheckIntervalSec($team));
     }
 
     /**

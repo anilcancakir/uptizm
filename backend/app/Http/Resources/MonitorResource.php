@@ -36,6 +36,11 @@ class MonitorResource extends JsonResource
             'status' => $this->resource->status,
             'last_status' => $this->resource->last_status?->value,
             'check_interval_sec' => $this->resource->check_interval_sec,
+            // What the loop actually spends, which is the stored value clamped up
+            // to the plan's floor. Both are carried because they answer different
+            // questions: the form edits the request, every "checked every X"
+            // sentence has to state this one.
+            'effective_check_interval_sec' => $this->resource->effectiveCheckIntervalSec(),
             'timeout_sec' => $this->resource->timeout_sec,
             'regions' => $this->resource->regions ?? [],
             'expected_status_code' => $this->resource->expected_status_code,
