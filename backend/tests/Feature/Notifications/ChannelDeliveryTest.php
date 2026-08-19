@@ -243,7 +243,7 @@ class ChannelDeliveryTest extends TestCase
 
         // No regression: the person path stays mail/database/onesignal.
         $this->assertSame(
-            ['mail', 'database', 'onesignal'],
+            ['mail', 'database', 'onesignal', 'broadcast'],
             (new IncidentOpened($incident))->via($user),
         );
     }

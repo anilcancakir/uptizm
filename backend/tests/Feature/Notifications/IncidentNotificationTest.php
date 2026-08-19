@@ -35,7 +35,7 @@ class IncidentNotificationTest extends TestCase
 
         $notification = new IncidentOpened($incident);
 
-        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
+        $this->assertSame(['mail', 'database', 'onesignal', 'broadcast'], $notification->via($user));
 
         $payload = $notification->toArray($user);
 
@@ -58,7 +58,7 @@ class IncidentNotificationTest extends TestCase
 
         $notification = new IncidentResolved($incident);
 
-        $this->assertSame(['mail', 'database', 'onesignal'], $notification->via($user));
+        $this->assertSame(['mail', 'database', 'onesignal', 'broadcast'], $notification->via($user));
 
         $payload = $notification->toArray($user);
 
@@ -82,7 +82,7 @@ class IncidentNotificationTest extends TestCase
 
         $notification = new IncidentOpened($incident);
 
-        $this->assertSame(['mail', 'database'], $notification->via($user));
+        $this->assertSame(['mail', 'database', 'broadcast'], $notification->via($user));
     }
 
     /**

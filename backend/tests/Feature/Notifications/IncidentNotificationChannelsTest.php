@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Notifications;
 
+use App\Enums\NotificationChannelType;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Models\NotificationChannel;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
@@ -37,7 +39,7 @@ class IncidentNotificationChannelsTest extends TestCase
 
         $channels = (new IncidentOpened($incident))->via($user);
 
-        $this->assertSame(['mail', 'database', 'onesignal'], $channels);
+        $this->assertSame(['mail', 'database', 'onesignal', 'broadcast'], $channels);
     }
 
     public function test_via_excludes_onesignal_when_the_push_app_is_unprovisioned(): void
@@ -50,7 +52,7 @@ class IncidentNotificationChannelsTest extends TestCase
         $incident = $this->makeIncident();
         $user = User::factory()->create();
 
-        $this->assertSame(['mail', 'database'], (new IncidentOpened($incident))->via($user));
+        $this->assertSame(['mail', 'database', 'broadcast'], (new IncidentOpened($incident))->via($user));
     }
 
     public function test_push_is_registered_as_a_logical_channel_for_both_incident_types(): void
@@ -102,7 +104,7 @@ class IncidentNotificationChannelsTest extends TestCase
         // GateNotificationChannels resolving 'onesignal' -> 'push' and
         // consulting the disabled NotificationSetting row, not from via().
         $this->assertSame(
-            ['mail', 'database', 'onesignal'],
+            ['mail', 'database', 'onesignal', 'broadcast'],
             (new IncidentOpened($incident))->via($user),
         );
 
@@ -129,7 +131,7 @@ class IncidentNotificationChannelsTest extends TestCase
 
         // A phone and a provisioned app are not enough: without an explicit
         // enabled sms row the channel stays off (opt-out default preserved).
-        $this->assertSame(['mail', 'database', 'onesignal'], (new IncidentOpened($incident))->via($user));
+        $this->assertSame(['mail', 'database', 'onesignal', 'broadcast'], (new IncidentOpened($incident))->via($user));
     }
 
     public function test_via_includes_sms_for_a_user_who_enabled_sms_with_phone_and_app_id(): void
@@ -212,7 +214,7 @@ class IncidentNotificationChannelsTest extends TestCase
         $channels = (new IncidentOpened($incident))->via($user);
 
         $this->assertSame(
-            ['mail', 'database', 'onesignal', 'onesignal-sms'],
+            ['mail', 'database', 'onesignal', 'broadcast', 'onesignal-sms'],
             $channels,
         );
     }
@@ -221,6 +223,142 @@ class IncidentNotificationChannelsTest extends TestCase
      * Create a person who opted into SMS for the given incident type: a phone
      * plus an explicit enabled `sms` {@see NotificationSetting} row.
      */
+    // ---------------------------------------------------------------------
+    // The broadcast channel: live delivery of the in-app row
+    // ---------------------------------------------------------------------
+
+    public function test_via_adds_broadcast_alongside_database(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $channels = (new IncidentOpened($incident))->via($user);
+
+        // `broadcast` is the live delivery of the row `database` stores, so it
+        // rides alongside and never instead: a client that was closed when the
+        // incident fired reads the row over the API on its next start.
+        $this->assertContains('broadcast', $channels);
+        $this->assertContains('database', $channels);
+    }
+
+    public function test_incident_resolved_via_adds_broadcast_too(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $this->assertContains('broadcast', (new IncidentResolved($incident))->via($user));
+    }
+
+    public function test_broadcast_is_dropped_when_the_user_disabled_the_in_app_channel(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+        $user->notificationSettings()->create([
+            'type' => 'incident_opened',
+            'channel' => 'database',
+            'is_enabled' => false,
+        ]);
+
+        $channels = (new IncidentOpened($incident))->via($user);
+
+        // Broadcast FOLLOWS database rather than standing on its own. Surviving
+        // here would push a frame for a notification no row was ever written for,
+        // so the bell would show an entry that vanished on the next fetch. The
+        // logical-channel gate cannot catch this: `GateNotificationChannels`
+        // allows a driver channel it cannot map back, so broadcast would sail
+        // through it fail-open.
+        $this->assertNotContains('database', $channels);
+        $this->assertNotContains('broadcast', $channels);
+    }
+
+    public function test_a_notification_channel_notifiable_never_gets_broadcast(): void
+    {
+        $incident = $this->makeIncident();
+        $channel = NotificationChannel::query()->create([
+            'team_id' => $incident->team_id,
+            'channel_type' => NotificationChannelType::Slack,
+            'name' => 'Ops room',
+            'credentials' => ['webhook_url' => 'https://hooks.slack.test/x'],
+            'is_enabled' => true,
+        ]);
+
+        $channels = (new IncidentOpened($incident))->via($channel);
+
+        // A team webhook is not a person with a socket. Its `via()` arm returns
+        // one driver and must stay that way.
+        $this->assertNotContains('broadcast', $channels);
+    }
+
+    public function test_broadcast_event_name_is_the_short_contract_name(): void
+    {
+        $incident = $this->makeIncident();
+
+        // Laravel's default would be the fully-qualified
+        // BroadcastNotificationCreated. Magic's Reverb channel matches a listener
+        // by exact string, so the client would have to hardcode a framework
+        // internal; `magic_notifications` listens for this short name instead.
+        $this->assertSame('notification.created', (new IncidentOpened($incident))->broadcastAs());
+        $this->assertSame('notification.created', (new IncidentResolved($incident))->broadcastAs());
+    }
+
+    public function test_broadcast_payload_matches_the_api_row_shape(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+        $notification = new IncidentOpened($incident);
+        $notification->id = 'fixed-notification-id';
+
+        $message = $notification->toBroadcast($user);
+
+        // The client's `DatabaseNotification.fromMap` reads `data.title`,
+        // `data.body` and `data.action_url` from a NESTED data key, plus a
+        // top-level id/type/created_at/read_at. Laravel's default broadcast
+        // payload FLATTENS the data instead, which decodes to nothing usable, so
+        // the shape here is the contract and this test is what pins it.
+        $payload = $message->data;
+        $this->assertSame('fixed-notification-id', $payload['id']);
+        $this->assertSame(IncidentOpened::class, $payload['type']);
+        $this->assertNull($payload['read_at']);
+        $this->assertNotNull($payload['created_at']);
+        $this->assertIsArray($payload['data']);
+        $this->assertSame(
+            $notification->toArray($user),
+            $payload['data'],
+            'the socket and the API row must come from one serializer',
+        );
+        $this->assertArrayHasKey('title', $payload['data']);
+        $this->assertArrayHasKey('body', $payload['data']);
+    }
+
+    public function test_the_broadcast_frame_goes_to_the_notifiable_own_channel(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $channels = $user->receivesBroadcastNotificationsOn(new IncidentOpened($incident));
+
+        // A notification is personal, so it must never ride the team channel every
+        // teammate is subscribed to.
+        $this->assertSame('App.Models.User.'.$user->id, $channels);
+    }
+
+    public function test_the_channel_resolves_with_no_argument_at_all(): void
+    {
+        $user = User::factory()->create();
+
+        // Filament's notification component calls this method with NO arguments,
+        // guarded only by `method_exists`
+        // (filament/notifications/src/Livewire/Notifications.php:103). A required
+        // parameter threw ArgumentCountError out of a Blade render and 500'd every
+        // admin panel page. Three admin tests caught it; this one names the reason
+        // so the next person does not tighten the signature back.
+        $this->assertSame(
+            'App.Models.User.'.$user->id,
+            $user->receivesBroadcastNotificationsOn(),
+        );
+    }
+
     private function userOptedIntoSms(string $type): User
     {
         $user = User::factory()->create(['phone' => '+15551234567']);

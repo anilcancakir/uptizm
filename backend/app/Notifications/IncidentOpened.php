@@ -17,6 +17,7 @@ use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use FlutterSdk\MagicStarter\Support\OneSignalSubscriptions;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use onesignal\client\model\LanguageStringMap;
@@ -84,7 +85,77 @@ class IncidentOpened extends Notification implements ShouldQueue
 
         $channels = self::withoutDisabledChannels($notifiable, self::defaultChannels(), $this->eventType());
 
-        return array_merge($channels, self::smsChannel($notifiable, $this->eventType()));
+        return array_merge(
+            self::withLiveDelivery($channels),
+            self::smsChannel($notifiable, $this->eventType()),
+        );
+    }
+
+    /**
+     * The wire event name for the live in-app delivery.
+     *
+     * Laravel's default is the fully-qualified
+     * `Illuminate\Notifications\Events\BroadcastNotificationCreated`. Magic's Reverb
+     * channel matches a listener by EXACT string, so the client would have to
+     * hardcode a framework internal; `magic_notifications` listens for this short
+     * name (`NotificationManager.realtimeEvent`) instead.
+     */
+    public function broadcastAs(): string
+    {
+        return 'notification.created';
+    }
+
+    /**
+     * The frame, in the SAME shape `GET /notifications` returns a row.
+     *
+     * This is not cosmetic. Laravel's default broadcast payload FLATTENS the
+     * notification data to the top level and appends `id` and `type`, while the
+     * client's `DatabaseNotification.fromMap` reads `data.title`, `data.body` and
+     * `data.action_url` from a NESTED `data` key. The default therefore decodes to
+     * nothing usable, and the failure is silent: a frame arrives, the decoder
+     * throws, the row is dropped.
+     *
+     * Building it from {@see toArray()} keeps ONE serializer behind both the API
+     * row and the socket frame, so the two cannot drift. `read_at` is null because
+     * a notification being delivered has not been read; the authoritative row
+     * replaces this one on the next fetch anyway, keyed by the same id.
+     *
+     * @param  mixed  $notifiable  The entity receiving the notification.
+     */
+    public function toBroadcast(mixed $notifiable): BroadcastMessage
+    {
+        return new BroadcastMessage([
+            'id' => $this->id,
+            'type' => static::class,
+            'data' => $this->toArray($notifiable),
+            'created_at' => now()->toIso8601String(),
+            'read_at' => null,
+        ]);
+    }
+
+    /**
+     * Append the `broadcast` driver whenever the in-app row is being written.
+     *
+     * Broadcast FOLLOWS `database`; it is the live delivery of that row, not a
+     * channel of its own. Two consequences, both deliberate:
+     *
+     *  - A notifiable that disabled the in-app channel gets neither. Surviving
+     *    alone would push a frame for a notification no row exists for, so the
+     *    bell would show an entry that vanished on the next fetch.
+     *  - `GateNotificationChannels` cannot enforce this. It maps a DRIVER channel
+     *    back to a logical one and allows anything it cannot map, so a `broadcast`
+     *    driver sails through it fail-open. The gate has to be here.
+     *
+     * @param  array<int, string>  $channels
+     * @return array<int, string>
+     */
+    private static function withLiveDelivery(array $channels): array
+    {
+        if (! in_array('database', $channels, true)) {
+            return $channels;
+        }
+
+        return [...$channels, 'broadcast'];
     }
 
     /**

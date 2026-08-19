@@ -189,4 +189,34 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
         // 4. A verified address. NOT a second factor: see the docblock.
         return $this->hasVerifiedEmail();
     }
+
+    /**
+     * The private channel this user's notifications are broadcast on.
+     *
+     * Laravel would derive `App.Models.User.{id}` from the class name anyway, so
+     * this override changes no behaviour today. It exists because the name is a
+     * CONTRACT in three places at once: `routes/channels.php` authorises it, the
+     * Flutter client subscribes to it through `Notify.startRealtime()`, and the
+     * notification's `toBroadcast()` payload is shaped for that client. A derived
+     * name would silently change if this class ever moved namespace, and the
+     * failure would be a bell that quietly stopped updating rather than anything
+     * that goes red.
+     *
+     * **The argument has to be optional, and a required one broke the admin panel.**
+     * Laravel calls this with the notification (`BroadcastNotificationCreated::channelName()`),
+     * but Filament's notification Livewire component calls it with NOTHING
+     * (`filament/notifications/src/Livewire/Notifications.php:103`, guarded only by
+     * `method_exists`). A required parameter therefore threw `ArgumentCountError`
+     * out of a Blade render and turned every admin panel page into a 500, which is
+     * the same class of failure as the panel that once answered 200 while being
+     * dead: nothing in this feature's own tests touches that caller.
+     *
+     * @param  mixed  $notification  The notification being broadcast, unused: every
+     *                               notification for this user goes to one channel.
+     *                               Optional because Filament omits it entirely.
+     */
+    public function receivesBroadcastNotificationsOn(mixed $notification = null): string
+    {
+        return 'App.Models.User.'.$this->getKey();
+    }
 }
