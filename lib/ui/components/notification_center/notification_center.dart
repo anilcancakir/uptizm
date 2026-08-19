@@ -59,8 +59,14 @@ class NotificationItem {
   /// The headline of the notification.
   final String title;
 
-  /// The supporting detail line.
-  final String detail;
+  /// The supporting detail line, or null when there is none to show.
+  ///
+  /// Nullable because a notification whose body only repeats its title has
+  /// nothing to add: `IncidentOpened` builds `title` from the copy catalogue and
+  /// `body` from `IncidentTitle::render`, and for a monitor-down incident both
+  /// resolve to the same sentence, so the row printed it twice, once under the
+  /// other.
+  final String? detail;
 
   /// A human-readable relative timestamp (e.g. "14m ago").
   final String time;
@@ -77,9 +83,9 @@ class NotificationItem {
     required this.id,
     required this.kind,
     required this.title,
-    required this.detail,
     required this.time,
     required this.to,
+    this.detail,
     this.read = false,
   });
 }
@@ -169,7 +175,8 @@ NotificationItem notificationItemFromDatabaseNotification(
     id: notification.id,
     kind: kind,
     title: notification.title,
-    detail: notification.body,
+    // A body identical to the title is not a detail, it is an echo.
+    detail: notification.body == notification.title ? null : notification.body,
     time: _relativeTime(notification.createdAt),
     to: to,
     read: notification.isRead,
@@ -380,10 +387,11 @@ class _NotificationCenterState extends State<NotificationCenter> {
                         ? 'text-sm text-fg-muted'
                         : 'text-sm font-medium text-fg',
                   ),
-                  WText(
-                    item.detail,
-                    className: 'text-xs text-fg-muted truncate',
-                  ),
+                  if (item.detail case final String detail)
+                    WText(
+                      detail,
+                      className: 'text-xs text-fg-muted truncate',
+                    ),
                   WText(
                     item.time,
                     className: 'font-mono text-xs text-fg-muted',
