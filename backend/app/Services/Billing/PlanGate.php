@@ -3,6 +3,7 @@
 namespace App\Services\Billing;
 
 use App\Enums\AiMode;
+use App\Enums\GatedFeature;
 use App\Enums\MonitorRegion;
 use App\Exceptions\PlanUpgradeRequiredException;
 use App\Models\Monitor;
@@ -278,12 +279,13 @@ class PlanGate
 
         throw new PlanUpgradeRequiredException(
             'pro',
-            'AI monitor analysis',
+            GatedFeature::AiMonitorAnalysis,
             $limit > 0
-                ? sprintf(
-                    'You have used all %d free AI monitor setups. AI monitor analysis is available on the Pro plan and up.',
-                    $limit,
-                )
+                ? __('plans.upgrade_required_metered', [
+                    'count' => $limit,
+                    'feature' => GatedFeature::AiMonitorAnalysis->label(),
+                    'plan' => 'Pro',
+                ])
                 : null,
         );
     }
@@ -334,7 +336,7 @@ class PlanGate
      * Ensure the team's AI level meets [$required] for [$feature], else abort
      * with a 403 carrying an upgrade message the client surfaces verbatim.
      */
-    public function assertAiLevel(Team $team, string $required, string $feature): void
+    public function assertAiLevel(Team $team, string $required, GatedFeature $feature): void
     {
         if ($this->aiLevelAllows($team, $required)) {
             return;

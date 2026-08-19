@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\GatedFeature;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAnalysisFeedbackRequest;
 use App\Models\AiAnalysisFeedback;
@@ -44,7 +45,7 @@ class IncidentAnalysisController extends Controller
 
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
-            (new PlanGate)->assertAiLevel($team, 'analysis', 'AI incident analysis');
+            (new PlanGate)->assertAiLevel($team, 'analysis', GatedFeature::AiIncidentAnalysis);
         }
 
         $resolved = $this->incidentAnalysisService->storedAnalysisFor(

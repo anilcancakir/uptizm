@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Enums\GatedFeature;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
@@ -26,24 +27,30 @@ class PlanUpgradeRequiredException extends HttpException
 {
     /**
      * @param  string  $requiredPlan  Plan catalog id of the lowest entitling tier.
-     * @param  string  $feature  Human label of what was refused, e.g. "AI monitor analysis".
+     * @param  GatedFeature  $feature  What was refused. An enum rather than a label,
+     *                                 so the set of refusable features is closed and
+     *                                 every one of them has a translation.
      * @param  string|null  $message  Overrides the default sentence, for a refusal
      *                                the generic wording would misdescribe (a spent
      *                                metered allowance rather than a tier the team
-     *                                never had).
+     *                                never had). Already localized by the caller.
      */
     public function __construct(
         public readonly string $requiredPlan,
-        public readonly string $feature,
+        public readonly GatedFeature $feature,
         ?string $message = null,
     ) {
         parent::__construct(
             HttpResponse::HTTP_FORBIDDEN,
-            $message ?? sprintf(
-                '%s is available on the %s plan and up. Upgrade to use it.',
-                $feature,
-                ucfirst($requiredPlan),
-            ),
+            // Resolved through the catalogue, in the CALLER's language: this
+            // sentence is rendered verbatim by three client surfaces, one of
+            // which belongs to magic_starter and cannot be reached from the app.
+            // It was a hardcoded English sprintf, so a Turkish operator met one
+            // English sentence on the upgrade prompt.
+            $message ?? __('plans.upgrade_required', [
+                'feature' => $this->feature->label(),
+                'plan' => ucfirst($requiredPlan),
+            ]),
         );
     }
 
@@ -56,7 +63,10 @@ class PlanUpgradeRequiredException extends HttpException
             'message' => $this->getMessage(),
             'upgrade' => [
                 'required_plan' => $this->requiredPlan,
-                'feature' => $this->feature,
+                // The localized NAME, matching `message`'s language, not the enum
+                // value: this pairs with a human sentence and no client keys off
+                // it. `required_plan` is the machine-readable half.
+                'feature' => $this->feature->label(),
             ],
         ], HttpResponse::HTTP_FORBIDDEN);
     }
