@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\GatedFeature;
 use App\Enums\MetricBand;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
@@ -400,7 +401,7 @@ class MonitorMetricController extends Controller
 
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
-            (new PlanGate)->assertAiLevel($team, self::DISCOVERY_AI_LEVEL, 'AI metric discovery');
+            (new PlanGate)->assertAiLevel($team, self::DISCOVERY_AI_LEVEL, GatedFeature::AiMetricDiscovery);
         }
 
         return response()->json([

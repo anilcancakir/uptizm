@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Http;
 
+use App\Exceptions\PlanUpgradeRequiredException;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -103,7 +104,64 @@ class ApiLocaleTest extends TestCase
         $response->assertOk()->assertJson(['locale' => 'tr']);
     }
 
-    protected function makeUser(string $locale): User
+    /**
+     * A plan wall is prose a human reads, so it answers in their language too.
+     *
+     * The refusal sentence used to be a hardcoded English sprintf inside
+     * {@see PlanUpgradeRequiredException}, and it reaches the
+     * operator three ways: inline on the incident-analysis card, inline on the
+     * weekly digest, and as the upgrade DIALOG magic_starter raises from a
+     * controller's non-2xx branch. All three render the server's `message`
+     * verbatim, so one English string put one English sentence into an otherwise
+     * fully Turkish page, on the upgrade prompt of all places.
+     *
+     * Driven through the real endpoint rather than the exception, because the
+     * whole point is that `SetApiLocale` has already resolved the caller's
+     * language by the time the gate throws. `incidents/digest` is the endpoint
+     * because its gate runs on the TEAM with no route binding ahead of it; the
+     * analysis route would 404 on a nonexistent incident before the gate ran.
+     */
+    public function test_a_plan_wall_is_refused_in_the_users_language(): void
+    {
+        $turkish = $this->makeUser('tr', plan: 'free');
+
+        $response = $this->actingAs($turkish)
+            ->getJson('/api/v1/incidents/digest');
+
+        $response->assertForbidden();
+        $this->assertSame(
+            'Yapay zeka haftalık özeti Business planı ve üzerinde kullanılabilir. '
+                .'Kullanmak için yükseltin.',
+            $response->json('message'),
+        );
+        $this->assertSame('business', $response->json('upgrade.required_plan'));
+        $this->assertSame(
+            'Yapay zeka haftalık özeti',
+            $response->json('upgrade.feature'),
+            'the feature name pairs with the sentence, so it follows its language',
+        );
+    }
+
+    public function test_the_same_wall_is_english_for_an_english_caller(): void
+    {
+        $english = $this->makeUser('en', plan: 'free');
+
+        $response = $this->actingAs($english)
+            ->getJson('/api/v1/incidents/digest');
+
+        $response->assertForbidden();
+        $this->assertSame(
+            'The AI weekly digest is available on the Business plan and up. Upgrade to use it.',
+            $response->json('message'),
+        );
+    }
+
+    /**
+     * @param  string  $plan  The team's plan. `pro` by default because most cases
+     *                        here only need an authenticated caller; the plan-wall
+     *                        cases need a tier that does NOT entitle the feature.
+     */
+    protected function makeUser(string $locale, string $plan = 'pro'): User
     {
         $user = User::query()->create([
             'name' => 'Locale Tester',
@@ -115,7 +173,7 @@ class ApiLocaleTest extends TestCase
         $team = Team::query()->create([
             'user_id' => $user->id,
             'name' => 'Locale Team',
-            'plan' => 'pro',
+            'plan' => $plan,
         ]);
         $user->forceFill(['current_team_id' => $team->id])->save();
 

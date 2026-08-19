@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\AiConfidence;
 use App\Enums\AiDegradeReason;
+use App\Enums\GatedFeature;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AskAssistantRequest;
 use App\Models\Incident;
@@ -76,7 +77,7 @@ class AssistantController extends Controller
 
         $team = Team::find($teamId);
         if ($team !== null) {
-            (new PlanGate)->assertAiLevel($team, 'analysis', 'The AI assistant');
+            (new PlanGate)->assertAiLevel($team, 'analysis', GatedFeature::AiAssistant);
         }
 
         $monitors = Monitor::query()

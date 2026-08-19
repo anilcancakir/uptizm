@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\GatedFeature;
 use App\Enums\IncidentDraftKind;
 use App\Enums\IncidentStatus;
 use App\Http\Controllers\Controller;
@@ -62,7 +63,7 @@ class IncidentDraftController extends Controller
 
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
-            (new PlanGate)->assertAiLevel($team, 'analysis', 'AI incident drafting');
+            (new PlanGate)->assertAiLevel($team, 'analysis', GatedFeature::AiIncidentDrafting);
         }
 
         // `posting_as` is the stage selected in the composer, which is what the

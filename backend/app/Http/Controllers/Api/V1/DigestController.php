@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\GatedFeature;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateWeeklyDigest;
 use App\Models\Team;
@@ -29,7 +30,7 @@ class DigestController extends Controller
     {
         $team = Team::find($request->user()->current_team_id);
         if ($team !== null) {
-            (new PlanGate)->assertAiLevel($team, GenerateWeeklyDigest::AI_LEVEL, 'The AI weekly digest');
+            (new PlanGate)->assertAiLevel($team, GenerateWeeklyDigest::AI_LEVEL, GatedFeature::AiWeeklyDigest);
         }
 
         $digest = TeamDigest::query()
