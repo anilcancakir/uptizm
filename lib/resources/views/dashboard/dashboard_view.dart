@@ -289,10 +289,14 @@ class _DashboardViewState
   }
 
   Widget _buildKpiRow() {
-    // 1. Single-column base; widen to two then four columns at breakpoints.
+    // 1. Two-up from the narrowest phone, four across at `lg`. Not one-up at
+    //    the base: the loading skeleton above is `grid-cols-2`, so a one-up
+    //    content grid reflowed a 2x2 placeholder into a 1x4 column the instant
+    //    the data landed, and spent four card heights on four numbers. The
+    //    monitors, incidents and subscribers KPI rows already run two-up here
+    //    with the same card and the same localised labels.
     return WDiv(
-      className:
-          'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
+      className: 'grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
         KpiStatCard(
           label: trans('uptizm.dashboard.kpi_monitors_up'),

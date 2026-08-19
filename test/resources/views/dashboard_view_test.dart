@@ -281,6 +281,36 @@ void main() {
     expect(find.byType(KpiStatCard), findsNWidgets(4));
   });
 
+  testWidgets(
+    'DashboardView lays the KPI cards two-up at a phone width, matching its '
+    'own loading skeleton',
+    (tester) async {
+      // 360px is narrower than any current phone, so a pair that fits here fits
+      // everywhere. The skeleton this view shows while loading is already
+      // `grid-cols-2`; a one-up content grid makes the 2x2 placeholder reflow
+      // into a 1x4 column the moment the data lands, and spends four card
+      // heights of a 874px screen on four numbers.
+      await tester.binding.setSurfaceSize(const Size(360, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(const DashboardView(), size: const Size(360, 2400)),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder cards = find.byType(KpiStatCard);
+      final Rect first = tester.getRect(cards.at(0));
+      final Rect second = tester.getRect(cards.at(1));
+      final Rect third = tester.getRect(cards.at(2));
+
+      // Cards 1 and 2 share a row; card 3 starts the next one.
+      expect(second.top, first.top);
+      expect(second.left, greaterThan(first.left));
+      expect(third.top, greaterThanOrEqualTo(first.bottom));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('DashboardView renders at least one IncidentCard', (
     tester,
   ) async {
