@@ -4,6 +4,8 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'incident_form_support.dart';
 import '../monitors/monitor_metrics_support.dart';
+import '../../../app/controllers/entitlement_controller.dart';
+import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/controllers/incident_controller.dart';
 import '../../../app/controllers/maintenance_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
@@ -385,11 +387,34 @@ class _IncidentCreateViewState
 
   /// Builds the AI banner shown above the form card, or `null` when none
   /// applies. Maintenance never shows a banner; a resolved suggestion shows the
-  /// promoted variant; a blank incident shows the generic variant.
+  /// promoted variant; a blank incident shows the generic variant, and only on a
+  /// plan that will actually deliver it.
+  ///
+  /// The generic banner says the analysis "lands on the detail page within
+  /// seconds". Below the analysis tier the detail page answers "AI incident
+  /// analysis is available on the Pro plan and up", so without this gate the
+  /// form promised something the operator only discovers is refused after they
+  /// have opened an incident. Same predicate the detail page gates on, so the
+  /// two screens cannot disagree.
+  ///
+  /// `null` rather than an empty widget: the caller inserts this as a
+  /// null-aware element in a `gap-6` column, where a zero-size child would
+  /// still take a gap slot. And withholding rather than nudging, because the
+  /// detail page already carries the upgrade path; this is a claim being
+  /// dropped, not a second place to sell.
+  ///
+  /// Reads the entitlement at build time. While it is still loading the limits
+  /// are deliberately permissive, so the banner shows until the real plan says
+  /// otherwise: an informational banner appearing a moment early is the
+  /// harmless direction of that trade.
   Widget? _buildBanner() {
     if (_isMaintenance) return null;
     final Incident? suggestion = _suggestion;
     if (suggestion != null) return _buildPromotedBanner(suggestion);
+    if (!EntitlementController.instance.aiLevelAllows(AiLevel.analysis)) {
+      return null;
+    }
+
     return _buildGenericBanner();
   }
 

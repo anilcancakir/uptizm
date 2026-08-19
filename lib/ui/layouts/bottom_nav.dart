@@ -123,11 +123,22 @@ class BottomNav extends StatelessWidget {
             states: {if (active) 'active'},
             className: 'text-[22px] text-fg-muted active:text-primary',
           ),
-          WText(
-            trans(tab.labelKey),
-            states: {if (active) 'active'},
-            className:
-                'text-[11px] font-medium text-fg-muted active:text-primary',
+          // Clamped, because this row is four equal cells on a phone with
+          // nowhere to reflow. iOS accessibility sizes carry a text scale past
+          // 2x, and at that scale "Monitors" wrapped to "Monitor" + "s" and ran
+          // into "Inciden" + "ts" beside it, growing the bar over the content
+          // and turning the labels into one unreadable run. 1.3 still grows the
+          // label for someone who asked for larger text, and "Incidents", the
+          // longest of the four, still fits its cell. The icons are fixed-size
+          // and carry the destination on their own when the label cannot.
+          MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.3,
+            child: WText(
+              trans(tab.labelKey),
+              states: {if (active) 'active'},
+              className:
+                  'text-[11px] font-medium text-fg-muted active:text-primary',
+            ),
           ),
         ],
       ),

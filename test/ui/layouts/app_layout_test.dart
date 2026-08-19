@@ -126,6 +126,45 @@ void main() {
       // Settings is in the top-bar menu, never a bottom tab.
       expect(find.text('uptizm.nav.settings'), findsNothing);
     });
+
+    testWidgets(
+      'clamps its label scaling, because four fixed cells cannot reflow',
+      (tester) async {
+        // iOS accessibility sizes carry a text scale well past 2x. The tab row
+        // is four equal cells on a 402pt phone with no room to reflow, so at
+        // that scale "Monitors" wrapped to "Monitor" + "s" and ran into
+        // "Inciden" + "ts" beside it: the bar grew over the content and the
+        // labels became one unreadable run. The icons are fixed-size and were
+        // never the problem.
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(390, 900);
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: MediaQuery(
+              data: const MediaQueryData(textScaler: TextScaler.linear(3)),
+              child: WindTheme(
+                data: WindThemeData(),
+                child: const Scaffold(body: BottomNav(currentPath: '/')),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final BuildContext label = tester.element(
+          find.text('uptizm.nav.monitors'),
+        );
+
+        expect(
+          MediaQuery.textScalerOf(label).scale(10),
+          lessThanOrEqualTo(13.0),
+          reason: 'a 3x scale must not reach the tab labels unclamped',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
