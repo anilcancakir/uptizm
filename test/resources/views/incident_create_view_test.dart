@@ -3,14 +3,76 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:uptizm/app/controllers/entitlement_controller.dart';
 import 'package:uptizm/app/controllers/incident_controller.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/controllers/status_page_controller.dart';
+import 'package:uptizm/app/mocks/billing.dart' show plans;
+import 'package:uptizm/app/services/billing/billing_service.dart';
+import 'package:uptizm/app/support/billing_types.dart' show Plan;
+import 'package:uptizm/app/support/team_types.dart' show PaymentMethod, UsageStat;
 import 'package:uptizm/app/models/scheduled_maintenance.dart';
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/incidents/incident_create_view.dart';
 
 import '../../support/monitor_fixtures.dart';
+
+/// In-memory [BillingService] fake feeding [EntitlementController] a fixed
+/// plan id, mirroring the fake in `entitlement_controller_test.dart`. Only
+/// the three reads the controller depends on are implemented; the
+/// purchase-action methods this form never touches throw loudly.
+class _FakeBilling implements BillingService {
+  _FakeBilling({this.entitlementPlan, List<Plan>? catalog})
+    : _catalog = catalog ?? plans;
+
+  /// The plan id `currentEntitlement` resolves to.
+  final String? entitlementPlan;
+
+  /// The catalog `getPlans` resolves to. Defaults to the shared design-lab
+  /// fixture; a test that needs a specific `limits.regions` value (the shared
+  /// fixture predates that field and defaults it to null/unlimited) supplies
+  /// its own catalog instead.
+  final List<Plan> _catalog;
+
+  @override
+  Future<BillingEntitlement> currentEntitlement() async {
+    return BillingEntitlement(
+      plan: entitlementPlan,
+      status: 'active',
+      aiAnalysisTrialsRemaining: null,
+      raw: {'plan': entitlementPlan, 'status': 'active'},
+    );
+  }
+
+  @override
+  Future<List<Plan>> getPlans() async => _catalog;
+
+  @override
+  Future<List<UsageStat>> getUsage() async => const [];
+
+  @override
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> swap({required String plan}) => throw UnimplementedError();
+
+  @override
+  Future<void> cancel() => throw UnimplementedError();
+
+  @override
+  Future<String> openPortal({String? returnUrl}) => throw UnimplementedError();
+
+  @override
+  Future<BillingInvoicesPage> getInvoices({String? cursor}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<PaymentMethod> getPaymentMethod() => throw UnimplementedError();
+}
 
 /// In-memory language loader supplying every [trans] key the create form
 /// renders, mirroring `incident_views_test.dart`'s loader.
@@ -618,6 +680,50 @@ void main() {
         findsOneWidget,
         reason: 'a required field with no options has to say why',
       );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The AI banner may not promise what the plan will refuse
+  // ---------------------------------------------------------------------------
+
+  group('IncidentCreateView AI banner is plan-gated', () {
+    testWidgets('a Free plan is not promised an analysis it will not get', (
+      tester,
+    ) async {
+      // The banner says the analysis "lands on the detail page within seconds".
+      // On Free the detail page answers "AI incident analysis is available on
+      // the Pro plan and up", so the form was promising something the user
+      // discovers is refused only after they have opened the incident.
+      // `EntitlementController` is registered before the view resolves
+      // `.instance`, mirroring `monitor_write_test.dart`.
+      Magic.findOrPut(
+        () => EntitlementController(
+          billing: _FakeBilling(entitlementPlan: 'free'),
+        ),
+      );
+      await EntitlementController.instance.reload();
+
+      await tester.pumpWidget(wrap(const IncidentCreateView()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Uptizm AI analyzes this incident.'), findsNothing);
+    });
+
+    testWidgets('a plan that unlocks analysis still sees the banner', (
+      tester,
+    ) async {
+      Magic.findOrPut(
+        () => EntitlementController(
+          billing: _FakeBilling(entitlementPlan: 'pro'),
+        ),
+      );
+      await EntitlementController.instance.reload();
+
+      await tester.pumpWidget(wrap(const IncidentCreateView()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Uptizm AI analyzes this incident.'), findsOneWidget);
     });
   });
 }
