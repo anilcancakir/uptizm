@@ -34,6 +34,10 @@ class StoreMonitorRequestTest extends TestCase
 
         Route::middleware(['api', 'auth:sanctum'])->prefix('api/v1')->group(function (): void {
             Route::post('monitors', [MonitorController::class, 'store']);
+            // The grandfathered-interval cases below edit a monitor, and the
+            // interval floor is gated on the delta between the payload and the
+            // STORED value, so they need the update route bound to the model.
+            Route::put('monitors/{monitor}', [MonitorController::class, 'update']);
         });
     }
 
@@ -271,6 +275,99 @@ class StoreMonitorRequestTest extends TestCase
     /**
      * Authenticate as a user whose current team is a freshly created team.
      */
+    /**
+     * A team that downgraded may still edit a monitor it is grandfathered into.
+     *
+     * The interval floor used to be gated on the PAYLOAD, and the client posts the
+     * full field map on every edit, so renaming a monitor whose stored interval
+     * predates the downgrade answered 422 about `check_interval_sec`: an error on
+     * a field the operator never touched, with no way to save at all.
+     *
+     * The gate is on the delta now, matching the region allowance beside it.
+     */
+    public function test_a_downgraded_team_may_rename_a_monitor_it_is_grandfathered_into(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $monitor = Monitor::query()->create([
+            ...$this->validPayload(),
+            'team_id' => $team->id,
+            // Faster than the Free floor of 180s: the state a downgrade leaves
+            // behind, and the only way to reach it (create refuses it outright).
+            'check_interval_sec' => 30,
+        ]);
+
+        $response = $this->putJson('/api/v1/monitors/'.$monitor->id, [
+            ...$this->validPayload(),
+            'name' => 'API Health (renamed)',
+            'check_interval_sec' => 30,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('API Health (renamed)', $monitor->fresh()->name);
+    }
+
+    /**
+     * The protection that matters is still there: no speeding up.
+     */
+    public function test_a_downgraded_team_may_not_make_a_grandfathered_monitor_faster(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $monitor = Monitor::query()->create([
+            ...$this->validPayload(),
+            'team_id' => $team->id,
+            'check_interval_sec' => 30,
+        ]);
+
+        $response = $this->putJson('/api/v1/monitors/'.$monitor->id, [
+            ...$this->validPayload(),
+            'check_interval_sec' => 15,
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('check_interval_sec');
+    }
+
+    /**
+     * Slowing a grandfathered monitor back toward the plan is always allowed, even
+     * while it is still under the floor.
+     */
+    public function test_a_downgraded_team_may_slow_a_grandfathered_monitor(): void
+    {
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+        $monitor = Monitor::query()->create([
+            ...$this->validPayload(),
+            'team_id' => $team->id,
+            'check_interval_sec' => 30,
+        ]);
+
+        $response = $this->putJson('/api/v1/monitors/'.$monitor->id, [
+            ...$this->validPayload(),
+            'check_interval_sec' => 60,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame(60, (int) $monitor->fresh()->check_interval_sec);
+    }
+
+    /**
+     * On create nothing is stored, so the floor binds normally. Without this the
+     * delta gate would read as "the floor is gone".
+     */
+    public function test_create_still_refuses_an_interval_under_the_plan_floor(): void
+    {
+        Queue::fake();
+        $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'check_interval_sec' => 30,
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('check_interval_sec');
+    }
+
     protected function actingAsTeamMember(): Team
     {
         $user = User::factory()->create();
