@@ -219,7 +219,10 @@ class DashboardController extends Controller
     protected function shapeSuggestion(AiSuggestion $suggestion): array
     {
         $monitor = $suggestion->monitor;
-        $componentStatus = $monitor->last_status?->value ?? MonitorStatus::Paused->value;
+        // Synthesised at read time, so it reads the monitor's effective status:
+        // a suggestion for a monitor the customer paused must not present its
+        // final reading as live health. The null fallback is unchanged.
+        $componentStatus = $monitor->effectiveStatus()?->value ?? MonitorStatus::Paused->value;
 
         return [
             'id' => $suggestion->id,

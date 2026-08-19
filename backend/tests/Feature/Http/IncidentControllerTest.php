@@ -5,6 +5,7 @@ namespace Tests\Feature\Http;
 use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
+use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
 use App\Enums\SignalSource;
 use App\Http\Controllers\Api\V1\IncidentController;
@@ -169,6 +170,51 @@ class IncidentControllerTest extends TestCase
         $this->assertSame('down', $affected[0]['component_status_current']);
     }
 
+    /**
+     * A monitor whose state moved after the incident opened reports the state it
+     * is in NOW.
+     *
+     * `component_status_current` was a pivot column written once, at open, equal
+     * to `component_status_at_start` by all three openers, and never updated by
+     * anything. The client renders this row under "Affected monitors" with a live
+     * status badge, so a monitor the customer paused sat there reading "Major
+     * outage" while nothing was probing it.
+     */
+    public function test_index_reports_the_affected_monitor_status_as_it_is_now(): void
+    {
+        [$monitor, $user] = $this->makeMonitor();
+        $incident = $this->makeIncident($monitor);
+        $incident->monitors()->attach($monitor->id, [
+            'component_status_at_start' => 'down',
+            'component_status_current' => 'down',
+        ]);
+
+        // The customer pauses it mid-incident: `pause()` writes the
+        // administrative column and leaves the final reading alone.
+        $monitor->forceFill([
+            'status' => Monitor::STATUS_PAUSED,
+            'next_check_at' => null,
+        ])->save();
+
+        $request = Request::create('/incidents', 'GET');
+        $request->setUserResolver(fn () => $user);
+
+        $controller = $this->app->make(IncidentController::class);
+        $payload = $controller->index($request)->response($request)->getData(true)['data'];
+
+        $affected = $payload[0]['monitors'][0];
+        $this->assertSame(
+            'paused',
+            $affected['component_status_current'],
+            'the row is labelled current, so it has to follow the monitor',
+        );
+        $this->assertSame(
+            'down',
+            $affected['component_status_at_start'],
+            'what the incident opened with is a historical fact and stays put',
+        );
+    }
+
     public function test_show_404s_a_team_that_does_not_own_the_incident(): void
     {
         [$monitor] = $this->makeMonitor();
@@ -209,7 +255,7 @@ class IncidentControllerTest extends TestCase
     /**
      * @return array{0: Monitor, 1: User}
      */
-    protected function makeMonitor(): array
+    protected function makeMonitor(?MonitorStatus $lastStatus = MonitorStatus::Down): array
     {
         $user = User::query()->create([
             'name' => 'Incident Tester',
@@ -231,6 +277,7 @@ class IncidentControllerTest extends TestCase
             'check_interval_sec' => 60,
             'incident_threshold' => 2,
             'consecutive_fails' => 0,
+            'last_status' => $lastStatus,
         ]);
 
         return [$monitor, $user];

@@ -125,9 +125,20 @@ class Incident extends Model
     }
 
     /**
-     * Monitors participating in this incident. The pivot captures the
-     * component status at open and the live status, so the UI can narrate
-     * "started as degraded, now operational".
+     * Monitors participating in this incident.
+     *
+     * The pivot captures the component status AT OPEN. It also carries a
+     * `component_status_current` column that was meant to be live, so the UI
+     * could narrate "started as degraded, now operational", but nothing has ever
+     * updated it: all three openers write it equal to `component_status_at_start`
+     * and no other code touches it. So the narration is served by reading the
+     * monitor's own {@see Monitor::effectiveStatus()} at render time, in
+     * IncidentResource, which cannot go stale, rather than by synchronising a
+     * second copy of a status the monitor already owns.
+     *
+     * The column is still selected here because existing rows and fixtures carry
+     * it; dropping it is a migration plus 18 fixture sites and is not what makes
+     * the surface honest.
      *
      * @return BelongsToMany<Monitor>
      */
