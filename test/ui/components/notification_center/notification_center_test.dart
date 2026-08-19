@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/notification_center/index.dart';
@@ -52,6 +53,42 @@ void main() {
   // ---------------------------------------------------------------------------
   // Recipe assertions
   // ---------------------------------------------------------------------------
+
+
+  group('notificationItemFromDatabaseNotification', () {
+    DatabaseNotification make(String title, String body) =>
+        DatabaseNotification(
+          id: 'n-1',
+          type: 'App\\Notifications\\IncidentOpened',
+          title: title,
+          body: body,
+          data: const {'type': 'incident_opened', 'incident_id': 'inc-1'},
+          createdAt: DateTime.utc(2026, 8, 19, 16),
+        );
+
+    test('a body that only repeats the title is dropped', () {
+      // `IncidentOpened` builds `title` from the copy catalogue and `body` from
+      // `IncidentTitle::render`, and for a monitor-down incident both resolve to
+      // the same sentence. The row printed it twice, one line under the other.
+      final NotificationItem item = notificationItemFromDatabaseNotification(
+        make('QA Manual Monitor kesintide', 'QA Manual Monitor kesintide'),
+      );
+
+      expect(item.title, equals('QA Manual Monitor kesintide'));
+      expect(item.detail, isNull);
+    });
+
+    test('a body that adds something is kept', () {
+      final NotificationItem item = notificationItemFromDatabaseNotification(
+        make('Checkout is down', 'All regions failed for 3 consecutive checks.'),
+      );
+
+      expect(
+        item.detail,
+        equals('All regions failed for 3 consecutive checks.'),
+      );
+    });
+  });
 
   group('notificationCenterRecipe', () {
     test('base emits a contained surface panel', () {
