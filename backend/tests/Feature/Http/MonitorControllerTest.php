@@ -418,6 +418,11 @@ class MonitorControllerTest extends TestCase
         $this->travelTo($now);
 
         $team = $this->actingAsTeamMember();
+        // The reliability bucket is the monitor's EFFECTIVE cadence, so the 60s
+        // fixture needs a plan whose floor permits 60s; Free floors at 180 and
+        // would fold these rows into 3-minute buckets. This case is about the
+        // minutes, not about the clamp.
+        $team->forceFill(['plan' => Plan::Pro->value])->save();
         $monitor = $this->makeMonitor($team->id, ['created_at' => $now->subHours(15)]);
 
         // 767 checks over the last 767 minutes with two of them down in two

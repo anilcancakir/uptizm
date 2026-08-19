@@ -390,7 +390,9 @@ class ServicePageAssembler
             'label' => $this->endpointLabel($monitor),
             'regionCount' => count($readings),
             'regionsConfigured' => count((array) $monitor->regions),
-            'checkIntervalSeconds' => $monitor->check_interval_sec,
+            // Published on a public page, so it states the cadence checks are
+            // actually spent at rather than the stored request.
+            'checkIntervalSeconds' => $monitor->effectiveCheckIntervalSec(),
             'incidentThreshold' => $threshold,
             // No fresh reading at all, OR too few of them to speak for the
             // endpoint (the floor rung above): either way there is no reliable

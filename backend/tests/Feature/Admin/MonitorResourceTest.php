@@ -462,7 +462,14 @@ class MonitorResourceTest extends TestCase
         $this->freezeSecond();
         Queue::fake();
 
-        $monitor = $this->makeMonitor($this->makeTeam('Cadence'), [
+        // On a plan whose floor permits both cadences under test (60s, then the
+        // 120s the panel writes). The scheduler advances by the EFFECTIVE
+        // interval, so on Free's 180s floor this would assert the clamp instead
+        // of the panel write it is about.
+        $team = $this->makeTeam('Cadence');
+        $team->forceFill(['plan' => 'business'])->save();
+
+        $monitor = $this->makeMonitor($team, [
             'check_interval_sec' => 60,
             'regions' => [MonitorRegion::USEast->value],
             'next_check_at' => now()->addHour(),

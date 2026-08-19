@@ -43,10 +43,12 @@ class ScheduleMonitorChecksTest extends TestCase
             return $job->monitor->id === $monitor->id && $job->region === 'eu-west';
         });
 
-        // 2. The clock advanced by exactly the configured interval.
+        // 2. The clock advanced by exactly the EFFECTIVE interval. The fixture
+        //    stores 30s on a Free team whose floor is 180s, so this is 180: the
+        //    two cases below pin that clamp on its own.
         $fresh = $monitor->fresh();
         $this->assertEqualsWithDelta(
-            now()->addSeconds($monitor->check_interval_sec)->getTimestamp(),
+            now()->addSeconds($monitor->effectiveCheckIntervalSec())->getTimestamp(),
             $fresh->next_check_at->getTimestamp(),
             1,
         );
@@ -66,6 +68,62 @@ class ScheduleMonitorChecksTest extends TestCase
         // A second immediate tick finds the monitor no longer due.
         (new ScheduleMonitorChecks)->handle();
         Bus::assertDispatchedTimes(PerformMonitorCheck::class, 2);
+    }
+
+    /**
+     * The plan's floor binds where checks are SPENT, not only where the column
+     * is written.
+     *
+     * A downgraded team keeps a faster stored interval (the write gate is on the
+     * delta, so the monitor stays editable), and before this the loop honoured
+     * that stored value forever: measured 31s, 59s, 32s, 58s and 59s gaps on a
+     * 30s monitor whose Free plan allows 180s. The paid cadence survived the
+     * downgrade indefinitely.
+     */
+    public function test_it_arms_the_next_check_at_the_plans_floor_not_the_stored_interval(): void
+    {
+        $monitor = $this->makeMonitor(regions: ['us-east']);
+        // Free is the default plan for a team made here, and its floor is 180s.
+        $monitor->forceFill(['check_interval_sec' => 30])->save();
+
+        Bus::fake([
+            PerformMonitorCheck::class,
+        ]);
+
+        $before = now();
+        (new ScheduleMonitorChecks)->handle();
+
+        $next = $monitor->fresh()->next_check_at;
+        $this->assertNotNull($next);
+        $this->assertEqualsWithDelta(
+            $before->addSeconds(180)->getTimestamp(),
+            $next->getTimestamp(),
+            1,
+            'the clock advanced by the stored 30s instead of the plan floor',
+        );
+    }
+
+    /**
+     * A monitor already slower than the floor is left alone: the clamp is a
+     * floor, not a cadence override.
+     */
+    public function test_it_keeps_an_interval_already_slower_than_the_floor(): void
+    {
+        $monitor = $this->makeMonitor(regions: ['us-east']);
+        $monitor->forceFill(['check_interval_sec' => 600])->save();
+
+        Bus::fake([
+            PerformMonitorCheck::class,
+        ]);
+
+        $before = now();
+        (new ScheduleMonitorChecks)->handle();
+
+        $this->assertEqualsWithDelta(
+            $before->addSeconds(600)->getTimestamp(),
+            $monitor->fresh()->next_check_at->getTimestamp(),
+            1,
+        );
     }
 
     protected function makeMonitor(array $regions): Monitor

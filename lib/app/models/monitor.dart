@@ -149,6 +149,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     'is_group': 'bool',
     // Integers.
     'check_interval_sec': 'int',
+    'effective_check_interval_sec': 'int',
     'timeout_sec': 'int',
     'expected_status_code': 'int',
     'last_response_ms': 'int',
@@ -239,11 +240,18 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
 
   /// Human-readable check interval label, e.g. `"30s"` or `"60s"`.
   ///
-  /// Computed from `check_interval_sec` so the wire never carries a
-  /// preformatted label. Falls back to the long-dash placeholder when the
-  /// interval is absent. Mirrors [MonitorSummary.intervalLabel].
+  /// Reads `effective_check_interval_sec`, the cadence the scheduler actually
+  /// spends, which is the stored request clamped up to the team's plan floor. A
+  /// downgraded team keeps its requested 30s in the form and is checked every
+  /// 180s, so labelling the request would state a cadence nothing runs at.
+  ///
+  /// Falls back to `check_interval_sec` for a backend that predates the field,
+  /// then to the long-dash placeholder when neither is present. Computed rather
+  /// than sent preformatted, mirroring [MonitorSummary.intervalLabel].
   String get intervalLabel {
-    final int? seconds = getAttribute('check_interval_sec') as int?;
+    final int? seconds =
+        getAttribute('effective_check_interval_sec') as int? ??
+        getAttribute('check_interval_sec') as int?;
     if (seconds == null) return '—';
     return '${seconds}s';
   }

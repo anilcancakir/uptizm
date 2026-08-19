@@ -141,8 +141,10 @@ class IncidentDraftService
             ->filter()
             ->unique('id');
 
-        $cadence = (int) ($incident->primaryMonitor?->check_interval_sec
-            ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC);
+        // Effective, not stored: this window is counted in checks, and the loop
+        // spends them at the plan's floor.
+        $cadence = $incident->primaryMonitor?->effectiveCheckIntervalSec()
+            ?? Monitor::DEFAULT_CHECK_INTERVAL_SEC;
 
         $checks = MonitorCheck::query()
             ->whereIn('monitor_id', $monitors->pluck('id'))

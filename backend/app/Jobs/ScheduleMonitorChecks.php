@@ -63,8 +63,11 @@ class ScheduleMonitorChecks implements ShouldBeUnique, ShouldQueue
         DB::transaction(function () use ($monitor): void {
             // 1. Advance the clock first so a crash between here and the
             //    dispatch loop below cannot cause the same tick to fire twice.
+            //    The cadence is the EFFECTIVE one, so a plan's floor binds here,
+            //    where checks are actually spent, and not only on the write path
+            //    that validated the column.
             $monitor->forceFill([
-                'next_check_at' => now()->addSeconds($monitor->check_interval_sec),
+                'next_check_at' => now()->addSeconds($monitor->effectiveCheckIntervalSec()),
             ])->save();
 
             // 2. Fan out one job per region configured on the monitor.

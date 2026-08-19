@@ -371,9 +371,15 @@ class CheckAggregateServiceTest extends TestCase
             'password' => 'irrelevant',
         ]);
 
+        // `business` because the bucket is the monitor's EFFECTIVE cadence now,
+        // clamped up to the team's plan floor. These cases are about bucket
+        // arithmetic at 30s and 60s, and a plan-less (Free) team floors at 180s,
+        // which is also a state `StoreMonitorRequest` refuses to create. The
+        // clamp itself is covered in ScheduleMonitorChecksTest.
         $team = Team::query()->create([
             'user_id' => $user->id,
             'name' => 'Aggregate Team',
+            'plan' => 'business',
         ]);
 
         return Monitor::query()->create(array_filter([
