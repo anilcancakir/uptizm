@@ -182,7 +182,7 @@ class AssistantController extends Controller
             // monitor address of the shape `https://host/api/v1/<32 hex>/status`
             // carries its credential in the path. The name answers every
             // question an operator asks the assistant about a monitor.
-            'status' => $monitor->last_status?->value,
+            'status' => $monitor->effectiveStatus()?->value,
         ])->all();
 
         $trustedIncidents = $incidents->map(fn (Incident $incident) => [

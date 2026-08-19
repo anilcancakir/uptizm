@@ -98,7 +98,7 @@ class StatusPageResource extends JsonResource
                         // page's real overall status instead of assuming
                         // "Operational". Null means never checked yet, which the
                         // client shows as pending rather than as up.
-                        'last_status' => $monitor->last_status?->value,
+                        'last_status' => $monitor->effectiveStatus()?->value,
                         // The SECOND gate on public visibility. Attaching a
                         // monitor is not enough: StatusPageAssembler also filters
                         // on show_on_status_page, so without this the client's

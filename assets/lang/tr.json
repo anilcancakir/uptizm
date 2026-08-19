@@ -416,6 +416,7 @@
       "fleet_empty": "Henüz izleyici yok. Çalışma süresini izlemeye başlamak için ilk izleyicinizi ekleyin.",
       "fleet_all_operational": ":count izleyicinin tümü çalışıyor. Açık olay yok.",
       "fleet_operational_ratio": ":total izleyiciden :up tanesi çalışıyor",
+      "fleet_paused_suffix": "duraklatılmış :count izleyici",
       "fleet_pending_suffix": "ilk kontrolünü bekleyen :count izleyici",
       "fleet_down_suffix": ":names çalışmıyor",
       "fleet_degraded_suffix": ":names kademeli bozuldu",

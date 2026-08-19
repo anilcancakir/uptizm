@@ -40,8 +40,12 @@ class ScheduleSslChecks implements ShouldBeUnique, ShouldQueue
 
     public function handle(): void
     {
-        // 1. Select every https monitor opted in to SSL tracking.
+        // 1. Select every ACTIVE https monitor opted in to SSL tracking. Without
+        //    the active gate a paused monitor kept being probed daily, and an
+        //    expiring certificate opened a real incident on the customer's public
+        //    status page for an endpoint they had explicitly stopped watching.
         $monitorIds = Monitor::query()
+            ->active()
             ->where('ssl_tracking', true)
             ->where('url', 'like', 'https://%')
             ->pluck('id');

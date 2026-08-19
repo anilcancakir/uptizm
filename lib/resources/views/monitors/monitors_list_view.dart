@@ -235,8 +235,12 @@ class _MonitorsListViewState
     final DashboardController dashboard = DashboardController.instance;
     final int openIncidentCount = dashboard.openIncidentsCount;
     final int aiActive = dashboard.aiActiveCount;
+    // The average is a claim about what is being measured now, so a paused
+    // monitor's frozen timing is excluded. The backend excludes it from
+    // `dashboard/stats` too; including it here made the two pages disagree
+    // about one number.
     final List<Monitor> responders = allMonitors
-        .where((m) => m.responseMs != null)
+        .where((m) => m.responseMs != null && m.status != StatusKey.paused)
         .toList();
     final int avgResponse = responders.isEmpty
         ? 0

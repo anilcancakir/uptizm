@@ -39,27 +39,44 @@ class DashboardController extends Controller
     {
         $teamId = $request->user()->current_team_id;
 
+        // Health buckets describe monitors still being measured. A paused monitor
+        // keeps its final reading in `last_status` forever, so grouping the whole
+        // team by that column republished a frozen reading as live health: the
+        // KPI claimed an active outage for an endpoint nothing had probed since
+        // the customer paused it, and `monitors_paused` could never leave zero
+        // because no write path puts `paused` in that column.
         $statusCounts = Monitor::query()
             ->where('team_id', $teamId)
+            ->notPaused()
             ->selectRaw('last_status, count(*) as total')
             ->groupBy('last_status')
             ->pluck('total', 'last_status');
+
+        $monitorsPaused = Monitor::query()
+            ->where('team_id', $teamId)
+            ->paused()
+            ->count();
 
         // A monitor awaiting its first check has a null last_status, so it lands
         // in NONE of the four status buckets. Count it explicitly and report a
         // real total: a client deriving "how many monitors do I have" from the
         // bucket sum read a brand-new team as having zero and offered to add
         // their first endpoint after they had already added several.
-        $monitorCounts = Monitor::query()
+        $monitorsTotal = Monitor::query()
             ->where('team_id', $teamId)
-            ->selectRaw('count(*) as total, count(last_status) as with_status')
-            ->first();
+            ->count();
 
-        $monitorsTotal = (int) ($monitorCounts->total ?? 0);
-        $monitorsPending = $monitorsTotal - (int) ($monitorCounts->with_status ?? 0);
+        $monitorsPending = Monitor::query()
+            ->where('team_id', $teamId)
+            ->notPaused()
+            ->whereNull('last_status')
+            ->count();
 
+        // The fleet average is a claim about what is being measured now, so a
+        // paused monitor's frozen timing is excluded with its status.
         $avgResponseMs = Monitor::query()
             ->where('team_id', $teamId)
+            ->notPaused()
             ->whereNotNull('last_response_ms')
             ->avg('last_response_ms');
 
@@ -84,7 +101,7 @@ class DashboardController extends Controller
                 'monitors_up' => (int) ($statusCounts[MonitorStatus::Up->value] ?? 0),
                 'monitors_down' => (int) ($statusCounts[MonitorStatus::Down->value] ?? 0),
                 'monitors_degraded' => (int) ($statusCounts[MonitorStatus::Degraded->value] ?? 0),
-                'monitors_paused' => (int) ($statusCounts[MonitorStatus::Paused->value] ?? 0),
+                'monitors_paused' => $monitorsPaused,
                 'monitors_pending' => $monitorsPending,
                 'monitors_total' => $monitorsTotal,
                 'avg_response_ms' => $avgResponseMs !== null ? (int) round($avgResponseMs) : null,
