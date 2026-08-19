@@ -415,6 +415,7 @@
       "kpi_delta_down": ":count kapalı",
       "fleet_empty": "Henüz izleyici yok. Çalışma süresini izlemeye başlamak için ilk izleyicinizi ekleyin.",
       "fleet_all_operational": ":count izleyicinin tümü çalışıyor. Açık olay yok.",
+      "fleet_all_operational_one": "İzleyiciniz çalışıyor. Açık olay yok.",
       "fleet_operational_ratio": ":total izleyiciden :up tanesi çalışıyor",
       "fleet_paused_suffix": "duraklatılmış :count izleyici",
       "fleet_pending_suffix": "ilk kontrolünü bekleyen :count izleyici",

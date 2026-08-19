@@ -519,7 +519,15 @@ class DashboardController extends MagicController
         degraded.isEmpty &&
         _openIncidents == 0 &&
         _monitorsPending == 0) {
-      return trans('uptizm.dashboard.fleet_all_operational', {'count': '$total'});
+      // English needs the singular on the noun, and a brand new account has
+      // exactly one monitor, so this is the sentence it reads every day. The
+      // incident sentence below picks its variant the same way.
+      return trans(
+        total == 1
+            ? 'uptizm.dashboard.fleet_all_operational_one'
+            : 'uptizm.dashboard.fleet_all_operational',
+        {'count': '$total'},
+      );
     }
 
     final List<String> parts = <String>[
