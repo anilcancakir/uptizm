@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
@@ -62,6 +63,31 @@ void main() {
       MagicApp.reset();
       Translator.reset();
     });
+
+    testWidgets(
+      'asks the app to rebuild, so widgets already on screen re-translate',
+      (tester) async {
+        // Loading the catalogue is only half the job. `Translator.setLocale`
+        // notifies nothing, and `MagicAppWidget` reads `Lang.current` during
+        // build, so a widget that already built keeps its old strings until
+        // something requests a frame. On the phone that showed up as a Turkish
+        // account logging in to a dashboard translated into Turkish under a
+        // bottom tab bar still reading Home / Monitors / Incidents / Status.
+        Auth.fake(
+          user: User.fromMap({'id': 'u1', 'name': 'Alice', 'locale': 'tr'}),
+        );
+
+        // Drain anything the harness itself scheduled, so the assertion below
+        // can only be satisfied by this service.
+        await tester.pump();
+        expect(WidgetsBinding.instance.hasScheduledFrame, isFalse);
+
+        await LocaleApplicationService().syncLocaleWithAuthState();
+
+        expect(Lang.current.languageCode, 'tr');
+        expect(WidgetsBinding.instance.hasScheduledFrame, isTrue);
+      },
+    );
 
     test("applies the authenticated user's persisted locale to Lang", () async {
       Auth.fake(
