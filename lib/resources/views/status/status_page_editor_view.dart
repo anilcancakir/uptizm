@@ -157,6 +157,13 @@ class _StatusPageEditorViewState
   /// the editor in create mode.
   late bool _isEdit;
 
+  /// Whether a logo upload or removal is in flight.
+  ///
+  /// Its own flag rather than the form's: those writes do not go through Save,
+  /// so the form's process state never covers them, and a second tap while the
+  /// first request is open would race two writes at one path.
+  bool _logoBusy = false;
+
   /// Whether the user has edited the slug directly. While `false`, typing the
   /// name auto-slugs into the slug; the first manual slug edit latches this
   /// `true` and stops the auto-fill (React `slugEdited`).
@@ -902,58 +909,149 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the fallback-initials field plus the mocked logo-upload affordance.
+  /// Builds the brand mark: the uploaded logo or its initials fallback, the
+  /// upload and remove controls, and the initials input.
   ///
-  /// The upload button is a disabled mock (initials + color only; no file
-  /// picker is wired, Risk Accepted). The initials input caps at 2 characters.
+  /// The logo is written IMMEDIATELY, unlike every other field on this form: it
+  /// is a file on a disk rather than a column in the draft, so there is nothing
+  /// for Save to carry. The hint says so, because a control that saves on its
+  /// own next to eight that do not is otherwise a trap.
+  ///
+  /// A page that does not exist yet has nothing to attach a file to, so before
+  /// the first save the affordance is disabled and says why rather than failing
+  /// on a request with no id.
   Widget _buildLogoField() {
-    final String initials = _logoText.isNotEmpty
-        ? _logoText
-        : (_name.isNotEmpty ? _name.substring(0, 1) : 'A');
+    final StatusPage? page = _isEdit ? controller.configById(_draftId) : null;
+    final String? logoUrl = page?.logoUrl;
+
     return MSFormField(
-      label: trans('uptizm.status.editor_form_logo_text_label'),
-      hint: trans('uptizm.status.editor_form_logo_text_hint'),
+      label: trans('uptizm.status.editor_form_logo_label'),
+      hint: _isEdit
+          ? trans('uptizm.status.editor_form_logo_hint')
+          : trans('uptizm.status.editor_form_logo_hint_unsaved'),
       child: WDiv(
         className: 'flex flex-col gap-3',
         children: <Widget>[
+          // `wrap`, not a row: this field sits in a two-column form grid on a
+          // desktop and full width on a phone, so a mark plus a labelled button
+          // is wider than the cell at some widths, and a Row overflowed it by
+          // 87px. A Wrap flows the controls under the mark instead.
           WDiv(
-            className: 'flex flex-row items-center gap-3',
+            className: 'wrap items-center gap-3',
             children: <Widget>[
+              _buildBrandMark(logoUrl),
               WDiv(
-                backgroundColor: _brandColor,
-                className:
-                    'size-12 shrink-0 rounded-lg flex items-center justify-center',
-                child: WText(
-                  initials,
-                  className: 'text-base font-bold text-white',
-                ),
-              ),
-              MSButton(
-                intent: ButtonIntent.secondary,
-                size: ButtonSize.sm,
-                disabled: true,
-                onPressed: null,
-                child: WDiv(
-                  className: 'flex flex-row items-center gap-1.5',
-                  children: <Widget>[
-                    WIcon(_uploadIcon, className: 'text-sm'),
-                    WText(trans('uptizm.status.editor_form_logo_label')),
-                  ],
-                ),
+                className: 'wrap gap-1.5 items-center',
+                children: <Widget>[
+                  MSButton(
+                    intent: ButtonIntent.secondary,
+                    size: ButtonSize.sm,
+                    disabled: !_isEdit || _logoBusy,
+                    onPressed: !_isEdit || _logoBusy ? null : _onPickLogo,
+                    child: WDiv(
+                      className: 'flex flex-row items-center gap-1.5',
+                      children: <Widget>[
+                        WIcon(_uploadIcon, className: 'text-sm'),
+                        WText(
+                          logoUrl == null
+                              ? trans('uptizm.status.editor_form_logo_upload')
+                              : trans('uptizm.status.editor_form_logo_replace'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (logoUrl != null)
+                    MSButton(
+                      intent: ButtonIntent.ghost,
+                      size: ButtonSize.sm,
+                      disabled: _logoBusy,
+                      onPressed: _logoBusy ? null : _onRemoveLogo,
+                      child: WText(
+                        trans('uptizm.status.editor_form_logo_remove'),
+                        className: 'text-down',
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
-          MSInput(
-            value: _logoText,
-            onChanged: (String value) => setState(
-              () =>
-                  _logoText = value.length > 2 ? value.substring(0, 2) : value,
+          // The initials keep their own label, because with a logo set they are
+          // not visibly in play and the field would otherwise read as dead.
+          MSFormField(
+            label: trans('uptizm.status.editor_form_logo_text_label'),
+            hint: trans('uptizm.status.editor_form_logo_text_hint'),
+            child: MSInput(
+              value: _logoText,
+              onChanged: (String value) => setState(
+                () => _logoText =
+                    value.length > 2 ? value.substring(0, 2) : value,
+              ),
+              className: 'max-w-20',
             ),
-            className: 'max-w-20',
           ),
         ],
       ),
     );
+  }
+
+  /// The 48pt mark: the uploaded image when there is one, the initials over the
+  /// brand colour when there is not.
+  ///
+  /// Mirrors `status/partials/brand-header.blade.php`, deliberately: this is a
+  /// preview of a public surface, so the two have to agree on which of the two
+  /// states a page is in and on `contain` rather than `cover` for the artwork.
+  Widget _buildBrandMark(String? logoUrl) {
+    if (logoUrl != null) {
+      return WDiv(
+        className: 'size-12 shrink-0 rounded-lg overflow-hidden '
+            'bg-surface-container-high',
+        child: Image.network(
+          logoUrl,
+          width: 48,
+          height: 48,
+          fit: BoxFit.contain,
+          // A signed URL expires, and a file can go missing out of band. The
+          // fallback is the same mark the public page falls back to, so a
+          // failed fetch reads as "no logo" rather than as a broken editor.
+          errorBuilder: (_, _, _) => _buildInitialsMark(),
+        ),
+      );
+    }
+
+    return _buildInitialsMark();
+  }
+
+  /// The initials tile, used both as the no-logo state and as the fallback when
+  /// an image fails to load.
+  Widget _buildInitialsMark() {
+    final String initials = _logoText.isNotEmpty
+        ? _logoText
+        : (_name.isNotEmpty ? _name.substring(0, 1) : 'A');
+
+    return WDiv(
+      backgroundColor: _brandColor,
+      className: 'size-12 shrink-0 rounded-lg flex items-center justify-center',
+      child: WText(initials, className: 'text-base font-bold text-white'),
+    );
+  }
+
+  /// Picks an image and uploads it as this page's logo.
+  Future<void> _onPickLogo() async {
+    final MagicFile? file = await Pick.image();
+    if (file == null || !mounted) return;
+
+    setState(() => _logoBusy = true);
+    await controller.uploadLogo(_draftId, file);
+    if (!mounted) return;
+    setState(() => _logoBusy = false);
+  }
+
+  /// Removes this page's logo, falling the mark back to its initials.
+  Future<void> _onRemoveLogo() async {
+    setState(() => _logoBusy = true);
+    await controller.removeLogo(_draftId);
+    if (!mounted) return;
+    setState(() => _logoBusy = false);
   }
 
   /// Builds the description textarea.

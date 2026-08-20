@@ -60,7 +60,7 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
     'domain_mode',
     'custom_domain',
     'brand_color',
-    'logo_path',
+    'logo_url',
     'logo_text',
     'description',
     'is_public',
@@ -105,11 +105,14 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// Set the custom domain.
   set customDomain(String? value) => setAttribute('custom_domain', value);
 
-  /// Logo image path, if a logo is uploaded.
-  String? get logoPath => getAttribute('logo_path') as String?;
-
-  /// Set the logo path.
-  set logoPath(String? value) => setAttribute('logo_path', value);
+  /// Signed URL of the uploaded logo, or null when the page has none.
+  ///
+  /// Read-only on this side, and a URL rather than the `logo_path` this used to
+  /// carry: the file lives on a private disk, so the only way to see the bytes
+  /// is a signed URL the backend mints. The path itself was never usable here
+  /// and is no longer sent. Uploading goes through
+  /// `StatusPageController.uploadLogo`, never through a page write.
+  String? get logoUrl => getAttribute('logo_url') as String?;
 
   /// One-to-two character logo fallback text.
   String? get logoText => getAttribute('logo_text') as String?;

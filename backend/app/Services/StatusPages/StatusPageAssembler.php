@@ -14,6 +14,7 @@ use App\Models\ScheduledMaintenance;
 use App\Models\StatusPage;
 use App\Models\StatusPageTranslation;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\SignedAssetUrl;
 use App\Support\StatusPages\StatusPageLocale;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -483,6 +484,7 @@ class StatusPageAssembler
      *     name: string,
      *     brand_color: string|null,
      *     logo_text: string|null,
+     *     logo_url: string|null,
      *     description: string|null,
      *     description_original: string|null,
      *     description_provenance: string,
@@ -496,6 +498,12 @@ class StatusPageAssembler
             'name' => $page->name,
             'brand_color' => $this->safeBrandColor($page->brand_color),
             'logo_text' => $page->logo_text,
+            // Minted here rather than in the Blade view because the array is
+            // what gets cached, and the signature outlives that cache by design:
+            // an expiry is quantised to between one and two 15-minute buckets
+            // while the read model lives 60 seconds, so the URL a visitor
+            // receives always has at least fourteen minutes left on it.
+            'logo_url' => SignedAssetUrl::forStatusPageLogo($page),
             ...$this->translatedField(
                 $translations,
                 $page,

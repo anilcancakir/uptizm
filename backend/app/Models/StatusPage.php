@@ -63,6 +63,30 @@ class StatusPage extends Model
     protected const PREVIEW_TOKEN_LENGTH = 40;
 
     /**
+     * Disk the uploaded brand logo lives on, pinned BY NAME for the same reason
+     * as {@see self::PREVIEW_DISK}: a private page's logo is part of what the
+     * 404 mask hides, so it must never land on a publicly served disk.
+     *
+     * Reaching it is a signed route, {@see StatusPageLogoController}, exactly as
+     * the preview PNG is.
+     */
+    public const LOGO_DISK = 'local';
+
+    /**
+     * Directory holding one logo per status page.
+     */
+    public const LOGO_DIRECTORY = 'status-page-logos';
+
+    /**
+     * Image extensions an upload may land as.
+     *
+     * Deliberately no SVG. An SVG is a script container, and this file is
+     * rendered by a PUBLIC page for anyone with the slug; the upload request
+     * enforces the same list.
+     */
+    public const LOGO_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
+
+    /**
      * @var array<int, string>
      */
     protected $fillable = [
@@ -161,6 +185,16 @@ class StatusPage extends Model
 
             Storage::disk(self::PREVIEW_DISK)->delete($page->preview_image_path);
         });
+
+        // 3. Same contract for the uploaded logo: it is the row's own
+        //    filesystem state and dies with the row.
+        static::deleted(function (self $page): void {
+            if (empty($page->logo_path)) {
+                return;
+            }
+
+            Storage::disk(self::LOGO_DISK)->delete($page->logo_path);
+        });
     }
 
     /**
@@ -173,6 +207,20 @@ class StatusPage extends Model
     public function previewImageStoragePath(): string
     {
         return self::PREVIEW_DIRECTORY.'/'.$this->getKey().'.png';
+    }
+
+    /**
+     * Deterministic storage key of this page's uploaded logo.
+     *
+     * Derived from the primary key and the validated extension, never from
+     * anything the client sent: `logo_path` is a path this application reads
+     * back off a disk, so a client-supplied value would be a traversal away
+     * from serving any file the process can open. One file per page, replaced on
+     * every upload, so storage stays bounded.
+     */
+    public function logoStoragePath(string $extension): string
+    {
+        return self::LOGO_DIRECTORY.'/'.$this->getKey().'.'.$extension;
     }
 
     /**
