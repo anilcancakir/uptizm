@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart' hide Card;
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
+import 'package:uptizm/config/uptizm_status_tokens.dart';
+import 'package:uptizm/config/wind_theme.g.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/resources/views/monitors/monitor_detail_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_metrics_tab.dart';
@@ -229,12 +232,26 @@ void main() {
       home: MediaQuery(
         data: MediaQueryData(size: size),
         child: WindTheme(
-          data: WindThemeData(),
+          // The app's own theme, not a bare one. A default WindThemeData
+          // carries no aliases, so every semantic token in this view resolves
+          // to nothing and any assertion about a rendered colour would measure
+          // the harness rather than the code.
+          data: WindThemeData(
+            colors: designColors,
+            aliases: {...designAliases, ...uptizmStatusAliases},
+          ),
           child: Scaffold(body: SingleChildScrollView(child: widget)),
         ),
       ),
     );
   }
+
+  /// The header's overflow menu, identified by its trigger glyph rather than by
+  /// type, because [DateRangePicker] puts another [MSDropdownMenu] on this page.
+  final Finder overflowMenu = find.ancestor(
+    of: find.byIcon(Icons.more_horiz),
+    matching: find.byType(MSDropdownMenu),
+  );
 
   /// Flushes the async initState data load (recent checks + response-times) so
   /// the content swaps in from the stubbed live endpoints.
@@ -445,7 +462,7 @@ void main() {
     expect(find.byType(CheckHistoryTable), findsOneWidget);
   });
 
-  testWidgets('every header action stays reachable on a narrow phone', (
+  testWidgets('the inline action row can still wrap when it has to', (
     tester,
   ) async {
     // The starter's page header lays actions in a bare non-wrapping flex-row
@@ -461,8 +478,12 @@ void main() {
     // at an accessibility scale its pixel widths stop resembling the device's
     // and an overflow assertion would be measuring the harness. Reachability at
     // 320px reproduces the same failure without depending on the font metrics.
+    // A DESKTOP width, because the phone no longer renders this row at all:
+    // it collapses into the overflow menu asserted below. The inline row still
+    // has to be able to wrap, since a narrow desktop window or a long localised
+    // label can outgrow it.
     await tester.pumpWidget(
-      wrap(const MonitorDetailView(id: 'api'), size: const Size(320, 3200)),
+      wrap(const MonitorDetailView(id: 'api'), size: const Size(1100, 3200)),
     );
     await settleSkeleton(tester);
 
@@ -490,6 +511,80 @@ void main() {
       findsWidgets,
       reason: 'the header actions must be able to shrink so the row can wrap',
     );
+  });
+
+  testWidgets('a phone collapses the header actions into an overflow menu', (
+    tester,
+  ) async {
+    // Four buttons in a row read as a desktop toolbar dropped onto a narrow
+    // screen, and they cost the header a second row of its own. On a phone they
+    // become the platform-conventional overflow control, so the header is one
+    // line: title and status badge on the left, the menu on the right.
+    await tester.pumpWidget(
+      wrap(const MonitorDetailView(id: 'api'), size: const Size(390, 3200)),
+    );
+    await settleSkeleton(tester);
+
+    // Anchored on the trigger glyph, not on the type: this page always carries
+    // one MSDropdownMenu already (the DateRangePicker), so a bare type count
+    // would pass for the wrong reason.
+    expect(overflowMenu, findsOneWidget);
+    for (final String label in ['Check now', 'Pause', 'Edit', 'Delete']) {
+      expect(
+        find.text(label),
+        findsNothing,
+        reason: '$label belongs inside the menu on a phone, not beside it',
+      );
+    }
+  });
+
+  testWidgets('the overflow menu reaches all four actions and marks Delete '
+      'destructive', (tester) async {
+    // Collapsing the actions moves every one of them behind one glyph, so the
+    // menu opening and carrying all four IS the mobile action surface. The
+    // colour assertion is the second half: `text-destructive` reads like the
+    // token for a red label and is not one (design:sync emits only
+    // `bg-destructive` and `text-on-destructive`), so the first version of this
+    // menu shipped a Delete row in the same black as Edit. Wind drops an
+    // unknown class in silence, which is why this is asserted on the rendered
+    // colour and not on the className.
+    await tester.pumpWidget(
+      wrap(const MonitorDetailView(id: 'api'), size: const Size(390, 3200)),
+    );
+    await settleSkeleton(tester);
+
+    await tester.tap(find.byIcon(Icons.more_horiz));
+    await tester.pumpAndSettle();
+
+    for (final String label in ['Check now', 'Pause', 'Edit', 'Delete']) {
+      expect(
+        find.text(label),
+        findsOneWidget,
+        reason: '$label is only reachable through the menu on a phone',
+      );
+    }
+
+    final RenderParagraph delete = tester.renderObject<RenderParagraph>(
+      find.text('Delete'),
+    );
+    expect(
+      delete.text.style?.color,
+      const Color(0xFFDF202E),
+      reason: 'a destructive row that renders in the default text colour is '
+          'indistinguishable from Edit',
+    );
+  });
+
+  testWidgets('a desktop width keeps the header actions inline', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const MonitorDetailView(id: 'api')));
+    await settleSkeleton(tester);
+
+    expect(overflowMenu, findsNothing);
+    for (final String label in ['Check now', 'Pause', 'Edit', 'Delete']) {
+      expect(find.text(label), findsOneWidget);
+    }
   });
 
   testWidgets(

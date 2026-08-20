@@ -399,7 +399,12 @@ class _MonitorDetailViewState
             titleSuffix: StatusBadge(monitor.status),
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: '/monitors',
-            actions: _buildHeaderActions(monitor, paused),
+            // One row on a phone. The default header stacks title over actions
+            // below `sm`, which is what gave the four buttons a row of their
+            // own and left the chevron stranded beside a wrapped title. With a
+            // single overflow control there is nothing left to stack.
+            inlineActions: !wScreenIs(context, 'lg'),
+            actions: _buildHeaderActions(context, monitor, paused),
           ),
 
           // 4. Body: skeleton while loading, otherwise the full content.
@@ -454,7 +459,19 @@ class _MonitorDetailViewState
   /// - **Edit**: a secondary [Button] that navigates to `/monitors/:id/edit`.
   /// - **Delete**: a destructive [Button] that opens a delete confirm dialog,
   ///   then surfaces a deleted toast and returns to the monitors list.
-  List<Widget> _buildHeaderActions(Monitor monitor, bool paused) {
+  List<Widget> _buildHeaderActions(
+    BuildContext context,
+    Monitor monitor,
+    bool paused,
+  ) {
+    // A phone gets the platform's overflow control instead of the row. Four
+    // buttons side by side read as a desktop toolbar dropped onto a narrow
+    // screen, and they cost the header a second row; at an accessibility text
+    // size they also pushed Delete off the display entirely.
+    if (!wScreenIs(context, 'lg')) {
+      return [_buildOverflowMenu(monitor, paused)];
+    }
+
     // The PageHeader lays its actions in a bare non-wrapping flex-row
     // (`flex flex-row items-center gap-2`, the starter's page-header theme
     // default), so the buttons would overflow a narrow phone. A single `wrap`
@@ -500,6 +517,92 @@ class _MonitorDetailViewState
         ),
       ),
     ];
+  }
+
+  /// Builds the phone header's overflow menu: the same four actions the desktop
+  /// row carries, in the order an operator reaches for them.
+  ///
+  /// The trigger is 44x44 because that is this app's own minimum hit target
+  /// (see `BottomNav._buildTab`); the glyph inside stays 20px, so the rest is
+  /// padding rather than a bigger icon. Horizontal dots rather than vertical,
+  /// matching the platform this ships on first.
+  ///
+  /// Delete carries its own separator and the destructive token instead of
+  /// sitting flush with the rest: it is the one entry in this menu that cannot
+  /// be undone, and [MSDropdownMenu] has no separator item of its own, so the
+  /// border rides on the item's caller className.
+  Widget _buildOverflowMenu(Monitor monitor, bool paused) {
+    final int? cooldown = controller.cooldownSecondsFor(monitor.id);
+
+    return MSDropdownMenu(
+      alignment: PopoverAlignment.bottomRight,
+      // The panel recipe defaults to `bg-surface`, which IS uptizm's page
+      // canvas (#F9FAFB), so the menu read as a borderless smudge over the
+      // page it floated above. `bg-surface-container` is the white one step up
+      // the tonal hierarchy DESIGN.md defines for anything raised. The width
+      // cap is the second half: without it the panel stretched to nearly the
+      // full 402pt screen for four short labels.
+      className: 'w-52 bg-surface-container',
+      items: [
+        if (!paused)
+          MSDropdownMenuItem(
+            // Same cooldown label the desktop button shows, so a refused
+            // manual check reads the same on both surfaces.
+            label: cooldown != null
+                ? trans('uptizm.monitors.action_check_now_cooldown', {
+                    'seconds': cooldown,
+                  })
+                : trans('uptizm.monitors.action_check_now'),
+            leading: const WIcon(Icons.refresh, className: 'text-[18px]'),
+            disabled: cooldown != null,
+            onTap: () => controller.runCheckNow(monitor.id),
+          ),
+        MSDropdownMenuItem(
+          label: paused
+              ? trans('uptizm.monitors.action_resume')
+              : trans('uptizm.monitors.action_pause'),
+          leading: WIcon(
+            paused ? Icons.play_arrow : Icons.pause,
+            className: 'text-[18px]',
+          ),
+          onTap: () => _onPauseResume(monitor, paused),
+        ),
+        MSDropdownMenuItem(
+          label: trans('uptizm.monitors.action_edit'),
+          leading: const WIcon(Icons.edit_outlined, className: 'text-[18px]'),
+          onTap: () => _onEdit(monitor),
+        ),
+        MSDropdownMenuItem(
+          label: trans('uptizm.monitors.action_delete'),
+          leading: const WIcon(
+            Icons.delete_outline,
+            className: 'text-[18px] text-down',
+          ),
+          // `text-down`, not `text-destructive`: design:sync emits only
+          // `bg-destructive` and `text-on-destructive`, so a red LABEL has no
+          // generated token and wind drops the unknown class in silence. The
+          // status supplement's `down` is the same red by design (DESIGN.md ties
+          // the two so an outage and a danger action read identically).
+          className: 'border-t border-color-border mt-1 pt-2 text-down',
+          onTap: () => _onDelete(monitor),
+        ),
+      ],
+      // An icon-only control reaches a screen reader as an unlabelled button,
+      // which is what a snapshot of this header showed before the label went
+      // on. The four actions behind it are the only way to pause or delete a
+      // monitor on a phone, so the trigger cannot be anonymous.
+      child: Semantics(
+        button: true,
+        label: trans('uptizm.monitors.actions_menu'),
+        child: WDiv(
+          className: '''
+            w-11 h-11 shrink-0 rounded-md flex items-center justify-center
+            text-fg-muted hover:bg-surface-container hover:text-fg
+          ''',
+          child: const WIcon(Icons.more_horiz, className: 'text-[20px]'),
+        ),
+      ),
+    );
   }
 
   /// Builds the "Check now" action. While

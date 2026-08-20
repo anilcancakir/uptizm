@@ -586,6 +586,7 @@
       "toast_resumed_description": ":name is being checked again.",
       "action_check_now": "Check now",
       "action_check_now_cooldown": "Wait :secondss",
+      "actions_menu": "Monitor actions",
       "toast_check_queued_title": "Check queued",
       "toast_check_queued_description": "Uptizm is checking :name from every region now.",
       "toast_check_failed_title": "Couldn't queue the check",

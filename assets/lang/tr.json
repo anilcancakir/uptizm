@@ -586,6 +586,7 @@
       "toast_resumed_description": ":name yeniden kontrol ediliyor.",
       "action_check_now": "Şimdi kontrol et",
       "action_check_now_cooldown": ":secondss bekle",
+      "actions_menu": "İzleyici işlemleri",
       "toast_check_queued_title": "Kontrol kuyruğa alındı",
       "toast_check_queued_description": "Uptizm :name için tüm bölgelerden kontrol yapıyor.",
       "toast_check_failed_title": "Kontrol kuyruğa alınamadı",
