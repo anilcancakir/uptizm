@@ -129,8 +129,26 @@ class EscalationController extends MagicController
   @override
   void onInit() {
     super.onInit();
-    reload();
+    _initialLoad = reload().whenComplete(() => _initialLoad = null);
   }
+
+  /// The initial load of the escalation policies while it is still in flight, so a second reader
+  /// can JOIN it instead of issuing the same request again. Null before it
+  /// starts and once it settles.
+  Future<void>? _initialLoad;
+
+  /// The read a newly mounted view should ask for.
+  ///
+  /// Joins the initial load while it is in flight and refetches once it has
+  /// settled. [RefetchesOnMount] calls this rather than [reload] because on the
+  /// mount that CREATES this controller `onInit` has already started the same
+  /// request, and both firing sent it twice. Every later mount finds nothing in
+  /// flight and refetches, which is the staleness the mixin exists to prevent.
+  ///
+  /// Deliberately NOT a change to [reload]: coalescing there would also join a
+  /// refresh issued right after a mutation to a request that started before it,
+  /// and hand back a snapshot without the row the operator just created.
+  Future<void> ensureFresh() => _initialLoad ?? reload();
 
   // ---------------------------------------------------------------------------
   // Reads

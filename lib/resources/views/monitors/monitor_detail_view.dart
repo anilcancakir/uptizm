@@ -366,7 +366,7 @@ class _MonitorDetailViewState
   /// prefilled form is the sharp edge here, since it writes what it shows back on
   /// save. See [RefetchesOnMount].
   @override
-  Future<void> refetch() => controller.reload();
+  Future<void> refetch() => controller.ensureFresh();
 
   @override
   Widget build(BuildContext context) {

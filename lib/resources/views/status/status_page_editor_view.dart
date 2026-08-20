@@ -553,7 +553,13 @@ class _StatusPageEditorViewState
   /// customer-view heading with no image beneath it.
   @override
   Future<void> refetch() async {
-    await controller.reload();
+    // `ensureFresh` for the roster, because on the mount that CREATES the
+    // controller `onInit` has already started the same read and both firing
+    // sent it twice. The show read below is NOT a duplicate of anything and
+    // still runs on every mount, which is why this override cannot simply be
+    // skipped on the first one (an earlier attempt did exactly that and opened
+    // the editor with no preview image).
+    await controller.ensureFresh();
 
     final String? id = widget.id;
     if (id == null) return;

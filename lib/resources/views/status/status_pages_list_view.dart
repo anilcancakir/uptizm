@@ -110,7 +110,7 @@ class _StatusPagesListViewState
   /// would otherwise re-render the data fetched the first time it was ever
   /// opened. See [RefetchesOnMount].
   @override
-  Future<void> refetch() => controller.reload();
+  Future<void> refetch() => controller.ensureFresh();
 
   @override
   Widget build(BuildContext context) {

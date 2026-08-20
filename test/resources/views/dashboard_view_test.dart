@@ -182,6 +182,10 @@ final List<Map<String, dynamic>> _monitorsSnapshotPayload = [
 ];
 
 void main() {
+  /// The fake driver `setUp` installs, held so a case can count what the view
+  /// actually sent rather than only what it rendered.
+  late FakeNetworkDriver fake;
+
   setUp(() async {
     MagicApp.reset();
     Magic.flush();
@@ -213,7 +217,7 @@ void main() {
     //    so each row reads `—` and never collides with the `248ms` avg KPI).
     //  - ai-inbox: empty (AI triage is deferred server-side), so the inbox
     //    renders its empty state while the weekly-digest link still shows.
-    Http.fake({
+    fake = Http.fake({
       'dashboard/stats': Http.response({
         'data': {
           'monitors_up': 1,
@@ -310,6 +314,38 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('one mount asks each dashboard endpoint exactly once', (
+    tester,
+  ) async {
+    // Two entry points both load: the controller's `onInit` and
+    // `RefetchesOnMount`, which fires `refetch()` from `initState`. On the mount
+    // that CREATES the controller they race, and every dashboard endpoint went
+    // out twice. Measured on an iPhone with telescope after a clear: eight
+    // requests where four would do, the second wave about 430ms behind.
+    //
+    // Counted from the driver rather than from the screen: the render is
+    // identical either way, which is why this went unnoticed.
+    await tester.binding.setSurfaceSize(const Size(1280, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(wrap(const DashboardView()));
+    await tester.pumpAndSettle();
+
+    for (final String endpoint in [
+      'dashboard/stats',
+      'dashboard/active-incidents',
+      'dashboard/monitors-snapshot',
+      'dashboard/ai-inbox',
+    ]) {
+      expect(
+        fake.recorded.where((e) => e.$1.url.contains(endpoint)).length,
+        1,
+        reason: '$endpoint must be fetched once per mount, not once per '
+            'entry point',
+      );
+    }
+  });
 
   testWidgets('DashboardView renders at least one IncidentCard', (
     tester,

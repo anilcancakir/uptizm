@@ -169,11 +169,31 @@ class DashboardController extends MagicController
   /// guard, so a secondary reader warms the counters and the dashboard view
   /// itself still fetches exactly once.
   Future<void> _ensureLoading() {
-    if (_loadStarted) return Future<void>.value();
+    if (_loadStarted) return _initialLoad ?? Future<void>.value();
 
     _loadStarted = true;
-    return reload();
+
+    return _initialLoad = reload().whenComplete(() => _initialLoad = null);
   }
+
+  /// The initial load while it is still in flight, so a second reader can JOIN
+  /// it instead of issuing the same four requests again. Null before it starts
+  /// and once it settles.
+  Future<void>? _initialLoad;
+
+  /// The read a newly mounted view should ask for.
+  ///
+  /// Joins the initial load while it is in flight and refetches once it has
+  /// settled. [RefetchesOnMount] calls this rather than [reload] because on the
+  /// mount that CREATES this controller `onInit` has already started the same
+  /// work: both firing sent every dashboard endpoint twice, measured on a phone
+  /// as eight requests where four would do. Every later mount finds nothing in
+  /// flight and refetches, which is the staleness the mixin exists to prevent.
+  ///
+  /// Deliberately NOT a change to [reload]: coalescing there would also join a
+  /// refresh issued right after a mutation to a request that started before it,
+  /// and hand back a snapshot without the row the operator just created.
+  Future<void> ensureFresh() => _initialLoad ?? reload();
 
   /// Non-destructive refresh: fetches the four dashboard aggregate endpoints
   /// in parallel and republishes each on success, independently of the
