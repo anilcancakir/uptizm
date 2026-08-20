@@ -105,6 +105,11 @@ Future<void> _boot() async {
       insetClassName:
           'bg-surface-container-high border border-color-border-subtle',
       titleClassName: 'text-lg font-semibold text-fg',
+      // The starter default is `p-6 gap-4` at every width. On a phone two KPI
+      // cards sit side by side inside a 402pt screen, so 24pt of padding per
+      // card spends 96pt of the row on air and pushes a four-card grid most of
+      // a viewport tall. 16pt on a phone, the original 24 from `lg`.
+      paddingClassName: 'p-4 gap-3 lg:p-6 lg:gap-4',
     ),
   );
 

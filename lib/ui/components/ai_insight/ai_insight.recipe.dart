@@ -42,11 +42,17 @@ const WindSlotRecipe aiInsightRecipe = WindSlotRecipe(
   },
   variants: {
     kAiInsightToneAxis: {
+      // The banner spends its whole width on one or two sentences, so a phone
+      // pays for the framing twice: 16pt of padding plus a 32pt tile around a
+      // sparkle. Both step down below `lg` and back up above it, which keeps
+      // the identity (the wash, the border, the tile) without giving a single
+      // sentence 90pt of a 874pt screen.
       'banner': {
-        'root': 'gap-3 rounded-xl border border-ai-soft bg-ai-wash p-4',
-        'glyphWrap':
-            'size-8 flex items-center justify-center rounded-lg bg-ai-soft',
-        'glyph': 'text-lg text-ai',
+        'root': 'gap-2.5 rounded-xl border border-ai-soft bg-ai-wash p-3 '
+            'lg:gap-3 lg:p-4',
+        'glyphWrap': 'size-7 flex items-center justify-center rounded-lg '
+            'bg-ai-soft lg:size-8',
+        'glyph': 'text-base text-ai lg:text-lg',
         'text': 'text-sm leading-relaxed text-fg text-left',
       },
       'inline': {
