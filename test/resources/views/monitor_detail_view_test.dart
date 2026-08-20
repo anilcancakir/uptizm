@@ -445,6 +445,53 @@ void main() {
     expect(find.byType(CheckHistoryTable), findsOneWidget);
   });
 
+  testWidgets('every header action stays reachable on a narrow phone', (
+    tester,
+  ) async {
+    // The starter's page header lays actions in a bare non-wrapping flex-row
+    // (`flex flex-row items-center gap-2`), which hands a non-flex child its
+    // intrinsic width, so the `wrap` container this view puts the buttons in
+    // never learned where to break and laid all four on one line. Measured on
+    // an iPhone at `accessibility-extra-large`: the row overflowed by 213px,
+    // "Edit" was cut at the display edge and "Delete" was off the screen
+    // entirely, so two actions stopped being REACHABLE.
+    //
+    // Asserted at a narrow width and the DEFAULT text scale rather than at 3x:
+    // a widget test lays text out in a placeholder font of one em per glyph, so
+    // at an accessibility scale its pixel widths stop resembling the device's
+    // and an overflow assertion would be measuring the harness. Reachability at
+    // 320px reproduces the same failure without depending on the font metrics.
+    await tester.pumpWidget(
+      wrap(const MonitorDetailView(id: 'api'), size: const Size(320, 3200)),
+    );
+    await settleSkeleton(tester);
+
+    // Structural, and deliberately so. Two behavioural spellings were tried
+    // first and neither can be trusted here:
+    //
+    // - `find.text('Delete')` passes with the fix REMOVED, because an
+    //   overflowing child stays in the tree and is only painted outside its
+    //   parent. Finding it proves nothing about reachability.
+    // - comparing the buttons' `top` to prove the row wrapped fails WITH the
+    //   fix in place, because a widget test lays text out in a placeholder font
+    //   of one em per glyph; its button widths are not the device's, so the
+    //   line it breaks on is the harness's, not the product's.
+    //
+    // What this pins is the thing that was actually missing: the action
+    // container has to be shrinkable, or the `wrap` inside it never learns a
+    // width to break against. The wrapping itself is verified on the device,
+    // where the row now lays "Check now | Pause" over "Edit | Delete" with no
+    // overflow, against a 213px overflow with "Delete" off-screen before.
+    expect(
+      find.ancestor(
+        of: find.text('Delete'),
+        matching: find.byType(Flexible),
+      ),
+      findsWidgets,
+      reason: 'the header actions must be able to shrink so the row can wrap',
+    );
+  });
+
   testWidgets(
     'MonitorDetailView lays the KPI cards two-up at a mobile width, matching '
     'its own loading skeleton',

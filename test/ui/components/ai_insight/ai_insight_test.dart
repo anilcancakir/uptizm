@@ -116,6 +116,38 @@ void main() {
     );
   });
 
+  testWidgets(
+    'the banner glyph tile survives an accessibility text scale',
+    (tester) async {
+      // The glyph is a text character (a sparkle) inside a fixed `size-8`
+      // 32x32 tile, so it scales with the reader's text size while its box does
+      // not. On an iPhone at `accessibility-extra-large` that overflowed the
+      // tile by 1.8px and clipped the sparkle; the tile is a visual anchor for
+      // the card, not content, so its own box is the thing that must hold.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(3)),
+            child: WindTheme(
+              data: WindThemeData(),
+              child: const Scaffold(
+                body: SingleChildScrollView(
+                  child: AiInsight(
+                    tone: 'banner',
+                    child: WText('Right now all monitors are operational.'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('AiInsight shows AiConfidenceBadge when confidence is set', (
     tester,
   ) async {

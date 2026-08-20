@@ -309,9 +309,17 @@ class _MobileBell extends StatelessWidget {
                         min-w-[16px] h-4 px-1 rounded-full bg-down
                         flex items-center justify-center
                       ''',
-                      child: WText(
-                        '$unread',
-                        className: 'text-[10px] font-semibold text-white',
+                      // Clamped for the same reason the tab labels are: the
+                      // pill's height is fixed at `h-4` while the count is
+                      // text, so at an iOS accessibility scale the number grew
+                      // past its own badge and the digit was clipped. A count
+                      // nobody can read is worse than a small one.
+                      child: MediaQuery.withClampedTextScaling(
+                        maxScaleFactor: 1.3,
+                        child: WText(
+                          '$unread',
+                          className: 'text-[10px] font-semibold text-white',
+                        ),
                       ),
                     ),
                   ),

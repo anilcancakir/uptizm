@@ -114,10 +114,21 @@ class AiInsight extends StatelessWidget {
   }
 
   /// Builds the sparkle glyph wrapped in its toned container.
+  ///
+  /// The glyph's scaling is clamped because the banner tone puts it inside a
+  /// fixed `size-8` tile: the glyph is a text character, so it grows with the
+  /// reader's text size while its box does not, and on an iPhone at
+  /// `accessibility-extra-large` that overflowed the tile and clipped the
+  /// sparkle. The tile is a visual anchor for the card rather than content, so
+  /// the box is what has to hold; 1.3 still grows it for someone who asked for
+  /// larger text, and the sentence beside it scales without a cap.
   Widget _buildGlyphWrap(String wrapClass, String gClass) {
     return WDiv(
       className: wrapClass,
-      child: WText('✦', className: gClass),
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.3,
+        child: WText('✦', className: gClass),
+      ),
     );
   }
 

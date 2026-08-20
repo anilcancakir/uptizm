@@ -133,6 +133,45 @@ void main() {
     );
   });
 
+  testWidgets('the metric value stops scaling before it splits its own cell', (
+    tester,
+  ) async {
+    // Two of these sit side by side on a 402pt phone, so a value gets about
+    // 178pt minus the card padding. At an iOS accessibility text scale the
+    // 24px value grew past that and WRAPPED MID-NUMBER: an iPhone showed
+    // "98.90%" as "98." over "90" and "61ms" as "61m" over "s". A number broken
+    // across two lines is not a smaller number, it is a different one.
+    //
+    // 1.4 is measured, not chosen for taste: the widest realistic value is
+    // seven monospace characters ("100.00%"), Geist Mono advances at about
+    // 0.6em, and 7 x 0.6 x (24 x 1.4) = 141pt against the ~146pt a card cell
+    // leaves. The label above it keeps scaling without a cap.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(3)),
+          child: WindTheme(
+            data: WindThemeData(),
+            child: const Scaffold(
+              body: SingleChildScrollView(
+                child: KpiStatCard(label: 'Uptime (24h)', value: '100.00%'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final BuildContext value = tester.element(find.text('100.00%'));
+
+    expect(
+      MediaQuery.textScalerOf(value).scale(10),
+      lessThanOrEqualTo(14.0),
+      reason: 'a 3x scale must not reach the metric value unclamped',
+    );
+  });
+
   testWidgets('KpiStatCard shows no delta glyph when delta is null', (
     tester,
   ) async {
