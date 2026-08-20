@@ -72,4 +72,16 @@ const Map<String, String> uptizmStatusAliases = <String, String>{
   // key the wind expander leaves `border-ai-soft` unresolved and the border
   // falls back to the default (white) color.
   'border-ai-soft': 'border-[#ECE8FF] dark:border-[#2B195A]',
+  // ---------------------------------------------------------------------------
+  // Brand primary in the two families design:sync does not emit.
+  //
+  // It emits `bg-primary`, `text-on-primary` and `bg-primary-container`, so a
+  // primary-coloured LABEL or BORDER had no alias. Those two still rendered,
+  // because wind falls back to the `primary` MaterialColor in `designColors`,
+  // and that fallback is the light hex in BOTH modes: a selected tab underline
+  // and a selected-option border came out #008560 on the near-black dark
+  // canvas. These keys shadow the fallback with the real DESIGN.md pair.
+  // ---------------------------------------------------------------------------
+  'text-primary': 'text-[#008560] dark:text-[#00C292]',
+  'border-primary': 'border-[#008560] dark:border-[#00C292]',
 };

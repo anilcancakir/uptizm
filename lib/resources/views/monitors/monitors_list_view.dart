@@ -252,8 +252,13 @@ class _MonitorsListViewState
               .round();
 
     // 2. Single-column base; widen to two then four columns at breakpoints.
+    //    `items-stretch` is what makes the row read as a row: two of these four
+    //    cards carry a hint line and two do not, so without it each card sized
+    //    to its own content and the pair on the left stood taller than the pair
+    //    on the right. The dashboard and the monitor detail KPI rows already
+    //    carried it; this one was missed.
     return WDiv(
-      className: 'grid grid-cols-2 lg:grid-cols-4 gap-4',
+      className: 'grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_monitors_used'),
