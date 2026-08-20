@@ -31,9 +31,19 @@ import 'package:magic/magic.dart';
 ///     extends MagicStatefulViewState<MonitorController, MonitorsListView>
 ///     with RefetchesOnMount<MonitorController, MonitorsListView> {
 ///   @override
-///   Future<void> refetch() => controller.reload();
+///   Future<void> refetch() => controller.ensureFresh();
 /// }
 /// ```
+///
+/// `ensureFresh`, not `reload`. The mount that CREATES the controller has
+/// already started the same load from `onInit`, and both firing sent every
+/// request twice: measured on a phone as two `GET /monitors`, two
+/// `GET /incidents`, and eight dashboard calls where four would do.
+/// `ensureFresh` joins that in-flight load and refetches on every later mount,
+/// which is the staleness this mixin exists to prevent. Coalescing inside
+/// `reload` instead would also join a refresh issued right after a mutation to
+/// a request that started before it, and hand back a snapshot without the row
+/// the operator just created.
 ///
 /// The refetch is fire-and-forget: `build()` renders the cached data immediately
 /// and the view rebuilds when the fresh data lands, so a mount never blocks on

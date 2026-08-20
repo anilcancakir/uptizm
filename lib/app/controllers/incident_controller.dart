@@ -155,12 +155,30 @@ class IncidentController extends MagicController
   /// returns the in-flight future so [resetForSession] can re-arm the guard and
   /// then await the very load it claimed.
   Future<void> _ensureLoading() {
-    if (_loadStarted) return Future<void>.value();
+    if (_loadStarted) return _initialLoad ?? Future<void>.value();
 
     _loadStarted = true;
 
-    return load();
+    return _initialLoad = load().whenComplete(() => _initialLoad = null);
   }
+
+  /// The initial load while it is still in flight, so a second reader can JOIN
+  /// it instead of issuing the same request again. Null before it starts and
+  /// once it settles.
+  Future<void>? _initialLoad;
+
+  /// The read a newly mounted view should ask for.
+  ///
+  /// Joins the initial load while it is in flight and refetches once it has
+  /// settled. [RefetchesOnMount] calls this rather than [reload] because on the
+  /// mount that CREATES this controller `onInit` has already started the same
+  /// request, and both firing sent it twice. Every later mount finds nothing in
+  /// flight and refetches, which is the staleness the mixin exists to prevent.
+  ///
+  /// Deliberately NOT a change to [reload]: coalescing there would also join a
+  /// refresh issued right after a mutation to a request that started before it,
+  /// and hand back a snapshot without the row the operator just created.
+  Future<void> ensureFresh() => _initialLoad ?? reload();
 
   // ---------------------------------------------------------------------------
   // Wire reads

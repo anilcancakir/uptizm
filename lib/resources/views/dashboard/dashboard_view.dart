@@ -74,8 +74,12 @@ class _DashboardViewState
   /// magic fires only once per controller instance, so re-entering this route
   /// would otherwise re-render the data fetched the first time it was ever
   /// opened. See [RefetchesOnMount].
+  ///
+  /// `ensureFresh` rather than `reload`, because on the mount that CREATES the
+  /// controller `onInit` has already started the same four requests and both
+  /// firing sent each endpoint twice.
   @override
-  Future<void> refetch() => controller.reload();
+  Future<void> refetch() => controller.ensureFresh();
 
   @override
   Widget build(BuildContext context) {
