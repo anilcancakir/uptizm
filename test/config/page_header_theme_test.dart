@@ -8,11 +8,11 @@ import 'package:uptizm/config/wind_theme.g.dart';
 
 /// Measures the responsive half of [uptizmPageHeaderTheme].
 ///
-/// Every value in that theme changes at `lg`, and a `lg:` prefix that resolves
-/// to nothing is invisible on the surface it was written for: a phone looks
-/// right while the desktop silently loses its divider. These tests pin the
-/// breakpoint from both sides so the mobile tightening cannot quietly become a
-/// desktop regression.
+/// Most values in that theme change at `lg`, and a `lg:` prefix that resolves to
+/// nothing is invisible on the surface it was written for: a phone looks right
+/// while the desktop silently loses a token. These tests pin the breakpoint from
+/// both sides so the mobile tightening cannot quietly become a desktop
+/// regression, and they pin the one token that is deliberately NOT responsive.
 void main() {
   setUpAll(() {
     MagicStarter.usePageHeaderTheme(uptizmPageHeaderTheme);
@@ -52,29 +52,21 @@ void main() {
         .where((width) => width > 0);
   }
 
-  testWidgets('a desktop width keeps the divider under the header', (
+  testWidgets('the divider under the header survives both widths', (
     tester,
   ) async {
-    await pumpHeaderAt(tester, 1280);
+    // Not responsive on purpose, and asserted because it briefly was: the rule
+    // is what ends the header section, and a phone without it reads as a title
+    // floating over the first card.
+    for (final double width in [402.0, 1280.0]) {
+      await pumpHeaderAt(tester, width);
 
-    expect(
-      bottomBorderWidths(tester),
-      isNotEmpty,
-      reason: 'the header separates itself from the content above `lg`, and '
-          'a `lg:border-b` that never resolved would look identical to a '
-          'deliberate removal',
-    );
-  });
-
-  testWidgets('a phone drops the divider under the header', (tester) async {
-    await pumpHeaderAt(tester, 402);
-
-    expect(
-      bottomBorderWidths(tester),
-      isEmpty,
-      reason: 'the cards below the header already imply the separation, and '
-          'the rule cost a phone a full-width line it did not need',
-    );
+      expect(
+        bottomBorderWidths(tester),
+        isNotEmpty,
+        reason: 'the header section ends in a rule at ${width}pt too',
+      );
+    }
   });
 
   testWidgets('the title steps down a size on a phone', (tester) async {

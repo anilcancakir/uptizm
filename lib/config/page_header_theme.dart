@@ -21,18 +21,26 @@ import 'package:magic_starter/magic_starter.dart'
 /// 402pt screen that spent roughly a third of the first viewport before any
 /// monitoring data appeared.
 ///
-/// Mobile therefore runs at the DESIGN.md `title-lg` step (18px semibold),
-/// clamps the title and the URL to one line each, and drops the rule that the
-/// cards below the header already imply. Every value steps back up at `lg`.
+/// Mobile therefore runs at the DESIGN.md `title-lg` step (18px semibold) and
+/// clamps the title and the URL to one line each, while the rule under the
+/// header stays at every width: it is what ends the header section, and without
+/// it a title floats over the first card. Every other value steps back up at
+/// `lg`.
+///
+/// [MagicStarterPageHeaderTheme.inlineActions] is on, so a header is one row on
+/// every surface. It is the same decision as the tokens above rather than a
+/// separate one: the stacked layout is what pushed a single `New monitor` button
+/// onto a row of its own under the title, and [HeaderAction] renders that action
+/// as a glyph beside the title instead.
 const MagicStarterPageHeaderTheme uptizmPageHeaderTheme =
     MagicStarterPageHeaderTheme(
   containerClassName:
       'w-full flex flex-col sm:flex-row items-start sm:items-center '
-      'sm:justify-between gap-3 px-0 py-2 lg:gap-4 lg:px-4 lg:py-3 '
-      'lg:border-b lg:border-color-border',
+      'sm:justify-between gap-3 px-0 py-2 pb-3 border-b border-color-border '
+      'lg:gap-4 lg:px-4 lg:py-3',
   containerInlineClassName:
-      'w-full flex flex-row items-center justify-between gap-2 px-0 py-2 '
-      'lg:gap-4 lg:px-4 lg:py-3 lg:border-b lg:border-color-border',
+      'w-full flex flex-row items-center justify-between gap-2 px-0 py-2 pb-3 '
+      'border-b border-color-border lg:gap-4 lg:px-4 lg:py-3',
   titleClassName:
       'text-lg font-semibold text-fg truncate lg:text-2xl lg:font-bold',
   subtitleClassName: 'text-xs text-fg-muted truncate lg:text-sm',
@@ -45,4 +53,5 @@ const MagicStarterPageHeaderTheme uptizmPageHeaderTheme =
   backControlClassName:
       'flex items-center justify-center size-7 text-xl text-fg-muted '
       'hover:text-fg lg:size-9 lg:text-2xl',
+  inlineActions: true,
 );

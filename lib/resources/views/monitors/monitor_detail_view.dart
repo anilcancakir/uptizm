@@ -399,11 +399,6 @@ class _MonitorDetailViewState
             titleSuffix: StatusBadge(monitor.status),
             backLabel: trans('uptizm.monitors.back_to_monitors'),
             backFallback: '/monitors',
-            // One row on a phone. The default header stacks title over actions
-            // below `sm`, which is what gave the four buttons a row of their
-            // own and left the chevron stranded beside a wrapped title. With a
-            // single overflow control there is nothing left to stack.
-            inlineActions: !wScreenIs(context, 'lg'),
             actions: _buildHeaderActions(context, monitor, paused),
           ),
 
@@ -591,15 +586,17 @@ class _MonitorDetailViewState
       // which is what a snapshot of this header showed before the label went
       // on. The four actions behind it are the only way to pause or delete a
       // monitor on a phone, so the trigger cannot be anonymous.
-      child: Semantics(
-        button: true,
-        label: trans('uptizm.monitors.actions_menu'),
-        child: WDiv(
-          className: '''
-            w-11 h-11 shrink-0 rounded-md flex items-center justify-center
-            text-fg-muted hover:bg-surface-container hover:text-fg
-          ''',
-          child: const WIcon(Icons.more_horiz, className: 'text-[20px]'),
+      child: MergeSemantics(
+        child: Semantics(
+          button: true,
+          label: trans('uptizm.monitors.actions_menu'),
+          child: WDiv(
+            className: '''
+              w-11 h-11 shrink-0 rounded-md flex items-center justify-center
+              text-fg-muted hover:bg-surface-container hover:text-fg
+            ''',
+            child: const WIcon(Icons.more_horiz, className: 'text-[20px]'),
+          ),
         ),
       ),
     );
