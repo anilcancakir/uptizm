@@ -1040,7 +1040,7 @@ class _StatusPageEditorViewState
               if (_isPublicError != null)
                 WText(
                   _isPublicError!,
-                  className: 'text-xs text-destructive dark:text-destructive',
+                  className: 'text-xs text-down',
                 ),
               if (!mayGoPrivate)
                 MSUpgradeNudge(
