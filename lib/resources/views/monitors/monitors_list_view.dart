@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -8,6 +9,7 @@ import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/status_key.dart';
+import '../../../ui/components/header_action/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
 
@@ -174,14 +176,15 @@ class _MonitorsListViewState
                 title: trans('uptizm.monitors.title'),
                 subtitle: trans('uptizm.monitors.description'),
                 actions: [
-                  MSButton(
+                  HeaderAction(
+                    icon: Icons.add,
+                    label: trans('uptizm.monitors.new_monitor'),
                     // Proactive cap: below the plan's monitor limit this opens
                     // the create flow; at the cap it nudges to upgrade instead
                     // of letting the create form 422 on save.
                     onPressed: _canCreateMonitor
                         ? () => MagicRoute.to('/monitors/new')
                         : _nudgeMonitorLimit,
-                    child: WText(trans('uptizm.monitors.new_monitor')),
                   ),
                 ],
               ),

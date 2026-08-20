@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -7,6 +8,7 @@ import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../app/support/escalation_support.dart' show escalationDelayLabel;
+import '../../../ui/components/header_action/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 
 /// **The Escalation Policies list screen (`/teams/escalation`).**
@@ -78,10 +80,11 @@ class _EscalationPoliciesViewState
             backLabel: trans('uptizm.status.editor_breadcrumb_back'),
             backFallback: '/',
             actions: [
-              MSButton(
+              HeaderAction(
+                icon: Icons.add,
+                label: trans('uptizm.teams.escalation_new_button'),
                 intent: ButtonIntent.secondary,
                 onPressed: () => MagicRoute.to('/teams/escalation/new'),
-                child: WText(trans('uptizm.teams.escalation_new_button')),
               ),
             ],
           ),
