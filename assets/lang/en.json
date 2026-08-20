@@ -809,6 +809,7 @@
       "editor_ai_draft_button": "Generate",
       "editor_ai_applied_banner": "Drafted from your monitors. Edit anything below, then create the page.",
       "editor_form_view_public_page": "View public page",
+      "editor_actions_menu": "Page actions",
       "editor_form_create_page": "Create page",
       "editor_form_save": "Save",
       "editor_ai_draft_gated": "AI drafting is available on the :plan plan.",

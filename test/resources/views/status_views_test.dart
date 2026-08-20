@@ -11,6 +11,7 @@ import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
 import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
 import 'package:uptizm/resources/views/status/status_page_subscribers_view.dart';
 import 'package:uptizm/resources/views/status/status_pages_list_view.dart';
+import 'package:uptizm/ui/components/form_actions/index.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
 
@@ -1191,6 +1192,86 @@ void main() {
       expect(find.text('Replace'), findsOneWidget);
       expect(find.text('Remove logo'), findsOneWidget);
       expect(find.text('Upload logo'), findsNothing);
+    });
+
+    testWidgets('the submit closes the form instead of crowding the header', (
+      tester,
+    ) async {
+      // Two buttons in a page header cost the title its width: on a phone this
+      // header rendered `Sweep S...` beside View public page and Save. The
+      // submit belongs at the bottom of the fields, where the monitor form
+      // already put it.
+      await tester.binding.setSurfaceSize(const Size(402, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(402, 4000),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(FormActions), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(MSPageHeader),
+          matching: find.text('Save'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a phone puts the remaining header action behind the menu', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(402, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(402, 4000),
+        ),
+      );
+      await tester.pump();
+
+      // Same overflow control the monitor header uses, so one page's header
+      // reads like the next one's.
+      expect(
+        find.ancestor(
+          of: find.byIcon(Icons.more_horiz),
+          matching: find.byType(MSDropdownMenu),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('View public page'), findsNothing);
+    });
+
+    testWidgets('a desktop keeps the header action labelled', (tester) async {
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('View public page'), findsOneWidget);
+      // And the submit is still the footer's, not the header's.
+      expect(find.byType(FormActions), findsOneWidget);
     });
 
     testWidgets('an unsaved page cannot upload a logo yet', (tester) async {

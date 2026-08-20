@@ -18,6 +18,7 @@ import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/status_page_support.dart' show pageUrl;
 import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
+import '../../../ui/components/form_actions/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/components/status_page_preview/index.dart';
@@ -97,6 +98,9 @@ class _StatusPageEditorViewState
 
   /// The lock icon standing in for the (mocked) logo-upload affordance.
   static const IconData _uploadIcon = Icons.image_outlined;
+
+  /// Glyph for the "View public page" item inside the overflow menu.
+  static const IconData _publicPageIcon = Icons.open_in_new;
 
   /// Age past which a `completed` render's rendered-at stamp pairs with the
   /// may-be-out-of-date chip (D4/D9: "beyond roughly 15 minutes").
@@ -596,6 +600,25 @@ class _StatusPageEditorViewState
     );
   }
 
+  /// The form's closing action row: Create on a new page, Save on an existing
+  /// one.
+  ///
+  /// Always enabled, deliberately: a blank required field surfaces its inline
+  /// error through [_save] rather than silently locking the button, which leaves
+  /// a user pressing a dead control with no idea which field is wrong.
+  Widget _buildFormActions() {
+    return FormActions(
+      submitLabel: _isEdit
+          ? trans('uptizm.status.editor_form_save')
+          : trans('uptizm.status.editor_form_create_page'),
+      // `isSubmitting` is the guard, not just the spinner: the button drops its
+      // tap while loading, so a double tap on Create cannot create two status
+      // pages (each counting against the plan limit).
+      isSubmitting: isSubmitting,
+      onSubmit: () => submitOnce(_save),
+    );
+  }
+
   /// Builds the pending state shown while the roster read that will decide
   /// whether this page exists is still in flight.
   ///
@@ -664,7 +687,7 @@ class _StatusPageEditorViewState
               : trans('uptizm.status.editor_title_new'),
           backLabel: trans('uptizm.status.editor_breadcrumb_back'),
           backFallback: _listRoute,
-          actions: _buildHeaderActions(),
+          actions: _buildHeaderActions(context),
         ),
         WText(
           pageUrl(_draftPage),
@@ -674,30 +697,59 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the header action row: a "View public page" secondary button
-  /// (disabled in create mode until the page is saved) and the Create/Save
-  /// button. The Save button is always enabled so a blank required field
-  /// surfaces its inline error on save (via [_save]) rather than silently
-  /// locking the button. Auto-width: never `w-full` in the row.
-  List<Widget> _buildHeaderActions() {
+  /// Builds the header actions: the "View public page" affordance only.
+  ///
+  /// The submit lives at the BOTTOM of the form now (see [FormActions]), not
+  /// here. Two buttons in a page header cost the title its width: on a phone
+  /// this header rendered `Sweep S...` beside them.
+  ///
+  /// Below `lg` the remaining action collapses into the same three-dot control
+  /// the monitor header uses, so one page's header reads like the next one's.
+  List<Widget> _buildHeaderActions(BuildContext context) {
+    if (!_isEdit) {
+      // Nothing to view yet: the page does not exist until the first save.
+      return const <Widget>[];
+    }
+
+    if (!wScreenIs(context, 'lg')) {
+      return <Widget>[
+        MSDropdownMenu(
+          alignment: PopoverAlignment.bottomRight,
+          className: 'w-56 bg-surface-container',
+          items: <MSDropdownMenuItem>[
+            MSDropdownMenuItem(
+              label: trans('uptizm.status.editor_form_view_public_page'),
+              leading: const WIcon(_publicPageIcon, className: 'text-[18px]'),
+              onTap: _viewPublicPage,
+            ),
+          ],
+          child: MergeSemantics(
+            child: Semantics(
+              button: true,
+              label: trans('uptizm.status.editor_actions_menu'),
+              child: WAnchor(
+                onTap: () {},
+                child: WDiv(
+                  className: 'w-11 h-11 shrink-0 rounded-md flex items-center '
+                      'justify-center text-fg-muted hover:bg-surface-container '
+                      'hover:text-fg',
+                  child: const WIcon(
+                    Icons.more_horiz,
+                    className: 'text-[20px]',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ];
+    }
+
     return <Widget>[
       MSButton(
         intent: ButtonIntent.secondary,
-        disabled: !_isEdit,
-        onPressed: _isEdit ? _viewPublicPage : null,
+        onPressed: _viewPublicPage,
         child: WText(trans('uptizm.status.editor_form_view_public_page')),
-      ),
-      MSButton(
-        // `isLoading` is the guard, not just the spinner: WButton drops its
-        // onTap while loading, so a double tap on Create cannot create two
-        // status pages (each counting against the plan limit).
-        isLoading: isSubmitting,
-        onPressed: () => submitOnce(_save),
-        child: WText(
-          _isEdit
-              ? trans('uptizm.status.editor_form_save')
-              : trans('uptizm.status.editor_form_create_page'),
-        ),
       ),
     ];
   }
@@ -714,7 +766,14 @@ class _StatusPageEditorViewState
       children: [
         WDiv(
           className: 'lg:flex-1 min-w-0 w-full flex flex-col gap-6',
-          children: _buildConfigColumn(),
+          children: <Widget>[
+            ..._buildConfigColumn(),
+            // The submit closes the FIELDS, not the page. Below `lg` the
+            // preview pane stacks under this column, so a footer placed after
+            // the whole body left Save under a preview image the user had to
+            // scroll past.
+            _buildFormActions(),
+          ],
         ),
         WDiv(
           className: 'lg:w-[380px] w-full flex flex-col gap-2',
@@ -1644,7 +1703,13 @@ class _StatusPageEditorViewState
       className: 'flex flex-row items-center gap-3',
       children: <Widget>[
         MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
-        WText(label, className: 'min-w-0 text-sm text-fg'),
+        // `flex-1`, not `min-w-0` alone: the switch is a fixed 44pt and the
+        // label is unbounded, so a Row sized them both to their natural width
+        // and overflowed on a phone. `min-w-0` does nothing without a flex
+        // wrapper to shrink INTO. Measured at 402pt on this form's own
+        // subscriptions row, and Turkish labels are longer than the English
+        // ones that first fit.
+        WText(label, className: 'flex-1 min-w-0 text-sm text-fg'),
       ],
     );
   }

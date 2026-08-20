@@ -9,6 +9,7 @@ import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/submits_once.dart';
+import '../../../ui/components/form_actions/index.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 
@@ -593,8 +594,19 @@ class _MonitorFormState extends State<MonitorForm>
           ),
         ),
 
-        // 3. Footer: Cancel + Submit, right-aligned, auto-width.
-        _buildFooter(),
+        // 3. Footer: Cancel + Submit, right-aligned. Shared with the status-page
+        //    and escalation editors through FormActions, so a form's submit is
+        //    in the same place on every screen.
+        FormActions(
+          submitLabel: widget.submitLabel,
+          // `isSubmitting` is the guard, not just the spinner: the button drops
+          // its tap while loading, so a double tap on Create cannot create two
+          // monitors (each counting against the plan limit).
+          isSubmitting: isSubmitting,
+          onSubmit: () => submitOnce(_submitIfValid),
+          cancelLabel: trans('uptizm.monitors.form_cancel'),
+          onCancel: widget.onCancel,
+        ),
       ],
     );
   }
@@ -1087,34 +1099,6 @@ class _MonitorFormState extends State<MonitorForm>
           ],
         ),
     ];
-  }
-
-  /// Builds the footer: Cancel + Submit, right-aligned.
-  ///
-  /// A Wind `flex flex-row justify-end gap-3` row of AUTO-width buttons. The
-  /// buttons carry no `w-full` (Wind `width: double.infinity`): a full-width
-  /// button inside a `flex-row` forces an unbounded width and aborts the row's
-  /// layout ("RenderBox was not laid out"). Auto-width buttons fit at any width
-  /// without that hazard.
-  Widget _buildFooter() {
-    return WDiv(
-      className: 'flex flex-row justify-end gap-3',
-      children: [
-        MSButton(
-          intent: ButtonIntent.secondary,
-          onPressed: widget.onCancel,
-          child: WText(trans('uptizm.monitors.form_cancel')),
-        ),
-        // `isLoading` is the guard, not just the spinner: WButton drops its
-        // onTap while loading, so a double tap on Create cannot create two
-        // monitors (each counting against the plan limit).
-        MSButton(
-          isLoading: isSubmitting,
-          onPressed: () => submitOnce(_submitIfValid),
-          child: WText(widget.submitLabel),
-        ),
-      ],
-    );
   }
 
   /// Validates every client-side required field, then hands the fields to

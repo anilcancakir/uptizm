@@ -16,6 +16,7 @@ import 'ui/components/assistant/assistant.preview.dart';
 import 'ui/components/check_history_table/check_history_table.preview.dart';
 import 'ui/components/component_status_row/component_status_row.preview.dart';
 import 'ui/components/date_range_picker/date_range_picker.preview.dart';
+import 'ui/components/form_actions/form_actions.preview.dart';
 import 'ui/components/header_action/header_action.preview.dart';
 import 'ui/components/incident_card/incident_card.preview.dart';
 import 'ui/components/incident_timeline/incident_timeline.preview.dart';
@@ -80,6 +81,11 @@ List<PreviewEntry> previewEntries() {
       label: 'DateRangePicker',
       slug: 'date_range_picker',
       builder: (_) => const DateRangePickerPreview(),
+    ),
+    PreviewEntry(
+      label: 'FormActions',
+      slug: 'form_actions',
+      builder: (_) => const FormActionsPreview(),
     ),
     PreviewEntry(
       label: 'Foundations',
