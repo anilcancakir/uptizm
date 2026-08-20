@@ -455,39 +455,49 @@ class _MonitorDetailViewState
   /// - **Delete**: a destructive [Button] that opens a delete confirm dialog,
   ///   then surfaces a deleted toast and returns to the monitors list.
   List<Widget> _buildHeaderActions(Monitor monitor, bool paused) {
-    // The PageHeader lays its actions in a bare non-wrapping flex-row, so the
-    // three buttons would overflow a narrow phone. Wrapping them in a single
-    // `wrap` leaf container lets them flow onto a second line below ~360px
-    // (mirroring the React header's wrapping actions) while staying a single
-    // row on wider surfaces.
+    // The PageHeader lays its actions in a bare non-wrapping flex-row
+    // (`flex flex-row items-center gap-2`, the starter's page-header theme
+    // default), so the buttons would overflow a narrow phone. A single `wrap`
+    // leaf container lets them flow onto a second line below ~360px, mirroring
+    // the React header's wrapping actions, while staying one row on wider
+    // surfaces.
+    //
+    // Flexible is what makes that wrap work. A Row hands a non-flex child its
+    // intrinsic width, so the wrap never learned where to break and laid every
+    // button on one line: on an iPhone at `accessibility-extra-large` the row
+    // overflowed by 213px, cutting "Edit" at the display edge and pushing
+    // "Delete" off the screen. Two actions stopped being REACHABLE, which is a
+    // different failure from looking wrong.
     return [
-      WDiv(
-        className: 'wrap items-center gap-2',
-        children: [
-          if (!paused) _buildCheckNowButton(monitor),
-          MSButton(
-            intent: ButtonIntent.secondary,
-            size: ButtonSize.sm,
-            onPressed: () => _onPauseResume(monitor, paused),
-            child: WText(
-              paused
-                  ? trans('uptizm.monitors.action_resume')
-                  : trans('uptizm.monitors.action_pause'),
+      Flexible(
+        child: WDiv(
+          className: 'wrap items-center gap-2',
+          children: [
+            if (!paused) _buildCheckNowButton(monitor),
+            MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              onPressed: () => _onPauseResume(monitor, paused),
+              child: WText(
+                paused
+                    ? trans('uptizm.monitors.action_resume')
+                    : trans('uptizm.monitors.action_pause'),
+              ),
             ),
-          ),
-          MSButton(
-            intent: ButtonIntent.secondary,
-            size: ButtonSize.sm,
-            onPressed: () => _onEdit(monitor),
-            child: WText(trans('uptizm.monitors.action_edit')),
-          ),
-          MSButton(
-            intent: ButtonIntent.destructive,
-            size: ButtonSize.sm,
-            onPressed: () => _onDelete(monitor),
-            child: WText(trans('uptizm.monitors.action_delete')),
-          ),
-        ],
+            MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              onPressed: () => _onEdit(monitor),
+              child: WText(trans('uptizm.monitors.action_edit')),
+            ),
+            MSButton(
+              intent: ButtonIntent.destructive,
+              size: ButtonSize.sm,
+              onPressed: () => _onDelete(monitor),
+              child: WText(trans('uptizm.monitors.action_delete')),
+            ),
+          ],
+        ),
       ),
     ];
   }
