@@ -13,6 +13,7 @@ import 'config/broadcasting.dart';
 import 'config/deeplink.dart';
 import 'config/localization.dart';
 import 'config/wind_theme.g.dart';
+import 'config/page_header_theme.dart';
 import 'config/uptizm_status_tokens.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:magic_devtools/magic_devtools.dart';
@@ -124,6 +125,11 @@ Future<void> _boot() async {
           'border-color-border text-fg text-sm font-medium',
     ),
   );
+
+  // Page headers: a phone gets one tight row, a desktop keeps the roomier one.
+  // The values, and why they differ per breakpoint, live in
+  // lib/config/page_header_theme.dart so a widget test can measure them.
+  MagicStarter.usePageHeaderTheme(uptizmPageHeaderTheme);
 
   runApp(
     MagicApplication(
