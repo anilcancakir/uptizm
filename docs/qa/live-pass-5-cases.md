@@ -370,6 +370,27 @@ red.
   default; the test-send endpoint catches the throwable and answers
   `delivered: false` with a 502.
 
+### More cases that passed, with the artifact
+
+- `AI-1`: the incident's AI card never claims an analysis it does not have. It
+  renders "Reading the checks..." while the request is in flight and "The
+  analysis could not be loaded." with a retry when it fails, which is what
+  happened here: `local.ERROR: Maximum execution time of 30 seconds exceeded`,
+  the dev server's own wall against a 150s AI budget. A harness limit, not a
+  product defect, and the card told the truth about it.
+- `AI-10`'s reopen half, by accident and correctly. Resolving the Checkout
+  incident by hand at 17:01 while the monitor was still failing produced, at
+  17:04, a system note reading "Checkout is still failing; the incident was
+  reopened." That is `sameOutageJustResolved` doing exactly what it exists for.
+- `CM-3`: a metric whose extraction cannot succeed records NOTHING rather than a
+  fabricated zero. In the round where `http_status_code` recorded three samples,
+  a `$.nothing.here` path recorded none and opened no incident, and the tab
+  renders it as an em-dash.
+- `CM-2`: a duplicate metric key on the same monitor answers 422 with "The key
+  has already been taken."
+- `SP-12`: the status-page editor at 430px renders every field, both header
+  actions and the brand-mark controls, with no overflow.
+
 ### Open, not yet fixed
 
 - **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,
