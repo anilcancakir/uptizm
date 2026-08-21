@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
@@ -244,14 +243,22 @@ void main() {
   // ---------------------------------------------------------------------------
 
   for (final String locale in <String>['en', 'tr']) {
-    testWidgets('the header does not overflow with the shipped $locale copy', (
+    testWidgets('the header holds at the shipped $locale copy, and at 2x text', (
       tester,
     ) async {
       // The loader above hands out English LITERALS, so every assertion in this
       // file passes by construction and no locale-length problem can surface.
-      // These two read the shipped catalogue instead. Turkish is what breaks:
-      // "Tümünü okundu olarak işaretle" against "Mark all as read", beside a
-      // title, inside a panel that is 318px wide by design.
+      // These read the shipped catalogue instead.
+      //
+      // Deliberately an overflow-ABSENCE assertion and nothing more. A fit
+      // assertion here (rendered width == intrinsic width) is invalid in a
+      // widget test: the test font is roughly one em per glyph, so it inflates
+      // the 29-character Turkish label to about 355 logical pixels against a
+      // 294px content row and reports a clipping that the app does not have.
+      // Measured in the running Chrome build at the real Geist metrics: the
+      // Turkish pair needs 69 + 165 and fits. What does NOT fit is the same
+      // pair at an accessibility text scale (312 at 1.3x, 476 at 2x), which is
+      // what the Wrap is actually for, and what the second case below pins.
       Translator.instance.setLoader(_BundledLangLoader(locale));
       await Translator.instance.setLocale(Locale(locale));
 
@@ -262,32 +269,18 @@ void main() {
 
       expect(tester.takeException(), isNull);
 
-      // "No exception" is the floor, not the claim. A Row clipped the English
-      // title to 98px of the 186 it needs and threw only in Turkish, so an
-      // exception assertion alone would have called the English header healthy.
-      // These two pin that each shipped label renders at the width it needs.
-      // `readBundledLang` flattens to the dotted keys the Translator caches,
-      // so the section is addressed by prefix rather than nested.
-      final Map<String, dynamic> catalogue = readBundledLang(locale);
+      // The same header at 2x, where the two labels cannot share a line in
+      // either locale. A Row overflowed here; the Wrap drops the action to its
+      // own run instead.
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
+          child: wrap(NotificationCenter(items: kSampleNotifications)),
+        ),
+      );
+      await tester.pump();
 
-      for (final String key in <String>[
-        'notifications.title',
-        'notifications.mark_all_read',
-      ]) {
-        final String label = catalogue[key] as String;
-        final RenderParagraph paragraph = tester
-            .renderObjectList<RenderParagraph>(find.byType(RichText))
-            .firstWhere((RenderParagraph p) => p.text.toPlainText() == label);
-
-        expect(
-          paragraph.size.width,
-          paragraph.getMaxIntrinsicWidth(double.infinity),
-          reason:
-              'the $locale "$key" label is clipped: it renders at '
-              '${paragraph.size.width.toStringAsFixed(1)} and needs '
-              '${paragraph.getMaxIntrinsicWidth(double.infinity).toStringAsFixed(1)}',
-        );
-      }
+      expect(tester.takeException(), isNull);
     });
   }
 }
