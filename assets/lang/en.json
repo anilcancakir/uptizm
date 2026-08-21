@@ -1413,7 +1413,7 @@
       "oncall_rotation_empty_title": "No responders in the rotation",
       "oncall_rotation_empty_description": "Add a team member so an alert has someone to page.",
       "oncall_shift_hours": ":hours h shift",
-      "oncall_schedule_meta": ":name · times shown in :timezone",
+      "oncall_schedule_meta": ":name · :timezone",
       "oncall_move_up_button": "Move earlier in the rotation",
       "oncall_move_down_button": "Move later in the rotation",
       "oncall_overrides_header": "Overrides",

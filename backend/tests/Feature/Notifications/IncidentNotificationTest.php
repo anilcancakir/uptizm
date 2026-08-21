@@ -180,6 +180,54 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('Ödeme akışı EU kenarında yavaş', $payload->getContents()['tr']);
     }
 
+    /**
+     * A metric-bound breach is not the monitor being down, and the page said it
+     * was.
+     *
+     * Measured in the bell on a monitor that answered 200 from all three regions
+     * throughout: the row read "API is down" over a body of "HTTP status code
+     * breached critical bound". Only the second line was true, and it was the
+     * small one. The same false heading reached the mail subject and the push
+     * heading, since all three resolve the one copy key.
+     *
+     * Asserted in BOTH locales, because a hardcoded English literal passes every
+     * English assertion by construction and says nothing about the catalogue the
+     * other half of the users read.
+     */
+    public function test_a_metric_incident_never_claims_the_monitor_is_down(): void
+    {
+        $incident = $this->makeIncident([
+            'title' => 'Response time breached critical bound',
+            'title_key' => IncidentTitle::METRIC_CRITICAL_BOUND,
+            'title_params' => ['metric' => 'Response time'],
+            'trigger_metric_key' => 'response_time',
+        ]);
+        $notification = new IncidentOpened($incident);
+
+        foreach (['en', 'tr'] as $locale) {
+            $user = User::factory()->create(['locale' => $locale]);
+            App::setLocale($user->preferredLocale());
+
+            $expected = $this->catalogueSentence(
+                $locale,
+                'metric_critical_bound',
+                ['metric' => 'Response time'],
+            );
+
+            $this->assertSame($expected, $notification->toArray($user)['title'], $locale);
+            $this->assertSame(
+                '[Uptizm] '.$expected,
+                $notification->toMail($user)->subject,
+                $locale,
+            );
+            $this->assertStringNotContainsString(
+                'API Health',
+                (string) $notification->toMail($user)->subject,
+                'the subject must not name the monitor as the thing that broke',
+            );
+        }
+    }
+
     public function test_incident_opened_mail_and_database_render_in_the_notifiables_preferred_locale(): void
     {
         $incident = $this->makeIncident();
@@ -194,14 +242,21 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('Olay açıldı', $trMail->greeting);
         $this->assertSame('API Health kesintide', $trPayload['title']);
 
-        // `title` is the feed HEADING (notification copy); `body` is the incident
-        // title itself, rendered with no explicit locale so the ambient
-        // `withLocale(preferredLocale(...))` wrap decides. A render captured in
-        // the constructor would hand this recipient the dispatcher's language.
+        // `title` IS the incident's own sentence now, rendered with no explicit
+        // locale so the ambient `withLocale(preferredLocale(...))` wrap decides.
+        // A render captured in the constructor would hand this recipient the
+        // dispatcher's language.
         $this->assertSame(
             $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
-            $trPayload['body'],
+            $trPayload['title'],
         );
+
+        // And `body` is the monitor, so the row carries what happened and where
+        // without saying either twice. It used to be this same sentence, which
+        // for a down incident meant the heading and the body were identical and
+        // for a metric breach meant the heading was the only false line on the
+        // row ("API is down" over "HTTP status code breached critical bound").
+        $this->assertSame('API Health', $trPayload['body']);
 
         $enUser = User::factory()->create(['locale' => 'en']);
         App::setLocale($enUser->preferredLocale());
@@ -213,8 +268,10 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('API Health is down', $enPayload['title']);
 
         // ONE dispatch, two recipients, two languages in the stored feed entry.
-        $this->assertSame('API Health is down', $enPayload['body']);
-        $this->assertNotSame($trPayload['body'], $enPayload['body']);
+        // Carried by `title` now that it holds the incident's own sentence;
+        // `body` is the monitor name, which is the same word in both languages.
+        $this->assertNotSame($trPayload['title'], $enPayload['title']);
+        $this->assertSame('API Health', $enPayload['body']);
     }
 
     public function test_incident_resolved_mail_and_database_render_in_the_notifiables_preferred_locale(): void

@@ -522,6 +522,14 @@ class _OnCallScheduleViewState
 
   /// The schedule's own name and timezone, when it carries them.
   ///
+  /// The line used to read "`<name>` · times shown in `<zone>`", and no time is
+  /// rendered anywhere on this screen: the ring shows shift LENGTHS ("24 h
+  /// shift"), never a boundary. It now states the schedule's zone without
+  /// promising a rendering of it. The zone is also inert in the resolver
+  /// (`RotationResolver` anchors the ring on `created_at` in absolute instants
+  /// and never reads the field), which is a product decision left open rather
+  /// than settled here.
+  ///
   /// Replaces the old hardcoded "Weekly handoff, Mondays at 09:00" cadence
   /// note, which was a fixture string unrelated to the real schedule.
   List<Widget> _buildScheduleMeta() {

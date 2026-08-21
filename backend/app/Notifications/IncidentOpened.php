@@ -66,6 +66,36 @@ class IncidentOpened extends Notification implements ShouldQueue
     }
 
     /**
+     * The parameters every string in this notification's copy family can use.
+     *
+     * Both are always supplied, and each key picks what it needs: the escalation
+     * family talks about the monitor, the opened family leads with `:title`.
+     *
+     * `:title` exists because ":monitor is down" was a claim rather than a fact.
+     * A metric-bound breach, an AI anomaly, an expiring certificate and a
+     * hand-filed incident all page for a service that is answering normally, and
+     * the headline said it was down anyway: measured in the bell on a healthy
+     * monitor, "API is down" sitting over a body reading "HTTP status code
+     * breached critical bound". `IncidentTitle::render` is the same composer the
+     * body and the status page use, so the sentence agrees everywhere, and for a
+     * genuine down incident it renders ":monitor is down" out of
+     * `incidents.monitor_down` and nothing about that case changes.
+     *
+     * @param  string|null  $locale  Explicit locale, for the two payloads that
+     *                               carry both languages at once (push and SMS).
+     *                               Null renders in the ambient locale, which is
+     *                               the recipient's own.
+     * @return array<string, string>
+     */
+    protected function copyParams(?string $locale = null): array
+    {
+        return [
+            'monitor' => $this->monitorName($locale),
+            'title' => IncidentTitle::render($this->incident, $locale),
+        ];
+    }
+
+    /**
      * Get the notification's delivery channels.
      *
      * A team-scoped {@see NotificationChannel} notifiable resolves to its single
@@ -299,8 +329,8 @@ class IncidentOpened extends Notification implements ShouldQueue
             'app_id' => config('magic-starter.onesignal.app_id'),
         ]);
         $payload->setHeadings(new LanguageStringMap([
-            'en' => __($this->copyKey('push_heading'), ['monitor' => $this->monitorName('en')], 'en'),
-            'tr' => __($this->copyKey('push_heading'), ['monitor' => $this->monitorName('tr')], 'tr'),
+            'en' => __($this->copyKey('push_heading'), $this->copyParams('en'), 'en'),
+            'tr' => __($this->copyKey('push_heading'), $this->copyParams('tr'), 'tr'),
         ]));
         $payload->setContents(new LanguageStringMap([
             // A title is one of two things, and this map has to be right for
@@ -346,8 +376,8 @@ class IncidentOpened extends Notification implements ShouldQueue
         $payload->setTargetChannel('sms');
         $payload->setIncludeAliases($notifiable->routeNotificationForOneSignal());
         $payload->setContents(new LanguageStringMap([
-            'en' => __($this->copyKey('subject'), ['monitor' => $this->monitorName('en')], 'en'),
-            'tr' => __($this->copyKey('subject'), ['monitor' => $this->monitorName('tr')], 'tr'),
+            'en' => __($this->copyKey('subject'), $this->copyParams('en'), 'en'),
+            'tr' => __($this->copyKey('subject'), $this->copyParams('tr'), 'tr'),
         ]));
 
         // 3. Defensive sms_from: omit when the sender is not provisioned.
@@ -370,10 +400,8 @@ class IncidentOpened extends Notification implements ShouldQueue
      */
     public function toSlack(mixed $notifiable): array
     {
-        $monitorName = $this->monitorName();
-
         return [
-            'text' => __($this->copyKey('subject'), ['monitor' => $monitorName])."\n"
+            'text' => __($this->copyKey('subject'), $this->copyParams())."\n"
                 .__('notifications.severity_line', ['severity' => $this->incident->severity->value])."\n"
                 .$this->incidentUrl(),
         ];
@@ -426,7 +454,7 @@ class IncidentOpened extends Notification implements ShouldQueue
             'event_action' => 'trigger',
             'dedup_key' => $this->pagerDutyDedupKey(),
             'payload' => [
-                'summary' => __($this->copyKey('subject'), ['monitor' => $monitorName]),
+                'summary' => __($this->copyKey('subject'), $this->copyParams()),
                 'source' => $monitorName,
                 'severity' => self::pagerDutySeverity($this->incident->severity),
                 'custom_details' => [
@@ -468,7 +496,7 @@ class IncidentOpened extends Notification implements ShouldQueue
             'body' => [
                 [
                     'type' => 'TextBlock',
-                    'text' => __($this->copyKey('subject'), ['monitor' => $monitorName]),
+                    'text' => __($this->copyKey('subject'), $this->copyParams()),
                     'weight' => 'Bolder',
                     'size' => 'Large',
                     'wrap' => true,
@@ -533,7 +561,7 @@ class IncidentOpened extends Notification implements ShouldQueue
         $monitorName = $this->monitorName();
 
         return (new MailMessage)
-            ->subject(__($this->copyKey('subject'), ['monitor' => $monitorName]))
+            ->subject(__($this->copyKey('subject'), $this->copyParams()))
             ->greeting(__($this->copyKey('greeting')))
             ->line(__($this->copyKey('state_line'), [
                 'monitor' => $monitorName,
@@ -567,14 +595,18 @@ class IncidentOpened extends Notification implements ShouldQueue
 
         return [
             'type' => $this->eventType(),
-            'title' => __($this->copyKey('title'), ['monitor' => $monitorName]),
+            'title' => __($this->copyKey('title'), $this->copyParams()),
             // No explicit locale, and that is the whole point: Laravel wraps each
             // recipient's channel build in `withLocale(preferredLocale(...))`, so
             // an ambient render inside this method resolves to THIS recipient's
             // language. Rendering earlier (a constructor argument, a property)
             // would bake the dispatcher's language into the queued payload and
             // hand every recipient the same one.
-            'body' => IncidentTitle::render($this->incident),
+            // The MONITOR, because `title` above now carries the incident's own
+            // sentence. Both facts stay on the row: what happened, and where.
+            // The two used to be "API is down" over "HTTP status code breached
+            // critical bound", where only the second was true.
+            'body' => $monitorName,
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
             'monitor_name' => $monitorName,

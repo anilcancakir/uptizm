@@ -488,6 +488,56 @@ void main() {
       );
     });
 
+    /// The maintenance tab's empty state says "Plan a window" and used to land
+    /// here on the INCIDENT form, one unnoticed switch away from declaring an
+    /// outage that pages the on-call and publishes a red banner, for work the
+    /// operator meant to ANNOUNCE.
+    ///
+    /// Driven through the router rather than by pumping the view, because the
+    /// query is read from `MagicRouter.instance.queryParameters`, which is only
+    /// populated by a route's own pageBuilder.
+    testWidgets('the kind query param opens the maintenance form', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      MonitorController.instance.seedForTest(monitorFixtures);
+      addTearDown(() => MonitorController.instance.seedForTest(const []));
+      StatusPageController.instance.seedForTest(<StatusPage>[_publicPage]);
+      addTearDown(() => StatusPageController.instance.seedForTest(const []));
+
+      MagicRouter.reset();
+      MagicRoute.page('/', () => const SizedBox());
+      MagicRoute.page('/incidents', () => const SizedBox());
+      MagicRoute.page('/incidents/new', () => const IncidentCreateView());
+      addTearDown(MagicRouter.reset);
+
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: MagicRouter.instance.routerConfig,
+          builder: (context, child) => MediaQuery(
+            data: const MediaQueryData(size: Size(1280, 3200)),
+            child: WindTheme(data: WindThemeData(), child: child!),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      MagicRoute.to('/incidents/new', query: const {'kind': 'maintenance'});
+      await tester.pumpAndSettle();
+
+      // The maintenance form's own title placeholder, which the incident kind
+      // never renders.
+      expect(
+        find.widgetWithText(
+          MSInput,
+          trans('uptizm.incidents.form_title_placeholder_maintenance'),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('a blank title blocks the maintenance round trip', (
       tester,
     ) async {

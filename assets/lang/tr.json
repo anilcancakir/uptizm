@@ -1413,7 +1413,7 @@
       "oncall_rotation_empty_title": "Rotasyonda sorumlu yok",
       "oncall_rotation_empty_description": "Bir takım üyesi ekleyin; böylece uyarı çağıracak birini bulur.",
       "oncall_shift_hours": ":hours sa vardiya",
-      "oncall_schedule_meta": ":name · saatler :timezone diliminde",
+      "oncall_schedule_meta": ":name · :timezone",
       "oncall_move_up_button": "Rotasyonda öne al",
       "oncall_move_down_button": "Rotasyonda geriye al",
       "oncall_overrides_header": "Geçersiz kılmalar",
