@@ -91,6 +91,41 @@ class StatusPageAssemblerTest extends TestCase
         $this->assertSame('operational', $viewModel->overallStatus);
     }
 
+    /**
+     * A component whose monitor was DELETED disappears from the page instead of
+     * rendering a hole or, worse, keeping its last verdict.
+     *
+     * The pivot row survives the delete (the monitor is soft-deleted, and nothing
+     * detaches it), so the only thing standing between a deleted monitor and the
+     * customer-facing page is the relation's own `SoftDeletes` scope. That is
+     * exactly the kind of guarantee that holds until someone reaches for
+     * `withTrashed()` or a raw join, so it is pinned here.
+     */
+    public function test_a_deleted_monitor_leaves_the_page_rather_than_a_hole(): void
+    {
+        $team = $this->makeTeam();
+        $page = $this->makePage($team);
+
+        $survivor = $this->makeMonitor($team, ['last_status' => MonitorStatus::Up]);
+        $deletedWhileDown = $this->makeMonitor($team, ['last_status' => MonitorStatus::Down]);
+
+        $page->monitors()->attach([
+            $survivor->id => ['display_order' => 0],
+            $deletedWhileDown->id => ['display_order' => 1],
+        ]);
+
+        $deletedWhileDown->delete();
+
+        $viewModel = (new StatusPageAssembler)->build($page->fresh());
+
+        $this->assertCount(1, $viewModel->components);
+        $this->assertSame(
+            'operational',
+            $viewModel->overallStatus,
+            'a deleted monitor must not keep publishing the outage it was in',
+        );
+    }
+
     public function test_view_model_never_carries_secret_monitor_fields(): void
     {
         $team = $this->makeTeam();
