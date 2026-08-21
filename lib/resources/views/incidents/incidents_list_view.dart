@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Icons;
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
@@ -12,6 +13,7 @@ import '../../../app/models/scheduled_maintenance.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
 import '../../../app/support/formatters.dart' show formatMonthDayTime;
+import '../../../ui/components/header_action/index.dart';
 import '../../../ui/components/incident_card/incident_card.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/maintenance_card/index.dart';
@@ -183,9 +185,10 @@ class _IncidentsListViewState
                 title: trans('uptizm.incidents.list_title'),
                 subtitle: trans('uptizm.incidents.list_description'),
                 actions: [
-                  MSButton(
+                  HeaderAction(
+                    icon: Icons.add,
+                    label: trans('uptizm.incidents.new_incident'),
                     onPressed: () => MagicRoute.to('/incidents/new'),
-                    child: WText(trans('uptizm.incidents.new_incident')),
                   ),
                 ],
               ),

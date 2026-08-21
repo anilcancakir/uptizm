@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../ui/components/form_actions/index.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/team_types.dart' show TeamResponder;
@@ -393,6 +394,8 @@ class _EscalationPolicyEditorViewState
           _buildHeader(),
           const SizedBox(height: 24),
           _buildBody(),
+          const SizedBox(height: 24),
+          _buildFormActions(),
         ],
       ),
     );
@@ -457,17 +460,22 @@ class _EscalationPolicyEditorViewState
       subtitle: trans('uptizm.teams.escalation_editor_description'),
       backLabel: trans('uptizm.team_menu.escalation'),
       backFallback: '/teams/escalation',
-      actions: <Widget>[
-        MSButton(
-          disabled: _saving,
-          onPressed: _saving ? null : _save,
-          child: WText(
-            _isEdit
-                ? trans('uptizm.teams.escalation_editor_save_button')
-                : trans('uptizm.teams.escalation_editor_create_button'),
-          ),
-        ),
-      ],
+    );
+  }
+
+  /// The form's closing action row.
+  ///
+  /// At the BOTTOM rather than in the page header, matching the monitor form and
+  /// the status-page editor: a submit competing with the title for header width
+  /// crushed the title on a phone, and a user looking for Save should find it in
+  /// the same place on every form.
+  Widget _buildFormActions() {
+    return FormActions(
+      submitLabel: _isEdit
+          ? trans('uptizm.teams.escalation_editor_save_button')
+          : trans('uptizm.teams.escalation_editor_create_button'),
+      isSubmitting: _saving,
+      onSubmit: _saving ? null : _save,
     );
   }
 

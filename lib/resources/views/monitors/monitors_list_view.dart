@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -8,6 +9,7 @@ import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/status_key.dart';
+import '../../../ui/components/header_action/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 import '../../../ui/components/monitor_list_row/index.dart';
 
@@ -174,14 +176,15 @@ class _MonitorsListViewState
                 title: trans('uptizm.monitors.title'),
                 subtitle: trans('uptizm.monitors.description'),
                 actions: [
-                  MSButton(
+                  HeaderAction(
+                    icon: Icons.add,
+                    label: trans('uptizm.monitors.new_monitor'),
                     // Proactive cap: below the plan's monitor limit this opens
                     // the create flow; at the cap it nudges to upgrade instead
                     // of letting the create form 422 on save.
                     onPressed: _canCreateMonitor
                         ? () => MagicRoute.to('/monitors/new')
                         : _nudgeMonitorLimit,
-                    child: WText(trans('uptizm.monitors.new_monitor')),
                   ),
                 ],
               ),
@@ -249,8 +252,13 @@ class _MonitorsListViewState
               .round();
 
     // 2. Single-column base; widen to two then four columns at breakpoints.
+    //    `items-stretch` is what makes the row read as a row: two of these four
+    //    cards carry a hint line and two do not, so without it each card sized
+    //    to its own content and the pair on the left stood taller than the pair
+    //    on the right. The dashboard and the monitor detail KPI rows already
+    //    carried it; this one was missed.
     return WDiv(
-      className: 'grid grid-cols-2 lg:grid-cols-4 gap-4',
+      className: 'grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch',
       children: [
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_monitors_used'),

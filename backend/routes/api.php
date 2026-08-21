@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\V1\NotificationChannelController;
 use App\Http\Controllers\Api\V1\OnCallController;
 use App\Http\Controllers\Api\V1\ScheduledMaintenanceController;
 use App\Http\Controllers\Api\V1\StatusPageController;
+use App\Http\Controllers\Api\V1\StatusPageLogoController;
+use App\Http\Controllers\Api\V1\StatusPageLogoImageController;
 use App\Http\Controllers\Api\V1\StatusPagePreviewImageController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Route;
@@ -169,6 +171,22 @@ Route::get('status-pages/{statusPage:id}/preview-image', StatusPagePreviewImageC
         'throttle:status-page-preview-image',
     ])
     ->name(StatusPagePreviewImageController::ROUTE_NAME);
+
+/*
+ * The uploaded brand logo of a status page.
+ *
+ * Outside `auth:sanctum` and under `api/` for exactly the reasons the preview
+ * route above is, and with the same consequence: the signature IS the
+ * authorisation. Two consumers need it that way, an `Image.network()` in the
+ * editor and an `<img>` on the public page, and neither sends a bearer token.
+ * See {@see StatusPageLogoImageController}.
+ */
+Route::get('status-pages/{statusPage:id}/logo', StatusPageLogoImageController::class)
+    ->middleware([
+        'signed',
+        'throttle:status-page-logo-image',
+    ])
+    ->name(StatusPageLogoImageController::ROUTE_NAME);
 
 /*
 |--------------------------------------------------------------------------
@@ -346,6 +364,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // nothing else bounds it: `api/v1` is unthrottled, and the render job's
     // per-page lock releases the moment processing starts, so it caps queue
     // depth rather than request rate.
+    Route::post('status-pages/{statusPage:id}/logo', [StatusPageLogoController::class, 'store'])
+        ->name('api.v1.status-pages.logo.store');
+    Route::delete('status-pages/{statusPage:id}/logo', [StatusPageLogoController::class, 'destroy'])
+        ->name('api.v1.status-pages.logo.destroy');
     Route::post('status-pages/{statusPage:id}/preview', [StatusPageController::class, 'renderPreview'])
         ->middleware('throttle:status-page-preview-render')
         ->name('api.v1.status-pages.preview');

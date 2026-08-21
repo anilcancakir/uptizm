@@ -18,6 +18,7 @@ import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/support/status_page_support.dart' show pageUrl;
 import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
+import '../../../ui/components/form_actions/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/components/status_page_preview/index.dart';
@@ -98,6 +99,9 @@ class _StatusPageEditorViewState
   /// The lock icon standing in for the (mocked) logo-upload affordance.
   static const IconData _uploadIcon = Icons.image_outlined;
 
+  /// Glyph for the "View public page" item inside the overflow menu.
+  static const IconData _publicPageIcon = Icons.open_in_new;
+
   /// Age past which a `completed` render's rendered-at stamp pairs with the
   /// may-be-out-of-date chip (D4/D9: "beyond roughly 15 minutes").
   static const int _previewAgeChipThresholdMinutes = 15;
@@ -156,6 +160,13 @@ class _StatusPageEditorViewState
   /// Whether the resolved id maps to a real fixture (edit mode). `false` puts
   /// the editor in create mode.
   late bool _isEdit;
+
+  /// Whether a logo upload or removal is in flight.
+  ///
+  /// Its own flag rather than the form's: those writes do not go through Save,
+  /// so the form's process state never covers them, and a second tap while the
+  /// first request is open would race two writes at one path.
+  bool _logoBusy = false;
 
   /// Whether the user has edited the slug directly. While `false`, typing the
   /// name auto-slugs into the slug; the first manual slug edit latches this
@@ -589,6 +600,25 @@ class _StatusPageEditorViewState
     );
   }
 
+  /// The form's closing action row: Create on a new page, Save on an existing
+  /// one.
+  ///
+  /// Always enabled, deliberately: a blank required field surfaces its inline
+  /// error through [_save] rather than silently locking the button, which leaves
+  /// a user pressing a dead control with no idea which field is wrong.
+  Widget _buildFormActions() {
+    return FormActions(
+      submitLabel: _isEdit
+          ? trans('uptizm.status.editor_form_save')
+          : trans('uptizm.status.editor_form_create_page'),
+      // `isSubmitting` is the guard, not just the spinner: the button drops its
+      // tap while loading, so a double tap on Create cannot create two status
+      // pages (each counting against the plan limit).
+      isSubmitting: isSubmitting,
+      onSubmit: () => submitOnce(_save),
+    );
+  }
+
   /// Builds the pending state shown while the roster read that will decide
   /// whether this page exists is still in flight.
   ///
@@ -657,7 +687,7 @@ class _StatusPageEditorViewState
               : trans('uptizm.status.editor_title_new'),
           backLabel: trans('uptizm.status.editor_breadcrumb_back'),
           backFallback: _listRoute,
-          actions: _buildHeaderActions(),
+          actions: _buildHeaderActions(context),
         ),
         WText(
           pageUrl(_draftPage),
@@ -667,30 +697,59 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the header action row: a "View public page" secondary button
-  /// (disabled in create mode until the page is saved) and the Create/Save
-  /// button. The Save button is always enabled so a blank required field
-  /// surfaces its inline error on save (via [_save]) rather than silently
-  /// locking the button. Auto-width: never `w-full` in the row.
-  List<Widget> _buildHeaderActions() {
+  /// Builds the header actions: the "View public page" affordance only.
+  ///
+  /// The submit lives at the BOTTOM of the form now (see [FormActions]), not
+  /// here. Two buttons in a page header cost the title its width: on a phone
+  /// this header rendered `Sweep S...` beside them.
+  ///
+  /// Below `lg` the remaining action collapses into the same three-dot control
+  /// the monitor header uses, so one page's header reads like the next one's.
+  List<Widget> _buildHeaderActions(BuildContext context) {
+    if (!_isEdit) {
+      // Nothing to view yet: the page does not exist until the first save.
+      return const <Widget>[];
+    }
+
+    if (!wScreenIs(context, 'lg')) {
+      return <Widget>[
+        MSDropdownMenu(
+          alignment: PopoverAlignment.bottomRight,
+          className: 'w-56 bg-surface-container',
+          items: <MSDropdownMenuItem>[
+            MSDropdownMenuItem(
+              label: trans('uptizm.status.editor_form_view_public_page'),
+              leading: const WIcon(_publicPageIcon, className: 'text-[18px]'),
+              onTap: _viewPublicPage,
+            ),
+          ],
+          child: MergeSemantics(
+            child: Semantics(
+              button: true,
+              label: trans('uptizm.status.editor_actions_menu'),
+              child: WAnchor(
+                onTap: () {},
+                child: WDiv(
+                  className: 'w-11 h-11 shrink-0 rounded-md flex items-center '
+                      'justify-center text-fg-muted hover:bg-surface-container '
+                      'hover:text-fg',
+                  child: const WIcon(
+                    Icons.more_horiz,
+                    className: 'text-[20px]',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ];
+    }
+
     return <Widget>[
       MSButton(
         intent: ButtonIntent.secondary,
-        disabled: !_isEdit,
-        onPressed: _isEdit ? _viewPublicPage : null,
+        onPressed: _viewPublicPage,
         child: WText(trans('uptizm.status.editor_form_view_public_page')),
-      ),
-      MSButton(
-        // `isLoading` is the guard, not just the spinner: WButton drops its
-        // onTap while loading, so a double tap on Create cannot create two
-        // status pages (each counting against the plan limit).
-        isLoading: isSubmitting,
-        onPressed: () => submitOnce(_save),
-        child: WText(
-          _isEdit
-              ? trans('uptizm.status.editor_form_save')
-              : trans('uptizm.status.editor_form_create_page'),
-        ),
       ),
     ];
   }
@@ -707,7 +766,14 @@ class _StatusPageEditorViewState
       children: [
         WDiv(
           className: 'lg:flex-1 min-w-0 w-full flex flex-col gap-6',
-          children: _buildConfigColumn(),
+          children: <Widget>[
+            ..._buildConfigColumn(),
+            // The submit closes the FIELDS, not the page. Below `lg` the
+            // preview pane stacks under this column, so a footer placed after
+            // the whole body left Save under a preview image the user had to
+            // scroll past.
+            _buildFormActions(),
+          ],
         ),
         WDiv(
           className: 'lg:w-[380px] w-full flex flex-col gap-2',
@@ -902,58 +968,149 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds the fallback-initials field plus the mocked logo-upload affordance.
+  /// Builds the brand mark: the uploaded logo or its initials fallback, the
+  /// upload and remove controls, and the initials input.
   ///
-  /// The upload button is a disabled mock (initials + color only; no file
-  /// picker is wired, Risk Accepted). The initials input caps at 2 characters.
+  /// The logo is written IMMEDIATELY, unlike every other field on this form: it
+  /// is a file on a disk rather than a column in the draft, so there is nothing
+  /// for Save to carry. The hint says so, because a control that saves on its
+  /// own next to eight that do not is otherwise a trap.
+  ///
+  /// A page that does not exist yet has nothing to attach a file to, so before
+  /// the first save the affordance is disabled and says why rather than failing
+  /// on a request with no id.
   Widget _buildLogoField() {
-    final String initials = _logoText.isNotEmpty
-        ? _logoText
-        : (_name.isNotEmpty ? _name.substring(0, 1) : 'A');
+    final StatusPage? page = _isEdit ? controller.configById(_draftId) : null;
+    final String? logoUrl = page?.logoUrl;
+
     return MSFormField(
-      label: trans('uptizm.status.editor_form_logo_text_label'),
-      hint: trans('uptizm.status.editor_form_logo_text_hint'),
+      label: trans('uptizm.status.editor_form_logo_label'),
+      hint: _isEdit
+          ? trans('uptizm.status.editor_form_logo_hint')
+          : trans('uptizm.status.editor_form_logo_hint_unsaved'),
       child: WDiv(
         className: 'flex flex-col gap-3',
         children: <Widget>[
+          // `wrap`, not a row: this field sits in a two-column form grid on a
+          // desktop and full width on a phone, so a mark plus a labelled button
+          // is wider than the cell at some widths, and a Row overflowed it by
+          // 87px. A Wrap flows the controls under the mark instead.
           WDiv(
-            className: 'flex flex-row items-center gap-3',
+            className: 'wrap items-center gap-3',
             children: <Widget>[
+              _buildBrandMark(logoUrl),
               WDiv(
-                backgroundColor: _brandColor,
-                className:
-                    'size-12 shrink-0 rounded-lg flex items-center justify-center',
-                child: WText(
-                  initials,
-                  className: 'text-base font-bold text-white',
-                ),
-              ),
-              MSButton(
-                intent: ButtonIntent.secondary,
-                size: ButtonSize.sm,
-                disabled: true,
-                onPressed: null,
-                child: WDiv(
-                  className: 'flex flex-row items-center gap-1.5',
-                  children: <Widget>[
-                    WIcon(_uploadIcon, className: 'text-sm'),
-                    WText(trans('uptizm.status.editor_form_logo_label')),
-                  ],
-                ),
+                className: 'wrap gap-1.5 items-center',
+                children: <Widget>[
+                  MSButton(
+                    intent: ButtonIntent.secondary,
+                    size: ButtonSize.sm,
+                    disabled: !_isEdit || _logoBusy,
+                    onPressed: !_isEdit || _logoBusy ? null : _onPickLogo,
+                    child: WDiv(
+                      className: 'flex flex-row items-center gap-1.5',
+                      children: <Widget>[
+                        WIcon(_uploadIcon, className: 'text-sm'),
+                        WText(
+                          logoUrl == null
+                              ? trans('uptizm.status.editor_form_logo_upload')
+                              : trans('uptizm.status.editor_form_logo_replace'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (logoUrl != null)
+                    MSButton(
+                      intent: ButtonIntent.ghost,
+                      size: ButtonSize.sm,
+                      disabled: _logoBusy,
+                      onPressed: _logoBusy ? null : _onRemoveLogo,
+                      child: WText(
+                        trans('uptizm.status.editor_form_logo_remove'),
+                        className: 'text-down',
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
-          MSInput(
-            value: _logoText,
-            onChanged: (String value) => setState(
-              () =>
-                  _logoText = value.length > 2 ? value.substring(0, 2) : value,
+          // The initials keep their own label, because with a logo set they are
+          // not visibly in play and the field would otherwise read as dead.
+          MSFormField(
+            label: trans('uptizm.status.editor_form_logo_text_label'),
+            hint: trans('uptizm.status.editor_form_logo_text_hint'),
+            child: MSInput(
+              value: _logoText,
+              onChanged: (String value) => setState(
+                () => _logoText =
+                    value.length > 2 ? value.substring(0, 2) : value,
+              ),
+              className: 'max-w-20',
             ),
-            className: 'max-w-20',
           ),
         ],
       ),
     );
+  }
+
+  /// The 48pt mark: the uploaded image when there is one, the initials over the
+  /// brand colour when there is not.
+  ///
+  /// Mirrors `status/partials/brand-header.blade.php`, deliberately: this is a
+  /// preview of a public surface, so the two have to agree on which of the two
+  /// states a page is in and on `contain` rather than `cover` for the artwork.
+  Widget _buildBrandMark(String? logoUrl) {
+    if (logoUrl != null) {
+      return WDiv(
+        className: 'size-12 shrink-0 rounded-lg overflow-hidden '
+            'bg-surface-container-high',
+        child: Image.network(
+          logoUrl,
+          width: 48,
+          height: 48,
+          fit: BoxFit.contain,
+          // A signed URL expires, and a file can go missing out of band. The
+          // fallback is the same mark the public page falls back to, so a
+          // failed fetch reads as "no logo" rather than as a broken editor.
+          errorBuilder: (_, _, _) => _buildInitialsMark(),
+        ),
+      );
+    }
+
+    return _buildInitialsMark();
+  }
+
+  /// The initials tile, used both as the no-logo state and as the fallback when
+  /// an image fails to load.
+  Widget _buildInitialsMark() {
+    final String initials = _logoText.isNotEmpty
+        ? _logoText
+        : (_name.isNotEmpty ? _name.substring(0, 1) : 'A');
+
+    return WDiv(
+      backgroundColor: _brandColor,
+      className: 'size-12 shrink-0 rounded-lg flex items-center justify-center',
+      child: WText(initials, className: 'text-base font-bold text-white'),
+    );
+  }
+
+  /// Picks an image and uploads it as this page's logo.
+  Future<void> _onPickLogo() async {
+    final MagicFile? file = await Pick.image();
+    if (file == null || !mounted) return;
+
+    setState(() => _logoBusy = true);
+    await controller.uploadLogo(_draftId, file);
+    if (!mounted) return;
+    setState(() => _logoBusy = false);
+  }
+
+  /// Removes this page's logo, falling the mark back to its initials.
+  Future<void> _onRemoveLogo() async {
+    setState(() => _logoBusy = true);
+    await controller.removeLogo(_draftId);
+    if (!mounted) return;
+    setState(() => _logoBusy = false);
   }
 
   /// Builds the description textarea.
@@ -1040,7 +1197,7 @@ class _StatusPageEditorViewState
               if (_isPublicError != null)
                 WText(
                   _isPublicError!,
-                  className: 'text-xs text-destructive dark:text-destructive',
+                  className: 'text-xs text-down',
                 ),
               if (!mayGoPrivate)
                 MSUpgradeNudge(
@@ -1546,7 +1703,13 @@ class _StatusPageEditorViewState
       className: 'flex flex-row items-center gap-3',
       children: <Widget>[
         MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
-        WText(label, className: 'min-w-0 text-sm text-fg'),
+        // `flex-1`, not `min-w-0` alone: the switch is a fixed 44pt and the
+        // label is unbounded, so a Row sized them both to their natural width
+        // and overflowed on a phone. `min-w-0` does nothing without a flex
+        // wrapper to shrink INTO. Measured at 402pt on this form's own
+        // subscriptions row, and Turkish labels are longer than the English
+        // ones that first fit.
+        WText(label, className: 'flex-1 min-w-0 text-sm text-fg'),
       ],
     );
   }

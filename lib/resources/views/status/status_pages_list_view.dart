@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -10,6 +11,7 @@ import '../../../app/support/status_page_support.dart'
     show pageUrl, worstStatus;
 import '../../../app/support/status_page_types.dart' show PublicComponent;
 import '../../../app/models/status_page.dart';
+import '../../../ui/components/header_action/index.dart';
 import '../../../ui/components/status_badge/index.dart';
 
 /// **The Status Pages list screen.**
@@ -125,14 +127,15 @@ class _StatusPagesListViewState
             title: trans('uptizm.status.list_title'),
             subtitle: trans('uptizm.status.list_description'),
             actions: [
-              MSButton(
+              HeaderAction(
+                icon: Icons.add,
+                label: trans('uptizm.status.list_new_page_action'),
                 // Proactive cap: below the plan's status-page limit this opens
                 // the create flow; at the cap it nudges to upgrade instead of
                 // letting the create form 422 on save.
                 onPressed: _canCreateStatusPage
                     ? () => MagicRoute.to('/status/new')
                     : _nudgeStatusPageLimit,
-                child: WText(trans('uptizm.status.list_new_page_action')),
               ),
             ],
           ),

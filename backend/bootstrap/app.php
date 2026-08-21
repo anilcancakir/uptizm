@@ -335,6 +335,17 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => Limit::perMinute(60)->by((string) $request->ip()),
         );
 
+        // The logo route is the same kind of route as the one above: signed,
+        // unauthenticated by necessity, keyed on the only thing available. Its
+        // own ceiling rather than a shared one, because the public status page
+        // embeds the logo on every visit while the preview PNG is read once per
+        // render, so a busy page's visitors must not be able to exhaust the
+        // budget the editor's preview pane depends on.
+        RateLimiter::for(
+            'status-page-logo-image',
+            fn (Request $request) => Limit::perMinute(120)->by((string) $request->ip()),
+        );
+
         // Throttle the public subscribe write per IP AND per submitted email, so
         // neither a single host nor a single targeted address can be used to
         // spray confirm mail or brute the endpoint. Both limits must pass.

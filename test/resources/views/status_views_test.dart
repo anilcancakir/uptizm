@@ -11,6 +11,7 @@ import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
 import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
 import 'package:uptizm/resources/views/status/status_page_subscribers_view.dart';
 import 'package:uptizm/resources/views/status/status_pages_list_view.dart';
+import 'package:uptizm/ui/components/form_actions/index.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 import 'package:uptizm/ui/components/status_page_preview/index.dart';
 
@@ -122,9 +123,17 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.editor_form_slug_label': 'Slug',
       'uptizm.status.editor_form_slug_placeholder': 'acme',
       'uptizm.status.editor_form_brand_color_label': 'Brand color',
-      'uptizm.status.editor_form_logo_text_label': 'Logo',
+      'uptizm.status.editor_form_logo_text_label': 'Initials',
       'uptizm.status.editor_form_logo_text_hint': 'Up to 2 characters.',
-      'uptizm.status.editor_form_logo_label': 'Upload',
+      'uptizm.status.editor_form_logo_label': 'Logo',
+      // The logo block's own five keys. Values match the shipped catalogue
+      // rather than paraphrasing it: a stub that says something else is a test
+      // asserting a string the app never renders.
+      'uptizm.status.editor_form_logo_hint': 'PNG, JPG or WebP, up to 512 KB.',
+      'uptizm.status.editor_form_logo_hint_unsaved': 'Save the page first.',
+      'uptizm.status.editor_form_logo_upload': 'Upload logo',
+      'uptizm.status.editor_form_logo_replace': 'Replace',
+      'uptizm.status.editor_form_logo_remove': 'Remove logo',
       'uptizm.status.editor_form_description_label': 'Description',
       'uptizm.status.editor_form_description_placeholder':
           'Real-time status of our services.',
@@ -226,6 +235,7 @@ Map<String, dynamic> _previewPayload({
   String? previewImageUrl,
   DateTime? previewRenderedAt,
   DateTime? updatedAtOverride,
+  String? logoUrl,
 }) {
   return <String, dynamic>{
     'id': id,
@@ -234,6 +244,7 @@ Map<String, dynamic> _previewPayload({
     'domain_mode': 'path',
     'brand_color': '#16A34A',
     'logo_text': 'A',
+    'logo_url': ?logoUrl,
     'description': "Real-time status of Acme's services.",
     'subscriptions_enabled': true,
     'monitors': const <Map<String, dynamic>>[],
@@ -276,6 +287,7 @@ StatusPage _showShapedPage({
   String? previewRenderStatus,
   DateTime? previewRenderedAt,
   DateTime? updatedAtOverride,
+  String? logoUrl,
 }) {
   return StatusPage.fromMap(
     _previewPayload(
@@ -283,6 +295,7 @@ StatusPage _showShapedPage({
       previewImageUrl: previewImageUrl,
       previewRenderedAt: previewRenderedAt,
       updatedAtOverride: updatedAtOverride,
+      logoUrl: logoUrl,
     ),
   );
 }
@@ -1125,6 +1138,161 @@ void main() {
         find.text(trans('uptizm.status.editor_preview_retry_action')),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a page with no logo offers an upload and no remove', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Upload logo'), findsOneWidget);
+      // Nothing to remove, so offering it would be a control that answers with
+      // a no-op, and the mark falls back to the initials instead.
+      expect(find.text('Remove logo'), findsNothing);
+      expect(find.text('Replace'), findsNothing);
+      expect(find.byType(Image), findsNothing);
+    });
+
+    testWidgets('an uploaded logo renders as the mark and can be replaced', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(logoUrl: 'https://example.test/logo.png?signature=x'),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await tester.pump();
+
+      // The brand mark is the image itself, not the initials tile: this field
+      // is a preview of a public surface, and the public header makes the same
+      // either-or choice.
+      expect(find.byType(Image), findsWidgets);
+      expect(find.text('Replace'), findsOneWidget);
+      expect(find.text('Remove logo'), findsOneWidget);
+      expect(find.text('Upload logo'), findsNothing);
+    });
+
+    testWidgets('the submit closes the form instead of crowding the header', (
+      tester,
+    ) async {
+      // Two buttons in a page header cost the title its width: on a phone this
+      // header rendered `Sweep S...` beside View public page and Save. The
+      // submit belongs at the bottom of the fields, where the monitor form
+      // already put it.
+      await tester.binding.setSurfaceSize(const Size(402, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(402, 4000),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(FormActions), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(MSPageHeader),
+          matching: find.text('Save'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a phone puts the remaining header action behind the menu', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(402, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(402, 4000),
+        ),
+      );
+      await tester.pump();
+
+      // Same overflow control the monitor header uses, so one page's header
+      // reads like the next one's.
+      expect(
+        find.ancestor(
+          of: find.byIcon(Icons.more_horiz),
+          matching: find.byType(MSDropdownMenu),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('View public page'), findsNothing);
+    });
+
+    testWidgets('a desktop keeps the header action labelled', (tester) async {
+      StatusPageController.instance.seedForTest(<StatusPage>[
+        _showShapedPage(),
+      ]);
+
+      await tester.pumpWidget(
+        wrap(
+          const StatusPageEditorView(id: _previewPageId),
+          size: const Size(1280, 4000),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('View public page'), findsOneWidget);
+      // And the submit is still the footer's, not the header's.
+      expect(find.byType(FormActions), findsOneWidget);
+    });
+
+    testWidgets('an unsaved page cannot upload a logo yet', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(const StatusPageEditorView(), size: const Size(1280, 4000)),
+      );
+      await tester.pump();
+
+      // There is no page to attach a file to before the first save, so the
+      // control says so rather than failing on a request with no id.
+      expect(find.text('Save the page first.'), findsOneWidget);
+      final MSButton upload = tester.widget<MSButton>(
+        find.ancestor(
+          of: find.text('Upload logo'),
+          matching: find.byType(MSButton),
+        ),
+      );
+      expect(upload.onPressed, isNull);
     });
 
     testWidgets(

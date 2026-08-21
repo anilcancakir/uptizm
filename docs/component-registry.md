@@ -508,6 +508,32 @@ Components backed by a Wind W-widget with no recipe layer.
 
 ---
 
+### FormActions
+
+- **File**: `lib/ui/components/form_actions/`
+- **Class**: `FormActions`
+- **Purpose**: The row that closes a form: an optional Cancel and the primary submit, right-aligned under the fields. It is where a submit LIVES in this app, so a user finds Save in the same place on every screen. Used by the monitor form, the status-page editor and the escalation-policy editor.
+- **Token bindings**: none of its own; the buttons carry `MSButton`'s intents (`primary`, `secondary`).
+- **Limitations**: `isSubmitting` is the guard as well as the spinner, since `MSButton` drops its tap while loading. A null `onSubmit` renders the submit disabled.
+- **Anti-patterns**:
+  - Do not put a form's submit in `MSPageHeader.actions`. Two buttons there cost the title its width; on a phone the status-page editor rendered `Sweep S...` beside them, which is what moved this row to the bottom.
+  - Do not give either button `w-full`. A Wind full-width button hands its row an unbounded child and aborts the layout; the row is a `wrap`, so a long label flows onto its own line instead.
+
+---
+
+### HeaderAction
+
+- **File**: `lib/ui/components/header_action/`
+- **Class**: `HeaderAction`
+- **Purpose**: A page-header action that renders as a glyph below `lg` and as the labelled `MSButton` above it. For the single create action a list page carries (`+` on monitors, incidents, escalation policies, status pages).
+- **Token bindings**: `text-primary` (primary intent), `text-fg-muted` (secondary), `text-fg-disabled` (no callback), `hover:bg-surface-container`.
+- **Limitations**: sized to the 44pt tap-target floor, matching the monitor header's overflow control so a page carrying both reads as one family. A null `onPressed` drops the anchor entirely rather than rendering a control that announces a tap it will not perform.
+- **Anti-patterns**:
+  - Do not use it for a form submit; that is `FormActions` at the bottom of the form.
+  - Do not wrap it in a bare `Semantics` without `MergeSemantics`: the tap action sits on the gesture detector inside, so a screen reader would see one named node with no action and one actionable node with no name.
+
+---
+
 ## Anti-patterns (global)
 
 | Anti-pattern | Category | Fix |

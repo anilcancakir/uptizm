@@ -57,12 +57,6 @@ class UpdateStatusPageRequest extends StoreStatusPageRequest
                 'max:9',
                 'regex:/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/',
             ],
-            'logo_path' => [
-                'sometimes',
-                'nullable',
-                'string',
-                'max:255',
-            ],
             'logo_text' => [
                 'sometimes',
                 'nullable',

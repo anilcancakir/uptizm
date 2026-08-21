@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Http\Controllers\Api\V1\StatusPagePreviewImageController;
 use App\Models\StatusPage;
+use App\Support\SignedAssetUrl;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Carbon;
@@ -43,8 +44,6 @@ class StatusPageResource extends JsonResource
      * Quantising the expiry is what makes the URL stable; see
      * {@see self::signatureExpiresAt()}.
      */
-    protected const EXPIRY_BUCKET_SECONDS = 900;
-
     /**
      * Transform the status page into its wire representation.
      *
@@ -62,7 +61,10 @@ class StatusPageResource extends JsonResource
             'domain_mode' => $this->resource->domain_mode->value,
             'custom_domain' => $this->resource->custom_domain,
             'brand_color' => $this->resource->brand_color,
-            'logo_path' => $this->resource->logo_path,
+            // The raw path is deliberately NOT exposed. It is a storage key on a
+            // private disk, so it is useless to a client and misleading to read:
+            // the only way to see the bytes is the signed URL below.
+            'logo_url' => $this->logoUrl(),
             'logo_text' => $this->resource->logo_text,
             'description' => $this->resource->description,
             // The language the public page publishes in, null for the deployment
@@ -155,6 +157,21 @@ class StatusPageResource extends JsonResource
      * are not distinguishable here, which no real render can be (one holds a
      * Chromium process for seconds, and the job is unique per page while queued).
      */
+    /**
+     * Signed URL for the uploaded brand logo, or null when the page has none.
+     *
+     * Minted by {@see SignedAssetUrl::forStatusPageLogo()} rather than here,
+     * because the assembled public read model mints the same URL for the Blade
+     * page and the two must agree.
+     *
+     * Unlike the preview PNG this is NOT restricted to `show`: the editor needs
+     * it, and so does anything rendering a page's brand mark from a list.
+     */
+    protected function logoUrl(): ?string
+    {
+        return SignedAssetUrl::forStatusPageLogo($this->resource);
+    }
+
     protected function previewImageUrl(): ?string
     {
         $path = $this->resource->preview_image_path;
@@ -177,20 +194,13 @@ class StatusPageResource extends JsonResource
     /**
      * Expiry quantised to the next-but-one bucket boundary.
      *
-     * Rounding DOWN to the current boundary and then adding two buckets, rather
-     * than rounding up to the next one, is deliberate: rounding up alone hands
-     * out a URL with seconds of validity left to a caller that arrives at the end
-     * of a bucket. The cost of the extra bucket is that a URL's real lifetime is
-     * between one and two buckets (15 to 30 minutes) instead of exactly one, so
-     * the leak window in the plan's risk table is up to the wider figure. That is
-     * the honest number for a URL that must also stay stable.
+     * The rule, and why it rounds down and adds two buckets rather than rounding
+     * up, lives on {@see SignedAssetUrl::expiresAt()}: the logo URL is minted
+     * from there too, and two copies of an expiry rule drift into an image that
+     * 403s on one surface and not the other.
      */
     protected function signatureExpiresAt(): Carbon
     {
-        $bucket = self::EXPIRY_BUCKET_SECONDS;
-
-        return Carbon::createFromTimestamp(
-            intdiv(Carbon::now()->getTimestamp(), $bucket) * $bucket + (2 * $bucket),
-        );
+        return SignedAssetUrl::expiresAt();
     }
 }

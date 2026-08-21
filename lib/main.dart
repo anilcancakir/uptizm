@@ -14,6 +14,7 @@ import 'config/broadcasting.dart';
 import 'config/deeplink.dart';
 import 'config/localization.dart';
 import 'config/wind_theme.g.dart';
+import 'config/page_header_theme.dart';
 import 'config/uptizm_status_tokens.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:magic_devtools/magic_devtools.dart';
@@ -139,6 +140,11 @@ Future<void> _boot() async {
       insetClassName:
           'bg-surface-container-high border border-color-border-subtle',
       titleClassName: 'text-lg font-semibold text-fg',
+      // The starter default is `p-6 gap-4` at every width. On a phone two KPI
+      // cards sit side by side inside a 402pt screen, so 24pt of padding per
+      // card spends 96pt of the row on air and pushes a four-card grid most of
+      // a viewport tall. 16pt on a phone, the original 24 from `lg`.
+      paddingClassName: 'p-4 gap-3 lg:p-6 lg:gap-4',
     ),
   );
 
@@ -159,6 +165,11 @@ Future<void> _boot() async {
           'border-color-border text-fg text-sm font-medium',
     ),
   );
+
+  // Page headers: a phone gets one tight row, a desktop keeps the roomier one.
+  // The values, and why they differ per breakpoint, live in
+  // lib/config/page_header_theme.dart so a widget test can measure them.
+  MagicStarter.usePageHeaderTheme(uptizmPageHeaderTheme);
 
   runApp(
     MagicApplication(

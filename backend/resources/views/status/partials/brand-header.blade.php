@@ -4,6 +4,21 @@
     // assembler. It is TENANT DATA, not a design token: it cannot flip with the
     // reader's colour scheme, and it is the one inline colour on this page.
     $brandColor = $vm->page['brand_color'] ?? null;
+
+    // The uploaded logo, already a signed URL when there is one (the assembler
+    // mints it; see StatusPageAssembler::buildPage()). With an image the tile
+    // carries no colour and no initials: a brand mark is either the customer's
+    // artwork or our fallback, never both stacked on each other.
+    $logoUrl = $vm->page['logo_url'] ?? null;
+
+    // Two characters, defensively. The write path caps the field, but a row
+    // authored before that cap, or edited outside this app, would otherwise
+    // stretch a fixed 48pt square into a broken header.
+    $initials = \Illuminate\Support\Str::substr(
+        $vm->page['logo_text'] ?: $vm->page['name'],
+        0,
+        2,
+    );
 @endphp
 
 <header class="flex items-center gap-3 pb-6">
@@ -19,16 +34,29 @@
         flips with everything else. The previous default was a hardcoded near-black,
         which read as a hole in the page in dark mode.
     --}}
-    <div
-        @class([
-            'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-lg font-semibold',
-            'text-white' => $brandColor !== null,
-            'bg-primary text-on-primary' => $brandColor === null,
-        ])
-        @if ($brandColor !== null) style="background-color: {{ $brandColor }}" @endif
-    >
-        {{ $vm->page['logo_text'] ?? \Illuminate\Support\Str::substr($vm->page['name'], 0, 2) }}
-    </div>
+    @if ($logoUrl !== null)
+        {{-- `object-contain` and not `cover`: a logo is artwork with its own
+             aspect ratio, and cropping someone's brand mark to fill a square is
+             worse than letting it sit inside one. --}}
+        <img
+            src="{{ $logoUrl }}"
+            alt="{{ $vm->page['name'] }}"
+            width="48"
+            height="48"
+            class="h-12 w-12 shrink-0 rounded-lg object-contain"
+        >
+    @else
+        <div
+            @class([
+                'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-lg font-semibold',
+                'text-white' => $brandColor !== null,
+                'bg-primary text-on-primary' => $brandColor === null,
+            ])
+            @if ($brandColor !== null) style="background-color: {{ $brandColor }}" @endif
+        >
+            {{ $initials }}
+        </div>
+    @endif
 
     <div>
         <h1 class="text-xl font-semibold">{{ $vm->page['name'] }}</h1>

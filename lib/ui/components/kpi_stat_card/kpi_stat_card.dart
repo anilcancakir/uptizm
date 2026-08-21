@@ -116,16 +116,18 @@ class KpiStatCard extends StatelessWidget {
           // iPhone read "98.90%" as "98." over "90". A number split across two
           // lines is not a smaller number, it is a different one.
           //
-          // 1.4 is measured: the widest realistic value is seven monospace
-          // characters ("100.00%"), Geist Mono advances at about 0.6em, and
-          // 7 x 0.6 x (24 x 1.4) = 141pt against the ~146pt a cell leaves. The
-          // label, the delta and the hint all keep scaling without a cap.
+          // 1.4 is measured against the 24px desktop step: the widest realistic
+          // value is seven monospace characters ("100.00%"), Geist Mono advances
+          // at about 0.6em, and 7 x 0.6 x (24 x 1.4) = 141pt against the ~146pt
+          // a cell leaves. A phone now renders 20px, so the headroom only grows
+          // and the same cap holds. The label, the delta and the hint all keep
+          // scaling without a cap.
           MediaQuery.withClampedTextScaling(
             maxScaleFactor: 1.4,
             child: WText(
               value,
-              className:
-                  'font-mono text-2xl font-semibold tabular-nums text-fg',
+              className: 'font-mono text-xl font-semibold tabular-nums text-fg '
+                  'lg:text-2xl',
             ),
           ),
           if (delta != null)

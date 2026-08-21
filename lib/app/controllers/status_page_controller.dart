@@ -597,6 +597,87 @@ class StatusPageController extends MagicController
     }
   }
 
+  /// Uploads [file] as the page [pageId]'s brand logo via
+  /// `POST /status-pages/{pageId}/logo`.
+  ///
+  /// The response is the full page resource, so the cache is updated from it
+  /// rather than refetched: the only field that changed is `logo_url`, and a
+  /// second round trip would leave the brand mark showing the previous image
+  /// for as long as it took.
+  ///
+  /// Returns whether the upload landed. A rejected file (wrong type, too large,
+  /// too many pixels) is a 422 the backend words for us, so the message is
+  /// surfaced as-is rather than replaced with a generic failure.
+  Future<bool> uploadLogo(String pageId, MagicFile file) async {
+    try {
+      final response = await Http.upload(
+        '/status-pages/$pageId/logo',
+        data: const <String, dynamic>{},
+        files: <String, MagicFile>{'logo': file},
+      );
+
+      if (!response.successful) {
+        Log.error(
+          '[StatusPageController.uploadLogo] $pageId: ${response.errorMessage}',
+        );
+        _toastError(response.errorMessage);
+        return false;
+      }
+
+      _replaceCachedPageFromResponse(response);
+      refreshUI();
+      return true;
+    } catch (error) {
+      Log.error('[StatusPageController.uploadLogo] $pageId failed: $error');
+      _toastError(null);
+      return false;
+    }
+  }
+
+  /// Removes the page [pageId]'s brand logo via
+  /// `DELETE /status-pages/{pageId}/logo`, falling the mark back to initials.
+  ///
+  /// Idempotent on the backend, so a double tap is a success rather than a 404
+  /// this has to special-case.
+  Future<bool> removeLogo(String pageId) async {
+    try {
+      final response = await Http.delete('/status-pages/$pageId/logo');
+
+      if (!response.successful) {
+        Log.error(
+          '[StatusPageController.removeLogo] $pageId: ${response.errorMessage}',
+        );
+        _toastError(response.errorMessage);
+        return false;
+      }
+
+      _replaceCachedPageFromResponse(response);
+      refreshUI();
+      return true;
+    } catch (error) {
+      Log.error('[StatusPageController.removeLogo] $pageId failed: $error');
+      _toastError(null);
+      return false;
+    }
+  }
+
+  /// Writes the page carried by a write response into the roster cache.
+  ///
+  /// Both logo writes answer with the same resource shape `show` does, so the
+  /// cache can be updated without a refetch. A response that does not carry a
+  /// `data` object is left alone rather than clearing the entry: the write
+  /// succeeded, and dropping a cached page on an unexpected body would blank a
+  /// screen that is otherwise correct.
+  void _replaceCachedPageFromResponse(MagicResponse response) {
+    final dynamic data = response.data is Map<String, dynamic>
+        ? (response.data as Map<String, dynamic>)['data']
+        : null;
+
+    if (data is! Map<String, dynamic>) return;
+
+    _replaceCachedPage(StatusPage()..fill(data));
+  }
+
   /// Bulk-reorders the page [pageId]'s attached monitors via
   /// `PUT /status-pages/{pageId}/monitors/reorder`.
   ///
