@@ -335,6 +335,26 @@ the reason. Two exclusions mirror guards the evaluator already applies: an
 name), and the scope is the metric's own monitor, since a key is unique per
 monitor and two monitors may both measure `cpu`.
 
+### F21 (fixed) A page with no measurement published "All Systems Operational"
+
+`SP-4`, `SP-5`, and the most consequential finding of the pass. `unknown` is not
+on the severity ladder, because it is the absence of a severity rather than a rung
+of it, so `worstOf` skipped it and returned the ladder's bottom. A page whose
+components were all published and none of them ever probed therefore published
+**operational**.
+
+That is the state EVERY monitor is in for its first interval, and the state a
+monitor stays in for as long as our own edge cannot probe it at all: exactly when
+a status page must not claim health. The empty-page case had already been fixed
+with the same reasoning and the same sentence in its comment; the case one step
+along, where components exist and none is measured, fell through it.
+
+One measured component is now enough to earn a verdict, and it decides among the
+measured ones. The unmeasured components still read `unknown` on their own rows,
+so nothing is hidden by letting what IS known speak. Three cases: all-unknown,
+never-probed, and the mixed page where one down component still turns the banner
+red.
+
 ### Checked and closed without a change
 
 - **The AI auto-resolve path's three silent skip branches** (no active AI
