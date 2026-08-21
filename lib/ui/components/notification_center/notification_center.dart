@@ -333,18 +333,20 @@ class _NotificationCenterState extends State<NotificationCenter> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       // A Wrap rather than a Row, because the panel is `w-80` (320px, so a
-      // 294px content row) and the two labels do not always share one line.
-      // Measured against the shipped catalogues at their real styles: the title
-      // needs 157 in Turkish and 186 in English, the action 196 in English, and
-      // the Row put them side by side unconditionally. English silently clipped
-      // its title to 98px, and Turkish threw `A RenderFlex overflowed by 61
-      // pixels` outright, which the suite never saw because this file's loader
-      // hands out English literals.
+      // 294px content row) and the two labels cannot always share one line.
       //
-      // Wrap drops the action to its own line instead of clipping either label,
-      // so both locales now render whole: Turkish fits on one line (157 + 123),
-      // English takes two. `truncate` stays on both as the last resort for a
-      // single label longer than a whole line, which no shipped string is.
+      // Measured in the running Chrome build at the real Geist metrics, not in
+      // a widget test: at the base text scale both locales fit side by side
+      // (English 85 + 85, Turkish 69 + 165, against 294). The case that does
+      // NOT fit is an accessibility text scale, where the Turkish pair needs
+      // 312 at 1.3x and 476 at 2x. A Row overflowed there; the Wrap drops the
+      // action to its own run instead.
+      //
+      // Worth knowing before re-measuring this in a widget test: the test font
+      // is roughly one em per glyph, which inflates the Turkish label to about
+      // 355 against the same 294 and reports a base-scale overflow the app does
+      // not have. `truncate` stays on both labels as the last resort for a
+      // single label longer than a whole line.
       child: Wrap(
         spacing: 8,
         runSpacing: 4,
