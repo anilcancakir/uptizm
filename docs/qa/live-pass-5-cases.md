@@ -319,6 +319,22 @@ are NOT: the DOM carries exactly one button element per row. That one was a
 `dusk:snap` artifact, which is why the test asserts the semantics tree rather
 than what the snapshot prints.
 
+### F20 (fixed) Deleting a metric left its incident open forever
+
+`CM-7`. The metric lane's auto-resolve asks whether the trailing run of frozen
+bands for a metric KEY is clear, and a deleted metric produces no further
+samples, so the run stayed whatever it was at the breach and the answer was no
+forever. Nothing else closed it either: `resolveIfRecovered` is scoped to
+`trigger_metric_key IS NULL`, and `closeOrphanedBy` only fires when the MONITOR
+goes. The incident sat `detected` until somebody noticed it.
+
+`closeOrphanedByMetric` mirrors the monitor-deleted precedent one level down,
+including its silence (no page, no public update) and its internal note stating
+the reason. Two exclusions mirror guards the evaluator already applies: an
+`ai_owned` incident is not the metric's (its `trigger_metric_key` is a signal
+name), and the scope is the metric's own monitor, since a key is unique per
+monitor and two monitors may both measure `cpu`.
+
 ### Checked and closed without a change
 
 - **The AI auto-resolve path's three silent skip branches** (no active AI
