@@ -431,6 +431,16 @@ rather than a pixel count).
 Verified live in uptizm at 430px against the patched sibling: the stripe is gone
 and the hint wraps under the label.
 
+- `SP-9`: an active window created through the API renders on the public page
+  with its title, its own section and an "in progress" state, and does not
+  participate in the component roll-up: the banner stayed red because two
+  monitors were genuinely down, not because of the window.
+- Slug enumeration is throttled: 30 unknown slugs answer 404 and the 31st
+  answers 429, per IP.
+- There are no RSS / atom / JSON feed routes on the public surface. Nothing to
+  test, and worth recording as a negative result rather than a gap somebody
+  assumes was covered.
+
 ### Open, not yet fixed
 
 - **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,
