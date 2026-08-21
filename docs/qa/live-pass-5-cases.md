@@ -285,6 +285,55 @@ user answered 500") and with it in place (passes).
 - The metric close path took exactly two healthy rounds (bounds raised 13:45:53,
   resolved 13:46:33, six ok samples = two rounds of three regions).
 
+### F18 (fixed) The channel throttle dropped a second outage
+
+`N-4`. `dispatchChannels` claimed a cache key of `(channel, event)` for 60
+seconds, so a second incident opening inside that window was DROPPED on every
+integration channel: not deferred, not queued, dropped, with nothing anywhere
+saying so. One shared dependency failing takes several monitors down inside the
+same half minute, and the team's Slack hears about one of them. The key now
+carries the incident, so the window still coalesces repeated announcements of the
+SAME incident (what a resolve-and-still-broken loop produces) and no longer
+collapses distinct outages into one.
+
+**This is a behaviour change worth a veto**: a burst of N distinct incidents is
+now N sends rather than one. Each is a real, separate outage, and the four
+integration channels already carry a bounded Retry-After-aware retry for an
+endpoint that rate-limits, so the trade is deliberate.
+
+### F19 (fixed) Every shell control was announced twice, and unnamed
+
+`X-4`. `WPopover` wraps its trigger in an unlabelled
+`Semantics(button: true, onTap: toggle)`, because its toggle runs on a raw
+`Listener` that assistive technology cannot see, and the trigger content produces
+a node of its own. Measured in the DOM at 1280px: the team switcher, the bell and
+the account menu each rendered TWO overlapping buttons, none of the six carrying
+an `aria-label`, and the bell's only accessible name was the unread COUNT ("14").
+`ShellControlSemantics` merges each into one named node, above the popover rather
+than inside its trigger builder. Measured after: three nodes instead of six,
+named, at 1200px and 430px.
+
+The nav rows in the same snapshot look like the same defect (an inactive
+destination prints as a button nested inside an identically-labelled button) and
+are NOT: the DOM carries exactly one button element per row. That one was a
+`dusk:snap` artifact, which is why the test asserts the semantics tree rather
+than what the snapshot prints.
+
+### Checked and closed without a change
+
+- **The AI auto-resolve path's three silent skip branches** (no active AI
+  incident, no numeric level on its evidence, too few readings). All three are
+  fail-closed guards on states that do not occur: every `ai_owned` incident is
+  opened with a linked accepted suggestion (`sweepAuto` sets
+  `accepted_incident_id` inside the same transaction, and the manual accept path
+  does too), all three detector methods write a numeric `threshold` into
+  evidence, and `PruneExpiredAiSuggestions` is scoped to `status = Pending` so an
+  accepted suggestion is never deleted out from under its incident. The docblock
+  already says the branches are never worse than the state they replace.
+- **Webhook delivery under a hanging target.** Bounded by Laravel's own 30s
+  default; the test-send endpoint catches the throwable and answers
+  `delivered: false` with a 502.
+
 ### Open, not yet fixed
 
 - **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,

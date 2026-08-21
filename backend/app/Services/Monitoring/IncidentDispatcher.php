@@ -322,7 +322,7 @@ class IncidentDispatcher
             // 2. Throttle per channel: `Cache::add` is atomic and returns false
             //    when the key is already held, so a burst inside the window is a
             //    no-op instead of a repeated hit on the endpoint.
-            if (! Cache::add($this->throttleKey($channel, $event), true, now()->addSeconds(self::CHANNEL_THROTTLE_SECONDS))) {
+            if (! Cache::add($this->throttleKey($channel, $incident, $event), true, now()->addSeconds(self::CHANNEL_THROTTLE_SECONDS))) {
                 continue;
             }
 
@@ -331,13 +331,28 @@ class IncidentDispatcher
     }
 
     /**
-     * The per-channel, per-lifecycle-event throttle cache key. Scoping by event
-     * (`opened`/`resolved`) keeps the anti-burst coalescing for repeated opens
-     * while ensuring an incident's `resolved` is never suppressed by its own
-     * `opened` claiming the same window.
+     * The throttle cache key: per channel, per INCIDENT, per lifecycle event.
+     *
+     * Scoping by event (`opened`/`resolved`) keeps an incident's `resolved` from
+     * being suppressed by its own `opened` claiming the same window.
+     *
+     * Scoping by INCIDENT is what stops the window losing an outage. Without it
+     * the key was `(channel, event)` alone, so a second incident opening inside
+     * the 60 seconds was DROPPED: not deferred, not queued, dropped, with nothing
+     * anywhere saying so. One shared dependency failing takes several monitors
+     * down inside the same half minute, and the team's Slack heard about one of
+     * them. Silence about a real outage is the failure this product exists to
+     * prevent.
+     *
+     * What the window is still for, and still does: coalescing repeated
+     * announcements of the SAME incident, which is what a
+     * resolve-and-still-broken loop produces. The cost of the change is that a
+     * burst of N distinct incidents is now N sends rather than one; each of them
+     * is a real, separate outage, and the four integration channels already
+     * carry a bounded, Retry-After-aware retry for an endpoint that rate-limits.
      */
-    protected function throttleKey(NotificationChannel $channel, string $event): string
+    protected function throttleKey(NotificationChannel $channel, Incident $incident, string $event): string
     {
-        return "notification-channel-throttle:{$channel->getKey()}:{$event}";
+        return "notification-channel-throttle:{$channel->getKey()}:{$incident->getKey()}:{$event}";
     }
 }
