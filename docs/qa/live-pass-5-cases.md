@@ -412,6 +412,25 @@ red.
   `TypeError: dart_rti.instanceType(...)[_eval] is not a function` every frame
   and had stopped reacting to anything.
 
+### F22 (fixed upstream) A preference row overflowed at a phone width
+
+`N-10`. Every notification-preference row carrying the push hint under its label
+overflowed by 14 pixels at 430px, with Flutter's yellow-and-black stripe painted
+across it. The icon-plus-text half demanded its intrinsic width, and a two-line
+text column is wider than a one-line one.
+
+The surface is `magic_starter`'s, and the memory rule for it is to improve the
+starter rather than work around it in the app, so the fix is
+[magic_starter#100](https://github.com/fluttersdk/magic_starter/pull/100):
+`flex-1 min-w-0` on the half and on the text column. Every existing case in that
+file runs at 1280 or 1920, which is exactly why it was invisible; the new one runs
+at 430 with the hint present and fails without the fix by 267 pixels (the test
+font is wider than the shipped one, which is why the assertion is "no exception"
+rather than a pixel count).
+
+Verified live in uptizm at 430px against the patched sibling: the stripe is gone
+and the hint wraps under the label.
+
 ### Open, not yet fixed
 
 - **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,
