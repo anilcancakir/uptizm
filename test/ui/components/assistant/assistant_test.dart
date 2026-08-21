@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -12,8 +13,8 @@ class _AssistantLangLoader implements TranslationLoader {
   Future<Map<String, dynamic>> load(Locale locale) async => {
     'uptizm.assistant.greeting':
         "Hi, I'm Uptizm AI. I reason from your own checks, regions, response "
-            'times, and custom metrics, and I can set things up for you. How '
-            'can I help?',
+        'times, and custom metrics, and I can set things up for you. How '
+        'can I help?',
     'uptizm.assistant.prompt_slow_monitors': 'Which monitors are slow?',
     'uptizm.assistant.prompt_create_monitor': 'Create a monitor',
     'uptizm.assistant.prompt_declare_incident': 'Declare an incident',
@@ -203,7 +204,9 @@ void main() {
 
   testWidgets('a failed round-trip surfaces an error toast and leaves the '
       'conversation unchanged', (tester) async {
-    Http.fake({'assistant': Http.response({'message': 'Server error'}, 500)});
+    Http.fake({
+      'assistant': Http.response({'message': 'Server error'}, 500),
+    });
     // Bind LogManager so Log.error() works inside AssistantController.ask's
     // failure path.
     Magic.singleton('log', () => LogManager());
@@ -231,6 +234,45 @@ void main() {
 
     expect(find.text('Uptizm AI'), findsNothing);
     expect(find.byType(WButton), findsOneWidget);
+  });
+
+  testWidgets('the dismiss backdrop announces itself by name', (tester) async {
+    // The backdrop carries a tap, so wind publishes a button node for it, and
+    // its child is a blur with no text for `MergeSemantics` to absorb. Measured
+    // in Chrome with the panel open: one 390x724 tappable node with no
+    // accessible name, covering the whole screen. Flutter's own `ModalBarrier`
+    // labels the equivalent node for the same reason.
+    final SemanticsHandle handle = tester.ensureSemantics();
+
+    // The floating mode, opened: the backdrop only exists there. The preview
+    // renders the EMBEDDED surface, which has no backdrop at all, so a walk
+    // over it passes whether or not the label is set.
+    await tester.pumpWidget(wrap(const Assistant()));
+    await tester.tap(find.byType(WButton));
+    await tester.pump();
+
+    final List<SemanticsNode> nameless = <SemanticsNode>[];
+    void walk(SemanticsNode node) {
+      final SemanticsData data = node.getSemanticsData();
+      if (!node.isMergedIntoParent &&
+          data.flagsCollection.isButton &&
+          data.label.trim().isEmpty) {
+        nameless.add(node);
+      }
+      node.visitChildren((SemanticsNode child) {
+        walk(child);
+        return true;
+      });
+    }
+
+    walk(tester.getSemantics(find.byType(MaterialApp)));
+
+    expect(
+      nameless,
+      isEmpty,
+      reason: 'a button node with no accessible name reached the platform',
+    );
+    handle.dispose();
   });
 
   testWidgets('preview renders the embedded chat surface without error', (

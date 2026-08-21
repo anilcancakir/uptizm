@@ -250,6 +250,14 @@ class _AssistantState extends State<Assistant> {
         // Tap-to-dismiss blurred backdrop (PORTING.md §4 glass).
         Positioned.fill(
           child: WAnchor(
+            // Named, because it is a real control: the backdrop carries a
+            // gesture, so it publishes a button node, and its child is a blur
+            // with no text for `MergeSemantics` to absorb. Measured in Chrome
+            // with the panel open: one 390x724 tappable node with no accessible
+            // name, covering the whole screen. Flutter's own `ModalBarrier`
+            // labels this node for the same reason, and the label it should
+            // carry is the one the panel's own close button already uses.
+            semanticLabel: trans('uptizm.assistant.close_label'),
             onTap: () => setState(() => _open = false),
             child: ClipRect(
               child: BackdropFilter(
