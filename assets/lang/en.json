@@ -392,7 +392,11 @@
     "a11y": {
       "notifications": "Notifications",
       "team_switcher": "Switch team",
-      "account_menu": "Account"
+      "account_menu": "Account",
+      "remove_row": "Remove row",
+      "remove_value": "Remove :value",
+      "select_brand_color": "Select brand colour: :color",
+      "open_full_preview": "Open full preview"
     },
     "account": {
       "sign_out": "Sign out"

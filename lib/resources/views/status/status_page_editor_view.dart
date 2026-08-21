@@ -353,8 +353,7 @@ class _StatusPageEditorViewState
       'slug': _slug,
       'public_url': _savedPublicUrl,
       'domain_mode': _domainMode.name,
-      'brand_color':
-          '#${_brandColor.toARGB32().toRadixString(16).substring(2)}',
+      'brand_color': _hexOf(_brandColor),
       'logo_text': _logoText,
       'description': _description,
       'subscriptions_enabled': _subscriptionsEnabled,
@@ -889,9 +888,20 @@ class _StatusPageEditorViewState
   /// semantic `fg` alias, so the selection ring is expressed as a token-clean
   /// bordered wrapper (`border-2 border-primary` + padding gap) around the
   /// raw-brand-color swatch circle instead. Only the swatch fill is a raw color.
+  /// The `#rrggbb` form of [color], which is the wire shape for `brand_color`
+  /// and the only thing that tells one swatch from another out loud.
+  String _hexOf(Color color) =>
+      '#${color.toARGB32().toRadixString(16).substring(2)}';
+
   Widget _buildSwatch(Color swatch) {
     final bool selected = _brandColor.toARGB32() == swatch.toARGB32();
     return WButton(
+      // A colour circle has no text, so without a name the whole eight-swatch
+      // row reaches a screen reader as eight identical unnamed buttons. The hex
+      // is the only thing that distinguishes them.
+      semanticLabel: trans('uptizm.a11y.select_brand_color', {
+        'color': _hexOf(swatch),
+      }),
       onTap: () => setState(() => _brandColor = swatch),
       child: WDiv(
         className: selected
@@ -1462,7 +1472,13 @@ class _StatusPageEditorViewState
       errorBuilder: (context, error, stackTrace) => _buildImageLoadError(),
     );
     if (onTap == null) return image;
-    return WButton(onTap: () => _openFullPreview(onTap), child: image);
+    return WButton(
+      // The child is an `Image.network`, which carries no text, so the control
+      // that opens the full-size render was an unnamed button.
+      semanticLabel: trans('uptizm.a11y.open_full_preview'),
+      onTap: () => _openFullPreview(onTap),
+      child: image,
+    );
   }
 
   /// Builds the placeholder shown while the PNG is still downloading: the same

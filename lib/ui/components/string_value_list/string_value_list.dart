@@ -208,6 +208,10 @@ class _StringValueListState extends State<StringValueList> {
       children: [
         WBadge(entry, className: slots['chip']),
         WAnchor(
+          // Names the value it removes, not just "remove": several chips sit in
+          // one row, and an unnamed icon button in each of them tells a screen
+          // reader user nothing about which one they are about to drop.
+          semanticLabel: trans('uptizm.a11y.remove_value', {'value': entry}),
           onTap: () => _removeAt(index),
           child: WDiv(
             className: slots['remove'],

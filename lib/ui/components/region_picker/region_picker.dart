@@ -151,7 +151,17 @@ class RegionPicker extends StatelessWidget {
         className: optionClass,
         children: [
           // Display-only checkbox; the tile tap drives the toggle.
-          IgnorePointer(child: MSCheckbox(value: selected, onChanged: null)),
+          //
+          // `ExcludeSemantics` as well as `IgnorePointer`: the former blocks
+          // pointers but leaves the semantics node in place, so assistive
+          // technology was offered a second, nameless control inside a tile that
+          // already announces its own region. The tick is decoration here, and
+          // the tile carries the selected state.
+          ExcludeSemantics(
+            child: IgnorePointer(
+              child: MSCheckbox(value: selected, onChanged: null),
+            ),
+          ),
           if (region.flag != null) WText(region.flag!, className: 'text-base'),
           // flex-1 + truncate so a long label (e.g. a monitor name or metric
           // label) shrinks and ellipsizes within the tile instead of forcing a
