@@ -39,11 +39,16 @@ use Illuminate\Support\Facades\Log;
  *   by an open maintenance window.
  * - {@see EscalationDispatcher::logSuppression()}: an escalation step was
  *   withheld by the same.
+ * - {@see EscalationDispatcher::logUnreachable()}: an escalation step fired and
+ *   resolved to nobody, because the team has no on-call schedule, its rotation
+ *   is empty, or the user a step pins no longer exists.
  *
- * The last two are the load-bearing case: "why did nobody get paged" is asked
+ * The last three are the load-bearing case: "why did nobody get paged" is asked
  * after the fact, and this project has already shipped a suppression bug that
  * paged an on-call engineer for thirty minutes, where that trail was what the
- * review needed.
+ * review needed. The unreachable line is the other half of that question, and it
+ * is the one that used to have no answer at all: the rung claimed its
+ * idempotency marker and returned in silence.
  *
  * WHAT IS DELIBERATELY NOT ON IT. Three other `Log::info()` calls stay on the
  * default channel and therefore stay silent in production, by decision:

@@ -583,4 +583,38 @@ void main() {
       );
     });
   });
+
+  group('MetricForm.withSource', () {
+    test('the HTTP status source drops the percent default', () {
+      // Measured live: a metric created as HTTP status with the form's defaults
+      // untouched rendered its reading as "200 %".
+      final MetricForm form = kEmptyMetricForm.withSource('http_status');
+
+      expect(form.source, 'http_status');
+      expect(form.unit, 'count');
+    });
+
+    test('a unit the operator chose for HTTP status survives', () {
+      final MetricForm form = kEmptyMetricForm
+          .copyWith(unit: 'count_short')
+          .withSource('http_status');
+
+      expect(form.unit, 'count_short');
+    });
+
+    test('every other source leaves the unit alone', () {
+      for (final String source in ['json', 'regex', 'xpath', 'header']) {
+        expect(kEmptyMetricForm.withSource(source).unit, '%', reason: source);
+      }
+    });
+
+    test('moving away from HTTP status keeps the chosen unit', () {
+      // By then it is a deliberate choice, not an unexamined default.
+      final MetricForm form = kEmptyMetricForm
+          .withSource('http_status')
+          .withSource('json');
+
+      expect(form.unit, 'count');
+    });
+  });
 }

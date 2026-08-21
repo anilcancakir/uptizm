@@ -105,6 +105,14 @@ class StatusPageResource extends JsonResource
                         // in-app preview would promise a component the real public
                         // page hides.
                         'show_on_status_page' => (bool) $monitor->show_on_status_page,
+                        // The THIRD gate, and the one the client had no way to
+                        // apply. `StatusPageAssembler::visibleMonitors` drops a
+                        // degraded-only component while it is healthy, so without
+                        // this flag the in-app list showed a component that the
+                        // public page hides for exactly as long as nothing is
+                        // wrong with it. The paused gate needs nothing new:
+                        // `effectiveStatus()` above already answers `paused`.
+                        'only_show_if_degraded' => (bool) $monitor->only_show_if_degraded,
                     ])
                     ->all();
             }),

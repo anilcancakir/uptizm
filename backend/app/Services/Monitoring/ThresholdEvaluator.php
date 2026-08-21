@@ -384,17 +384,31 @@ class ThresholdEvaluator
             return true;
         }
 
-        $prior = $this->recentBands(
+        $prior = $this->recentBandRounds(
             monitor: $monitor,
             metricKey: $metricKey,
-            limit: $needed,
-            excludingCheckId: $check->id,
+            depth: $needed,
+            excludingRoundOf: $check,
         );
 
         // An exact count, not "at least": a metric with less history than the
         // run needs has not yet been observed long enough to convict.
-        return $prior->count() === $needed
-            && $prior->every(fn (?MetricBand $band): bool => $band !== null && $band !== MetricBand::Ok);
+        if (count($prior) !== $needed) {
+            return false;
+        }
+
+        // Every region that reported in a round has to have breached for that
+        // round to count, which is the rule the down lane publishes: one healthy
+        // region stops the count, and no quorum is claimed anywhere.
+        foreach ($prior as $round) {
+            foreach ($round as $band) {
+                if ($band === null || $band === MetricBand::Ok) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -497,18 +511,153 @@ class ThresholdEvaluator
      */
     protected function metricRunIsOk(Monitor $monitor, string $metricKey, int $length): bool
     {
-        $recent = $this->recentBands($monitor, $metricKey, $length);
+        $recent = $this->recentBandRounds($monitor, $metricKey, $length);
 
-        return $recent->count() === $length
-            && $recent->every(fn (?MetricBand $band): bool => $band === MetricBand::Ok);
+        if (count($recent) !== $length) {
+            return false;
+        }
+
+        foreach ($recent as $round) {
+            foreach ($round as $band) {
+                if ($band !== MetricBand::Ok) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
-     * The `$limit` most recent frozen bands for [$metricKey], newest first.
+     * The `$depth` most recent scheduling ROUNDS of frozen bands for
+     * [$metricKey], newest round first, each round carrying one band per region
+     * that reported in it.
      *
-     * Ordered on `recorded_at` with `id` as the tiebreak, because a multi-region
-     * monitor writes one row per region on the same timestamp and an unordered
-     * tail would make the run's shape depend on the plan.
+     * A round is one scheduling round: `ScheduleMonitorChecks` fans out one job
+     * per configured region per interval, and each of those persists its own
+     * metric sample. Counting ROWS therefore let a single round satisfy a run of
+     * two on any monitor with two or more regions, which is the whole point of
+     * `incident_threshold` defeated by the region list. Measured live on a
+     * 3-region monitor with a threshold of 2: the bound was lowered at 13:05:03
+     * and the incident opened at 13:05:04, off the sibling regions of that one
+     * round. The down lane has counted rounds since `consecutiveFullyDownTicks`
+     * landed for exactly this reason.
+     *
+     * The round has no id to group by (`probe_run_id` is minted per probe, not
+     * per round), and unlike the down lane there is no guarantee every region
+     * produces a sample, since extraction can fail in one region and succeed in
+     * another. So rounds are reconstructed by TIME rather than positionally:
+     * samples within half an interval of each other belong to the same round.
+     * Half an interval is the separator because the regions of one round land
+     * within a second or two of each other (measured: 13:05:03 to 13:05:04)
+     * while the next round is a whole interval away, and the shortest interval
+     * the product offers is 30 seconds.
+     *
+     * `$excludingRoundOf` drops the round a check belongs to, siblings included,
+     * so the open path can ask about history without its own round answering.
+     * Excluding by check id is not enough: the sibling regions of the same round
+     * carry different check ids and were exactly what made one round look like
+     * a streak.
+     *
+     * @return list<list<MetricBand|null>>
+     */
+    protected function recentBandRounds(
+        Monitor $monitor,
+        string $metricKey,
+        int $depth,
+        ?MonitorCheck $excludingRoundOf = null,
+    ): array {
+        if ($depth <= 0) {
+            return [];
+        }
+
+        /** @var list<string> $regions */
+        $regions = $monitor->regions ?? [];
+
+        // A monitor with no regions configured cannot have rounds, exactly as
+        // `CheckPersistenceService::downStreak` says of the down lane: there is
+        // one sample per check and nothing to group. It keeps row counting, where
+        // each row is its own round, because inventing a round out of a clock
+        // window here would merge two genuine checks that happened to land in the
+        // same second and silently stop the metric alerting.
+        if ($regions === []) {
+            return $this->recentBands($monitor, $metricKey, $depth, $excludingRoundOf)
+                ->map(static fn (?MetricBand $band): array => [$band])
+                ->all();
+        }
+
+        $window = $this->roundWindowSeconds($monitor);
+        $regionCount = count($regions);
+
+        // One round of headroom past what is asked for: the row limit can cut
+        // the OLDEST round short, and a round read short could look uniform when
+        // it was mixed. Slicing to `$depth` afterwards throws that one away.
+        $rows = MonitorMetricValue::query()
+            ->where('monitor_id', $monitor->id)
+            ->where('metric_key', $metricKey)
+            ->when(
+                $excludingRoundOf !== null,
+                fn ($query) => $query->where(
+                    'recorded_at',
+                    '<',
+                    $excludingRoundOf->checked_at->subSeconds($window),
+                ),
+            )
+            ->orderByDesc('recorded_at')
+            ->orderByDesc('id')
+            ->limit(($depth + 1) * $regionCount)
+            ->get(['band', 'recorded_at']);
+
+        $rounds = [];
+        $round = [];
+        $anchor = null;
+
+        foreach ($rows as $row) {
+            $recordedAt = $row->recorded_at;
+
+            // `absolute` because the rows arrive newest-first and an unsigned
+            // difference here would read as a negative gap and never split.
+            if ($anchor !== null && $anchor->diffInSeconds($recordedAt, absolute: true) > $window) {
+                $rounds[] = $round;
+                $round = [];
+                $anchor = $recordedAt;
+            }
+
+            $anchor ??= $recordedAt;
+            $round[] = $row->band;
+        }
+
+        if ($round !== []) {
+            $rounds[] = $round;
+        }
+
+        return array_slice($rounds, 0, $depth);
+    }
+
+    /**
+     * How far apart two samples can be and still belong to one round, in
+     * seconds: half the monitor's own check interval, floored at one.
+     *
+     * Any value strictly between the probe timeout (the widest a single round can
+     * spread) and the interval (the closest two rounds can be) separates rounds
+     * correctly, and half the interval is the middle of that range for every
+     * cadence the product offers except the pathological one where the timeout
+     * equals the interval. Measured spread of a real 3-region round: one second.
+     */
+    protected function roundWindowSeconds(Monitor $monitor): int
+    {
+        $interval = (int) ($monitor->check_interval_sec ?? 60);
+
+        return max(1, intdiv($interval, 2));
+    }
+
+    /**
+     * The `$depth` most recent frozen bands for [$metricKey], newest first, one
+     * per row.
+     *
+     * Only the no-regions branch of {@see self::recentBandRounds()} reads this,
+     * where one row IS one round. Ordered on `recorded_at` with `id` as the
+     * tiebreak so the tail's shape does not depend on the query plan.
      *
      * @return Collection<int, MetricBand|null>
      */
@@ -516,14 +665,17 @@ class ThresholdEvaluator
         Monitor $monitor,
         string $metricKey,
         int $limit,
-        ?string $excludingCheckId = null,
+        ?MonitorCheck $excludingCheck = null,
     ): Collection {
         return MonitorMetricValue::query()
             ->where('monitor_id', $monitor->id)
             ->where('metric_key', $metricKey)
             ->when(
-                $excludingCheckId !== null,
-                fn ($query) => $query->where('check_id', '!=', $excludingCheckId),
+                $excludingCheck !== null,
+                // By ID, not by clock: with no region list there is no round to
+                // exclude, and two checks of the same monitor can legitimately
+                // land in the same second.
+                fn ($query) => $query->where('check_id', '!=', $excludingCheck->id),
             )
             ->orderByDesc('recorded_at')
             ->orderByDesc('id')

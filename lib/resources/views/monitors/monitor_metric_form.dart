@@ -648,7 +648,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
             value: _form.source,
             options: _selectOptions(kMetricSources),
             onChange: (value) {
-              if (value != null) _set(_form.copyWith(source: value));
+              // `withSource`, not `copyWith`: the blank form's `%` default
+              // cannot describe an HTTP status code, and the unit is rendered
+              // without ever being validated. See MetricForm.withSource.
+              if (value != null) _set(_form.withSource(value));
             },
           ),
         ),

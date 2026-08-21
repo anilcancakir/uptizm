@@ -315,6 +315,31 @@ class MetricForm {
       value: value ?? this.value,
     );
   }
+
+  /// The form with [source] applied, and the unit corrected when the new source
+  /// cannot carry the old one.
+  ///
+  /// The blank form defaults to `%`, which is right for the JSON-path example it
+  /// is shaped around (a memory-used percentage) and wrong the moment the source
+  /// becomes the HTTP status code: a status code has no percentage in it, and the
+  /// unit is only ever rendered, never validated, so nothing downstream objected.
+  /// Measured live: a metric created as HTTP status with the defaults untouched
+  /// rendered its reading as "200 %".
+  ///
+  /// Only the impossible pairing is corrected, and only in that direction. A unit
+  /// the operator chose for a source that can carry it survives, and moving AWAY
+  /// from `http_status` leaves the unit alone, because by then it is a deliberate
+  /// choice rather than an unexamined default.
+  MetricForm withSource(String source) {
+    if (source != 'http_status' || _countishUnits.contains(unit)) {
+      return copyWith(source: source);
+    }
+
+    return copyWith(source: source, unit: 'count');
+  }
+
+  /// Units a plain number like an HTTP status code can honestly wear.
+  static const Set<String> _countishUnits = {'count', 'count_short', ''};
 }
 
 // ---------------------------------------------------------------------------

@@ -134,6 +134,35 @@ class StatusPageControllerTest extends TestCase
         $response->assertJsonPath('data.monitors.0.id', $monitor->id);
     }
 
+    /**
+     * The client filters its in-app component list on exactly the gates
+     * `StatusPageAssembler::visibleMonitors` applies, and it can only apply the
+     * ones the wire carries. `only_show_if_degraded` was missing, so a healthy
+     * degraded-only component appeared in the app and not on the public page.
+     *
+     * Asserted as a payload shape because the failure mode of losing the key
+     * again is silent: the client reads a missing flag as "publish it".
+     */
+    public function test_show_carries_every_public_visibility_gate_per_monitor(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $page = $this->makeStatusPage($team->id, 'gates');
+        $monitor = $this->makeMonitor($team->id);
+        // Publishing is opt-in on the monitor (the column defaults to false), so
+        // both gates are set explicitly rather than assumed.
+        $monitor->update([
+            'show_on_status_page' => true,
+            'only_show_if_degraded' => true,
+        ]);
+        $page->monitors()->attach([$monitor->id => ['display_order' => 0]]);
+
+        $response = $this->getJson("/api/v1/status-pages/{$page->id}");
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.monitors.0.show_on_status_page', true);
+        $response->assertJsonPath('data.monitors.0.only_show_if_degraded', true);
+    }
+
     public function test_show_states_the_url_the_public_route_actually_serves(): void
     {
         // The client used to compose this from the slug plus a hardcoded host

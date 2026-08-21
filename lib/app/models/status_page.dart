@@ -206,10 +206,15 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// could never match a real (uuid-keyed) monitor and so reported every page as
   /// having zero components.
   ///
-  /// Mirrors the public page exactly, which means honouring BOTH gates on public
-  /// visibility: a monitor has to be attached AND carry `show_on_status_page`
-  /// (see `StatusPageAssembler`, which filters on it). Ignoring the second gate
-  /// would let the in-app preview promise a component the real page hides.
+  /// Mirrors the public page exactly, which means honouring ALL THREE gates on
+  /// public visibility, because `StatusPageAssembler::visibleMonitors` applies
+  /// all three: a monitor has to be attached, carry `show_on_status_page`, not be
+  /// PAUSED, and not be a degraded-only component that is currently healthy.
+  ///
+  /// Only the first was checked here, and the docblock claimed otherwise. So the
+  /// in-app list showed a paused monitor the public page hides, and showed a
+  /// healthy degraded-only component the public page hides for as long as nothing
+  /// is wrong with it. Both were promises the customer-facing page did not keep.
   List<PublicComponent> get components {
     final Object? raw = getAttribute('monitors');
     if (raw is! List) return const [];
@@ -219,6 +224,17 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
         // A row that predates the flag (or omits it) is treated as public, so an
         // older payload keeps rendering rather than silently emptying the page.
         .where((row) => row['show_on_status_page'] != false)
+        // Pausing is administrative, not a reading: the wire already resolves it
+        // into `last_status` (the backend's `effectiveStatus()`), so a paused
+        // monitor arrives labelled `paused` rather than carrying its stale final
+        // verdict.
+        .where((row) => row['last_status'] != 'paused')
+        // A degraded-only component is published only while something is wrong
+        // with it. `!= false` on the flag keeps an older payload rendering.
+        .where(
+          (row) =>
+              row['only_show_if_degraded'] != true || row['last_status'] != 'up',
+        )
         .toList()
       ..sort((a, b) {
         final int left = (a['display_order'] as num?)?.toInt() ?? 0;

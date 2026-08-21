@@ -326,12 +326,100 @@ class ThresholdEvaluatorTest extends TestCase
         // The sample BEFORE this check, written the way
         // `CheckPersistenceService` writes it. See
         // {@see self::recordSample()} for why it is spelled out here.
+        //
+        // One interval back, not `now()`: the run counts scheduling ROUNDS, and
+        // a sample sharing this check's instant is a sibling region of this
+        // round rather than the round before it. The fixture used to leave them
+        // at the same second, which is what let a single multi-region round pass
+        // for a streak in production.
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 60);
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(1, Incident::query()->count());
+        $this->assertSame(IncidentSeverity::Critical, Incident::query()->sole()->severity);
+    }
+
+    /**
+     * The streak counts ROUNDS, not rows, and this is the case that says so.
+     *
+     * `ScheduleMonitorChecks` fans out one job per configured region per
+     * interval, and each of those writes its own metric sample. So a monitor
+     * probing three regions writes three rows per round, and a run counted in
+     * rows was satisfied by ONE round on any monitor with as many regions as its
+     * threshold. Measured live on a 3-region monitor with `incident_threshold`
+     * 2: the bound was lowered at 13:05:03 and the incident opened at 13:05:04,
+     * on the first breaching round, from the sibling regions of that same round.
+     *
+     * The down lane has counted ticks since `consecutiveFullyDownTicks` landed
+     * for exactly this reason; the metric lane never got the same treatment.
+     */
+    public function test_one_round_of_a_multi_region_monitor_is_not_a_streak(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2, regions: ['us-east', 'eu-west', 'ap']);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        // The two sibling regions of THIS round, already persisted: each region
+        // is its own check and its own job, so by the time the third one
+        // evaluates the other two rows are in the table a second or two back.
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 1);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical);
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(
+            0,
+            Incident::query()->count(),
+            'three regions of one round are one round, not three samples',
+        );
+    }
+
+    /**
+     * The mirror of the case above: a full round of breaches BEFORE this one is
+     * a real streak, and it still opens.
+     */
+    public function test_a_breach_on_a_second_round_opens_on_a_multi_region_monitor(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2, regions: ['us-east', 'eu-west', 'ap']);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        // One complete round an interval back, every region breaching.
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 62);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 61);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 60);
+
+        // This round's first two regions, then the third one evaluating.
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 1);
         $this->recordSample($monitor, 'cpu', MetricBand::Critical);
 
         $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
 
         $this->assertSame(1, Incident::query()->count());
         $this->assertSame(IncidentSeverity::Critical, Incident::query()->sole()->severity);
+    }
+
+    /**
+     * One healthy region inside a round stops that round from counting, which is
+     * the same rule the down lane publishes ("one healthy region stops the
+     * count") and the reason no quorum is claimed anywhere.
+     */
+    public function test_a_healthy_region_in_the_same_round_breaks_the_streak(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2, regions: ['us-east', 'eu-west', 'ap']);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        // A complete round an interval back, but one of its three regions read
+        // healthy: the endpoint was fine from there.
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 62);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 61);
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok, secondsAgo: 60);
+
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+
+        $this->assertSame(0, Incident::query()->count());
     }
 
     /**
@@ -390,6 +478,60 @@ class ThresholdEvaluatorTest extends TestCase
         // The close is narrated on the public timeline like the down-lane one,
         // or the status page shows an incident that simply stops.
         $this->assertSame(1, $resolved->updates()->count());
+    }
+
+    /**
+     * The close path counts rounds too, and for the same reason: a metric that
+     * reads ok in three regions of ONE round has recovered for one round, and
+     * `verdictRunLength` is deliberately the same number for open and close so a
+     * metric cannot be quicker to clear than it is to alarm.
+     */
+    public function test_one_ok_round_does_not_close_a_multi_region_metric_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2, regions: ['us-east', 'eu-west', 'ap']);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 122);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 121);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 120);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $opened = Incident::query()->sole();
+
+        // One healthy round, all three regions.
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok, secondsAgo: 2);
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok, secondsAgo: 1);
+        $this->recordSample($monitor, 'cpu', MetricBand::Ok);
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 12.0], []);
+
+        $this->assertNull($outcome['resolved']);
+        $this->assertTrue($opened->refresh()->lifecycle->isActive());
+    }
+
+    /**
+     * Two healthy rounds do close it, so the round-counting close is not a way
+     * of never closing anything.
+     */
+    public function test_two_ok_rounds_close_a_multi_region_metric_incident(): void
+    {
+        $monitor = $this->makeMonitor(incidentThreshold: 2, regions: ['us-east', 'eu-west', 'ap']);
+        $this->makeNumericMetric($monitor, warnBound: 80.0, criticalBound: 95.0);
+        $evaluator = new ThresholdEvaluator;
+
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 182);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 181);
+        $this->recordSample($monitor, 'cpu', MetricBand::Critical, secondsAgo: 180);
+        $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 97.0], []);
+        $opened = Incident::query()->sole();
+
+        foreach ([62, 61, 60, 2, 1, 0] as $secondsAgo) {
+            $this->recordSample($monitor, 'cpu', MetricBand::Ok, secondsAgo: $secondsAgo);
+        }
+
+        $outcome = $evaluator->evaluate($monitor, $this->makeCheck($monitor, MonitorStatus::Up), ['cpu' => 12.0], []);
+
+        $this->assertSame($opened->getKey(), $outcome['resolved']?->getKey());
     }
 
     public function test_a_short_ok_run_leaves_the_metric_incident_open(): void
@@ -935,7 +1077,7 @@ class ThresholdEvaluatorTest extends TestCase
      * Creates a monitor owned by a freshly created team, with the given
      * `incident_threshold` (defaulting to {@see Monitor::DEFAULT_INCIDENT_THRESHOLD}).
      */
-    protected function makeMonitor(?int $incidentThreshold = null): Monitor
+    protected function makeMonitor(?int $incidentThreshold = null, ?array $regions = null): Monitor
     {
         $user = User::query()->create([
             'name' => 'Threshold Tester',
@@ -956,6 +1098,10 @@ class ThresholdEvaluatorTest extends TestCase
             'check_interval_sec' => 60,
             'incident_threshold' => $incidentThreshold ?? Monitor::DEFAULT_INCIDENT_THRESHOLD,
             'consecutive_fails' => 0,
+            // Omitted rather than passed as null: the column is NOT NULL with an
+            // empty-array default, and a monitor with no regions is the shape
+            // most of these cases want.
+            ...($regions === null ? [] : ['regions' => $regions]),
         ]);
     }
 

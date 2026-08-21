@@ -217,16 +217,23 @@ class EscalationDispatcher
     protected function pageTarget(Incident $incident, EscalationStep $step): void
     {
         match ($step->target_type) {
-            EscalationTargetType::OnCall => $this->pageOnCall($incident),
+            EscalationTargetType::OnCall => $this->pageOnCall($incident, $step),
             EscalationTargetType::User => $this->pageUser($incident, $step),
         };
     }
 
     /**
      * Page the team's currently on-call responder, resolved from its schedule.
-     * No schedule or an empty rotation pages nobody.
+     *
+     * No schedule and an empty rotation both page nobody, and both now say so.
+     * They used to return silently, AFTER the idempotency marker was claimed, so
+     * a team with a policy and no rota climbed its whole ladder reaching no one
+     * and the only evidence was silence. That is the worst shape this product
+     * has: the monitor is down, the incident is open, the policy is configured,
+     * and nobody hears about it. The two states are named separately because the
+     * fix differs (create a schedule, or put somebody in the ring).
      */
-    protected function pageOnCall(Incident $incident): void
+    protected function pageOnCall(Incident $incident, EscalationStep $step): void
     {
         $schedule = OnCallSchedule::query()
             ->where('team_id', $incident->team_id)
@@ -235,12 +242,21 @@ class EscalationDispatcher
             ->first();
 
         if ($schedule === null) {
+            $this->logUnreachable($incident, $step, 'the team has no on-call schedule');
+
             return;
         }
 
         $responder = $this->rotationResolver->resolve($schedule);
 
         if ($responder === null) {
+            $this->logUnreachable(
+                $incident,
+                $step,
+                'the on-call rotation is empty and no override covers now',
+                ['on_call_schedule_id' => $schedule->getKey()],
+            );
+
             return;
         }
 
@@ -249,16 +265,56 @@ class EscalationDispatcher
 
     /**
      * Page the specific user named by the step's `target_id`.
+     *
+     * A step pinned to a user who has since been removed from the team, or
+     * deleted outright, is the third way a rung reaches nobody. `target_id` is
+     * nullable in the schema and only required for this target type, so a step
+     * with no id at all lands here too.
      */
     protected function pageUser(Incident $incident, EscalationStep $step): void
     {
         $user = $step->target_id !== null ? User::find($step->target_id) : null;
 
         if ($user === null) {
+            $this->logUnreachable(
+                $incident,
+                $step,
+                'the user this step pages no longer exists',
+                ['target_user_id' => $step->target_id],
+            );
+
             return;
         }
 
         Notification::send($user, new IncidentOpened($incident));
+    }
+
+    /**
+     * Record that a rung of the ladder fired and reached nobody.
+     *
+     * On {@see EvidenceLog::CHANNEL} for the reason the two suppression lines
+     * are: "why did nobody get paged" is asked after the fact, and the default
+     * channel runs at `warning` in production so an info line there would never
+     * have been written. Unlike a suppression this is not the system doing what
+     * it was told, but it is still a configuration gap rather than a fault, and
+     * an operator reading it needs the same trail.
+     *
+     * @param  array<string, string|null>  $context  Extra ids that name the gap.
+     */
+    protected function logUnreachable(
+        Incident $incident,
+        EscalationStep $step,
+        string $reason,
+        array $context = [],
+    ): void {
+        EvidenceLog::record('Escalation step reached nobody: '.$reason.'.', [
+            'incident_id' => $incident->getKey(),
+            'escalation_step_id' => $step->getKey(),
+            'escalation_policy_id' => $step->escalation_policy_id,
+            'step_position' => $step->position,
+            'target_type' => $step->target_type->value,
+            ...$context,
+        ]);
     }
 
     /**

@@ -352,11 +352,17 @@ class _StatusPageSubscribersViewState
       children: [
         WDiv(
           className:
-              'grid size-9 shrink-0 place-items-center rounded-full '
+              'size-9 shrink-0 overflow-hidden rounded-full '
               'bg-surface-container-high',
-          child: WIcon(
-            Icons.mail_outline,
-            className: 'text-[16px] text-fg-muted',
+          // Centred in Flutter, not in Wind: this tile said
+          // `grid ... place-items-center`, and Wind has no `place-items-*`, so
+          // the glyph sat against the top-left edge of the circle. See
+          // `_buildAvatarTile` in on_call_schedule_view.dart for the measurement.
+          child: const Center(
+            child: WIcon(
+              Icons.mail_outline,
+              className: 'text-[16px] text-fg-muted',
+            ),
           ),
         ),
         WDiv(
