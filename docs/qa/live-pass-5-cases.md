@@ -391,6 +391,18 @@ red.
 - `SP-12`: the status-page editor at 430px renders every field, both header
   actions and the brand-mark controls, with no overflow.
 
+- `OC-9`: a test send to a target that does not answer 2xx returns **502** with
+  `{"delivered": false}`, not an optimistic "queued".
+- `OC-14`: loopback (v4 and v6), the cloud metadata address, a private range and
+  `localhost` by name are all refused at save time with "The url host is not
+  allowed", and zero channels are created. A plain `http://` URL is refused one
+  rule earlier, on the scheme.
+- `SP-10`: a private page and an unknown slug both answer 404, indistinguishable,
+  and subscribing to a private page is 404 too.
+- `SP-8`: two identical subscribe submissions produce ONE row and the same 200
+  both times, so a visitor cannot tell whether the address was already
+  subscribed.
+
 ### Open, not yet fixed
 
 - **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,
