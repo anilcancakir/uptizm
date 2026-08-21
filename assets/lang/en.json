@@ -389,6 +389,11 @@
       "billing": "Plan & billing",
       "create": "Create team"
     },
+    "a11y": {
+      "notifications": "Notifications",
+      "team_switcher": "Switch team",
+      "account_menu": "Account"
+    },
     "account": {
       "sign_out": "Sign out"
     },

@@ -389,6 +389,11 @@
       "billing": "Plan ve faturalandırma",
       "create": "Takım oluştur"
     },
+    "a11y": {
+      "notifications": "Bildirimler",
+      "team_switcher": "Takım değiştir",
+      "account_menu": "Hesap"
+    },
     "account": {
       "sign_out": "Çıkış yap"
     },
