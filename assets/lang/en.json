@@ -389,6 +389,11 @@
       "billing": "Plan & billing",
       "create": "Create team"
     },
+    "a11y": {
+      "notifications": "Notifications",
+      "team_switcher": "Switch team",
+      "account_menu": "Account"
+    },
     "account": {
       "sign_out": "Sign out"
     },
@@ -1347,7 +1352,9 @@
       "channels_toast_title": "Not yet saved",
       "channels_toast_description": ":channel preferences are local-only for now; there is no backend endpoint to persist them yet.",
       "escalation_title": "Escalation policies",
-      "escalation_description": "Uptizm pages wider each time an alert goes unacknowledged. Monitors pick a policy in their settings.",
+      "escalation_description": "Uptizm pages wider each time an alert goes unacknowledged.",
+      "escalation_empty_description": "A policy decides who Uptizm pages next when nobody acknowledges an alert.",
+      "escalation_empty_title": "No escalation policies yet",
       "escalation_new_button": "New policy",
       "escalation_policy_count": ":count :count_word",
       "escalation_policy_count_word_singular": "monitor",
@@ -1413,7 +1420,7 @@
       "oncall_rotation_empty_title": "No responders in the rotation",
       "oncall_rotation_empty_description": "Add a team member so an alert has someone to page.",
       "oncall_shift_hours": ":hours h shift",
-      "oncall_schedule_meta": ":name · times shown in :timezone",
+      "oncall_schedule_meta": ":name · :timezone",
       "oncall_move_up_button": "Move earlier in the rotation",
       "oncall_move_down_button": "Move later in the rotation",
       "oncall_overrides_header": "Overrides",

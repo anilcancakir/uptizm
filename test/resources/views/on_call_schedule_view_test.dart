@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide Card;
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -257,6 +258,84 @@ void main() {
     expect(find.text('No one is on call'), findsOneWidget);
     expect(find.text('Add a responder.'), findsOneWidget);
     expect(find.text('No responders'), findsOneWidget);
+  });
+
+  /// Every avatar on this screen put its initials in the TOP-LEFT corner of the
+  /// circle, half of them clipped by it, because the tile was spelled
+  /// `grid ... place-items-center`. Wind implements `grid` and does NOT
+  /// implement `place-items-*`, and an unknown token is a silent no-op there, so
+  /// the box had no alignment at all. Measured at 1200px: the 56px hero circle
+  /// rendered "DU" against its top-left edge.
+  ///
+  /// Asserted as a geometry relationship rather than a className, because the
+  /// className is exactly what lied. Centring is font-independent: whatever the
+  /// glyphs measure, a centred child shares its box's centre.
+  testWidgets('the initials sit in the centre of their avatar circle', (
+    tester,
+  ) async {
+    Http.fake({
+      'on-call/schedules': Http.response({
+        'data': [
+          _scheduleRow(
+            rotations: [
+              _rotationRow(id: 'rot-1', userId: 'u2', userName: 'Real Responder'),
+            ],
+          ),
+        ],
+      }, 200),
+      'on-call/current': Http.response({
+        'data': {
+          'schedule_id': 'sched-1',
+          'user': {'id': 'u2', 'name': 'Real Responder'},
+        },
+      }, 200),
+    });
+    await OnCallController.instance.reload();
+
+    await tester.pumpWidget(wrap(const OnCallScheduleView()));
+    await tester.pump();
+
+    // Both avatars on screen carry the same initials (the hero at 56px and the
+    // ring row at 36px), so the loop covers both sizes without naming either.
+    final Finder initials = find.text('RR');
+    expect(initials, findsWidgets);
+
+    for (final Element element in initials.evaluate()) {
+      final Finder text = find.byWidget(element.widget);
+
+      // The GLYPHS, not the text widget's box. Both the box and the avatar
+      // circle measure 56x56 here, so comparing those two centres is vacuous:
+      // the text widget fills the circle and paints its glyphs wherever its
+      // alignment says. `getBoxesForSelection` is where that shows up.
+      final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+        text,
+      );
+      final List<TextBox> boxes = paragraph.getBoxesForSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 2),
+      );
+      expect(boxes, isNotEmpty, reason: 'the initials painted no glyphs');
+
+      Rect glyphs = boxes.first.toRect();
+      for (final TextBox box in boxes) {
+        glyphs = glyphs.expandToInclude(box.toRect());
+      }
+      glyphs = glyphs.shift(tester.getRect(text).topLeft);
+
+      final Rect circle = tester.getRect(
+        find.ancestor(of: text, matching: find.byType(WDiv)).first,
+      );
+
+      expect(
+        (glyphs.center.dx - circle.center.dx).abs(),
+        lessThan(1.5),
+        reason: 'initials are off-centre horizontally in their avatar',
+      );
+      expect(
+        (glyphs.center.dy - circle.center.dy).abs(),
+        lessThan(1.5),
+        reason: 'initials are off-centre vertically in their avatar',
+      );
+    }
   });
 
   testWidgets('a failed read shows the error state, not an empty rotation', (

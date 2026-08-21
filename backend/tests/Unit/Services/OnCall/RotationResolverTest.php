@@ -57,6 +57,56 @@ class RotationResolverTest extends TestCase
         );
     }
 
+    /**
+     * A DST transition does NOT move the handover, because the ring is walked in
+     * absolute instants and never in wall-clock hours.
+     *
+     * Pinned rather than assumed, and pinned NOW rather than when somebody
+     * changes it: the schedule carries a `timezone` column that this resolver
+     * does not read, and the obvious way to make that field mean something is to
+     * anchor shifts to local midnight. Doing that with wall-clock arithmetic
+     * would silently shift every handover by an hour twice a year, and a rota is
+     * a promise about who answers a pager. If this test goes red, the change was
+     * deliberate and the new behaviour needs its own case; it should not go red
+     * by accident.
+     *
+     * The anchor sits the day before America/New_York springs forward (2 AM
+     * local becomes 3 AM on 2027-03-14), and the boundary is 24 hours later.
+     */
+    public function test_a_dst_transition_does_not_move_the_handover(): void
+    {
+        $schedule = $this->makeRing([24, 24]);
+        $anchor = CarbonImmutable::parse('2027-03-13 12:00:00', 'UTC');
+        $schedule->forceFill(['created_at' => $anchor, 'timezone' => 'America/New_York'])->save();
+        $schedule = $schedule->fresh();
+
+        $responders = $this->responders($schedule);
+        $resolver = new RotationResolver;
+
+        // 24 absolute hours after the anchor, which is 25 hours by the local
+        // clock because the zone lost one.
+        $boundary = $anchor->addHours(24);
+
+        // The fixture has to actually straddle the transition or this case proves
+        // nothing, and `diffInHours` cannot say so: it compares absolute instants
+        // whatever timezone the objects carry, so it answers 24 on both sides of
+        // any boundary. The UTC OFFSET is what changes.
+        $this->assertNotSame(
+            $anchor->setTimezone('America/New_York')->getOffset(),
+            $boundary->setTimezone('America/New_York')->getOffset(),
+            'the fixture does not straddle a DST transition',
+        );
+
+        $this->assertTrue(
+            $resolver->resolve($schedule, $boundary->subSecond())->is($responders[0]),
+            'a second before the absolute boundary the first responder still holds',
+        );
+        $this->assertTrue(
+            $resolver->resolve($schedule, $boundary)->is($responders[1]),
+            'the handover lands on the absolute boundary, not the local one',
+        );
+    }
+
     public function test_ring_wraps_after_a_full_cycle(): void
     {
         $schedule = $this->makeRing([24, 24]);

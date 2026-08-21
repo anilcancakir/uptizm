@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\IdFormat;
 use Illuminate\Validation\Rule;
 
 /**
@@ -25,9 +26,10 @@ class UpdateScheduledMaintenanceRequest extends StoreScheduledMaintenanceRequest
 
         return [
             'status_page_id' => [
+                'bail',
                 'sometimes',
                 'required',
-                'string',
+                ...IdFormat::rules(),
                 Rule::exists('status_pages', 'id')->where('team_id', $teamId),
             ],
             'title' => [
@@ -60,7 +62,8 @@ class UpdateScheduledMaintenanceRequest extends StoreScheduledMaintenanceRequest
                 'array',
             ],
             'monitor_ids.*' => [
-                'string',
+                'bail',
+                ...IdFormat::rules(),
                 Rule::exists('monitors', 'id')->where('team_id', $teamId),
             ],
         ];

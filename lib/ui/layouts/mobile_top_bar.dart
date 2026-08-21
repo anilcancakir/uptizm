@@ -11,6 +11,7 @@ import 'package:magic_starter/magic_starter.dart'
 import '../../app/models/team.dart';
 import '../../app/models/user.dart';
 import '../components/notification_center/index.dart';
+import 'shell_control_semantics.dart';
 
 /// Computes uppercase avatar initials from a display [name].
 ///
@@ -146,72 +147,75 @@ class _MobileTeamSwitcher extends StatelessWidget {
         final Team? activeTeam = user.currentTeam;
         final List<Team> allTeams = user.allTeams;
 
-        return WPopover(
-          alignment: PopoverAlignment.bottomLeft,
-          offset: const Offset(0, 6),
-          maxHeight: 480,
-          className: '''
-            w-64 max-w-full overflow-hidden rounded-lg py-1
-            bg-surface border border-color-border shadow-xl
-          ''',
-          triggerBuilder: (context, isOpen, isHovering) => WDiv(
-            className: 'rounded-md py-1 pr-1 hover:bg-surface-container',
-            // mainAxisSize.min keeps the chevron tight against the (truncating)
-            // name instead of being pushed to the far right of the bar.
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _teamAvatar(activeTeam),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: WText(
-                    activeTeam?.name ?? '',
-                    className: 'truncate text-sm font-semibold text-fg',
-                  ),
-                ),
-                const SizedBox(width: 4),
-                WIcon(Icons.expand_more, className: 'text-[16px] text-fg-muted'),
-              ],
-            ),
-          ),
-          contentBuilder: (context, close) => SingleChildScrollView(
-            child: WDiv(
-              className: 'flex flex-col',
-              children: [
-                WText(
-                  trans('uptizm.team_menu.heading'),
-                  className: '''
-                    px-3 py-1.5 text-xs font-medium uppercase tracking-wide
-                    text-fg-muted
-                  ''',
-                ),
-                for (final t in allTeams)
-                  WAnchor(
-                    onTap: () {
-                      MagicStarterTeamController.instance.switchTeam(t.id);
-                      close();
-                    },
-                    child: WDiv(
-                      className: '''
-                        flex items-center gap-2 px-3 py-2 text-sm text-fg
-                        hover:bg-surface-container
-                      ''',
-                      children: [
-                        _teamAvatar(t, small: true),
-                        Expanded(child: WText(t.name ?? '', className: 'truncate')),
-                        if (t.id == activeTeam?.id)
-                          WIcon(Icons.check, className: 'text-[16px] text-primary'),
-                      ],
+        return ShellControlSemantics(
+          label: trans('uptizm.a11y.team_switcher'),
+          child: WPopover(
+              alignment: PopoverAlignment.bottomLeft,
+              offset: const Offset(0, 6),
+              maxHeight: 480,
+              className: '''
+                w-64 max-w-full overflow-hidden rounded-lg py-1
+                bg-surface border border-color-border shadow-xl
+              ''',
+              triggerBuilder: (context, isOpen, isHovering) => WDiv(
+                className: 'rounded-md py-1 pr-1 hover:bg-surface-container',
+                // mainAxisSize.min keeps the chevron tight against the (truncating)
+                // name instead of being pushed to the far right of the bar.
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _teamAvatar(activeTeam),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: WText(
+                        activeTeam?.name ?? '',
+                        className: 'truncate text-sm font-semibold text-fg',
+                      ),
                     ),
-                  ),
-                WDiv(className: 'my-1 border-t border-color-border-subtle'),
-                _menuRow(trans('uptizm.team_menu.settings'), '/teams/settings', close),
-                _menuRow(trans('uptizm.team_menu.members'), '/teams/settings', close),
-                _menuRow(trans('uptizm.team_menu.channels'), '/teams/notifications', close),
-                _menuRow(trans('uptizm.team_menu.create'), '/teams/create', close),
-              ],
+                    const SizedBox(width: 4),
+                    WIcon(Icons.expand_more, className: 'text-[16px] text-fg-muted'),
+                  ],
+                ),
+              ),
+              contentBuilder: (context, close) => SingleChildScrollView(
+                child: WDiv(
+                  className: 'flex flex-col',
+                  children: [
+                    WText(
+                      trans('uptizm.team_menu.heading'),
+                      className: '''
+                        px-3 py-1.5 text-xs font-medium uppercase tracking-wide
+                        text-fg-muted
+                      ''',
+                    ),
+                    for (final t in allTeams)
+                      WAnchor(
+                        onTap: () {
+                          MagicStarterTeamController.instance.switchTeam(t.id);
+                          close();
+                        },
+                        child: WDiv(
+                          className: '''
+                            flex items-center gap-2 px-3 py-2 text-sm text-fg
+                            hover:bg-surface-container
+                          ''',
+                          children: [
+                            _teamAvatar(t, small: true),
+                            Expanded(child: WText(t.name ?? '', className: 'truncate')),
+                            if (t.id == activeTeam?.id)
+                              WIcon(Icons.check, className: 'text-[16px] text-primary'),
+                          ],
+                        ),
+                      ),
+                    WDiv(className: 'my-1 border-t border-color-border-subtle'),
+                    _menuRow(trans('uptizm.team_menu.settings'), '/teams/settings', close),
+                    _menuRow(trans('uptizm.team_menu.members'), '/teams/settings', close),
+                    _menuRow(trans('uptizm.team_menu.channels'), '/teams/notifications', close),
+                    _menuRow(trans('uptizm.team_menu.create'), '/teams/create', close),
+                  ],
+                ),
+              ),
             ),
-          ),
         );
       },
     );
@@ -285,59 +289,62 @@ class _MobileBell extends StatelessWidget {
             );
         final int unread = items.where((n) => !n.read).length;
 
-        return WPopover(
-          alignment: PopoverAlignment.bottomRight,
-          offset: const Offset(0, 6),
-          maxHeight: 480,
-          className: 'w-80 max-w-full rounded-lg shadow-xl',
-          triggerBuilder: (context, isOpen, isHovering) => WDiv(
-            className: '''
-              w-9 h-9 shrink-0 rounded-md flex items-center justify-center
-              text-fg-muted hover:bg-surface-container hover:text-fg
-            ''',
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                WIcon(Icons.notifications_none, className: 'text-[18px]'),
-                if (unread > 0)
-                  Positioned(
-                    top: -4,
-                    right: -4,
-                    child: WDiv(
-                      className: '''
-                        min-w-[16px] h-4 px-1 rounded-full bg-down
-                        flex items-center justify-center
-                      ''',
-                      // Clamped for the same reason the tab labels are: the
-                      // pill's height is fixed at `h-4` while the count is
-                      // text, so at an iOS accessibility scale the number grew
-                      // past its own badge and the digit was clipped. A count
-                      // nobody can read is worse than a small one.
-                      child: MediaQuery.withClampedTextScaling(
-                        maxScaleFactor: 1.3,
-                        child: WText(
-                          '$unread',
-                          className: 'text-[10px] font-semibold text-white',
+        return ShellControlSemantics(
+          label: trans('uptizm.a11y.notifications'),
+          child: WPopover(
+              alignment: PopoverAlignment.bottomRight,
+              offset: const Offset(0, 6),
+              maxHeight: 480,
+              className: 'w-80 max-w-full rounded-lg shadow-xl',
+              triggerBuilder: (context, isOpen, isHovering) => WDiv(
+                className: '''
+                  w-9 h-9 shrink-0 rounded-md flex items-center justify-center
+                  text-fg-muted hover:bg-surface-container hover:text-fg
+                ''',
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    WIcon(Icons.notifications_none, className: 'text-[18px]'),
+                    if (unread > 0)
+                      Positioned(
+                        top: -4,
+                        right: -4,
+                        child: WDiv(
+                          className: '''
+                            min-w-[16px] h-4 px-1 rounded-full bg-down
+                            flex items-center justify-center
+                          ''',
+                          // Clamped for the same reason the tab labels are: the
+                          // pill's height is fixed at `h-4` while the count is
+                          // text, so at an iOS accessibility scale the number grew
+                          // past its own badge and the digit was clipped. A count
+                          // nobody can read is worse than a small one.
+                          child: MediaQuery.withClampedTextScaling(
+                            maxScaleFactor: 1.3,
+                            child: WText(
+                              '$unread',
+                              className: 'text-[10px] font-semibold text-white',
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                ),
+              ),
+              contentBuilder: (context, close) => SingleChildScrollView(
+                child: NotificationCenter(
+                  items: items,
+                  onClose: close,
+                  onItemTap: (item) {
+                    Notify.markAsRead(item.id);
+                    MagicRoute.to(item.to);
+                  },
+                  onMarkAllRead: () => Notify.markAllAsRead(),
+                  onSettings: () => MagicRoute.to('/settings'),
+                ),
+              ),
             ),
-          ),
-          contentBuilder: (context, close) => SingleChildScrollView(
-            child: NotificationCenter(
-              items: items,
-              onClose: close,
-              onItemTap: (item) {
-                Notify.markAsRead(item.id);
-                MagicRoute.to(item.to);
-              },
-              onMarkAllRead: () => Notify.markAllAsRead(),
-              onSettings: () => MagicRoute.to('/settings'),
-            ),
-          ),
         );
       },
     );
@@ -358,64 +365,67 @@ class _MobileAccountMenu extends StatelessWidget {
       builder: (context, _) {
         final User user = _currentUserSafe();
 
-        return WPopover(
-          alignment: PopoverAlignment.bottomRight,
-          offset: const Offset(0, 6),
-          className: '''
-            w-56 max-w-full overflow-hidden rounded-lg py-1
-            bg-surface border border-color-border shadow-xl
-          ''',
-          triggerBuilder: (context, isOpen, isHovering) => WDiv(
-            className: '''
-              w-9 h-9 shrink-0 rounded-full bg-surface-container
-              flex items-center justify-center hover:bg-surface-container-high
-            ''',
-            child: WText(
-              _userInitials(user.name),
-              className: 'text-xs font-semibold text-fg',
-            ),
-          ),
-          contentBuilder: (context, close) => WDiv(
-            className: 'flex flex-col',
-            children: [
-              WDiv(
-                className: 'px-3 py-2 flex flex-col',
+        return ShellControlSemantics(
+            label: trans('uptizm.a11y.account_menu'),
+            child: WPopover(
+              alignment: PopoverAlignment.bottomRight,
+              offset: const Offset(0, 6),
+              className: '''
+                w-56 max-w-full overflow-hidden rounded-lg py-1
+                bg-surface border border-color-border shadow-xl
+              ''',
+              triggerBuilder: (context, isOpen, isHovering) => WDiv(
+                className: '''
+                  w-9 h-9 shrink-0 rounded-full bg-surface-container
+                  flex items-center justify-center hover:bg-surface-container-high
+                ''',
+                child: WText(
+                  _userInitials(user.name),
+                  className: 'text-xs font-semibold text-fg',
+                ),
+              ),
+              contentBuilder: (context, close) => WDiv(
+                className: 'flex flex-col',
                 children: [
-                  WText(
-                    user.name ?? '',
-                    className: 'truncate text-sm font-medium text-fg',
+                  WDiv(
+                    className: 'px-3 py-2 flex flex-col',
+                    children: [
+                      WText(
+                        user.name ?? '',
+                        className: 'truncate text-sm font-medium text-fg',
+                      ),
+                      WText(
+                        user.email ?? '',
+                        className: 'truncate text-xs text-fg-muted',
+                      ),
+                    ],
                   ),
-                  WText(
-                    user.email ?? '',
-                    className: 'truncate text-xs text-fg-muted',
+                  WDiv(className: 'my-1 border-t border-color-border-subtle'),
+                  WAnchor(
+                    onTap: () {
+                      close();
+                      MagicRoute.to('/settings');
+                    },
+                    child: WDiv(
+                      className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
+                      child: WText(trans('uptizm.nav.settings')),
+                    ),
+                  ),
+                  WDiv(className: 'my-1 border-t border-color-border-subtle'),
+                  WAnchor(
+                    onTap: () {
+                      close();
+                      _handleLogout();
+                    },
+                    child: WDiv(
+                      className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
+                      child: WText(trans('uptizm.account.sign_out')),
+                    ),
                   ),
                 ],
               ),
-              WDiv(className: 'my-1 border-t border-color-border-subtle'),
-              WAnchor(
-                onTap: () {
-                  close();
-                  MagicRoute.to('/settings');
-                },
-                child: WDiv(
-                  className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
-                  child: WText(trans('uptizm.nav.settings')),
-                ),
-              ),
-              WDiv(className: 'my-1 border-t border-color-border-subtle'),
-              WAnchor(
-                onTap: () {
-                  close();
-                  _handleLogout();
-                },
-                child: WDiv(
-                  className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
-                  child: WText(trans('uptizm.account.sign_out')),
-                ),
-              ),
-            ],
-          ),
-        );
+            ),
+          );
       },
     );
   }

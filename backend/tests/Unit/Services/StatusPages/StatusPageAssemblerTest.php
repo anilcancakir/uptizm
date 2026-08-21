@@ -91,6 +91,123 @@ class StatusPageAssemblerTest extends TestCase
         $this->assertSame('operational', $viewModel->overallStatus);
     }
 
+    /**
+     * A component whose monitor was DELETED disappears from the page instead of
+     * rendering a hole or, worse, keeping its last verdict.
+     *
+     * The pivot row survives the delete (the monitor is soft-deleted, and nothing
+     * detaches it), so the only thing standing between a deleted monitor and the
+     * customer-facing page is the relation's own `SoftDeletes` scope. That is
+     * exactly the kind of guarantee that holds until someone reaches for
+     * `withTrashed()` or a raw join, so it is pinned here.
+     */
+    public function test_a_deleted_monitor_leaves_the_page_rather_than_a_hole(): void
+    {
+        $team = $this->makeTeam();
+        $page = $this->makePage($team);
+
+        $survivor = $this->makeMonitor($team, ['last_status' => MonitorStatus::Up]);
+        $deletedWhileDown = $this->makeMonitor($team, ['last_status' => MonitorStatus::Down]);
+
+        $page->monitors()->attach([
+            $survivor->id => ['display_order' => 0],
+            $deletedWhileDown->id => ['display_order' => 1],
+        ]);
+
+        $deletedWhileDown->delete();
+
+        $viewModel = (new StatusPageAssembler)->build($page->fresh());
+
+        $this->assertCount(1, $viewModel->components);
+        $this->assertSame(
+            'operational',
+            $viewModel->overallStatus,
+            'a deleted monitor must not keep publishing the outage it was in',
+        );
+    }
+
+    /**
+     * A page with nothing visible on it publishes UNKNOWN, never "operational".
+     *
+     * The default used to be operational, which is the worst false claim a status
+     * page can make: it tells every customer the service is fine on the strength
+     * of zero measurements. Both shapes of empty are covered, because they arrive
+     * for different reasons: a page nobody attached anything to, and a page whose
+     * only component is unpublished.
+     */
+    public function test_a_page_with_nothing_visible_publishes_unknown(): void
+    {
+        $team = $this->makeTeam();
+
+        $bare = $this->makePage($team);
+        $this->assertSame('unknown', (new StatusPageAssembler)->build($bare)->overallStatus);
+        $this->assertCount(0, (new StatusPageAssembler)->build($bare)->components);
+
+        $hiddenOnly = $this->makePage($team);
+        $unpublished = $this->makeMonitor($team, [
+            'last_status' => MonitorStatus::Up,
+            'show_on_status_page' => false,
+        ]);
+        $hiddenOnly->monitors()->attach([$unpublished->id => ['display_order' => 0]]);
+
+        $viewModel = (new StatusPageAssembler)->build($hiddenOnly->fresh());
+        $this->assertCount(0, $viewModel->components);
+        $this->assertSame('unknown', $viewModel->overallStatus);
+    }
+
+    /**
+     * A monitor that has never been probed reads UNKNOWN, not operational.
+     *
+     * The absence of a measurement is not evidence of health, and this is the
+     * state every monitor is in for its first interval, so the claim would be
+     * made on every newly published component.
+     */
+    public function test_a_never_probed_monitor_publishes_unknown_rather_than_health(): void
+    {
+        $team = $this->makeTeam();
+        $page = $this->makePage($team);
+
+        $neverProbed = $this->makeMonitor($team, [
+            'last_status' => null,
+            'next_check_at' => null,
+        ]);
+        $page->monitors()->attach([$neverProbed->id => ['display_order' => 0]]);
+
+        $viewModel = (new StatusPageAssembler)->build($page->fresh());
+
+        $this->assertCount(1, $viewModel->components);
+        $this->assertSame('unknown', $viewModel->components[0]['status']);
+        $this->assertSame('unknown', $viewModel->overallStatus);
+    }
+
+    /**
+     * And the other side of that rule: ONE measured component earns the page a
+     * verdict, decided among the measured ones. The unmeasured component still
+     * reads `unknown` on its own row, so letting what is known speak hides
+     * nothing.
+     */
+    public function test_one_measured_component_decides_the_banner(): void
+    {
+        $team = $this->makeTeam();
+        $page = $this->makePage($team);
+
+        $down = $this->makeMonitor($team, ['last_status' => MonitorStatus::Down]);
+        $neverProbed = $this->makeMonitor($team, [
+            'last_status' => null,
+            'next_check_at' => null,
+        ]);
+        $page->monitors()->attach([
+            $down->id => ['display_order' => 0],
+            $neverProbed->id => ['display_order' => 1],
+        ]);
+
+        $viewModel = (new StatusPageAssembler)->build($page->fresh());
+
+        $this->assertCount(2, $viewModel->components);
+        $this->assertSame('major_outage', $viewModel->overallStatus);
+        $this->assertSame('unknown', $viewModel->components[1]['status']);
+    }
+
     public function test_view_model_never_carries_secret_monitor_fields(): void
     {
         $team = $this->makeTeam();

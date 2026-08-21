@@ -9,6 +9,7 @@ use App\Jobs\TranslateStatusPageText;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Monitor;
+use App\Models\MonitorMetric;
 use App\Models\User;
 use App\Services\OnCall\EscalationDispatcher;
 use App\Services\StatusPages\StatusPageCache;
@@ -76,6 +77,15 @@ class IncidentWriteService
     protected const string MONITOR_DELETED_MESSAGE =
         'Closed automatically: the monitor this incident belonged to was deleted, '
         .'so no further check can report on it.';
+
+    /**
+     * The timeline note left when an incident is closed because the METRIC it
+     * was raised on was deleted. Same reasoning as the monitor one above: the
+     * measurement stopped, nothing recovered.
+     */
+    protected const string METRIC_DELETED_MESSAGE =
+        'Closed automatically: the metric this incident was raised on was deleted, '
+        .'so no further reading can clear it.';
 
     /** Author label for a transition no person made. */
     protected const string SYSTEM_AUTHOR = 'Uptizm';
@@ -675,6 +685,57 @@ class IncidentWriteService
                 ]);
 
                 $this->appendSystemNote($fresh, self::MONITOR_DELETED_MESSAGE);
+            });
+        }
+    }
+
+    /**
+     * Close the incident a deleted metric was raised on.
+     *
+     * One level down from {@see self::closeOrphanedBy()}, and the same hole. The
+     * metric lane's auto-resolve asks whether the trailing run of frozen bands
+     * for a metric KEY is clear, and a deleted metric produces no further
+     * samples, so the run stays whatever it was at the breach and the answer is
+     * no forever. Nothing else closes it either: `resolveIfRecovered` is scoped
+     * to `trigger_metric_key IS NULL`, and the orphan close above only fires when
+     * the MONITOR goes. The incident sat `detected` until somebody noticed.
+     *
+     * Two exclusions, both mirroring guards the evaluator already applies:
+     *
+     * - `ai_owned` incidents belong to the autonomous lane, whose
+     *   `trigger_metric_key` is a SIGNAL name rather than a configured metric
+     *   key, so a deleted metric that happens to share the name is not theirs.
+     * - Scoped to the metric's own monitor, since a key is unique per monitor and
+     *   two monitors may both measure `cpu`.
+     *
+     * Silent, like the orphan close: no page and no public update. A status-page
+     * reader was never told this incident existed (the assembler scopes to
+     * visible monitors), and paging a team about the consequence of an action it
+     * just performed is noise.
+     */
+    public function closeOrphanedByMetric(MonitorMetric $metric): void
+    {
+        $incidents = Incident::query()
+            ->where('primary_monitor_id', $metric->monitor_id)
+            ->where('trigger_metric_key', $metric->key)
+            ->where('ai_owned', false)
+            ->active()
+            ->get();
+
+        foreach ($incidents as $incident) {
+            DB::transaction(function () use ($incident): void {
+                $fresh = Incident::query()->lockForUpdate()->find($incident->getKey());
+
+                if ($fresh === null || ! $fresh->lifecycle->isActive()) {
+                    return;
+                }
+
+                $fresh->update([
+                    'lifecycle' => IncidentStatus::Resolved,
+                    'resolved_at' => now(),
+                ]);
+
+                $this->appendSystemNote($fresh, self::METRIC_DELETED_MESSAGE);
             });
         }
     }

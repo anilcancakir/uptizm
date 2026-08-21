@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:magic/magic.dart';
 import 'app/services/locale_onboarding_gate.dart';
@@ -22,24 +23,58 @@ import 'package:magic_starter/magic_starter.dart'
     show MagicStarter, MagicStarterCardTheme, MagicStarterModalTheme;
 import 'config/magic_starter.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Load `.env` BEFORE Sentry, because the DSN lives in it and Magic.init is
-  // otherwise the first thing to read the file. `Env.load` is idempotent (it
-  // returns early once loaded), so Magic.init's own call below is a no-op and
-  // this costs nothing.
-  await Env.load();
-
-  // Everything the app does happens inside `appRunner`, deliberately: a failure
-  // during Magic.init or a provider's boot is exactly the kind that ships a
-  // blank page to a customer, and it would be invisible if Sentry only started
-  // afterwards.
+void main() {
+  // ONE zone for the binding and for `runApp`, which is the whole reason this
+  // wrapper exists rather than the three statements below sitting bare in
+  // `main`.
   //
-  // With no DSN this call still runs `appRunner` and simply reports nothing,
-  // which is what every development machine and the whole test suite do. See
-  // lib/config/sentry.dart.
-  await SentryFlutter.init(configureSentry, appRunner: _boot);
+  // `SentryFlutter.init` opens its own `runZonedGuarded` when it is called from
+  // the root zone AND `PlatformDispatcher.onError` is unavailable, which is the
+  // case on web (flutter#100277). The binding, meanwhile, has to be initialized
+  // before `Env.load` reads the bundled `.env`, because `flutter_dotenv` goes
+  // through `rootBundle` and swallows the failure into "using default values" if
+  // it cannot. So the binding was initialized in the root zone while `runApp`
+  // ran in Sentry's, and Flutter said so on every boot: "Zone mismatch. The
+  // Flutter bindings were initialized in a different zone than is now being
+  // used." Zone-scoped configuration then applies by whichever zone happened to
+  // be current when a callback was registered, and on web that zone handler is
+  // the ONLY uncaught-async-error path Sentry has.
+  //
+  // Entering a zone here makes `Sentry.runtimeChecker.isRootZone` false, so
+  // `init` calls `appRunner` in this zone instead of a new one, and the error
+  // handler below is the one Sentry would have installed itself.
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      // Load `.env` BEFORE Sentry, because the DSN lives in it and Magic.init is
+      // otherwise the first thing to read the file. `Env.load` is idempotent (it
+      // returns early once loaded), so Magic.init's own call below is a no-op and
+      // this costs nothing.
+      await Env.load();
+
+      // Everything the app does happens inside `appRunner`, deliberately: a
+      // failure during Magic.init or a provider's boot is exactly the kind that
+      // ships a blank page to a customer, and it would be invisible if Sentry
+      // only started afterwards.
+      //
+      // With no DSN this call still runs `appRunner` and simply reports nothing,
+      // which is what every development machine and the whole test suite do. See
+      // lib/config/sentry.dart.
+      await SentryFlutter.init(configureSentry, appRunner: _boot);
+    },
+    (Object error, StackTrace stackTrace) async {
+      // Both halves of what Sentry's own zone handler does: report it, then dump
+      // it to the console. Without the dump an uncaught async error would vanish
+      // from the local console the moment this wrapper took the zone over.
+      await Sentry.captureException(error, stackTrace: stackTrace);
+
+      FlutterError.dumpErrorToConsole(
+        FlutterErrorDetails(exception: error, stack: stackTrace),
+        forceReport: true,
+      );
+    },
+  );
 }
 
 /// Boot the framework and hand the app to Flutter.

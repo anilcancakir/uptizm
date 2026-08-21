@@ -247,6 +247,17 @@ class _IncidentCreateViewState
     final Incident? suggestion = controller.incidentById(fromId);
     _suggestion = suggestion;
 
+    // 2b. Open on the kind the caller asked for. The maintenance tab's own
+    //     empty state says "Plan a window" and landed here on the INCIDENT
+    //     form, one unnoticed switch away from declaring an outage that pages
+    //     the on-call and publishes a red banner, when the operator meant to
+    //     announce planned work. Anything other than `maintenance` (including
+    //     an absent param) keeps the incident default.
+    if (MagicRouter.instance.queryParameters['kind'] == 'maintenance') {
+      _kind = _IncidentKind.maintenance;
+      _impact = 'info';
+    }
+
     // 3. Seed the form. With a resolved suggestion, prefill title/affected/
     //    severity from the promoted anomaly; otherwise start blank at the React
     //    defaults.

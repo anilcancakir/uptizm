@@ -389,6 +389,11 @@
       "billing": "Plan ve faturalandırma",
       "create": "Takım oluştur"
     },
+    "a11y": {
+      "notifications": "Bildirimler",
+      "team_switcher": "Takım değiştir",
+      "account_menu": "Hesap"
+    },
     "account": {
       "sign_out": "Çıkış yap"
     },
@@ -1347,7 +1352,9 @@
       "channels_toast_title": "Henüz kaydedilmedi",
       "channels_toast_description": ":channel tercihleri şimdilik yalnızca yerel; henüz kalıcı hale getirecek bir backend uç noktası yok.",
       "escalation_title": "Yükseltme politikaları",
-      "escalation_description": "Bir uyarı onaylanmadıkça Uptizm çağrıyı genişletir. İzleyiciler ayarlarında bir politika seçer.",
+      "escalation_description": "Bir uyarı sahiplenilmedikçe Uptizm daha geniş bir çevreyi arar.",
+      "escalation_empty_description": "Politika, bir uyarıyı kimse sahiplenmediğinde Uptizm’in sırada kimi arayacağına karar verir.",
+      "escalation_empty_title": "Henüz yükseltme politikası yok",
       "escalation_new_button": "Yeni politika",
       "escalation_policy_count": ":count :count_word",
       "escalation_policy_count_word_singular": "izleyici",
@@ -1413,7 +1420,7 @@
       "oncall_rotation_empty_title": "Rotasyonda sorumlu yok",
       "oncall_rotation_empty_description": "Bir takım üyesi ekleyin; böylece uyarı çağıracak birini bulur.",
       "oncall_shift_hours": ":hours sa vardiya",
-      "oncall_schedule_meta": ":name · saatler :timezone diliminde",
+      "oncall_schedule_meta": ":name · :timezone",
       "oncall_move_up_button": "Rotasyonda öne al",
       "oncall_move_down_button": "Rotasyonda geriye al",
       "oncall_overrides_header": "Geçersiz kılmalar",

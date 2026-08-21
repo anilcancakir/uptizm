@@ -26,6 +26,9 @@ class _AppLayoutLangLoader implements TranslationLoader {
     'uptizm.assistant.close_label': 'Close assistant',
     'uptizm.assistant.composer_placeholder': 'Message Uptizm AI…',
     'uptizm.assistant.send_label': 'Send',
+    'uptizm.a11y.notifications': 'Notifications',
+    'uptizm.a11y.team_switcher': 'Switch team',
+    'uptizm.a11y.account_menu': 'Account',
   };
 }
 
@@ -284,5 +287,45 @@ void main() {
         expect(MediaQuery.of(region).padding.bottom, 34);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // The shell's popover controls, as assistive technology hears them
+  // ---------------------------------------------------------------------------
+
+  group('shell control semantics', () {
+    const layout = AppLayout(child: MSPageContainer(child: WText('content')));
+
+    /// `WPopover` wraps its trigger in an unlabelled `Semantics(button: true)`,
+    /// because its toggle runs on a raw `Listener` that assistive technology
+    /// cannot see. The trigger content produces a node of its own, so each of
+    /// these three controls rendered TWO overlapping buttons and none of them
+    /// carried a name: measured in the DOM at 1280px, the bell's only accessible
+    /// name was the unread COUNT.
+    ///
+    /// One node each, and named, at both widths.
+    for (final (String label, double width) in <(String, double)>[
+      ('Switch team', 1200),
+      ('Notifications', 1200),
+      ('Account', 1200),
+      ('Switch team', 390),
+      ('Notifications', 390),
+      ('Account', 390),
+    ]) {
+      testWidgets('$label is one named button at ${width.toInt()}px', (
+        tester,
+      ) async {
+        // The semantics tree is only built while something is listening to it.
+        // Disposed inside the body, not in a tearDown: the framework checks for
+        // a leaked handle before tear-downs run.
+        final SemanticsHandle handle = tester.ensureSemantics();
+
+        await pumpAtWidth(tester, width, layout);
+
+        expect(find.bySemanticsLabel(RegExp(label)), findsOneWidget);
+
+        handle.dispose();
+      });
+    }
   });
 }

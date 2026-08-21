@@ -3,11 +3,15 @@
 // Turkish translation of lang/en/notifications.php; keep every ":placeholder"
 // token and key path identical to the English source.
 return [
-    'incident_opened_subject' => '[Uptizm] :monitor kesintide',
+    // `:title`, çünkü olayların çoğu monitörün kesintiye girmesi değil: metrik
+    // eşiği, AI anomalisi, süresi dolan sertifika ve elle açılan olay 200
+    // dönen bir servis için "kesintide" diyordu. `:title` olayın kendi
+    // başlığıdır ve gerçek bir kesintide yine ":monitor kesintide" olur.
+    'incident_opened_subject' => '[Uptizm] :title',
     'incident_opened_greeting' => 'Olay açıldı',
     'incident_opened_state_line' => ':monitor şu anda ":lifecycle" durumunda.',
-    'incident_opened_title' => ':monitor kesintide',
-    'incident_opened_push_heading' => ':monitor kesintide',
+    'incident_opened_title' => ':title',
+    'incident_opened_push_heading' => ':title',
 
     // Tırmanma kopyası "açıldı" demez: operatör bu olaya zaten bakıyor ve
     // yeniden açılış gibi okunan bir bildirim ayrı bir kesinti sanılır.

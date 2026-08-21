@@ -223,7 +223,7 @@ class _OnCallScheduleViewState
                 leading: _buildAvatarTile(
                   member.initials,
                   className:
-                      'grid size-5 shrink-0 place-items-center '
+                      'size-5 shrink-0 overflow-hidden '
                       'rounded-full bg-surface-container-high',
                   textClassName: 'text-[10px] font-semibold text-fg',
                 ),
@@ -270,7 +270,7 @@ class _OnCallScheduleViewState
           _buildAvatarTile(
             responder.initials,
             className:
-                'grid size-14 shrink-0 place-items-center '
+                'size-14 shrink-0 overflow-hidden '
                 'rounded-full bg-primary',
             textClassName: 'text-base font-semibold text-on-primary',
           ),
@@ -324,7 +324,7 @@ class _OnCallScheduleViewState
           _buildAvatarTile(
             '—',
             className:
-                'grid size-14 shrink-0 place-items-center '
+                'size-14 shrink-0 overflow-hidden '
                 'rounded-full bg-surface-container-high',
             textClassName: 'text-base font-semibold text-fg-muted',
           ),
@@ -459,7 +459,7 @@ class _OnCallScheduleViewState
         _buildAvatarTile(
           slot.initials,
           className:
-              'grid size-9 shrink-0 place-items-center '
+              'size-9 shrink-0 overflow-hidden '
               'rounded-full bg-surface-container-high',
           textClassName: 'text-xs font-semibold text-fg',
         ),
@@ -521,6 +521,14 @@ class _OnCallScheduleViewState
   }
 
   /// The schedule's own name and timezone, when it carries them.
+  ///
+  /// The line used to read "`<name>` · times shown in `<zone>`", and no time is
+  /// rendered anywhere on this screen: the ring shows shift LENGTHS ("24 h
+  /// shift"), never a boundary. It now states the schedule's zone without
+  /// promising a rendering of it. The zone is also inert in the resolver
+  /// (`RotationResolver` anchors the ring on `created_at` in absolute instants
+  /// and never reads the field), which is a product decision left open rather
+  /// than settled here.
   ///
   /// Replaces the old hardcoded "Weekly handoff, Mondays at 09:00" cadence
   /// note, which was a fixture string unrelated to the real schedule.
@@ -609,7 +617,7 @@ class _OnCallScheduleViewState
             leading: _buildAvatarTile(
               member.initials,
               className:
-                  'grid size-5 shrink-0 place-items-center '
+                  'size-5 shrink-0 overflow-hidden '
                   'rounded-full bg-surface-container-high',
               textClassName: 'text-[10px] font-semibold text-fg',
             ),
@@ -688,7 +696,7 @@ class _OnCallScheduleViewState
         _buildAvatarTile(
           window.initials,
           className:
-              'grid size-9 shrink-0 place-items-center '
+              'size-9 shrink-0 overflow-hidden '
               'rounded-full bg-surface-container-high',
           textClassName: 'text-xs font-semibold text-fg',
         ),
@@ -731,6 +739,20 @@ class _OnCallScheduleViewState
   // ---------------------------------------------------------------------------
 
   /// Builds an initials avatar tile.
+  ///
+  /// The centring is a Flutter [Center] rather than a Wind class, and that is
+  /// deliberate on both halves. These tiles used to say
+  /// `grid ... place-items-center`: Wind implements `grid` and does NOT
+  /// implement `place-items-*`, and an unknown token there is a silent no-op, so
+  /// every avatar in this view painted its initials against the TOP-LEFT edge of
+  /// the circle, clipped by it. Measured at 1200px on a 56px hero circle.
+  ///
+  /// `flex items-center justify-center` is the supported spelling and centres
+  /// correctly, but a single-child Wind flex box hands its child an unbounded
+  /// main axis and does not shrink it even under `overflow-hidden` (the
+  /// Flexible wrap lives in the multi-child branch of `w_div.dart` only). Two
+  /// initials in a 20px circle then overflow the row by half a pixel. [Center]
+  /// centres both axes with no Row in the way, so neither trap applies.
   Widget _buildAvatarTile(
     String initials, {
     required String className,
@@ -738,7 +760,7 @@ class _OnCallScheduleViewState
   }) {
     return WDiv(
       className: className,
-      child: WText(initials, className: textClassName),
+      child: Center(child: WText(initials, className: textClassName)),
     );
   }
 

@@ -24,6 +24,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Tests\Concerns\CapturesEvidenceLog;
 use Tests\TestCase;
 
 /**
@@ -34,6 +35,7 @@ use Tests\TestCase;
  */
 class EscalationDispatcherTest extends TestCase
 {
+    use CapturesEvidenceLog;
     use RefreshDatabase;
 
     public function test_on_call_step_pages_the_currently_on_call_responder(): void
@@ -199,6 +201,128 @@ class EscalationDispatcherTest extends TestCase
         $this->dispatcher()->pageStep($incident->id, $step->id);
 
         Notification::assertSentTo($target, IncidentOpened::class);
+    }
+
+    /**
+     * The hole this closes: an escalation step that resolves to NOBODY returned
+     * silently, after claiming its idempotency marker.
+     *
+     * So a team with an escalation policy and no on-call schedule (or a schedule
+     * whose rotation is empty, or a step pinned to a user since deleted) climbed
+     * its whole ladder paging nobody, and the only evidence was silence. That is
+     * the worst shape an alerting product has: the monitor is down, the incident
+     * is open, the policy is configured, and no human hears about it.
+     *
+     * The evidence channel is where "why did nobody get paged" is answered after
+     * the fact; it already carries the two suppression lines for the same
+     * question.
+     */
+    public function test_an_on_call_step_with_no_schedule_records_that_it_reached_nobody(): void
+    {
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        // A team with a policy but no schedule at all.
+        $owner = User::query()->create([
+            'name' => 'Owner',
+            'email' => Str::uuid().'@example.com',
+            'password' => 'irrelevant',
+        ]);
+        $team = Team::query()->create(['user_id' => $owner->id, 'name' => 'Rotaless Team']);
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertNothingSent();
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+        $this->assertStringContainsString($incident->id, $this->evidenceLogContents());
+    }
+
+    /**
+     * The second shape of the same hole: the schedule exists, so the step gets
+     * past the null-schedule guard, and the ring is empty.
+     */
+    public function test_an_on_call_step_with_an_empty_rotation_records_that_it_reached_nobody(): void
+    {
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        $owner = User::query()->create([
+            'name' => 'Owner',
+            'email' => Str::uuid().'@example.com',
+            'password' => 'irrelevant',
+        ]);
+        $team = Team::query()->create(['user_id' => $owner->id, 'name' => 'Empty Ring Team']);
+        OnCallSchedule::query()->create([
+            'team_id' => $team->id,
+            'name' => 'Primary Schedule',
+            'timezone' => 'UTC',
+        ]);
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertNothingSent();
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * The third shape: a step pinned to a specific user who has since been
+     * removed. `User::find` answers null and the step used to end there.
+     */
+    public function test_a_user_step_whose_target_is_gone_records_that_it_reached_nobody(): void
+    {
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team] = $this->teamWithOnCall();
+        $policy = $this->makePolicy($team);
+        $step = EscalationStep::query()->create([
+            'escalation_policy_id' => $policy->id,
+            'position' => 0,
+            'delay_minutes' => 0,
+            'target_type' => EscalationTargetType::User,
+            'target_id' => (string) Str::uuid(),
+        ]);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $step->id);
+
+        Notification::assertNothingSent();
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * The negative: a step that DID page somebody writes no such line, so the
+     * evidence channel stays a record of the exceptional case.
+     */
+    public function test_a_step_that_pages_someone_records_no_unreachable_line(): void
+    {
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertSentTo($responder, IncidentOpened::class);
+        $this->assertStringNotContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
     }
 
     protected function dispatcher(): EscalationDispatcher

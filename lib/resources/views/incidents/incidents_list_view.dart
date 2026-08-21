@@ -441,7 +441,14 @@ class _IncidentsListViewState
         title: trans('uptizm.incidents.maintenance_empty_title'),
         description: trans('uptizm.incidents.maintenance_empty_description'),
         action: MSButton(
-          onPressed: () => MagicRoute.to('/incidents/new'),
+          // With the kind, because this button says "Plan a window": without it
+          // the create view opened on the INCIDENT form, one unnoticed switch
+          // away from paging the on-call and publishing a red banner for work
+          // the operator meant to ANNOUNCE.
+          onPressed: () => MagicRoute.to(
+            '/incidents/new',
+            query: const {'kind': 'maintenance'},
+          ),
           child: WText(trans('uptizm.incidents.maintenance_empty_action')),
         ),
       ),

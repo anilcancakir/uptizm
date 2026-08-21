@@ -7,11 +7,14 @@ use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Enums\NotificationChannelSeverity;
+use App\Enums\NotificationChannelType;
 use App\Enums\SignalSource;
 use App\Events\IncidentBroadcast;
 use App\Events\MonitorStatusChanged;
 use App\Models\Incident;
 use App\Models\Monitor;
+use App\Models\NotificationChannel;
 use App\Models\Team;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
@@ -179,6 +182,80 @@ class IncidentDispatcherTest extends TestCase
      *
      * @return array{0: Monitor, 1: User}
      */
+
+    /**
+     * TWO DIFFERENT OUTAGES INSIDE THE THROTTLE WINDOW ARE TWO SENDS.
+     *
+     * The per-channel throttle keyed on `(channel, event)` alone, with a
+     * 60-second window, so a second incident opening inside that window was
+     * DROPPED: not deferred, not queued, dropped, with nothing anywhere saying
+     * so. A shared dependency failing takes five monitors down in the same half
+     * minute, and the team's Slack heard about one of them.
+     *
+     * The window still exists and still does what it was written for, which is
+     * coalescing repeated opens of the SAME incident (a resolve-and-still-broken
+     * loop re-announcing itself). The key now carries the incident, so "the same
+     * thing again" and "a second thing" stop being the same case.
+     */
+    public function test_two_distinct_incidents_inside_the_window_both_reach_a_channel(): void
+    {
+        Notification::fake();
+        Event::fake([IncidentBroadcast::class, MonitorStatusChanged::class]);
+        [$monitor] = $this->makeMonitor();
+        $channel = $this->makeChannel($monitor->team_id);
+
+        $first = $this->makeIncident($monitor);
+        $second = $this->makeIncident($monitor);
+
+        foreach ([$first, $second] as $incident) {
+            $this->dispatcher()->dispatch($monitor, [
+                'opened' => $incident,
+                'resolved' => null,
+                'status_change' => null,
+            ]);
+        }
+
+        Notification::assertSentToTimes($channel, IncidentOpened::class, 2);
+    }
+
+    /**
+     * And the coalescing the window was written for still holds: the SAME
+     * incident announced twice inside the window reaches the channel once.
+     */
+    public function test_the_same_incident_announced_twice_reaches_a_channel_once(): void
+    {
+        Notification::fake();
+        Event::fake([IncidentBroadcast::class, MonitorStatusChanged::class]);
+        [$monitor] = $this->makeMonitor();
+        $channel = $this->makeChannel($monitor->team_id);
+        $incident = $this->makeIncident($monitor);
+
+        for ($i = 0; $i < 2; $i++) {
+            $this->dispatcher()->dispatch($monitor, [
+                'opened' => $incident,
+                'resolved' => null,
+                'status_change' => null,
+            ]);
+        }
+
+        Notification::assertSentToTimes($channel, IncidentOpened::class, 1);
+    }
+
+    /**
+     * An enabled webhook channel on the team, taking every severity.
+     */
+    protected function makeChannel(string $teamId): NotificationChannel
+    {
+        return NotificationChannel::query()->create([
+            'team_id' => $teamId,
+            'name' => 'Ops webhook',
+            'channel_type' => NotificationChannelType::Webhook,
+            'credentials' => ['url' => 'https://example.com/hook', 'secret' => 'shh'],
+            'is_enabled' => true,
+            'severity' => NotificationChannelSeverity::All,
+        ]);
+    }
+
     protected function makeMonitor(bool $alertOnDown = true, bool $alertOnRecover = true): array
     {
         $user = User::query()->create([

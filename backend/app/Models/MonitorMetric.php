@@ -7,6 +7,7 @@ use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Enums\MetricUnit;
 use App\Enums\ThresholdDirection;
+use App\Services\Monitoring\IncidentWriteService;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -26,6 +27,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class MonitorMetric extends Model
 {
     use ConditionallyUsesUuids;
+
+    /**
+     * Close the incident this metric was raised on when the metric goes.
+     *
+     * The metric lane's auto-resolve reads the trailing run of frozen bands for a
+     * metric KEY, and a deleted metric produces no further samples, so without
+     * this the incident could never clear. See
+     * {@see IncidentWriteService::closeOrphanedByMetric()} for why closing is the
+     * honest answer and why it is silent.
+     */
+    protected static function booted(): void
+    {
+        static::deleted(function (self $metric): void {
+            app(IncidentWriteService::class)->closeOrphanedByMetric($metric);
+        });
+    }
 
     /**
      * @var array<int, string>

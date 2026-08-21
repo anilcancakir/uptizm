@@ -136,10 +136,29 @@ class StatusPageAssembler
         // systems the page is not tracking, next to the admission that it is
         // tracking none. On a status page that is not a fail-safe default, it is
         // the one lie that costs the most trust.
+        // The same rule covers the case one step along, which used to fall
+        // through: components ARE published and not one of them has been
+        // measured. `unknown` is not on the severity ladder (it is the absence of
+        // a severity, not a rung of it), so `worstOf` skipped it and returned the
+        // bottom of the ladder, and a page whose only component had never been
+        // probed published "All Systems Operational". That is the state EVERY
+        // monitor is in for its first interval, and the state a monitor stays in
+        // while our own edge cannot probe it at all.
+        //
+        // One measured component is enough to earn a verdict, and it decides
+        // among the measured ones: the unmeasured components still say `unknown`
+        // individually on the page, so nothing is hidden by letting what IS known
+        // speak.
         $components = $this->buildComponents($monitors, $strips);
-        $overallStatus = $components === []
+        $statuses = array_column($components, 'status');
+        $measured = array_values(array_filter(
+            $statuses,
+            static fn (string $status): bool => $status !== self::STATUS_UNKNOWN,
+        ));
+
+        $overallStatus = $measured === []
             ? self::STATUS_UNKNOWN
-            : $this->uptime->worstOf(array_column($components, 'status'));
+            : $this->uptime->worstOf($measured);
 
         // 4. Load the rows carrying operator-authored free text BEFORE shaping
         //    any of them, because their translations are fetched in one query

@@ -241,6 +241,58 @@ void main() {
         expect(page.components.map((c) => c.name).toList(), equals(['API']));
       });
 
+      test('excludes a paused monitor, as the public page does', () {
+        // The THIRD gate: `visibleMonitors` applies `notPaused()`, so a paused
+        // monitor is absent from the customer-facing page. The in-app list showed
+        // it, which promised a component nobody outside the team can see. Pausing
+        // is administrative, and the wire resolves it into `last_status` through
+        // the backend's `effectiveStatus()`.
+        final StatusPage page = pageWith([
+          <String, dynamic>{
+            'id': 'm1',
+            'name': 'API',
+            'display_order': 0,
+            'last_status': 'up',
+          },
+          <String, dynamic>{
+            'id': 'm2',
+            'name': 'Paused probe',
+            'display_order': 1,
+            'last_status': 'paused',
+          },
+        ]);
+
+        expect(page.components.map((c) => c.name).toList(), equals(['API']));
+      });
+
+      test('hides a healthy degraded-only component and shows a sick one', () {
+        // The FOURTH gate: `visibleMonitors` drops a `only_show_if_degraded`
+        // component while its `last_status` is up, and publishes it the moment it
+        // is not. Both halves in one case, so a fix that simply dropped every
+        // degraded-only row would fail here.
+        final StatusPage page = pageWith([
+          <String, dynamic>{
+            'id': 'm1',
+            'name': 'Healthy extra',
+            'display_order': 0,
+            'last_status': 'up',
+            'only_show_if_degraded': true,
+          },
+          <String, dynamic>{
+            'id': 'm2',
+            'name': 'Sick extra',
+            'display_order': 1,
+            'last_status': 'degraded',
+            'only_show_if_degraded': true,
+          },
+        ]);
+
+        expect(
+          page.components.map((c) => c.name).toList(),
+          equals(['Sick extra']),
+        );
+      });
+
       test('treats a row without the flag as public', () {
         // An older payload predating the flag must keep rendering rather than
         // silently emptying the page.

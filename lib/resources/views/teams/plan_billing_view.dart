@@ -669,12 +669,18 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       children: [
         WDiv(
           className:
-              'grid h-9 w-12 shrink-0 place-items-center '
+              'h-9 w-12 shrink-0 overflow-hidden '
               'rounded-md border border-color-border '
               'bg-surface-container-high',
-          child: WText(
-            paymentMethod?.brand ?? trans('common.unknown'),
-            className: 'text-xs font-semibold text-fg',
+          // Centred in Flutter, not in Wind: this tile said
+          // `grid ... place-items-center`, and Wind has no `place-items-*`, so
+          // the brand sat against the top-left edge of the card. See
+          // `_buildAvatarTile` in on_call_schedule_view.dart for the measurement.
+          child: Center(
+            child: WText(
+              paymentMethod?.brand ?? trans('common.unknown'),
+              className: 'text-xs font-semibold text-fg',
+            ),
           ),
         ),
         Expanded(
