@@ -228,6 +228,50 @@ class IncidentNotificationTest extends TestCase
         }
     }
 
+    /**
+     * The other two kinds that were claiming an outage: an AI anomaly and an
+     * expiring certificate. Neither means the monitor is down, and both reached
+     * the mail subject, the in-app row and the push heading saying it was.
+     *
+     * The SSL key is the pluralised one, so this also pins that the headline
+     * resolves through the same `_one`/`_other` suffix the stored column uses
+     * rather than the bare key.
+     */
+    public function test_the_other_non_outage_kinds_state_what_actually_happened(): void
+    {
+        $cases = [
+            'ai_anomaly' => [IncidentTitle::AI_ANOMALY, ['monitor' => 'API Health'], 'ai_anomaly'],
+            'ssl_expiry' => [IncidentTitle::SSL_EXPIRING, ['monitor' => 'API Health', 'days' => 7], 'ssl_expiring_other'],
+        ];
+
+        foreach ($cases as $label => [$key, $params, $catalogueKey]) {
+            $incident = $this->makeIncident([
+                'title' => 'ignored, the key wins',
+                'title_key' => $key,
+                'title_params' => $params,
+            ]);
+            $notification = new IncidentOpened($incident);
+
+            foreach (['en', 'tr'] as $locale) {
+                $user = User::factory()->create(['locale' => $locale]);
+                App::setLocale($user->preferredLocale());
+
+                $expected = $this->catalogueSentence($locale, $catalogueKey, $params);
+
+                $this->assertSame(
+                    $expected,
+                    $notification->toArray($user)['title'],
+                    "{$label} in {$locale}",
+                );
+                $this->assertSame(
+                    '[Uptizm] '.$expected,
+                    $notification->toMail($user)->subject,
+                    "{$label} in {$locale}",
+                );
+            }
+        }
+    }
+
     public function test_incident_opened_mail_and_database_render_in_the_notifiables_preferred_locale(): void
     {
         $incident = $this->makeIncident();
