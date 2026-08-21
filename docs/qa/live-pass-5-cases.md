@@ -403,6 +403,15 @@ red.
   both times, so a visitor cannot tell whether the address was already
   subscribed.
 
+- Realtime, end to end: resolving an incident through the API moved the
+  dashboard's OPEN INCIDENTS from 2 to 1 in eight seconds with no navigation, so
+  the broadcast fires on an operator write, the client is subscribed to its team
+  channel, and the dirty-mark plus debounced reload path works. Measured on a
+  COLD boot after the same test read as broken on a session that had survived
+  four hot restarts: that session was throwing
+  `TypeError: dart_rti.instanceType(...)[_eval] is not a function` every frame
+  and had stopped reacting to anything.
+
 ### Open, not yet fixed
 
 - **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,
