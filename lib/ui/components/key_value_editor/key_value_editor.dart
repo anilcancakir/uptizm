@@ -135,6 +135,10 @@ class KeyValueEditor extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         WAnchor(
+          // Icon-only, so there is no child text for the anchor's
+          // `MergeSemantics` to absorb: without this the control reaches a
+          // screen reader as an unnamed button.
+          semanticLabel: trans('uptizm.a11y.remove_row'),
           onTap: () => _removeRow(index),
           child: WDiv(
             className: slots['remove'],

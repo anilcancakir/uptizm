@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
@@ -7,6 +8,8 @@ import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/notification_center/index.dart';
 import 'package:uptizm/ui/components/notification_center/notification_center.preview.dart';
 import 'package:uptizm/ui/components/status_dot/index.dart';
+
+import '../../../support/bundled_lang.dart';
 
 /// In-memory loader feeding the panel's fixed labels so [trans] resolves the
 /// real English strings instead of falling back to the raw key. This mirrors
@@ -54,7 +57,6 @@ void main() {
   // Recipe assertions
   // ---------------------------------------------------------------------------
 
-
   group('notificationItemFromDatabaseNotification', () {
     DatabaseNotification make(String title, String body) =>
         DatabaseNotification(
@@ -80,7 +82,10 @@ void main() {
 
     test('a body that adds something is kept', () {
       final NotificationItem item = notificationItemFromDatabaseNotification(
-        make('Checkout is down', 'All regions failed for 3 consecutive checks.'),
+        make(
+          'Checkout is down',
+          'All regions failed for 3 consecutive checks.',
+        ),
       );
 
       expect(
@@ -233,4 +238,69 @@ void main() {
 
     expect(find.byType(NotificationCenter), findsOneWidget);
   });
+
+  // ---------------------------------------------------------------------------
+  // The header holds at the shipped copy, in both locales
+  // ---------------------------------------------------------------------------
+
+  for (final String locale in <String>['en', 'tr']) {
+    testWidgets('the header does not overflow with the shipped $locale copy', (
+      tester,
+    ) async {
+      // The loader above hands out English LITERALS, so every assertion in this
+      // file passes by construction and no locale-length problem can surface.
+      // These two read the shipped catalogue instead. Turkish is what breaks:
+      // "Tümünü okundu olarak işaretle" against "Mark all as read", beside a
+      // title, inside a panel that is 318px wide by design.
+      Translator.instance.setLoader(_BundledLangLoader(locale));
+      await Translator.instance.setLocale(Locale(locale));
+
+      await tester.pumpWidget(
+        wrap(NotificationCenter(items: kSampleNotifications)),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+
+      // "No exception" is the floor, not the claim. A Row clipped the English
+      // title to 98px of the 186 it needs and threw only in Turkish, so an
+      // exception assertion alone would have called the English header healthy.
+      // These two pin that each shipped label renders at the width it needs.
+      // `readBundledLang` flattens to the dotted keys the Translator caches,
+      // so the section is addressed by prefix rather than nested.
+      final Map<String, dynamic> catalogue = readBundledLang(locale);
+
+      for (final String key in <String>[
+        'notifications.title',
+        'notifications.mark_all_read',
+      ]) {
+        final String label = catalogue[key] as String;
+        final RenderParagraph paragraph = tester
+            .renderObjectList<RenderParagraph>(find.byType(RichText))
+            .firstWhere((RenderParagraph p) => p.text.toPlainText() == label);
+
+        expect(
+          paragraph.size.width,
+          paragraph.getMaxIntrinsicWidth(double.infinity),
+          reason:
+              'the $locale "$key" label is clipped: it renders at '
+              '${paragraph.size.width.toStringAsFixed(1)} and needs '
+              '${paragraph.getMaxIntrinsicWidth(double.infinity).toStringAsFixed(1)}',
+        );
+      }
+    });
+  }
+}
+
+/// Feeds [trans] the app's shipped catalogue for one locale, so a layout
+/// assertion is made against the words an operator actually reads.
+class _BundledLangLoader implements TranslationLoader {
+  /// The locale whose shipped catalogue to serve.
+  final String locale;
+
+  const _BundledLangLoader(this.locale);
+
+  @override
+  Future<Map<String, dynamic>> load(Locale requested) async =>
+      readBundledLang(locale);
 }

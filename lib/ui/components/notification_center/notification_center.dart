@@ -332,20 +332,34 @@ class _NotificationCenterState extends State<NotificationCenter> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
+      // A Wrap rather than a Row, because the panel is `w-80` (320px, so a
+      // 294px content row) and the two labels do not always share one line.
+      // Measured against the shipped catalogues at their real styles: the title
+      // needs 157 in Turkish and 186 in English, the action 196 in English, and
+      // the Row put them side by side unconditionally. English silently clipped
+      // its title to 98px, and Turkish threw `A RenderFlex overflowed by 61
+      // pixels` outright, which the suite never saw because this file's loader
+      // hands out English literals.
+      //
+      // Wrap drops the action to its own line instead of clipping either label,
+      // so both locales now render whole: Turkish fits on one line (157 + 123),
+      // English takes two. `truncate` stays on both as the last resort for a
+      // single label longer than a whole line, which no shipped string is.
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Expanded(
-            child: WText(
-              trans('notifications.title'),
-              className: 'text-sm font-semibold text-fg truncate',
-            ),
+          WText(
+            trans('notifications.title'),
+            className: 'text-sm font-semibold text-fg truncate',
           ),
           if (hasUnread)
             WAnchor(
               onTap: _markAll,
               child: WText(
                 trans('notifications.mark_all_read'),
-                className: 'text-xs text-primary',
+                className: 'text-xs text-primary truncate',
               ),
             ),
         ],

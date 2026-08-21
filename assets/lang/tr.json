@@ -198,7 +198,7 @@
     "empty": "Bildirim yok",
     "list_subtitle": "Bildirimlerinizi görüntüleyin ve yönetin",
     "load_failed": "Bildirimler yüklenemedi",
-    "mark_all_read": "Tümünü okundu olarak işaretle",
+    "mark_all_read": "Tümünü oku",
     "preferences_description": "Bildirimleri nasıl ve ne zaman alacağınızı yönetin",
     "preferences_title": "Bildirim Tercihleri",
     "settings": "Bildirim Ayarları",
@@ -392,7 +392,11 @@
     "a11y": {
       "notifications": "Bildirimler",
       "team_switcher": "Takım değiştir",
-      "account_menu": "Hesap"
+      "account_menu": "Hesap",
+      "remove_row": "Satırı kaldır",
+      "remove_value": ":value değerini kaldır",
+      "select_brand_color": "Marka rengini seç: :color",
+      "open_full_preview": "Tam önizlemeyi aç"
     },
     "account": {
       "sign_out": "Çıkış yap"
