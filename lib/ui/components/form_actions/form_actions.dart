@@ -73,6 +73,16 @@ class FormActions extends StatelessWidget {
             child: WText(cancelLabel!),
           ),
         MSButton(
+          // Named explicitly, because the label does not survive the loading
+          // state: wind's `WButton` REPLACES its child with the spinner
+          // (`isLoading ? _buildLoadingContent(styles) : child`), so there is no
+          // text left for `MergeSemantics` to absorb and the submit control
+          // reaches a screen reader as an unnamed button for exactly as long as
+          // the request is in flight. Naming it costs the node's reported
+          // focusability, since wind's label branch sets `excludeSemantics`;
+          // Flutter's own traversal still reaches the button, and a control that
+          // cannot be identified is the worse of the two.
+          semanticLabel: submitLabel,
           isLoading: isSubmitting,
           onPressed: onSubmit,
           child: WText(submitLabel),
