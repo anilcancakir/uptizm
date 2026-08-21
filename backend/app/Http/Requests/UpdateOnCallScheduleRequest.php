@@ -27,6 +27,10 @@ class UpdateOnCallScheduleRequest extends StoreOnCallScheduleRequest
                 'nullable',
                 'string',
                 'max:64',
+                // See the store request: the resolver anchors shift boundaries on
+                // this column now, and an unknown identifier throws inside the
+                // path that decides who to page.
+                'timezone',
             ],
         ];
     }

@@ -35,6 +35,12 @@ class StoreOnCallScheduleRequest extends FormRequest
                 'nullable',
                 'string',
                 'max:64',
+                // A REAL zone, because the resolver now anchors shift boundaries
+                // on it: `Carbon::setTimezone('nonsense')` throws, and the place
+                // that would throw is the escalation dispatcher deciding who to
+                // page. Any 64-character string used to be harmless here for
+                // exactly one reason, which was that nothing read the column.
+                'timezone',
             ],
         ];
     }

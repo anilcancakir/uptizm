@@ -287,10 +287,21 @@ class OnCallController extends Controller
      */
     protected function resolvedResponder(OnCallSchedule $schedule): array
     {
-        $user = $this->rotationResolver->resolve($schedule);
+        // The SLOT first, then the person, because the slot is the stronger
+        // answer and the person falls out of it. Only an override makes them
+        // disagree: there is a responder but no ring slot holding the pager.
+        $rotation = $this->rotationResolver->resolveRotation($schedule);
+        $user = $rotation?->user ?? $this->rotationResolver->resolve($schedule);
 
         return [
             'schedule_id' => $schedule->id,
+            // Which ring row is on duty, so the client can mark exactly one. The
+            // person is not enough: one responder can hold two slots, and the
+            // on-call screen matched its badge on the user, so both of that
+            // person's rows claimed to be the current shift. Null under an
+            // override, deliberately, because the ring is not holding the pager
+            // then.
+            'rotation_id' => $rotation?->id,
             'user' => $user === null ? null : [
                 'id' => $user->id,
                 'name' => $user->name,

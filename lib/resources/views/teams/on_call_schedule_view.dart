@@ -449,7 +449,15 @@ class _OnCallScheduleViewState
     required int total,
   }) {
     final bool isLast = index == total - 1;
-    final bool isCurrent = controller.currentResponder?.id == slot.userId;
+    // The SLOT the backend resolved, not the person holding it. One responder can
+    // legitimately occupy two slots (a weekday one and a weekend one), and
+    // matching on the user lit BOTH of their rows as the current shift, with two
+    // different shift lengths beside each other. `currentRotationId` is null
+    // while an override holds the pager, which is right: the ring is not on duty
+    // then, and the hero card above already names who is.
+    final bool isCurrent =
+        controller.currentRotationId != null &&
+        controller.currentRotationId == slot.id;
 
     return WDiv(
       className: isLast
@@ -522,13 +530,15 @@ class _OnCallScheduleViewState
 
   /// The schedule's own name and timezone, when it carries them.
   ///
-  /// The line used to read "`<name>` · times shown in `<zone>`", and no time is
-  /// rendered anywhere on this screen: the ring shows shift LENGTHS ("24 h
-  /// shift"), never a boundary. It now states the schedule's zone without
-  /// promising a rendering of it. The zone is also inert in the resolver
-  /// (`RotationResolver` anchors the ring on `created_at` in absolute instants
-  /// and never reads the field), which is a product decision left open rather
-  /// than settled here.
+  /// The line used to read "`<name>` · times shown in `<zone>`", which promised
+  /// twice what it delivered once: no time is rendered anywhere on this screen,
+  /// since the ring shows shift LENGTHS ("24 h shift") and never a boundary. It
+  /// states the zone plainly instead.
+  ///
+  /// The zone is now load-bearing rather than decorative: `RotationResolver`
+  /// anchors the ring on the schedule's LOCAL midnight and counts the cycle on
+  /// the wall clock, so an 8-hour ring in `Europe/Istanbul` hands over at 00:00,
+  /// 08:00 and 16:00 there. Naming it is therefore naming the rota's clock.
   ///
   /// Replaces the old hardcoded "Weekly handoff, Mondays at 09:00" cadence
   /// note, which was a fixture string unrelated to the real schedule.

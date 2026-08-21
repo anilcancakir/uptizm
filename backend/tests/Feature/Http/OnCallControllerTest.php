@@ -41,6 +41,40 @@ class OnCallControllerTest extends TestCase
         ]);
     }
 
+    /**
+     * The timezone has to be a REAL zone, on create and on update both.
+     *
+     * It used to be any string up to 64 characters, which was harmless for one
+     * reason only: nothing read the column. The resolver now anchors shift
+     * boundaries on it, and `Carbon::setTimezone()` throws on an unknown
+     * identifier, so an accepted typo would surface inside the escalation step
+     * that decides who to page.
+     */
+    public function test_a_schedule_rejects_a_timezone_that_is_not_a_real_zone(): void
+    {
+        $this->actingAsTeamMember();
+
+        $this->postJson('/api/v1/on-call/schedules', [
+            'name' => 'Primary Rotation',
+            'timezone' => 'Mars/Olympus_Mons',
+        ])->assertStatus(422)->assertJsonValidationErrors(['timezone'], responseKey: 'errors');
+
+        $created = $this->postJson('/api/v1/on-call/schedules', [
+            'name' => 'Primary Rotation',
+            'timezone' => 'Europe/Istanbul',
+        ])->assertStatus(201);
+
+        $this->putJson('/api/v1/on-call/schedules/'.$created->json('data.id'), [
+            'timezone' => 'Europe/Istanbulll',
+        ])->assertStatus(422)->assertJsonValidationErrors(['timezone'], responseKey: 'errors');
+
+        // And the stored value is untouched by the refused write.
+        $this->assertDatabaseHas('on_call_schedules', [
+            'id' => $created->json('data.id'),
+            'timezone' => 'Europe/Istanbul',
+        ]);
+    }
+
     public function test_index_lists_only_the_current_teams_schedules(): void
     {
         $team = $this->actingAsTeamMember();

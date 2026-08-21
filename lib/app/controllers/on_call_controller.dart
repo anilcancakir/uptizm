@@ -97,6 +97,9 @@ class OnCallController extends MagicController
   /// Who the backend resolved as on call, or `null` when it resolved nobody.
   OnCallResponder? _currentResponder;
 
+  /// The rotation slot behind [currentResponder]; see [currentRotationId].
+  String? _currentRotationId;
+
   /// The current render phase of the read.
   OnCallPhase get phase => _phase;
 
@@ -118,6 +121,15 @@ class OnCallController extends MagicController
   /// The responder the backend says is on call, or `null` when it says nobody
   /// is (an empty ring with no covering override).
   OnCallResponder? get currentResponder => _currentResponder;
+
+  /// The id of the rotation SLOT the backend resolved as on duty, or `null` when
+  /// an override holds the pager, the ring is empty, or the read failed.
+  ///
+  /// The person is not enough to mark the ring: one responder can legitimately
+  /// occupy two slots, and matching the badge on the user lit BOTH of their rows
+  /// with two different shift lengths. Only the resolver knows which slot the
+  /// clock is in, so `GET /on-call/current` carries it.
+  String? get currentRotationId => _currentRotationId;
 
   /// The override that explains why [currentResponder] holds the pager, or
   /// `null` when the ring (or nothing at all) does.
@@ -219,7 +231,11 @@ class OnCallController extends MagicController
         return;
       }
 
-      _publishSchedule(schedule, _responderFrom(current));
+      _publishSchedule(
+        schedule,
+        _responderFrom(current),
+        _rotationIdFrom(current),
+      );
     } catch (error, stackTrace) {
       Log.error('[OnCallController.reload] failed: $error\n$stackTrace');
       _publishFailure();
@@ -240,13 +256,18 @@ class OnCallController extends MagicController
     _rotation = const [];
     _overrides = const [];
     _currentResponder = null;
+    _currentRotationId = null;
     refreshUI();
 
     await reload();
   }
 
   /// Publishes a loaded [schedule] plus the responder the server resolved.
-  void _publishSchedule(OnCallSchedule schedule, OnCallResponder? responder) {
+  void _publishSchedule(
+    OnCallSchedule schedule,
+    OnCallResponder? responder,
+    String? rotationId,
+  ) {
     final List<OnCallRotationSlot> ring = schedule.rotations
         .map(OnCallRotationSlot.fromMap)
         .toList()
@@ -257,6 +278,7 @@ class OnCallController extends MagicController
     _rotation = ring;
     _overrides = schedule.overrides.map(OnCallOverrideWindow.fromMap).toList();
     _currentResponder = responder;
+    _currentRotationId = rotationId;
     refreshUI();
   }
 
@@ -267,6 +289,7 @@ class OnCallController extends MagicController
     _rotation = const [];
     _overrides = const [];
     _currentResponder = null;
+    _currentRotationId = null;
     refreshUI();
   }
 
@@ -278,6 +301,7 @@ class OnCallController extends MagicController
     _rotation = const [];
     _overrides = const [];
     _currentResponder = null;
+    _currentRotationId = null;
     refreshUI();
   }
 
@@ -308,6 +332,23 @@ class OnCallController extends MagicController
     if (user is! Map<String, dynamic>) return null;
 
     return OnCallResponder.fromMap(user);
+  }
+
+  /// Decodes `data.rotation_id` of a `GET /on-call/current` response.
+  ///
+  /// Absent or null is the endpoint's honest answer for "no ring slot holds the
+  /// pager" (an override covers now, or the ring is empty), so it passes through
+  /// untouched and the ring shows no current row.
+  String? _rotationIdFrom(MagicResponse response) {
+    final Object? payload = response.data;
+    if (payload is! Map<String, dynamic>) return null;
+
+    final Object? data = payload['data'];
+    if (data is! Map<String, dynamic>) return null;
+
+    final Object? id = data['rotation_id'];
+
+    return id?.toString();
   }
 
   // ---------------------------------------------------------------------------

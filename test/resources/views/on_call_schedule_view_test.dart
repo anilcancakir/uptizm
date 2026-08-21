@@ -338,6 +338,94 @@ void main() {
     }
   });
 
+/// One responder holding TWO slots is a real rota shape on a small team, and
+  /// the badge used to match on the USER, so both of that person's rows claimed
+  /// to be the current shift with two different shift lengths beside each other.
+  /// The backend now names the slot (`data.rotation_id`) and exactly one row
+  /// wears the badge.
+  testWidgets('only the resolved slot is badged when one person holds two', (
+    tester,
+  ) async {
+    Http.fake({
+      'on-call/schedules': Http.response({
+        'data': [
+          _scheduleRow(
+            rotations: [
+              _rotationRow(
+                id: 'rot-1',
+                userId: 'u2',
+                userName: 'Real Responder',
+                shiftHours: 24,
+              ),
+              _rotationRow(
+                id: 'rot-2',
+                userId: 'u2',
+                userName: 'Real Responder',
+                position: 1,
+                shiftHours: 8,
+              ),
+            ],
+          ),
+        ],
+      }, 200),
+      'on-call/current': Http.response({
+        'data': {
+          'schedule_id': 'sched-1',
+          'rotation_id': 'rot-2',
+          'user': {'id': 'u2', 'name': 'Real Responder'},
+        },
+      }, 200),
+    });
+    await OnCallController.instance.reload();
+
+    await tester.pumpWidget(wrap(const OnCallScheduleView()));
+    await tester.pump();
+
+    // Both slots are rendered, and they are the same person.
+    expect(find.text('24 h shift'), findsWidgets);
+    expect(find.text('8 h shift'), findsOneWidget);
+
+    // The ring badge, exactly once. The hero card's own heading uses a different
+    // key, so this finder cannot pick it up.
+    expect(
+      find.text(trans('uptizm.teams.oncall_current_header')),
+      findsOneWidget,
+    );
+  });
+
+  /// While an override holds the pager the ring is not on duty, so no row is
+  /// badged: the backend answers `rotation_id: null` and the hero card above
+  /// already names who has it.
+  testWidgets('no ring row is badged while an override holds the pager', (
+    tester,
+  ) async {
+    Http.fake({
+      'on-call/schedules': Http.response({
+        'data': [
+          _scheduleRow(
+            rotations: [
+              _rotationRow(id: 'rot-1', userId: 'u2', userName: 'Real Responder'),
+            ],
+          ),
+        ],
+      }, 200),
+      'on-call/current': Http.response({
+        'data': {
+          'schedule_id': 'sched-1',
+          'rotation_id': null,
+          'user': {'id': 'u9', 'name': 'Override Holder'},
+        },
+      }, 200),
+    });
+    await OnCallController.instance.reload();
+
+    await tester.pumpWidget(wrap(const OnCallScheduleView()));
+    await tester.pump();
+
+    expect(find.text('Override Holder'), findsWidgets);
+    expect(find.text(trans('uptizm.teams.oncall_current_header')), findsNothing);
+  });
+
   testWidgets('a failed read shows the error state, not an empty rotation', (
     tester,
   ) async {
