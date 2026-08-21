@@ -142,6 +142,9 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.escalation_description':
           'When an alert goes unacknowledged.',
       'uptizm.teams.escalation_new_button': 'New policy',
+      'uptizm.teams.escalation_empty_title': 'No escalation policies yet',
+      'uptizm.teams.escalation_empty_description':
+          'A policy decides who Uptizm pages next.',
       'uptizm.teams.escalation_oncall_reference':
           'Who answers comes from on-call.',
       'uptizm.teams.escalation_policy_edit_button': 'Edit',
@@ -421,6 +424,19 @@ void main() {
       expect(
         find.text(trans('uptizm.teams.escalation_policy_edit_button')),
         findsNothing,
+      );
+
+      // And it SAYS so. This case used to assert only the absence of policies,
+      // which an empty `WDiv` satisfies: a team with no policy saw a hairline, a
+      // gap and the on-call footnote, reading as a screen that failed to load.
+      // Every sibling surface answers this state with an empty state.
+      expect(
+        find.text(trans('uptizm.teams.escalation_empty_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.teams.escalation_empty_description')),
+        findsOneWidget,
       );
     });
   });

@@ -6,6 +6,7 @@ use App\Enums\AiMode;
 use App\Enums\HttpMethod;
 use App\Enums\MonitorRegion;
 use App\Enums\MonitorType;
+use App\Support\IdFormat;
 use Illuminate\Validation\Rule;
 
 /**
@@ -87,8 +88,10 @@ class UpdateMonitorRequest extends StoreMonitorRequest
             // paging ladder. `nullable` is what lets an operator UNPIN a policy
             // and fall back to the team default.
             'escalation_policy_id' => [
+                'bail',
                 'sometimes',
                 'nullable',
+                ...IdFormat::rules(),
                 Rule::exists('escalation_policies', 'id')
                     ->where('team_id', $this->user()?->current_team_id),
             ],

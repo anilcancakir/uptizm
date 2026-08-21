@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\OnCallSchedule;
+use App\Support\IdFormat;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -36,8 +37,9 @@ class StoreOnCallRotationRequest extends FormRequest
 
         return [
             'user_id' => [
+                'bail',
                 'required',
-                'string',
+                ...IdFormat::rules(),
                 Rule::exists('team_user', 'user_id')->where('team_id', $teamId),
             ],
             'position' => [

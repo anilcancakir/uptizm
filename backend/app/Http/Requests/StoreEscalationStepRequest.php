@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Enums\EscalationTargetType;
 use App\Models\EscalationPolicy;
+use App\Support\IdFormat;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -52,9 +53,10 @@ class StoreEscalationStepRequest extends FormRequest
                 Rule::enum(EscalationTargetType::class),
             ],
             'target_id' => [
+                'bail',
                 'nullable',
-                'string',
                 'required_if:target_type,user',
+                ...IdFormat::rules(),
                 Rule::exists('team_user', 'user_id')->where('team_id', $teamId),
             ],
         ];

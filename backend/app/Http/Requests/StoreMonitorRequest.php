@@ -11,6 +11,7 @@ use App\Models\Monitor;
 use App\Models\Team;
 use App\Services\Billing\PlanGate;
 use App\Services\Monitoring\MetricCandidateExtractor;
+use App\Support\IdFormat;
 use App\Support\Monitoring\HostGuard;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
@@ -258,7 +259,9 @@ class StoreMonitorRequest extends FormRequest
             // ladder, so a cross-tenant id here would page another team's
             // responders during an outage.
             'escalation_policy_id' => [
+                'bail',
                 'nullable',
+                ...IdFormat::rules(),
                 Rule::exists('escalation_policies', 'id')
                     ->where('team_id', $this->user()?->current_team_id),
             ],

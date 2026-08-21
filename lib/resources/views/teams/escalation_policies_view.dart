@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -62,6 +63,10 @@ class _EscalationPoliciesViewState
   @override
   Future<void> refetch() => controller.ensureFresh();
 
+  /// The glyph on the no-policies empty state: a ladder, which is what an
+  /// escalation policy is.
+  static const IconData _emptyIcon = Icons.stairs_outlined;
+
   @override
   Widget build(BuildContext context) {
     final List<EscalationPolicy> policies = controller.policies;
@@ -94,6 +99,14 @@ class _EscalationPoliciesViewState
           // index call, so that window is two round trips wide here).
           if (controller.isFirstLoad)
             _buildSkeleton()
+          else if (policies.isEmpty)
+            // A loaded, empty list used to render an empty `WDiv`: a team with
+            // no policy saw a hairline, a gap, and the on-call footnote, which
+            // reads as a screen that failed to load rather than one with nothing
+            // in it. Every sibling surface (on-call, maintenance, monitors,
+            // status pages) answers this state with an empty state, so this one
+            // does too.
+            _buildEmptyState()
           else
             WDiv(
               className: 'flex flex-col gap-4',
@@ -108,6 +121,29 @@ class _EscalationPoliciesViewState
             className: 'text-sm text-fg-muted',
           ),
         ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Empty state: the team has no policy at all
+  // ---------------------------------------------------------------------------
+
+  /// Builds the "no policies yet" state with a create action.
+  ///
+  /// The same dashed-border wrapper the on-call screen uses for its own empty
+  /// state, so the two team surfaces read as one product.
+  Widget _buildEmptyState() {
+    return WDiv(
+      className: 'rounded-xl border border-dashed border-color-border',
+      child: MSEmptyState(
+        icon: _emptyIcon,
+        title: trans('uptizm.teams.escalation_empty_title'),
+        description: trans('uptizm.teams.escalation_empty_description'),
+        action: MSButton(
+          onPressed: () => MagicRoute.to('/teams/escalation/new'),
+          child: WText(trans('uptizm.teams.escalation_new_button')),
+        ),
       ),
     );
   }

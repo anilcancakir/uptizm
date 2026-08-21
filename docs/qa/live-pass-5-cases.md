@@ -222,6 +222,69 @@ circle measure 56x56 and comparing those two centres is vacuous.
   and the test-send endpoint catches the throwable and answers
   `delivered: false` with a 502.
 
+### F12 (fixed) "Plan a window" opened the incident form
+
+`SP-9`. The maintenance tab's own empty state navigated to `/incidents/new` with
+no kind, so the operator landed on the INCIDENT form, one unnoticed switch away
+from declaring an outage that pages the on-call and publishes a red banner, for
+work they meant to announce. The route now carries `?kind=maintenance`.
+
+### F14 (fixed) Every incident page claimed the monitor was down
+
+`N-5` adjacent, found in the bell. `notifications.incident_opened_*` hardcoded
+":monitor is down" across the mail subject, the in-app row title and the push
+heading. Measured on a monitor that answered 200 from all three regions
+throughout: "API is down" over a body reading "HTTP status code breached
+critical bound", where only the second line was true and it was the small one.
+The same false headline reaches an AI anomaly, an SSL expiry and a hand-filed
+incident. The copy now renders the incident's own composed title, which for a
+real down incident is the same sentence, so the common case is unchanged.
+
+### F15 (fixed) A malformed id was a 500, on production's engine only
+
+`X-3` adjacent, found while probing cross-team masking. Laravel runs an `exists`
+rule as a real query, and PostgreSQL raises
+`SQLSTATE[22P02] invalid input syntax for type uuid` when a non-uuid string
+meets a `uuid` column. `{"user_id": "x"}` therefore answered **500** on five of
+six write endpoints (add rotation, add override, add escalation step, open
+incident, schedule maintenance, create monitor), measured against the dev
+database:
+
+```
+select count(*) as "aggregate" from "team_user"
+where "user_id" = x and "team_id" = a26c03f7-...
+```
+
+Every one now answers 422 with a field error, verified against real PostgreSQL.
+`App\Support\IdFormat` supplies the format rules behind a `bail`, and it reads
+`magic-starter.use_uuids` rather than hardcoding `uuid`, because the schema is
+UUID-optional.
+
+The reason this reached production: the suite runs on SQLite, which compares the
+same input happily and returns no rows, so the endpoints answered a clean 422 in
+every test. `tests/Feature/Http/MalformedIdRejectionTest.php` says so in its own
+docblock; it was run against PostgreSQL with the fix reverted (fails: "rotation
+user answered 500") and with it in place (passes).
+
+### Cases that passed, with the artifact
+
+- `AI-8`, `AI-9`, `AI-10`: acknowledge moved the incident to `investigating` and
+  wrote a public note; an update posted and appeared on the public page within
+  the same second; resolve stamped `resolved_at` and its own note. Three notes,
+  in order, at 14:00:26, 14:00:47 and 14:01:29.
+- `SP-7`: subscribe → 200 and an unconfirmed row carrying both tokens; confirm →
+  200, `confirmed_at` and `opt_in_confirmed_at` set, confirm token burned to
+  null; unsubscribe → 200 and the row deleted.
+- `SP-6`: the Turkish public page renders "Büyük kesinti", "Bileşenler",
+  "Olaylar" and a translated incident title. The page description stays English
+  because it is the operator's own copy.
+- `X-3`: every cross-team read and write answered 404, never 403, across
+  monitors, incidents, status pages, on-call schedules (including a nested
+  rotation write), escalation policies and notification channels.
+- The maintenance filter tab is clipped at 430px but scrolls and taps fine.
+- The metric close path took exactly two healthy rounds (bounds raised 13:45:53,
+  resolved 13:46:33, six ok samples = two rounds of three regions).
+
 ### Open, not yet fixed
 
 - **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,

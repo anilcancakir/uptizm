@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\IncidentSeverity;
+use App\Support\IdFormat;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -30,8 +31,9 @@ class StoreIncidentRequest extends FormRequest
     {
         return [
             'monitor_id' => [
+                'bail',
                 'required',
-                'string',
+                ...IdFormat::rules(),
                 Rule::exists('monitors', 'id')->where('team_id', $this->user()?->current_team_id),
             ],
             'severity' => [
