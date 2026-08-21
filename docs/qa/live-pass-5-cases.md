@@ -441,17 +441,63 @@ and the hint wraps under the label.
   test, and worth recording as a negative result rather than a gap somebody
   assumes was covered.
 
+### Closed since this pass was written
+
+- **F6 The on-call schedule's timezone changes nothing.** It was stored,
+  fillable, editable, and rendered as "Primary rotation · times shown in
+  Europe/Istanbul", while `RotationResolver` anchored the ring on
+  `schedule.created_at` in absolute instants and never read the field. Closed in
+  #85: `elapsedWallClockHours` now counts from local midnight in the schedule's
+  own zone, with an unknown or absent zone falling back to UTC rather than
+  throwing, so an 8-hour rotation hands over at 00:00 / 08:00 / 16:00 local.
+- **Unlabelled controls in the shell.** The team switcher, the notification bell
+  and the account control were buttons with no accessible name: `WPopover` wraps
+  its trigger in a label-free `Semantics(button: true)` because its own toggle
+  runs on a raw `Listener`. Closed in #83 by `ShellControlSemantics`
+  (`MergeSemantics` above the popover, since the duplicate node is the popover's
+  own ancestor). Measured after: three named nodes instead of six, at 1200px and
+  at 430px.
+### Withdrawn: the claim that a row announced twice
+
+The third entry in the old "open" list read "every sidebar destination is a
+button inside an identically-labelled button ... so a screen reader announces
+each twice". Half of that is right and the load-bearing half is wrong, and the
+wrong half survived two passes.
+
+What is real: `WDiv` auto-wraps itself in a `WAnchor` whenever its className
+carries `hover:`, `focus:` or `active:`, purely for state tracking, and `WAnchor`
+published `Semantics(button: true)` unconditionally, with no gesture behind it.
+Measured on `WDiv(className: 'px-4 py-3 hover:bg-slate-100', child:
+WText('Latency'))`: one button node whose entire action set was `focus`, no
+`tap`. A screen reader offers a decorative card as a control, the user activates
+it, and nothing happens. Fixed upstream in `fluttersdk/wind` #182, together with
+`WCheckbox` installing a tap handler for `onChanged: null`.
+
+What is NOT real: the double announcement. `WAnchor(onTap:) > WDiv(hover:...)`
+did put two button nodes in the WIDGET tree, which is what the original reading
+counted, and the monitor row measured as two 800x65 nodes with the same label.
+But the inner node carried `isMergedIntoParent`, so Flutter folded it into the
+real tap surface and never sent it to the platform. No screen reader ever read
+that row twice.
+
+F19 above had already reached the same conclusion from the other direction, by
+reading the DOM: "the DOM carries exactly one button element per row ... that one
+was a `dusk:snap` artifact". The open list kept the claim anyway, which is the
+whole reason this section exists: a retraction recorded in one place and not the
+other is how a corrected finding gets re-fixed.
+
+The method error is worth more than the finding: **count platform nodes, not
+tree nodes**. Any walk of a semantics tree has to skip `isMergedIntoParent`, or
+it reports duplicates that do not exist. The DOM is honest here because it only
+ever receives platform nodes, which is why F19's reading was right and the
+tree-level one was not. `test/a11y/preview_button_names_test.dart` filters
+merged nodes, and so do the upstream tests.
+
+The nameless-control half of that entry was real and larger than first thought.
+`MSPageHeader` used `backLabel` only as a presence flag, so the back control on
+every detail page was an unnamed button (`fluttersdk/magic_starter` #101), and
+five uptizm controls were nameless too (#87).
+
 ### Open, not yet fixed
 
-- **F6 The on-call schedule's timezone changes nothing.** It is stored, fillable,
-  editable, and rendered as "Primary rotation · times shown in Europe/Istanbul",
-  while `RotationResolver` anchors the ring on `schedule.created_at` in absolute
-  instants and never reads the field. No times are shown on that surface either,
-  so the sentence promises twice what it delivers once. The honest fix is to
-  anchor shift boundaries to local midnight in the schedule's zone AND render the
-  current shift's window; the cheap fix is to stop claiming times are shown.
-- **Duplicate and unlabelled controls in the shell.** Every sidebar destination
-  is a button inside an identically-labelled button (`Monitors` inside
-  `Monitors`), as are the monitor rows on the dashboard, so a screen reader
-  announces each twice; the team switcher, the notification bell and the account
-  control are buttons with no accessible name at all.
+- Nothing. Every finding above carries the change that closed it.
