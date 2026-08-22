@@ -1493,6 +1493,8 @@
       "billing_toast_switch_title": "Switching to :name",
       "billing_toast_change_description": "Billed :cycle. Change takes effect at your next renewal.",
       "billing_toast_deferred_title": "Billing coming soon",
+      "billing_toast_deferred_text": "Billing is not available in this app yet.",
+      "billing_toast_failed_text": "Something went wrong. Please try again, and contact support if it keeps happening.",
       "billing_toast_checkout_failed_title": "Checkout failed",
       "invite_accept_heading": "Join :name on Uptizm",
       "invite_accept_body": "You've been invited to collaborate as a Member. You'll get access to this team's monitors, incidents, and status pages.",

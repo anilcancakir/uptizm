@@ -1493,6 +1493,8 @@
       "billing_toast_switch_title": ":name'e geçiliyor",
       "billing_toast_change_description": ":cycle olarak faturalandırılır. Değişiklik bir sonraki yenilemenizde geçerli olur.",
       "billing_toast_deferred_title": "Faturalandırma yakında geliyor",
+      "billing_toast_deferred_text": "Faturalandırma bu uygulamada henüz kullanılamıyor.",
+      "billing_toast_failed_text": "Bir şeyler ters gitti. Tekrar deneyin, sürerse destekle iletişime geçin.",
       "billing_toast_checkout_failed_title": "Ödeme başarısız oldu",
       "invite_accept_heading": "Uptizm'de :name takımına katıl",
       "invite_accept_body": "Üye olarak iş birliği yapmaya davet edildiniz. Bu takımın izleyicilerine, olaylarına ve durum sayfalarına erişim kazanacaksınız.",

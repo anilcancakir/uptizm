@@ -1372,23 +1372,58 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// rail changed under a mounted screen. Re-reading the authority is the fix,
   /// and it keys off the server's `manage_via` rather than off the refusal's
   /// English sentence.
+  /// Reports a rail failure to the CUSTOMER, and the developer's version of it
+  /// to the log.
+  ///
+  /// Every message [BillingException] carries is written for whoever wired the
+  /// rail up, not for the person holding the phone: the package throws
+  /// "Malformed usage response.", "Failed to open the hosted billing page." and,
+  /// when the store rail has no key, a sentence naming
+  /// `payments.revenuecat.public_sdk_key` outright. Four call sites used to put
+  /// that straight into a toast body, so a customer on a Turkish session could
+  /// be shown an internal config key in English. The text is still worth having,
+  /// which is why it goes to the log rather than being dropped.
+  ///
+  /// [UnsupportedPlatformException] keeps its own softer title and its own
+  /// sentence, because it is not a failure: it is this build having no rail for
+  /// the action, which reads as "not here yet" rather than "something broke". It
+  /// extends [BillingException], so one catch covers both and the type test
+  /// lives here.
+  ///
+  /// Neither sentence names the web, deliberately. Steering a store customer to
+  /// a web checkout is App Store rule 3.1.3(a), and a message written for a
+  /// storeless build is exactly where that wording would creep back in.
+  void _reportBillingFailure(BillingException error, {required String where}) {
+    Log.error('[PlanBillingView.$where] ${error.message}');
+
+    if (error is UnsupportedPlatformException) {
+      MagicFeedback.info(
+        trans('uptizm.teams.billing_toast_deferred_title'),
+        trans('uptizm.teams.billing_toast_deferred_text'),
+      );
+
+      return;
+    }
+
+    Magic.error(
+      trans('uptizm.teams.billing_toast_checkout_failed_title'),
+      trans('uptizm.teams.billing_toast_failed_text'),
+    );
+  }
+
   Future<void> _openBillingPortal() async {
     final WebBillingService? web = _web;
     if (web == null) return;
 
     try {
       await web.openPortal(returnUrl: '$_webOrigin/teams/billing');
-    } on UnsupportedPlatformException catch (error) {
-      MagicFeedback.info(
-        trans('uptizm.teams.billing_toast_deferred_title'),
-        error.message,
-      );
     } on BillingException catch (error) {
-      Magic.error(
-        trans('uptizm.teams.billing_toast_checkout_failed_title'),
-        error.message,
-      );
-      await _loadEntitlement();
+      _reportBillingFailure(error, where: 'openBillingPortal');
+
+      // Only this site re-reads: the two 409s it can hit both mean the rail
+      // changed under a mounted screen, and the authority is the server's
+      // `manage_via`, never the refusal's sentence.
+      if (error is! UnsupportedPlatformException) await _loadEntitlement();
     }
   }
 
@@ -1568,16 +1603,8 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           'cycle': _cycleLabel(_cycle),
         }),
       );
-    } on UnsupportedPlatformException catch (error) {
-      MagicFeedback.info(
-        trans('uptizm.teams.billing_toast_deferred_title'),
-        error.message,
-      );
     } on BillingException catch (error) {
-      Magic.error(
-        trans('uptizm.teams.billing_toast_checkout_failed_title'),
-        error.message,
-      );
+      _reportBillingFailure(error, where: 'startWebCheckout');
     }
   }
 
@@ -1624,16 +1651,8 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         trans('uptizm.teams.billing_store_purchase_text'),
       );
       await _loadEntitlement();
-    } on UnsupportedPlatformException catch (error) {
-      MagicFeedback.info(
-        trans('uptizm.teams.billing_toast_deferred_title'),
-        error.message,
-      );
     } on BillingException catch (error) {
-      Magic.error(
-        trans('uptizm.teams.billing_toast_checkout_failed_title'),
-        error.message,
-      );
+      _reportBillingFailure(error, where: 'purchaseInStore');
     }
   }
 
@@ -1668,16 +1687,8 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         trans('uptizm.teams.billing_store_purchase_text'),
       );
       await _loadEntitlement();
-    } on UnsupportedPlatformException catch (error) {
-      MagicFeedback.info(
-        trans('uptizm.teams.billing_toast_deferred_title'),
-        error.message,
-      );
     } on BillingException catch (error) {
-      Magic.error(
-        trans('uptizm.teams.billing_toast_checkout_failed_title'),
-        error.message,
-      );
+      _reportBillingFailure(error, where: 'restoreStorePurchases');
     }
   }
 

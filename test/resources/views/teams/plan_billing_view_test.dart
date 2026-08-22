@@ -889,11 +889,17 @@ void main() {
 
     testWidgets('a rail failure surfaces the failure toast and does not crash '
         'the screen', (tester) async {
+      // The message a real unconfigured rail throws, near enough verbatim: the
+      // package writes these for whoever wired the rail up, and this one names
+      // an internal config key.
+      const String developerMessage =
+          'The store rail is not configured. Set '
+          'payments.revenuecat.public_sdk_key to this platform\'s public '
+          'RevenueCat SDK key.';
+
       final _StoreRailBillingService store = _StoreRailBillingService(
         manageVia: 'none',
-        purchaseError: const BillingException(
-          'No store product is configured for the "business" plan.',
-        ),
+        purchaseError: const BillingException(developerMessage),
       );
 
       await mount(
@@ -916,6 +922,16 @@ void main() {
         find.text(trans('uptizm.teams.billing_store_purchase_title')),
         findsNothing,
       );
+
+      // The body is the customer's sentence, and the developer's never reaches
+      // the screen. This used to render `error.message` directly, so a Turkish
+      // session was shown an English sentence naming a config key.
+      expect(
+        find.text(trans('uptizm.teams.billing_toast_failed_text')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('public_sdk_key'), findsNothing);
+      expect(find.text(developerMessage), findsNothing);
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
     });
