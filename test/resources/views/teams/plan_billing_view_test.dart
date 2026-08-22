@@ -114,6 +114,45 @@ class _ReadsBillingService implements BillingService {
   }
 }
 
+/// A tier with no rail behind it: every read answers, and every answer is
+/// "nothing".
+///
+/// The two payloads below are copied off `GET /billing` and
+/// `GET /billing/payment-method` on the dev box, for a team holding
+/// `plan = business` with `plan_provider` null (a tier granted directly rather
+/// than sold). They are not invented: the live walk in step 32 is what produced
+/// them.
+///
+/// [_ReadsBillingService] cannot model this state, and that is why it went
+/// unnoticed. Its `getPaymentMethod()` pins a Visa ending 4242 with a real
+/// renewal instant, so every other test in this file reaches the renewal
+/// sentence through a date that EXISTS, and the branch taken when the read
+/// resolves EMPTY had no fixture pointing at it. A fixture that pins one value
+/// makes the other branch unreachable, and an unreachable branch is not covered
+/// by however many tests pass.
+class _UnbilledBillingService extends _ReadsBillingService {
+  @override
+  Future<BillingEntitlement> currentEntitlement() async {
+    return BillingEntitlement.fromMap(<String, dynamic>{
+      'plan': 'business',
+      'plan_status': 'none',
+      'subscribed': false,
+      'renews': null,
+      'provider': 'none',
+      'manage_via': 'none',
+      'manage_url': null,
+      'current_period_end': null,
+      'ai_analysis_trials_remaining': null,
+    });
+  }
+
+  /// Resolved, and carrying nothing. Distinct from the fetch never having
+  /// answered: the view keeps `_paymentMethod` null for that, and the neutral
+  /// pending label is correct there.
+  @override
+  Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
+}
+
 /// The reads PLUS the WEB rail, recording every purchase-affecting call so a
 /// test can assert an affordance was not merely hidden but never reachable.
 ///
@@ -1019,6 +1058,53 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('billed annually'), findsNothing);
+    });
+  });
+
+  group('a tier with no rail behind it says so', () {
+    testWidgets('the renewal line does not promise a renewal it cannot have', (
+      tester,
+    ) async {
+      await mount(
+        tester,
+        PlanBillingView(billingService: _UnbilledBillingService(), isOwner: true),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_renewal_unbilled')),
+        findsOneWidget,
+      );
+      // The defect this replaces: the sentence rendered `renews Unknown`, which
+      // reads as a renewal whose date was lost rather than as no renewal.
+      expect(find.textContaining(trans('common.unknown')), findsNothing);
+      // The live sentence's own separator, not the bare word: the honest
+      // replacement above ends in "nothing renews", so asserting on `renews`
+      // alone matches the fix and fails on the very thing it is checking.
+      expect(find.textContaining('· renews '), findsNothing);
+    });
+
+    testWidgets('the payment section names the absence instead of labelling a '
+        'card Unknown', (tester) async {
+      await mount(
+        tester,
+        PlanBillingView(billingService: _UnbilledBillingService(), isOwner: true),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_payment_none')),
+        findsOneWidget,
+      );
+      // Two symptoms of one defect, both pinned. The brand tile rendered
+      // `common.unknown` beside a row that fell back to the SECTION HEADING,
+      // so "Payment method" appeared twice and the pair read as a real card of
+      // an unknown brand.
+      expect(find.textContaining(trans('common.unknown')), findsNothing);
+      expect(
+        find.text(trans('uptizm.teams.billing_payment_header')),
+        findsOneWidget,
+      );
     });
   });
 

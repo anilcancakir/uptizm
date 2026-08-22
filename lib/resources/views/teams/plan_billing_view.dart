@@ -829,16 +829,34 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// subscription. Every number in the sentence would therefore be wrong at
   /// once, which is worse than not showing it.
   ///
+  /// A paid tier that NO rail is billing gets its own sentence too, and it is
+  /// the state this method used to get wrong: it fell through to the live
+  /// sentence and rendered "renews Unknown", which reads as a renewal whose
+  /// date was mislaid rather than as no renewal at all. Measured on the dev box
+  /// against a Business team with `plan_provider` null.
+  ///
   /// Otherwise the live sentence, whose date comes from
   /// `GET /billing/payment-method` and falls back to a neutral label while the
   /// lazy fetch is pending or after its Stripe soft-fail, never to a fabricated
-  /// date.
+  /// date. That neutral label survives on purpose: "pending" and "there is
+  /// none" are different answers, and only the second one is settled.
   String _renewalLine(Plan current) {
     if (current.monthly == 0 && current.annual == 0) {
       return trans('uptizm.teams.billing_renewal_free');
     }
 
     if (_storeManaged) return trans('uptizm.teams.billing_renewal_store');
+
+    // A PAID tier that no rail is billing: granted directly, or a provider
+    // recorded before a customer ever existed. Nothing renews, so nothing is
+    // promised. The discriminator is that the payment-method read RESOLVED and
+    // carried no date, which is not the same as `manage_via` being `none`: that
+    // word also covers a Stripe team whose `stripe_id` has not been created yet,
+    // and half this file's fixtures leave it at its default.
+    final PaymentMethod? resolved = _paymentMethod;
+    if (resolved != null && resolved.renewalDate == null) {
+      return trans('uptizm.teams.billing_renewal_unbilled');
+    }
 
     return trans('uptizm.teams.billing_renewal_text', {
       'price': _priceLabel(current, BillingCycle.annual),
@@ -1201,8 +1219,21 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
-  /// Builds the payment-method card's body for its three states: loading
-  /// skeleton, error text, or the resolved (possibly all-null) card.
+  /// Builds the payment-method card's body for its four states: loading
+  /// skeleton, error text, resolved-with-nothing-on-file, or the card.
+  ///
+  /// The third state used to fall through to the fourth, and it rendered as a
+  /// card: the brand tile said "Unknown" and the number row, having no `last4`,
+  /// fell back to the SECTION HEADING, so a team with no card saw "Payment
+  /// method" twice beside a tile implying a real card whose brand had been lost.
+  /// A resolved non-answer is not a value; it gets named. Measured on the dev
+  /// box against a Business team with `plan_provider` null, whose
+  /// `GET /billing/payment-method` answers every field null.
+  ///
+  /// "Resolved with nothing" is deliberately BOTH `brand` and `last4` being
+  /// absent, not either: a rail that returned one without the other has partly
+  /// answered, and claiming "no card on file" over a partial answer would be a
+  /// second wrong sentence rather than a fix for the first.
   Widget _buildPaymentMethodContent() {
     if (_pmLoading) {
       return WDiv(
@@ -1236,7 +1267,30 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     }
 
     final PaymentMethod? paymentMethod = _paymentMethod;
-    final String? last4 = paymentMethod?.last4;
+
+    if (paymentMethod == null ||
+        (paymentMethod.brand == null && paymentMethod.last4 == null)) {
+      return WDiv(
+        className: 'flex flex-row items-center gap-4',
+        children: [
+          Expanded(
+            child: WText(
+              trans('uptizm.teams.billing_payment_none'),
+              className: 'text-sm text-fg-muted',
+            ),
+          ),
+          if (_portalAvailable)
+            MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              onPressed: () => _openBillingPortal(),
+              child: WText(trans('uptizm.teams.billing_payment_update_button')),
+            ),
+        ],
+      );
+    }
+
+    final String? last4 = paymentMethod.last4;
     final String? expiry = _cardExpiry(paymentMethod);
 
     return WDiv(
@@ -1253,7 +1307,9 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           // `_buildAvatarTile` in on_call_schedule_view.dart for the measurement.
           child: Center(
             child: WText(
-              paymentMethod?.brand ?? trans('common.unknown'),
+              // Reachable only on a PARTIAL answer now (a `last4` with no
+              // brand); the all-null case returns above.
+              paymentMethod.brand ?? trans('common.unknown'),
               className: 'text-xs font-semibold text-fg',
             ),
           ),
