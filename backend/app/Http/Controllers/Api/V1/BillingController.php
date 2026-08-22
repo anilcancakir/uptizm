@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\StoreSubscriptionGuardedDeleteTeam;
 use App\Enums\BillingProvider;
 use App\Enums\Plan;
 use App\Exceptions\PlanUpgradeRequiredException;
@@ -13,6 +14,7 @@ use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\Team;
 use App\Policies\BillingPolicy;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -277,6 +279,55 @@ class BillingController extends Controller
             'checks_this_month' => [
                 'used' => $checksUsed,
                 'limit' => null,
+            ],
+        ]);
+    }
+
+    /**
+     * Report the caller's OTHER team that a store account is already funding, so
+     * the client can refuse a store purchase by NAME instead of transferring one.
+     *
+     * The structural fact behind it: the two store SKUs share a subscription
+     * group so that upgrade and downgrade work at all, and a store account holds
+     * at most one active subscription per group. So a second purchase from the
+     * same account does not open a second subscription, it MOVES the one that
+     * exists, and the team that had it silently stops being funded. The client
+     * hides its purchase CTA on this answer; the entitlement itself stays honest
+     * either way, because the rail's TRANSFER handling revokes the source and
+     * grants the destination. This exists so a customer is not surprised.
+     *
+     * WHAT IT CANNOT SEE, said plainly: the store ACCOUNT. RevenueCat's App User
+     * ID is the team id, so from here every purchase looks like a fresh customer,
+     * and the honest proxy is the teams this caller OWNS. That covers one person
+     * with two teams and one store account, which is the common case. It does not
+     * cover two people sharing one store account, which needs the SDK's
+     * `originalAppUserId` and therefore a wider `StoreBillingService`.
+     *
+     * Teams the caller merely BELONGS TO are excluded, and that is not laxity:
+     * only an owner can buy ({@see BillingPolicy}), so a member's team was funded
+     * by ITS owner's store account and says nothing about this caller's. Counting
+     * it would refuse a legitimate first purchase to anybody who has ever joined
+     * a store-billed team.
+     *
+     * A READ, so it is open to any member like the other five: it reports only on
+     * teams the caller already owns, and gating it on ownership would 403 a
+     * mount-time fetch the client makes before it knows who is asking.
+     */
+    public function storeFundedTeam(Request $request): JsonResponse
+    {
+        $team = $this->resolveTeam($request);
+
+        // Typed `Model` and not `Team`, because the relation is declared over
+        // `MagicStarter::teamModel()`: the narrowing belongs in the predicate,
+        // which already answers false for anything that is not an uptizm team.
+        $funded = $request->user()->ownedTeams
+            ->first(fn (Model $other): bool => $other->getKey() !== $team->getKey()
+                && StoreSubscriptionGuardedDeleteTeam::storeIsBilling($other));
+
+        return response()->json([
+            'store_funded_team' => $funded === null ? null : [
+                'id' => $funded->getKey(),
+                'name' => $funded->name,
             ],
         ]);
     }

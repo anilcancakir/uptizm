@@ -12,6 +12,7 @@ import 'package:magic_payments/magic_payments.dart'
         ManageVia,
         PaymentMethod,
         Payments,
+        StoreBillingService,
         UnsupportedPlatformException,
         UsageStat,
         WebBillingService;
@@ -56,11 +57,16 @@ enum BillingCycle {
 ///   responder add-on line when present, a "Recommended" badge when
 ///   [Plan.recommended], and a CTA: "Current plan" (disabled) for the active
 ///   plan, else "Upgrade"/"Downgrade"/"Contact sales" decided by comparing the
-///   plan's position to the current plan's. A priced-tier CTA starts a live
-///   Stripe Checkout session via [WebBillingService.checkout], and renders only
-///   where that rail exists (see the third axis below); the custom (Enterprise)
-///   tier only surfaces a "contact sales" toast, spends nothing and therefore
-///   needs no rail; nothing navigates or persists there.
+///   plan's position to the current plan's. A priced-tier CTA buys on whichever
+///   rail this build serves, a live Stripe Checkout session via
+///   [WebBillingService.checkout] or the platform's own purchase sheet via
+///   [StoreBillingService.purchase], and renders only where one of them exists
+///   (see the third axis below); the custom (Enterprise) tier only surfaces a
+///   "contact sales" toast, spends nothing and therefore needs no rail; nothing
+///   navigates or persists there. A store build also shows the store's own
+///   price statement instead of the catalogue's USD figure, drops the
+///   monthly/annual toggle (the store sells the monthly SKUs only) and carries
+///   the "Restore purchases" affordance the stores require.
 /// - **Payment method card**: the fetched [PaymentMethod]'s brand tile, the
 ///   masked card number + expiry + renewal date, and an "Update" [Button]
 ///   that opens the Stripe billing portal via [WebBillingService.openPortal].
@@ -116,14 +122,29 @@ enum BillingCycle {
 /// a KNOWN non-owner loses the CTA, since an unresolved membership must not
 /// stand between an owner and paying.
 ///
-/// **The rail this BUILD can serve, for anything it has to call.** The two
-/// purchase-affecting calls live on [WebBillingService], which `magic_payments`
-/// resolves to `null` where the build cannot serve it. That absence gates the
-/// checkout CTA and all three portal affordances, and it is a different question
-/// from `manage_via`: one asks where the customer's subscription is managed, the
-/// other whether this binary has an implementation to invoke. A store build
-/// therefore renders no checkout button at all, where it used to render one that
-/// threw [UnsupportedPlatformException] when tapped.
+/// **The rail this BUILD can serve, for anything it has to call.** The
+/// purchase-affecting calls live on [WebBillingService] and
+/// [StoreBillingService], each of which `magic_payments` resolves to `null` where
+/// the build cannot serve it, and no build serves both (the `dart:io` arm has no
+/// hosted checkout, the web arm has no store). That absence gates the checkout
+/// CTA, all three portal affordances and the whole store purchase surface, and it
+/// is a different question from `manage_via`: one asks where the customer's
+/// subscription is managed, the other whether this binary has an implementation
+/// to invoke. A web build therefore renders no store purchase at all and a store
+/// build renders no checkout button, where it used to render one that threw
+/// [UnsupportedPlatformException] when tapped.
+///
+/// ### One store account funds exactly one team
+///
+/// The two store SKUs share a subscription group so that upgrade and downgrade
+/// work, and a store account holds at most one active subscription per group. So
+/// a second purchase from the same account does not open a second subscription:
+/// it TRANSFERS the one that exists and silently stops funding the team that had
+/// it. Before offering to buy, this screen therefore asks the backend whether
+/// another of the caller's teams is already funded that way
+/// ([_loadStoreFundedTeam]) and refuses by NAME when one is, because "a store
+/// account can fund only one team" is unactionable without saying which team
+/// holds it.
 ///
 /// ### Example
 /// ```dart
@@ -203,6 +224,14 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     'Dec',
   ];
 
+  /// The endpoint answering which of the caller's teams a store account already
+  /// funds. See [_loadStoreFundedTeam] for why this screen calls it directly.
+  static const String _storeFundedTeamPath = '/billing/store-funded-team';
+
+  /// The one key that endpoint answers with: `null`, or an object naming the
+  /// team.
+  static const String _storeFundedTeamKey = 'store_funded_team';
+
   /// The app's canonical web origin, used to build the checkout
   /// `success_url`/`cancel_url` Stripe redirects back to.
   ///
@@ -234,6 +263,16 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// checkout button at all instead of one that fails when tapped.
   late final WebBillingService? _web = _resolveWebRail();
 
+  /// The STORE rail, or `null` in a build that cannot serve one.
+  ///
+  /// The mobile purchase path: `magic_payments` answers this only on iOS and
+  /// Android, so it is `null` on the web and on desktop. It is the gate on every
+  /// store affordance below for the same reason [_web] gates the Stripe ones,
+  /// and the two are mutually exclusive in practice, which is what keeps a store
+  /// build from offering web checkout and a web build from offering a purchase
+  /// the device cannot make.
+  late final StoreBillingService? _store = _resolveStoreRail();
+
   /// Resolves the web rail for this mount.
   ///
   /// With nothing injected it is the build's own rail. With a fake injected it is
@@ -251,6 +290,20 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     if (injected == null) return Payments.web;
 
     return injected is WebBillingService ? injected : null;
+  }
+
+  /// Resolves the store rail for this mount, on the same terms as
+  /// [_resolveWebRail]: the build's own rail with nothing injected, and an
+  /// injected fake only when that fake serves the contract.
+  ///
+  /// Typed `Object?` for the same reason as there: [BillingService] and
+  /// [StoreBillingService] are unrelated contracts, so a `BillingService?` local
+  /// would never promote to the subtype and the test below would need a cast.
+  StoreBillingService? _resolveStoreRail() {
+    final Object? injected = widget.billingService;
+    if (injected == null) return Payments.store;
+
+    return injected is StoreBillingService ? injected : null;
   }
 
   /// The active plan id, or `null` while it is genuinely unknown: before
@@ -284,6 +337,18 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// The store-management destination the server passed through from the rail,
   /// or `null` when the rail reported none (which is always, on Stripe).
   String? _manageUrl;
+
+  /// The NAME of another team of the caller's that a store account already
+  /// funds, or `null` when none does and while the read has not resolved.
+  ///
+  /// One field rather than a `bool` beside a name, because the two could
+  /// disagree: a refusal this screen cannot name is a refusal it cannot explain,
+  /// and every team has a name, so "blocked" and "named" are the same state.
+  /// `null` is therefore permissive, matching how [_manageVia] treats its own
+  /// unresolved state; the backend's TRANSFER handling is what keeps the
+  /// entitlement itself honest either way, so this gate exists to stop a
+  /// customer being surprised, not to stop the data being wrong.
+  String? _storeFundedTeam;
 
   /// Whether this mount has already acted on a `?upgrade=<plan>` deep link, so
   /// a second resolving fetch cannot reopen checkout.
@@ -387,16 +452,43 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     return team.ownerId == null ? null : team.isOwner;
   }
 
-  /// Whether this screen may offer to start or change a paid plan.
+  /// Whether this screen may offer to start or change a paid plan through the
+  /// WEB rail.
   ///
   /// Three independent refusals: no web rail in this build (there is nothing to
-  /// call, and no store rail ships yet either), a store already charging this
-  /// team (a second rail must not open a parallel subscription, which
-  /// `POST /billing/checkout` also refuses with a 409), and a member who is not
-  /// the owner (which the four write routes refuse with a 403). The last two are
-  /// affordances rather than enforcement; the server still decides.
-  bool get _canPurchase =>
+  /// call), a store already charging this team (a second rail must not open a
+  /// parallel subscription, which `POST /billing/checkout` also refuses with a
+  /// 409), and a member who is not the owner (which the four write routes refuse
+  /// with a 403). The last two are affordances rather than enforcement; the
+  /// server still decides.
+  bool get _canPurchaseViaWeb =>
       _web != null && !_storeManaged && _isOwner != false;
+
+  /// Whether this screen may offer to buy through the STORE rail.
+  ///
+  /// Four refusals, and the last two are what this rail adds. No store rail in
+  /// this build; a member who is not the owner; Stripe already charging this
+  /// team, which is the mirror image of the refusal above (whichever rail is
+  /// second must not open a parallel subscription, and unlike an upgrade WITHIN
+  /// the store's own subscription group that would be a second charge); and
+  /// another of the caller's teams already funded by a store account, which a
+  /// second purchase would transfer rather than duplicate.
+  ///
+  /// The two store `manage_via` values are deliberately NOT refusals: the two
+  /// SKUs share one subscription group, so buying the other tier there IS the
+  /// upgrade path, and the store replaces rather than adds.
+  bool get _canPurchaseViaStore =>
+      _store != null &&
+      _isOwner != false &&
+      _manageVia != ManageVia.portal &&
+      _storeFundedTeam == null;
+
+  /// Whether this screen may offer to start or change a paid plan on ANY rail.
+  ///
+  /// The plan grid's CTA gate. No build serves both rails, so this is a union of
+  /// two mutually exclusive answers rather than a choice between them; which one
+  /// is live decides what a tap does (see [_selectPlan]).
+  bool get _canPurchase => _canPurchaseViaWeb || _canPurchaseViaStore;
 
   @override
   void initState() {
@@ -406,6 +498,52 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     _loadUsage();
     _loadInvoices();
     _loadPaymentMethod();
+    _loadStoreFundedTeam();
+  }
+
+  /// Reads whether a store account already funds another of the caller's teams,
+  /// and republishes [_storeFundedTeam] with its name when one does.
+  ///
+  /// Asked only on a build with a store rail, because it exists to gate a store
+  /// purchase and a web build has none to gate: a screen with no store
+  /// affordance would be spending a request on an answer it cannot use.
+  ///
+  /// It goes through [Http] rather than through [_billing], and that is a
+  /// deliberate exception rather than a shortcut. The question is uptizm's own
+  /// (it is about teams, which `magic_payments` knows nothing about), the
+  /// package's [BillingService] is a published contract this screen must not
+  /// widen for one consumer, and inventing a second app-side billing client
+  /// beside the package's would give the screen two sources for one subject.
+  ///
+  /// Deliberate degradation on failure and on a payload this build cannot read:
+  /// [_storeFundedTeam] keeps whatever it held, which for a first read means
+  /// `null` and therefore permissive. See its docblock for why permissive is the
+  /// right side to fail on here.
+  ///
+  /// It only ever SETS a name and never clears one, which is a consequence
+  /// rather than an oversight: this runs at mount and again before a purchase,
+  /// and the second call is only reachable while the answer was already `null`
+  /// (a named refusal renders no CTA to tap), so a name-to-null transition has no
+  /// trigger on this screen. A future caller that could produce one has to
+  /// publish the empty answer too.
+  Future<void> _loadStoreFundedTeam() async {
+    if (_store == null) return;
+
+    try {
+      final MagicResponse response = await Http.get(_storeFundedTeamPath);
+      if (!response.successful) return;
+
+      final Object? funded = response[_storeFundedTeamKey];
+      if (funded is! Map) return;
+
+      final Object? name = funded['name'];
+      if (name is! String || name.isEmpty) return;
+      if (!mounted) return;
+
+      setState(() => _storeFundedTeam = name);
+    } catch (_) {
+      // Deliberate degradation: see the docblock above.
+    }
   }
 
   /// Reads the team's current plan from `GET /billing` via
@@ -649,25 +787,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                   ],
                 ),
                 WText(
-                  // A free plan never renews and carries no payment method, so
-                  // it shows a "free forever" line instead of a "renews
-                  // <date>" one (which otherwise read "renews Unknown" with no
-                  // card on file).
-                  (current.monthly == 0 && current.annual == 0)
-                      ? trans('uptizm.teams.billing_renewal_free')
-                      : trans('uptizm.teams.billing_renewal_text', {
-                          'price': _priceLabel(current, BillingCycle.annual),
-                          'cycle': trans(
-                            'uptizm.teams.billing_renewal_cycle_annual',
-                          ),
-                          // Live renewal date from GET /billing/payment-method;
-                          // falls back to a neutral label while the lazy fetch
-                          // is pending or after its Stripe soft-fail (never a
-                          // fabricated date).
-                          'date':
-                              _formatDate(_paymentMethod?.renewalDate) ??
-                              trans('common.unknown'),
-                        }),
+                  _renewalLine(current),
                   className: 'text-sm text-fg-muted',
                 ),
               ],
@@ -695,6 +815,39 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
+  /// The one line under the current plan's name, in its three states.
+  ///
+  /// A free plan never renews and carries no payment method, so it reads "free
+  /// forever" rather than a `renews <date>` line that said "renews Unknown" with
+  /// no card on file.
+  ///
+  /// A STORE-BILLED plan gets its own sentence, and the reason is the same one
+  /// that suppresses the price on a store purchase card: the amount here comes
+  /// from the USD catalogue and the cadence is this screen's own annual default,
+  /// while the store charged a localised price on its own SKU's cadence and the
+  /// renewal date behind it is a Stripe read that answers null for a store
+  /// subscription. Every number in the sentence would therefore be wrong at
+  /// once, which is worse than not showing it.
+  ///
+  /// Otherwise the live sentence, whose date comes from
+  /// `GET /billing/payment-method` and falls back to a neutral label while the
+  /// lazy fetch is pending or after its Stripe soft-fail, never to a fabricated
+  /// date.
+  String _renewalLine(Plan current) {
+    if (current.monthly == 0 && current.annual == 0) {
+      return trans('uptizm.teams.billing_renewal_free');
+    }
+
+    if (_storeManaged) return trans('uptizm.teams.billing_renewal_store');
+
+    return trans('uptizm.teams.billing_renewal_text', {
+      'price': _priceLabel(current, BillingCycle.annual),
+      'cycle': trans('uptizm.teams.billing_renewal_cycle_annual'),
+      'date':
+          _formatDate(_paymentMethod?.renewalDate) ?? trans('common.unknown'),
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Plans section
   // ---------------------------------------------------------------------------
@@ -705,13 +858,25 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   ///
   /// A known non-owner gets one notice here rather than the same sentence
   /// repeated on every card: the grid stays fully readable (comparing tiers is
-  /// not a write), it just stops offering to buy.
+  /// not a write), it just stops offering to buy. A store account already
+  /// funding another team gets its own notice beside it, naming that team.
+  ///
+  /// The monthly/annual toggle is absent on a store build, and that absence is
+  /// correctness rather than tidiness: the store catalogue carries the two
+  /// MONTHLY SKUs only, so a customer who picked "Annual" and tapped Upgrade
+  /// would be charged monthly by the sheet that opened.
   Widget _buildPlansSection() {
     return WDiv(
       className: 'flex flex-col gap-5',
       children: [
         if (_isOwner == false)
           _buildStatementTile(trans('uptizm.teams.billing_owner_only_notice')),
+        if (_storeFundedTeam != null)
+          _buildStatementTile(
+            trans('uptizm.teams.billing_store_bound_text', {
+              'team': _storeFundedTeam!,
+            }),
+          ),
         WDiv(
           className: 'flex flex-col items-center gap-2 text-center',
           children: [
@@ -719,15 +884,16 @@ class _PlanBillingViewState extends State<PlanBillingView> {
               trans('uptizm.teams.billing_plans_heading'),
               className: 'text-lg font-semibold text-fg',
             ),
-            MSSegmentedControl<BillingCycle>(
-              size: SegmentedControlSize.sm,
-              options: [
-                trans('uptizm.teams.billing_plans_monthly'),
-                trans('uptizm.teams.billing_plans_annual'),
-              ],
-              selectedIndex: _cycles.indexOf(_cycle),
-              onChanged: (index) => setState(() => _cycle = _cycles[index]),
-            ),
+            if (_store == null)
+              MSSegmentedControl<BillingCycle>(
+                size: SegmentedControlSize.sm,
+                options: [
+                  trans('uptizm.teams.billing_plans_monthly'),
+                  trans('uptizm.teams.billing_plans_annual'),
+                ],
+                selectedIndex: _cycles.indexOf(_cycle),
+                onChanged: (index) => setState(() => _cycle = _cycles[index]),
+              ),
           ],
         ),
         if (_plans.isEmpty)
@@ -745,6 +911,25 @@ class _PlanBillingViewState extends State<PlanBillingView> {
             className: 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4',
             children: [for (final Plan plan in _plans) _buildPlanCard(plan)],
           ),
+        // Restore sits behind the same gate as the purchase, not behind the
+        // store rail alone. Restoring hands a subscription this store account
+        // owns to whichever team the rail is currently identified as, so on a
+        // team the account must not fund it would be the transfer the refusal
+        // above exists to prevent, arriving through a different button.
+        if (_canPurchaseViaStore)
+          WDiv(
+            className: 'flex flex-col items-center',
+            children: [
+              MSButton(
+                intent: ButtonIntent.ghost,
+                size: ButtonSize.sm,
+                onPressed: () => _restoreStorePurchases(),
+                child: WText(
+                  trans('uptizm.teams.billing_store_restore_button'),
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -755,6 +940,15 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   Widget _buildPlanCard(Plan plan) {
     final bool isCurrent = _currentPlanId != null && plan.id == _currentPlanId;
     final bool isCustom = plan.monthly == null;
+    // The catalogue's price is an integer of US dollars, and a store charges a
+    // storefront-localised amount in the customer's own currency, so on a store
+    // build that figure is not the price of anything. The rail's own localised
+    // string is the right source and the driver does not expose one yet
+    // (recorded as a follow-up), so this states where the price comes from
+    // instead: the sheet shows the real one before anybody is charged, and
+    // showing a wrong price is worse than showing none. Free stays `$0`, which
+    // is true in every currency, and the custom tier keeps its own label.
+    final bool storePriced = _store != null && !isCustom && plan.monthly != 0;
 
     return WDiv(
       className: plan.recommended
@@ -783,20 +977,26 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         WDiv(
           className: 'flex flex-col gap-0.5',
           children: [
-            WDiv(
-              className: 'flex flex-row items-baseline gap-1',
-              children: [
-                WText(
-                  _priceLabel(plan, _cycle),
-                  className: 'text-3xl font-semibold tabular-nums text-fg',
-                ),
-                if (!isCustom)
+            if (storePriced)
+              WText(
+                trans('uptizm.teams.billing_plan_price_store'),
+                className: 'text-base font-medium text-fg',
+              )
+            else
+              WDiv(
+                className: 'flex flex-row items-baseline gap-1',
+                children: [
                   WText(
-                    trans('uptizm.teams.billing_plan_price_monthly'),
-                    className: 'text-sm text-fg-muted',
+                    _priceLabel(plan, _cycle),
+                    className: 'text-3xl font-semibold tabular-nums text-fg',
                   ),
-              ],
-            ),
+                  if (!isCustom)
+                    WText(
+                      trans('uptizm.teams.billing_plan_price_monthly'),
+                      className: 'text-sm text-fg-muted',
+                    ),
+                ],
+              ),
             WText(_billingNote(plan), className: 'text-xs text-fg-muted'),
           ],
         ),
@@ -1238,18 +1438,23 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // CTA + toast
   // ---------------------------------------------------------------------------
 
-  /// Selects [plan]: hands off to sales for the custom tier, otherwise starts
-  /// a live Stripe Checkout session via [WebBillingService.checkout] for
+  /// Selects [plan]: hands off to sales for the custom tier, buys through the
+  /// STORE rail where this build has one ([_purchaseInStore]), and otherwise
+  /// starts a live Stripe Checkout session via [WebBillingService.checkout] for
   /// [plan.id], the backend `Plan` enum value (`'pro'`/`'business'`; the
-  /// backend rejects anything else with a 422).
+  /// backend rejects anything else with a 422). Both rails are keyed by that
+  /// same plan id, never by a store product id: the SKU a plan maps to belongs
+  /// to the rail's catalogue, and a client naming one would need a release to
+  /// add or reprice a product.
   ///
   /// The monthly/annual [_cycle] toggle is local display state only: the
   /// backend plan map is cycle-agnostic (one Stripe price per plan, no
   /// monthly/annual price dimension yet), so it is never encoded into the
-  /// checkout payload (see the `### Deviations` note on this step).
+  /// checkout payload (see the `### Deviations` note on this step). The store
+  /// rail never sees it either, and its toggle is not even rendered.
   ///
-  /// The custom tier's sales handoff runs on a build with no web rail, because
-  /// it spends nothing and calls nothing. A priced tier without [_web] returns
+  /// The custom tier's sales handoff runs on a build with no rail at all, because
+  /// it spends nothing and calls nothing. A priced tier with neither rail returns
   /// silently: [_canPurchase] gates every CTA that reaches it, so there is no
   /// button to explain a refusal to.
   ///
@@ -1269,7 +1474,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       return;
     }
 
-    // 2. Priced tier: start checkout for the plan, redirecting Stripe back to
+    // 2. A store build buys in the store, and it is asked FIRST: no build serves
+    //    both rails, so this is a routing decision rather than a preference, and
+    //    the store must never fall through to a web checkout the store forbids
+    //    steering to.
+    if (_store != null) return _purchaseInStore(plan);
+
+    // 3. Priced tier: start checkout for the plan, redirecting Stripe back to
     //    this screen on completion/abort.
     final WebBillingService? web = _web;
     if (web == null) return;
@@ -1292,6 +1503,106 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           'cycle': _cycleLabel(_cycle),
         }),
       );
+    } on UnsupportedPlatformException catch (error) {
+      MagicFeedback.info(
+        trans('uptizm.teams.billing_toast_deferred_title'),
+        error.message,
+      );
+    } on BillingException catch (error) {
+      Magic.error(
+        trans('uptizm.teams.billing_toast_checkout_failed_title'),
+        error.message,
+      );
+    }
+  }
+
+  /// Buys [plan] through the STORE rail: the platform's own purchase sheet, on
+  /// the SKU the rail's catalogue keys by the plan id.
+  ///
+  /// The one-team refusal is re-ASKED here rather than read off the mount-time
+  /// answer, because this is the point where the money moves: a tap can arrive
+  /// long after the screen loaded, and the deep-link path
+  /// ([_startRequestedUpgrade]) can arrive before that read resolved at all. One
+  /// extra GET on a tap is cheaper than a transfer nobody asked for. It names the
+  /// team, for the same reason the notice above the grid does.
+  ///
+  /// `false` from the rail is the ordinary outcome of a customer closing the
+  /// sheet, so it reports nothing at all: an "it did not work" toast for a
+  /// deliberate dismissal would be this screen inventing a failure. `true` is the
+  /// STORE's word and not the backend's, which is why the confirmation says the
+  /// plan updates when the store confirms it and the entitlement is re-read
+  /// rather than assumed: the rail's webhook is the authority and it may not have
+  /// arrived yet.
+  Future<void> _purchaseInStore(Plan plan) async {
+    final StoreBillingService? store = _store;
+    if (store == null) return;
+
+    await _loadStoreFundedTeam();
+    if (!mounted) return;
+
+    final String? fundedTeam = _storeFundedTeam;
+    if (fundedTeam != null) {
+      Magic.error(
+        trans('uptizm.teams.billing_store_bound_title'),
+        trans('uptizm.teams.billing_store_bound_text', {'team': fundedTeam}),
+      );
+
+      return;
+    }
+
+    try {
+      final bool bought = await store.purchase(plan: plan.id);
+      if (!bought || !mounted) return;
+
+      Magic.success(
+        trans('uptizm.teams.billing_store_purchase_title'),
+        trans('uptizm.teams.billing_store_purchase_text'),
+      );
+      await _loadEntitlement();
+    } on UnsupportedPlatformException catch (error) {
+      MagicFeedback.info(
+        trans('uptizm.teams.billing_toast_deferred_title'),
+        error.message,
+      );
+    } on BillingException catch (error) {
+      Magic.error(
+        trans('uptizm.teams.billing_toast_checkout_failed_title'),
+        error.message,
+      );
+    }
+  }
+
+  /// Asks the store for a subscription this account already owns, which is the
+  /// customer's only route back after a reinstall or onto a second device, and
+  /// is required of any app that sells through the store.
+  ///
+  /// Both answers are reported, and neither is a failure: `false` means the
+  /// store had nothing for this account, which is an answer the customer needs
+  /// rather than an error to log. A restore that DID hand something back carries
+  /// the same non-promise as a purchase, so it re-reads the entitlement instead
+  /// of claiming the plan changed.
+  Future<void> _restoreStorePurchases() async {
+    final StoreBillingService? store = _store;
+    if (store == null) return;
+
+    try {
+      final bool restored = await store.restore();
+      if (!mounted) return;
+
+      if (!restored) {
+        MagicFeedback.info(
+          trans('uptizm.teams.billing_store_restore_none_title'),
+          trans('uptizm.teams.billing_store_restore_none_text'),
+        );
+
+        return;
+      }
+
+      Magic.success(
+        trans('uptizm.teams.billing_store_restore_found_title'),
+        trans('uptizm.teams.billing_store_purchase_text'),
+      );
+      await _loadEntitlement();
     } on UnsupportedPlatformException catch (error) {
       MagicFeedback.info(
         trans('uptizm.teams.billing_toast_deferred_title'),
@@ -1364,7 +1675,10 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     if (plan.monthly == null) {
       return trans('uptizm.teams.billing_plan_billing_custom');
     }
-    if (_cycle == BillingCycle.annual && plan.annual != null) {
+    // `_store == null` and not `!storePriced`: the store catalogue carries the
+    // monthly SKUs only, so an annual note on a store build would describe a
+    // cadence nothing there sells.
+    if (_store == null && _cycle == BillingCycle.annual && plan.annual != null) {
       return trans('uptizm.teams.billing_plan_billing_annual');
     }
     if (plan.monthly == 0) {

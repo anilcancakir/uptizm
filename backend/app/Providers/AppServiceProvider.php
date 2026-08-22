@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Actions\PlanGatedInviteTeamMember;
+use App\Actions\StoreSubscriptionGuardedDeleteTeam;
 use App\Models\Team;
 use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
@@ -25,6 +26,7 @@ use App\Services\Ai\OpenRouterUpstreamRecorder;
 use App\Services\Monitoring\ProbeTransport;
 use App\Services\Monitoring\RelayClient;
 use App\Services\StatusPages\StatusPagePreviewRenderer;
+use FlutterSdk\MagicStarter\Contracts\DeletesTeams;
 use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Event;
@@ -78,6 +80,13 @@ class AppServiceProvider extends ServiceProvider
         // Wrap the starter's team-invite action with the plan responder cap
         // (contract-action override), so a team cannot invite past its tier.
         $this->app->bind(InvitesTeamMembers::class, PlanGatedInviteTeamMember::class);
+
+        // Same pattern, same reason: team deletion is the starter's endpoint and
+        // uptizm owns no team route to guard. A store subscription outlives the
+        // team row (the store keeps charging and only its own account surface can
+        // cancel), so deleting a store-billed team is refused until the owner has
+        // been there. See StoreSubscriptionGuardedDeleteTeam.
+        $this->app->bind(DeletesTeams::class, StoreSubscriptionGuardedDeleteTeam::class);
 
         // Register the headless preview renderer as the container's single
         // resolution point, so the whole class can be swapped for a browserless

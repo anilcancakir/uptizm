@@ -7,22 +7,35 @@ import 'package:magic_payments/magic_payments.dart'
     show
         BillingCheckoutSession,
         BillingEntitlement,
+        BillingException,
         BillingInvoicesPage,
         BillingService,
         Invoice,
         InvoiceStatus,
         PaymentMethod,
+        Payments,
+        PaymentsManager,
+        StoreBillingService,
         UsageStat,
         WebBillingService;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/mocks/teams_data.dart' show planWireRows;
+import 'package:uptizm/app/models/user.dart' show User;
+import 'package:uptizm/app/providers/app_service_provider.dart';
 import 'package:uptizm/resources/views/teams/plan_billing_view.dart';
 
 import '../../../support/bundled_lang.dart';
 
-/// A [BillingService] whose entitlement is configurable per rail, recording
-/// every purchase-affecting call so a test can assert an affordance was not
-/// merely hidden but never reachable.
+/// The five entitlement READS, with a configurable rail and no purchase rail at
+/// all: the base every fake below extends.
+///
+/// It is split from the two rail fakes because which rails a fake serves is the
+/// subject of half this file. The screen resolves the web rail and the store
+/// rail from the INJECTED object's own type (`_resolveWebRail` and
+/// `_resolveStoreRail` on the view's state), so a single fake implementing both
+/// would model a build that cannot exist (`dart.library.io` has no web checkout
+/// and the web arm has no store) and would let a store-rail test pass on a web
+/// affordance.
 ///
 /// The rail arrives as its RAW WIRE WORD (`app_store`, not `ManageVia`
 /// .appStore), because that is the only thing the real decoder ever sees; a
@@ -30,14 +43,8 @@ import '../../../support/bundled_lang.dart';
 /// `ManageVia.fromWire('play_store')` silently fell into its fallback. The
 /// entitlement is therefore built through [BillingEntitlement.fromMap] rather
 /// than through the const constructor, which takes cases already decoded.
-///
-/// It implements BOTH the read contract and [WebBillingService], because the
-/// subject calls both: `checkout` and `openPortal` live on the rail contract, and
-/// the screen renders no purchase or portal affordance at all when the rail is
-/// absent. A read-only fake would have made every "the affordance is gone"
-/// assertion below pass for the wrong reason.
-class _RailBillingService implements BillingService, WebBillingService {
-  _RailBillingService({
+class _ReadsBillingService implements BillingService {
+  _ReadsBillingService({
     this.manageVia = 'none',
     this.manageUrl,
     this.invoices = const [],
@@ -59,37 +66,6 @@ class _RailBillingService implements BillingService, WebBillingService {
 
   /// The billing history `GET /billing/invoices` resolves to.
   final List<Invoice> invoices;
-
-  /// Every `plan` passed to [checkout], in call order.
-  final List<String> checkoutPlans = [];
-
-  /// How many times [openPortal] was called.
-  int portalCalls = 0;
-
-  @override
-  Future<BillingCheckoutSession> checkout({
-    required String plan,
-    required String successUrl,
-    required String cancelUrl,
-  }) async {
-    checkoutPlans.add(plan);
-    return const BillingCheckoutSession(
-      checkoutUrl: 'https://checkout.stripe.com/test_session',
-      sessionId: 'session_test',
-    );
-  }
-
-  @override
-  Future<void> swap({required String plan}) async {}
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<String> openPortal({String? returnUrl}) async {
-    portalCalls++;
-    return 'https://billing.stripe.com/session/test';
-  }
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
@@ -136,6 +112,114 @@ class _RailBillingService implements BillingService, WebBillingService {
       renewalDate: DateTime.utc(2026, 6, 1),
     );
   }
+}
+
+/// The reads PLUS the WEB rail, recording every purchase-affecting call so a
+/// test can assert an affordance was not merely hidden but never reachable.
+///
+/// `checkout` and `openPortal` live on [WebBillingService] rather than on the
+/// read contract, and the screen renders no purchase or portal affordance at all
+/// when that rail is absent, so a read-only fake would have made every "the
+/// affordance is gone" assertion below pass for the wrong reason.
+class _RailBillingService extends _ReadsBillingService
+    implements WebBillingService {
+  _RailBillingService({
+    super.manageVia = 'none',
+    super.manageUrl,
+    super.invoices = const [],
+    super.usage = const [],
+  });
+
+  /// Every `plan` passed to [checkout], in call order.
+  final List<String> checkoutPlans = [];
+
+  /// How many times [openPortal] was called.
+  int portalCalls = 0;
+
+  @override
+  Future<BillingCheckoutSession> checkout({
+    required String plan,
+    required String successUrl,
+    required String cancelUrl,
+  }) async {
+    checkoutPlans.add(plan);
+    return const BillingCheckoutSession(
+      checkoutUrl: 'https://checkout.stripe.com/test_session',
+      sessionId: 'session_test',
+    );
+  }
+
+  @override
+  Future<void> swap({required String plan}) async {}
+
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<String> openPortal({String? returnUrl}) async {
+    portalCalls++;
+    return 'https://billing.stripe.com/session/test';
+  }
+}
+
+/// The reads PLUS the STORE rail, recording every call the store rail can
+/// receive.
+///
+/// It deliberately does NOT implement [WebBillingService]: a build with a store
+/// has no web checkout (`billing_service_io.dart` answers `null` for it), so a
+/// fake serving both would let a store test pass on the web CTA and would make
+/// "a store build never offers web checkout" unfalsifiable.
+class _StoreRailBillingService extends _ReadsBillingService
+    implements StoreBillingService {
+  _StoreRailBillingService({
+    super.manageVia = 'none',
+    this.purchaseResult = true,
+    this.purchaseError,
+    this.restoreResult = true,
+  });
+
+  /// What the store reports for a completed sheet: `true` is a transaction,
+  /// `false` is the customer dismissing it (which is not a failure).
+  final bool purchaseResult;
+
+  /// A rail failure to raise instead of answering, so the error paths are
+  /// reachable without the platform channel.
+  final BillingException? purchaseError;
+
+  /// Whether the store hands a previous purchase back to [restore].
+  final bool restoreResult;
+
+  /// Every `appUserId` passed to [identify], in call order.
+  final List<String> identifiedIds = [];
+
+  /// Every `plan` passed to [purchase], in call order.
+  final List<String> purchasedPlans = [];
+
+  /// How many times [restore] was called.
+  int restoreCalls = 0;
+
+  @override
+  Future<void> identify(String appUserId) async {
+    identifiedIds.add(appUserId);
+  }
+
+  @override
+  Future<bool> purchase({required String plan}) async {
+    purchasedPlans.add(plan);
+    final BillingException? error = purchaseError;
+    if (error != null) throw error;
+
+    return purchaseResult;
+  }
+
+  @override
+  Future<bool> restore() async {
+    restoreCalls++;
+    return restoreResult;
+  }
+
+  @override
+  Future<void> openStoreManagement() async {}
 }
 
 /// Feeds the SHIPPED catalogue for [locale] into the translator, so an
@@ -203,12 +287,39 @@ void main() {
     );
   }
 
-  /// Mounts [view] and settles the five mount-time reads.
-  Future<void> mount(WidgetTester tester, PlanBillingView view) async {
+  /// Wraps [widget] so a [MagicFeedback] toast can actually render.
+  ///
+  /// [WindTheme] sits ABOVE the [MaterialApp] because the toast is inserted into
+  /// the Navigator's overlay, which is a sibling of `home`: a Wind-built toast
+  /// under `home` throws "No WindTheme found in context". Mirrors the harness in
+  /// `teams_views_test.dart`; without it `MagicFeedback` degrades to a warning
+  /// log and an assertion on the reported copy passes for nobody.
+  Widget wrapWithSnackbar(Widget widget) {
+    return WindTheme(
+      data: WindThemeData(),
+      child: MaterialApp(
+        navigatorKey: MagicRouter.instance.navigatorKey,
+        home: MediaQuery(
+          data: const MediaQueryData(size: Size(1280, 12000)),
+          child: Scaffold(body: SingleChildScrollView(child: widget)),
+        ),
+      ),
+    );
+  }
+
+  /// Mounts [view] and settles the mount-time reads.
+  ///
+  /// [withToasts] mounts the toast-capable harness instead, for the two tests
+  /// whose subject is what the store rail reported back.
+  Future<void> mount(
+    WidgetTester tester,
+    PlanBillingView view, {
+    bool withToasts = false,
+  }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 12000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(wrap(view));
+    await tester.pumpWidget(withToasts ? wrapWithSnackbar(view) : wrap(view));
     await tester.pump();
     await tester.pump();
   }
@@ -586,6 +697,421 @@ void main() {
     });
   });
 
+  group('PlanBillingView store rail', () {
+    /// The wire `GET /billing/store-funded-team` answers when one of the
+    /// caller's OTHER teams is already funded by a store account.
+    Map<String, MagicResponse> fundedBy(String name) => {
+      'billing/store-funded-team': Http.response(<String, dynamic>{
+        'store_funded_team': <String, dynamic>{'id': 'team-other', 'name': name},
+      }),
+    };
+
+    testWidgets('the owner gets a store purchase CTA, no web checkout, and no '
+        'USD catalogue price', (tester) async {
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        findsOneWidget,
+        reason: 'a store build sells through the store rail',
+      );
+      // The catalogue's integer USD figure is not what a storefront charges, and
+      // the driver exposes no localised string yet, so the surface states where
+      // the price comes from instead of naming a wrong one. Asserted as the
+      // exact card price (`$29`) rather than as a substring: the renewal line
+      // above the grid legitimately carries the web price for a team a store did
+      // NOT sell to, which is this fixture's `manage_via: none`, and the
+      // store-billed case has its own test below.
+      expect(find.text('\$29'), findsNothing);
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_price_store')),
+        findsWidgets,
+      );
+      // Nothing on a store build may point at web checkout or the portal.
+      expect(
+        find.text(trans('uptizm.teams.billing_payment_update_button')),
+        findsNothing,
+      );
+      for (final String text in renderedText(tester)) {
+        expect(
+          text.toLowerCase(),
+          allOf(isNot(contains('stripe')), isNot(contains('uptizm.com'))),
+          reason: 'a store build must not steer to a web purchase',
+        );
+      }
+    });
+
+    testWidgets('tapping the CTA buys through the store rail', (tester) async {
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+      );
+
+      await tester.tap(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      // 'business' sits above the fixture's 'pro', so its CTA reads Upgrade.
+      expect(store.purchasedPlans, ['business']);
+      // Flush the confirmation toast's auto-dismiss timer.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('the one-team refusal is re-asked at the tap, not read off the '
+        'mount', (tester) async {
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+        withToasts: true,
+      );
+
+      // The CTA rendered because nothing funded another team when the screen
+      // loaded.
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        findsOneWidget,
+      );
+
+      // Then the answer changes under a mounted screen: another device bought,
+      // or a `?upgrade=` deep link fired before the read had resolved at all.
+      Http.fake(fundedBy('Kodizm Ops'));
+
+      await tester.tap(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        store.purchasedPlans,
+        isEmpty,
+        reason: 'the sheet must not open at all, not open and be undone',
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_store_bound_title')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a dismissed purchase sheet reports nothing at all', (
+      tester,
+    ) async {
+      // `false` is the ordinary outcome of a customer changing their mind, so a
+      // "purchase complete" or an "it failed" toast would both be this screen
+      // inventing an event.
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+        purchaseResult: false,
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+        withToasts: true,
+      );
+
+      await tester.tap(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(store.purchasedPlans, ['business']);
+      expect(
+        find.text(trans('uptizm.teams.billing_store_purchase_title')),
+        findsNothing,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a rail failure surfaces the failure toast and does not crash '
+        'the screen', (tester) async {
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+        purchaseError: const BillingException(
+          'No store product is configured for the "business" plan.',
+        ),
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+        withToasts: true,
+      );
+
+      await tester.tap(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_store_purchase_title')),
+        findsNothing,
+      );
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a non-owner gets no store purchase CTA and no restore', (
+      tester,
+    ) async {
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: false),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        findsNothing,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_store_restore_button')),
+        findsNothing,
+        reason: 'a restore would re-attribute a subscription to this team too',
+      );
+      expect(store.purchasedPlans, isEmpty);
+      expect(
+        find.text(trans('uptizm.teams.billing_owner_only_notice')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a store account already funding another team is refused with '
+        'that team named', (tester) async {
+      Http.fake(fundedBy('Kodizm Ops'));
+
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+      );
+
+      expect(tester.takeException(), isNull);
+      // The refusal names the team, because "a store account can fund only one
+      // team" is unactionable without knowing which one holds it.
+      expect(
+        find.text(
+          trans('uptizm.teams.billing_store_bound_text', {
+            'team': 'Kodizm Ops',
+          }),
+        ),
+        findsOneWidget,
+      );
+      // And it is a refusal rather than a warning beside a live button: the
+      // second purchase would TRANSFER the subscription off the named team.
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        findsNothing,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_store_restore_button')),
+        findsNothing,
+      );
+      expect(store.purchasedPlans, isEmpty);
+    });
+
+    testWidgets('a Stripe-billed team gets no store purchase surface', (
+      tester,
+    ) async {
+      // The mirror of the store-rail refusal on the web side: a second rail
+      // must never open a parallel subscription, whichever rail is second.
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'portal',
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        findsNothing,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_store_restore_button')),
+        findsNothing,
+      );
+      expect(store.purchasedPlans, isEmpty);
+    });
+
+    testWidgets('restoring hands the store purchase back and reports what the '
+        'store answered', (tester) async {
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'none',
+        restoreResult: false,
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+        withToasts: true,
+      );
+
+      await tester.tap(
+        find.text(trans('uptizm.teams.billing_store_restore_button')),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(store.restoreCalls, 1);
+      // `false` is an answer to show the customer, not a failure to log.
+      expect(
+        find.text(trans('uptizm.teams.billing_store_restore_none_title')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a store-billed team reads its renewal line off the store, not '
+        'off the USD catalogue', (tester) async {
+      final _StoreRailBillingService store = _StoreRailBillingService(
+        manageVia: 'app_store',
+      );
+
+      await mount(
+        tester,
+        PlanBillingView(billingService: store, isOwner: true),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_renewal_store')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('billed annually'), findsNothing);
+    });
+  });
+
+  group('the team switch re-identifies the store customer', () {
+    /// Registers [store] as the app's STORE rail, the way a consumer swaps one.
+    ///
+    /// `PaymentsManager` is a `static final` singleton that outlives
+    /// `MagicApp.reset()`, so the teardown is not hygiene: without it the fake
+    /// would answer `Payments.store` for every later test in this file and turn
+    /// every "no store rail" assertion into a false pass.
+    void useStoreRail(_StoreRailBillingService store) {
+      Payments.extend(PaymentsManager.storeRole, () => store);
+      addTearDown(Payments.forgetDrivers);
+    }
+
+    test('identifies with the NEW team id once the switch has resolved',
+        () async {
+      final FakeNetworkDriver network = Http.fake();
+      Auth.fake();
+      final _StoreRailBillingService store = _StoreRailBillingService();
+      useStoreRail(store);
+
+      await AppServiceProvider.switchTeamAndIdentifyStore('team-beta');
+
+      network.assertSent(
+        (MagicRequest request) => request.url.contains('user/current-team'),
+      );
+      // Asserted at the point the identify HAPPENS, not on a flag read before
+      // it: the App User ID the rail is bound to is what a webhook attributes a
+      // purchase to, so the id itself is the assertion.
+      expect(store.identifiedIds, ['team-beta']);
+    });
+
+    test('a session that never switched still identifies the team it is on',
+        () async {
+      // The common path on a fresh install: sign in, open billing, buy. Without
+      // this the rail would still hold its anonymous id and the purchase would
+      // arrive attributed to nobody, so identifying on the SWITCH alone is not
+      // enough even though the switch is the case that goes wrong silently.
+      Http.fake();
+      Auth.fake(
+        user: User.fromMap(<String, dynamic>{
+          'id': 'u1',
+          'name': 'Ada',
+          'current_team': <String, dynamic>{
+            'id': 'team-alpha',
+            'name': 'Alpha',
+          },
+        }),
+      );
+      final _StoreRailBillingService store = _StoreRailBillingService();
+      useStoreRail(store);
+
+      AppServiceProvider.syncStoreIdentity();
+      await pumpEventQueue();
+
+      expect(store.identifiedIds, ['team-alpha']);
+    });
+
+    test('a logged-out session identifies nothing', () async {
+      // There is nobody to attribute a purchase to, and the rail keeps whatever
+      // the previous session bound: the contract has no logout, and the billing
+      // screen is behind auth, so nothing can spend against it meanwhile.
+      Http.fake();
+      Auth.fake();
+      final _StoreRailBillingService store = _StoreRailBillingService();
+      useStoreRail(store);
+
+      AppServiceProvider.syncStoreIdentity();
+      await pumpEventQueue();
+
+      expect(store.identifiedIds, isEmpty);
+    });
+
+    test('does not re-identify when the backend refused the switch', () async {
+      // A failed switch leaves the app on the team it was already on, so
+      // re-identifying would bind the store account to a team the user never
+      // landed on and hand the next purchase to it.
+      Http.fake(<String, MagicResponse>{
+        'user/current-team': Http.response(<String, dynamic>{
+          'message': 'That team is not yours.',
+        }, 422),
+      });
+      Auth.fake();
+      final _StoreRailBillingService store = _StoreRailBillingService();
+      useStoreRail(store);
+
+      await AppServiceProvider.switchTeamAndIdentifyStore('team-beta');
+
+      expect(store.identifiedIds, isEmpty);
+    });
+  });
+
   group('Language catalogue', () {
     test('en and tr carry exactly the same keys', () {
       // No automated parity gate exists anywhere else, so a missing tr key
@@ -608,6 +1134,16 @@ void main() {
         'uptizm.teams.billing_manage_store_button',
         'uptizm.teams.billing_manage_store_no_url',
         'uptizm.teams.billing_owner_only_notice',
+        'uptizm.teams.billing_renewal_store',
+        'uptizm.teams.billing_plan_price_store',
+        'uptizm.teams.billing_store_bound_title',
+        'uptizm.teams.billing_store_bound_text',
+        'uptizm.teams.billing_store_purchase_title',
+        'uptizm.teams.billing_store_purchase_text',
+        'uptizm.teams.billing_store_restore_button',
+        'uptizm.teams.billing_store_restore_found_title',
+        'uptizm.teams.billing_store_restore_none_title',
+        'uptizm.teams.billing_store_restore_none_text',
       ];
 
       for (final String key in keys) {
