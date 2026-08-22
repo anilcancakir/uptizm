@@ -131,14 +131,21 @@ class WriteTeamEntitlement
         // tier information the record does not already hold. Its only effect was
         // the takeover.
         //
-        // The status half is load-bearing and is why this is not simply
-        // `$storedProvider->grants()`: that method is a per-RAIL table, true for
-        // every real rail, so gating on it alone would drop a genuine App Store
-        // purchase of Business from a team whose EXPIRED Stripe record still
-        // named Business. The customer would pay and receive nothing, which is
-        // worse than the defect this guard closes. When the stored status no
-        // longer grants, the team is not entitled through that rail, the incoming
-        // write IS a fresh grant, and the provenance should move.
+        // The status half is DEFENCE here rather than a live requirement, and
+        // saying so is the honest version: `$storedProvider->grants()` is a
+        // per-RAIL table, true for every real rail, so gating on it alone would
+        // drop a genuine App Store purchase of Business from a team whose EXPIRED
+        // Stripe record still named Business. No feeder in THIS app writes that
+        // pair, because every non-granting path here writes `Plan::Free` in the
+        // same apply, and the direction test alone would therefore be enough
+        // today (free to business ranks as an UPGRADE, not SAME).
+        //
+        // It stays for two reasons. The starter's copy of this action, which
+        // consumers supply `plan` and `status` to independently, CAN reach it,
+        // and the two copies are worth keeping in step. And the invariant it
+        // leans on ("a paid tier is never stored with a lapsed status") is held
+        // by convention across four feeders rather than by a constraint, so one
+        // hand-edited row is enough to need it.
         // The direction test is `=== SAME` rather than `!== UPGRADE`, and the two
         // are equivalent only by accident of the current table: rule 2 above has
         // already dropped DOWNGRADE and UNKNOWN, so nothing else can reach here

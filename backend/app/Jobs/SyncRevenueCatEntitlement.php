@@ -145,8 +145,20 @@ class SyncRevenueCatEntitlement implements ShouldQueue
      */
     public function handle(RevenueCatClient $revenueCat, WriteTeamEntitlement $writeEntitlement): void
     {
+        // The alias fallback applies to the event's OWN subscriber and to nothing
+        // else. `transferred_from` and `transferred_to` name two DIFFERENT
+        // subscribers, and `aliases` describes one, so substituting an alias for
+        // a transferred id would read one side's subscriber and claim it against
+        // the other side's team: an anonymous source id would resolve to the
+        // destination team and then claim that team's entitlement from the
+        // emptied source, which is a revocation against the team that just
+        // gained the subscription.
+        $primary = is_string($this->event['app_user_id'] ?? null)
+            ? trim((string) $this->event['app_user_id'])
+            : null;
+
         foreach ($this->appUserIds() as $appUserId) {
-            $team = $this->resolveTeam($appUserId);
+            $team = $this->resolveTeam($appUserId, allowAliasFallback: $appUserId === $primary);
 
             if (! $team instanceof Team) {
                 continue;
@@ -196,9 +208,21 @@ class SyncRevenueCatEntitlement implements ShouldQueue
      * not see the failure production would get. An id nobody here owns is not an
      * error either; the webhook already answered 200 for it.
      */
-    protected function resolveTeam(string $appUserId): ?Team
+    protected function resolveTeam(string $appUserId, bool $allowAliasFallback = false): ?Team
     {
         if (! TeamKey::looksLikeOne($appUserId)) {
+            if (! $allowAliasFallback) {
+                $this->warn(
+                    'malformed_app_user_id',
+                    'RevenueCat named a transferred app_user_id that cannot be a team key; '
+                    .'entitlement left untouched. An alias cannot stand in for a transfer side, '
+                    .'because the two sides are different subscribers.',
+                    ['app_user_id' => $appUserId],
+                );
+
+                return null;
+            }
+
             // `app_user_id` is documented as the LAST SEEN id, and RevenueCat
             // instructs callers to "search both the `original_app_user_id` and
             // the `aliases` array". A subscriber whose last-seen id is one the
@@ -682,27 +706,24 @@ class SyncRevenueCatEntitlement implements ShouldQueue
     {
         $now = CarbonImmutable::now();
 
-        // A refund voids the purchase, whatever the dates still say.
+        // `refunded_at` is deliberately NOT read here, and this comment exists so
+        // it is not added back. It was, briefly, on the reasoning that an Apple
+        // refund might leave `expires_date` in the future and hand out months of
+        // free service. RevenueCat's own documentation refutes the premise:
+        // "this doesn't mean that a subscription's autorenewal preference has
+        // been deactivated since refunds can be given without canceling a
+        // subscription. Check the current subscription status to see whether the
+        // subscription is still active."
         //
-        // This is a guard against ONE store's behaviour being different from the
-        // others, and it is deliberately narrow. RevenueCat documents that a
-        // Google Play or RC Billing refund "will immediately expire the
-        // subscription and remove any entitlement access", which moves
-        // `expires_date` into the past and makes this arm a no-op. For APPLE the
-        // documentation says only that a refund is detected and tracked; it does
-        // not say the subscription expires. If it does not, a refunded annual
-        // Business tier is up to twelve months of free service, and `CANCELLATION`
-        // is the event that carries a refund, which the rest of this job
-        // correctly refuses to treat as a revocation.
+        // So a refunded subscription with a future `expires_date` is a state the
+        // vendor documents as LIVE, and refusing it would have made this the one
+        // place in this class where an ambiguity resolves toward taking a tier
+        // away from somebody who may still be paying, against the doctrine at the
+        // top of the file. The dates are the status RevenueCat tells us to check,
+        // and a refund that really did end the subscription moves them.
         //
-        // Reading the field costs nothing where the store already handles it and
-        // closes the case where it might not. It stays unproven until a real
-        // sandbox refund runs on both stores, which is item 4 of the human-gated
-        // record.
-        if ($this->instant($subscription['refunded_at'] ?? null) !== null) {
-            return false;
-        }
-
+        // {@see revokedStatus()} still reads the field, which is correct: there
+        // it only NAMES a revocation the dates already decided.
         foreach (['expires_date', 'grace_period_expires_date'] as $field) {
             $instant = $this->instant($subscription[$field] ?? null);
 

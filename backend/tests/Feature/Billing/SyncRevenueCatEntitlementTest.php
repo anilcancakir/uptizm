@@ -548,17 +548,24 @@ class SyncRevenueCatEntitlementTest extends TestCase
     }
 
     /**
-     * A refunded subscription is not live, whatever its dates still say.
+     * A refund does NOT by itself end the tier, and this test exists because the
+     * opposite was briefly implemented.
      *
-     * RevenueCat documents that a Google Play or RC Billing refund expires the
-     * subscription immediately, which moves `expires_date` into the past and
-     * makes this guard a no-op there. For APPLE the documentation says only that
-     * a refund is detected and tracked, not that the subscription expires, and a
-     * refund arrives as `CANCELLATION`, which the rest of this job correctly
-     * refuses to read as a revocation. Without this, a refunded annual Business
-     * tier is up to twelve months of free service.
+     * `isLive()` was given a `refunded_at` arm on the reasoning that an Apple
+     * refund might leave `expires_date` in the future and hand out months of
+     * free service. RevenueCat's documentation refutes the premise: "this
+     * doesn't mean that a subscription's autorenewal preference has been
+     * deactivated since refunds can be given without canceling a subscription.
+     * Check the current subscription status to see whether the subscription is
+     * still active."
+     *
+     * So the state below is one the vendor documents as live, and revoking it
+     * would have been the only place in this job where an ambiguity resolved
+     * toward taking a tier from somebody who may still be paying. The dates are
+     * the status we are told to check, and a refund that really did end the
+     * subscription moves them, which the sibling assertion pins.
      */
-    public function test_a_refunded_subscription_does_not_keep_the_tier(): void
+    public function test_a_refund_alone_does_not_take_the_tier_away(): void
     {
         Log::spy();
 
@@ -572,8 +579,8 @@ class SyncRevenueCatEntitlementTest extends TestCase
         $this->fakeAuthoritativeReads([
             $team->id => $this->subscriber([
                 self::APP_STORE_BUSINESS => $this->subscription([
-                    // The period has months to run, and the money has been given
-                    // back. The dates alone would call this live.
+                    // Months still to run, and a refund on record. The vendor
+                    // says to believe the dates.
                     'expires_date' => $this->periodEnd()->addMonths(6)->toIso8601ZuluString(),
                     'refunded_at' => $this->eventAt()->toIso8601ZuluString(),
                 ]),
@@ -584,7 +591,46 @@ class SyncRevenueCatEntitlementTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan, 'A refunded subscription kept its tier.');
+        $this->assertSame(
+            Plan::Business,
+            $team->plan,
+            'A refund with a live period took the tier away.',
+        );
+    }
+
+    /**
+     * The other half: a refund that DID end the subscription moves the dates,
+     * and then the ordinary revocation path runs.
+     *
+     * Pinned beside its sibling so neither can pass with the liveness rule
+     * deleted: this one needs the dates to be read, that one needs `refunded_at`
+     * to be ignored.
+     */
+    public function test_a_refund_that_expired_the_subscription_revokes_normally(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_product_id' => self::APP_STORE_BUSINESS,
+        ]);
+
+        $this->fakeAuthoritativeReads([
+            $team->id => $this->subscriber([
+                self::APP_STORE_BUSINESS => $this->subscription([
+                    'expires_date' => $this->eventAt()->subDay()->toIso8601ZuluString(),
+                    'refunded_at' => $this->eventAt()->subDay()->toIso8601ZuluString(),
+                ]),
+            ]),
+        ]);
+
+        $this->sync($this->event('CANCELLATION', $team));
+
+        $team->refresh();
+
+        $this->assertSame(Plan::Free, $team->plan);
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
     }
 
@@ -623,6 +669,58 @@ class SyncRevenueCatEntitlementTest extends TestCase
 
         $this->assertSame(Plan::Business, $team->plan, 'The purchase was refused over an anonymous id.');
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+    }
+
+    /**
+     * An alias may never stand in for a TRANSFER side.
+     *
+     * The two sides of a transfer are different SUBSCRIBERS, while `aliases`
+     * describes one. Letting the fallback answer for a transferred id would read
+     * one side's subscriber and claim it against the other side's team: an
+     * anonymous `transferred_from` resolves to the single team key in the
+     * aliases, which is the DESTINATION, and the emptied source subscriber then
+     * arrives as a revocation against the team that just gained the
+     * subscription. The fallback is therefore scoped to `app_user_id` alone.
+     */
+    public function test_an_alias_never_stands_in_for_a_transfer_side(): void
+    {
+        Log::spy();
+
+        $destination = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_product_id' => self::APP_STORE_BUSINESS,
+        ]);
+
+        // Only the destination answers. If the fallback resolved the anonymous
+        // SOURCE id to this team, the job would read the source subscriber and
+        // claim a revocation here.
+        $this->fakeAuthoritativeReads([
+            $destination->id => $this->subscriber([
+                self::APP_STORE_BUSINESS => $this->subscription(),
+            ]),
+        ]);
+
+        $this->sync([
+            'id' => 'rc-transfer-'.Str::uuid()->toString(),
+            'type' => 'TRANSFER',
+            'event_timestamp_ms' => $this->eventAt()->getTimestampMs(),
+            'store' => 'APP_STORE',
+            'environment' => 'PRODUCTION',
+            'app_user_id' => $destination->id,
+            'aliases' => ['$RCAnonymousID:8e9b21c5f1', $destination->id],
+            'transferred_from' => ['$RCAnonymousID:8e9b21c5f1'],
+            'transferred_to' => [$destination->id],
+        ]);
+
+        $destination->refresh();
+
+        $this->assertSame(
+            Plan::Business,
+            $destination->plan,
+            'The transfer source was resolved to the destination team and revoked it.',
+        );
     }
 
     /**

@@ -858,12 +858,26 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
     // A PAID tier that no rail is billing: granted directly, or a provider
     // recorded before a customer ever existed. Nothing renews, so nothing is
-    // promised. The discriminator is that the payment-method read RESOLVED and
-    // carried no date, which is not the same as `manage_via` being `none`: that
-    // word also covers a Stripe team whose `stripe_id` has not been created yet,
-    // and half this file's fixtures leave it at its default.
+    // promised.
+    //
+    // TWO conditions, and the second was missing on the first attempt at this.
+    // A resolved-but-empty payment method is NOT sufficient, because
+    // `GET /billing/payment-method` soft-fails: its handler catches every
+    // Throwable from the live Stripe reads and answers 200 with all five fields
+    // null, byte-identical to the body a genuinely unbilled team gets. So a
+    // paying Stripe customer whose Stripe read timed out was told they had no
+    // subscription, which is worse than the "renews Unknown" this replaced,
+    // because Unknown was at least neutral.
+    //
+    // `manage_via` is the discriminator the producer CAN express: it is
+    // `portal` exactly when a Stripe customer exists, so requiring `none` keeps
+    // this sentence to teams that really have no rail. Requiring it explicitly
+    // rather than "not portal" also keeps the unresolved state (`null`) out,
+    // matching how every other gate here treats it.
     final PaymentMethod? resolved = _paymentMethod;
-    if (resolved != null && resolved.renewalDate == null) {
+    if (_manageVia == ManageVia.none &&
+        resolved != null &&
+        resolved.renewalDate == null) {
       return trans('uptizm.teams.billing_renewal_unbilled');
     }
 
@@ -1228,16 +1242,27 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
-  /// Builds the payment-method card's body for its four states: loading
-  /// skeleton, error text, resolved-with-nothing-on-file, or the card.
+  /// Builds the payment-method card's body for its states: loading skeleton,
+  /// error text, resolved-with-nothing, or the card.
   ///
-  /// The third state used to fall through to the fourth, and it rendered as a
-  /// card: the brand tile said "Unknown" and the number row, having no `last4`,
-  /// fell back to the SECTION HEADING, so a team with no card saw "Payment
-  /// method" twice beside a tile implying a real card whose brand had been lost.
-  /// A resolved non-answer is not a value; it gets named. Measured on the dev
-  /// box against a Business team with `plan_provider` null, whose
-  /// `GET /billing/payment-method` answers every field null.
+  /// The resolved-with-nothing state used to fall through to the card, and it
+  /// rendered as one: the brand tile said "Unknown" and the number row, having
+  /// no `last4`, fell back to the SECTION HEADING, so a team with no card saw
+  /// "Payment method" twice beside a tile implying a real card whose brand had
+  /// been lost. A resolved non-answer is not a value; it gets named. Measured on
+  /// the dev box against a Business team with `plan_provider` null.
+  ///
+  /// It then gets named CORRECTLY, which took a second pass. "Resolved with
+  /// nothing" is two different facts sharing one body:
+  /// `BillingController::paymentMethod()` catches every Throwable from its live
+  /// Stripe reads and answers 200 with all five fields null, byte-identical to
+  /// what a team with no rail receives. Saying "no card on file" for both told a
+  /// paying customer their card was gone whenever Stripe was slow, which is a
+  /// worse sentence than the incoherent tile it replaced, because it is
+  /// confident and false rather than merely odd. `manage_via` is the only signal
+  /// that separates them, so a rail-less team is told there is nothing on file
+  /// and everyone else is told the read failed, next to the Update button that
+  /// lets them act.
   ///
   /// "Resolved with nothing" is deliberately BOTH `brand` and `last4` being
   /// absent, not either: a rail that returned one without the other has partly
@@ -1279,12 +1304,24 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
     if (paymentMethod == null ||
         (paymentMethod.brand == null && paymentMethod.last4 == null)) {
+      // Empty means two different things and the WIRE cannot tell them apart:
+      // the endpoint soft-fails a Stripe outage into a 200 with every field
+      // null, which is the same body a team with no rail gets. Claiming "no card
+      // on file" for both told a paying customer their card was gone whenever
+      // Stripe was slow. `manage_via` is the one signal that does separate them,
+      // so only a team with no rail is told there is nothing on file; anyone
+      // else is told the read failed, which is what actually happened, and keeps
+      // the Update button that lets them fix it.
+      final bool noRail = _manageVia == ManageVia.none;
+
       return WDiv(
         className: 'flex flex-row items-center gap-4',
         children: [
           Expanded(
             child: WText(
-              trans('uptizm.teams.billing_payment_none'),
+              noRail
+                  ? trans('uptizm.teams.billing_payment_none')
+                  : trans('common.error_occurred'),
               className: 'text-sm text-fg-muted',
             ),
           ),
@@ -1354,24 +1391,6 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
-  /// Opens the Stripe billing portal via [WebBillingService.openPortal],
-  /// surfacing the same deferred/failure toasts as [_selectPlan]'s checkout
-  /// path. Shared by the payment-method "Update" button and every invoice
-  /// row's "Receipt" button (both are Stripe-portal actions; the portal
-  /// itself deep-links a customer straight to their invoice history).
-  ///
-  /// A null [_web] returns without a word, and cannot be reached from the UI:
-  /// [_portalAvailable] gates every affordance that calls this on the same rail.
-  /// The guard is here because a null rail is not an error to report to a
-  /// customer, it is a button that was never rendered.
-  ///
-  /// A failure re-reads the entitlement. The endpoint has two refusals this
-  /// screen's own gate is supposed to have made unreachable (409
-  /// `managed_by_store` and 409 `no_billing_account`, both of which imply a
-  /// [_manageVia] other than [ManageVia.portal]), so reaching one means the
-  /// rail changed under a mounted screen. Re-reading the authority is the fix,
-  /// and it keys off the server's `manage_via` rather than off the refusal's
-  /// English sentence.
   /// Reports a rail failure to the CUSTOMER, and the developer's version of it
   /// to the log.
   ///
@@ -1411,6 +1430,25 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
+  /// Opens the Stripe billing portal via [WebBillingService.openPortal],
+  /// surfacing the same deferred/failure toasts as [_selectPlan]'s checkout
+  /// path. Shared by the payment-method "Update" button and every invoice
+  /// row's "Receipt" button (both are Stripe-portal actions; the portal
+  /// itself deep-links a customer straight to their invoice history).
+  ///
+  /// A null [_web] returns without a word, and cannot be reached from the UI:
+  /// [_portalAvailable] gates every affordance that calls this on the same rail.
+  /// The guard is here because a null rail is not an error to report to a
+  /// customer, it is a button that was never rendered.
+  ///
+  /// A REAL failure re-reads the entitlement, and an
+  /// [UnsupportedPlatformException] does not, because it carries no server state
+  /// to re-read. The endpoint has two refusals this screen's own gate is
+  /// supposed to have made unreachable (409 `managed_by_store` and 409
+  /// `no_billing_account`, both of which imply a [_manageVia] other than
+  /// [ManageVia.portal]), so reaching one means the rail changed under a mounted
+  /// screen. Re-reading the authority is the fix, and it keys off the server's
+  /// `manage_via` rather than off the refusal's English sentence.
   Future<void> _openBillingPortal() async {
     final WebBillingService? web = _web;
     if (web == null) return;

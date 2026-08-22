@@ -10,6 +10,7 @@ use App\Http\Controllers\StripeWebhookController;
 use App\Models\ProcessedWebhookEvent;
 use App\Models\Team;
 use App\Models\User;
+use App\Support\Billing\StripeSubscriptionState;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
@@ -50,11 +51,17 @@ class StripeWebhookTest extends TestCase
      * 12:00:00 UTC.
      *
      * Fixed rather than `time()` so an assertion compares against a value the
-     * payload states. Any scenario delivering two events to ONE team has to
+     * payload states. Any scenario delivering two events to ONE team should
      * space them apart from here, because {@see WriteTeamEntitlement} drops a
-     * same-rail write whose event is not STRICTLY newer than the one on record:
-     * two events sharing an instant carry no ordering information, and the safe
-     * reading of that is to keep what is already stored.
+     * same-rail write whose event is OLDER than the one on record.
+     *
+     * A tie is no longer a drop, and the correction matters for anyone writing a
+     * test here: an equal timestamp is now decided by DIRECTION, so a second
+     * event sharing this instant applies when it is an upgrade and is dropped
+     * when it would revoke. That is not a relaxation. Stripe stamps `created` to
+     * the second and emits paired events from one API call, so the tie was
+     * routinely a paid upgrade losing to a stale re-affirmation of the tier the
+     * customer had just left.
      */
     protected const int EVENT_AT = 1787400000;
 
@@ -235,7 +242,8 @@ class StripeWebhookTest extends TestCase
      * into `active` on the way in.
      *
      * Stripe can add a subscription status at any time. It is absent from
-     * `$grantingStatuses`, so the entitlement falls to free; the neutral column
+     * {@see StripeSubscriptionState::GRANTING_STATUSES},
+     * so the entitlement falls to free; the neutral column
      * takes the enum's safe default rather than guessing, and the unknown word
      * survives verbatim for whoever has to work out what it meant.
      */

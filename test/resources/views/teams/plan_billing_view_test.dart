@@ -153,6 +153,25 @@ class _UnbilledBillingService extends _ReadsBillingService {
   Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
 }
 
+/// A PAYING Stripe customer whose payment-method read soft-failed.
+///
+/// `manage_via` is `portal`, which the server sends exactly when a Stripe
+/// customer exists, and the payment method resolves EMPTY. That pair is not
+/// exotic: `BillingController::paymentMethod()` catches every Throwable from its
+/// live Stripe reads and answers 200 with all five fields null, which is
+/// byte-identical to the body a team with no rail receives. So a timeout at
+/// Stripe puts a real subscriber into exactly this state.
+///
+/// It exists because the first version of the "no rail behind this tier" copy
+/// keyed on the empty read alone and told this customer they had no subscription
+/// and no card.
+class _SoftFailedPaymentBillingService extends _ReadsBillingService {
+  _SoftFailedPaymentBillingService() : super(manageVia: 'portal');
+
+  @override
+  Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
+}
+
 /// The reads PLUS the WEB rail, recording every purchase-affecting call so a
 /// test can assert an affordance was not merely hidden but never reachable.
 ///
@@ -1121,6 +1140,64 @@ void main() {
         find.text(trans('uptizm.teams.billing_payment_header')),
         findsOneWidget,
       );
+    });
+  });
+
+  group('a failed read is never reported as an absence', () {
+    testWidgets('a paying customer is not told they have no subscription when '
+        'the Stripe read soft-failed', (tester) async {
+      await mount(
+        tester,
+        PlanBillingView(
+          billingService: _SoftFailedPaymentBillingService(),
+          isOwner: true,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+
+      // The sentence is TRUE only of a team with no rail. This team has one:
+      // `manage_via` is `portal`, so a Stripe customer exists.
+      expect(
+        find.text(trans('uptizm.teams.billing_renewal_unbilled')),
+        findsNothing,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_payment_none')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('it says the read failed rather than inventing a card', (
+      tester,
+    ) async {
+      await mount(
+        tester,
+        PlanBillingView(
+          billingService: _SoftFailedPaymentBillingService(),
+          isOwner: true,
+        ),
+      );
+
+      // What the customer should see: the truth, which is that we could not
+      // read their card, next to the button that lets them replace it.
+      expect(find.text(trans('common.error_occurred')), findsOneWidget);
+
+      // And not the incoherent pair this whole thread started from: a brand tile
+      // reading "Unknown" beside a row that fell back to the SECTION HEADING, so
+      // the heading appeared twice.
+      expect(
+        find.text(trans('uptizm.teams.billing_payment_header')),
+        findsOneWidget,
+      );
+
+      // The renewal line DOES still read "renews Unknown" here, and that is the
+      // intended answer rather than an oversight: the read did not resolve into
+      // anything, so a neutral label is the honest fallback, and it is what this
+      // state rendered before any of this work. Asserted rather than forbidden,
+      // because the temptation on seeing it is to reach for the confident
+      // sentence, which is exactly the defect the sibling test pins.
+      expect(find.textContaining(trans('common.unknown')), findsOneWidget);
     });
   });
 

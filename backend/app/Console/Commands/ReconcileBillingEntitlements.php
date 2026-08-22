@@ -350,12 +350,29 @@ class ReconcileBillingEntitlements extends Command
             return true;
         }
 
-        $claim = $this->stripeClaim($team, $subscription, $subscription->updated_at);
+        // Stamped NOW, not with the Cashier row's `updated_at`, and matching what
+        // `reconciliationEvent()` already does on the store rail.
+        //
+        // Both columns are whole-second (`timestampTz` and `timestamps()` both
+        // take the schema builder's default precision of 0), so `updated_at`
+        // ties with `plan_source_event_at` exactly when the drift being healed
+        // was CAUSED by two events sharing a second. A same-second downgrade
+        // leaves the record on the higher tier and the Cashier row on the lower
+        // price; the claim then arrives with an equal timestamp, the tie-break
+        // drops it as a revocation, and the drift this command exists to heal
+        // survives every hourly run forever.
+        //
+        // The trade is real and is the same one the store rail already takes: a
+        // genuinely late Stripe delivery whose `created` predates a reconcile
+        // run is dropped as stale. Its Cashier sync still lands (the parent
+        // handler runs before the projection), so the next run re-derives it.
+        $claim = $this->stripeClaim($team, $subscription, CarbonImmutable::now());
 
         // Only a disagreement is claimed. A local read is no fresher than the
         // delivery that wrote it, so re-applying an agreeing one would stamp
         // this run's provenance over a genuine event's and then have the
-        // ordering rule drop the NEXT run, once an hour, forever.
+        // ordering rule drop the NEXT run, once an hour, forever. That guard,
+        // not the choice of timestamp, is what keeps the restamp loop shut.
         if ($claim instanceof EntitlementWrite && ! $this->agreesWithRecord($team, $claim)) {
             ($this->writeEntitlement)($claim);
         }
