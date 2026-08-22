@@ -6,12 +6,17 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/controllers/entitlement_controller.dart';
 import 'package:uptizm/app/enums/ai_confidence.dart' show AiConfidence;
 import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
+import 'package:magic_payments/magic_payments.dart'
+    show
+        BillingEntitlement,
+        BillingInvoicesPage,
+        BillingService,
+        PaymentMethod,
+        UsageStat;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
+import 'package:uptizm/app/mocks/teams_data.dart' show planWireRows;
 import 'package:uptizm/app/models/monitor.dart';
-import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan, PlanLimits;
-import 'package:uptizm/app/support/team_types.dart'
-    show PaymentMethod, UsageStat;
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form.dart';
 import 'package:uptizm/ui/components/ai_confidence_badge/ai_confidence_badge.dart';
@@ -19,9 +24,11 @@ import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart'
     show KeyValueRow;
 
 /// In-memory [BillingService] fake feeding [EntitlementController] a fixed
-/// plan id, mirroring the fake in `entitlement_controller_test.dart`. Only
-/// the three reads the controller depends on are implemented; the
-/// purchase-action methods this form never touches throw loudly.
+/// plan id, mirroring the fake in `entitlement_controller_test.dart`.
+///
+/// The READ contract only. The purchase and management calls live on their own
+/// rail contracts, which this fake deliberately does not serve: this form spends
+/// no money, and a fake must not carry a contract its subject never calls.
 class _FakeBilling implements BillingService {
   _FakeBilling({this.entitlementPlan, List<Plan>? catalog})
     : _catalog = catalog ?? plans;
@@ -37,35 +44,20 @@ class _FakeBilling implements BillingService {
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
-    return BillingEntitlement(
-      plan: entitlementPlan,
-      status: 'active',
-      aiAnalysisTrialsRemaining: null,
-      raw: {'plan': entitlementPlan, 'status': 'active'},
-    );
+    // Through the real decoder, from the wire words the producer emits:
+    // `plan_status` is the only status key this wire has ever carried.
+    return BillingEntitlement.fromMap(<String, dynamic>{
+      'plan': entitlementPlan,
+      'plan_status': 'active',
+    });
   }
 
   @override
-  Future<List<Plan>> getPlans() async => _catalog;
+  Future<List<Map<String, dynamic>>> getPlans() async =>
+      planWireRows(_catalog);
 
   @override
   Future<List<UsageStat>> getUsage() async => const [];
-
-  @override
-  Future<BillingCheckoutSession> checkout({
-    required String plan,
-    required String successUrl,
-    required String cancelUrl,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<void> swap({required String plan}) => throw UnimplementedError();
-
-  @override
-  Future<void> cancel() => throw UnimplementedError();
-
-  @override
-  Future<String> openPortal({String? returnUrl}) => throw UnimplementedError();
 
   @override
   Future<BillingInvoicesPage> getInvoices({String? cursor}) =>

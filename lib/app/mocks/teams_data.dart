@@ -1,9 +1,11 @@
 import 'package:flutter/widgets.dart' show Color;
+import 'package:magic_payments/magic_payments.dart'
+    show Invoice, InvoiceStatus, PaymentMethod, UsageStat;
 
+import '../enums/ai_level.dart' show AiLevel;
 import '../enums/team_role.dart' show TeamRole;
-import '../support/team_types.dart'
-    show Invoice, PaymentMethod, TeamInvitation, TeamMember, UsageStat;
-import '../enums/invoice_status.dart' show InvoiceStatus;
+import '../support/billing_types.dart' show Plan, PlanLimits;
+import '../support/team_types.dart' show TeamInvitation, TeamMember;
 
 /// **Teams-domain mock fixtures.**
 ///
@@ -93,32 +95,36 @@ const List<TeamInvitation> pendingInvitations = [
 /// The team's billing history, most recent first.
 ///
 /// Mirrors the `invoices` fixture in the React billing mock.
-const List<Invoice> invoices = [
+///
+/// `final` rather than `const`: [Invoice.date] is an instant, because month
+/// names and date order are display copy the renderer owns, and a [DateTime] can
+/// never be a constant.
+final List<Invoice> invoices = [
   Invoice(
     id: 'inv-2026-06',
     number: 'INV-2026-06',
-    date: 'Jun 1, 2026',
+    date: DateTime.utc(2026, 6, 1),
     amount: '\$348.00',
     status: InvoiceStatus.paid,
   ),
   Invoice(
     id: 'inv-2025-06',
     number: 'INV-2025-06',
-    date: 'Jun 1, 2025',
+    date: DateTime.utc(2025, 6, 1),
     amount: '\$348.00',
     status: InvoiceStatus.paid,
   ),
   Invoice(
     id: 'inv-2024-09',
     number: 'INV-2024-09',
-    date: 'Sep 1, 2024',
+    date: DateTime.utc(2024, 9, 1),
     amount: '\$34.00',
     status: InvoiceStatus.paid,
   ),
   Invoice(
     id: 'inv-2024-08',
     number: 'INV-2024-08',
-    date: 'Aug 1, 2024',
+    date: DateTime.utc(2024, 8, 1),
     amount: '\$34.00',
     status: InvoiceStatus.failed,
   ),
@@ -126,11 +132,14 @@ const List<Invoice> invoices = [
 
 /// The team's on-file payment method.
 ///
-/// Mirrors the `paymentMethod` fixture in the React billing mock.
+/// Mirrors the `paymentMethod` fixture in the React billing mock. The expiry is
+/// the rail's own two numbers rather than a pre-baked `'08 / 27'`; the separator
+/// and the two-digit year are a rendering decision.
 const PaymentMethod paymentMethod = PaymentMethod(
   brand: 'Visa',
   last4: '4242',
-  expiry: '08 / 27',
+  expMonth: 8,
+  expYear: 2027,
 );
 
 /// The team's current-cycle usage against its plan limits.
@@ -138,11 +147,85 @@ const PaymentMethod paymentMethod = PaymentMethod(
 /// Monitors and responders sit at or near their `Plan` cap (see `billing.dart`'s
 /// Pro-tier limits) so the usage meters read as "close to upgrading";
 /// checks-this-month has no hard cap.
+///
+/// The `key` of each row is the real `GET /billing/usage` wire key, because that
+/// is what the entitlement gates look a resource up by; the English `label` is
+/// preview copy that a real read pairs on through the catalogue instead (see
+/// `withUsageCopy`).
 const List<UsageStat> billingUsage = [
-  UsageStat(label: 'Monitors', used: 47, limit: 50, unit: ''),
-  UsageStat(label: 'Responders', used: 3, limit: 3, unit: ''),
-  UsageStat(label: 'Checks this month', used: 128400, limit: null, unit: 'checks'),
+  UsageStat(key: 'monitors', label: 'Monitors', used: 47, limit: 50),
+  UsageStat(key: 'responders', label: 'Responders', used: 3, limit: 3),
+  UsageStat(
+    key: 'checks_this_month',
+    label: 'Checks this month',
+    used: 128400,
+    limit: null,
+    unit: 'checks',
+  ),
 ];
+
+/// Re-encodes a typed [Plan] catalogue as the `GET /billing/plans` rows a
+/// `BillingService` answers with.
+///
+/// `BillingService.getPlans()` returns `List<Map<String, dynamic>>` verbatim,
+/// because a tier's prices, feature bullets and in-product caps are what uptizm
+/// sells rather than anything a payment rail understands: [Plan], [PlanLimits]
+/// and [AiLevel] live here and every caller decodes the rows itself. So a fake
+/// billing service has to answer with rows, while the fixtures worth feeding it
+/// (`mocks/billing.dart`'s `plans`, and the one-off catalogues a limits test
+/// builds by hand) are typed. This is the bridge, and it sits in the fixture
+/// layer beside the other billing fixtures above rather than in any one suite,
+/// because five fake services need it and five byte-identical private copies of
+/// one serializer is how the copy that drifted feeds one suite a catalogue the
+/// others do not have.
+///
+/// The inverse of [Plan.fromMap], and deliberately TOTAL: every field that
+/// decoder reads is written here, so a round trip loses nothing. A field added to
+/// [Plan] and not added here would reach a widget under test as the decoder's
+/// default instead of as the fixture's value.
+List<Map<String, dynamic>> planWireRows(List<Plan> plans) {
+  return plans.map(_planWireRow).toList();
+}
+
+/// One `data[]` entry of the plan catalogue.
+Map<String, dynamic> _planWireRow(Plan plan) {
+  return <String, dynamic>{
+    'id': plan.id,
+    'name': plan.name,
+    'tagline': plan.tagline,
+    'monthly': plan.monthly,
+    'annual': plan.annual,
+    'ai_line': plan.aiLine,
+    'features': plan.features,
+    'responder_add_on': plan.responderAddOn,
+    'recommended': plan.recommended,
+    'limits': _planLimitsWireRow(plan.limits),
+  };
+}
+
+/// The nested `limits` object of one catalogue entry.
+Map<String, dynamic> _planLimitsWireRow(PlanLimits limits) {
+  return <String, dynamic>{
+    'monitors': limits.monitors,
+    'check_interval_sec': limits.checkIntervalSec,
+    'status_pages': limits.statusPages,
+    'subscribers': limits.subscribers,
+    'responders': limits.responders,
+    'regions': limits.regions,
+    // The wire word, spelled out, not `.name`: `PlanLimits.fromMap` matches
+    // these four values explicitly, and the Dart case names happen to equal them
+    // today. Writing `.name` would tie the fixture to that coincidence.
+    'ai': switch (limits.ai) {
+      AiLevel.inbox => 'inbox',
+      AiLevel.analysis => 'analysis',
+      AiLevel.auto => 'auto',
+      AiLevel.custom => 'custom',
+    },
+    'white_label': limits.whiteLabel,
+    'private_pages': limits.privatePages,
+    'sso': limits.sso,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Team avatar palette

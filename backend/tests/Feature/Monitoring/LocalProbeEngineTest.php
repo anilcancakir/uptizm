@@ -18,6 +18,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Tests\Support\LoopbackHttpServer;
 use Tests\TestCase;
 
 /**
@@ -50,8 +51,8 @@ use Tests\TestCase;
  * `up` for a target it had sent nothing to. No fake reaches that, and neither did
  * the cleartext loopback test that was the only live one here: an `http://` URL
  * travels as an absolute-form request line and opens no tunnel at all, which is
- * why the proxy below now speaks CONNECT and the tests that matter probe an
- * `https://` URL through it.
+ * why the one-shot proxy in {@see LoopbackHttpServer} speaks CONNECT and the
+ * tests that matter probe an `https://` URL through it.
  *
  * So four tests drive a real one-shot proxy on loopback, and they are the only
  * tests here that can fail if the mechanism is absent:
@@ -66,30 +67,6 @@ use Tests\TestCase;
 class LocalProbeEngineTest extends TestCase
 {
     use RefreshDatabase;
-
-    /**
-     * The one-shot proxy answers the absolute-form request line itself, which is
-     * how a forward proxy carries a CLEARTEXT target. No tunnel is involved.
-     */
-    protected const string PROXY_SERVES_ABSOLUTE_FORM = 'absolute-form';
-
-    /**
-     * The one-shot proxy opens the tunnel and then IS the origin behind it: it
-     * terminates the TLS the probe negotiates through the tunnel and answers with
-     * the origin's own response. This is the production shape.
-     */
-    protected const string PROXY_TUNNELS = 'tunnel';
-
-    /**
-     * The one-shot proxy answers `200 Connection established` and then closes, so
-     * the target receives nothing at all. THE DEFECT this file exists to pin.
-     */
-    protected const string PROXY_ESTABLISHES_AND_CLOSES = 'establish-and-close';
-
-    /**
-     * The one-shot proxy refuses to open the tunnel, with a status of its own.
-     */
-    protected const string PROXY_REFUSES_TUNNEL = 'refuse-tunnel';
 
     /**
      * The Guzzle transfer options of every request the engine issued.
@@ -655,7 +632,7 @@ class LocalProbeEngineTest extends TestCase
         //     wire evidence rather than an assertion about our own options.
         //  3. `handlerStats()` produced real timing, so `response_ms` is a
         //     measurement rather than a placeholder.
-        $server = $this->startOneShotProxy(self::PROXY_SERVES_ABSOLUTE_FORM);
+        $server = LoopbackHttpServer::proxy(LoopbackHttpServer::PROXY_SERVES_ABSOLUTE_FORM);
 
         $monitor = $this->systemMonitor([
             // Cleartext, so the one-shot server can answer the absolute-form
@@ -670,7 +647,7 @@ class LocalProbeEngineTest extends TestCase
 
         $this->makeProxy('us-east', [
             'host' => '127.0.0.1',
-            'port' => $server['port'],
+            'port' => $server->port(),
             'credentials' => [
                 'username' => 'exit-user',
                 'password' => $password,
@@ -679,7 +656,7 @@ class LocalProbeEngineTest extends TestCase
 
         $reading = $this->engine()->dispatch($monitor, 'us-east');
 
-        $observed = $this->finishOneShotProxy($server);
+        $observed = $server->report();
 
         $this->assertSame(MonitorStatus::Up, $reading->status);
         $this->assertSame(200, $reading->statusCode);
@@ -728,7 +705,7 @@ class LocalProbeEngineTest extends TestCase
         //
         // `CURLOPT_SUPPRESS_CONNECT_HEADERS` is what makes the capture the
         // TARGET's response; removing it reddens the two assertions below.
-        $server = $this->startOneShotProxy(self::PROXY_ESTABLISHES_AND_CLOSES);
+        $server = LoopbackHttpServer::proxy(LoopbackHttpServer::PROXY_ESTABLISHES_AND_CLOSES);
 
         $monitor = $this->systemMonitor([
             'url' => 'https://uptizm-probe.invalid/health',
@@ -736,12 +713,12 @@ class LocalProbeEngineTest extends TestCase
         ]);
         $exit = $this->makeProxy('us-east', [
             'host' => '127.0.0.1',
-            'port' => $server['port'],
+            'port' => $server->port(),
         ]);
 
         $reading = $this->engine()->dispatch($monitor, 'us-east');
 
-        $observed = $this->finishOneShotProxy($server);
+        $observed = $server->report();
 
         // The tunnel really was requested, and the origin really was never spoken
         // to. Both are wire facts, not assertions about our own options: without
@@ -789,7 +766,7 @@ class LocalProbeEngineTest extends TestCase
         // question is whose response was captured, not whose chain was trusted.
         Http::globalOptions(['verify' => false]);
 
-        $server = $this->startOneShotProxy(self::PROXY_TUNNELS);
+        $server = LoopbackHttpServer::proxy(LoopbackHttpServer::PROXY_TUNNELS);
 
         $monitor = $this->systemMonitor([
             'url' => 'https://uptizm-probe.invalid/health',
@@ -797,12 +774,12 @@ class LocalProbeEngineTest extends TestCase
         ]);
         $this->makeProxy('us-east', [
             'host' => '127.0.0.1',
-            'port' => $server['port'],
+            'port' => $server->port(),
         ]);
 
         $reading = $this->engine()->dispatch($monitor, 'us-east');
 
-        $observed = $this->finishOneShotProxy($server);
+        $observed = $server->report();
 
         $this->assertSame(MonitorStatus::Up, $reading->status);
         $this->assertSame(200, $reading->statusCode);
@@ -850,7 +827,7 @@ class LocalProbeEngineTest extends TestCase
         // {@see LocalProbeFailureAttributionTest} pins what the classifier then
         // does with it, including the older 8.x spelling this machine no longer
         // emits.
-        $server = $this->startOneShotProxy(self::PROXY_REFUSES_TUNNEL, 407);
+        $server = LoopbackHttpServer::proxy(LoopbackHttpServer::PROXY_REFUSES_TUNNEL, 407);
 
         $monitor = $this->systemMonitor([
             'url' => 'https://uptizm-probe.invalid/health',
@@ -858,12 +835,12 @@ class LocalProbeEngineTest extends TestCase
         ]);
         $exit = $this->makeProxy('us-east', [
             'host' => '127.0.0.1',
-            'port' => $server['port'],
+            'port' => $server->port(),
         ]);
 
         $reading = $this->engine()->dispatch($monitor, 'us-east');
 
-        $observed = $this->finishOneShotProxy($server);
+        $observed = $server->report();
 
         $this->assertStringStartsWith('CONNECT uptizm-probe.invalid:443', $observed['connect']);
         $this->assertSame('', $observed['request']);
@@ -975,234 +952,5 @@ class LocalProbeEngineTest extends TestCase
             'last_refreshed_at' => now(),
             ...$overrides,
         ]);
-    }
-
-    /**
-     * Spawn a one-shot server on loopback that behaves like a forward proxy in
-     * ONE of four ways, and reports back what it saw and what it managed to write.
-     *
-     * A child process rather than a stubbed handler because the whole point is to
-     * exercise Guzzle's curl handler and curl's own proxy machinery, neither of
-     * which `Http::fake` reaches.
-     *
-     * The four modes exist because the two shapes a forward proxy carries are not
-     * the same code path in curl, and only the second one is production: a
-     * cleartext target travels as an absolute-form request line, and an HTTPS
-     * target travels as a CONNECT tunnel with TLS negotiated end to end INSIDE
-     * it. All eight catalog monitors are HTTPS, so the tunnel is the real path,
-     * and the two failure modes below are what a proxy does when it will not
-     * carry one.
-     *
-     * @param  string  $mode  One of the `PROXY_*` constants above.
-     * @param  int  $refusalStatus  The status the tunnel is refused with, for
-     *                              {@see self::PROXY_REFUSES_TUNNEL} only.
-     * @return array{process: resource, pipes: array<int, resource>, port: int, script: string, certificate: string}
-     */
-    protected function startOneShotProxy(
-        string $mode = self::PROXY_SERVES_ABSOLUTE_FORM,
-        int $refusalStatus = 0,
-    ): array {
-        if (! function_exists('proc_open')) {
-            $this->markTestSkipped('proc_open is disabled, so the live probe path cannot be exercised here.');
-        }
-
-        $certificate = $mode === self::PROXY_TUNNELS ? $this->selfSignedCertificate() : '';
-        $script = tempnam(sys_get_temp_dir(), 'uptizm-probe-server-').'.php';
-
-        file_put_contents($script, <<<'PHP'
-            <?php
-            // A one-shot forward proxy. argv: mode, certificate path, refusal status.
-            $mode = $argv[1];
-            $certificate = $argv[2];
-            $refusalStatus = (int) $argv[3];
-
-            $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
-            if ($server === false) {
-                fwrite(STDERR, "listen failed: {$error}\n");
-                exit(1);
-            }
-            $name = stream_socket_get_name($server, false);
-            echo substr($name, strrpos($name, ':') + 1), "\n";
-
-            // One request head, up to the blank line, off whichever stream is handed in:
-            // the cleartext socket for the proxy hop, the encrypted one for the origin.
-            $readHead = static function ($stream): string {
-                $head = '';
-                while (($line = fgets($stream, 8192)) !== false) {
-                    $head .= $line;
-                    if ($line === "\r\n") {
-                        break;
-                    }
-                }
-
-                return $head;
-            };
-
-            // The origin's own answer, promising 4 MB nothing may download.
-            $serveOrigin = static function ($stream) use (&$declared, &$written): void {
-                $body = str_repeat('x', 4194304);
-                $declared = strlen($body);
-                fwrite(
-                    $stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
-                    ."X-Origin: loopback\r\nContent-Length: {$declared}\r\n\r\n",
-                );
-                $push = @fwrite($stream, $body);
-                $written = $push === false ? 0 : $push;
-            };
-
-            $client = stream_socket_accept($server, 10);
-            if ($client === false) {
-                fwrite(STDERR, "no connection arrived\n");
-                exit(1);
-            }
-            stream_set_timeout($client, 10);
-
-            $connect = '';
-            $request = '';
-            $declared = 0;
-            $written = 0;
-
-            $head = $readHead($client);
-
-            if (! str_starts_with($head, 'CONNECT ')) {
-                // An absolute-form request line: answered directly, no tunnel.
-                $request = $head;
-                $serveOrigin($client);
-                fclose($client);
-            } elseif ($mode === 'refuse-tunnel') {
-                $connect = $head;
-                fwrite($client, "HTTP/1.1 {$refusalStatus} Nope\r\nProxy-Authenticate: Basic realm=\"one-shot\"\r\nContent-Length: 0\r\n\r\n");
-                fclose($client);
-            } else {
-                $connect = $head;
-                fwrite($client, "HTTP/1.1 200 Connection established\r\n\r\n");
-
-                if ($mode === 'establish-and-close') {
-                    // The greeting and nothing else: the target is never contacted.
-                    fclose($client);
-                } else {
-                    // The proxy IS the origin from here: it terminates the TLS the
-                    // probe negotiates inside the tunnel and answers over it.
-                    stream_context_set_options($client, ['ssl' => ['local_cert' => $certificate]]);
-                    $secured = @stream_socket_enable_crypto($client, true, STREAM_CRYPTO_METHOD_TLS_SERVER);
-
-                    if ($secured !== true) {
-                        fwrite(STDERR, 'the tunnelled TLS handshake failed: '.var_export($secured, true)."\n");
-                    } else {
-                        $request = $readHead($client);
-                        $serveOrigin($client);
-                    }
-
-                    @fclose($client);
-                }
-            }
-
-            echo json_encode([
-                'connect' => $connect,
-                'request' => $request,
-                'declared' => $declared,
-                'written' => $written,
-            ]), "\n";
-            PHP);
-
-        $process = proc_open(
-            [PHP_BINARY, $script, $mode, $certificate, (string) $refusalStatus],
-            [
-                1 => ['pipe', 'w'],
-                2 => ['pipe', 'w'],
-            ],
-            $pipes,
-        );
-
-        if (! is_resource($process)) {
-            @unlink($script);
-            $this->markTestSkipped('The one-shot proxy process could not be started.');
-        }
-
-        $port = (int) trim((string) fgets($pipes[1]));
-
-        if ($port <= 0) {
-            proc_terminate($process);
-            @unlink($script);
-            $this->markTestSkipped('The one-shot proxy could not bind a loopback port.');
-        }
-
-        return [
-            'process' => $process,
-            'pipes' => $pipes,
-            'port' => $port,
-            'script' => $script,
-            'certificate' => $certificate,
-        ];
-    }
-
-    /**
-     * Drain the one-shot server's report and reap it.
-     *
-     * @param  array<string, mixed>  $server
-     * @return array{connect: string, request: string, declared: int, written: int}
-     */
-    protected function finishOneShotProxy(array $server): array
-    {
-        $report = json_decode((string) fgets($server['pipes'][1]), true);
-        $stderr = stream_get_contents($server['pipes'][2]);
-
-        fclose($server['pipes'][1]);
-        fclose($server['pipes'][2]);
-        proc_close($server['process']);
-        @unlink($server['script']);
-
-        if ($server['certificate'] !== '') {
-            @unlink($server['certificate']);
-        }
-
-        $this->assertIsArray($report, "The one-shot proxy reported nothing. stderr: {$stderr}");
-
-        return $report;
-    }
-
-    /**
-     * A throwaway self-signed certificate for the tunnelled origin, generated in
-     * process so the test needs no fixture file and no network.
-     *
-     * The probe trusts it through `verify => false` rather than through a trust
-     * store, which is deliberate: what these tests measure is whose RESPONSE the
-     * engine captured, and a certificate chain is not part of that question. The
-     * handshake itself still has to succeed, which is what proves the tunnel is
-     * real rather than the proxy's greeting.
-     */
-    protected function selfSignedCertificate(): string
-    {
-        if (! extension_loaded('openssl')) {
-            $this->markTestSkipped('The openssl extension is absent, so a tunnelled origin cannot be served.');
-        }
-
-        $key = openssl_pkey_new([
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ]);
-
-        $signed = $key === false
-            ? false
-            : openssl_csr_sign(
-                openssl_csr_new(['commonName' => 'uptizm-probe.invalid'], $key, ['digest_alg' => 'sha256']),
-                null,
-                $key,
-                1,
-                ['digest_alg' => 'sha256'],
-            );
-
-        if ($signed === false) {
-            $this->markTestSkipped('A self-signed certificate could not be generated: '.openssl_error_string());
-        }
-
-        openssl_x509_export($signed, $certificate);
-        openssl_pkey_export($key, $privateKey);
-
-        $path = tempnam(sys_get_temp_dir(), 'uptizm-probe-origin-').'.pem';
-        file_put_contents($path, $certificate.$privateKey);
-
-        return $path;
     }
 }

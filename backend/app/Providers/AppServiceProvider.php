@@ -3,10 +3,12 @@
 namespace App\Providers;
 
 use App\Actions\PlanGatedInviteTeamMember;
+use App\Actions\StoreSubscriptionGuardedDeleteTeam;
 use App\Models\Team;
 use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use App\Policies\BillingPolicy;
 use App\Services\Ai\AiDeadline;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnomalyTriageGateway;
@@ -24,9 +26,11 @@ use App\Services\Ai\OpenRouterUpstreamRecorder;
 use App\Services\Monitoring\ProbeTransport;
 use App\Services\Monitoring\RelayClient;
 use App\Services\StatusPages\StatusPagePreviewRenderer;
+use FlutterSdk\MagicStarter\Contracts\DeletesTeams;
 use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Cashier\Cashier;
@@ -77,6 +81,13 @@ class AppServiceProvider extends ServiceProvider
         // (contract-action override), so a team cannot invite past its tier.
         $this->app->bind(InvitesTeamMembers::class, PlanGatedInviteTeamMember::class);
 
+        // Same pattern, same reason: team deletion is the starter's endpoint and
+        // uptizm owns no team route to guard. A store subscription outlives the
+        // team row (the store keeps charging and only its own account surface can
+        // cancel), so deleting a store-billed team is refused until the owner has
+        // been there. See StoreSubscriptionGuardedDeleteTeam.
+        $this->app->bind(DeletesTeams::class, StoreSubscriptionGuardedDeleteTeam::class);
+
         // Register the headless preview renderer as the container's single
         // resolution point, so the whole class can be swapped for a browserless
         // double. Tests\TestCase does exactly that for every test: the suite runs
@@ -105,6 +116,22 @@ class AppServiceProvider extends ServiceProvider
         // and payment method belongs to a team so billing stays scoped to
         // the workspace, matching the SaaS-team-billable pattern (research/01).
         Cashier::useCustomerModel(Team::class);
+
+        // The billing WRITE gate: `checkout`, `swap`, `cancel` and `portal` are
+        // the team owner's, every read stays open to any member. See
+        // {@see BillingPolicy} for why the split falls there.
+        //
+        // A NAMED ABILITY rather than `Gate::policy(Team::class, ...)`, and the
+        // difference is load-bearing. `MagicStarterServiceProvider` already
+        // registers `Gate::policy(Team::class, TeamPolicy::class)`; the policy
+        // map is keyed by model class, this provider boots after the package's,
+        // and a second registration would REPLACE that entry rather than add to
+        // it, silently unguarding team member management, invitations, and team
+        // deletion. Auto-discovery is no help either: it looks for a policy
+        // named after the model, and this one is named after the surface it
+        // guards. So the ability is defined explicitly and named for what it
+        // authorizes.
+        Gate::define('manageBilling', [BillingPolicy::class, 'manage']);
 
         // Record which OpenRouter upstream served each AI call. Global on
         // purpose: six gateways prompt a model and `laravel/ai` exposes no

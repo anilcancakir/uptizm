@@ -3,13 +3,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:magic_payments/magic_payments.dart'
+    show
+        BillingCheckoutSession,
+        BillingEntitlement,
+        BillingException,
+        BillingInvoicesPage,
+        BillingService,
+        PaymentMethod,
+        Payments,
+        PaymentsManager,
+        UnsupportedPlatformException,
+        UsageStat,
+        WebBillingService;
 import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
-import 'package:uptizm/app/support/billing_types.dart' show Plan;
-import 'package:uptizm/app/support/team_types.dart'
-    show PaymentMethod, UsageStat;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
-import 'package:uptizm/app/services/billing/billing_service.dart';
+import 'package:uptizm/app/mocks/teams_data.dart' show planWireRows;
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
@@ -22,8 +32,14 @@ import '../../support/skeleton_matchers.dart';
 /// Records every [checkout] call's `plan` and lets a test configure a canned
 /// [entitlementPlan] (`currentEntitlement`) or a [checkoutError] to throw from
 /// [checkout], so a widget test can assert the live-wiring branch (web
-/// checkout, mobile-deferred, error) without a real network driver.
-class _FakeBillingService implements BillingService {
+/// checkout, rail-refused, error) without a real network driver.
+///
+/// It implements BOTH the read contract and [WebBillingService], because the
+/// subject calls both: `checkout` and `openPortal` moved onto the rail contract,
+/// and the view refuses to render a purchase affordance at all when the rail is
+/// absent. A read-only fake here would have made every CTA assertion below pass
+/// vacuously against a screen that offered nothing.
+class _FakeBillingService implements BillingService, WebBillingService {
   _FakeBillingService({this.entitlementPlan, this.checkoutError});
 
   /// The plan id [currentEntitlement] resolves to; `null` mirrors an absent
@@ -61,19 +77,20 @@ class _FakeBillingService implements BillingService {
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
-    return BillingEntitlement(
-      plan: entitlementPlan,
-      status: 'active',
-      aiAnalysisTrialsRemaining: null,
-      raw: {'plan': entitlementPlan, 'status': 'active'},
-    );
+    // Through the real decoder, from the wire words the producer emits:
+    // `plan_status` is the only status key this wire has ever carried.
+    return BillingEntitlement.fromMap(<String, dynamic>{
+      'plan': entitlementPlan,
+      'plan_status': 'active',
+    });
   }
 
-  /// Returns the design-lab plan catalog verbatim (mirrors the live
-  /// cheapest-to-priciest order the widget under test relies on for its CTA
-  /// assertions), so the plans grid renders without a real network driver.
+  /// Returns the design-lab plan catalog as the WIRE ROWS the contract answers
+  /// with, preserving the cheapest-to-priciest order the widget under test
+  /// relies on for its CTA assertions, so the plans grid renders without a real
+  /// network driver.
   @override
-  Future<List<Plan>> getPlans() async => plans;
+  Future<List<Map<String, dynamic>>> getPlans() async => planWireRows(plans);
 
   @override
   Future<List<UsageStat>> getUsage() async => const [];
@@ -268,6 +285,10 @@ void main() {
   tearDown(() {
     MagicApp.reset();
     Magic.flush();
+    // The payments manager is a `static final` that outlives a container reset,
+    // so an override registered by one test would hand the next a rail it never
+    // asked for. This is the package's own isolation seam.
+    Payments.forgetDrivers();
   });
 
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme] under a
@@ -792,6 +813,17 @@ void main() {
             'exp_year': null,
           }),
         });
+
+        // Nothing is injected here on purpose: the point of this case is the
+        // REAL read driver hitting the four endpoints. But `flutter test` runs on
+        // the `dart:io` arm, whose web rail is legitimately null, and the screen
+        // now gates its portal affordances on that rail existing. So the rail is
+        // registered through the manager's own override seam, which leaves
+        // `Payments.billing` (the reads under test) untouched.
+        Payments.extend(
+          PaymentsManager.webRole,
+          () => _FakeBillingService(),
+        );
 
         await tester.pumpWidget(
           wrap(const PlanBillingView(), size: const Size(1280, 10000)),
