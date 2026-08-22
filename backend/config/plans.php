@@ -183,4 +183,46 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Store Products
+    |--------------------------------------------------------------------------
+    |
+    | The mobile rails' answer to `cashier.plans`: a rail-native product id
+    | mapped to the tier it grants. `SyncRevenueCatEntitlement` reads it after
+    | re-reading the authoritative subscriber from RevenueCat, and a product id
+    | absent from this map is treated exactly as an unmapped Stripe price is,
+    | i.e. it WARNS and leaves the entitlement untouched. The absence of a
+    | reason to grant is not a reason to revoke.
+    |
+    | Two things about the keys, and both have cost somebody a production
+    | incident somewhere:
+    |
+    |  - Google Play sends `<subscription_id>:<base_plan_id>`, so a Play key must
+    |    carry the suffix. Keyed on the bare subscription id, every single
+    |    Android renewal becomes an unmapped-product warning and no Android
+    |    customer is ever granted anything.
+    |  - App Store Connect sends the product id alone.
+    |
+    | THE VALUES BELOW ARE PLACEHOLDERS AND GRANT NOTHING. The real ids are
+    | created by a human in App Store Connect and Google Play Console, in ONE
+    | subscription group per store so upgrades and downgrades work at all, and
+    | they do not exist yet. Until they are filled in, the store rail warns on
+    | every event and writes nothing, which is the safe shape of "not configured
+    | yet": nobody is granted a tier they did not buy and nobody loses one.
+    |
+    */
+
+    'store_products' => [
+
+        // App Store Connect product ids.
+        'PLACEHOLDER_APP_STORE_PRO_MONTHLY' => 'pro',
+        'PLACEHOLDER_APP_STORE_BUSINESS_MONTHLY' => 'business',
+
+        // Google Play, `<subscription_id>:<base_plan_id>`.
+        'PLACEHOLDER_PLAY_PRO:PLACEHOLDER_MONTHLY' => 'pro',
+        'PLACEHOLDER_PLAY_BUSINESS:PLACEHOLDER_MONTHLY' => 'business',
+
+    ],
+
 ];
