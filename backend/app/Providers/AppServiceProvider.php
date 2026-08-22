@@ -7,6 +7,7 @@ use App\Models\Team;
 use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
+use App\Policies\BillingPolicy;
 use App\Services\Ai\AiDeadline;
 use App\Services\Ai\AnalysisGateway;
 use App\Services\Ai\AnomalyTriageGateway;
@@ -27,6 +28,7 @@ use App\Services\StatusPages\StatusPagePreviewRenderer;
 use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Cashier\Cashier;
@@ -105,6 +107,22 @@ class AppServiceProvider extends ServiceProvider
         // and payment method belongs to a team so billing stays scoped to
         // the workspace, matching the SaaS-team-billable pattern (research/01).
         Cashier::useCustomerModel(Team::class);
+
+        // The billing WRITE gate: `checkout`, `swap`, `cancel` and `portal` are
+        // the team owner's, every read stays open to any member. See
+        // {@see BillingPolicy} for why the split falls there.
+        //
+        // A NAMED ABILITY rather than `Gate::policy(Team::class, ...)`, and the
+        // difference is load-bearing. `MagicStarterServiceProvider` already
+        // registers `Gate::policy(Team::class, TeamPolicy::class)`; the policy
+        // map is keyed by model class, this provider boots after the package's,
+        // and a second registration would REPLACE that entry rather than add to
+        // it, silently unguarding team member management, invitations, and team
+        // deletion. Auto-discovery is no help either: it looks for a policy
+        // named after the model, and this one is named after the surface it
+        // guards. So the ability is defined explicitly and named for what it
+        // authorizes.
+        Gate::define('manageBilling', [BillingPolicy::class, 'manage']);
 
         // Record which OpenRouter upstream served each AI call. Global on
         // purpose: six gateways prompt a model and `laravel/ai` exposes no
