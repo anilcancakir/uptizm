@@ -117,11 +117,26 @@ return Application::configure(basePath: dirname(__DIR__))
             SubstituteBindings::class,
         ]);
 
-        // The Stripe webhook lives in the `web` group (StripeWebhookController)
-        // but arrives with no CSRF token, so exempt the whole `stripe/*` path.
-        // Authenticity is enforced by Cashier's VerifyWebhookSignature instead.
+        // Both webhook routes live in the `web` group (routes/web.php) and arrive
+        // with no CSRF token, so both are exempted here. Authenticity is a
+        // signature over the raw body in each case: Cashier's
+        // VerifyWebhookSignature on the Stripe path, and the HMAC
+        // RevenueCatWebhookController verifies on the store path.
+        //
+        // A missing entry here is silent permanent data loss, not a visible
+        // error: the delivery is a 419 the sender retries a few times and then
+        // abandons, and the suite cannot see it either, because
+        // PreventRequestForgery short-circuits on runningUnitTests() (see
+        // RevenueCatWebhookTest, which re-arms it deliberately).
+        //
+        // The RevenueCat entry is the EXACT path rather than a `webhooks/*`
+        // prefix: exempting a prefix would silently exempt every route added
+        // under it later, and a webhook route that is not CSRF-exempt should
+        // fail loudly during its own development rather than inherit the
+        // exemption for free.
         $middleware->validateCsrfTokens(except: [
             'stripe/*',
+            'webhooks/revenuecat',
         ]);
 
         // `ApplicationBuilder::withMiddleware()` unconditionally sets
