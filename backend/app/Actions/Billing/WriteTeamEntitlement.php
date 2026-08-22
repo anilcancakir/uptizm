@@ -4,6 +4,7 @@ namespace App\Actions\Billing;
 
 use App\Enums\BillingProvider;
 use App\Enums\Plan;
+use App\Enums\PlanStatus;
 use App\Models\Team;
 use App\Support\Billing\EntitlementWrite;
 use Illuminate\Support\Facades\Log;
@@ -110,6 +111,49 @@ class WriteTeamEntitlement
             return false;
         }
 
+        // RULE 2b, a rail that is not selling an UPGRADE may not take over the
+        // provenance of a rail that is still granting.
+        //
+        // Rule 2 above only stops a cross-rail REVOCATION, so a cross-rail write
+        // carrying the SAME tier used to pass and `apply()` then rewrote
+        // `plan_provider` unconditionally. That handed the rail-on-record to a
+        // rail that had not sold the subscription, and the damage was one step
+        // later: the next revocation from that rail was now SAME-rail, so rule 2
+        // could no longer see it and rule 1 let it through. Concretely, a team
+        // billed by Apple that still held an uncancelled Stripe subscription got
+        // its provenance moved by one `invoice.payment_succeeded`, and the Stripe
+        // cancellation that followed wrote `plan = free` while Apple kept
+        // charging. Two further guards disarmed with it: `storeIsBilling()` on
+        // the team-delete path stopped seeing a store, and the reconciler began
+        // re-reading Stripe and never RevenueCat, so nothing healed it.
+        //
+        // Dropping the write loses nothing, because a SAME-tier write carries no
+        // tier information the record does not already hold. Its only effect was
+        // the takeover.
+        //
+        // The status half is load-bearing and is why this is not simply
+        // `$storedProvider->grants()`: that method is a per-RAIL table, true for
+        // every real rail, so gating on it alone would drop a genuine App Store
+        // purchase of Business from a team whose EXPIRED Stripe record still
+        // named Business. The customer would pay and receive nothing, which is
+        // worse than the defect this guard closes. When the stored status no
+        // longer grants, the team is not entitled through that rail, the incoming
+        // write IS a fresh grant, and the provenance should move.
+        // The direction test is `=== SAME` rather than `!== UPGRADE`, and the two
+        // are equivalent only by accident of the current table: rule 2 above has
+        // already dropped DOWNGRADE and UNKNOWN, so nothing else can reach here
+        // today. Naming SAME says what this guard is for, and a fifth direction
+        // added later has to be decided rather than inheriting a drop.
+        if ($storedProvider !== $write->provider
+            && $storedProvider->grants()
+            && $this->storedStatusStillGrants($team)
+            && $direction === self::DIRECTION_SAME
+        ) {
+            $this->logDrop('cross-rail provenance takeover', $write, $storedProvider, $direction);
+
+            return false;
+        }
+
         // A second rail claiming a customer the first rail is still billing
         // means somebody is paying twice. The write lands, because it carries
         // the tier they paid the most for, but it cannot land quietly.
@@ -145,6 +189,21 @@ class WriteTeamEntitlement
         $stored = $team->plan_source_event_at;
 
         return $stored !== null && $write->eventAt->lessThan($stored);
+    }
+
+    /**
+     * Whether the STATUS already on record is one that entitles the team.
+     *
+     * Distinct from {@see BillingProvider::grants()}, which answers "is this a
+     * real billing rail" for every rail alive. This answers "is that rail
+     * currently granting anything", which is the question rule 2b needs: a
+     * stored record that has expired, been cancelled or paused is not an
+     * entitlement another rail can take over, it is a slot another rail can
+     * fill.
+     */
+    protected function storedStatusStillGrants(Team $team): bool
+    {
+        return PlanStatus::fromWire($team->plan_status)->grants();
     }
 
     /**

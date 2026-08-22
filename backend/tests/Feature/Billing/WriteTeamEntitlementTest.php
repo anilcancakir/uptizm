@@ -278,6 +278,104 @@ class WriteTeamEntitlementTest extends TestCase
     }
 
     /**
+     * RULE 2b: a cross-rail write carrying the SAME tier does not get to take
+     * over the provenance of a rail that is still granting.
+     *
+     * Rule 2 above only stops a cross-rail REVOCATION, so this write used to
+     * pass and `apply()` rewrote `plan_provider` unconditionally. The damage was
+     * one step later, which is why no earlier test caught it: with the record
+     * now naming Stripe, the Stripe cancellation that follows is SAME-rail, so
+     * rule 2 can no longer see it and rule 1 lets it through. The team lands on
+     * free while Apple is still charging, and two further guards disarm with it,
+     * the team-delete `storeIsBilling()` check and the reconciler's choice of
+     * which rail to re-read.
+     *
+     * The state is reachable without anything exotic: a customer who migrated
+     * from web to store and did not cancel the web subscription is paying twice,
+     * which is exactly the case the cross-rail warning exists to announce.
+     */
+    public function test_a_cross_rail_same_tier_write_cannot_take_over_provenance(): void
+    {
+        Log::spy();
+
+        $grantedAt = CarbonImmutable::parse('2026-08-22 12:00:00');
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_source_event_at' => $grantedAt,
+            'plan_product_id' => 'uptizm_business_monthly',
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            plan: Plan::Business,
+            status: PlanStatus::Active,
+            provider: BillingProvider::Stripe,
+            eventAt: $grantedAt->addMinute(),
+            providerStatus: 'active',
+            productId: 'price_business_monthly',
+        ));
+
+        $this->assertFalse($applied);
+
+        $team->refresh();
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertSame('uptizm_business_monthly', $team->plan_product_id);
+        $this->assertTrue($grantedAt->equalTo($team->plan_source_event_at));
+
+        $this->assertDropWasLogged($team, 'app_store', 'stripe', 'same');
+    }
+
+    /**
+     * The control that decides how rule 2b is allowed to be written, and the
+     * reason it asks about the stored STATUS rather than only the stored rail.
+     *
+     * `BillingProvider::grants()` is a per-RAIL table: it is true for every real
+     * rail, so a rule 2b gated on it alone would drop this write. That would be
+     * a customer buying Business in the App Store, for a team whose long-expired
+     * Stripe record still names Business, and receiving nothing for it. Worse
+     * than the defect rule 2b closes.
+     *
+     * An expired record is not an entitlement another rail can take over; it is
+     * a slot another rail can fill, so the provenance moves.
+     */
+    public function test_a_cross_rail_same_tier_write_applies_when_the_stored_rail_has_lapsed(): void
+    {
+        Log::spy();
+
+        $grantedAt = CarbonImmutable::parse('2026-08-22 12:00:00');
+        $eventAt = $grantedAt->addMinute();
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Expired->value,
+            'plan_provider' => BillingProvider::Stripe->value,
+            'plan_source_event_at' => $grantedAt,
+            'plan_product_id' => 'price_business_monthly',
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            plan: Plan::Business,
+            status: PlanStatus::Active,
+            provider: BillingProvider::AppStore,
+            eventAt: $eventAt,
+            providerStatus: 'ACTIVE',
+            productId: 'uptizm_business_monthly',
+        ));
+
+        $this->assertTrue($applied);
+
+        $team->refresh();
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+        $this->assertSame(PlanStatus::Active->value, $team->plan_status);
+        $this->assertSame('uptizm_business_monthly', $team->plan_product_id);
+    }
+
+    /**
      * The positive control: a strictly newer write from the rail on record
      * applies, and lands EVERY provenance column.
      *
