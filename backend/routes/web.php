@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\RevenueCatWebhookController;
 use App\Http\Controllers\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,25 @@ use Illuminate\Support\Facades\Route;
  */
 Route::post('stripe/webhook', [StripeWebhookController::class, 'handleWebhook'])
     ->name('cashier.webhook');
+
+/*
+ * The store rail's webhook. Like the Stripe route above it inherits the `web`
+ * group, so its EXACT path is listed in the CSRF exemption in bootstrap/app.php
+ * and nothing else about that list changes: a delivery carries no CSRF token and
+ * cannot be made to, so without the exemption every one of them is a 419.
+ *
+ * That failure looks like nothing from here. RevenueCat retries five times over
+ * roughly three hours and then abandons the event permanently, so the symptom is
+ * five identical 419s in the log and an entitlement that silently never moved.
+ * `RevenueCatWebhookTest` asserts the exemption directly, because the test suite
+ * is CSRF-exempt by default and cannot otherwise see it.
+ *
+ * Authenticity is the HMAC over the raw body, verified in the controller against
+ * `revenuecat.webhook_secret`; with no secret configured the endpoint refuses
+ * every delivery rather than trusting anybody who found the URL.
+ */
+Route::post('webhooks/revenuecat', RevenueCatWebhookController::class)
+    ->name('webhooks.revenuecat');
 
 /*
  * The public status-page routes live in routes/status.php, registered by the

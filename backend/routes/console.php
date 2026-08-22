@@ -213,3 +213,31 @@ Schedule::command('queue:prune-failed', ['--hours=336'])
     ->withoutOverlapping()
     ->onOneServer()
     ->name('queue:prune-failed');
+
+// Re-read each billing rail and correct any team entitlement that drifted.
+//
+// `Schedule::command` rather than the `Schedule::job` every task above uses, and
+// the difference is not a style drift: this one IS a command, because an
+// operator diagnosing a single customer runs `billing:reconcile --team=<id>` by
+// hand, and a job carries no CLI surface to run that way. `queue:prune-failed`
+// directly above is registered the same way for the same reason.
+//
+// Hourly. Both rails abandon a delivery: RevenueCat after five retries inside
+// about three hours, Stripe after roughly three days, and after that the drift
+// is permanent and silent (a dropped EXPIRATION is a paid tier held for free,
+// a dropped INITIAL_PURCHASE is a paying customer stuck on free with no
+// self-serve way out). Hourly heals inside the window where the damage arrives
+// rather than after it, and it is comfortably inside Stripe's. The trade it
+// accepts is one authoritative RevenueCat read per store team per run, so the
+// cadence stops being free once the store fleet is large; the answer then is a
+// per-run cap or a staggered sweep, not a slower schedule, because a slower
+// schedule is measured in customers on the wrong tier.
+//
+// `withoutOverlapping` matters here rather than being boilerplate: the sweep
+// makes one network read per store team, so it can outlive its own tick, and two
+// of them would re-read the same subscriber and write the same row twice.
+Schedule::command('billing:reconcile')
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('billing:reconcile');

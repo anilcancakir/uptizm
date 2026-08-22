@@ -79,7 +79,7 @@ LANE=$((TOTAL_CORES / 2))
 [ "$LANE" -lt 2 ] && LANE=2
 
 # A worktree for this repo has to be a SIBLING of it, not nested inside it.
-# The eleven packages are declared as `path: ../<pkg>`, so from
+# The twelve packages are declared as `path: ../<pkg>`, so from
 # `<repo>/.claude/worktrees/<name>` they resolve to `.claude/worktrees/magic` and do
 # not exist. A generated pubspec_overrides.yaml does fix resolution, and it does NOT
 # fix `flutter analyze`, which reads pubspec.yaml itself and reports eight

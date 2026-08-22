@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
+import 'package:magic_payments/magic_payments.dart'
+    show Payments, StoreBillingService;
 import 'package:magic_starter/magic_starter.dart';
 import 'package:sentry_dio/sentry_dio.dart';
 import '../models/user.dart';
@@ -120,6 +123,95 @@ class AppServiceProvider extends ServiceProvider {
     );
   }
 
+  /// Switches the active team, then binds the STORE rail to the team the app
+  /// landed on.
+  ///
+  /// This is the app's `onSwitch` handler, and the identify call rides the TEAM
+  /// SWITCH rather than the app login because the paying subject here is the
+  /// team, not the person: the RevenueCat App User ID is the team id, so a
+  /// customer who signs in, switches team and then buys would otherwise have the
+  /// purchase attributed to the team they left. It is the same class of bug as a
+  /// controller keeping the previous tenant's rows after a switch.
+  ///
+  /// AFTER the switch resolves, and only when it succeeded. A refused switch
+  /// leaves the app on the team it was already on, so re-identifying there would
+  /// bind the store account to a team the user never landed on. The id passed is
+  /// the one the switch was accepted for, which is what the backend's
+  /// `users.current_team_id` now holds and therefore what `GET /billing` and the
+  /// rail's webhook will both resolve.
+  ///
+  /// Public only so a test can call the real handler; see the test group in
+  /// `test/resources/views/teams/plan_billing_view_test.dart`, which asserts the
+  /// id at the point the identify happens rather than on a flag set before it.
+  @visibleForTesting
+  static Future<void> switchTeamAndIdentifyStore(dynamic teamId) async {
+    final bool switched = await MagicStarterTeamController.instance.switchTeam(
+      teamId,
+    );
+    if (!switched) return;
+
+    await _identifyStoreCustomer(teamId?.toString() ?? '');
+  }
+
+  /// Re-points the STORE rail at the team the current session is on.
+  ///
+  /// Attached to `Auth.stateNotifier` like the three syncs above, so a login and
+  /// a boot-time session restore both reach it without either call site knowing
+  /// a store rail exists. It does NOT replace
+  /// [switchTeamAndIdentifyStore]: identifying at login alone is what leaves a
+  /// purchase made after a switch attributed to the team the customer left, and
+  /// identifying on the switch alone leaves a fresh install that never switched
+  /// bound to the rail's own anonymous id, which the backend cannot map to any
+  /// team at all. Both moments are needed, and they overlap harmlessly:
+  /// `switchTeam` finishes with `Auth.restore()`, which bumps this notifier while
+  /// the restored payload may still name the previous team, so the switch's own
+  /// call is the authoritative one and it runs last.
+  ///
+  /// A signed-out session identifies nothing and does not unbind what the
+  /// previous one set. `User.current` falls back to a blank `User()` with no
+  /// team, so the empty id below is what makes the logged-out case a no-op;
+  /// there is deliberately no second `Auth.check()` guard in front of it,
+  /// because two guards on one outcome mean neither can be tested alone. And
+  /// nothing unbinds on logout: the contract has no logout call (the store
+  /// account belongs to the device, not to our session), nothing can spend
+  /// against a stale binding meanwhile because the billing screen is behind
+  /// auth, and the next login overwrites it.
+  ///
+  /// Public only so a test can call it; see the test group in
+  /// `test/resources/views/teams/plan_billing_view_test.dart`.
+  @visibleForTesting
+  static void syncStoreIdentity() {
+    // Wrapped the way [_syncRealtime] is: the notifier's listeners are
+    // synchronous and this is not.
+    unawaited(_identifyStoreCustomer(User.current.currentTeam?.id ?? ''));
+  }
+
+  /// Tells the STORE rail which team it is buying for, when there is a rail and
+  /// a team to name.
+  ///
+  /// A build with no store rail (web, desktop) has nothing to identify, and that
+  /// absence is an answer rather than an error. An empty id is the same kind of
+  /// absence: a session whose team has not resolved yet, whose next
+  /// `Auth.stateNotifier` bump arrives with one.
+  static Future<void> _identifyStoreCustomer(String appUserId) async {
+    final StoreBillingService? store = Payments.store;
+    if (store == null || appUserId.isEmpty) return;
+
+    try {
+      await store.identify(appUserId);
+    } catch (error) {
+      // Logged at error level rather than swallowed, and deliberately not
+      // surfaced to the user: whatever prompted this (a login, a restore, a
+      // completed switch) succeeded, so failing it now would strand them. What
+      // survives is the previously bound account, which is why this is an error
+      // and not a warning: until the next successful identify, a store purchase
+      // would be attributed to the previous team.
+      Log.error(
+        '[AppServiceProvider] store identify failed for team $appUserId: $error',
+      );
+    }
+  }
+
   /// Re-points magic_starter's legal links at the ACTIVE language.
   ///
   /// `Magic.init` evaluates every config factory before it boots a single
@@ -212,8 +304,10 @@ class AppServiceProvider extends ServiceProvider {
       currentTeam: () => User.current.currentTeam?.toMagicStarterTeam(),
       allTeams: () =>
           User.current.allTeams.map((t) => t.toMagicStarterTeam()).toList(),
-      onSwitch: (teamId) =>
-          MagicStarterTeamController.instance.switchTeam(teamId),
+      // Not `switchTeam` directly: the store rail has to be told which team it
+      // is buying for, and a switch is the one moment where the app's answer to
+      // that changes without a new session (which `syncStoreIdentity` covers).
+      onSwitch: switchTeamAndIdentifyStore,
     );
 
     // Magic Starter: Render the starter account/settings routes inside uptizm's
@@ -266,6 +360,13 @@ class AppServiceProvider extends ServiceProvider {
     // `Auth.stateNotifier`.
     _syncRealtime();
     Auth.stateNotifier.addListener(_syncRealtime);
+
+    // Store rail: point it at the team a restored session boots on, then keep it
+    // there through every login. A team SWITCH is identified by the `onSwitch`
+    // handler above rather than here; see syncStoreIdentity for why both
+    // moments are needed and why the overlap is harmless.
+    syncStoreIdentity();
+    Auth.stateNotifier.addListener(syncStoreIdentity);
 
     // Locale: apply the authenticated user's persisted `locale` immediately
     // if a session was restored on boot, then keep it in sync with every

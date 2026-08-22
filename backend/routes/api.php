@@ -461,6 +461,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.billing.invoices');
     Route::get('billing/payment-method', [BillingController::class, 'paymentMethod'])
         ->name('api.v1.billing.payment-method');
+    // Asked by the client before it offers a STORE purchase: one store account
+    // can fund only one team, so a second purchase would transfer rather than add.
+    Route::get('billing/store-funded-team', [BillingController::class, 'storeFundedTeam'])
+        ->name('api.v1.billing.store-funded-team');
     Route::post('billing/checkout', [BillingController::class, 'checkout'])
         ->name('api.v1.billing.checkout');
     Route::post('billing/swap', [BillingController::class, 'swap'])

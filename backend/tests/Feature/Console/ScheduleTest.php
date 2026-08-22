@@ -40,6 +40,7 @@ class ScheduleTest extends TestCase
         'proxy:refresh-sources' => 'the exit pool is never refreshed',
         'proxy:alarm-dark-regions' => 'a dark region is never reported',
         'queue:prune-failed' => 'the failed-jobs table only ever grows',
+        'billing:reconcile' => 'a rail abandons a dropped webhook after hours (RevenueCat) or days (Stripe), so without this a lost EXPIRATION is a paid tier held for free forever and a lost purchase is a paying customer stuck on free with no self-serve recovery',
     ];
 
     public function test_every_recurring_task_is_registered(): void
