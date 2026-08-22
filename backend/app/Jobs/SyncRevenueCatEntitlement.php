@@ -599,7 +599,10 @@ class SyncRevenueCatEntitlement implements ShouldQueue
 
         return new EntitlementWrite(
             team: $team,
-            plan: Plan::Free,
+            // No tier: the authoritative read found nothing live, so the store
+            // owes this team nothing. Naming `free` here would claim the store
+            // sold them the cheapest tier, which no store event ever says.
+            plan: null,
             status: $this->revokedStatus($latest),
             provider: $provider,
             eventAt: $this->eventAt(),

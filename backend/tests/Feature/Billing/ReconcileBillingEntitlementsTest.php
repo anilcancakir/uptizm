@@ -164,7 +164,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(PlanStatus::Expired->value, $team->plan_status);
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
         $this->assertNull($team->plan_current_period_end);
@@ -177,7 +177,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
             'changed' => ['plan', 'plan_status', 'plan_current_period_end', 'plan_renews'],
             'before.plan' => Plan::Business->value,
             'before.plan_status' => PlanStatus::Active->value,
-            'after.plan' => Plan::Free->value,
+            'after.plan' => null,
             'after.plan_status' => PlanStatus::Expired->value,
         ]);
     }
@@ -264,7 +264,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame($afterFirstRun['plan_status'], $team->plan_status);
         $this->assertSame($afterFirstRun['plan_provider'], $team->plan_provider);
         $this->assertTrue(
@@ -329,7 +329,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
         $this->artisan('billing:reconcile')->assertExitCode(Command::FAILURE);
 
         $this->assertSame(Plan::Business, $unreadable->refresh()->plan);
-        $this->assertSame(Plan::Free, $drifted->refresh()->plan);
+        $this->assertNull($drifted->refresh()->plan);
     }
 
     /**
@@ -357,7 +357,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(PlanStatus::Canceled->value, $team->plan_status);
         $this->assertSame(BillingProvider::Stripe->value, $team->plan_provider);
 
@@ -366,7 +366,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
             'team_id' => $team->id,
             'rail' => 'stripe',
             'before.plan' => Plan::Business->value,
-            'after.plan' => Plan::Free->value,
+            'after.plan' => null,
         ]);
     }
 
@@ -620,7 +620,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $this->artisan('billing:reconcile', ['--team' => $target->id])->assertExitCode(Command::SUCCESS);
 
-        $this->assertSame(Plan::Free, $target->refresh()->plan);
+        $this->assertNull($target->refresh()->plan);
         $this->assertSame(Plan::Business, $bystander->refresh()->plan);
     }
 

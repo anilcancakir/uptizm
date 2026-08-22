@@ -56,6 +56,18 @@ class WriteTeamEntitlement
     protected const string DIRECTION_UNKNOWN = 'unknown';
 
     /**
+     * The team holds no tier at all, so no write can move it in any direction.
+     *
+     * Distinct from `unknown`, and the distinction is load-bearing rather than
+     * descriptive. `unknown` means the two tiers could not be compared and the
+     * write MIGHT be a loss, which is why {@see self::revokes()} reads it as one.
+     * This one means there is nothing on record to lose, so reading it as a
+     * revocation would refuse every cross-rail write against a team that holds
+     * nothing, including the purchase that grants it a tier for the first time.
+     */
+    protected const string DIRECTION_NOTHING_STORED = 'nothing-stored';
+
+    /**
      * Apply one rail's claim to the team's entitlement columns.
      *
      * Returns true when the columns were written, false when a rule dropped the
@@ -134,11 +146,13 @@ class WriteTeamEntitlement
         // The status half is DEFENCE rather than a live requirement in THIS app:
         // `$storedProvider->grants()` is a per-RAIL table, true for every real
         // rail, and no feeder here stores a paid tier with a lapsed status
-        // because every non-granting path writes `Plan::Free` in the same apply.
-        // It stays because the starter's copy takes `plan` and `status` from a
-        // consumer independently and CAN reach that pair, and because the
-        // invariant is held by convention across four feeders rather than by a
-        // constraint.
+        // because every non-granting path writes a NULL plan in the same apply.
+        // (It wrote `Plan::Free` until the sentinel was removed; the invariant is
+        // the same one, and it is now stated by the column rather than by a tier
+        // standing in for absence.) It stays because the starter's copy takes
+        // `plan` and `status` from a consumer independently and CAN reach that
+        // pair, and because the invariant is held by convention across four
+        // feeders rather than by a constraint.
         //
         // The test is the WRITER's standing, not the tier and not the clock.
         //
@@ -239,13 +253,44 @@ class WriteTeamEntitlement
      * Defined once and used by both rules, because "is this a downgrade" has to
      * mean exactly one thing: two definitions of it would eventually disagree,
      * and the disagreement would be a revocation.
+     *
+     * ABSENCE IS READ DIFFERENTLY ON THE TWO SIDES, and that asymmetry is the
+     * whole reason this method reads the RAW `plan` column instead of
+     * {@see Team::entitledPlan()}. That reader answers `Plan::Free` for a null
+     * column, which is right for a display or a guard caller that needs a tier
+     * to name, and fatal here: it would collapse "holds nothing" into "holds the
+     * cheapest tier" and make a stored null rank like any other tier. Two
+     * readers of one column with two different needs, named apart rather than
+     * merged.
      */
     protected function direction(EntitlementWrite $write, Team $team): string
     {
-        $incoming = $this->tierRank($write->plan);
-        $stored = $this->tierRank($team->entitledPlan());
+        // 1. Nothing on record. Off the ladder rather than at the bottom of it,
+        //    because a write cannot take away what the team does not hold.
+        if ($team->plan === null) {
+            return self::DIRECTION_NOTHING_STORED;
+        }
 
-        if ($incoming === null || $stored === null) {
+        $stored = $this->tierRank($team->plan);
+
+        if ($stored === null) {
+            return self::DIRECTION_UNKNOWN;
+        }
+
+        // 2. A rail saying nothing is owed ranks BELOW every tier the catalogue
+        //    names, so a revocation always reads as a downgrade. It has to be
+        //    ranked rather than treated as unrankable: unrankable is a maybe, and
+        //    a revocation is not a maybe. That is what the old `Plan::Free`
+        //    sentinel got wrong in both directions at once, ranking SAME against
+        //    a team already on `free` and UNKNOWN in a catalogue that publishes
+        //    no `free` row at all.
+        if ($write->plan === null) {
+            return self::DIRECTION_DOWNGRADE;
+        }
+
+        $incoming = $this->tierRank($write->plan);
+
+        if ($incoming === null) {
             return self::DIRECTION_UNKNOWN;
         }
 
@@ -265,12 +310,18 @@ class WriteTeamEntitlement
      * write as harmless lets it land, and if it was in fact a downgrade the
      * customer loses a tier they paid for; reading it as a revocation only
      * delays a legitimate change until an operator sees the log.
+     *
+     * `nothing-stored` is the one absence that is NOT grouped with them, for the
+     * reason its own constant records: the asymmetry above is about what the
+     * customer stands to lose, and a team holding no tier stands to lose nothing.
+     * Grouping it here would have rule 2 refuse the first purchase of every team
+     * whose plan column is null.
      */
     protected function revokes(string $direction): bool
     {
         return match ($direction) {
             self::DIRECTION_DOWNGRADE, self::DIRECTION_UNKNOWN => true,
-            self::DIRECTION_UPGRADE, self::DIRECTION_SAME => false,
+            self::DIRECTION_UPGRADE, self::DIRECTION_SAME, self::DIRECTION_NOTHING_STORED => false,
         };
     }
 
@@ -332,6 +383,12 @@ class WriteTeamEntitlement
      * info for the same reason. Both drop reasons mean two sources disagreed
      * about a paying customer, which is not routine even though the retry
      * schedule that produces it is.
+     *
+     * Both plan fields are the RAW values {@see self::direction()} compared, not
+     * what {@see Team::entitledPlan()} would answer. An operator reading this
+     * line is reconstructing an arbitration decision, and a `stored_plan` of
+     * `free` over a row holding NULL would show them a comparison that never
+     * happened.
      */
     protected function logDrop(
         string $reason,
@@ -348,8 +405,8 @@ class WriteTeamEntitlement
             'incoming_provider' => $write->provider->value,
             'stored_event_at' => $team->plan_source_event_at?->toIso8601String(),
             'incoming_event_at' => $write->eventAt->toIso8601String(),
-            'stored_plan' => $team->entitledPlan()->value,
-            'incoming_plan' => $write->plan->value,
+            'stored_plan' => $team->plan?->value,
+            'incoming_plan' => $write->plan?->value,
             'direction' => $direction,
         ]);
     }
@@ -377,8 +434,8 @@ class WriteTeamEntitlement
             'incoming_provider' => $write->provider->value,
             'stored_event_at' => $team->plan_source_event_at?->toIso8601String(),
             'incoming_event_at' => $write->eventAt->toIso8601String(),
-            'stored_plan' => $team->entitledPlan()->value,
-            'incoming_plan' => $write->plan->value,
+            'stored_plan' => $team->plan?->value,
+            'incoming_plan' => $write->plan?->value,
             'direction' => $direction,
         ]);
     }
@@ -390,7 +447,7 @@ class WriteTeamEntitlement
     protected function apply(EntitlementWrite $write): void
     {
         $write->team->forceFill([
-            'plan' => $write->plan->value,
+            'plan' => $write->plan?->value,
             'plan_status' => $write->status->value,
             'plan_provider' => $write->provider->value,
             'plan_source_event_at' => $write->eventAt,

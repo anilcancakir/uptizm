@@ -449,7 +449,10 @@ class ReconcileBillingEntitlements extends Command
         if (! StripeSubscriptionState::grants($status)) {
             return new EntitlementWrite(
                 team: $team,
-                plan: Plan::Free,
+                // No tier, matching what the webhook feeder writes on the same
+                // reading: a finished subscription owes nothing, and `free` would
+                // be that absence wearing a tier's name.
+                plan: null,
                 status: StripeSubscriptionState::planStatusFor($status),
                 provider: BillingProvider::Stripe,
                 eventAt: $eventAt,
@@ -521,7 +524,7 @@ class ReconcileBillingEntitlements extends Command
     protected function agreesWithRecord(Team $team, EntitlementWrite $claim): bool
     {
         return $this->snapshot($team) === [
-            'plan' => $claim->plan->value,
+            'plan' => $claim->plan?->value,
             'plan_status' => $claim->status->value,
             'plan_provider' => $claim->provider->value,
             'plan_current_period_end' => $claim->currentPeriodEnd?->toIso8601ZuluString(),
@@ -544,12 +547,21 @@ class ReconcileBillingEntitlements extends Command
      * log prints, so the field that reported a correction is the field that was
      * compared.
      *
+     * `plan` is the RAW column, not {@see Team::entitledPlan()}, and that is
+     * convergence rather than taste. A revocation claim carries no tier, while
+     * `entitledPlan()` answers `Plan::Free` for the NULL column that claim
+     * writes, so comparing through it would report a disagreement the write had
+     * already resolved: every hourly run would re-apply the same claim, stamp
+     * this run's provenance over a real event's and report a correction, forever.
+     * That is precisely the restamp loop {@see self::agreesWithRecord()} exists
+     * to shut.
+     *
      * @return array<string, mixed>
      */
     protected function snapshot(Team $team): array
     {
         return [
-            'plan' => $team->entitledPlan()->value,
+            'plan' => $team->plan?->value,
             'plan_status' => PlanStatus::fromWire($team->plan_status)->value,
             'plan_provider' => BillingProvider::fromWire($team->plan_provider)->value,
             'plan_current_period_end' => $team->plan_current_period_end?->toIso8601ZuluString(),

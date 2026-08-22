@@ -33,7 +33,18 @@ readonly class EntitlementWrite
 {
     /**
      * @param  Team  $team  the subscriber whose entitlement this claim is about
-     * @param  Plan  $plan  the tier the rail says is owed
+     * @param  Plan|null  $plan  the tier the rail says is owed, or NULL for the
+     *                           rail saying nothing is owed. Null rather than
+     *                           {@see Plan::Free}, which four feeders used to
+     *                           pass as a revocation target: naming the cheapest
+     *                           tier in order to say that no tier applies is a
+     *                           proxy, and it read identically to a team that
+     *                           genuinely holds the free tier. That collapse is
+     *                           what let a cross-rail revocation rank as SAME
+     *                           and slip past the rule that stops one rail
+     *                           revoking what another granted. `Free` stays a
+     *                           tier this product sells and remains a legitimate
+     *                           value here; what it no longer means is absence.
      * @param  PlanStatus  $status  where that tier stands, in neutral words
      * @param  BillingProvider  $provider  the rail making the claim
      * @param  CarbonInterface  $eventAt  the SOURCE event's own timestamp, not
@@ -55,7 +66,7 @@ readonly class EntitlementWrite
      */
     public function __construct(
         public Team $team,
-        public Plan $plan,
+        public ?Plan $plan,
         public PlanStatus $status,
         public BillingProvider $provider,
         public CarbonInterface $eventAt,

@@ -91,6 +91,13 @@ class SubscriptionResource extends JsonResource
      * team was sold something above Free, and {@see PlanStatus::grants()} says
      * that plan is still owed to them, which keeps a customer with a failed
      * charge subscribed while their rail retries.
+     *
+     * A revoked team now stores NULL in `teams.plan` rather than `'free'`, and
+     * `$plan` arrives through {@see Team::entitledPlan()}, which reads that NULL
+     * as `Plan::Free`. That collapse is wanted HERE: this is a display reader,
+     * and both rows mean the same thing to a client, which is why `plan` stays
+     * one of the five non-null wire fields. Only the arbitration reader needs the
+     * two apart.
      */
     protected function subscribed(Plan $plan, PlanStatus $status): bool
     {

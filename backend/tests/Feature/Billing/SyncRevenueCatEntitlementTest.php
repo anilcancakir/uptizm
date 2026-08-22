@@ -327,7 +327,10 @@ class SyncRevenueCatEntitlementTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan, 'An expired subscription kept its paid tier.');
+        // NULL rather than `free`: the authoritative read found nothing live, so
+        // the store owes this team nothing, which is not the same claim as
+        // selling it the cheapest tier.
+        $this->assertNull($team->plan, 'An expired subscription kept its paid tier.');
         $this->assertSame(PlanStatus::Canceled->value, $team->plan_status);
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
         $this->assertSame('EXPIRATION', $team->plan_provider_status);
@@ -437,8 +440,7 @@ class SyncRevenueCatEntitlementTest extends TestCase
         $source->refresh();
         $destination->refresh();
 
-        $this->assertSame(
-            Plan::Free,
+        $this->assertNull(
             $source->plan,
             'The source team kept a tier whose subscription now funds another team.',
         );
@@ -652,7 +654,7 @@ class SyncRevenueCatEntitlementTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
     }
 

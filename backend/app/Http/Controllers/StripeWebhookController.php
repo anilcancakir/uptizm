@@ -190,13 +190,15 @@ class StripeWebhookController extends CashierWebhookController
         $priceId = $object['items']['data'][0]['price']['id'] ?? null;
 
         // 1. A genuinely non-granting status (canceled/unpaid/incomplete) really
-        //    does revoke the entitlement to the free tier. The check stays on
+        //    does revoke the entitlement, and the claim carries NO tier: Stripe
+        //    is saying this customer is owed nothing, which is not the same
+        //    statement as selling them the cheapest tier. The check stays on
         //    Stripe's own word rather than on the mapped status: it is the list
         //    that has always decided this, and re-deriving it from the neutral
         //    vocabulary would be a second definition of "granting" for the same
         //    outcome, free to disagree with the first one.
         if (! StripeSubscriptionState::grants($status)) {
-            $this->claim($this->subscriptionClaim($team, Plan::Free, $status, $object, $eventAt));
+            $this->claim($this->subscriptionClaim($team, null, $status, $object, $eventAt));
 
             return;
         }
@@ -284,7 +286,7 @@ class StripeWebhookController extends CashierWebhookController
     }
 
     /**
-     * A deleted subscription revokes the entitlement back to the free tier.
+     * A deleted subscription revokes the entitlement: nothing is owed any more.
      *
      * @param  array<string, mixed>  $object
      */
@@ -298,7 +300,10 @@ class StripeWebhookController extends CashierWebhookController
 
         $this->claim(new EntitlementWrite(
             team: $team,
-            plan: Plan::Free,
+            // No tier, rather than the cheapest one. A deleted subscription is
+            // Stripe saying it is billing nothing, and a claim naming `free`
+            // would be indistinguishable from selling the free tier.
+            plan: null,
             status: PlanStatus::Canceled,
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
@@ -318,8 +323,9 @@ class StripeWebhookController extends CashierWebhookController
      * The claim a subscription object makes about a team's entitlement.
      *
      * `$plan` is a parameter rather than derived here because the two callers
-     * reach it differently: a non-granting status revokes to free whatever the
-     * price says, and a granting one takes the tier its price maps to. `$status`
+     * reach it differently: a non-granting status owes NOTHING whatever the price
+     * says, which is what null means, and a granting one takes the tier its price
+     * maps to. `$status`
      * is passed in for a stricter reason: the caller has already defaulted an
      * absent one, and defaulting it a second time here would be two definitions
      * of the same word, free to disagree.
@@ -328,7 +334,7 @@ class StripeWebhookController extends CashierWebhookController
      */
     protected function subscriptionClaim(
         Team $team,
-        Plan $plan,
+        ?Plan $plan,
         string $status,
         array $object,
         CarbonInterface $eventAt,
